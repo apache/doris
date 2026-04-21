@@ -25,6 +25,8 @@
 
 namespace doris {
 
+static constexpr uint32_t kPaimonDeletionVectorMagicNumber = 1581511376;
+
 // ============================================================================
 // PaimonOrcReader
 // ============================================================================
@@ -47,7 +49,7 @@ Status PaimonOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
 
     RETURN_IF_ERROR(gen_table_info_node_by_field_id(
             get_scan_params(), get_scan_range().table_format_params.paimon_params.schema_id,
-            get_tuple_descriptor(), orc_type_ptr));
+            ctx->tuple_descriptor, orc_type_ptr));
     ctx->table_info_node = table_info_node_ptr;
 
     for (const auto& desc : *ctx->column_descs) {
@@ -86,8 +88,6 @@ Status PaimonOrcReader::_init_deletion_vector() {
     SCOPED_TIMER(_paimon_profile.delete_files_read_time);
     using DeleteRows = std::vector<int64_t>;
     _delete_rows = _kv_cache->get<DeleteRows>(key, [&]() -> DeleteRows* {
-        auto* delete_rows = new DeleteRows;
-
         TFileRangeDesc delete_range;
         delete_range.__set_fs_name(get_scan_range().fs_name);
         delete_range.path = deletion_file.path;
@@ -127,8 +127,7 @@ Status PaimonOrcReader::_init_deletion_vector() {
         std::reverse(reinterpret_cast<char*>(&magic_number),
                      reinterpret_cast<char*>(&magic_number) + 4);
         buf += 4;
-        const static uint32_t MAGIC_NUMBER = 1581511376;
-        if (magic_number != MAGIC_NUMBER) [[unlikely]] {
+        if (magic_number != kPaimonDeletionVectorMagicNumber) [[unlikely]] {
             create_status = Status::RuntimeError(
                     "DeletionVector deserialize error: invalid magic number {}", magic_number);
             return nullptr;
@@ -144,6 +143,7 @@ Status PaimonOrcReader::_init_deletion_vector() {
                     e.what());
             return nullptr;
         }
+        auto* delete_rows = new DeleteRows;
         delete_rows->reserve(roaring_bitmap.cardinality());
         for (auto it = roaring_bitmap.begin(); it != roaring_bitmap.end(); it++) {
             delete_rows->push_back(*it);
@@ -181,7 +181,7 @@ Status PaimonParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
 
     RETURN_IF_ERROR(gen_table_info_node_by_field_id(
             get_scan_params(), get_scan_range().table_format_params.paimon_params.schema_id,
-            get_tuple_descriptor(), *field_desc));
+            ctx->tuple_descriptor, *field_desc));
     ctx->table_info_node = table_info_node_ptr;
 
     for (const auto& desc : *ctx->column_descs) {
@@ -219,8 +219,6 @@ Status PaimonParquetReader::_init_deletion_vector() {
     SCOPED_TIMER(_paimon_profile.delete_files_read_time);
     using DeleteRows = std::vector<int64_t>;
     _delete_rows = _kv_cache->get<DeleteRows>(key, [&]() -> DeleteRows* {
-        auto* delete_rows = new DeleteRows;
-
         TFileRangeDesc delete_range;
         delete_range.__set_fs_name(get_scan_range().fs_name);
         delete_range.path = deletion_file.path;
@@ -260,8 +258,7 @@ Status PaimonParquetReader::_init_deletion_vector() {
         std::reverse(reinterpret_cast<char*>(&magic_number),
                      reinterpret_cast<char*>(&magic_number) + 4);
         buf += 4;
-        const static uint32_t MAGIC_NUMBER = 1581511376;
-        if (magic_number != MAGIC_NUMBER) [[unlikely]] {
+        if (magic_number != kPaimonDeletionVectorMagicNumber) [[unlikely]] {
             create_status = Status::RuntimeError(
                     "DeletionVector deserialize error: invalid magic number {}", magic_number);
             return nullptr;
@@ -277,6 +274,7 @@ Status PaimonParquetReader::_init_deletion_vector() {
                     e.what());
             return nullptr;
         }
+        auto* delete_rows = new DeleteRows;
         delete_rows->reserve(roaring_bitmap.cardinality());
         for (auto it = roaring_bitmap.begin(); it != roaring_bitmap.end(); it++) {
             delete_rows->push_back(*it);

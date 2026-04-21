@@ -211,6 +211,7 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
                         });
                 continue;
             }
+            ctx->column_names.push_back(desc.name);
         }
     }
 
@@ -498,6 +499,7 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
                         });
                 continue;
             }
+            ctx->column_names.push_back(desc.name);
         }
     }
 

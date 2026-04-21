@@ -458,6 +458,57 @@ public class PaimonScanNodeTest {
     }
 
     @Test
+    public void testMixedNativeAndJniSplits() throws UserException {
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(3));
+        PaimonScanNode paimonScanNode = new PaimonScanNode(new PlanNodeId(1), desc, false, sv, ScanContext.EMPTY);
+        PaimonScanNode spyPaimonScanNode = Mockito.spy(paimonScanNode);
+
+        DataSplit nativeSplit = createDataSplit("native.parquet", true);
+        DataSplit jniSplit = createDataSplit("jni.binary", false);
+        Mockito.doReturn(new ArrayList<org.apache.paimon.table.source.Split>() {
+            {
+                add(nativeSplit);
+                add(jniSplit);
+            }
+        }).when(spyPaimonScanNode).getPaimonSplitFromAPI();
+
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Mockito.when(source.getFileFormatFromTableProperties()).thenReturn("parquet");
+        spyPaimonScanNode.setSource(source);
+
+        long maxInitialSplitSize = 32L * 1024L * 1024L;
+        long maxSplitSize = 64L * 1024L * 1024L;
+        FileSplitter fileSplitter = new FileSplitter(maxInitialSplitSize, maxSplitSize, 0);
+        try {
+            java.lang.reflect.Field field = FileQueryScanNode.class.getDeclaredField("fileSplitter");
+            field.setAccessible(true);
+            field.set(spyPaimonScanNode, fileSplitter);
+
+            java.lang.reflect.Field storagePropertiesField =
+                    PaimonScanNode.class.getDeclaredField("storagePropertiesMap");
+            storagePropertiesField.setAccessible(true);
+            storagePropertiesField.set(spyPaimonScanNode, Collections.emptyMap());
+        } catch (NoSuchFieldException | IllegalAccessException e) {
+            throw new RuntimeException("Failed to inject test fields into PaimonScanNode", e);
+        }
+
+        Mockito.when(sv.isForceJniScanner()).thenReturn(false);
+        Mockito.when(sv.getIgnoreSplitType()).thenReturn("NONE");
+        Mockito.when(sv.isEnableRuntimeFilterPartitionPrune()).thenReturn(false);
+        Mockito.when(sv.getFileSplitSize()).thenReturn(128L * 1024L * 1024L);
+
+        List<org.apache.doris.spi.Split> splits = spyPaimonScanNode.getSplits(1);
+        Assert.assertEquals(2, splits.size());
+
+        PaimonSplit firstSplit = (PaimonSplit) splits.get(0);
+        PaimonSplit secondSplit = (PaimonSplit) splits.get(1);
+        Assert.assertNull(firstSplit.getSplit());
+        Assert.assertNotNull(secondSplit.getSplit());
+        Assert.assertTrue(firstSplit.getPathString().endsWith("native.parquet"));
+        Assert.assertEquals(jniSplit, secondSplit.getSplit());
+    }
+
+    @Test
     public void testDetermineTargetFileSplitSizeHonorsMaxFileSplitNum() throws Exception {
         SessionVariable sv = new SessionVariable();
         sv.setMaxFileSplitNum(100);
@@ -565,11 +616,15 @@ public class PaimonScanNodeTest {
     }
 
     private DataSplit createDataSplit(String fileName) {
+        return createDataSplit(fileName, true);
+    }
+
+    private DataSplit createDataSplit(String fileName, boolean rawConvertible) {
         DataFileMeta dataFileMeta = DataFileMeta.forAppend(fileName, 64L * 1024 * 1024, 1L, SimpleStats.EMPTY_STATS,
                 1L, 1L, 1L, Collections.<String>emptyList(), null, FileSource.APPEND,
                 Collections.<String>emptyList(), null, null, Collections.<String>emptyList());
         return DataSplit.builder()
-                .rawConvertible(true)
+                .rawConvertible(rawConvertible)
                 .withPartition(BinaryRow.singleColumn(1))
                 .withBucket(1)
                 .withBucketPath("file://b1")

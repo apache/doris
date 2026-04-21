@@ -21,8 +21,12 @@
 #include <memory>
 #include <string>
 #include <tuple>
+#include <unordered_map>
 #include <vector>
 
+#include "core/block/block.h"
+#include "core/block/column_with_type_and_name.h"
+#include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/define_primitive_type.h"
 #include "exec/common/util.hpp"
 #include "exprs/vexpr_context.h"
@@ -44,6 +48,84 @@ public:
 
 private:
     static constexpr const char* CANNOT_PUSH_DOWN_ERROR = "can't push down";
+
+    std::string read_orc_line_dump(int64_t line, size_t* read_rows, bool* eof) {
+        auto runtime_state = RuntimeState::create_unique();
+
+        std::vector<std::string> column_names = {"col1", "col2", "col3", "col4", "col5",
+                                                 "col6", "col7", "col8", "col9"};
+        std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {
+                {"col1", 0}, {"col2", 1}, {"col3", 2}, {"col4", 3}, {"col5", 4},
+                {"col6", 5}, {"col7", 6}, {"col8", 7}, {"col9", 8},
+        };
+        ObjectPool object_pool;
+        DescriptorTblBuilder builder(&object_pool);
+        builder.declare_tuple()
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_BIGINT, true),
+                                   "col1")
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_BOOLEAN, true),
+                                   "col2")
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_VARCHAR, true),
+                                   "col3")
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_DATEV2, true),
+                                   "col4")
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, true),
+                                   "col5")
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_FLOAT, true),
+                                   "col6")
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_INT, true),
+                                   "col7")
+                << std::make_tuple(
+                           DataTypeFactory::instance().create_data_type(TYPE_SMALLINT, true),
+                           "col8")
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_VARCHAR, true),
+                                   "col9");
+        DescriptorTbl* desc_tbl = builder.build();
+        auto* tuple_desc = const_cast<TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
+        RowDescriptor row_desc(tuple_desc);
+
+        TFileScanRangeParams params;
+        params.file_type = TFileType::FILE_LOCAL;
+
+        TFileRangeDesc range;
+        range.path = "./be/test/exec/test_data/orc_scanner/my-file.orc";
+        range.start_offset = 0;
+        range.size = 2024;
+        range.table_format_params.table_format_type = "hive";
+        range.__isset.table_format_params = true;
+
+        io::IOContext io_ctx;
+        io::FileReaderStats file_reader_stats;
+        io_ctx.file_reader_stats = &file_reader_stats;
+        auto reader = OrcReader::create_unique(nullptr, runtime_state.get(), params, range, 100,
+                                               "CST", &io_ctx, nullptr, true);
+
+        auto st = reader->read_by_rows({line});
+        EXPECT_TRUE(st.ok()) << st;
+
+        OrcInitContext orc_ctx;
+        orc_ctx.column_names = column_names;
+        orc_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+        orc_ctx.tuple_descriptor = tuple_desc;
+        orc_ctx.row_descriptor = &row_desc;
+        orc_ctx.params = &params;
+        orc_ctx.range = &range;
+        st = reader->init_reader(&orc_ctx);
+        EXPECT_TRUE(st.ok()) << "init_reader failed: " << st.to_string();
+
+        BlockUPtr block = Block::create_unique();
+        for (const auto& slot_desc : tuple_desc->slots()) {
+            auto data_type = slot_desc->type();
+            block->insert(ColumnWithTypeAndName(data_type->create_column(), data_type,
+                                                slot_desc->col_name()));
+        }
+
+        st = reader->get_next_block(block.get(), read_rows, eof);
+        EXPECT_TRUE(st.ok()) << st;
+        EXPECT_EQ(block->rows(), *read_rows);
+        return block->dump_data(0, 1);
+    }
+
     std::string build_search_argument(const std::string& expr) {
         // build orc_reader for table orders
         std::vector<std::string> column_names = {
@@ -179,6 +261,28 @@ TEST_F(OrcReaderTest, test_build_search_argument) {
         auto search_argument = build_search_argument(exprs[i]);
         ASSERT_EQ(search_argument, result_search_arguments[i]);
     }
+}
+
+TEST_F(OrcReaderTest, test_read_orc_line_smoke) {
+    size_t read_rows = 0;
+    bool eof = false;
+    auto block_dump = read_orc_line_dump(0, &read_rows, &eof);
+    EXPECT_EQ(read_rows, 1);
+    EXPECT_EQ(
+            block_dump,
+            "+----------------------+--------------------+----------------------+------------------"
+            "----+----------------------+---------------------+-------------------+----------------"
+            "--------+----------------------+\n|col1(Nullable(BIGINT))|col2(Nullable(BOOL))|col3("
+            "Nullable(String))|col4(Nullable(DateV2))|col5(Nullable(DOUBLE))|col6(Nullable(FLOAT))|"
+            "col7(Nullable(INT))|col8(Nullable(SMALLINT))|col9(Nullable(String))|\n+---------------"
+            "-------+--------------------+----------------------+----------------------+-----------"
+            "-----------+---------------------+-------------------+------------------------+-------"
+            "---------------+\n|                     0|                NULL|                 "
+            "doris|                  NULL|                 1.567|                1.567|            "
+            "  12345|                       1|                 "
+            "doris|\n+----------------------+--------------------+----------------------+----------"
+            "------------+----------------------+---------------------+-------------------+--------"
+            "----------------+----------------------+\n");
 }
 
 } // namespace doris

@@ -643,8 +643,8 @@ protected:
     std::tuple<std::unique_ptr<HiveParquetReader>, const FieldDescriptor*> create_parquet_reader(
             const std::string& test_file) {
         auto local_fs = io::global_local_filesystem();
-        io::FileReaderSPtr file_reader;
-        auto st = local_fs->open_file(test_file, &file_reader);
+        int64_t file_size = 0;
+        auto st = local_fs->file_size(test_file, &file_size);
         if (!st.ok()) {
             return {nullptr, nullptr};
         }
@@ -654,7 +654,7 @@ protected:
         scan_params.format_type = TFileFormatType::FORMAT_PARQUET;
         TFileRangeDesc scan_range;
         scan_range.start_offset = 0;
-        scan_range.size = file_reader->size();
+        scan_range.size = file_size;
         scan_range.path = test_file;
         RuntimeProfile profile("test_profile");
 
@@ -667,8 +667,6 @@ protected:
         if (!hive_reader) {
             return {nullptr, nullptr};
         }
-
-        hive_reader->set_file_reader(file_reader);
 
         const FieldDescriptor* field_desc = nullptr;
         st = hive_reader->get_file_metadata_schema(&field_desc);
@@ -683,8 +681,8 @@ protected:
     std::tuple<std::unique_ptr<HiveOrcReader>, const orc::Type*> create_orc_reader(
             const std::string& test_file) {
         auto local_fs = io::global_local_filesystem();
-        io::FileReaderSPtr file_reader;
-        auto st = local_fs->open_file(test_file, &file_reader);
+        int64_t file_size = 0;
+        auto st = local_fs->file_size(test_file, &file_size);
         if (!st.ok()) {
             return {nullptr, nullptr};
         }
@@ -694,7 +692,7 @@ protected:
         scan_params.format_type = TFileFormatType::FORMAT_ORC;
         TFileRangeDesc scan_range;
         scan_range.start_offset = 0;
-        scan_range.size = file_reader->size();
+        scan_range.size = file_size;
         scan_range.path = test_file;
         RuntimeProfile profile("test_profile");
 
