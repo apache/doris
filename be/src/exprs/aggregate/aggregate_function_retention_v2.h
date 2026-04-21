@@ -62,6 +62,8 @@ struct RetentionStateV2 {
 
     void reset() { events = 0; }
 
+    // TODO: enforce max-arity limit (MAX_EVENTS=32) at the FE/BE boundary so that
+    //       event >= 32 never reaches here (same issue exists in v1).
     void set(int event) { events |= (1u << event); }
 
     void merge(const RetentionStateV2& other) { events |= other.events; }

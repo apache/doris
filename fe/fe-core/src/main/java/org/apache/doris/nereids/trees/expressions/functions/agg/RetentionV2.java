@@ -76,6 +76,10 @@ public class RetentionV2 extends NullableAggregateFunction
                     "The " + functionName + " function must have at least one param");
         }
 
+        // TODO: enforce the 32-condition limit (matching RetentionStateV2::MAX_EVENTS=32 on the BE
+        //       side) so that passing 33+ conditions is rejected with a clear error instead of
+        //       causing undefined behavior (bit-shift >= 32) in BE. The same issue exists in
+        //       Retention (v1) which also has no upper-bound check.
         for (int i = 0; i < children.size(); i++) {
             if (!getArgumentType(i).isBooleanType()) {
                 throw new AnalysisException(
