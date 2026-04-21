@@ -82,7 +82,6 @@ public class CacheHotspotManagerTableFilterTest {
         originalCatalogMgr = getField(env, Env.class, "catalogMgr");
         originalEditLog = env.getEditLog();
         originalSystemInfo = getField(env, Env.class, "systemInfo");
-
         setField(env, Env.class, "catalogMgr", mockCatalogMgr);
         setField(env, Env.class, "systemInfo", Mockito.mock(CloudSystemInfoService.class));
         env.setEditLog(mockEditLog);
@@ -122,6 +121,7 @@ public class CacheHotspotManagerTableFilterTest {
         Mockito.when(table.getId()).thenReturn(id);
         Mockito.when(table.getName()).thenReturn(name);
         Mockito.when(table.getType()).thenReturn(TableIf.TableType.OLAP);
+        Mockito.when(table.isManagedTable()).thenReturn(true);
         return table;
     }
 
@@ -130,6 +130,16 @@ public class CacheHotspotManagerTableFilterTest {
         Mockito.when(table.getId()).thenReturn(id);
         Mockito.when(table.getName()).thenReturn(name);
         Mockito.when(table.getType()).thenReturn(TableIf.TableType.MATERIALIZED_VIEW);
+        Mockito.when(table.isManagedTable()).thenReturn(true);
+        return table;
+    }
+
+    private TableIf mockView(long id, String name) {
+        TableIf table = Mockito.mock(TableIf.class);
+        Mockito.when(table.getId()).thenReturn(id);
+        Mockito.when(table.getName()).thenReturn(name);
+        Mockito.when(table.getType()).thenReturn(TableIf.TableType.VIEW);
+        Mockito.when(table.isManagedTable()).thenReturn(false);
         return table;
     }
 
@@ -260,6 +270,21 @@ public class CacheHotspotManagerTableFilterTest {
     public void testResolveTableIdsNullFilter() {
         Map<Long, String> idNames = manager.resolveTableIds(null);
         Assertions.assertTrue(idNames.isEmpty());
+    }
+
+    @Test
+    public void testResolveTableIdsSkipsViews() {
+        databases.add(mockDb("ods",
+                mockTable(1001, "orders"),
+                mockView(1002, "orders_view")));
+
+        OnTablesFilter filter = buildFilter(
+                new TableFilterRule(RuleType.INCLUDE, "ods.*"));
+        Map<Long, String> idNames = manager.resolveTableIds(filter);
+
+        Assertions.assertEquals(1, idNames.size());
+        Assertions.assertEquals("ods.orders", idNames.get(1001L));
+        Assertions.assertFalse(idNames.containsKey(1002L));
     }
 
     @Test

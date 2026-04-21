@@ -48,8 +48,11 @@ void WarmUpStatsAction::handle(HttpRequest* req) {
     // Collect all job_id dimension keys from all metrics
     std::set<std::string> all_keys;
     for (auto& k : g_warmup_ed_requested_segment_num.list_dimensions()) all_keys.insert(k);
+    for (auto& k : g_warmup_ed_requested_index_num.list_dimensions()) all_keys.insert(k);
     for (auto& k : g_warmup_ed_finish_segment_num.list_dimensions()) all_keys.insert(k);
+    for (auto& k : g_warmup_ed_finish_index_num.list_dimensions()) all_keys.insert(k);
     for (auto& k : g_warmup_ed_fail_segment_num.list_dimensions()) all_keys.insert(k);
+    for (auto& k : g_warmup_ed_fail_index_num.list_dimensions()) all_keys.insert(k);
 
     EasyJson result;
     result["code"] = 0;

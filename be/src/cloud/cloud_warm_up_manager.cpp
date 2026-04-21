@@ -704,6 +704,7 @@ Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta, int64_t table
             if (!status.ok()) {
                 LOG(WARNING) << "failed to get ip from host " << info.replica.host << ": "
                              << status.to_string();
+                ret_st = status;
                 continue;
             }
         }
@@ -714,6 +715,7 @@ Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta, int64_t table
                         brpc_addr);
         if (!brpc_stub) {
             st = Status::RpcError("Address {} is wrong", brpc_addr);
+            ret_st = st;
             continue;
         }
 
@@ -789,7 +791,8 @@ Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta, int64_t table
         if (cntl.Failed()) {
             LOG_WARNING("warm up rowset {} for tablet {} failed, rpc error: {}",
                         rs_meta.rowset_id().to_string(), tablet_id, cntl.ErrorText());
-            return Status::RpcError(cntl.ErrorText());
+            ret_st = Status::RpcError(cntl.ErrorText());
+            continue;
         }
         if (sync_wait_timeout_ms > 0) {
             auto cost_us = watch.elapsed_time_microseconds();

@@ -531,6 +531,9 @@ public class CloudWarmUpJob implements Writable {
      * Returns the set of currently matched table IDs.
      */
     public Set<Long> getCurrentTableIds() {
+        if (currentTableIdNames == null) {
+            currentTableIdNames = new ConcurrentHashMap<>();
+        }
         return currentTableIdNames.keySet();
     }
 
@@ -538,10 +541,13 @@ public class CloudWarmUpJob implements Writable {
      * Sets the current matched table ID-to-name mapping.
      */
     public void setCurrentTableIdNames(Map<Long, String> idNames) {
-        this.currentTableIdNames = idNames;
+        this.currentTableIdNames = new ConcurrentHashMap<>(idNames);
     }
 
     public Map<Long, String> getCurrentTableIdNames() {
+        if (currentTableIdNames == null) {
+            currentTableIdNames = new ConcurrentHashMap<>();
+        }
         return currentTableIdNames;
     }
 
@@ -593,7 +599,13 @@ public class CloudWarmUpJob implements Writable {
      * Called after deserialization (EditLog replay, FE restart).
      */
     public void rebuildOnTablesFilter() {
+        if (currentTableIdNames == null) {
+            currentTableIdNames = new ConcurrentHashMap<>();
+        }
         if (tableFilterRules == null || tableFilterRules.isEmpty()) {
+            this.tableFilterRules = new ArrayList<>();
+            this.tableFilterExpr = "";
+            this.onTablesFilter = null;
             return;
         }
         this.tableFilterExpr = computeTableFilterExpr();
@@ -885,13 +897,12 @@ public class CloudWarmUpJob implements Writable {
                 }
                 request.setEvent(event);
                 if (hasTableFilter()) {
-                    request.setTableIds(currentTableIdNames != null
-                            ? new ArrayList<>(currentTableIdNames.keySet()) : new ArrayList<>());
+                    request.setTableIds(new ArrayList<>(getCurrentTableIds()));
                 }
                 LOG.debug("send warm up request to BE {} ({}). job_id={}, event={}, "
                                 + "request_type=SET_JOB(EVENT), table_ids_count={}",
                         entry.getKey(), getBackendEndpoint(entry.getKey()), jobId, syncEvent,
-                        hasTableFilter() ? currentTableIdNames.size() : "all");
+                        hasTableFilter() ? getCurrentTableIdNames().size() : "all");
                 TWarmUpTabletsResponse response = entry.getValue().warmUpTablets(request);
                 if (response.getStatus().getStatusCode() != TStatusCode.OK) {
                     if (!response.getStatus().getErrorMsgs().isEmpty()) {
@@ -902,6 +913,7 @@ public class CloudWarmUpJob implements Writable {
                 }
             }
         } catch (Exception e) {
+            errMsg = e.getMessage();
             LOG.warn("send warm up request job_id={} failed with exception {}",
                     jobId, e);
         } finally {
@@ -1051,7 +1063,7 @@ public class CloudWarmUpJob implements Writable {
     public static CloudWarmUpJob read(DataInput in) throws IOException {
         String json = Text.readString(in);
         CloudWarmUpJob job = GsonUtils.GSON.fromJson(json, CloudWarmUpJob.class);
-        job.tableFilterExpr = job.computeTableFilterExpr();
+        job.rebuildOnTablesFilter();
         return job;
     }
 }

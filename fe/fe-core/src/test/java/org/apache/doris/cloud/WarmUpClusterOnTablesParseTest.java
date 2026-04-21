@@ -249,6 +249,31 @@ public class WarmUpClusterOnTablesParseTest {
     }
 
     @Test
+    public void testOnTablesWithExplicitTableValidateFails() {
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        Config.cloud_unique_id = "test_cloud";
+        try {
+            mockValidateEnv("src", "dst");
+            WarmUpClusterCommand cmd = parse(
+                    "WARM UP CLUSTER dst WITH TABLE db1.orders "
+                    + "ON TABLES (INCLUDE 'ods.*') "
+                    + "PROPERTIES('sync_mode'='event_driven', 'sync_event'='LOAD')");
+            AnalysisException exception = Assertions.assertThrows(
+                    AnalysisException.class, () -> cmd.validate(new ConnectContext()));
+            Assertions.assertTrue(exception.getMessage().contains("ON TABLES clause cannot be used"));
+        } catch (Exception e) {
+            Assertions.fail(e);
+        } finally {
+            try {
+                setField(env, Env.class, "systemInfo", originalSystemInfo);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+            Config.cloud_unique_id = originalCloudUniqueId;
+        }
+    }
+
+    @Test
     public void testOnTablesPatternWithoutDbTableFormatValidateFails() {
         String originalCloudUniqueId = Config.cloud_unique_id;
         Config.cloud_unique_id = "test_cloud";

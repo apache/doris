@@ -683,6 +683,10 @@ public class CacheHotspotManager extends MasterDaemon {
 
         @Override
         public void runAfterCatalogReady() {
+            if (getInterval() != Config.cloud_warm_up_table_filter_refresh_interval_ms) {
+                setInterval(Config.cloud_warm_up_table_filter_refresh_interval_ms);
+                LOG.info("update table filter refresh daemon interval to {}ms", getInterval());
+            }
             refreshAllTableFilters();
         }
     }
@@ -874,10 +878,21 @@ public class CacheHotspotManager extends MasterDaemon {
     }
 
     public void addCloudWarmUpJob(CloudWarmUpJob job) throws AnalysisException {
+        restoreTableFilterState(job);
         registerJobForRepeatDetection(job, false);
         cloudWarmUpJobs.put(job.getJobId(), job);
         LOG.info("add cloud warm up job {}", job.getJobId());
         runnableCloudWarmUpJobs.put(job.getJobId(), job);
+    }
+
+    private void restoreTableFilterState(CloudWarmUpJob job) {
+        if (!job.hasTableFilter()) {
+            return;
+        }
+        job.rebuildOnTablesFilter();
+        Map<Long, String> tableIdNames = resolveTableIds(job.getOnTablesFilter());
+        job.setCurrentTableIdNames(tableIdNames);
+        logMatchedTables("restored table filter for job " + job.getJobId(), tableIdNames);
     }
 
     public List<Partition> getPartitionsFromTriple(Triple<String, String, String> tableTriple) {
@@ -1113,12 +1128,7 @@ public class CacheHotspotManager extends MasterDaemon {
         cloudWarmUpJobs.put(cloudWarmUpJob.getJobId(), cloudWarmUpJob);
         LOG.info("replay cloud warm up job {}, state {}", cloudWarmUpJob.getJobId(), cloudWarmUpJob.getJobState());
 
-        // Rebuild transient ON TABLES filter from persisted rules
-        if (cloudWarmUpJob.hasTableFilter()) {
-            cloudWarmUpJob.rebuildOnTablesFilter();
-            Map<Long, String> tableIdNames = resolveTableIds(cloudWarmUpJob.getOnTablesFilter());
-            cloudWarmUpJob.setCurrentTableIdNames(tableIdNames);
-        }
+        restoreTableFilterState(cloudWarmUpJob);
 
         if (cloudWarmUpJob.isDone()) {
             notifyJobStop(cloudWarmUpJob);
@@ -1156,11 +1166,9 @@ public class CacheHotspotManager extends MasterDaemon {
             }
             Set<String> tableNames = dbIf.getTableNamesOrEmptyWithLock();
             for (String tableName : tableNames) {
-                if (filter.shouldWarmUp(dbName, tableName)) {
-                    TableIf table = dbIf.getTableNullable(tableName);
-                    if (table != null) {
-                        result.put(table.getId(), dbName + "." + tableName);
-                    }
+                TableIf table = dbIf.getTableNullable(tableName);
+                if (table != null && table.isManagedTable() && filter.shouldWarmUp(dbName, tableName)) {
+                    result.put(table.getId(), dbName + "." + tableName);
                 }
             }
         }

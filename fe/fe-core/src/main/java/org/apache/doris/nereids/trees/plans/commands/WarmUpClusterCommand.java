@@ -207,6 +207,11 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
                 + " is same with srcClusterName: " + srcCluster);
         }
 
+        boolean hasOnTablesRules = onTablesRules != null && !onTablesRules.isEmpty();
+        if (hasOnTablesRules && isWarmUpWithTable) {
+            throw new AnalysisException("ON TABLES clause cannot be used with WITH TABLE warmup");
+        }
+
         if (isWarmUpWithTable) {
             for (WarmUpItem warmUpItem : warmUpItems) {
                 TableNameInfo tableNameInfo = warmUpItem.getTableNameInfo();
@@ -231,7 +236,7 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
             }
         }
 
-        if (onTablesRules != null && !onTablesRules.isEmpty()) {
+        if (hasOnTablesRules) {
             boolean hasInclude = onTablesRules.stream()
                     .anyMatch(r -> r.getRuleType() == TableFilterRule.RuleType.INCLUDE);
             if (!hasInclude) {

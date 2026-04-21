@@ -59,6 +59,7 @@ suite('test_warm_up_event_on_tables_include', 'docker') {
             sql """CREATE TABLE IF NOT EXISTS customers (id INT, name STRING)
                    DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
                    PROPERTIES ("file_cache_ttl_seconds" = "3600")"""
+            sql """CREATE VIEW IF NOT EXISTS view_orders AS SELECT id, amount FROM orders"""
 
             sql """use ${dbExcluded}"""
             sql """CREATE TABLE IF NOT EXISTS logs (id INT, msg STRING)
@@ -129,7 +130,7 @@ suite('test_warm_up_event_on_tables_include', 'docker') {
             assert jobInfo[0][1] == clusterName1
             assert jobInfo[0][2] == clusterName2
             assert jobInfo[0][3] in ["RUNNING", "PENDING"]
-            assert jobInfo[0][4] == "CLUSTER"
+            assert jobInfo[0][4] == "TABLES"
             assert jobInfo[0][5] == "EVENT_DRIVEN (LOAD)"
 
             def tableFilter = jobInfo[0][13]
@@ -143,6 +144,7 @@ suite('test_warm_up_event_on_tables_include', 'docker') {
             logger.info("MatchedTables set: ${matchedSet}")
             assert "${dbName}.orders".toString() in matchedSet
             assert "${dbName}.customers".toString() in matchedSet
+            assert !matchedSet.contains("${dbName}.view_orders".toString())
             assert !matchedSet.any { it.startsWith("${dbExcluded}.") }
 
         } finally {
