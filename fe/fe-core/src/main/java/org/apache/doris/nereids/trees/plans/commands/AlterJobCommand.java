@@ -213,15 +213,20 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                     "The exclude_tables property cannot be modified in ALTER JOB");
         }
 
-        // snapshot_parallelism sizes the BE poll executor on first initialize() and
-        // per-table exclude_columns / target_table are cached in DebeziumJsonDeserializer
-        // on first initialize(); BE reuses the cached reader per job id, so later ALTERs
-        // would silently keep the old values at runtime. Reject them at the FE layer.
+        // Reject keys that the runtime reads only at first initialize and never refreshes,
+        // so ALTER would be a silent no-op. See JdbcSourceOffsetProvider / DebeziumJsonDeserializer.
         if (sourceProperties.containsKey(DataSourceConfigKeys.SNAPSHOT_PARALLELISM)) {
             Preconditions.checkArgument(Objects.equals(
                     originSourceProperties.get(DataSourceConfigKeys.SNAPSHOT_PARALLELISM),
                     sourceProperties.get(DataSourceConfigKeys.SNAPSHOT_PARALLELISM)),
                     "The " + DataSourceConfigKeys.SNAPSHOT_PARALLELISM
+                            + " property cannot be modified in ALTER JOB");
+        }
+        if (sourceProperties.containsKey(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE)) {
+            Preconditions.checkArgument(Objects.equals(
+                    originSourceProperties.get(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE),
+                    sourceProperties.get(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE)),
+                    "The " + DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE
                             + " property cannot be modified in ALTER JOB");
         }
         String tablePrefix = DataSourceConfigKeys.TABLE + ".";

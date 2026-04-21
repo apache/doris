@@ -362,6 +362,18 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
             exception "The snapshot_parallelism property cannot be modified in ALTER JOB"
         }
 
+        // snapshot_split_size only affects the initial splitChunks; subsequent restarts
+        // restore persisted splits, so ALTER would be a silent no-op; reject
+        test {
+            sql """ALTER JOB ${jobName}
+                FROM MYSQL (
+                    "snapshot_split_size" = "2048"
+                )
+                TO DATABASE ${currentDb}
+            """
+            exception "The snapshot_split_size property cannot be modified in ALTER JOB"
+        }
+
         // table.<tbl>.exclude_columns is cached in DebeziumJsonDeserializer; reject
         test {
             sql """ALTER JOB ${jobName}

@@ -32,7 +32,7 @@ import static java.util.concurrent.TimeUnit.SECONDS
  * This test:
  *   1. Creates a CDC job with only "replication_num" in target properties
  *   2. ALTERs target properties to add "load.max_filter_ratio"
- *   3. ALTERs source properties to add "snapshot_split_size"
+ *   3. ALTERs source properties to change "user" to a different value
  *   4. Restarts FE
  *   5. Asserts that ExecuteSql (built from sourceProperties/targetProperties)
  *      still contains the ALTERed values
@@ -118,11 +118,14 @@ suite("test_streaming_mysql_job_alter_props_restart_fe", "docker,mysql,external_
                     }
             )
 
-            // Step 4: ALTER source properties (add snapshot_split_size)
-            //         and target properties (add load.max_filter_ratio)
+            // Step 4: ALTER source properties (change user to a non-existent value)
+            //         and target properties (add load.max_filter_ratio).
+            // Using a distinct user value gives the assertion discriminating power: the
+            // original CREATE also sets user=root, so same-value ALTER would not prove
+            // that replayOnUpdated actually propagated the new map.
             sql """ALTER JOB ${jobName}
                     FROM MYSQL (
-                        "snapshot_split_size" = "2048"
+                        "user" = "alter_restart_probe_user"
                     )
                     TO DATABASE ${currentDb} (
                         "load.max_filter_ratio" = "0.5"
@@ -136,10 +139,8 @@ suite("test_streaming_mysql_job_alter_props_restart_fe", "docker,mysql,external_
             log.info("ExecuteSql before restart: " + execSqlBeforeRestart.get(0).get(0))
             assert execSqlBeforeRestart.get(0).get(0).contains("max_filter_ratio") :
                 "target properties should contain max_filter_ratio after ALTER"
-            assert execSqlBeforeRestart.get(0).get(0).contains("snapshot_split_size") :
-                "source properties should contain snapshot_split_size after ALTER"
-            assert execSqlBeforeRestart.get(0).get(0).contains("2048") :
-                "source properties should contain snapshot_split_size=2048 after ALTER"
+            assert execSqlBeforeRestart.get(0).get(0).contains("alter_restart_probe_user") :
+                "source properties should contain the altered user after ALTER"
 
             // Step 6: Restart FE
             cluster.restartFrontends()
@@ -158,13 +159,19 @@ suite("test_streaming_mysql_job_alter_props_restart_fe", "docker,mysql,external_
             // If replayOnUpdated does not sync targetProperties, max_filter_ratio will be lost
             assert execSqlAfterRestart.contains("max_filter_ratio") :
                 "targetProperties lost after FE restart — replayOnUpdated did not sync targetProperties"
-            // If replayOnUpdated does not sync sourceProperties, snapshot_split_size will be lost
-            assert execSqlAfterRestart.contains("snapshot_split_size") :
+            // If replayOnUpdated does not sync sourceProperties, the altered user will be lost
+            assert execSqlAfterRestart.contains("alter_restart_probe_user") :
                 "sourceProperties lost after FE restart — replayOnUpdated did not sync sourceProperties"
-            assert execSqlAfterRestart.contains("2048") :
-                "sourceProperties value lost after FE restart — replayOnUpdated did not sync sourceProperties"
 
-            // Step 8: RESUME and verify job can still run with new data
+            // Step 8: ALTER user back so RESUME can authenticate upstream
+            sql """ALTER JOB ${jobName}
+                    FROM MYSQL (
+                        "user" = "root"
+                    )
+                    TO DATABASE ${currentDb}
+                """
+
+            // Step 9: RESUME and verify job can still run with new data
             connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
                 sql """INSERT INTO ${mysqlDb}.${table1} (name, age) VALUES ('C1', 3);"""
             }

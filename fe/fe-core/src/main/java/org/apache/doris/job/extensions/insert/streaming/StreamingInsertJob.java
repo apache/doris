@@ -791,11 +791,16 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
         if (replayJob.getSourceProperties() != null) {
             this.sourceProperties = replayJob.getSourceProperties();
+            // Drop caches a former-master role may have populated; lazy re-init on next access.
+            this.convertedSourceProperties = null;
         }
         if (replayJob.getTargetProperties() != null) {
             this.targetProperties = replayJob.getTargetProperties();
         }
         setExecuteSql(replayJob.getExecuteSql());
+        // SQL-derived caches must be invalidated together so the next parse uses the replayed SQL.
+        this.baseCommand = null;
+        this.originTvfProps = null;
         setSucceedTaskCount(replayJob.getSucceedTaskCount());
         setFailedTaskCount(replayJob.getFailedTaskCount());
         setCanceledTaskCount(replayJob.getCanceledTaskCount());
