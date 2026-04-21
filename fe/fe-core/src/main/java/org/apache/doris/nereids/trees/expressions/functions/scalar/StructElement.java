@@ -86,22 +86,22 @@ public class StructElement extends ScalarFunction
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        if (child(0).getDataType() instanceof NullType) {
+        if (getArgument(0).getDataType() instanceof NullType) {
             return ImmutableList.of(
                     FunctionSignature.ret(NullType.INSTANCE).args(NullType.INSTANCE, child(1).getDataType())
             );
         }
-        StructType structArgType = (StructType) child(0).getDataType();
+        StructType structArgType = (StructType) getArgument(0).getDataType();
         DataType retType;
-        if (child(1) instanceof IntegerLikeLiteral) {
-            int offset = ((IntegerLikeLiteral) child(1)).getIntValue();
+        if (getArgument(1) instanceof IntegerLikeLiteral) {
+            int offset = ((IntegerLikeLiteral) getArgument(1)).getIntValue();
             if (offset <= 0 || offset > structArgType.getFields().size()) {
                 throw new AnalysisException("the specified field index out of bound: " + this.toSql());
             } else {
                 retType = structArgType.getFields().get(offset - 1).getDataType();
             }
-        } else if (child(1) instanceof StringLikeLiteral) {
-            String name = ((StringLikeLiteral) child(1)).getStringValue();
+        } else if (getArgument(1) instanceof StringLikeLiteral) {
+            String name = ((StringLikeLiteral) getArgument(1)).getStringValue();
             StructField field = structArgType.getField(name);
             if (field == null) {
                 throw new AnalysisException("the specified field name " + name + " was not found: " + this.toSql());
