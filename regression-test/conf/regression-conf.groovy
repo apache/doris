@@ -295,7 +295,7 @@ hudiEmrCatalog = ""
 icebergS3TablesCatalog=""
 icebergS3TablesCatalogGlueRest=""
 
-// The path of the cert configuration file for the testing framework 
+// The path of the cert configuration file for the testing framework
 // is consistent with the path of the cert file for the cluster
 enableTLS=false
 tlsVerifyMode="strict"
@@ -325,3 +325,8 @@ hudiHmsPort=19083
 hudiMinioPort=19100
 hudiMinioAccessKey="minio"
 hudiMinioSecretKey="minio123"
+otherConfigs = [
+    enableKafkaTest: "true",
+    externalEnvIp: "127.0.0.1",
+    kafka_port: "9092"
+]
