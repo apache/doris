@@ -477,6 +477,8 @@ struct TQueryOptions {
   212: optional bool enable_local_exchange_before_agg = true;
 
   213: optional i64 file_presigned_url_ttl_seconds = 3600;
+  214: optional i32 embed_max_batch_size = 5;
+  215: optional i64 ai_context_window_size = 131072;
 
   // Use Rust-based Lance reader for FORMAT_LANCE scan ranges
   214: optional bool enable_rust_lance_reader = false;
