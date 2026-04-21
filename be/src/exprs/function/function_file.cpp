@@ -17,12 +17,9 @@
 
 #include <cstring>
 #include <memory>
-#include <optional>
 #include <string>
 #include <string_view>
-#include <vector>
 
-#include "common/cast_set.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -50,9 +47,9 @@ public:
 
     String get_name() const override { return name; }
 
-    bool is_variadic() const override { return false; }
+    bool is_variadic() const override { return true; }
 
-    size_t get_number_of_arguments() const override { return 5; }
+    size_t get_number_of_arguments() const override { return 0; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeFile>();
@@ -60,11 +57,19 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        DCHECK_EQ(arguments.size(), 5);
+        const size_t nargs = arguments.size();
+        if (nargs != 5 && nargs != 7) {
+            return Status::InvalidArgument(
+                    "to_file requires 5 arguments (url, region, endpoint, ak, sk) or "
+                    "7 arguments (url, region, endpoint, ak, sk, role_arn, external_id), "
+                    "got {}",
+                    nargs);
+        }
 
-        ColumnPtr uri_holder, region_holder, endpoint_holder, ak_holder, sk_holder;
+        ColumnPtr url_holder, region_holder, endpoint_holder, ak_holder, sk_holder, role_arn_holder,
+                external_id_holder;
         const ColumnString* uri_col =
-                _unwrap_string_column(block.get_by_position(arguments[0]), uri_holder);
+                _unwrap_string_column(block.get_by_position(arguments[0]), url_holder);
         const ColumnString* region_col =
                 _unwrap_string_column(block.get_by_position(arguments[1]), region_holder);
         const ColumnString* endpoint_col =
@@ -73,6 +78,14 @@ public:
                 _unwrap_string_column(block.get_by_position(arguments[3]), ak_holder);
         const ColumnString* sk_col =
                 _unwrap_string_column(block.get_by_position(arguments[4]), sk_holder);
+        const ColumnString* role_arn_col = nullptr;
+        const ColumnString* external_id_col = nullptr;
+        if (nargs == 7) {
+            role_arn_col =
+                    _unwrap_string_column(block.get_by_position(arguments[5]), role_arn_holder);
+            external_id_col =
+                    _unwrap_string_column(block.get_by_position(arguments[6]), external_id_holder);
+        }
 
         using S = FileSchemaDescriptor;
         const auto& schema = S::instance();
@@ -87,6 +100,11 @@ public:
             std::string endpoint = endpoint_col->get_data_at(row).to_string();
             std::string ak = ak_col->get_data_at(row).to_string();
             std::string sk = sk_col->get_data_at(row).to_string();
+            std::string role_arn =
+                    role_arn_col ? role_arn_col->get_data_at(row).to_string() : std::string {};
+            std::string external_id = external_id_col
+                                              ? external_id_col->get_data_at(row).to_string()
+                                              : std::string {};
             std::string file_name = S::extract_file_name(uri);
             std::string content_type =
                     S::extension_to_content_type(S::extract_file_extension(file_name));
@@ -100,6 +118,8 @@ public:
             s3_conf.region = region;
             s3_conf.ak = ak;
             s3_conf.sk = sk;
+            s3_conf.role_arn = role_arn;
+            s3_conf.external_id = external_id;
             auto s3_client = S3ClientFactory::instance().create(s3_conf);
             if (!s3_client) {
                 return Status::InternalError(
@@ -127,8 +147,8 @@ public:
                     .endpoint = normalized_endpoint,
                     .ak = ak,
                     .sk = sk,
-                    .role_arn = {},
-                    .external_id = {},
+                    .role_arn = role_arn,
+                    .external_id = external_id,
             };
             S::write_file_jsonb(writer, metadata);
             jsonb_col.insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());

@@ -19,7 +19,6 @@
 
 #include <fnmatch.h>
 
-#include "common/cast_set.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
@@ -48,15 +47,15 @@ Status FilesetReader::init_reader() {
     return _build_files();
 }
 
-Status FilesetReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                                  std::unordered_set<std::string>* missing_cols) {
+Status FilesetReader::_get_columns_impl(
+        std::unordered_map<std::string, DataTypePtr>* name_to_type) {
     for (const auto& slot : _file_slot_descs) {
         name_to_type->emplace(slot->col_name(), slot->type());
     }
     return Status::OK();
 }
 
-Status FilesetReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status FilesetReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_next_file_idx >= _files.size()) {
         *eof = true;
         *read_rows = 0;

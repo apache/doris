@@ -32,13 +32,19 @@ import java.util.List;
 
 /**
  * ScalarFunction 'to_file'.
- * to_file(url, region, endpoint, ak, sk) — construct FILE with auth info.
+ * to_file(url, region, endpoint, ak, sk) — construct FILE with AK/SK auth.
+ * to_file(url, region, endpoint, ak, sk, role_arn, external_id) — construct FILE with IAM Role auth.
  */
 public class ToFile extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(FileType.INSTANCE).args(
+                    StringType.INSTANCE, StringType.INSTANCE,
+                    StringType.INSTANCE, StringType.INSTANCE,
+                    StringType.INSTANCE),
+            FunctionSignature.ret(FileType.INSTANCE).args(
+                    StringType.INSTANCE, StringType.INSTANCE,
                     StringType.INSTANCE, StringType.INSTANCE,
                     StringType.INSTANCE, StringType.INSTANCE,
                     StringType.INSTANCE)
@@ -52,6 +58,14 @@ public class ToFile extends ScalarFunction
         super("to_file", arg0, arg1, arg2, arg3, arg4);
     }
 
+    /**
+     * constructor with 7 arguments: object URL, region, endpoint, ak, sk, role_arn, external_id.
+     */
+    public ToFile(Expression arg0, Expression arg1, Expression arg2,
+            Expression arg3, Expression arg4, Expression arg5, Expression arg6) {
+        super("to_file", arg0, arg1, arg2, arg3, arg4, arg5, arg6);
+    }
+
     /** constructor for withChildren and reuse signature */
     private ToFile(ScalarFunctionParams functionParams) {
         super(functionParams);
@@ -59,7 +73,7 @@ public class ToFile extends ScalarFunction
 
     @Override
     public ToFile withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 5);
+        Preconditions.checkArgument(children.size() == 5 || children.size() == 7);
         return new ToFile(getFunctionParams(children));
     }
 
