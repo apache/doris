@@ -24,6 +24,7 @@ set -eo pipefail
 BOOTSTRAP_GROUPS="$(bootstrap_normalize_groups "${HIVE_BOOTSTRAP_GROUPS:-}")"
 DEFAULT_MODULES=(default multi_catalog partition_type statistics tvf regression test preinstalled_hql view)
 LAST_REFRESH_DETAIL=""
+HIVE_HQL_PARALLEL="${HIVE_HQL_PARALLEL:-${LOAD_PARALLEL}}"
 
 ensure_hive_state_layout
 
@@ -276,8 +277,8 @@ refresh_preinstalled_hql_module() {
     LAST_REFRESH_DETAIL="files=${#hqls_to_refresh[@]}($(format_refresh_preview 5 "${refresh_rel_paths[@]}"))"
 
     # Phase 2 (parallel): execute changed files via xargs -P
-    echo "  [preinstalled_hql] refreshing ${#hqls_to_refresh[@]} files (parallel=${LOAD_PARALLEL})"
-    printf '%s\0' "${hqls_to_refresh[@]}" | stdbuf -oL -eL xargs -0 -P "${LOAD_PARALLEL}" -I {} \
+    echo "  [preinstalled_hql] refreshing ${#hqls_to_refresh[@]} files (parallel=${HIVE_HQL_PARALLEL})"
+    printf '%s\0' "${hqls_to_refresh[@]}" | stdbuf -oL -eL xargs -0 -P "${HIVE_HQL_PARALLEL}" -I {} \
         stdbuf -oL -eL bash --noprofile --norc -ec '
         hql_path="{}"
         . /mnt/scripts/hive-module-lib.sh
