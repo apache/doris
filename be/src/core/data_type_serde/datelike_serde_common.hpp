@@ -41,7 +41,10 @@ inline constexpr bool can_fast_parse_fixed_canonical_time<DateV2Value<DateV2Valu
 
 enum class DatelikeFastParseResult : uint8_t {
     FAIL,
+    // A canonical YYYY-MM-DD prefix matched. Callers still need the full parser when
+    // there is remaining suffix that the fast path did not consume.
     DATE_ONLY,
+    // A canonical YYYY-MM-DD HH:MM:SS prefix matched.
     DATE_TIME,
 };
 
@@ -100,6 +103,8 @@ inline DatelikeFastParseResult try_parse_fixed_canonical_datelike_prefix(const c
     const uint32_t minute = parse_fixed_two_digit_ascii(ptr + 14);
     const uint32_t second = parse_fixed_two_digit_ascii(ptr + 17);
     if constexpr (std::is_same_v<T, DateV2Value<DateV2ValueType>>) {
+        // DATEV2 ignores the time fields, but validating a canonical HH:MM:SS prefix here
+        // still lets strict callers continue from the suffix without reparsing the prefix.
         if (!res.template test_time_unit<TimeUnit::HOUR>(hour) ||
             !res.template test_time_unit<TimeUnit::MINUTE>(minute) ||
             !res.template test_time_unit<TimeUnit::SECOND>(second)) {
