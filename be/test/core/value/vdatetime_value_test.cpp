@@ -228,6 +228,14 @@ TEST(VDateTimeValueTest, date_v2_parse_fixed_canonical_prefix_fallback) {
         DateV2Value<DateV2ValueType> dt;
         CastParameters p;
         ASSERT_TRUE(CastToDateV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                {"2024-01-02 03:04:05", 19}, dt, nullptr, p));
+        EXPECT_EQ(dt.to_string(), "2024-01-02");
+    }
+
+    {
+        DateV2Value<DateV2ValueType> dt;
+        CastParameters p;
+        ASSERT_TRUE(CastToDateV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
                 {"2024-01-02 3:04:05", 18}, dt, nullptr, p));
         EXPECT_EQ(dt.to_string(), "2024-01-02");
     }

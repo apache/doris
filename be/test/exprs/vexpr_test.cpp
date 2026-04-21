@@ -721,6 +721,20 @@ TEST(TEST_VEXPR, LITERALTEST) {
         data_time_value.to_string(buf);
         EXPECT_EQ(std::string(buf), "2024-01-02 03:04:05");
     }
+    {
+        VecDateTimeValue data_value;
+        data_value.set_type(TIME_DATE);
+        const char* date = "2024-01-02 03:04:05 +08:00";
+        {
+            CastParameters p;
+            EXPECT_TRUE((CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                                       DatelikeTargetType::DATE>(
+                    {date, strlen(date)}, data_value, nullptr, p)));
+        }
+        char buf[64];
+        data_value.to_string(buf);
+        EXPECT_EQ(std::string(buf), "2024-01-02");
+    }
     // jsonb
     {
         std::string j = R"([null,true,false,100,6.18,"abc"])";

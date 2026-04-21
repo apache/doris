@@ -35,6 +35,9 @@ template <>
 inline constexpr bool can_fast_parse_fixed_canonical_time<DateV2Value<DateTimeV2ValueType>> =
         true;
 
+template <>
+inline constexpr bool can_fast_parse_fixed_canonical_time<DateV2Value<DateV2ValueType>> = true;
+
 enum class DatelikeFastParseResult : uint8_t {
     FAIL,
     DATE_ONLY,
@@ -91,10 +94,18 @@ inline DatelikeFastParseResult try_parse_fixed_canonical_datelike_prefix(const c
     const uint32_t hour = parse_fixed_two_digit_ascii(ptr + 11);
     const uint32_t minute = parse_fixed_two_digit_ascii(ptr + 14);
     const uint32_t second = parse_fixed_two_digit_ascii(ptr + 17);
-    if (!res.template set_time_unit<TimeUnit::HOUR>(hour) ||
-        !res.template set_time_unit<TimeUnit::MINUTE>(minute) ||
-        !res.template set_time_unit<TimeUnit::SECOND>(second)) {
-        return DatelikeFastParseResult::FAIL;
+    if constexpr (std::is_same_v<T, DateV2Value<DateV2ValueType>>) {
+        if (!res.template test_time_unit<TimeUnit::HOUR>(hour) ||
+            !res.template test_time_unit<TimeUnit::MINUTE>(minute) ||
+            !res.template test_time_unit<TimeUnit::SECOND>(second)) {
+            return DatelikeFastParseResult::FAIL;
+        }
+    } else {
+        if (!res.template set_time_unit<TimeUnit::HOUR>(hour) ||
+            !res.template set_time_unit<TimeUnit::MINUTE>(minute) ||
+            !res.template set_time_unit<TimeUnit::SECOND>(second)) {
+            return DatelikeFastParseResult::FAIL;
+        }
     }
     return DatelikeFastParseResult::DATE_TIME;
 }

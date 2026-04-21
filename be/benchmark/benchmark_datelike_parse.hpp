@@ -95,7 +95,7 @@ void run_parse_benchmark(benchmark::State& state, const Inputs& inputs, ParseFn&
         const auto& input = inputs[index++ % inputs.size()];
         StringRef ref {input.data(), input.size()};
         bool ok = parse_fn(ref, value, params);
-        benchmark::DoNotOptimize(input);
+        benchmark::DoNotOptimize(ref);
         DCHECK(ok) << "benchmark input should parse successfully: " << input;
         benchmark::DoNotOptimize(ok);
         benchmark::DoNotOptimize(value);
@@ -115,6 +115,15 @@ void bm_parse_date_v2_hit(benchmark::State& state) {
 void bm_parse_date_v2_miss(benchmark::State& state) {
     run_parse_benchmark<DateV2Value<DateV2ValueType>>(
             state, date_fast_miss_inputs(), [](const StringRef& ref, auto& value, auto& params) {
+                return CastToDateV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                        ref, value, nullptr, params);
+            });
+}
+
+void bm_parse_date_v2_hit_suffix(benchmark::State& state) {
+    run_parse_benchmark<DateV2Value<DateV2ValueType>>(
+            state, datetime_fast_hit_suffix_inputs(), [](const StringRef& ref, auto& value,
+                                                         auto& params) {
                 return CastToDateV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
                         ref, value, nullptr, params);
             });
@@ -206,6 +215,17 @@ void bm_parse_date_miss(benchmark::State& state) {
             });
 }
 
+void bm_parse_date_hit_suffix(benchmark::State& state) {
+    run_parse_benchmark<VecDateTimeValue>(
+            state, datetime_fast_hit_suffix_inputs(), [](const StringRef& ref, auto& value,
+                                                         auto& params) {
+                value.set_type(TIME_DATE);
+                return CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                                     DatelikeTargetType::DATE>(
+                        ref, value, nullptr, params);
+            });
+}
+
 void bm_parse_timestamptz_hit(benchmark::State& state) {
     const auto& local_tz = benchmark_local_tz();
     run_parse_benchmark<TimestampTzValue>(
@@ -234,8 +254,12 @@ void bm_parse_timestamptz_hit_suffix(benchmark::State& state) {
 }
 
 BENCHMARK(bm_parse_date_hit)->Name("parse_date/hit")->Unit(benchmark::kNanosecond);
+BENCHMARK(bm_parse_date_hit_suffix)->Name("parse_date/hit_suffix")->Unit(benchmark::kNanosecond);
 BENCHMARK(bm_parse_date_miss)->Name("parse_date/miss")->Unit(benchmark::kNanosecond);
 BENCHMARK(bm_parse_date_v2_hit)->Name("parse_datev2/hit")->Unit(benchmark::kNanosecond);
+BENCHMARK(bm_parse_date_v2_hit_suffix)
+        ->Name("parse_datev2/hit_suffix")
+        ->Unit(benchmark::kNanosecond);
 BENCHMARK(bm_parse_date_v2_miss)->Name("parse_datev2/miss")->Unit(benchmark::kNanosecond);
 BENCHMARK(bm_parse_datetime_hit)->Name("parse_datetime/hit")->Unit(benchmark::kNanosecond);
 BENCHMARK(bm_parse_datetime_hit_suffix)
