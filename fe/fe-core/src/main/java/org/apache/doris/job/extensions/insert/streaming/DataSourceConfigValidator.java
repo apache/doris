@@ -20,6 +20,7 @@ package org.apache.doris.job.extensions.insert.streaming;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
 
 import java.util.Map;
@@ -49,7 +50,7 @@ public class DataSourceConfigValidator {
             DataSourceConfigKeys.TABLE_EXCLUDE_COLUMNS_SUFFIX
     );
 
-    private static final Set<String> ALLOW_LOAD_KEYS = Sets.newHashSet(
+    private static final Set<String> ALLOW_LOAD_KEYS = ImmutableSortedSet.of(
             DataSourceConfigKeys.LOAD_PROPERTIES + LoadCommand.MAX_FILTER_RATIO_PROPERTY,
             DataSourceConfigKeys.LOAD_PROPERTIES + LoadCommand.STRICT_MODE
     );
