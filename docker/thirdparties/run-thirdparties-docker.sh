@@ -41,7 +41,6 @@ Usage: $0 <options>
      --reserve-ports    reserve host ports by setting 'net.ipv4.ip_local_reserved_ports' to avoid port already bind error
      --no-load-data     do not load data into the components
      --load-parallel <num>  set the parallel number to load data, default is the 50% of CPU cores
-     --start-parallel <num> limit concurrent component startup jobs, default is 4
      --hive-mode <mode>     hive startup mode: fast, refresh, rebuild
      --hive-modules <list>  comma separated hive modules to refresh
 
@@ -58,7 +57,6 @@ STOP=0
 NEED_RESERVE_PORTS=0
 export NEED_LOAD_DATA=1
 export LOAD_PARALLEL=$(( $(getconf _NPROCESSORS_ONLN) / 2 ))
-export START_PARALLEL="${START_PARALLEL:-4}"
 export START_PROGRESS_INTERVAL="${START_PROGRESS_INTERVAL:-60}"
 export HIVE_HQL_PARALLEL="${HIVE_HQL_PARALLEL:-4}"
 export START_CLEANUP_ON_FAILURE="${START_CLEANUP_ON_FAILURE:-1}"
@@ -84,7 +82,6 @@ if ! OPTS="$(getopt \
     -l 'reserve-ports' \
     -l 'no-load-data' \
     -l 'load-parallel:' \
-    -l 'start-parallel:' \
     -l 'hive-mode:' \
     -l 'hive-modules:' \
     -o 'hc:' \
@@ -126,10 +123,6 @@ else
             ;;
         --load-parallel)
             export LOAD_PARALLEL=$2
-            shift 2
-            ;;
-        --start-parallel)
-            export START_PARALLEL=$2
             shift 2
             ;;
         --hive-mode)
@@ -182,17 +175,11 @@ fi
 echo "Components are: ${COMPONENTS}"
 echo "Container UID: ${CONTAINER_UID}"
 echo "Stop: ${STOP}"
-echo "Start parallel: ${START_PARALLEL}"
 echo "Start progress interval: ${START_PROGRESS_INTERVAL}"
 echo "Hive mode: ${HIVE_MODE}"
 echo "Hive modules: ${HIVE_MODULES}"
 echo "Hive HQL parallel: ${HIVE_HQL_PARALLEL}"
 echo "Hive host alias: ${HIVE_HOST_ALIAS}"
-
-if ! [[ "${START_PARALLEL}" =~ ^[1-9][0-9]*$ ]]; then
-    echo "Invalid start parallel: ${START_PARALLEL}"
-    usage
-fi
 
 if ! [[ "${START_PROGRESS_INTERVAL}" =~ ^[1-9][0-9]*$ ]]; then
     echo "Invalid start progress interval: ${START_PROGRESS_INTERVAL}"
@@ -703,23 +690,6 @@ register_job() {
     START_ORDER+=("${component}")
 }
 
-running_started_jobs_count() {
-    local component
-    local pid
-    local count=0
-
-    for component in "${START_ORDER[@]}"; do
-        [[ "${START_DONE["${component}"]:-0}" -eq 0 ]] || continue
-        pid="${START_PIDS["${component}"]:-}"
-        [[ -n "${pid}" ]] || continue
-        if kill -0 "${pid}" >/dev/null 2>&1; then
-            count=$((count + 1))
-        fi
-    done
-
-    echo "${count}"
-}
-
 cleanup_started_stacks() {
     local component
     local compose_file
@@ -787,35 +757,11 @@ collect_one_finished_job() {
     return 2
 }
 
-wait_for_start_capacity() {
-    local running_count
-    local status
-
-    while true; do
-        status=0
-        collect_one_finished_job || status=$?
-        if [[ "${status}" -eq 1 ]]; then
-            return 1
-        fi
-        if [[ "${status}" -eq 0 ]]; then
-            continue
-        fi
-
-        running_count="$(running_started_jobs_count)"
-        if (( running_count < START_PARALLEL )); then
-            return 0
-        fi
-
-        sleep 1
-    done
-}
-
 launch_component() {
     local component="$1"
     local log_file="$2"
     shift 2
 
-    wait_for_start_capacity
     echo "Launching ${component}, log => ${log_file}"
     "$@" >"${log_file}" 2>&1 &
     register_job "${component}" "$!" "${log_file}"
