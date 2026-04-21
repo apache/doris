@@ -21,6 +21,7 @@
 #include <gen_cpp/BackendService.h>
 
 #include <condition_variable>
+#include <cstddef>
 #include <deque>
 #include <mutex>
 #include <optional>
@@ -111,6 +112,15 @@ public:
     std::unordered_map<int64_t, std::pair<std::string, int32_t>> get_all_balanced_tablets() const;
 
 private:
+    struct WarmUpRowsetFailure {
+        int code;
+        std::string reason;
+    };
+
+    static Status _build_warm_up_rowset_result(const std::vector<WarmUpRowsetFailure>& failures,
+                                               size_t replica_count, int64_t tablet_id,
+                                               const std::string& rowset_id);
+
     void schedule_remove_balanced_tablet(int64_t tablet_id);
     static void clean_up_expired_mappings(void* arg);
     void handle_jobs();

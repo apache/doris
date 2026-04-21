@@ -26,7 +26,9 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <string>
 #include <tuple>
+#include <vector>
 
 #include "bvar/bvar.h"
 #include "cloud/cloud_tablet.h"
@@ -673,6 +675,31 @@ void CloudWarmUpManager::_warm_up_rowset(RowsetMeta& rs_meta, int64_t table_id,
     }
 }
 
+Status CloudWarmUpManager::_build_warm_up_rowset_result(
+        const std::vector<WarmUpRowsetFailure>& failures, size_t replica_count, int64_t tablet_id,
+        const std::string& rowset_id) {
+    if (failures.empty()) {
+        return Status::OK();
+    }
+
+    int code = failures.front().code;
+    std::string failure_msg;
+    for (size_t i = 0; i < failures.size(); ++i) {
+        if (failures[i].code == ErrorCode::TABLE_NOT_FOUND) {
+            code = ErrorCode::TABLE_NOT_FOUND;
+        }
+        if (i > 0) {
+            failure_msg.append("; ");
+        }
+        failure_msg.append(failures[i].reason);
+    }
+
+    return Status::Error(code,
+                         "warm up rowset failed on {}/{} replicas, tablet_id={}, rowset_id={}, "
+                         "failures=[{}]",
+                         failures.size(), replica_count, tablet_id, rowset_id, failure_msg);
+}
+
 Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta, int64_t table_id,
                                               std::vector<JobReplicaInfo>& replicas,
                                               int64_t sync_wait_timeout_ms,
@@ -682,10 +709,19 @@ Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta, int64_t table
                              std::chrono::system_clock::now().time_since_epoch())
                              .count();
     g_file_cache_warm_up_rowset_last_call_unix_ts.set_value(now_ts);
-    auto ret_st = Status::OK();
+    std::vector<WarmUpRowsetFailure> failures;
+    auto add_failure = [&failures](const JobReplicaInfo& info, const std::string& target,
+                                   const Status& st) {
+        failures.push_back(WarmUpRowsetFailure {
+                .code = st.code(),
+                .reason = "job_id=" + std::to_string(info.job_id) +
+                          ", backend_id=" + std::to_string(info.replica.backend_id) +
+                          ", target=" + target + ", status=" + st.to_string_no_stack()});
+    };
 
     for (auto& info : replicas) {
         std::string job_id_str = std::to_string(info.job_id);
+        std::string target = get_host_port(info.replica.host, info.replica.brpc_port);
 
         PWarmUpRowsetRequest request;
         request.add_rowset_metas()->CopyFrom(rs_meta.get_rowset_pb());
@@ -704,7 +740,7 @@ Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta, int64_t table
             if (!status.ok()) {
                 LOG(WARNING) << "failed to get ip from host " << info.replica.host << ": "
                              << status.to_string();
-                ret_st = status;
+                add_failure(info, target, status);
                 continue;
             }
         }
@@ -715,7 +751,7 @@ Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta, int64_t table
                         brpc_addr);
         if (!brpc_stub) {
             st = Status::RpcError("Address {} is wrong", brpc_addr);
-            ret_st = st;
+            add_failure(info, target, st);
             continue;
         }
 
@@ -791,7 +827,7 @@ Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta, int64_t table
         if (cntl.Failed()) {
             LOG_WARNING("warm up rowset {} for tablet {} failed, rpc error: {}",
                         rs_meta.rowset_id().to_string(), tablet_id, cntl.ErrorText());
-            ret_st = Status::RpcError(cntl.ErrorText());
+            add_failure(info, target, Status::RpcError(cntl.ErrorText()));
             continue;
         }
         if (sync_wait_timeout_ms > 0) {
@@ -810,10 +846,11 @@ Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta, int64_t table
                       << ", rowset_id=" << rs_meta.rowset_id().to_string()
                       << ", target=" << info.replica.host << ", skip_existence_check"
                       << skip_existence_check << ", status=" << status;
-            ret_st = status;
+            add_failure(info, target, status);
         }
     }
-    return ret_st;
+    return _build_warm_up_rowset_result(failures, replicas.size(), tablet_id,
+                                        rs_meta.rowset_id().to_string());
 }
 
 void CloudWarmUpManager::recycle_cache(int64_t tablet_id,

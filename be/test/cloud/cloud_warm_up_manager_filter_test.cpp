@@ -19,6 +19,7 @@
 
 #include <chrono>
 #include <optional>
+#include <string>
 #include <unordered_set>
 #include <vector>
 
@@ -188,6 +189,44 @@ TEST_F(CloudWarmUpManagerFilterTest, GetReplicaInfoBypassesFilterWhenTableIdUnkn
 
     ASSERT_EQ(2, replicas.size());
     EXPECT_TRUE(cache_hit);
+}
+
+TEST_F(CloudWarmUpManagerFilterTest, BuildWarmUpRowsetResultReturnsOkWithoutFailures) {
+    auto st = CloudWarmUpManager::_build_warm_up_rowset_result({}, 2, 4001, "rowset-1");
+    EXPECT_TRUE(st.ok());
+}
+
+TEST_F(CloudWarmUpManagerFilterTest, BuildWarmUpRowsetResultAggregatesAllFailures) {
+    std::vector<CloudWarmUpManager::WarmUpRowsetFailure> failures = {
+            {ErrorCode::THRIFT_RPC_ERROR,
+             "job_id=1, backend_id=11, target=127.0.0.1:8011, status=[THRIFT_RPC_ERROR]rpc one"},
+            {ErrorCode::INTERNAL_ERROR,
+             "job_id=2, backend_id=22, target=127.0.0.1:8022, status=[INTERNAL_ERROR]rpc two"}};
+
+    auto st = CloudWarmUpManager::_build_warm_up_rowset_result(failures, 3, 4002, "rowset-2");
+
+    EXPECT_FALSE(st.ok());
+    EXPECT_EQ(ErrorCode::THRIFT_RPC_ERROR, st.code());
+    std::string msg = st.to_string_no_stack();
+    EXPECT_NE(std::string::npos, msg.find("failed on 2/3 replicas"));
+    EXPECT_NE(std::string::npos, msg.find("rpc one"));
+    EXPECT_NE(std::string::npos, msg.find("rpc two"));
+}
+
+TEST_F(CloudWarmUpManagerFilterTest, BuildWarmUpRowsetResultKeepsTableNotFoundRetrySignal) {
+    std::vector<CloudWarmUpManager::WarmUpRowsetFailure> failures = {
+            {ErrorCode::THRIFT_RPC_ERROR,
+             "job_id=1, backend_id=11, target=127.0.0.1:8011, status=[THRIFT_RPC_ERROR]rpc one"},
+            {ErrorCode::TABLE_NOT_FOUND,
+             "job_id=2, backend_id=22, target=127.0.0.1:8022, status=[TABLET_MISSING]missing"}};
+
+    auto st = CloudWarmUpManager::_build_warm_up_rowset_result(failures, 2, 4003, "rowset-3");
+
+    EXPECT_FALSE(st.ok());
+    EXPECT_TRUE(st.is<ErrorCode::TABLE_NOT_FOUND>());
+    std::string msg = st.to_string_no_stack();
+    EXPECT_NE(std::string::npos, msg.find("rpc one"));
+    EXPECT_NE(std::string::npos, msg.find("missing"));
 }
 
 } // namespace doris
