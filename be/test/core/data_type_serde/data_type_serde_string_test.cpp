@@ -24,6 +24,7 @@
 #include <streamvbyte.h>
 
 #include <cstddef>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <type_traits>
@@ -313,6 +314,147 @@ TEST_F(DataTypeStringSerDeTest, ArrowMemNotAlignedNestedArr) {
     auto serde_list = std::make_shared<DataTypeArraySerDe>(serde_str);
     auto st = serde_list->read_column_from_arrow(*ser_col, arr.get(), 0, 1, tz);
     EXPECT_TRUE(st.ok());
+}
+
+// Simulate the sender-side bug: the sender upgrades a utf8 builder to large_utf8 (for columns
+// exceeding 2MB), producing int64 offsets in the buffer, but forgets to update the schema,
+// so the schema still says utf8. This test demonstrates that naive int32 reading of such a
+// buffer gives wrong (negative) lengths at every other row, and that our receiver-side fix
+// correctly recovers the data.
+TEST_F(DataTypeStringSerDeTest, ArrowInt64OffsetsInUtf8Schema_ShowBug) {
+    // Build a few strings that are easy to verify.
+    std::vector<std::string> strings = {"apple",      "banana",  "cherry",  "doris_db",
+                                        "arrow_data", "flight",  "segment", "row_seven",
+                                        "eighth_row", "last_row"};
+    const int64_t row_count = static_cast<int64_t>(strings.size());
+
+    // Step 1: Build a LargeStringArray — this uses int64 offsets in its buffer.
+    arrow::LargeStringBuilder builder;
+    for (const auto& s : strings) {
+        ASSERT_TRUE(builder.Append(s).ok());
+    }
+    std::shared_ptr<arrow::Array> large_array;
+    ASSERT_TRUE(builder.Finish(&large_array).ok());
+    ASSERT_EQ(large_array->type_id(), arrow::Type::LARGE_STRING);
+
+    // Step 2: Simulate the buggy sender — wrap with utf8 type but keep the int64 offsets buffer.
+    // This is exactly what block_convertor.cpp did before the sender-side fix.
+    auto buggy_data =
+            arrow::ArrayData::Make(arrow::utf8(),         // schema says utf8 (int32)
+                                   large_array->length(), // but the buffer has int64 offsets!
+                                   large_array->data()->buffers, large_array->null_count(), 0);
+    auto buggy_array = std::make_shared<arrow::StringArray>(buggy_data);
+
+    // Step 3: Verify the offsets buffer is int64-sized (the mismatch we're testing).
+    const int64_t expected_int64_buf = (row_count + 1) * static_cast<int64_t>(sizeof(int64_t));
+    const int64_t expected_int32_buf = (row_count + 1) * static_cast<int64_t>(sizeof(int32_t));
+    // Print the buffer contents so the int32/int64 mismatch is visually clear.
+    std::cout << "\n--- Offsets buffer viewed as int64 vs int32 (the bug) ---\n";
+    std::cout << std::left << std::setw(6) << "Row" << std::setw(16) << "int64 offset"
+              << std::setw(20) << "int32[2r]  (low)" << std::setw(20) << "int32[2r+1] (high)"
+              << "naive length = int32[2r+1-1] - int32[2r-1] (*)\n";
+    const int64_t* as_int64 =
+            reinterpret_cast<const int64_t*>(buggy_array->value_offsets()->data());
+    const int32_t* as_int32 =
+            reinterpret_cast<const int32_t*>(buggy_array->value_offsets()->data());
+    for (int i = 0; i <= static_cast<int>(strings.size()); ++i) {
+        std::cout << std::setw(6) << i << std::setw(16) << as_int64[i] << std::setw(20)
+                  << as_int32[2 * i]                      // lower 4 bytes
+                  << std::setw(20) << as_int32[2 * i + 1] // upper 4 bytes (always 0 here)
+                  << "\n";
+    }
+    // Show the naive int32 length computation for each row.
+    // The receiver calls value_offset(r) = as_int32[r], so:
+    //   naive_length(r) = as_int32[r+1] - as_int32[r]
+    // This reads ACROSS the int64 boundary: as_int32[2r+1] (high half of offset[r])
+    // minus as_int32[2r] (low half of offset[r]), which gives 0 - low_half = negative.
+    std::cout << "\n--- Naive int32 length per row (what the buggy receiver computes) ---\n";
+    for (int r = 0; r < static_cast<int>(strings.size()); ++r) {
+        int32_t naive_start = as_int32[r];
+        int32_t naive_end = as_int32[r + 1];
+        int32_t naive_len = naive_end - naive_start;
+        std::cout << "Row " << r << " (\"" << strings[r] << "\", real len=" << strings[r].size()
+                  << "): naive start=" << naive_start << "  end=" << naive_end
+                  << "  length=" << naive_len
+                  << (naive_len < 0 ? "  ← CRASH (negative length passed to memcpy)" : "") << "\n";
+    }
+    std::cout << "---\n\n";
+
+    EXPECT_EQ(buggy_array->value_offsets()->size(), expected_int64_buf)
+            << "Offsets buffer is int64-sized, but schema says utf8 (int32)";
+    EXPECT_NE(buggy_array->value_offsets()->size(), expected_int32_buf)
+            << "Should NOT equal int32 expected size";
+
+    // Step 4: Show the bug — naive int32 reading of the int64 buffer gives wrong lengths.
+    //
+    // The 10-row LargeStringArray has 11 int64 offsets in its buffer (row N's data spans
+    // [offset[N], offset[N+1])). With strings "apple"(5), "banana"(6), "cherry"(6), ...,
+    // the cumulative byte positions are: 0, 5, 11, 17, 25, 35, 41, 48, 57, 67, 75.
+    //
+    // These int64 values are laid out in memory (little-endian) as 8 bytes each.
+    // For small values (< 2^32), the upper 4 bytes are always 0:
+    //
+    //   Byte offset  Value  Binary (LE, 8 bytes)           As two int32 words
+    //   0            0      00 00 00 00 | 00 00 00 00  →   int32[0]=0,  int32[1]=0
+    //   8            5      05 00 00 00 | 00 00 00 00  →   int32[2]=5,  int32[3]=0
+    //   16           11     0B 00 00 00 | 00 00 00 00  →   int32[4]=11, int32[5]=0
+    //   24           17     11 00 00 00 | 00 00 00 00  →   int32[6]=17, int32[7]=0
+    //   ...
+    //
+    // The buggy receiver treats this buffer as int32 and calls value_offset(r) which returns
+    // the r-th int32 word (not the r-th int64 offset).
+    //
+    // For row 2 ("cherry", expected length 6):
+    //   start_offset = value_offset(2) = int32[2] = 5    ← lower half of int64(5)
+    //   end_offset   = value_offset(3) = int32[3] = 0    ← upper half of int64(5), always 0
+    //   length       = end_offset - start_offset = 0 - 5 = -5  ← NEGATIVE → crash
+    //
+    // The same pattern repeats for every even row (0, 2, 4, ...) where the upper-half word
+    // of the preceding int64 offset (always 0) is used as end_offset.
+    const int32_t* naive_int32_offsets =
+            reinterpret_cast<const int32_t*>(buggy_array->value_offsets()->data());
+    //   int32[2] = lower 4 bytes of int64(5)  = 5  → becomes start_offset of row 2
+    //   int32[3] = upper 4 bytes of int64(5)  = 0  → becomes end_offset of row 2 (corrupted)
+    //   naive length for row 2 = 0 - 5 = -5
+    const int32_t naive_len_row2 = naive_int32_offsets[3] - naive_int32_offsets[2];
+    EXPECT_LT(naive_len_row2, 0) << "Naive int32 reading of int64 offsets gives negative length "
+                                    "(demonstrating the crash bug): got "
+                                 << naive_len_row2;
+}
+
+TEST_F(DataTypeStringSerDeTest, ArrowInt64OffsetsInUtf8Schema_ReceiverFix) {
+    std::vector<std::string> strings = {"apple",      "banana",  "cherry",  "doris_db",
+                                        "arrow_data", "flight",  "segment", "row_seven",
+                                        "eighth_row", "last_row"};
+    const int64_t row_count = static_cast<int64_t>(strings.size());
+
+    // Build a LargeStringArray (int64 offsets), then rewrap with utf8 type — simulates bug.
+    arrow::LargeStringBuilder builder;
+    for (const auto& s : strings) {
+        ASSERT_TRUE(builder.Append(s).ok());
+    }
+    std::shared_ptr<arrow::Array> large_array;
+    ASSERT_TRUE(builder.Finish(&large_array).ok());
+
+    auto buggy_data =
+            arrow::ArrayData::Make(arrow::utf8(), large_array->length(),
+                                   large_array->data()->buffers, large_array->null_count(), 0);
+    auto buggy_array = std::make_shared<arrow::StringArray>(buggy_data);
+
+    // Our receiver-side fix: read_column_from_arrow detects int64 offsets by comparing
+    // offsets buffer size against (N+1)*8 vs (N+1)*4, and falls through to LargeBinaryArray.
+    auto result_col = ColumnString::create();
+    cctz::time_zone tz;
+    auto st = serde_str->read_column_from_arrow(*result_col, buggy_array.get(), 0, row_count, tz);
+    ASSERT_TRUE(st.ok()) << "Receiver fix should handle int64 offsets in utf8 array: "
+                         << st.to_string();
+
+    // Verify every row is correctly recovered.
+    ASSERT_EQ(static_cast<int64_t>(result_col->size()), row_count);
+    for (int64_t i = 0; i < row_count; i++) {
+        EXPECT_EQ(result_col->get_data_at(i).to_string(), strings[i])
+                << "Data mismatch at row " << i;
+    }
 }
 
 } // namespace doris

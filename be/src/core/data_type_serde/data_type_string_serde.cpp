@@ -261,22 +261,50 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
         arrow_array->type_id() == arrow::Type::BINARY) {
         const auto* concrete_array = dynamic_cast<const arrow::BinaryArray*>(arrow_array);
         std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
-        const uint8_t* offsets_data = concrete_array->value_offsets()->data();
-        const size_t offset_size = sizeof(int32_t);
 
-        for (auto offset_i = start; offset_i < end; ++offset_i) {
-            if (!concrete_array->IsNull(offset_i)) {
-                auto start_offset = unaligned_load<int32_t>(offsets_data + offset_i * offset_size);
-                auto end_offset =
-                        unaligned_load<int32_t>(offsets_data + (offset_i + 1) * offset_size);
+        const int64_t offsets_buf_size = concrete_array->value_offsets()->size();
+        const int64_t expected_int64_size = (arrow_array->length() + 1) * sizeof(int64_t);
 
-                int32_t length = end_offset - start_offset;
-                const auto* raw_data = buffer->data() + start_offset;
+        // Detect schema/data mismatch: sender may upgrade utf8 to large_utf8 (int64 offsets)
+        // without updating the schema. For N rows, int32 offsets need (N+1)*4 bytes while
+        // int64 offsets need (N+1)*8 bytes. These sizes never collide for N >= 0.
+        const bool offsets_are_int64 = (offsets_buf_size == expected_int64_size);
 
-                assert_cast<ColumnType&>(column).insert_data(
-                        reinterpret_cast<const char*>(raw_data), length);
-            } else {
-                assert_cast<ColumnType&>(column).insert_default();
+        if (offsets_are_int64) {
+            // Reconstruct as LargeBinaryArray to read int64 offsets correctly.
+            auto large_type = (arrow_array->type_id() == arrow::Type::STRING)
+                                      ? arrow::large_utf8()
+                                      : arrow::large_binary();
+            auto new_data = arrow::ArrayData::Make(large_type, arrow_array->length(),
+                                                   arrow_array->data()->buffers,
+                                                   arrow_array->null_count(),
+                                                   concrete_array->offset());
+            auto large_array = std::make_shared<arrow::LargeBinaryArray>(new_data);
+            std::shared_ptr<arrow::Buffer> large_buffer = large_array->value_data();
+
+            for (auto offset_i = start; offset_i < end; ++offset_i) {
+                if (!large_array->IsNull(offset_i)) {
+                    const auto* raw_data =
+                            large_buffer->data() + large_array->value_offset(offset_i);
+                    assert_cast<ColumnType&>(column).insert_data(
+                            reinterpret_cast<const char*>(raw_data),
+                            large_array->value_length(offset_i));
+                } else {
+                    assert_cast<ColumnType&>(column).insert_default();
+                }
+            }
+        } else {
+            for (auto offset_i = start; offset_i < end; ++offset_i) {
+                if (!concrete_array->IsNull(offset_i)) {
+                    const int32_t start_offset = concrete_array->value_offset(offset_i);
+                    const int32_t end_offset = concrete_array->value_offset(offset_i + 1);
+                    const int32_t length = end_offset - start_offset;
+                    const auto* raw_data = buffer->data() + start_offset;
+                    assert_cast<ColumnType&>(column).insert_data(
+                            reinterpret_cast<const char*>(raw_data), length);
+                } else {
+                    assert_cast<ColumnType&>(column).insert_default();
+                }
             }
         }
     } else if (arrow_array->type_id() == arrow::Type::FIXED_SIZE_BINARY) {
