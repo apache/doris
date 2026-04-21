@@ -45,7 +45,7 @@ PhysicalResultSink
 -- !explain_except_data_empty_data --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalExcept build RFs:RF0 n_nationkey->[n_nationkey]
+----PhysicalExcept build RFs:RF0 n_nationkey->n_nationkey
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalProject
 ----------PhysicalOlapScan[nation]
@@ -112,7 +112,7 @@ PhysicalResultSink
 -- !null_explain_except_data_empty_data --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalExcept build RFs:RF0 n_nationkey->[n_nationkey]
+----PhysicalExcept build RFs:RF0 n_nationkey->n_nationkey
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalProject
 ----------PhysicalOlapScan[nation]

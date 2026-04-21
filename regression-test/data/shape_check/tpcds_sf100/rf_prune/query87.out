@@ -5,7 +5,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------PhysicalExcept build RFs:RF6 c_last_name->c_last_nameRF7 c_last_name->c_last_name
+----------PhysicalExcept build RFs:RF6 c_last_name->c_last_name RF7 c_last_name->c_last_name 
 ------------hashAgg[GLOBAL]
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------hashAgg[LOCAL]

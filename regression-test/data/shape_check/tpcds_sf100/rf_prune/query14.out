@@ -6,7 +6,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------hashJoin[INNER_JOIN broadcast] hashCondition=((item.i_brand_id = t.brand_id) and (item.i_category_id = t.category_id) and (item.i_class_id = t.class_id)) otherCondition=() build RFs:RF8 brand_id->i_brand_id;RF9 class_id->i_class_id;RF10 category_id->i_category_id
 --------PhysicalProject
 ----------PhysicalOlapScan[item] apply RFs: RF8 RF9 RF10
---------PhysicalIntersect build RFs:RF6 brand_id->i_brand_idRF7 brand_id->i_brand_id
+--------PhysicalIntersect build RFs:RF6 brand_id->i_brand_id RF7 brand_id->i_brand_id 
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]

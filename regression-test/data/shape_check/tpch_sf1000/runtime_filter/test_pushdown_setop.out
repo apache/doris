@@ -6,7 +6,7 @@ PhysicalResultSink
 ------hashAgg[LOCAL]
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN broadcast] hashCondition=((T.l_linenumber = expr_cast(r_regionkey as BIGINT))) otherCondition=() build RFs:RF1 expr_cast(r_regionkey as BIGINT)->cast(l_linenumber as BIGINT);RF2 expr_cast(r_regionkey as BIGINT)->o_orderkey
-------------PhysicalExcept build RFs:RF0 l_linenumber->o_orderkey
+------------PhysicalExcept build RFs:RF0 l_linenumber->o_orderkey 
 --------------hashAgg[GLOBAL]
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------hashAgg[LOCAL]
@@ -27,7 +27,7 @@ PhysicalResultSink
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN broadcast] hashCondition=((expr_abs(l_linenumber) = expr_cast(r_regionkey as LARGEINT))) otherCondition=() build RFs:RF1 expr_cast(r_regionkey as LARGEINT)->abs(cast(l_linenumber as BIGINT));RF2 expr_cast(r_regionkey as LARGEINT)->abs(o_orderkey)
 ------------PhysicalProject
---------------PhysicalExcept build RFs:RF0 l_linenumber->o_orderkey
+--------------PhysicalExcept build RFs:RF0 l_linenumber->o_orderkey 
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------hashAgg[LOCAL]

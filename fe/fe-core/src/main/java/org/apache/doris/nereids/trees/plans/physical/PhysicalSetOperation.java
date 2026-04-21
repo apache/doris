@@ -170,7 +170,7 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
         if (!runtimeFilters.isEmpty()) {
             sb.append(" build RFs:");
             for (RuntimeFilter rf : runtimeFilters) {
-                sb.append(rf.shapeInfo());
+                sb.append(rf.shapeInfo()).append(" ");
             }
         }
         return sb.toString();

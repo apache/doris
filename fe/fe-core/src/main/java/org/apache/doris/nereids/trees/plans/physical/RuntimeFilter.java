@@ -205,8 +205,8 @@ public class RuntimeFilter {
             ignore = "(ignored)";
         }
         StringBuilder sb = new StringBuilder();
-        sb.append(ignore).append("RF").append(id.asInt())
-                .append("[").append(getSrcExpr()).append("->").append(targetExpression)
+        sb.append(ignore).append("RF").append(id.asInt()).append(" ")
+                .append(getSrcExpr()).append("->").append(targetExpression)
                 .append("(ndv/size = ").append(buildSideNdv).append("/")
                 .append(org.apache.doris.planner.RuntimeFilter.expectRuntimeFilterSize(buildSideNdv))
                 .append(")");
