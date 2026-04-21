@@ -365,7 +365,6 @@ inline bool CastToDateOrDatetime::from_string_strict_mode(const StringRef& str,
                     cast_to_type<TargetType>(res);
                     return true;
                 }
-                ptr += 10;
             } else {
                 has_second = true;
                 if (str.size == 19) {
@@ -384,7 +383,6 @@ inline bool CastToDateOrDatetime::from_string_strict_mode(const StringRef& str,
                     cast_to_type<TargetType>(res);
                     return true;
                 }
-                ptr += 10;
             } else {
                 has_second = true;
                 if (str.size == 19) {

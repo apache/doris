@@ -372,7 +372,6 @@ inline bool CastToDatetimeV2::from_string_strict_mode_internal(
             if (str.size == 10) {
                 goto POST_PROCESS;
             }
-            ptr += 10;
         } else {
             has_second = true;
             if (str.size == 19) {

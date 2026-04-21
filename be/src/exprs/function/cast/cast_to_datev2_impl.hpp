@@ -284,7 +284,6 @@ inline bool CastToDateV2::from_string_strict_mode(const StringRef& str,
             if (str.size == 10) {
                 return true;
             }
-            ptr += 10;
         } else {
             has_second = true;
             if (str.size == 19) {

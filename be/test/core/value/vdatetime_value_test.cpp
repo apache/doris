@@ -24,6 +24,7 @@
 
 #include "common/exception.h"
 #include "core/types.h"
+#include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "gtest/gtest_pred_impl.h"
 
@@ -193,6 +194,58 @@ TEST(VDateTimeValueTest, datetime_v2_parse_fixed_canonical_prefix_fast_path) {
         CastParameters p;
         EXPECT_FALSE(CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
                 {"2024-01-02 03:04:60", 19}, dt, nullptr, 0, p));
+    }
+}
+
+TEST(VDateTimeValueTest, datetime_v2_parse_fixed_canonical_prefix_fallback) {
+    {
+        DateV2Value<DateTimeV2ValueType> dt;
+        CastParameters p;
+        ASSERT_TRUE(CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                {"2024-01-02 03:04", 16}, dt, nullptr, 0, p));
+        EXPECT_EQ(dt.to_string(), "2024-01-02 03:04:00");
+    }
+
+    {
+        DateV2Value<DateTimeV2ValueType> dt;
+        CastParameters p;
+        ASSERT_TRUE(CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                {"2024-01-02 3:04:05", 18}, dt, nullptr, 0, p));
+        EXPECT_EQ(dt.to_string(), "2024-01-02 03:04:05");
+    }
+
+    {
+        DateV2Value<DateTimeV2ValueType> dt;
+        CastParameters p;
+        ASSERT_TRUE(CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                {"2024-01-02 030405", 17}, dt, nullptr, 0, p));
+        EXPECT_EQ(dt.to_string(), "2024-01-02 03:04:05");
+    }
+}
+
+TEST(VDateTimeValueTest, date_v2_parse_fixed_canonical_prefix_fallback) {
+    {
+        DateV2Value<DateV2ValueType> dt;
+        CastParameters p;
+        ASSERT_TRUE(CastToDateV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                {"2024-01-02 3:04:05", 18}, dt, nullptr, p));
+        EXPECT_EQ(dt.to_string(), "2024-01-02");
+    }
+
+    {
+        TimezoneUtils::load_offsets_to_cache();
+        DateV2Value<DateV2ValueType> dt;
+        CastParameters p;
+        ASSERT_TRUE(CastToDateV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                {"2024-01-02 03:04:05 +08:00", 26}, dt, nullptr, p));
+        EXPECT_EQ(dt.to_string(), "2024-01-02");
+    }
+
+    {
+        DateV2Value<DateV2ValueType> dt;
+        CastParameters p;
+        EXPECT_FALSE(CastToDateV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                {"2024-01-02 03:04:60", 19}, dt, nullptr, p));
     }
 }
 
