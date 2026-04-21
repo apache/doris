@@ -37,7 +37,14 @@ public:
     // FIND_TABLET_EVERY_SINK is used for random distribution info when load_to_single_tablet set to true,
     // which indicates that we should only compute tablet index in the corresponding partition once for the
     // whole time in olap table sink
-    enum FindTabletMode { FIND_TABLET_EVERY_ROW, FIND_TABLET_EVERY_BATCH, FIND_TABLET_EVERY_SINK };
+    // FIND_TABLET_RANDOM_BUCKET is used for random distribution info where FE assigns a starting
+    // bucket per BE; BE rotates within its local buckets once per-tablet bytes exceed a threshold
+    enum FindTabletMode {
+        FIND_TABLET_EVERY_ROW,
+        FIND_TABLET_EVERY_BATCH,
+        FIND_TABLET_EVERY_SINK,
+        FIND_TABLET_RANDOM_BUCKET
+    };
 
     OlapTabletFinder(VOlapTablePartitionParam* vpartition, FindTabletMode mode)
             : _vpartition(vpartition), _find_tablet_mode(mode), _filter_bitmap(1024) {};
@@ -64,11 +71,16 @@ public:
 
     Bitmap& filter_bitmap() { return _filter_bitmap; }
 
+    // Threshold for switching to the next local bucket in FIND_TABLET_RANDOM_BUCKET mode.
+    static constexpr int64_t BUCKET_SWITCH_THRESHOLD_BYTES = 200LL * 1024 * 1024;
+
 private:
     VOlapTablePartitionParam* _vpartition = nullptr;
     FindTabletMode _find_tablet_mode;
     std::map<VOlapTablePartition*, int64_t> _partition_to_tablet_map;
     flat_hash_set<int64_t> _partition_ids;
+    // tablet_id -> bytes written so far; used to decide when to rotate to the next local bucket
+    std::map<int64_t, int64_t> _tablet_written_bytes;
 
     int64_t _num_filtered_rows = 0;
     int64_t _num_immutable_partition_filtered_rows = 0;

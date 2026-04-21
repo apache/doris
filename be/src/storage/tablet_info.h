@@ -164,6 +164,11 @@ struct VOlapTablePartition {
     bool is_mutable;
     // -1 indicates partition with hash distribution
     int64_t load_tablet_idx = -1;
+    // BE ID assigned by FE for local bucket rotation; -1 means not set
+    int64_t bucket_be_id = -1;
+    // Bucket indices (0-based) that FE assigned to this BE for rotation.
+    // Empty means not set (fallback to full round-robin).
+    std::vector<int32_t> local_bucket_seqs;
     int total_replica_num = 0;
     int load_required_replica_num = 0;
     // tablet_id -> set of backend_ids that have version gaps

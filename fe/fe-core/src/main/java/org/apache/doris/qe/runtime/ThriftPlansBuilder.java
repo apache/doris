@@ -230,6 +230,7 @@ public class ThriftPlansBuilder {
 
         ConnectContext connectContext = coordinatorContext.connectContext;
         for (Entry<DistributedPlanWorker, TPipelineFragmentParamsList> kv : fragmentsGroupByWorker.entrySet()) {
+            DistributedPlanWorker worker = kv.getKey();
             TPipelineFragmentParamsList fragments = kv.getValue();
             for (TPipelineFragmentParams fragmentParams : fragments.getParamsList()) {
                 if (fragmentParams.getFragment().getOutputSink().getType() == TDataSinkType.OLAP_TABLE_SINK) {
@@ -242,7 +243,112 @@ public class ThriftPlansBuilder {
                     fragmentParams.setNumLocalSink(fragmentParams.getLocalParams().size());
                     LOG.info("num local sink for backend {} is {}", fragmentParams.getBackendId(),
                             fragmentParams.getNumLocalSink());
+
+                    // Assign per-BE starting bucket and bucket_be_id for random distribution
+                    assignRandomBucketPerBe(fragmentParams, worker.id());
                 }
+            }
+        }
+    }
+
+    /**
+     * For random-distribution partitions, override load_tablet_idx and set bucket_be_id /
+     * local_bucket_seqs so that each BE starts writing to one of its own local buckets and
+     * can rotate within them once per-tablet bytes exceed the threshold.
+     *
+     * <p>local_bucket_seqs always contains all local buckets for this BE.  The starting bucket
+     * rotates across consecutive load tasks via tabletIndex; within a single load, the BE
+     * switches to the next entry in the list only when the 200 MB threshold is reached.
+     * Small loads (e.g. stream load) naturally stay on one bucket because the threshold is
+     * never triggered.
+     */
+    private static void assignRandomBucketPerBe(TPipelineFragmentParams fragmentParams, long beId) {
+        org.apache.doris.thrift.TDataSink outputSink = fragmentParams.getFragment().getOutputSink();
+        org.apache.doris.thrift.TOlapTableSink olapSink = outputSink.getOlapTableSink();
+        if (olapSink == null || olapSink.getPartition() == null
+                || !olapSink.getPartition().isSetPartitions()) {
+            return;
+        }
+
+        // Check whether any partition uses random distribution (identified by load_tablet_idx being set)
+        boolean hasRandomPartition = olapSink.getPartition().getPartitions().stream()
+                .anyMatch(org.apache.doris.thrift.TOlapTablePartition::isSetLoadTabletIdx);
+        if (!hasRandomPartition) {
+            return;
+        }
+
+        // Build tablet_id -> BE IDs index from location
+        org.apache.doris.thrift.TOlapTableLocationParam location = olapSink.getLocation();
+        if (location == null || !location.isSetTablets()) {
+            return;
+        }
+        Map<Long, List<Long>> tabletToBeIds = new java.util.HashMap<>();
+        for (org.apache.doris.thrift.TTabletLocation tabletLoc : location.getTablets()) {
+            tabletToBeIds.put(tabletLoc.getTabletId(), tabletLoc.getNodeIds());
+        }
+
+        // Deep-copy only the OlapTableSink so that per-BE modifications are isolated
+        org.apache.doris.thrift.TOlapTableSink sinkCopy = olapSink.deepCopy();
+        outputSink.setOlapTableSink(sinkCopy);
+
+        for (org.apache.doris.thrift.TOlapTablePartition tPartition
+                : sinkCopy.getPartition().getPartitions()) {
+            if (!tPartition.isSetLoadTabletIdx()) {
+                continue; // hash distribution – leave as-is
+            }
+
+            int tabletIndex = (int) tPartition.getLoadTabletIdx();
+            List<org.apache.doris.thrift.TOlapTableIndexTablets> indexes = tPartition.getIndexes();
+            if (indexes == null || indexes.isEmpty()) {
+                continue;
+            }
+            List<Long> tablets = indexes.get(0).getTablets();
+            int numBuckets = tPartition.getNumBuckets();
+
+            // Collect bucket indices assigned to this BE.
+            //
+            // For single-replica tablets, each bucket has exactly one entry in node_ids,
+            // so the bucket naturally belongs to one BE.
+            //
+            // For multi-replica tablets, multiple BEs host the same bucket. To avoid all BEs
+            // writing to the same bucket(s), we assign each bucket to exactly one BE using a
+            // deterministic hash rule: sort node_ids, then give bucket[i] to the BE at position
+            // (i % numReplicas) in the sorted list. This spreads buckets evenly across replica BEs
+            // and is computed consistently on every BE without coordination.
+            List<Integer> localBuckets = new ArrayList<>();
+            for (int bucketIdx = 0; bucketIdx < tablets.size(); bucketIdx++) {
+                List<Long> beIds = tabletToBeIds.get(tablets.get(bucketIdx));
+                if (beIds == null || beIds.isEmpty()) {
+                    continue;
+                }
+                if (beIds.size() == 1) {
+                    // Single replica: the only BE is the owner
+                    if (beIds.get(0).equals(beId)) {
+                        localBuckets.add(bucketIdx);
+                    }
+                } else {
+                    // Multi-replica: assign via hash so each bucket has exactly one owner BE
+                    List<Long> sorted = beIds.stream()
+                            .sorted()
+                            .collect(java.util.stream.Collectors.toList());
+                    int pos = sorted.indexOf(beId);
+                    if (pos >= 0 && bucketIdx % sorted.size() == pos) {
+                        localBuckets.add(bucketIdx);
+                    }
+                }
+            }
+
+            if (!localBuckets.isEmpty()) {
+                int loadTabletIdx = localBuckets.get(tabletIndex % localBuckets.size());
+                tPartition.setLoadTabletIdx(loadTabletIdx);
+                tPartition.setBucketBeId(beId);
+                // Send the full local bucket list; BE rotates through it in order when the
+                // per-tablet write threshold is reached.
+                tPartition.setLocalBucketSeqs(localBuckets);
+            } else {
+                // Fallback: BE has no local replica for this partition
+                tPartition.setLoadTabletIdx(tabletIndex % numBuckets);
+                // Leave bucket_be_id / local_bucket_seqs unset → no switching
             }
         }
     }

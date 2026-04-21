@@ -22,6 +22,7 @@
 #include <gen_cpp/FrontendService_types.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <string>
 #include <utility>
 
@@ -82,8 +83,39 @@ Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int row
 
     if (_find_tablet_mode == FindTabletMode::FIND_TABLET_EVERY_ROW) {
         _vpartition->find_tablets(block, qualified_rows, partitions, tablet_index);
+    } else if (_find_tablet_mode == FindTabletMode::FIND_TABLET_RANDOM_BUCKET) {
+        // Use per-batch caching same as FIND_TABLET_EVERY_BATCH
+        _vpartition->find_tablets(block, qualified_rows, partitions, tablet_index,
+                                  &_partition_to_tablet_map);
+
+        int64_t bytes_per_row = rows > 0 ? block->bytes() / rows : 0;
+        for (auto& [partition, _] : _partition_to_tablet_map) {
+            if (partition->indexes.empty()) {
+                continue;
+            }
+            int64_t cur_bucket = partition->load_tablet_idx % partition->num_buckets;
+            int64_t cur_tablet_id = partition->indexes[0].tablets[cur_bucket];
+            _tablet_written_bytes[cur_tablet_id] += bytes_per_row * rows;
+
+            // Switch to the next local bucket when the threshold is reached.
+            // local_bucket_seqs carries the exact set of buckets assigned to this BE by the FE,
+            // which handles both single-replica and multi-replica correctly.
+            const auto& seqs = partition->local_bucket_seqs;
+            if (_tablet_written_bytes[cur_tablet_id] >= BUCKET_SWITCH_THRESHOLD_BYTES &&
+                !seqs.empty()) {
+                auto it = std::find(seqs.begin(), seqs.end(), static_cast<int32_t>(cur_bucket));
+                if (it != seqs.end()) {
+                    ++it;
+                    if (it == seqs.end()) {
+                        it = seqs.begin();
+                    }
+                    partition->load_tablet_idx = *it;
+                }
+            }
+        }
+        _partition_to_tablet_map.clear();
     } else {
-        // for random distribution
+        // FIND_TABLET_EVERY_BATCH / FIND_TABLET_EVERY_SINK
         _vpartition->find_tablets(block, qualified_rows, partitions, tablet_index,
                                   &_partition_to_tablet_map);
         if (_find_tablet_mode == FindTabletMode::FIND_TABLET_EVERY_BATCH) {

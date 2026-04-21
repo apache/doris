@@ -285,6 +285,11 @@ struct TOlapTablePartition {
     // tablet_id -> list of backend_ids that have version gaps (lastFailedVersion >= 0)
     // used by BE to exclude these backends from success counting in majority write
     14: optional map<i64, list<i64>> tablet_version_gap_backends
+    // FE-assigned BE ID for local bucket rotation in FIND_TABLET_RANDOM_BUCKET mode
+    15: optional i64 bucket_be_id
+    // FE-assigned local bucket indices for this BE; used in FIND_TABLET_RANDOM_BUCKET mode
+    // to rotate only within the buckets owned by this BE (handles both single and multi-replica)
+    16: optional list<i32> local_bucket_seqs
 }
 
 struct TOlapTablePartitionParam {

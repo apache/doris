@@ -1546,7 +1546,7 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
         if (table_sink.__isset.load_to_single_tablet && table_sink.load_to_single_tablet) {
             find_tablet_mode = OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_SINK;
         } else {
-            find_tablet_mode = OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_BATCH;
+            find_tablet_mode = OlapTabletFinder::FindTabletMode::FIND_TABLET_RANDOM_BUCKET;
         }
     }
     _vpartition = _pool->add(new doris::VOlapTablePartitionParam(_schema, table_sink.partition));
