@@ -58,11 +58,13 @@ public class StructElement extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (!(child(0).getDataType() instanceof StructType
-                || child(0).getDataType() instanceof NullType)) {
+        Expression structArgument = getArgument(0);
+        Expression fieldArgument = getArgument(1);
+        if (!(structArgument.getDataType() instanceof StructType
+                || structArgument.getDataType() instanceof NullType)) {
             SearchSignature.throwCanNotFoundFunctionException(this.getName(), this.getArguments());
         }
-        if (!(child(1) instanceof StringLikeLiteral || child(1) instanceof IntegerLikeLiteral)) {
+        if (!(fieldArgument instanceof StringLikeLiteral || fieldArgument instanceof IntegerLikeLiteral)) {
             throw new AnalysisException("struct_element only allows"
                     + " constant int or string second parameter: " + this.toSql());
         }

@@ -97,7 +97,7 @@ public class Random extends UniqueFunction
     public void checkLegalityBeforeTypeCoercion() {
         // align with original planner behavior, refer to:
         // org/apache/doris/analysis/Expr.getBuiltinFunction()
-        for (Expression child : children()) {
+        for (Expression child : getArguments()) {
             if (!child.isLiteral()) {
                 throw new AnalysisException("The param of rand function must be literal ");
             }
