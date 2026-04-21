@@ -22,7 +22,6 @@
 #include "vec/sink/vpaimon_table_writer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status PaimonTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));

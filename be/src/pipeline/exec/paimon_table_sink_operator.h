@@ -21,7 +21,6 @@
 #include "vec/sink/vpaimon_table_writer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class PaimonTableSinkOperatorX;
 
@@ -91,5 +90,4 @@ private:
     TPaimonTableSink _paimon_sink;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris
