@@ -11,7 +11,7 @@ PhysicalResultSink
 ----------------PhysicalQuickSort[LOCAL_SORT]
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF0 p_partkey->[l_partkey]
+----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF0 p_partkey->l_partkey
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[lineitem] apply RFs: RF0
 ------------------------PhysicalProject
