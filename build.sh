@@ -859,6 +859,76 @@ function build_fe_modules() {
     return 1
 }
 
+function refresh_fe_build_version_if_commit_changed() {
+    [[ -d "${DORIS_HOME}/.git" ]] || return 0
+
+    local version_java="${DORIS_HOME}/fe/fe-common/target/generated-sources/build/org/apache/doris/common/Version.java"
+    local version_class_dir="${DORIS_HOME}/fe/fe-common/target/classes"
+    local fe_common_target_jar="${DORIS_HOME}/fe/fe-common/target/doris-fe-common.jar"
+    local version_h="${DORIS_HOME}/gensrc/build/gen_cpp/version.h"
+    local cloud_version_h="${DORIS_HOME}/gensrc/build/gen_cpp/cloud_version.h"
+
+    [[ -f "${version_java}" ]] || return 0
+
+    local current_hash
+    current_hash="$(cd "${DORIS_HOME}" && git log -1 --pretty=format:"%h" 2>/dev/null || true)"
+    [[ -n "${current_hash}" ]] || return 0
+
+    local baked_hash
+    baked_hash="$(sed -n 's/.*DORIS_BUILD_SHORT_HASH[^"]*"\([^"]*\)".*/\1/p' "${version_java}" | head -1)"
+    if [[ "${baked_hash}" == "${current_hash}" ]]; then
+        return 0
+    fi
+
+    echo "Fix stale FE build version: ${baked_hash:-<missing>} -> ${current_hash}"
+    rm -f "${version_java}" "${version_h}" "${cloud_version_h}"
+    (cd "${DORIS_HOME}" && bash gensrc/script/gen_build_version.sh)
+
+    if [[ ! -f "${version_java}" ]]; then
+        echo "ERROR: failed to regenerate ${version_java}"
+        exit 1
+    fi
+
+    local javac_cmd
+    if [[ -n "${JAVA_HOME}" ]]; then
+        javac_cmd="${JAVA_HOME}/bin/javac"
+    else
+        javac_cmd="$(command -v javac)"
+    fi
+    if [[ ! -x "${javac_cmd}" ]]; then
+        echo "ERROR: javac is not available to refresh Version.class"
+        exit 1
+    fi
+
+    mkdir -p "${version_class_dir}/org/apache/doris/common"
+    "${javac_cmd}" -encoding UTF-8 -d "${version_class_dir}" "${version_java}"
+
+    local version_class_rel="org/apache/doris/common/Version.class"
+    local version_class="${version_class_dir}/${version_class_rel}"
+    if [[ ! -f "${version_class}" ]]; then
+        echo "ERROR: ${version_class} is missing after recompilation"
+        exit 1
+    fi
+
+    pushd "${version_class_dir}" >/dev/null
+    if [[ -f "${fe_common_target_jar}" ]]; then
+        jar uf "${fe_common_target_jar}" "${version_class_rel}"
+    fi
+
+    local fe_common_runtime_jar
+    for fe_common_runtime_jar in "${DORIS_HOME}/fe/fe-core/target/lib"/fe-common-*.jar; do
+        [[ -f "${fe_common_runtime_jar}" ]] || continue
+        jar uf "${fe_common_runtime_jar}" "${version_class_rel}"
+    done
+
+    local output_common_jar
+    for output_common_jar in "${DORIS_HOME}/output/fe/lib"/fe-common-*.jar; do
+        [[ -f "${output_common_jar}" ]] || continue
+        jar uf "${output_common_jar}" "${version_class_rel}"
+    done
+    popd >/dev/null
+}
+
 # FE UI must be built before building FE
 if [[ "${BUILD_FE}" -eq 1 ]]; then
     if [[ "${BUILD_UI}" -eq 1 ]]; then
@@ -874,6 +944,7 @@ if [[ "${FE_MODULES}" != '' ]]; then
         clean_fe
     fi
     build_fe_modules
+    refresh_fe_build_version_if_commit_changed
     cd "${DORIS_HOME}"
 fi
 
