@@ -24,6 +24,7 @@
 #include "benchmark_fastunion.hpp"
 #include "benchmark_hll_merge.hpp"
 #include "benchmark_hybrid_set.hpp"
+#include "benchmark_int_divide.hpp"
 #include "benchmark_string.hpp"
 #include "benchmark_string_replace.hpp"
 #include "binary_cast_benchmark.hpp"

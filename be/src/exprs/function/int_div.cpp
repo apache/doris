@@ -20,6 +20,10 @@
 
 #include <libdivide.h>
 
+#ifdef LIBDIVIDE_AVX2
+#include <immintrin.h>
+#endif
+
 #include <utility>
 
 #include "core/data_type/data_type_number.h"
@@ -131,7 +135,21 @@ struct DivideIntegralImpl {
             if constexpr (!std::is_floating_point_v<Arg> && !std::is_same_v<Arg, Int128> &&
                           !std::is_same_v<Arg, Int8> && !std::is_same_v<Arg, UInt8>) {
                 const auto divider = libdivide::divider<Arg>(Arg(b));
-                for (size_t i = 0; i < size; i++) {
+                size_t i = 0;
+#ifdef LIBDIVIDE_AVX2
+                if constexpr (std::is_same_v<Arg, Int32> || std::is_same_v<Arg, UInt32> ||
+                              std::is_same_v<Arg, Int64> || std::is_same_v<Arg, UInt64>) {
+                    constexpr size_t values_per_reg = sizeof(__m256i) / sizeof(Arg);
+                    const size_t simd_size = size / values_per_reg * values_per_reg;
+                    for (; i < simd_size; i += values_per_reg) {
+                        _mm256_storeu_si256(
+                                reinterpret_cast<__m256i*>(c.data() + i),
+                                _mm256_loadu_si256(reinterpret_cast<const __m256i*>(a.data() + i)) /
+                                        divider);
+                    }
+                }
+#endif
+                for (; i < size; i++) {
                     c[i] = a[i] / divider;
                 }
             } else {
