@@ -29,6 +29,8 @@ suite("test_hive_pct_mtmv", "p0,external,hive,external_docker,external_docker_hi
     String mvDbName = context.config.getDbNameByFile(context.file)
     for (String hivePrefix : ["hive3"]) {
         setHivePrefix(hivePrefix)
+        String catalog_name = "${hivePrefix}_${suiteName}_catalog"
+        try {
 
         def autogather_off_str = """ set hive.stats.column.autogather = false; """
         def autogather_on_str = """ set hive.stats.column.autogather = true; """
@@ -108,7 +110,6 @@ suite("test_hive_pct_mtmv", "p0,external,hive,external_docker,external_docker_hi
 
         // prepare catalog
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
-        String catalog_name = "${hivePrefix}_${suiteName}_catalog"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
         sql """drop catalog if exists ${catalog_name}"""
@@ -156,6 +157,13 @@ suite("test_hive_pct_mtmv", "p0,external,hive,external_docker,external_docker_hi
 
         sql """drop materialized view if exists ${mvName};"""
         sql """drop catalog if exists ${catalog_name}"""
+        } finally {
+            try_hive_docker """ set hive.stats.column.autogather = true; """
+            try_sql """switch internal"""
+            try_sql """use ${mvDbName}"""
+            try_sql """drop materialized view if exists ${mvName}"""
+            try_sql """drop catalog if exists ${catalog_name}"""
+            try_hive_docker """drop database if exists ${dbName} cascade"""
+        }
     }
 }
-

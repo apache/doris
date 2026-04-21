@@ -214,10 +214,10 @@ suite("test_hive_write_partitions", "p0,external") {
 
     for (String hivePrefix : ["hive2", "hive3"]) {
         setHivePrefix(hivePrefix)
+        String catalog_name = "test_${hivePrefix}_write_partitions"
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
-            String catalog_name = "test_${hivePrefix}_write_partitions"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""
@@ -242,6 +242,14 @@ suite("test_hive_write_partitions", "p0,external") {
             test_doris_write_hive_partition_table(catalog_name)
             sql """drop catalog if exists ${catalog_name}"""
         } finally {
+            for (String format_compression in format_compressions) {
+                try_hive_docker """drop table if exists write_test.all_types_par_${format_compression}_${catalog_name}_q01"""
+                try_hive_docker """drop table if exists write_test.all_partition_types1_${format_compression}_${catalog_name}_q02"""
+                try_hive_docker """drop table if exists write_test.all_partition_types2_${format_compression}_${catalog_name}_q03"""
+                try_hive_docker """drop table if exists write_test.all_partition_types1_${format_compression}_${catalog_name}_q04"""
+            }
+            try_hive_docker """drop table if exists write_test.test_doris_write_hive_partition_table"""
+            try_sql """drop catalog if exists ${catalog_name}"""
         }
     }
 }

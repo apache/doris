@@ -20,6 +20,7 @@ suite("test_external_and_internal_describe", "p0,external") {
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        try {
         for (String hivePrefix : ["hive3"]) {
             setHivePrefix(hivePrefix)
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -158,6 +159,10 @@ suite("test_external_and_internal_describe", "p0,external") {
 
 
         sql """unset variable show_column_comment_in_describe;"""
+        } finally {
+            try_hive_docker """drop database if exists test_external_describe cascade"""
+            try_sql """drop catalog if exists ${catalog_name}"""
+            try_sql """drop database if exists internal.test_external_and_internal_describe_db force"""
+        }
     }
 }
-
