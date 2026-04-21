@@ -477,6 +477,8 @@ struct TQueryOptions {
   212: optional bool enable_local_exchange_before_agg = true;
 
   213: optional i64 file_presigned_url_ttl_seconds = 3600;
+  214: optional i32 embed_max_batch_size = 5;
+  215: optional i64 ai_context_window_size = 131072;
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
