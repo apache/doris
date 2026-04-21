@@ -148,6 +148,49 @@ TEST_F(EncloseCsvLineReaderTest, QuoteEscaping) {
                      {{14, 42}});
 }
 
+// Regression test: enclose char is a prefix of the multi-char column separator.
+// e.g. enclose=':', sep='::'.  A closing enclose followed immediately by the
+// separator (:::) was previously misread as a double-quote escape (::) plus an
+// orphaned ':', causing silent data corruption.
+TEST_F(EncloseCsvLineReaderTest, EncloseIsPrefixOfSeparator) {
+    // Row: 1:::alpha::beta:::ok
+    //   field0 = "1"
+    //   sep "::"
+    //   field1 = ":alpha::beta:"  (enclose-wrapped; '::' inside is literal content)
+    //   sep "::"
+    //   field2 = "ok"
+    // Expected column_sep_positions: [1, 16]
+    verify_csv_split("1:::alpha::beta:::ok", "\n", "::", ':', 0, false, {"1:::alpha::beta:::ok"},
+                     {{1, 16}});
+
+    // Row: 2:::plain:::tail  (no separator inside the enclosed field)
+    // Expected: [1, 10]
+    verify_csv_split("2:::plain:::tail", "\n", "::", ':', 0, false, {"2:::plain:::tail"},
+                     {{1, 10}});
+
+    // Two rows together
+    verify_csv_split("1:::alpha::beta:::ok\n2:::plain:::tail", "\n", "::", ':', 0, false,
+                     {"1:::alpha::beta:::ok", "2:::plain:::tail"}, {{1, 16}, {1, 10}});
+}
+
+// Verify that a non-zero escape character does not interfere with the
+// enclose-prefix-of-separator fix.  The _should_escape path short-circuits
+// before _quote_escape is tested, so the two mechanisms are independent —
+// this test guards against future refactoring breaking that invariant.
+TEST_F(EncloseCsvLineReaderTest, EncloseIsPrefixOfSeparatorWithEscape) {
+    // escape='\', enclose=':', sep='::'
+    // Row: 1:::alpha\::beta:::ok
+    //   '\:' inside the field — the ':' is escape-suppressed, does not set _quote_escape.
+    //   The closing ':' at pos 15 is still correctly identified via the separator peek.
+    // Expected sep positions: [1, 16]  (same as the no-escape case)
+    verify_csv_split("1:::alpha\\::beta:::ok", "\n", "::", ':', '\\', false,
+                     {"1:::alpha\\::beta:::ok"}, {{1, 16}});
+
+    // Without an escaped colon inside the field (baseline).
+    // Closing enclose is at pos 9; separator '::' starts at pos 10.
+    verify_csv_split("1:::alpha:::ok", "\n", "::", ':', '\\', false, {"1:::alpha:::ok"}, {{1, 10}});
+}
+
 TEST_F(EncloseCsvLineReaderTest, MultiCharDelimiters) {
     // Test multi-character line delimiter
     verify_csv_split("a,b,c\r\n\nd,e,f", "\r\n\n", ",", '"', '\\', false, {"a,b,c", "d,e,f"},

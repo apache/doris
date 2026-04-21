@@ -167,6 +167,9 @@ public:
         } else {
             find_col_sep_func = &EncloseCsvLineReaderCtx::look_for_column_sep_pos<false>;
         }
+        // Precompute: whether the separator starts with the enclose char and has length > 1.
+        // Used in the hot loop of _on_pre_match_enclose to avoid repeated comparisons.
+        _sep_starts_with_enclose = (column_sep_len_ > 1 && _column_sep[0] == enclose);
         _column_sep_positions.reserve(col_sep_num);
     }
 
@@ -222,6 +225,9 @@ private:
 
     const std::string _column_sep;
     std::vector<size_t> _column_sep_positions;
+    // True when _column_sep[0] == _enclose && _column_sep_len > 1.
+    // Precomputed at construction to avoid per-iteration checks in the hot loop.
+    bool _sep_starts_with_enclose = false;
 
     FindDelimiterFunc find_col_sep_func;
 };

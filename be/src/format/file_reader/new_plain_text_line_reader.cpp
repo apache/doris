@@ -158,6 +158,24 @@ void EncloseCsvLineReaderCtx::_on_pre_match_enclose(const uint8_t* start, size_t
             } else if (_quote_escape) {
                 // the last char is quote, so we need to check if the current char is quote to determine if it is escaped by quote
                 if (start[_idx] == _enclose) {
+                    // When the column separator starts with the enclose char (e.g. enclose=':' and
+                    // sep='::'), the sequence "closing-enclose + separator" looks identical to a
+                    // double-quote escape followed by extra chars.  Disambiguate by peeking ahead:
+                    // if the bytes at the current position match the full column separator, the
+                    // previous enclose char was the actual closing enclose rather than half of a
+                    // double-quote escape.
+                    if (_sep_starts_with_enclose) {
+                        size_t remaining = len - _idx;
+                        if (remaining >= _column_sep_len &&
+                            memcmp(start + _idx, _column_sep.c_str(), _column_sep_len) == 0) {
+                            // The previous enclose char closed the field; the current position is
+                            // the start of the column separator.  Hand off to MATCH_ENCLOSE which
+                            // will record the separator position.
+                            _quote_escape = false;
+                            _state.forward_to(ReaderState::MATCH_ENCLOSE);
+                            return;
+                        }
+                    }
                     // double quote, escaped by quote
                     _quote_escape = false;
                 } else {
