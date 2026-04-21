@@ -68,11 +68,11 @@ services:
     hostname: ${HIVE_HOST_ALIAS}
     env_file:
       - ./hadoop-hive-3x.env
+    command: /bin/bash /mnt/scripts/start-hive-server.sh
     environment:
       HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://${IP_HOST}:${PG_PORT}/metastore"
       SERVICE_PRECONDITION: "${IP_HOST}:${HMS_PORT}"
       JVM_OPTS: -Xmx2g
-      HIVE_SITE_CONF_hive_aux_jars_path: "file:///mnt/scripts/auxlib/json-serde-1.3.9-SNAPSHOT-jar-with-dependencies.jar"
     container_name: ${CONTAINER_UID}hive3-server
     expose:
       - "${HS_PORT}"
