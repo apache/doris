@@ -304,7 +304,7 @@ public class RemoteOlapInsertExecutor extends OlapInsertExecutor {
         // we will record the load job info for these 2 cases
         try {
             // Do not register job if job id is -1.
-            if (!Config.enable_nereids_load && jobId != -1) {
+            if (jobId != -1) {
                 ((RemoteOlapTable) table).getCatalog().getFeServiceClient().recordFinishedLoadJob(
                         labelName, txnId, database.getCatalog().getName(), database.getFullName(), table.getName(),
                         createTime, errMsg, coordinator.getTrackingUrl(), coordinator.getFirstErrorMsg(), jobId);
