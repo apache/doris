@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 
 #include "common/config.h"
 #include "core/value/vdatetime_value.h"
@@ -48,6 +49,10 @@ inline PURE bool is_fixed_two_digit_ascii(const char* ptr) {
     return static_cast<unsigned>(ptr[0] - '0') < 10 && static_cast<unsigned>(ptr[1] - '0') < 10;
 }
 
+inline PURE bool is_fixed_four_digit_ascii(const char* ptr) {
+    return is_fixed_two_digit_ascii(ptr) && is_fixed_two_digit_ascii(ptr + 2);
+}
+
 inline PURE uint32_t parse_fixed_two_digit_ascii(const char* ptr) {
     return (ptr[0] - '0') * 10 + (ptr[1] - '0');
 }
@@ -61,8 +66,8 @@ inline DatelikeFastParseResult try_parse_fixed_canonical_datelike_prefix(const c
                                                                          size_t size,
                                                                          T& res) {
     if (size < 10 || ptr[4] != '-' || ptr[7] != '-' ||
-        !is_fixed_two_digit_ascii(ptr) || !is_fixed_two_digit_ascii(ptr + 2) ||
-        !is_fixed_two_digit_ascii(ptr + 5) || !is_fixed_two_digit_ascii(ptr + 8)) {
+        !is_fixed_four_digit_ascii(ptr) || !is_fixed_two_digit_ascii(ptr + 5) ||
+        !is_fixed_two_digit_ascii(ptr + 8)) {
         return DatelikeFastParseResult::FAIL;
     }
 
