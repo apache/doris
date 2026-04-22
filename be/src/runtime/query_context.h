@@ -199,12 +199,8 @@ public:
     TUniqueId query_id() const { return _query_id; }
 
     // Expose task-level query progress counters for runtime statistics reporting.
-    int get_total_task_num() const {
-        return _total_task_num.load(std::memory_order_relaxed);
-    }
-    int get_finished_task_num() const {
-        return _finished_task_num.load(std::memory_order_relaxed);
-    }
+    int get_total_task_num() const { return _total_task_num.load(std::memory_order_relaxed); }
+    int get_finished_task_num() const { return _finished_task_num.load(std::memory_order_relaxed); }
     void add_total_task_num(int delta);
     void inc_finished_task_num();
 
