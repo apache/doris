@@ -3411,11 +3411,11 @@ public class Config extends ConfigBase {
     @ConfField(masterOnly = true, description = {"存算分离模式下tablet均衡时，是否开启活跃tablet优先调度策略，默认打开"
             + "When tablets are being balanced in compute-storage separation mode, "
             + "is the active tablet priority scheduling strategy enabled?  (Default: Enabled)"})
-    public static boolean enable_cloud_active_tablet_priority_scheduling = true;
+    public static boolean enable_cloud_active_tablet_priority_scheduling = false;
 
     @ConfField(masterOnly = true, description = {"是否启用活跃tablet滑动窗口访问统计功能，默认打开",
             "Whether to enable active tablet sliding window access statistics feature, default true"})
-    public static boolean enable_active_tablet_sliding_window_access_stats = true;
+    public static boolean enable_active_tablet_sliding_window_access_stats = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {"活跃tablet滑动窗口访问统计的时间窗口大小（秒），默认3600秒（1小时）",
             "Time window size in seconds for active tablet sliding window access statistics, "
