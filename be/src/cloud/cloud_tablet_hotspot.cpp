@@ -24,8 +24,8 @@
 #include <mutex>
 #include <vector>
 
-#include "runtime/memory/global_memory_arbitrator.h"
 #include "olap/base_tablet.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 
 namespace doris {
 
