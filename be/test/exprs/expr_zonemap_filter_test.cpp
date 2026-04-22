@@ -232,8 +232,8 @@ public:
 
     const std::string& expr_name() const override { return _expr_name; }
 
-    Status execute_column(VExprContext*, const Block*, Selector*, size_t,
-                          ColumnPtr&) const override {
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
         return Status::InternalError("FixedZonemapExpr is only used by zonemap tests");
     }
 
@@ -299,8 +299,8 @@ public:
 
     const std::string& expr_name() const override { return _expr_name; }
 
-    Status execute_column(VExprContext*, const Block*, Selector*, size_t,
-                          ColumnPtr&) const override {
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
         return Status::InternalError("UnsupportedSingleSlotExpr is only used by zonemap tests");
     }
 
