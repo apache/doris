@@ -22,11 +22,13 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.hint.OrderedHint;
+import org.apache.doris.nereids.hint.UniqueKeysHint;
 import org.apache.doris.nereids.hint.UseCboRuleHint;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
 import org.apache.doris.nereids.properties.SelectHintSetVar;
+import org.apache.doris.nereids.properties.SelectHintUniqueKeys;
 import org.apache.doris.nereids.properties.SelectHintUseCboRule;
 import org.apache.doris.nereids.properties.SelectHintUseMv;
 import org.apache.doris.nereids.rules.Rule;
@@ -39,6 +41,10 @@ import org.apache.doris.qe.SessionVariable;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * eliminate logical select hint and set them to cascade context
@@ -73,6 +79,8 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
                     extractMv((SelectHintUseMv) hint, ConnectContext.get().getStatementContext());
                 } else if (hintName.equalsIgnoreCase("NO_USE_MV")) {
                     extractMv((SelectHintUseMv) hint, ConnectContext.get().getStatementContext());
+                } else if (hintName.equalsIgnoreCase("UNIQUE_KEYS")) {
+                    extractUniqueKeys((SelectHintUniqueKeys) hint, ctx.statementContext);
                 } else {
                     logger.warn("Can not process select hint '{}' and skip it", hint.getHintName());
                 }
@@ -137,6 +145,30 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
             }
         }
         statementContext.addHint(useMvHint);
+    }
+
+    private void extractUniqueKeys(SelectHintUniqueKeys selectHint, StatementContext statementContext) {
+        Map<String, List<List<String>>> uniqueKeysByTable = new HashMap<>();
+        for (Map.Entry<String, List<List<String>>> entry : selectHint.getUniqueKeys().entrySet()) {
+            String tableName = UniqueKeysHint.normalizeQualifiedName(entry.getKey());
+            if (!UniqueKeysHint.isQualifiedName(tableName)) {
+                logger.warn(
+                        "UNIQUE_KEYS only supports qualified table scope, "
+                                + "expected catalog.db.table but got table_ref={}", entry.getKey());
+                continue;
+            }
+            if (entry.getValue() == null || entry.getValue().isEmpty()) {
+                logger.warn("UNIQUE_KEYS has no column list for table_ref={}", entry.getKey());
+                continue;
+            }
+            uniqueKeysByTable.put(tableName, entry.getValue());
+        }
+        if (uniqueKeysByTable.isEmpty()) {
+            logger.warn("UNIQUE_KEYS has no valid table_ref definitions");
+        }
+        UniqueKeysHint hint = new UniqueKeysHint(selectHint.getHintName(),
+                uniqueKeysByTable, selectHint.toString());
+        statementContext.addHint(hint);
     }
 
 }

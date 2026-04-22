@@ -513,6 +513,7 @@ import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
 import org.apache.doris.nereids.properties.SelectHintOrdered;
 import org.apache.doris.nereids.properties.SelectHintSetVar;
+import org.apache.doris.nereids.properties.SelectHintUniqueKeys;
 import org.apache.doris.nereids.properties.SelectHintUseCboRule;
 import org.apache.doris.nereids.properties.SelectHintUseMv;
 import org.apache.doris.nereids.trees.TableSample;
@@ -4558,6 +4559,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return tableList;
     }
 
+    private List<String> parseUniqueKeyColumnList(String value) {
+        List<String> columns = new ArrayList<>();
+        for (String rawColumn : value.split(",")) {
+            String column = rawColumn.trim();
+            if (!column.isEmpty()) {
+                columns.add(column);
+            }
+        }
+        return columns;
+    }
+
     private LogicalPlan withHints(LogicalPlan logicalPlan, List<ParserRuleContext> selectHintContexts,
             List<ParserRuleContext> preAggOnHintContexts) {
         if (selectHintContexts.isEmpty() && preAggOnHintContexts.isEmpty()) {
@@ -4640,6 +4652,32 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             break;
                         case "ordered":
                             hints.add(new SelectHintOrdered(hintName));
+                            break;
+                        case "unique_keys":
+                            Map<String, List<List<String>>> uniqueKeys = Maps.newLinkedHashMap();
+                            for (HintAssignmentContext kv : hintStatement.parameters) {
+                                if (kv.key == null) {
+                                    continue;
+                                }
+                                Object table = visit(kv.key);
+                                if (!(table instanceof String)) {
+                                    continue;
+                                }
+                                String tableRef = (String) table;
+                                Optional<String> value = Optional.empty();
+                                if (kv.constantValue != null) {
+                                    Literal literal = (Literal) visit(kv.constantValue);
+                                    value = Optional.ofNullable(literal.toLegacyLiteral().getStringValue());
+                                } else if (kv.identifierValue != null) {
+                                    value = Optional.ofNullable(kv.identifierValue.getText());
+                                }
+                                if (!value.isPresent()) {
+                                    continue;
+                                }
+                                uniqueKeys.computeIfAbsent(tableRef, k -> new ArrayList<>())
+                                        .add(parseUniqueKeyColumnList(value.get()));
+                            }
+                            hints.add(new SelectHintUniqueKeys(hintName, uniqueKeys));
                             break;
                         case "use_cbo_rule":
                             List<String> useRuleParameters = new ArrayList<>();

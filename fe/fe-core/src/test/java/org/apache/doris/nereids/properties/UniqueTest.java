@@ -45,6 +45,12 @@ class UniqueTest extends TestWithFeService {
                 + "UNIQUE KEY(id)\n"
                 + "distributed by hash(id) buckets 10\n"
                 + "properties('replication_num' = '1');");
+        createTable("create table test.dup_hint (\n"
+                + "id int,\n"
+                + "v int)\n"
+                + "DUPLICATE KEY(id)\n"
+                + "distributed by hash(id) buckets 10\n"
+                + "properties('replication_num' = '1');");
         connectContext.setDatabase("test");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
@@ -394,5 +400,38 @@ class UniqueTest extends TestWithFeService {
                 .getPlan();
         Assertions.assertTrue(plan.getLogicalProperties()
                 .getTrait().isUniqueAndNotNull(plan.getOutputSet()));
+    }
+
+    @Test
+    void testUniqueKeysHint() {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("select id from dup_hint")
+                .rewrite()
+                .getPlan();
+        Assertions.assertFalse(plan.getLogicalProperties().getTrait().isUnique(plan.getOutput().get(0)));
+
+        plan = PlanChecker.from(connectContext)
+                .analyze("select /*+ UNIQUE_KEYS('internal.test.dup_hint'='id') */ id from dup_hint")
+                .rewrite()
+                .getPlan();
+        Assertions.assertTrue(plan.getLogicalProperties().getTrait().isUnique(plan.getOutput().get(0)));
+
+        plan = PlanChecker.from(connectContext)
+                .analyze("select /*+ UNIQUE_KEYS('dup_hint'='id') */ id from dup_hint")
+                .rewrite()
+                .getPlan();
+        Assertions.assertFalse(plan.getLogicalProperties().getTrait().isUnique(plan.getOutput().get(0)));
+
+        plan = PlanChecker.from(connectContext)
+                .analyze("select /*+ UNIQUE_KEYS('internal.test.dup_hint'='not_exists') */ id from dup_hint")
+                .rewrite()
+                .getPlan();
+        Assertions.assertFalse(plan.getLogicalProperties().getTrait().isUnique(plan.getOutput().get(0)));
+
+        plan = PlanChecker.from(connectContext)
+                .analyze("select /*+ UNIQUE_KEYS('dup_hint'='id', 'internal.test.dup_hint'='id') */ id from dup_hint")
+                .rewrite()
+                .getPlan();
+        Assertions.assertTrue(plan.getLogicalProperties().getTrait().isUnique(plan.getOutput().get(0)));
     }
 }

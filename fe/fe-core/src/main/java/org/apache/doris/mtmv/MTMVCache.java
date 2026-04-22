@@ -32,6 +32,7 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.rules.rewrite.EliminateSort;
 import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
+import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -50,6 +51,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 /**
  * The cache for materialized view cache
@@ -142,12 +144,26 @@ public class MTMVCache {
                     .orElse(rewritePlan);
             Pair<Plan, StructInfo> finalPlanStructInfoPair = constructPlanAndStructInfo(
                     addGuardRewritePlan, cascadesContext);
+            // Materialize data traits explicitly because trait derivation is lazy.
+            // Otherwise, when `getTrait()` is evaluated later, the statement context may
+            // no longer be the MTMV definition context and could instead belong to another
+            // statement, such as the user's query. In that case, hints in the MTMV query
+            // are no longer available.
+            // Since uniqueness information is also derived from hints in the MTMV query, we
+            // materialize data traits here. This may slightly increase the cost of cache
+            // construction.
+            materializeLogicalTraits(addGuardRewritePlan);
+            materializeLogicalTraits(finalPlanStructInfoPair.key());
             List<Pair<Plan, StructInfo>> tmpPlanUsedForRewrite = new ArrayList<>();
             for (Plan plan : cascadesContext.getStatementContext().getTmpPlanForMvRewrite()) {
                 Plan addGuardplan = exprRewriter
                         .map(rewriter -> SessionVarGuardRewriter.rewritePlanTree(rewriter, plan))
                         .orElse(plan);
-                tmpPlanUsedForRewrite.add(constructPlanAndStructInfo(addGuardplan, cascadesContext));
+                Pair<Plan, StructInfo> tmpPlanAndStructInfo = constructPlanAndStructInfo(addGuardplan, cascadesContext);
+                // tmp plans contain intermediate plans that are also used in MV rewrite/matching
+                materializeLogicalTraits(addGuardplan);
+                materializeLogicalTraits(tmpPlanAndStructInfo.key());
+                tmpPlanUsedForRewrite.add(tmpPlanAndStructInfo);
             }
             return new MTMVCache(finalPlanStructInfoPair, addGuardRewritePlan, needCost
                     ? cascadesContext.getMemo().getRoot().getStatistics() : null, tmpPlanUsedForRewrite);
@@ -160,6 +176,11 @@ public class MTMVCache {
             }
         }
     }
+
+    private static void materializeLogicalTraits(Plan plan) {
+        plan.foreach((Consumer<TreeNode<Plan>>) node -> ((Plan) node).getLogicalProperties().getTrait());
+    }
+
 
     // Eliminate result sink because sink operator is useless in query rewrite by materialized view
     // and the top sort can also be removed

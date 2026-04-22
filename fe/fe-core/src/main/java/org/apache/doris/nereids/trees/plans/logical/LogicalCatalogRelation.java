@@ -27,6 +27,8 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.hint.UniqueKeysHint;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.FdFactory;
@@ -184,6 +186,16 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
         for (UniqueConstraint c : table.getUniqueConstraints()) {
             Set<Column> columns = c.getUniqueKeys(table);
             builder.addUniqueSlot((ImmutableSet) findSlotsByColumn(outputSet, columns));
+        }
+
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getStatementContext() != null) {
+            // UNIQUE_KEYS hints are replayed from SQL and attached to the current statement context.
+            for (Hint hint : connectContext.getStatementContext().getHints()) {
+                if (hint instanceof UniqueKeysHint) {
+                    ((UniqueKeysHint) hint).addUniqueSlotsIfMatched(table, qualifiedName(), outputSet, builder);
+                }
+            }
         }
     }
 
