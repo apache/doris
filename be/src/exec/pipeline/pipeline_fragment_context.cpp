@@ -1074,8 +1074,11 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
             return Status::InternalError("Missing data buffer sink.");
         }
 
-        _sink = std::make_shared<ResultSinkOperatorX>(next_sink_operator_id(), row_desc,
-                                                      output_exprs, thrift_sink.result_sink);
+        auto& pipeline = _pipelines[cur_pipeline_id];
+        int child_node_id = pipeline->operators().back()->node_id();
+        _sink = std::make_shared<ResultSinkOperatorX>(next_sink_operator_id(), child_node_id + 1,
+                                                      row_desc, output_exprs,
+                                                      thrift_sink.result_sink);
         break;
     }
     case TDataSinkType::DICTIONARY_SINK: {
@@ -1089,14 +1092,16 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
     }
     case TDataSinkType::GROUP_COMMIT_OLAP_TABLE_SINK:
     case TDataSinkType::OLAP_TABLE_SINK: {
+        auto& pipeline = _pipelines[cur_pipeline_id];
+        int child_node_id = pipeline->operators().back()->node_id();
         if (state->query_options().enable_memtable_on_sink_node &&
             !_has_inverted_index_v1_or_partial_update(thrift_sink.olap_table_sink) &&
             !config::is_cloud_mode()) {
-            _sink = std::make_shared<OlapTableSinkV2OperatorX>(pool, next_sink_operator_id(),
-                                                               row_desc, output_exprs);
+            _sink = std::make_shared<OlapTableSinkV2OperatorX>(
+                    pool, next_sink_operator_id(), child_node_id + 1, row_desc, output_exprs);
         } else {
-            _sink = std::make_shared<OlapTableSinkOperatorX>(pool, next_sink_operator_id(),
-                                                             row_desc, output_exprs);
+            _sink = std::make_shared<OlapTableSinkOperatorX>(
+                    pool, next_sink_operator_id(), child_node_id + 1, row_desc, output_exprs);
         }
         break;
     }
