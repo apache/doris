@@ -78,6 +78,9 @@
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "format/text/text_reader.h"
+#ifdef BUILD_RUST_READERS
+#include "format/lance/lance_rust_reader.h"
+#endif
 #include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/io_common.h"
@@ -866,6 +869,12 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
                                                   io_ctx.get(), io_ctx);
             break;
         }
+#ifdef BUILD_RUST_READERS
+        case TFileFormatType::FORMAT_LANCE: {
+            reader = LanceRustReader::create_unique(params, range, io_ctx.get());
+            break;
+        }
+#endif
         default:
             st = Status::InternalError("Not supported file format in fetch table schema: {}",
                                        params.format_type);

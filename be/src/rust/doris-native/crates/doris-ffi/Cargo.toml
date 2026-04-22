@@ -15,20 +15,33 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# where to put generated libraries
-set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/format")
+[package]
+name = "doris-ffi"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
 
-# where to put generated binaries
-set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/format")
+[lib]
+# "lib" is needed so `cargo test` can link the test harness.
+# "staticlib" produces the .a for C++ linkage.
+crate-type = ["staticlib", "lib"]
 
-file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS *.cpp)
+[dependencies]
+lance = { workspace = true }
+lance-io = { workspace = true }
+lance-index = { workspace = true }
+lance-linalg = { workspace = true }
+arrow = { workspace = true }
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
-# Lance reader requires Rust static library (BUILD_RUST_READERS=ON)
-if (NOT BUILD_RUST_READERS)
-    file(GLOB_RECURSE LANCE_FILES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/lance/*.cpp)
-    list(REMOVE_ITEM SRC_FILES ${LANCE_FILES})
-endif()
+[build-dependencies]
+cc = "1"
 
-add_library(Format STATIC ${SRC_FILES})
-
-pch_reuse(Format)
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
