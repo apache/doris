@@ -41,6 +41,7 @@
 #include <memory>
 #include <numeric>
 #include <ostream>
+#include <set>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -1764,6 +1765,15 @@ void MetaServiceImpl::commit_restore_job(::google::protobuf::RpcController* cont
     TabletStats tablet_stat;
     int64_t converted_rowset_num = 0;
     int32_t max_batch_size = config::max_restore_job_rowsets_per_batch;
+    // Track schema keys for which `put_schema_kv_on_restore` has already been
+    // invoked within this RPC, so the same (index_id, schema_version) does not
+    // issue redundant FDB reads/writes across rowsets. Only covers the
+    // `meta_schema_key` path; `put_versioned_schema_kv` remains independent.
+    std::set<std::string> restored_schema_keys;
+    int64_t rs_meta_schema_put_cnt = 0;
+    int64_t rs_meta_schema_skip_cnt = 0;
+    int64_t tablet_meta_schema_put_cnt = 0;
+    int64_t tablet_meta_schema_skip_cnt = 0;
     for (size_t i = 0; i < restore_job_rs_metas.size(); i += max_batch_size) {
         size_t end = (i + max_batch_size) > restore_job_rs_metas.size()
                              ? restore_job_rs_metas.size()
@@ -1791,9 +1801,16 @@ void MetaServiceImpl::commit_restore_job(::google::protobuf::RpcController* cont
                         return;
                     }
                 }
-                put_schema_kv(code, msg, txn.get(), schema_key, rowset_meta.tablet_schema());
-                if (code != MetaServiceCode::OK) {
-                    return;
+                if (restored_schema_keys.count(schema_key) == 0) {
+                    put_schema_kv_on_restore(code, msg, txn.get(), schema_key,
+                                             rowset_meta.tablet_schema());
+                    if (code != MetaServiceCode::OK) {
+                        return;
+                    }
+                    restored_schema_keys.insert(schema_key);
+                    ++rs_meta_schema_put_cnt;
+                } else {
+                    ++rs_meta_schema_skip_cnt;
                 }
                 if (is_versioned_write) {
                     std::string versioned_schema_key = versioned::meta_schema_key(
@@ -2052,8 +2069,14 @@ void MetaServiceImpl::commit_restore_job(::google::protobuf::RpcController* cont
             fix_column_type(tablet_meta->mutable_schema());
             auto schema_key = meta_schema_key(
                     {instance_id, tablet_meta->index_id(), tablet_meta->schema_version()});
-            put_schema_kv(code, msg, txn0.get(), schema_key, tablet_meta->schema());
-            if (code != MetaServiceCode::OK) return;
+            if (restored_schema_keys.count(schema_key) == 0) {
+                put_schema_kv_on_restore(code, msg, txn0.get(), schema_key, tablet_meta->schema());
+                if (code != MetaServiceCode::OK) return;
+                restored_schema_keys.insert(schema_key);
+                ++tablet_meta_schema_put_cnt;
+            } else {
+                ++tablet_meta_schema_skip_cnt;
+            }
 
             bool is_versioned_write = is_version_write_enabled(instance_id);
             if (is_versioned_write) {
@@ -2161,7 +2184,11 @@ void MetaServiceImpl::commit_restore_job(::google::protobuf::RpcController* cont
             .tag("tablet_id", tablet_idx.tablet_id())
             .tag("state", restore_job_pb.state())
             .tag("mtime_s", restore_job_pb.mtime_s())
-            .tag("committed_rowset_num", converted_rowset_num);
+            .tag("committed_rowset_num", converted_rowset_num)
+            .tag("rs_meta_schema_put_cnt", rs_meta_schema_put_cnt)
+            .tag("rs_meta_schema_skip_cnt", rs_meta_schema_skip_cnt)
+            .tag("tablet_meta_schema_put_cnt", tablet_meta_schema_put_cnt)
+            .tag("tablet_meta_schema_skip_cnt", tablet_meta_schema_skip_cnt);
     err = txn0->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);

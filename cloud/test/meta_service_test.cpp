@@ -35,10 +35,12 @@
 #include <thread>
 
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service_helper.h"
+#include "meta-service/meta_service_schema.h"
 #include "meta-store/blob_message.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
@@ -13211,6 +13213,329 @@ TEST(MetaServiceTest, CleanTxnLabelVersionedWriteMixedTxns) {
         ASSERT_EQ(label_pb.txn_ids_size(), 1);
         ASSERT_EQ(label_pb.txn_ids(0), txn_ids[1]);
     }
+}
+
+// =============================================================================
+// Tests for put_schema_kv_on_restore().
+//
+// Background: when restoring a table with `light_schema_change = false` in
+// cloud mode, create_tablet writes a schema whose columns all have
+// `unique_id = -1`. The subsequent commit_restore_job receives the correct
+// schema from the backup's rowset meta and must overwrite that broken one.
+// The original put_schema_kv() is a no-op when the key already exists, so
+// the broken schema leaks through. put_schema_kv_on_restore() fixes this,
+// and also defensively refuses to replace a broken schema with another
+// broken one.
+// =============================================================================
+
+namespace {
+
+// Builds a TabletSchemaCloudPB whose columns all have unique_id == -1.
+// Simulates the schema that create_tablet seeds for light_schema_change=false.
+doris::TabletSchemaCloudPB make_broken_schema(int32_t schema_version) {
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(schema_version);
+    for (int i = 0; i < 3; ++i) {
+        auto* col = schema.add_column();
+        col->set_unique_id(-1);
+        col->set_name("c" + std::to_string(i));
+        col->set_type("INT");
+    }
+    return schema;
+}
+
+// Builds a TabletSchemaCloudPB with valid unique_ids (>= 0). Simulates a
+// schema loaded from a backup's rowset meta.
+doris::TabletSchemaCloudPB make_good_schema(int32_t schema_version) {
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(schema_version);
+    for (int i = 0; i < 3; ++i) {
+        auto* col = schema.add_column();
+        col->set_unique_id(1000 + i);
+        col->set_name("c" + std::to_string(i));
+        col->set_type("INT");
+    }
+    return schema;
+}
+
+// Seed a schema KV directly, mirroring put_schema_kv's write path so that
+// blob_get can later read it back regardless of meta_schema_value_version.
+void seed_schema_kv(MetaServiceProxy* meta_service, std::string_view schema_key,
+                    const doris::TabletSchemaCloudPB& schema) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    uint8_t ver = config::meta_schema_value_version;
+    if (ver > 0) {
+        cloud::blob_put(txn.get(), schema_key, schema, ver);
+    } else {
+        txn->put(schema_key, schema.SerializeAsString());
+    }
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+}
+
+// Read back a schema KV and parse it into *out. Returns the err from blob_get.
+TxnErrorCode read_schema_kv(MetaServiceProxy* meta_service, std::string_view schema_key,
+                            doris::TabletSchemaCloudPB* out) {
+    std::unique_ptr<Transaction> txn;
+    EXPECT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ValueBuf buf;
+    auto err = cloud::blob_get(txn.get(), schema_key, &buf);
+    if (err == TxnErrorCode::TXN_OK) {
+        EXPECT_TRUE(parse_schema_value(buf, out));
+    }
+    return err;
+}
+
+} // namespace
+
+TEST(PutSchemaKvOnRestoreTest, PutWhenKeyNotExist) {
+    auto meta_service = get_meta_service();
+    std::string instance_id = "put_schema_kv_on_restore_case1";
+
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    const int64_t index_id = 30001;
+    const int32_t schema_version = 5;
+    const int8_t saved_ver = config::meta_schema_value_version;
+    config::meta_schema_value_version = 0;
+    DORIS_CLOUD_DEFER {
+        config::meta_schema_value_version = saved_ver;
+    };
+
+    auto schema_key = meta_schema_key({instance_id, index_id, schema_version});
+    auto good = make_good_schema(schema_version);
+
+    // Precondition: key does not exist.
+    {
+        doris::TabletSchemaCloudPB tmp;
+        ASSERT_EQ(read_schema_kv(meta_service.get(), schema_key, &tmp),
+                  TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    MetaServiceCode code = MetaServiceCode::OK;
+    std::string msg;
+    put_schema_kv_on_restore(code, msg, txn.get(), schema_key, good);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    doris::TabletSchemaCloudPB got;
+    ASSERT_EQ(read_schema_kv(meta_service.get(), schema_key, &got), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(got.column_size(), good.column_size());
+    for (int i = 0; i < got.column_size(); ++i) {
+        EXPECT_EQ(got.column(i).unique_id(), good.column(i).unique_id()) << i;
+    }
+}
+
+TEST(PutSchemaKvOnRestoreTest, NoopWhenExistingSchemaIsGood) {
+    auto meta_service = get_meta_service();
+    std::string instance_id = "put_schema_kv_on_restore_case2";
+
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    const int64_t index_id = 30002;
+    const int32_t schema_version = 7;
+    const int8_t saved_ver = config::meta_schema_value_version;
+    config::meta_schema_value_version = 0;
+    DORIS_CLOUD_DEFER {
+        config::meta_schema_value_version = saved_ver;
+    };
+
+    auto schema_key = meta_schema_key({instance_id, index_id, schema_version});
+    auto existing_good = make_good_schema(schema_version);
+    existing_good.mutable_column(0)->set_unique_id(9999); // distinctive sentinel
+    ASSERT_NO_FATAL_FAILURE(seed_schema_kv(meta_service.get(), schema_key, existing_good));
+
+    auto incoming = make_good_schema(schema_version);
+    ASSERT_NE(incoming.column(0).unique_id(), existing_good.column(0).unique_id());
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    MetaServiceCode code = MetaServiceCode::OK;
+    std::string msg;
+    put_schema_kv_on_restore(code, msg, txn.get(), schema_key, incoming);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    doris::TabletSchemaCloudPB got;
+    ASSERT_EQ(read_schema_kv(meta_service.get(), schema_key, &got), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(got.column_size(), existing_good.column_size());
+    EXPECT_EQ(got.column(0).unique_id(), 9999); // unchanged sentinel
+}
+
+TEST(PutSchemaKvOnRestoreTest, OverwriteWhenExistingIsBroken) {
+    auto meta_service = get_meta_service();
+    std::string instance_id = "put_schema_kv_on_restore_case3";
+
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    const int64_t index_id = 30003;
+    const int32_t schema_version = 3;
+    const int8_t saved_ver = config::meta_schema_value_version;
+    config::meta_schema_value_version = 0;
+    DORIS_CLOUD_DEFER {
+        config::meta_schema_value_version = saved_ver;
+    };
+
+    auto schema_key = meta_schema_key({instance_id, index_id, schema_version});
+    ASSERT_NO_FATAL_FAILURE(
+            seed_schema_kv(meta_service.get(), schema_key, make_broken_schema(schema_version)));
+
+    // Sanity: existing is indeed broken.
+    {
+        doris::TabletSchemaCloudPB tmp;
+        ASSERT_EQ(read_schema_kv(meta_service.get(), schema_key, &tmp), TxnErrorCode::TXN_OK);
+        ASSERT_GT(tmp.column_size(), 0);
+        ASSERT_EQ(tmp.column(0).unique_id(), -1);
+    }
+
+    auto good = make_good_schema(schema_version);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    MetaServiceCode code = MetaServiceCode::OK;
+    std::string msg;
+    put_schema_kv_on_restore(code, msg, txn.get(), schema_key, good);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    doris::TabletSchemaCloudPB got;
+    ASSERT_EQ(read_schema_kv(meta_service.get(), schema_key, &got), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(got.column_size(), good.column_size());
+    for (int i = 0; i < got.column_size(); ++i) {
+        EXPECT_GE(got.column(i).unique_id(), 0) << i;
+        EXPECT_EQ(got.column(i).unique_id(), good.column(i).unique_id()) << i;
+    }
+}
+
+TEST(PutSchemaKvOnRestoreTest, DefensiveSkipWhenIncomingHasEmptyColumns) {
+    auto meta_service = get_meta_service();
+    std::string instance_id = "put_schema_kv_on_restore_case4";
+
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    const int64_t index_id = 30004;
+    const int32_t schema_version = 1;
+    const int8_t saved_ver = config::meta_schema_value_version;
+    config::meta_schema_value_version = 0;
+    DORIS_CLOUD_DEFER {
+        config::meta_schema_value_version = saved_ver;
+    };
+
+    auto schema_key = meta_schema_key({instance_id, index_id, schema_version});
+    ASSERT_NO_FATAL_FAILURE(
+            seed_schema_kv(meta_service.get(), schema_key, make_broken_schema(schema_version)));
+
+    // Snapshot the existing raw bytes so we can prove they are untouched.
+    std::string original_bytes;
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(schema_key, &original_bytes), TxnErrorCode::TXN_OK);
+    }
+
+    // Incoming schema has no columns — defensive guard must reject it.
+    doris::TabletSchemaCloudPB incoming_empty;
+    incoming_empty.set_schema_version(schema_version);
+    ASSERT_EQ(incoming_empty.column_size(), 0);
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    MetaServiceCode code = MetaServiceCode::OK;
+    std::string msg;
+    put_schema_kv_on_restore(code, msg, txn.get(), schema_key, incoming_empty);
+    EXPECT_EQ(code, MetaServiceCode::OK) << msg; // defensive skip returns OK + LOG(WARNING)
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    std::string after_bytes;
+    {
+        std::unique_ptr<Transaction> txn2;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn2), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn2->get(schema_key, &after_bytes), TxnErrorCode::TXN_OK);
+    }
+    EXPECT_EQ(original_bytes, after_bytes);
+}
+
+TEST(PutSchemaKvOnRestoreTest, DefensiveSkipWhenIncomingHasUidNegativeOne) {
+    auto meta_service = get_meta_service();
+    std::string instance_id = "put_schema_kv_on_restore_case5";
+
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    const int64_t index_id = 30005;
+    const int32_t schema_version = 2;
+    const int8_t saved_ver = config::meta_schema_value_version;
+    config::meta_schema_value_version = 0;
+    DORIS_CLOUD_DEFER {
+        config::meta_schema_value_version = saved_ver;
+    };
+
+    auto schema_key = meta_schema_key({instance_id, index_id, schema_version});
+    auto existing_broken = make_broken_schema(schema_version);
+    existing_broken.mutable_column(0)->set_name("existing_broken_marker");
+    ASSERT_NO_FATAL_FAILURE(seed_schema_kv(meta_service.get(), schema_key, existing_broken));
+
+    auto incoming_broken = make_broken_schema(schema_version);
+    incoming_broken.mutable_column(0)->set_name("incoming_broken_marker");
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    MetaServiceCode code = MetaServiceCode::OK;
+    std::string msg;
+    put_schema_kv_on_restore(code, msg, txn.get(), schema_key, incoming_broken);
+    EXPECT_EQ(code, MetaServiceCode::OK) << msg;
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    doris::TabletSchemaCloudPB got;
+    ASSERT_EQ(read_schema_kv(meta_service.get(), schema_key, &got), TxnErrorCode::TXN_OK);
+    ASSERT_GT(got.column_size(), 0);
+    EXPECT_EQ(got.column(0).unique_id(), -1);
+    EXPECT_EQ(got.column(0).name(), "existing_broken_marker"); // unchanged
 }
 
 } // namespace doris::cloud

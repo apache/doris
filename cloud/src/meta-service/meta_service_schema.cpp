@@ -34,6 +34,7 @@
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-store/blob_message.h"
+#include "meta-store/codec.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
@@ -131,6 +132,57 @@ void put_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
         auto schema_value = schema.SerializeAsString();
         txn->put(schema_key, schema_value);
     }
+}
+
+void put_schema_kv_on_restore(MetaServiceCode& code, std::string& msg, Transaction* txn,
+                              std::string_view schema_key,
+                              const doris::TabletSchemaCloudPB& schema) {
+    // Decide whether we need to (re)write the schema at this key.
+    bool need_put = false;
+    ValueBuf val_buf;
+    TxnErrorCode err = cloud::blob_get(txn, schema_key, &val_buf);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        need_put = true;
+    } else if (err == TxnErrorCode::TXN_OK) {
+        // Overwrite if the existing schema value cannot be parsed, or if its
+        // first column has unique_id == -1 which is the signature of a broken
+        // schema written by create_tablet for a light_schema_change=false
+        // table during restore.
+        doris::TabletSchemaCloudPB saved_schema;
+        need_put = !parse_schema_value(val_buf, &saved_schema) ||
+                   (saved_schema.column_size() > 0 && saved_schema.column(0).unique_id() == -1);
+    } else {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get schema during restore, err={}", err);
+        return;
+    }
+    if (!need_put) {
+        return;
+    }
+    // Defensive check: refuse to overwrite with a schema that is itself
+    // broken (empty columns, or column(0).unique_id == -1). This guarantees
+    // we never replace a bad schema with another bad one. On rejection we
+    // only log, so callers can continue committing other work.
+    if (schema.column_size() == 0 || schema.column(0).unique_id() == -1) {
+        LOG_WARNING("skip put schema during restore, incoming schema is broken")
+                .tag("key", hex(schema_key))
+                .tag("column_size", schema.column_size());
+        return;
+    }
+    // `put_schema_kv` stores the schema as either a single KV (when
+    // meta_schema_value_version == 0) or multiple blob chunks keyed by
+    // `schema_key + encode_int64(ver << 56 + i)`. To clean up all possible
+    // existing chunks we do a range remove over `[schema_key, schema_key + INT64_MAX)`.
+    std::string schema_key_end(schema_key);
+    encode_int64(INT64_MAX, &schema_key_end);
+    txn->remove(schema_key, schema_key_end);
+    uint8_t ver = config::meta_schema_value_version;
+    if (ver > 0) {
+        cloud::blob_put(txn, schema_key, schema, ver);
+    } else {
+        txn->put(schema_key, schema.SerializeAsString());
+    }
+    LOG_INFO("put schema during restore").tag("key", hex(schema_key));
 }
 
 void put_versioned_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
