@@ -113,7 +113,8 @@ enum TFileFormatType {
     FORMAT_ARROW = 16,
     FORMAT_TEXT = 17,
     FORMAT_NATIVE = 18,
-    FORMAT_MULTIDATA = 19
+    FORMAT_LANCE = 19,
+    FORMAT_MULTIDATA = 20
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -427,6 +428,15 @@ struct TRemoteDorisFileDesc {
     6: optional string password
 }
 
+struct TLanceFileDesc {
+    // URI of the Lance dataset (s3://..., file:///..., etc.)
+    1: optional string dataset_uri
+    // Specific fragment IDs to read (for split-level parallelism)
+    2: optional list<i64> fragment_ids
+    // Dataset version for time travel
+    3: optional i64 version
+}
+
 struct TTableFormatFileDesc {
     1: optional string table_format_type
     2: optional TIcebergFileDesc iceberg_params
@@ -440,7 +450,8 @@ struct TTableFormatFileDesc {
     10: optional TRemoteDorisFileDesc remote_doris_params
     // JDBC connection parameters (used when table_format_type == "jdbc")
     11: optional map<string, string> jdbc_params
-    12: optional map<string, string> fileset_params
+    12: optional TLanceFileDesc lance_params
+    13: optional map<string, string> fileset_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type

@@ -57,6 +57,9 @@ STOP=0
 NEED_RESERVE_PORTS=0
 export NEED_LOAD_DATA=1
 export LOAD_PARALLEL=$(( $(getconf _NPROCESSORS_ONLN) / 2 ))
+export START_PROGRESS_INTERVAL="${START_PROGRESS_INTERVAL:-60}"
+export HIVE_HQL_PARALLEL="${HIVE_HQL_PARALLEL:-4}"
+export START_CLEANUP_ON_FAILURE="${START_CLEANUP_ON_FAILURE:-1}"
 export HIVE_MODE="${HIVE_MODE:-refresh}"
 export HIVE_MODULES="${HIVE_MODULES:-all}"
 HIVE_SHARED_ID="doris-shared"
@@ -172,9 +175,30 @@ fi
 echo "Components are: ${COMPONENTS}"
 echo "Container UID: ${CONTAINER_UID}"
 echo "Stop: ${STOP}"
+echo "Start progress interval: ${START_PROGRESS_INTERVAL}"
 echo "Hive mode: ${HIVE_MODE}"
 echo "Hive modules: ${HIVE_MODULES}"
+echo "Hive HQL parallel: ${HIVE_HQL_PARALLEL}"
 echo "Hive host alias: ${HIVE_HOST_ALIAS}"
+
+if ! [[ "${START_PROGRESS_INTERVAL}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Invalid start progress interval: ${START_PROGRESS_INTERVAL}"
+    usage
+fi
+
+if ! [[ "${HIVE_HQL_PARALLEL}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Invalid hive HQL parallel: ${HIVE_HQL_PARALLEL}"
+    usage
+fi
+
+case "${START_CLEANUP_ON_FAILURE}" in
+0|1)
+    ;;
+*)
+    echo "Invalid start cleanup on failure: ${START_CLEANUP_ON_FAILURE}"
+    usage
+    ;;
+esac
 
 case "${HIVE_MODE}" in
 fast|refresh|rebuild)
@@ -598,6 +622,7 @@ declare -A START_PIDS=()
 declare -A START_LOGS=()
 declare -A START_COMPOSE_FILES=()
 declare -A START_ENV_FILES=()
+declare -A START_DONE=()
 START_ORDER=()
 
 register_stack_metadata() {
@@ -661,7 +686,75 @@ register_job() {
 
     START_PIDS["${component}"]="${pid}"
     START_LOGS["${component}"]="${log_file}"
+    START_DONE["${component}"]=0
     START_ORDER+=("${component}")
+}
+
+cleanup_started_stacks() {
+    local component
+    local compose_file
+    local env_file
+    local i
+
+    [[ "${START_CLEANUP_ON_FAILURE}" -eq 1 ]] || return 0
+
+    for ((i = ${#START_ORDER[@]} - 1; i >= 0; --i)); do
+        component="${START_ORDER[$i]}"
+        compose_file="${START_COMPOSE_FILES["${component}"]:-}"
+        env_file="${START_ENV_FILES["${component}"]:-}"
+        [[ -n "${compose_file}" ]] || continue
+        echo "Cleaning component '${component}' after startup failure" >&2
+        compose_down_stack "${compose_file}" "${env_file}" --remove-orphans >/dev/null 2>&1 || true
+    done
+}
+
+wait_remaining_jobs_quietly() {
+    local component
+    local pid
+
+    for component in "${START_ORDER[@]}"; do
+        [[ "${START_DONE["${component}"]:-0}" -eq 0 ]] || continue
+        pid="${START_PIDS["${component}"]:-}"
+        [[ -n "${pid}" ]] || continue
+        wait "${pid}" >/dev/null 2>&1 || true
+        START_DONE["${component}"]=1
+    done
+}
+
+handle_start_failure() {
+    local component="$1"
+    local status="$2"
+
+    dump_start_failure "${component}" "${status}"
+    kill_running_jobs
+    wait_remaining_jobs_quietly
+    cleanup_started_stacks
+}
+
+collect_one_finished_job() {
+    local component
+    local pid
+    local status
+
+    for component in "${START_ORDER[@]}"; do
+        [[ "${START_DONE["${component}"]:-0}" -eq 0 ]] || continue
+        pid="${START_PIDS["${component}"]:-}"
+        [[ -n "${pid}" ]] || continue
+        if kill -0 "${pid}" >/dev/null 2>&1; then
+            continue
+        fi
+
+        status=0
+        wait "${pid}" || status=$?
+        START_DONE["${component}"]=1
+        if [[ "${status}" -ne 0 ]]; then
+            handle_start_failure "${component}" "${status}"
+            return 1
+        fi
+        return 0
+    done
+
+    return 2
 }
 
 launch_component() {
@@ -679,9 +772,34 @@ kill_running_jobs() {
     local pid
 
     for component in "${START_ORDER[@]}"; do
+        [[ "${START_DONE["${component}"]:-0}" -eq 0 ]] || continue
         pid="${START_PIDS["${component}"]:-}"
         [[ -n "${pid}" ]] || continue
         kill "${pid}" >/dev/null 2>&1 || true
+    done
+}
+
+print_wait_progress() {
+    local component
+    local pid
+    local log_file
+
+    echo "Still waiting for docker components:"
+    for component in "${START_ORDER[@]}"; do
+        [[ "${START_DONE["${component}"]:-0}" -eq 0 ]] || continue
+        pid="${START_PIDS["${component}"]:-}"
+        [[ -n "${pid}" ]] || continue
+        if ! kill -0 "${pid}" >/dev/null 2>&1; then
+            continue
+        fi
+
+        log_file="${START_LOGS["${component}"]:-}"
+        echo "  ${component} (pid=${pid}, log=${log_file})"
+        if [[ -n "${log_file}" && -f "${log_file}" ]]; then
+            echo "  ----- ${component} log tail -----"
+            tail -n 20 "${log_file}" || true
+            echo "  ----- end ${component} log tail -----"
+        fi
     done
 }
 
@@ -742,32 +860,37 @@ print_started_summary() {
 }
 
 wait_for_started_jobs() {
-    local remaining=("${START_ORDER[@]}")
-    local next_remaining=()
     local component
-    local pid
-    local status
+    local remaining_count
+    local collect_status
+    local last_progress_ts
+    local now_ts
 
-    while (( ${#remaining[@]} > 0 )); do
-        next_remaining=()
-        for component in "${remaining[@]}"; do
-            pid="${START_PIDS["${component}"]}"
-            if kill -0 "${pid}" >/dev/null 2>&1; then
-                next_remaining+=("${component}")
-                continue
-            fi
+    last_progress_ts="$(date +%s)"
 
-            status=0
-            wait "${pid}" || status=$?
-            if [[ "${status}" -ne 0 ]]; then
-                kill_running_jobs
-                dump_start_failure "${component}" "${status}"
-                return 1
+    while true; do
+        remaining_count=0
+        for component in "${START_ORDER[@]}"; do
+            if [[ "${START_DONE["${component}"]:-0}" -eq 0 ]]; then
+                remaining_count=$((remaining_count + 1))
             fi
         done
 
-        remaining=("${next_remaining[@]}")
-        if (( ${#remaining[@]} > 0 )); then
+        if (( remaining_count == 0 )); then
+            return 0
+        fi
+
+        collect_status=0
+        collect_one_finished_job || collect_status=$?
+        if [[ "${collect_status}" -eq 1 ]]; then
+            return 1
+        fi
+        if [[ "${collect_status}" -eq 2 ]]; then
+            now_ts="$(date +%s)"
+            if (( now_ts - last_progress_ts >= START_PROGRESS_INTERVAL )); then
+                print_wait_progress
+                last_progress_ts="${now_ts}"
+            fi
             sleep 1
         fi
     done
@@ -1159,6 +1282,7 @@ exec_hive_script() {
     sudo docker exec -i \
         -e HIVE_BOOTSTRAP_GROUPS="${HIVE_BOOTSTRAP_GROUPS}" \
         -e LOAD_PARALLEL="${LOAD_PARALLEL}" \
+        -e HIVE_HQL_PARALLEL="${HIVE_HQL_PARALLEL}" \
         -e HIVE_MODULES="${HIVE_MODULES}" \
         -e HIVE_BASELINE_VERSION="${HIVE_BASELINE_VERSION}" \
         -e HIVE_STATE_DIR="/mnt/state" \

@@ -763,6 +763,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PAIMON_CPP_READER = "enable_paimon_cpp_reader";
 
+    public static final String ENABLE_RUST_LANCE_READER = "enable_rust_lance_reader";
+
     public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
 
     public static final String FETCH_ALL_FE_FOR_SYSTEM_TABLE = "fetch_all_fe_for_system_table";
@@ -2872,6 +2874,12 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true,
             description = {"Paimon 非原生文件读取使用 paimon-cpp", "Use paimon-cpp for non-native Paimon reads"})
     private boolean enablePaimonCppReader = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_RUST_LANCE_READER,
+            fuzzy = true,
+            description = {"使用 Rust Lance 读取器读取 Lance 格式数据",
+                    "Use Rust-based Lance reader for Lance format data"})
+    private boolean enableRustLanceReader = false;
 
     @VarAttrDef.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
             fuzzy = true,
@@ -5498,6 +5506,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableOrcFilterByMinMax(enableOrcFilterByMinMax);
         tResult.setEnablePaimonCppReader(enablePaimonCppReader);
         tResult.setFilePresignedUrlTtlSeconds(filePresignedUrlTtlSeconds);
+        tResult.setEnableRustLanceReader(enableRustLanceReader);
         tResult.setEmbedMaxBatchSize(embedMaxBatchSize);
         tResult.setAiContextWindowSize(aiContextWindowSize);
         tResult.setCheckOrcInitSargsSuccess(checkOrcInitSargsSuccess);
