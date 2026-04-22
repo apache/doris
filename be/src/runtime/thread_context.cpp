@@ -32,8 +32,9 @@ void AttachTask::init(const std::shared_ptr<ResourceContext>& rc) {
     // code would silently propagate a null mem_tracker into
     // ThreadMemTrackerMgr and crash much later inside the allocator.
     if (UNLIKELY(rc == nullptr)) {
-        throw Exception(Status::FatalError("AttachTask::init: rc is null. signal_query_id={:x}-{:x}",
-                                           signal::query_id_hi, signal::query_id_lo));
+        throw Exception(
+                Status::FatalError("AttachTask::init: rc is null. signal_query_id={:x}-{:x}",
+                                   signal::query_id_hi, signal::query_id_lo));
     }
     if (UNLIKELY(rc->memory_context() == nullptr)) {
         throw Exception(Status::FatalError(
@@ -88,10 +89,10 @@ AttachTask::AttachTask(RuntimeState* runtime_state) {
                 signal::query_id_hi, signal::query_id_lo));
     }
     if (UNLIKELY(runtime_state->get_query_ctx()->resource_ctx() == nullptr)) {
-        throw Exception(Status::FatalError(
-                "AttachTask(RuntimeState*): query_ctx->resource_ctx() is null. "
-                "signal_query_id={:x}-{:x}",
-                signal::query_id_hi, signal::query_id_lo));
+        throw Exception(
+                Status::FatalError("AttachTask(RuntimeState*): query_ctx->resource_ctx() is null. "
+                                   "signal_query_id={:x}-{:x}",
+                                   signal::query_id_hi, signal::query_id_lo));
     }
     signal::set_signal_is_nereids(runtime_state->is_nereids());
     init(runtime_state->get_query_ctx()->resource_ctx());
@@ -115,9 +116,9 @@ SwitchResourceContext::SwitchResourceContext(const std::shared_ptr<ResourceConte
     // object's destructor (because construction failed) and leak the
     // handle / leave a stale signal task id behind.
     if (UNLIKELY(rc == nullptr)) {
-        throw Exception(Status::FatalError(
-                "SwitchResourceContext: rc is null. signal_query_id={:x}-{:x}",
-                signal::query_id_hi, signal::query_id_lo));
+        throw Exception(
+                Status::FatalError("SwitchResourceContext: rc is null. signal_query_id={:x}-{:x}",
+                                   signal::query_id_hi, signal::query_id_lo));
     }
     if (UNLIKELY(rc->memory_context() == nullptr)) {
         throw Exception(Status::FatalError(

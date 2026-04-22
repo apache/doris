@@ -89,9 +89,8 @@ void ThreadMemTrackerMgr::detach_limiter_tracker() {
         // Same noexcept-destructor rationale as above.
         LOG(FATAL) << "ThreadMemTrackerMgr::detach_limiter_tracker restored null limiter from "
                       "snapshot. stack_depth_before_pop="
-                   << _last_attach_snapshots_stack.size()
-                   << ", query_id=" << std::hex << doris::signal::query_id_hi << "-"
-                   << doris::signal::query_id_lo << std::dec;
+                   << _last_attach_snapshots_stack.size() << ", query_id=" << std::hex
+                   << doris::signal::query_id_hi << "-" << doris::signal::query_id_lo << std::dec;
     }
     _limiter_tracker_sptr = _last_attach_snapshots_stack.back().limiter_tracker;
     _limiter_tracker = _limiter_tracker_sptr.get();
