@@ -18,8 +18,8 @@
 #include "meta-service/meta_service_rate_limit_helper.h"
 
 #include <fmt/format.h>
+#include <sched.h>
 #include <sys/resource.h>
-#include <sys/sysinfo.h>
 
 #include <algorithm>
 #include <atomic>
@@ -28,17 +28,357 @@
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <filesystem>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <random>
+#include <sstream>
 #include <string>
+#include <string_view>
 #include <thread>
+#include <unordered_map>
+#include <vector>
 
 #include "common/config.h"
 #include "common/logging.h"
 
 namespace doris::cloud {
+namespace internal {
+namespace {
+constexpr std::string_view kProcSelfCgroupPath = "/proc/self/cgroup";
+constexpr std::string_view kProcSelfMountInfoPath = "/proc/self/mountinfo";
+constexpr std::string_view kCgroupRootPath = "/sys/fs/cgroup";
+}
+
+struct CgroupMemoryInfo {
+    int64_t limit_bytes;
+    int64_t usage_bytes;
+};
+
+std::optional<std::string> read_first_line(const std::filesystem::path& path) {
+    std::ifstream stream(path);
+    if (!stream.is_open()) {
+        return std::nullopt;
+    }
+    std::string line;
+    std::getline(stream, line);
+    if (stream.fail() || stream.bad()) {
+        return std::nullopt;
+    }
+    return line;
+}
+
+std::optional<int64_t> read_int64_line(const std::filesystem::path& path) {
+    auto line = read_first_line(path);
+    if (!line.has_value() || line->empty()) {
+        return std::nullopt;
+    }
+    try {
+        return std::stoll(*line);
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+std::unordered_map<std::string, int64_t> read_metrics_map(const std::filesystem::path& path) {
+    std::unordered_map<std::string, int64_t> metrics;
+    std::ifstream stream(path);
+    if (!stream.is_open()) {
+        return metrics;
+    }
+
+    std::string key;
+    int64_t value = 0;
+    while (stream >> key >> value) {
+        metrics[key] = value;
+    }
+    return metrics;
+}
+
+std::vector<std::string> split(std::string_view text, char delimiter) {
+    std::vector<std::string> parts;
+    size_t start = 0;
+    while (start <= text.size()) {
+        size_t end = text.find(delimiter, start);
+        if (end == std::string_view::npos) {
+            end = text.size();
+        }
+        parts.emplace_back(text.substr(start, end - start));
+        start = end + 1;
+    }
+    return parts;
+}
+
+bool cgroups_v2_enabled() {
+    return std::filesystem::exists(std::filesystem::path(kCgroupRootPath) / "cgroup.controllers");
+}
+
+std::optional<std::string> cgroup_v2_relative_path_of_process() {
+    auto line = read_first_line(std::filesystem::path(kProcSelfCgroupPath));
+    if (!line.has_value() || !line->starts_with("0::")) {
+        return std::nullopt;
+    }
+    return line->substr(3);
+}
+
+std::optional<std::filesystem::path> get_cgroup_v2_dir(const std::string& subsystem_file) {
+    if (!cgroups_v2_enabled()) {
+        return std::nullopt;
+    }
+    auto relative_path = cgroup_v2_relative_path_of_process();
+    if (!relative_path.has_value()) {
+        return std::nullopt;
+    }
+
+    const std::filesystem::path cgroup_root(kCgroupRootPath);
+    std::filesystem::path current =
+            cgroup_root / relative_path->substr(relative_path->starts_with('/') ? 1 : 0);
+    while (current != cgroup_root.parent_path()) {
+        if (std::filesystem::exists(current / subsystem_file)) {
+            return current;
+        }
+        current = current.parent_path();
+    }
+    return std::nullopt;
+}
+
+std::optional<std::string> get_cgroup_v1_process_path(const std::string& subsystem) {
+    std::ifstream stream(kProcSelfCgroupPath.data());
+    if (!stream.is_open()) {
+        return std::nullopt;
+    }
+
+    std::string line;
+    while (std::getline(stream, line)) {
+        auto fields = split(line, ':');
+        if (fields.size() != 3) {
+            continue;
+        }
+        auto controllers = split(fields[1], ',');
+        if (std::find(controllers.begin(), controllers.end(), subsystem) != controllers.end()) {
+            return fields[2];
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<std::pair<std::string, std::string>> get_cgroup_v1_mount(
+        const std::string& subsystem) {
+    std::ifstream stream(kProcSelfMountInfoPath.data());
+    if (!stream.is_open()) {
+        return std::nullopt;
+    }
+
+    std::string line;
+    while (std::getline(stream, line)) {
+        auto separator = line.find(" - ");
+        if (separator == std::string::npos) {
+            continue;
+        }
+        auto left = split(std::string_view(line).substr(0, separator), ' ');
+        auto right = split(std::string_view(line).substr(separator + 3), ' ');
+        if (left.size() < 5 || right.size() < 3 || right[0] != "cgroup") {
+            continue;
+        }
+        auto options = split(right[2], ',');
+        if (std::find(options.begin(), options.end(), subsystem) == options.end()) {
+            continue;
+        }
+        std::string system_path = left[3];
+        if (system_path.size() > 1 && system_path.back() == '/') {
+            system_path.pop_back();
+        }
+        return std::make_pair(left[4], system_path);
+    }
+    return std::nullopt;
+}
+
+std::optional<std::filesystem::path> get_cgroup_v1_dir(const std::string& subsystem) {
+    auto process_path = get_cgroup_v1_process_path(subsystem);
+    auto mount = get_cgroup_v1_mount(subsystem);
+    if (!process_path.has_value() || !mount.has_value()) {
+        return std::nullopt;
+    }
+
+    const auto& [mount_path, system_path] = *mount;
+    if (!process_path->starts_with(system_path)) {
+        return std::nullopt;
+    }
+
+    std::string absolute = *process_path;
+    absolute.replace(0, system_path.size(), mount_path);
+    return std::filesystem::path(absolute);
+}
+
+int parse_cpuset_cpu_count(std::string_view cpuset_line) {
+    if (cpuset_line.empty()) {
+        return -1;
+    }
+
+    int cpu_count = 0;
+    for (const auto& range : split(cpuset_line, ',')) {
+        if (range.empty()) {
+            return -1;
+        }
+        auto cpu_values = split(range, '-');
+        try {
+            if (cpu_values.size() == 2) {
+                const int start = std::stoi(cpu_values[0]);
+                const int end = std::stoi(cpu_values[1]);
+                if (end < start) {
+                    return -1;
+                }
+                cpu_count += end - start + 1;
+            } else if (cpu_values.size() == 1) {
+                static_cast<void>(std::stoi(cpu_values[0]));
+                cpu_count += 1;
+            } else {
+                return -1;
+            }
+        } catch (...) {
+            return -1;
+        }
+    }
+    return cpu_count;
+}
+
+std::optional<double> parse_cgroup_v2_cpu_limit(std::string_view cpu_max_line) {
+    std::istringstream input {std::string(cpu_max_line)};
+    std::string quota;
+    double period = 0;
+    if (!(input >> quota >> period) || quota == "max" || period <= 0) {
+        return std::nullopt;
+    }
+    try {
+        const double quota_value = std::stod(quota);
+        if (quota_value <= 0) {
+            return std::nullopt;
+        }
+        return quota_value / period;
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+std::optional<double> parse_cgroup_v1_cpu_limit(int64_t quota_us, int64_t period_us) {
+    if (quota_us <= 0 || period_us <= 0) {
+        return std::nullopt;
+    }
+    return static_cast<double>(quota_us) / static_cast<double>(period_us);
+}
+
+double get_process_affinity_cpu_limit() {
+    cpu_set_t cpu_set;
+    CPU_ZERO(&cpu_set);
+    if (sched_getaffinity(0, sizeof(cpu_set), &cpu_set) == 0) {
+        const int cpu_count = CPU_COUNT(&cpu_set);
+        if (cpu_count > 0) {
+            return static_cast<double>(cpu_count);
+        }
+    }
+    const uint32_t fallback = std::max<uint32_t>(1, std::thread::hardware_concurrency());
+    return static_cast<double>(fallback);
+}
+
+std::optional<double> get_cgroup_cpu_quota_limit() {
+    if (auto dir = get_cgroup_v2_dir("cpu.max"); dir.has_value()) {
+        const std::filesystem::path cgroup_root(kCgroupRootPath);
+        std::optional<double> limit;
+        auto current = *dir;
+        while (current != cgroup_root.parent_path()) {
+            if (auto line = read_first_line(current / "cpu.max"); line.has_value()) {
+                if (auto quota = parse_cgroup_v2_cpu_limit(*line); quota.has_value()) {
+                    limit = limit.has_value() ? std::min(*limit, *quota) : quota;
+                }
+            }
+            current = current.parent_path();
+        }
+        if (limit.has_value()) {
+            return limit;
+        }
+    }
+
+    if (auto dir = get_cgroup_v1_dir("cpu"); dir.has_value()) {
+        std::optional<double> limit;
+        auto current = *dir;
+        while (current != current.parent_path()) {
+            auto quota = read_int64_line(current / "cpu.cfs_quota_us");
+            auto period = read_int64_line(current / "cpu.cfs_period_us");
+            if (quota.has_value() && period.has_value()) {
+                if (auto parsed = parse_cgroup_v1_cpu_limit(*quota, *period); parsed.has_value()) {
+                    limit = limit.has_value() ? std::min(*limit, *parsed) : parsed;
+                }
+            }
+            current = current.parent_path();
+        }
+        if (limit.has_value()) {
+            return limit;
+        }
+    }
+
+    return std::nullopt;
+}
+
+double get_effective_process_cpu_limit() {
+    double limit = get_process_affinity_cpu_limit();
+    if (auto quota = get_cgroup_cpu_quota_limit(); quota.has_value() && *quota > 0) {
+        limit = std::min(limit, *quota);
+    }
+    return std::max(0.001, limit);
+}
+
+int64_t calculate_usage_percent(int64_t usage_bytes, int64_t limit_bytes) {
+    if (usage_bytes < 0 || limit_bytes <= 0) {
+        return -1;
+    }
+    return static_cast<int64_t>(static_cast<double>(usage_bytes) * 100.0 /
+                                static_cast<double>(limit_bytes));
+}
+
+int64_t calculate_cpu_usage_percent(double delta_cpu_ns, double delta_wall_ns, double cpu_limit) {
+    if (delta_cpu_ns < 0 || delta_wall_ns <= 0 || cpu_limit <= 0) {
+        return -1;
+    }
+    return static_cast<int64_t>(delta_cpu_ns * 100.0 / delta_wall_ns / cpu_limit);
+}
+
+std::optional<CgroupMemoryInfo> get_cgroup_memory_info() {
+    if (auto dir = get_cgroup_v2_dir("memory.current"); dir.has_value()) {
+        auto limit_line = read_first_line(*dir / "memory.max");
+        auto usage = read_int64_line(*dir / "memory.current");
+        if (limit_line.has_value() && usage.has_value()) {
+            int64_t limit_bytes = std::numeric_limits<int64_t>::max();
+            if (*limit_line != "max") {
+                try {
+                    limit_bytes = std::stoll(*limit_line);
+                } catch (...) {
+                    return std::nullopt;
+                }
+            }
+            auto metrics = read_metrics_map(*dir / "memory.stat");
+            int64_t adjusted_usage = *usage;
+            adjusted_usage -= metrics["inactive_file"];
+            adjusted_usage -= metrics["slab_reclaimable"];
+            adjusted_usage = std::max<int64_t>(0, adjusted_usage);
+            return CgroupMemoryInfo {limit_bytes, adjusted_usage};
+        }
+    }
+
+    if (auto dir = get_cgroup_v1_dir("memory"); dir.has_value()) {
+        auto limit = read_int64_line(*dir / "memory.limit_in_bytes");
+        if (limit.has_value()) {
+            auto metrics = read_metrics_map(*dir / "memory.stat");
+            return CgroupMemoryInfo {*limit, metrics["rss"]};
+        }
+    }
+
+    return std::nullopt;
+}
+} // namespace internal
+
 namespace {
 constexpr int64_t kNanosecondsPerMillisecond = 1000 * 1000;
 constexpr int64_t kInvalidPercent = -1;
@@ -169,9 +509,8 @@ public:
             current_wall_time_ns > last_wall_time_ns_) {
             const double delta_cpu_ns = current_cpu_time_ns - last_cpu_time_ns_;
             const double delta_wall_ns = current_wall_time_ns - last_wall_time_ns_;
-            const uint32_t cpu_cores = std::max<uint32_t>(1, std::thread::hardware_concurrency());
-            sample.cpu_usage_percent =
-                    static_cast<int64_t>(delta_cpu_ns * 100.0 / delta_wall_ns / cpu_cores);
+            sample.cpu_usage_percent = internal::calculate_cpu_usage_percent(
+                    delta_cpu_ns, delta_wall_ns, internal::get_effective_process_cpu_limit());
         }
         last_cpu_time_ns_ = current_cpu_time_ns;
         last_wall_time_ns_ = current_wall_time_ns;
@@ -189,39 +528,15 @@ private:
     }
 
     static int64_t get_process_memory_usage_percent() {
-        std::ifstream status("/proc/self/status");
-        if (!status.is_open()) {
-            return kInvalidPercent;
+        if (auto cgroup_memory = internal::get_cgroup_memory_info(); cgroup_memory.has_value()) {
+            if (cgroup_memory->limit_bytes > 0 &&
+                cgroup_memory->limit_bytes < std::numeric_limits<int64_t>::max()) {
+                return internal::calculate_usage_percent(cgroup_memory->usage_bytes,
+                                                         cgroup_memory->limit_bytes);
+            }
         }
 
-        int64_t rss_kb = kInvalidPercent;
-        std::string line;
-        while (std::getline(status, line)) {
-            if (!line.starts_with("VmRSS:")) {
-                continue;
-            }
-            size_t pos = std::string("VmRSS:").size();
-            while (pos < line.size() && line[pos] == ' ') {
-                ++pos;
-            }
-            rss_kb = std::stoll(line.substr(pos));
-            break;
-        }
-        if (rss_kb == kInvalidPercent) {
-            return kInvalidPercent;
-        }
-
-        struct sysinfo info {};
-        if (sysinfo(&info) != 0) {
-            return kInvalidPercent;
-        }
-        const double total_memory_bytes =
-                static_cast<double>(info.totalram) * static_cast<double>(info.mem_unit);
-        if (total_memory_bytes <= 0) {
-            return kInvalidPercent;
-        }
-        const double rss_bytes = static_cast<double>(rss_kb) * 1024.0;
-        return static_cast<int64_t>(rss_bytes * 100.0 / total_memory_bytes);
+        return kInvalidPercent;
     }
 
     std::mutex mutex_;

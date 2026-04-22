@@ -17,10 +17,22 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
+#include <optional>
+#include <string_view>
+
 #include "common/config.h"
 #include "meta-service/meta_service_rate_limit_helper.h"
 
 namespace doris::cloud {
+namespace internal {
+int parse_cpuset_cpu_count(std::string_view cpuset_line);
+std::optional<double> parse_cgroup_v2_cpu_limit(std::string_view cpu_max_line);
+std::optional<double> parse_cgroup_v1_cpu_limit(int64_t quota_us, int64_t period_us);
+int64_t calculate_usage_percent(int64_t usage_bytes, int64_t limit_bytes);
+int64_t calculate_cpu_usage_percent(double delta_cpu_ns, double delta_wall_ns, double cpu_limit);
+} // namespace internal
+
 namespace {
 struct MsRateLimitInjectionConfigGuard {
     ~MsRateLimitInjectionConfigGuard() {
@@ -106,5 +118,34 @@ TEST(MetaServiceHelperTest, MsRateLimitInjectionRequiresSwitchAndProbabilityHit)
     ASSERT_TRUE(decision.rate_limit_injected_for_test);
     ASSERT_TRUE(decision.under_great_stress());
     ASSERT_NE(decision.debug_string().find("test_injection"), std::string::npos);
+}
+
+TEST(MetaServiceHelperTest, ParseCpusetCpuCount) {
+    ASSERT_EQ(internal::parse_cpuset_cpu_count("0-3,5,7-8"), 7);
+    ASSERT_EQ(internal::parse_cpuset_cpu_count("2"), 1);
+    ASSERT_EQ(internal::parse_cpuset_cpu_count(""), -1);
+    ASSERT_EQ(internal::parse_cpuset_cpu_count("3-1"), -1);
+}
+
+TEST(MetaServiceHelperTest, ParseCgroupCpuQuota) {
+    auto v2_limit = internal::parse_cgroup_v2_cpu_limit("50000 100000");
+    ASSERT_TRUE(v2_limit.has_value());
+    ASSERT_DOUBLE_EQ(*v2_limit, 0.5);
+    ASSERT_FALSE(internal::parse_cgroup_v2_cpu_limit("max 100000").has_value());
+
+    auto v1_limit = internal::parse_cgroup_v1_cpu_limit(150000, 100000);
+    ASSERT_TRUE(v1_limit.has_value());
+    ASSERT_DOUBLE_EQ(*v1_limit, 1.5);
+    ASSERT_FALSE(internal::parse_cgroup_v1_cpu_limit(-1, 100000).has_value());
+}
+
+TEST(MetaServiceHelperTest, UsagePercentCalculationUsesEffectiveLimit) {
+    ASSERT_EQ(internal::calculate_usage_percent(512, 1024), 50);
+    ASSERT_EQ(internal::calculate_usage_percent(-1, 1024), -1);
+    ASSERT_EQ(internal::calculate_usage_percent(512, std::numeric_limits<int64_t>::max()), 0);
+
+    ASSERT_EQ(internal::calculate_cpu_usage_percent(5e8, 1e9, 0.5), 100);
+    ASSERT_EQ(internal::calculate_cpu_usage_percent(15e8, 1e9, 2.0), 75);
+    ASSERT_EQ(internal::calculate_cpu_usage_percent(1, 0, 2.0), -1);
 }
 } // namespace doris::cloud
