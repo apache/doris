@@ -47,8 +47,6 @@ public:
 
     size_t get_number_of_arguments() const override { return 1; }
 
-    bool is_use_default_implementation_for_constants() const override { return false; }
-
     bool use_default_implementation_for_nulls() const override { return false; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
@@ -58,8 +56,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         // here is executed by array_map filtered and arg[0] is bool result column
-        const auto& [src_column, src_const] =
-                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& src_column = block.get_by_position(arguments[0]).column;
         const ColumnArray* array_column = nullptr;
         const UInt8* array_null_map = nullptr;
         if (src_column->is_nullable()) {
