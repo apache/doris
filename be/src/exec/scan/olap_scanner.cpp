@@ -837,7 +837,17 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_condition_cache_filtered_rows_counter,
                    stats.condition_cache_filtered_rows);
 
-    COUNTER_UPDATE(local_state->_tablet_reader_init_timer, stats.tablet_reader_init_timer_ns);
+    const int64_t tablet_reader_init_timer_ns =
+            stats.tablet_reader_capture_rs_readers_timer_ns +
+            stats.tablet_reader_init_return_columns_timer_ns +
+            stats.tablet_reader_init_keys_param_timer_ns +
+            stats.tablet_reader_init_orderby_keys_param_timer_ns +
+            stats.tablet_reader_init_conditions_param_timer_ns +
+            stats.tablet_reader_init_delete_condition_param_timer_ns +
+            stats.block_reader_vcollect_iter_init_timer_ns +
+            stats.block_reader_rs_readers_init_timer_ns +
+            stats.block_reader_build_heap_init_timer_ns;
+    COUNTER_UPDATE(local_state->_tablet_reader_init_timer, tablet_reader_init_timer_ns);
     COUNTER_UPDATE(local_state->_tablet_reader_capture_rs_readers_timer,
                    stats.tablet_reader_capture_rs_readers_timer_ns);
     COUNTER_UPDATE(local_state->_tablet_reader_init_return_columns_timer,
@@ -871,6 +881,8 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.segment_iterator_init_return_column_iterators_timer_ns);
     COUNTER_UPDATE(local_state->_segment_iterator_init_index_iterators_timer,
                    stats.segment_iterator_init_index_iterators_timer_ns);
+    COUNTER_UPDATE(local_state->_segment_iterator_init_segment_prefetchers_timer,
+                   stats.segment_iterator_init_segment_prefetchers_timer_ns);
 
     COUNTER_UPDATE(local_state->_segment_create_column_readers_timer,
                    stats.segment_create_column_readers_timer_ns);
