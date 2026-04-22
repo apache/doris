@@ -141,6 +141,9 @@ suite("test_inverted_index_v3", "p0"){
     } finally {
     }
 
+    sql "DROP TABLE IF EXISTS `t1`"
+    sql "DROP TABLE IF EXISTS `t2`"
+
     sql """
       CREATE TABLE `t1` (
         `id` int NOT NULL,
