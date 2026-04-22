@@ -37,7 +37,7 @@ public class DataSourceConfigValidatorTest {
     public void testSslModeLegalValues() {
         DataSourceConfigValidator.validateSource(sslModeInput(DataSourceConfigKeys.SSL_MODE_DISABLE));
         DataSourceConfigValidator.validateSource(sslModeInput(DataSourceConfigKeys.SSL_MODE_REQUIRE));
-        DataSourceConfigValidator.validateSource(sslModeInput(DataSourceConfigKeys.SSL_MODE_VERIFY_CA));
+        // verify-ca additionally requires ssl_rootcert; covered by testVerifyCaWithRootcertPasses.
     }
 
     @Test
