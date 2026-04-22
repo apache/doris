@@ -2216,10 +2216,6 @@ public class Config extends ConfigBase {
     public static boolean enable_hms_events_incremental_sync = false;
 
     /**
-     * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
-     * otherwise it will throw an AnalysisException.
-     */
-    /**
      * the plan cache num which can be reused for the next query
      */
     @ConfField(
