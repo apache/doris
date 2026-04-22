@@ -426,7 +426,7 @@ PhysicalResultSink
 -- !subquery_9_shape --
 PhysicalResultSink
 --NestedLoopJoin[CROSS_JOIN]
-----PhysicalExcept build RFs:RF0 b->y
+----PhysicalExcept build RFs:RF0 b->y 
 ------PhysicalProject[(cast(a as BIGINT) * 10) AS `k`, t1.b]
 --------filter(((cast(a as BIGINT) * 10) = 10))
 ----------PhysicalOlapScan[t1]
@@ -443,7 +443,7 @@ PhysicalResultSink
 -- !subquery_10_shape --
 PhysicalResultSink
 --NestedLoopJoin[CROSS_JOIN]
-----PhysicalIntersect build RFs:RF0 b->y
+----PhysicalIntersect build RFs:RF0 b->y 
 ------PhysicalProject[(cast(a as BIGINT) * 10) AS `k`, t1.b]
 --------filter(((cast(a as BIGINT) * 10) = 10))
 ----------PhysicalOlapScan[t1]
