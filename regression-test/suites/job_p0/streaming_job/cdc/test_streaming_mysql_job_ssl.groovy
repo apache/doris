@@ -119,7 +119,19 @@ suite("test_streaming_mysql_job_ssl", "p0,external,mysql,external_docker,externa
             sql """DELETE FROM ${mysqlDb}.${table1} WHERE name = 'A1';"""
         }
 
-        sleep(60000); // wait for cdc incremental data
+        // wait for cdc incremental data
+        try {
+            Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
+                def names = (sql """ SELECT name FROM ${table1} ORDER BY name ASC """).collect { it[0] }
+                names.contains('Doris') && !names.contains('A1')
+            })
+        } catch (Exception ex) {
+            def showjob = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
+            def showtask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
+            log.info("show job: " + showjob)
+            log.info("show task: " + showtask)
+            throw ex
+        }
 
         // check incremental data
         qt_select_binlog_table1 """ SELECT * FROM ${table1} order by name asc """

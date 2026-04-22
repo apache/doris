@@ -240,7 +240,16 @@ public class SmallFileMgr {
      * @return absolute local path to the PKCS12 truststore
      */
     public static String getPkcs12TruststorePath(String filePath) {
-        String pemPath = getFilePath(filePath);
+        return pkcs12TruststorePath(getFilePath(filePath));
+    }
+
+    /** Package-private overload that accepts a custom local directory, used for testing. */
+    static String getPkcs12TruststorePath(
+            String feMasterAddress, String filePath, String clusterToken, String localDir) {
+        return pkcs12TruststorePath(getFilePath(feMasterAddress, filePath, clusterToken, localDir));
+    }
+
+    private static String pkcs12TruststorePath(String pemPath) {
         String cached = PKCS12_CACHE.get(pemPath);
         if (cached != null) {
             return cached;
