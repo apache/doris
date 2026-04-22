@@ -254,13 +254,13 @@ public class TableSchemaAction extends RestBaseController {
             @PathVariable(value = TABLE_KEY) final String tblName,
             HttpServletRequest request, HttpServletResponse response) {
         ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        if (StringUtils.isBlank(catalogName)) {
+            catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        }
         String fullDbName = getFullDbName(dbName);
         checkTblAuth(authInfo.userIdentity, catalogName, fullDbName, tblName,
                 PrivPredicate.SELECT);
         GsonSchemaResponse gsonSchemaResponse = new GsonSchemaResponse();
-        if (StringUtils.isBlank(catalogName)) {
-            catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
-        }
 
         try {
             TableIf table;
