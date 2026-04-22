@@ -676,9 +676,6 @@ void VNodeChannel::_open_internal(bool is_incremental) {
                               open_closure->response_.get(), open_closure.get());
     open_closure.release();
     _open_callbacks.push_back(open_callback);
-
-    static_cast<void>(request->release_id());
-    static_cast<void>(request->release_schema());
 }
 
 void VNodeChannel::open() {
@@ -1240,7 +1237,6 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
     _stub->tablet_writer_cancel(closure->cntl_.get(), closure->request_.get(),
                                 closure->response_.get(), closure.get());
     closure.release();
-    static_cast<void>(request->release_id());
 }
 
 Status VNodeChannel::close_wait(RuntimeState* state, bool* is_closed) {
