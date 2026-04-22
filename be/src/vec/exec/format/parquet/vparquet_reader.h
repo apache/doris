@@ -106,7 +106,7 @@ public:
                   bool enable_lazy_mat = true);
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                  const TFileRangeDesc& range, size_t batch_size, const cctz::time_zone* ctz,
+                  const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
                   std::shared_ptr<io::IOContext> io_ctx_holder, RuntimeState* state,
                   FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true);
 
