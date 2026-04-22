@@ -20,7 +20,6 @@
 #include <gen_cpp/data.pb.h>
 #include <glog/logging.h>
 
-#include "runtime/query_context.h"
 #include "runtime/workload_management/query_task_controller.h"
 #include "util/time.h"
 
@@ -54,13 +53,9 @@ void ResourceContext::to_thrift_query_statistics(TQueryStatistics* statistics) c
             io_context_->spill_read_bytes_from_local_storage());
 
     if (auto* query_task_controller = dynamic_cast<QueryTaskController*>(task_controller())) {
-        if (auto query_ctx = query_task_controller->get_query_ctx()) {
-            int total = 0;
-            int finished = 0;
-            query_ctx->get_task_counts(&total, &finished);
-            statistics->__set_total_tasks_num(total);
-            statistics->__set_finished_tasks_num(finished);
-        }
+        // Fill query task-level progress directly from task controller.
+        statistics->__set_total_tasks_num(query_task_controller->get_total_task_num());
+        statistics->__set_finished_tasks_num(query_task_controller->get_finished_task_num());
     }
 }
 

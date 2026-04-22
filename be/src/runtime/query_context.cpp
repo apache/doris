@@ -558,29 +558,14 @@ Status QueryContext::reset_global_rf(const google::protobuf::RepeatedField<int32
     return Status::OK();
 }
 
-void QueryContext::get_task_counts(int* total, int* finished) {
-    *total = 0;
-    *finished = 0;
-    {
-        // Load counts from already closed and cleaned-up fragments (archived in QueryContext)
-        std::lock_guard<std::mutex> lock(_task_counts_lock);
-        *total = _finished_task_counts.total;
-        *finished = _finished_task_counts.finished;
-    }
-    // Add counts from currently active fragments
-    std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
-    for (auto& [_, fragment_ctx_weak] : _fragment_id_to_pipeline_ctx) {
-        if (auto fragment_ctx = fragment_ctx_weak.lock()) {
-            *total += fragment_ctx->get_total_tasks();
-            *finished += fragment_ctx->get_closed_tasks();
-        }
-    }
+void QueryContext::add_total_task_num(int delta) {
+    // Task total is accumulated once when fragment task graph is built.
+    _total_task_num.fetch_add(delta, std::memory_order_relaxed);
 }
 
-void QueryContext::update_finished_task_counts(int total, int finished) {
-    std::lock_guard<std::mutex> lock(_task_counts_lock);
-    _finished_task_counts.total += total;
-    _finished_task_counts.finished += finished;
+void QueryContext::inc_finished_task_num() {
+    // Finished task counter is increased in real time when each task closes.
+    _finished_task_num.fetch_add(1, std::memory_order_relaxed);
 }
 
 } // namespace doris

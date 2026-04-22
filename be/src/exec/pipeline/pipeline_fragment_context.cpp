@@ -602,6 +602,8 @@ Status PipelineFragmentContext::_build_pipeline_tasks(ThreadPool* thread_pool) {
     }
     _pipeline_parent_map.clear();
     _op_id_to_shared_state.clear();
+    // Record task cardinality once when this fragment context finishes task initialization.
+    _query_ctx->add_total_task_num(_total_tasks.load(std::memory_order_relaxed));
 
     return Status::OK();
 }
@@ -1956,10 +1958,6 @@ bool PipelineFragmentContext::_close_fragment_instance() {
                                          collect_realtime_load_channel_profile());
     }
 
-    if (!_need_notify_close) {
-        // all submitted tasks done
-        _query_ctx->update_finished_task_counts(get_total_tasks(), get_closed_tasks());
-    }
     // Return whether the caller needs to remove from the pipeline map.
     // The caller must do this after releasing _task_mutex.
     return !_need_notify_close;
@@ -1979,6 +1977,8 @@ void PipelineFragmentContext::decrement_running_task(PipelineId pipeline_id) {
     {
         std::lock_guard<std::mutex> l(_task_mutex);
         ++_closed_tasks;
+        // Update query-level finished task progress in real time.
+        _query_ctx->inc_finished_task_num();
         if (_closed_tasks >= _total_tasks) {
             need_remove = _close_fragment_instance();
         }

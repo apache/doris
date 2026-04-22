@@ -40,6 +40,7 @@
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/workload_management/query_task_controller.h"
 
 namespace doris {
 
@@ -465,6 +466,20 @@ TEST_F(PipelineTest, HAPPY_PATH) {
         EXPECT_EQ(downstream_recvr->_sender_queues[0]->_num_remaining_senders, 0);
     }
     downstream_recvr->close();
+}
+
+TEST_F(PipelineTest, QueryTaskProgressCounters) {
+    // Verify task-level counters are updated via QueryContext and exposed by QueryTaskController.
+    _query_ctx->add_total_task_num(7);
+    _query_ctx->inc_finished_task_num();
+    _query_ctx->inc_finished_task_num();
+    _query_ctx->inc_finished_task_num();
+
+    auto* query_task_controller =
+            dynamic_cast<QueryTaskController*>(_query_ctx->resource_ctx()->task_controller());
+    ASSERT_NE(query_task_controller, nullptr);
+    EXPECT_EQ(query_task_controller->get_total_task_num(), 7);
+    EXPECT_EQ(query_task_controller->get_finished_task_num(), 3);
 }
 
 TEST_F(PipelineTest, PLAN_LOCAL_EXCHANGE) {

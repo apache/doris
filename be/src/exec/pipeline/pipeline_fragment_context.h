@@ -89,10 +89,6 @@ public:
 
     [[nodiscard]] int get_fragment_id() const { return _fragment_id; }
 
-    [[nodiscard]] int get_total_tasks() const { return _total_tasks; }
-
-    [[nodiscard]] int get_closed_tasks() const { return _closed_tasks; }
-
     void decrement_running_task(PipelineId pipeline_id);
 
     uint32_t rec_cte_stage() const { return _rec_cte_stage; }

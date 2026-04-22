@@ -212,4 +212,22 @@ std::vector<PipelineTask*> QueryTaskController::get_revocable_tasks() {
     return tasks;
 }
 
+int QueryTaskController::get_total_task_num() const {
+    // Read task-level total counter from query context for external statistics reporting.
+    auto query_ctx = query_ctx_.lock();
+    if (query_ctx == nullptr) {
+        return 0;
+    }
+    return query_ctx->get_total_task_num();
+}
+
+int QueryTaskController::get_finished_task_num() const {
+    // Read task-level finished counter from query context for external statistics reporting.
+    auto query_ctx = query_ctx_.lock();
+    if (query_ctx == nullptr) {
+        return 0;
+    }
+    return query_ctx->get_finished_task_num();
+}
+
 } // namespace doris
