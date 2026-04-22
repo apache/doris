@@ -25,6 +25,7 @@ import org.apache.doris.cdcclient.source.reader.SnapshotReaderContext;
 import org.apache.doris.cdcclient.source.reader.SplitReadResult;
 import org.apache.doris.cdcclient.source.reader.SplitRecords;
 import org.apache.doris.cdcclient.utils.ConfigUtil;
+import org.apache.doris.cdcclient.utils.SmallFileMgr;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.CompareOffsetRequest;
 import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
@@ -853,6 +854,19 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         dbzProps.setProperty(
                 MySqlConnectorConfig.KEEP_ALIVE_INTERVAL_MS.name(),
                 DEBEZIUM_HEARTBEAT_INTERVAL_MS + "");
+
+        if (cdcConfig.containsKey(DataSourceConfigKeys.SSL_MODE)) {
+            dbzProps.put("database.ssl.mode", cdcConfig.get(DataSourceConfigKeys.SSL_MODE));
+        }
+        if (cdcConfig.containsKey(DataSourceConfigKeys.SSL_ROOTCERT)) {
+            // MySQL JDBC requires PKCS12 truststore, not raw PEM.
+            String fileName = cdcConfig.get(DataSourceConfigKeys.SSL_ROOTCERT);
+            String truststorePath = SmallFileMgr.getPkcs12TruststorePath(fileName);
+            LOG.info("Using SSL truststore file path: {}", truststorePath);
+            dbzProps.put("database.ssl.truststore", truststorePath);
+            dbzProps.put("database.ssl.truststore.password", SmallFileMgr.TRUSTSTORE_PASSWORD);
+        }
+
         configFactory.debeziumProperties(dbzProps);
         configFactory.heartbeatInterval(Duration.ofMillis(DEBEZIUM_HEARTBEAT_INTERVAL_MS));
 
