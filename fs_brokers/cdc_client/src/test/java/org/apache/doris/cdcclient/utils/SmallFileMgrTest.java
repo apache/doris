@@ -454,19 +454,33 @@ class SmallFileMgrTest {
     }
 
     @Test
-    void testPkcs12SecondCallUsesMemoryCache() throws Exception {
+    void testPkcs12SecondCallUsesMemoryCacheWhenFilePresent() throws Exception {
         String filePath = preloadPem("40003", CA_PEM.getBytes());
         String first = SmallFileMgr.getPkcs12TruststorePath(
                 "host:8030", filePath, "token", tempDir.toString());
 
-        // Delete the .p12; memory cache should short-circuit the second call.
+        long firstMtime = new File(first).lastModified();
+        String second = SmallFileMgr.getPkcs12TruststorePath(
+                "host:8030", filePath, "token", tempDir.toString());
+        assertEquals(first, second);
+        assertEquals(firstMtime, new File(second).lastModified(),
+                "second call should hit memory cache and not regenerate .p12");
+    }
+
+    @Test
+    void testPkcs12RegeneratesWhenCachedFileMissing() throws Exception {
+        String filePath = preloadPem("40005", CA_PEM.getBytes());
+        String first = SmallFileMgr.getPkcs12TruststorePath(
+                "host:8030", filePath, "token", tempDir.toString());
+
+        // Simulate external deletion after the cache entry was stored.
         assertTrue(new File(first).delete());
 
         String second = SmallFileMgr.getPkcs12TruststorePath(
                 "host:8030", filePath, "token", tempDir.toString());
         assertEquals(first, second);
-        assertFalse(new File(second).exists(),
-                "second call should hit memory cache and not regenerate .p12");
+        assertTrue(new File(second).exists(),
+                "cached path whose file disappeared should be regenerated on next call");
     }
 
     @Test

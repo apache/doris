@@ -77,7 +77,7 @@ suite("test_streaming_mysql_job_ssl", "p0,external,mysql,external_docker,externa
                     "database" = "${mysqlDb}",
                     "include_tables" = "${table1}",
                     "offset" = "initial",
-                    "ssl_mode" = "verify_ca",
+                    "ssl_mode" = "verify-ca",
                     "ssl_rootcert" = "FILE:mysql_ca.pem"
                 )
                 TO DATABASE ${currentDb} (
@@ -98,7 +98,7 @@ suite("test_streaming_mysql_job_ssl", "p0,external,mysql,external_docker,externa
                         def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
                         log.info("jobSuccendCount: " + jobSuccendCount)
                         // check job status and succeed task count larger than 2
-                        jobSuccendCount.size() == 1 && '2' <= jobSuccendCount.get(0).get(0)
+                        jobSuccendCount.size() == 1 && jobSuccendCount.get(0).get(0).toString().toLong() >= 2L
                     }
             )
         } catch (Exception ex){

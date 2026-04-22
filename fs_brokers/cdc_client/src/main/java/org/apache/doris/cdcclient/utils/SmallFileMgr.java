@@ -251,13 +251,13 @@ public class SmallFileMgr {
 
     private static String pkcs12TruststorePath(String pemPath) {
         String cached = PKCS12_CACHE.get(pemPath);
-        if (cached != null) {
+        if (cached != null && new File(cached).exists()) {
             return cached;
         }
         Object lock = DOWNLOAD_LOCKS.computeIfAbsent(pemPath + PKCS12_SUFFIX, k -> new Object());
         synchronized (lock) {
             String doubleChecked = PKCS12_CACHE.get(pemPath);
-            if (doubleChecked != null) {
+            if (doubleChecked != null && new File(doubleChecked).exists()) {
                 return doubleChecked;
             }
             String p12Path = pemPath + PKCS12_SUFFIX;
