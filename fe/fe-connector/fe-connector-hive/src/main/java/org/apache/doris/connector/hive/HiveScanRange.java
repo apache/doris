@@ -19,7 +19,12 @@ package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TTableFormatFileDesc;
+import org.apache.doris.thrift.TTransactionalHiveDeleteDeltaDesc;
+import org.apache.doris.thrift.TTransactionalHiveDesc;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -131,6 +136,45 @@ public class HiveScanRange implements ConnectorScanRange {
         return "HiveScanRange{path=" + path + ", start=" + start
                 + ", length=" + length + ", format=" + fileFormat
                 + ", tableFormat=" + tableFormatType + "}";
+    }
+
+    @Override
+    public void populateRangeParams(TTableFormatFileDesc formatDesc,
+            TFileRangeDesc rangeDesc) {
+        if ("transactional_hive".equals(getTableFormatType())) {
+            populateTransactionalHiveParams(formatDesc);
+        }
+        // Non-transactional hive needs no per-split TTableFormatFileDesc fields.
+    }
+
+    private void populateTransactionalHiveParams(TTableFormatFileDesc formatDesc) {
+        Map<String, String> props = getProperties();
+        TTransactionalHiveDesc txnDesc = new TTransactionalHiveDesc();
+
+        String partLoc = props.get("acid.partition_location");
+        if (partLoc != null) {
+            txnDesc.setPartition(partLoc);
+        }
+
+        String countStr = props.get("acid.delete_delta_count");
+        if (countStr != null) {
+            int count = Integer.parseInt(countStr);
+            List<TTransactionalHiveDeleteDeltaDesc> deltas = new ArrayList<>(count);
+            for (int i = 0; i < count; i++) {
+                String deltaStr = props.get("acid.delete_delta." + i);
+                if (deltaStr != null) {
+                    TTransactionalHiveDeleteDeltaDesc delta =
+                            new TTransactionalHiveDeleteDeltaDesc();
+                    delta.setDirectoryLocation(deltaStr.contains("|")
+                            ? deltaStr.substring(0, deltaStr.indexOf('|'))
+                            : deltaStr);
+                    deltas.add(delta);
+                }
+            }
+            txnDesc.setDeleteDeltas(deltas);
+        }
+
+        formatDesc.setTransactionalHiveParams(txnDesc);
     }
 
     public static Builder builder() {

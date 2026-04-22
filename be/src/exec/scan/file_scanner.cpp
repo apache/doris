@@ -64,6 +64,7 @@
 #include "format/native/native_reader.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
+#include "format/table/es/es_http_reader.h"
 #include "format/table/hive_reader.h"
 #include "format/table/hudi_jni_reader.h"
 #include "format/table/hudi_reader.h"
@@ -1153,6 +1154,12 @@ Status FileScanner::_get_next_reader() {
             break;
         }
 #endif
+        case TFileFormatType::FORMAT_ES_HTTP: {
+            _cur_reader = EsHttpReader::create_unique(_file_slot_descs, _state, _profile, range,
+                                                      *_params, _real_tuple_desc);
+            init_status = static_cast<EsHttpReader*>(_cur_reader.get())->init_reader();
+            break;
+        }
         default:
             return Status::NotSupported("Not supported create reader for file format: {}.",
                                         to_string(_params->format_type));

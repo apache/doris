@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/es/es_scroll_parser.h"
+#include "format/table/es/es_scroll_parser.h"
 
 #include <absl/strings/substitute.h>
 #include <cctz/time_zone.h>

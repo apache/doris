@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 
 class EsNodeInfoAndScanRangeTest {
@@ -70,6 +71,22 @@ class EsNodeInfoAndScanRangeTest {
     }
 
     @Test
+    void testSeedIpv6Bracketed() {
+        EsNodeInfo info = new EsNodeInfo("n6", "[::1]:9200");
+        Assertions.assertEquals("::1", info.getPublishHost());
+        Assertions.assertEquals(9200, info.getPublishPort());
+        Assertions.assertEquals("[::1]:9200", info.getPublishAddress());
+    }
+
+    @Test
+    void testSeedIpv6WithScheme() {
+        EsNodeInfo info = new EsNodeInfo("n7", "https://[::1]:9243");
+        Assertions.assertEquals("https://::1", info.getPublishHost());
+        Assertions.assertEquals(9243, info.getPublishPort());
+        Assertions.assertEquals("https://[::1]:9243", info.getPublishAddress());
+    }
+
+    @Test
     void testSeedEquality() {
         EsNodeInfo a = new EsNodeInfo("n1", "host:9200");
         EsNodeInfo b = new EsNodeInfo("n1", "host:9200");
@@ -82,6 +99,24 @@ class EsNodeInfoAndScanRangeTest {
         EsNodeInfo a = new EsNodeInfo("n1", "host:9200");
         EsNodeInfo b = new EsNodeInfo("n2", "host:9200");
         Assertions.assertNotEquals(a, b);
+    }
+
+    @Test
+    void testNodesApiIpv6PublishAddress() {
+        Map<String, Object> http = new HashMap<>();
+        http.put("publish_address", "es-node/[::1]:9200");
+        Map<String, Object> node = new HashMap<>();
+        node.put("version", "8.12.0");
+        node.put("name", "es-node");
+        node.put("host", "es-node");
+        node.put("ip", "::1");
+        node.put("roles", Arrays.asList("data", "ingest"));
+        node.put("http", http);
+
+        EsNodeInfo info = new EsNodeInfo("node-ipv6", node, true);
+        Assertions.assertEquals("https://::1", info.getPublishHost());
+        Assertions.assertEquals(9200, info.getPublishPort());
+        Assertions.assertEquals("https://[::1]:9200", info.getPublishAddress());
     }
 
     // === EsScanRange ===
@@ -99,7 +134,7 @@ class EsNodeInfoAndScanRangeTest {
     @Test
     void testScanRangeType() {
         EsScanRange range = new EsScanRange("idx", null, 1, Collections.emptyList());
-        Assertions.assertEquals(ConnectorScanRangeType.ES_SCAN, range.getRangeType());
+        Assertions.assertEquals(ConnectorScanRangeType.FILE_SCAN, range.getRangeType());
     }
 
     @Test
@@ -110,7 +145,10 @@ class EsNodeInfoAndScanRangeTest {
         Assertions.assertEquals("logs", props.get(EsScanRange.PROP_INDEX));
         Assertions.assertEquals("_doc", props.get(EsScanRange.PROP_TYPE));
         Assertions.assertEquals("3", props.get(EsScanRange.PROP_SHARD_ID));
-        Assertions.assertEquals("a:9200,b:9200", props.get(EsScanRange.PROP_HOSTS));
+        // host_port is the first host for BE ESScanReader
+        Assertions.assertEquals("a:9200", props.get(EsScanRange.PROP_HOST_PORT));
+        // es_hosts contains all hosts comma-separated for locality selection
+        Assertions.assertEquals("a:9200,b:9200", props.get(EsScanRange.PROP_ES_HOSTS));
     }
 
     @Test
@@ -124,7 +162,9 @@ class EsNodeInfoAndScanRangeTest {
     void testScanRangeNullHostsBecomesEmptyList() {
         EsScanRange range = new EsScanRange("idx", null, 0, null);
         Assertions.assertTrue(range.getEsHosts().isEmpty());
-        Assertions.assertEquals("", range.getProperties().get(EsScanRange.PROP_HOSTS));
+        // No host_port or es_hosts when hosts list is empty
+        Assertions.assertFalse(range.getProperties().containsKey(EsScanRange.PROP_HOST_PORT));
+        Assertions.assertFalse(range.getProperties().containsKey(EsScanRange.PROP_ES_HOSTS));
     }
 
     @Test
@@ -153,10 +193,23 @@ class EsNodeInfoAndScanRangeTest {
     }
 
     @Test
+    void testScanRangeGetHostsHandlesIpv6() {
+        EsScanRange range = new EsScanRange("idx", null, 0,
+                Arrays.asList("[::1]:9200", "http://[fd00::1]:9200"));
+        Assertions.assertEquals(Arrays.asList("::1", "fd00::1"), range.getHosts());
+    }
+
+    @Test
     void testScanRangeGetHostsDeduplicates() {
         EsScanRange range = new EsScanRange("idx", null, 0,
                 Arrays.asList("h1:9200", "h1:9201", "h2:9200"));
         // h1 appears twice (different ports) but should be deduplicated
         Assertions.assertEquals(Arrays.asList("h1", "h2"), range.getHosts());
+    }
+
+    @Test
+    void testFormatHostPortBracketsIpv6() {
+        Assertions.assertEquals("[::1]:9200", EsHostAddress.formatHostPort("::1", 9200));
+        Assertions.assertEquals("https://[::1]:9243", EsHostAddress.formatHostPort("https://::1", 9243));
     }
 }

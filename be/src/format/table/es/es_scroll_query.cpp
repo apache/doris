@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/es/es_scroll_query.h"
+#include "format/table/es/es_scroll_query.h"
 
 #include <glog/logging.h>
 #include <rapidjson/encodings.h>
@@ -24,7 +24,7 @@
 
 #include <sstream>
 
-#include "exec/es/es_scan_reader.h"
+#include "format/table/es/es_scan_reader.h"
 #include "rapidjson/document.h"
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"

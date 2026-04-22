@@ -48,11 +48,9 @@ import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 import org.apache.doris.connector.api.write.ConnectorWriteConfig;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileQueryScanNode;
-import org.apache.doris.datasource.PluginDrivenEsScanNode;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.PluginDrivenScanNode;
@@ -797,17 +795,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } else if (table instanceof PluginDrivenExternalTable) {
             PluginDrivenExternalCatalog pluginCatalog =
                     (PluginDrivenExternalCatalog) table.getCatalog();
-            ConnectorScanRangeType scanType = pluginCatalog.getConnector()
-                    .getScanPlanProvider().getScanRangeType();
-            if (scanType == ConnectorScanRangeType.ES_SCAN) {
-                scanNode = PluginDrivenEsScanNode.create(context.nextPlanNodeId(),
-                        tupleDescriptor, context.getScanContext(), pluginCatalog,
-                        (PluginDrivenExternalTable) table);
-            } else {
-                scanNode = PluginDrivenScanNode.create(context.nextPlanNodeId(), tupleDescriptor,
-                        false, sv, context.getScanContext(), pluginCatalog,
-                        ((PluginDrivenExternalTable) table));
-            }
+            scanNode = PluginDrivenScanNode.create(context.nextPlanNodeId(), tupleDescriptor,
+                    false, sv, context.getScanContext(), pluginCatalog,
+                    ((PluginDrivenExternalTable) table));
         } else {
             throw new RuntimeException("do not support table type " + table.getType());
         }
