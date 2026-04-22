@@ -535,7 +535,7 @@ Status AdaptivePassthroughExchanger::get_block(RuntimeState* state, Block* block
         do {
             if (partitioned_block.second.row_idxs == nullptr) {
                 // The passthrough path which means the block is not partitioned, we can directly move the block without copying.
-                mutable_block = MutableBlock(std::move(partitioned_block.first->_data_block));
+                *block = std::move(partitioned_block.first->_data_block);
                 break;
             }
             const auto* offset_start = partitioned_block.second.row_idxs->data() +
