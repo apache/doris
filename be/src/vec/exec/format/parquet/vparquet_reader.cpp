@@ -110,8 +110,7 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
 }
 
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                             const TFileRangeDesc& range, size_t batch_size,
-                             cctz::time_zone* ctz,
+                             const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
                              std::shared_ptr<io::IOContext> io_ctx_holder, RuntimeState* state,
                              FileMetaCache* meta_cache, bool enable_lazy_mat)
         : _profile(profile),
