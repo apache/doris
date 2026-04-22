@@ -210,7 +210,6 @@ bool get_tablet_idx_from_ms_cache(std::string_view instance_id, int64_t tablet_i
     if (cache == nullptr) {
         return false;
     }
-    LOG(INFO) << "get from cache";
     auto cache_key = std::make_tuple(std::string(instance_id), tablet_id);
     return cache->get(cache_key, tablet_idx);
 }
