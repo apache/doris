@@ -32,6 +32,13 @@ require 'thread'
 require 'java'
 require "#{File.dirname(__FILE__)}/../../logstash-output-doris_jars.rb"
 
+# Sync classic client imports — used only for the one-time BE URL probe in register()
+java_import 'org.apache.hc.client5.http.impl.classic.HttpClients'
+java_import 'org.apache.hc.client5.http.classic.methods.HttpPut'
+java_import 'org.apache.hc.core5.http.io.entity.StringEntity'
+java_import 'org.apache.hc.core5.http.io.entity.EntityUtils'
+java_import 'java.nio.charset.StandardCharsets'
+
 class LogStash::Outputs::Doris < LogStash::Outputs::Base
    include_package 'org.apache.hc.client5.http.impl.async'
    include_package 'org.apache.hc.client5.http.async.methods'
@@ -96,20 +103,12 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       :http_hosts => @http_hosts)
    end
 
-   class DorisRedirectStrategy < Java::org.apache.hc.client5.http.impl.DefaultRedirectStrategy
-      def getLocationURI(request, response, context)
-         uri = super(request, response, context)
-         # remove user info in redirect uri
-         java.net.URI.new(uri.getScheme, nil, uri.getHost, uri.getPort, uri.getPath, uri.getQuery, uri.getFragment)
-      end
-   end
-
    def http_query(table)
       "/api/#{@db}/#{table}/_stream_load"
    end
 
    def register
-      @client = HttpAsyncClients.custom.setRedirectStrategy(DorisRedirectStrategy.new).build
+      @client = HttpAsyncClients.custom.build
       @client.start
 
       @request_headers = make_request_headers
@@ -120,6 +119,27 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
          @group_commit = true
       end
       @logger.info("group_commit: ", @group_commit)
+
+      @const_table = @table.index("%").nil?
+
+      # Sync probe client — used to ask FE where to route a batch.
+      # FE returns 307 to whichever BE it wants (round-robin / load balance).
+      # We then send data DIRECTLY to that BE via the async client.
+      # This preserves FE-controlled routing while avoiding:
+      #   - Broken pipe (async client streams chunked body, FE closes mid-stream on 307)
+      #   - CircularRedirectException (no redirects on the actual data request)
+      #   - ProtocolException (HttpClient5 5.4+ rejects Location URLs with userinfo)
+      @probe_client = HttpClients.custom
+         .disableRedirectHandling
+         .build
+
+      # TTL cache: { fe_url => { be_url: String, expires_at: Float } }
+      # Probes are expensive (extra round trip); cache the BE URL for 30s so that
+      # at high throughput virtually every batch hits cache and pays zero overhead.
+      # FE load-balancing is still respected: on TTL expiry we re-ask FE.
+      @be_url_cache = {}
+      @be_url_cache_mutex = Mutex.new
+      @be_url_cache_ttl = 30 # seconds
 
       @init_time = Time.now.to_i # seconds
       @total_bytes = java.util.concurrent.atomic.AtomicLong.new(0)
@@ -169,10 +189,61 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
          end
       end
 
-      @const_table = @table.index("%").nil?
-
       print_plugin_info
    end # def register
+
+   # Return the BE URL for the given FE URL, using a TTL cache.
+   # Cache hit  → return immediately, zero network cost.
+   # Cache miss → probe FE once, store result for @be_url_cache_ttl seconds.
+   # On probe failure → return nil (make_request falls back to fe_url).
+   private
+   def resolve_be_url(fe_url, headers)
+      now = Time.now.to_f
+      @be_url_cache_mutex.synchronize do
+         entry = @be_url_cache[fe_url]
+         return entry[:be_url] if entry && now < entry[:expires_at]
+      end
+
+      # Cache miss or expired — do the probe outside the lock so other threads
+      # are not blocked during the network call.
+      be_url = probe_be_url(fe_url, headers)
+
+      @be_url_cache_mutex.synchronize do
+         @be_url_cache[fe_url] = { be_url: be_url, expires_at: now + @be_url_cache_ttl }
+      end
+
+      be_url
+   end
+
+   # Send an empty-body PUT to FE with redirect handling disabled.
+   # FE replies 307; we read the Location header, strip userinfo, return clean BE URL.
+   private
+   def probe_be_url(fe_url, headers)
+      begin
+         request = HttpPut.new(fe_url)
+         request.setEntity(StringEntity.new("", StandardCharsets::UTF_8))
+         # Send all headers except label — use a throwaway probe label so FE
+         # doesn't register the real batch label before the actual data request
+         headers.each { |k, v| request.addHeader(k, v) unless k == "label" }
+         request.addHeader("label", "probe-#{SecureRandom.uuid}")
+
+         response = @probe_client.execute(request)
+         if response.getCode == 307
+            location = response.getFirstHeader("Location")
+            EntityUtils.consume(response.getEntity) rescue nil
+            if location
+               uri = java.net.URI.new(location.getValue)
+               port_str = uri.getPort > 0 ? ":#{uri.getPort}" : ""
+               query_str = uri.getQuery ? "?#{uri.getQuery}" : ""
+               return "#{uri.getScheme}://#{uri.getHost}#{port_str}#{uri.getPath}#{query_str}"
+            end
+         end
+         EntityUtils.consume(response.getEntity) rescue nil
+      rescue => e
+         @logger.warn("FE probe failed: #{e.message}")
+      end
+      nil
+   end
 
    private
    def add_event_to_retry_queue(delay_event)
@@ -332,15 +403,21 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
    private
    def make_request(table_events_map)
       table_events_map.each do |table, table_events|
-         url = @http_hosts.sample + http_query(table)
+         fe_url = @http_hosts.sample + http_query(table)
 
          if @log_request or @logger.debug?
-            @logger.info("doris stream load request url: #{url}  headers: #{table_events.http_headers}  body size: #{table_events.documents.size}")
+            @logger.info("doris stream load request url: #{fe_url}  headers: #{table_events.http_headers}  body size: #{table_events.documents.size}")
          end
          @logger.debug("doris stream load request body: #{table_events.documents}")
 
+         # Resolve BE URL via TTL cache (probe only on first call or every 30s).
+         # All other batches skip the probe entirely — zero extra overhead.
+         be_url = resolve_be_url(fe_url, table_events.http_headers)
+         target_url = be_url || fe_url
+         @logger.debug("Routing to: #{target_url}") if be_url
+
          request = SimpleRequestBuilder.
-            put(url).
+            put(target_url).
             setBody(table_events.documents, ContentType::TEXT_PLAIN).
             build
          table_events.http_headers.each do |k, v|
@@ -420,6 +497,11 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       table_events.events = nil # no longer used, can be gc
 
       @logger.debug("get documents: #{table_events.documents}")
+   end
+
+   def stop
+      @client.close if @client
+      @probe_client.close if @probe_client
    end
 
    class TableEvents
