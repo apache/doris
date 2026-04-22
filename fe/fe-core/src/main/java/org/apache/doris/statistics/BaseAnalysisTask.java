@@ -275,7 +275,6 @@ public abstract class BaseAnalysisTask {
             doExecute();
         } catch (AnalyzeSkipException e) {
             handleSkip(e);
-            return;
         } catch (Exception e) {
             if (containsSkipMarker(e)) {
                 handleSkip(new AnalyzeSkipException(buildSkipMessage(), e));
@@ -283,7 +282,6 @@ public abstract class BaseAnalysisTask {
             }
             throw e;
         }
-        afterExecution();
     }
 
     /**
@@ -312,14 +310,18 @@ public abstract class BaseAnalysisTask {
         String skipMsg = e.getMessage();
         LOG.info("Analyze task skip column [{}] in table [{}]. Reason: {}",
                 info.colName, tbl == null ? "?" : tbl.getName(), skipMsg);
+        // Stash the skip message on info.message. The job-level flushBuffer path
+        // (AnalysisJob.updateTaskState -> AnalysisManager.updateTaskStatus) will
+        // pick it up as the single FINISHED transition for this task, so we
+        // avoid a redundant updateTaskStatus call here. Doing the state update
+        // twice used to overwrite AnalysisInfo.timeCostInMs with the near-zero
+        // delta between the two FINISHED calls.
         info.message = skipMsg;
-        // Push FINISHED with skip message so that AnalysisManager can accumulate
-        // it into job.message for SHOW ANALYZE visibility.
-        Env.getCurrentEnv().getAnalysisManager()
-                .updateTaskStatus(info, AnalysisState.FINISHED, skipMsg, System.currentTimeMillis());
-        // Signal job: this task produced no data but is done. Downstream
-        // flushBuffer -> updateTaskState(FINISHED, "") will leave info.message
-        // untouched thanks to the empty-message guard in AnalysisManager.
+        // Route through taskDoneWithoutData: adds this task to queryFinished
+        // and triggers flushBuffer, which will call updateTaskState(FINISHED,
+        // "") exactly once per task. AnalysisJob.updateTaskState substitutes
+        // the task's own info.message when the outer msg is empty, so skipMsg
+        // reaches job.message for SHOW ANALYZE visibility.
         job.taskDoneWithoutData(this);
     }
 
@@ -338,8 +340,6 @@ public abstract class BaseAnalysisTask {
     public abstract void doExecute() throws Exception;
 
     protected abstract void doSample() throws Exception;
-
-    protected void afterExecution() {}
 
     protected void setTaskStateToRunning() {
         Env.getCurrentEnv().getAnalysisManager()
