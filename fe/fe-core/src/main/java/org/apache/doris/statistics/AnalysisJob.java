@@ -108,7 +108,20 @@ public class AnalysisJob {
                 killed = true;
             case FINISHED:
                 for (BaseAnalysisTask task : queryFinished) {
-                    analysisManager.updateTaskStatus(task.info, state, msg, time);
+                    // When flushBuffer passes an empty msg, fall back to the
+                    // task's own info.message. This propagates a skip reason
+                    // previously stashed by BaseAnalysisTask.handleSkip into
+                    // the single FINISHED update for this task, so job.message
+                    // accumulation in AnalysisManager sees it and SHOW ANALYZE
+                    // surfaces the skip reason at the job level.
+                    String taskMsg = msg;
+                    if ((taskMsg == null || taskMsg.isEmpty()) && task.info != null) {
+                        taskMsg = task.info.message;
+                    }
+                    if (taskMsg == null) {
+                        taskMsg = "";
+                    }
+                    analysisManager.updateTaskStatus(task.info, state, taskMsg, time);
                 }
             default:
                 // DO NOTHING
