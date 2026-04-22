@@ -51,7 +51,7 @@ namespace {
 constexpr std::string_view kProcSelfCgroupPath = "/proc/self/cgroup";
 constexpr std::string_view kProcSelfMountInfoPath = "/proc/self/mountinfo";
 constexpr std::string_view kCgroupRootPath = "/sys/fs/cgroup";
-}
+} // namespace
 
 struct CgroupMemoryInfo {
     int64_t limit_bytes;
