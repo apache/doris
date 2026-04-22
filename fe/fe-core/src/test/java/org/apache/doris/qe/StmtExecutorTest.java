@@ -225,17 +225,17 @@ public class StmtExecutorTest extends TestWithFeService {
         Mockito.doAnswer(new Answer<Void>() {
             @Override
             public Void answer(InvocationOnMock invocation) {
-            byte[] expected0 = new byte[]{-5, 4, 114, 111, 119, 49};
-            byte[] expected1 = new byte[]{4, 49, 50, 51, 52, 4, 114, 111, 119, 50};
-            ByteBuffer buffer = invocation.getArgument(0);
-            if (i.get() == 0) {
-                Assertions.assertArrayEquals(expected0, buffer.array());
-                i.getAndIncrement();
-            } else if (i.get() == 1) {
-                Assertions.assertArrayEquals(expected1, buffer.array());
-                i.getAndIncrement();
-            }
-            return null;
+                byte[] expected0 = new byte[] {-5, 4, 114, 111, 119, 49};
+                byte[] expected1 = new byte[] {4, 49, 50, 51, 52, 4, 114, 111, 119, 50};
+                ByteBuffer buffer = invocation.getArgument(0);
+                if (i.get() == 0) {
+                    Assertions.assertArrayEquals(expected0, buffer.array());
+                    i.getAndIncrement();
+                } else if (i.get() == 1) {
+                    Assertions.assertArrayEquals(expected1, buffer.array());
+                    i.getAndIncrement();
+                }
+                return null;
             }
         }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
 
@@ -272,17 +272,18 @@ public class StmtExecutorTest extends TestWithFeService {
         Mockito.doAnswer(new Answer<Void>() {
             @Override
             public Void answer(InvocationOnMock invocation) {
-            byte[] expected0 = new byte[] {0, 4, 7, -23, 7, 1, 1, 1, 2, 3};
-            byte[] expected1 = new byte[] {0, 0, -46, 4, 0, 0, 0, 0, 0, 0, 11, -23, 7, 1, 1, 1, 2, 3, 64, -30, 1, 0};
-            ByteBuffer buffer = invocation.getArgument(0);
-            if (i.get() == 0) {
-                Assertions.assertArrayEquals(expected0, buffer.array());
-                i.getAndIncrement();
-            } else if (i.get() == 1) {
-                Assertions.assertArrayEquals(expected1, buffer.array());
-                i.getAndIncrement();
-            }
-            return null;
+                byte[] expected0 = new byte[] {0, 4, 7, -23, 7, 1, 1, 1, 2, 3};
+                byte[] expected1 = new byte[] {0, 0, -46, 4, 0, 0, 0, 0, 0, 0, 11, -23, 7, 1, 1, 1, 2, 3,
+                        64, -30, 1, 0};
+                ByteBuffer buffer = invocation.getArgument(0);
+                if (i.get() == 0) {
+                    Assertions.assertArrayEquals(expected0, buffer.array());
+                    i.getAndIncrement();
+                } else if (i.get() == 1) {
+                    Assertions.assertArrayEquals(expected1, buffer.array());
+                    i.getAndIncrement();
+                }
+                return null;
             }
         }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
 
@@ -312,17 +313,17 @@ public class StmtExecutorTest extends TestWithFeService {
         Mockito.doAnswer(new Answer<Void>() {
             @Override
             public Void answer(InvocationOnMock invocation) {
-            byte[] expected0 = new byte[] {0, 0, 0};
-            byte[] expected1 = new byte[] {0, 0, 1};
-            ByteBuffer buffer = invocation.getArgument(0);
-            if (i.get() == 0) {
-                Assertions.assertArrayEquals(expected0, buffer.array());
-                i.getAndIncrement();
-            } else if (i.get() == 1) {
-                Assertions.assertArrayEquals(expected1, buffer.array());
-                i.getAndIncrement();
-            }
-            return null;
+                byte[] expected0 = new byte[] {0, 0, 0};
+                byte[] expected1 = new byte[] {0, 0, 1};
+                ByteBuffer buffer = invocation.getArgument(0);
+                if (i.get() == 0) {
+                    Assertions.assertArrayEquals(expected0, buffer.array());
+                    i.getAndIncrement();
+                } else if (i.get() == 1) {
+                    Assertions.assertArrayEquals(expected1, buffer.array());
+                    i.getAndIncrement();
+                }
+                return null;
             }
         }).when(channel).sendOnePacket(Mockito.any(ByteBuffer.class));
 

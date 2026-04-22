@@ -35,7 +35,7 @@ namespace doris {
 namespace {
 constexpr size_t LEGACY_SQL_BLOCK_RULE_STATUS_COLUMN_SIZE = 12;
 constexpr size_t REQUIRE_PARTITION_FILTER_INDEX = 8;
-}
+} // namespace
 
 std::vector<SchemaScanner::ColumnDesc>
         SchemaSqlBlockRuleStatusScanner::_s_sql_block_rule_status_columns = {
@@ -113,8 +113,8 @@ Status SchemaSqlBlockRuleStatusScanner::_get_sql_block_rule_status_block_from_fe
 
         if (result_data.size() > 0) {
             auto col_size = result_data[0].column_value.size();
-            if (col_size != LEGACY_SQL_BLOCK_RULE_STATUS_COLUMN_SIZE
-                    && col_size != _s_sql_block_rule_status_columns.size()) {
+            if (col_size != LEGACY_SQL_BLOCK_RULE_STATUS_COLUMN_SIZE &&
+                col_size != _s_sql_block_rule_status_columns.size()) {
                 return Status::InternalError("col size not equal");
             }
         }
@@ -124,17 +124,19 @@ Status SchemaSqlBlockRuleStatusScanner::_get_sql_block_rule_status_block_from_fe
             const TRow& row = result_data[i];
             auto col_size = row.column_value.size();
             for (int j = 0; j < _s_sql_block_rule_status_columns.size(); j++) {
-                if (col_size == LEGACY_SQL_BLOCK_RULE_STATUS_COLUMN_SIZE
-                        && j == REQUIRE_PARTITION_FILTER_INDEX) {
+                if (col_size == LEGACY_SQL_BLOCK_RULE_STATUS_COLUMN_SIZE &&
+                    j == REQUIRE_PARTITION_FILTER_INDEX) {
                     TCell default_cell;
                     default_cell.__set_boolVal(false);
                     RETURN_IF_ERROR(insert_block_column(default_cell, j,
-                                                    _sql_block_rule_status_block.get(),
-                                                    _s_sql_block_rule_status_columns[j].type));
+                                                        _sql_block_rule_status_block.get(),
+                                                        _s_sql_block_rule_status_columns[j].type));
                     continue;
                 }
-                int row_index = col_size == LEGACY_SQL_BLOCK_RULE_STATUS_COLUMN_SIZE
-                        && j > REQUIRE_PARTITION_FILTER_INDEX ? j - 1 : j;
+                int row_index = col_size == LEGACY_SQL_BLOCK_RULE_STATUS_COLUMN_SIZE &&
+                                                j > REQUIRE_PARTITION_FILTER_INDEX
+                                        ? j - 1
+                                        : j;
                 RETURN_IF_ERROR(insert_block_column(row.column_value[row_index], j,
                                                     _sql_block_rule_status_block.get(),
                                                     _s_sql_block_rule_status_columns[j].type));
