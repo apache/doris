@@ -56,8 +56,8 @@ AttachTask::AttachTask(RuntimeState* runtime_state) {
                 "AttachTask(RuntimeState*): runtime_state->get_query_ctx() is null"));
     }
     if (UNLIKELY(runtime_state->get_query_ctx()->resource_ctx() == nullptr)) {
-        throw Exception(Status::FatalError(
-                "AttachTask(RuntimeState*): query_ctx->resource_ctx() is null"));
+        throw Exception(
+                Status::FatalError("AttachTask(RuntimeState*): query_ctx->resource_ctx() is null"));
     }
     signal::set_signal_is_nereids(runtime_state->is_nereids());
     init(runtime_state->get_query_ctx()->resource_ctx());
@@ -86,8 +86,8 @@ SwitchResourceContext::SwitchResourceContext(const std::shared_ptr<ResourceConte
             throw Exception(Status::FatalError("SwitchResourceContext: rc is null"));
         }
         if (UNLIKELY(rc->memory_context() == nullptr)) {
-            throw Exception(Status::FatalError(
-                    "SwitchResourceContext: rc->memory_context() is null"));
+            throw Exception(
+                    Status::FatalError("SwitchResourceContext: rc->memory_context() is null"));
         }
         if (UNLIKELY(rc->memory_context()->mem_tracker() == nullptr)) {
             throw Exception(Status::FatalError(
