@@ -127,33 +127,37 @@ bool DorisFSDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, const ch
         }
         //Store the file length
         h->_length = h->_reader->size();
-        h->_fpos = 0;
         ret = _CLNEW FSIndexInput(std::move(h), buffer_size);
         return true;
     }
 
-    //delete h->_shared_lock;
-    //_CLDECDELETE(h)
     return false;
 }
 
 DorisFSDirectory::FSIndexInput::FSIndexInput(const FSIndexInput& other)
         : BufferedIndexInput(other) {
     if (other._handle == nullptr) {
-        _CLTHROWA(CL_ERR_NullPointer, "other handle is null");
+        _CLTHROWA(CL_ERR_NullPointer, "other._handle is null");
     }
 
-    std::lock_guard<std::mutex> wlock(other._handle->_shared_lock);
     _handle = other._handle;
-    _pos = other._handle->_fpos; //note where we are currently...
-    _io_ctx = other._io_ctx;
+    // Clone-time cursor copy relies on the contract that callers do not read and
+    // clone the same FSIndexInput instance concurrently.
+    _pos = other._pos;
+    // Do NOT copy `other._io_ctx`: its `query_id` / `file_cache_stats` /
+    // `file_reader_stats` are raw pointers to per-query state (see
+    // be/src/io/io_common.h). If we copied them into a clone that ends up
+    // living inside a long-lived cached IndexSearcher, a second query hitting
+    // the cache would write into the first query's already-freed stats
+    // (UAF / profile misattribution). Callers set the per-read IOContext via
+    // setIoContext() on the owning CSIndexInput, which refreshes the base
+    // FSIndexInput's `_io_ctx` around every readBytes() call.
+    _io_ctx.is_inverted_index = true;
 }
 
 DorisFSDirectory::FSIndexInput::SharedHandle::SharedHandle(const char* path) {
     _length = 0;
-    _fpos = 0;
     strcpy(this->path, path);
-    //_shared_lock = new std::mutex();
 }
 
 DorisFSDirectory::FSIndexInput::SharedHandle::~SharedHandle() {
@@ -209,23 +213,23 @@ void DorisFSDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_t len)
     CND_PRECONDITION(_handle != nullptr, "shared file handle has closed");
     CND_PRECONDITION(_handle->_reader != nullptr, "file is not open");
 
+    int64_t position = getFilePointer();
+    if (_pos != position) {
+        _pos = position;
+    }
+
+    Slice result {b, (size_t)len};
+    size_t bytes_read = 0;
     int64_t inverted_index_io_timer = 0;
     {
         SCOPED_RAW_TIMER(&inverted_index_io_timer);
-
+#ifndef USE_HADOOP_HDFS
+        // libhdfs3's hdfsSeek()+hdfsRead() shares the file cursor on the
+        // handle, so concurrent read_at() on the same SharedHandle would
+        // interleave. Serialize here in !USE_HADOOP_HDFS builds only.
+        // USE_HADOOP_HDFS builds use hdfsPread() and remain lock-free.
         std::lock_guard<std::mutex> wlock(_handle->_shared_lock);
-
-        int64_t position = getFilePointer();
-        if (_pos != position) {
-            _pos = position;
-        }
-
-        if (_handle->_fpos != _pos) {
-            _handle->_fpos = _pos;
-        }
-
-        Slice result {b, (size_t)len};
-        size_t bytes_read = 0;
+#endif
         Status st = _handle->_reader->read_at(_pos, result, &bytes_read, &_io_ctx);
         DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexInput::readInternal_reader_read_at_error", {
             st = Status::InternalError(
@@ -235,19 +239,19 @@ void DorisFSDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_t len)
         if (!st.ok()) {
             _CLTHROWA(CL_ERR_IO, "read past EOF");
         }
-        bufferLength = len;
         DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexInput::readInternal_bytes_read_error",
                         { bytes_read = len + 10; })
         if (bytes_read != len) {
             _CLTHROWA(CL_ERR_IO, "read error");
         }
-        _pos += bufferLength;
-        _handle->_fpos = _pos;
     }
 
     if (_io_ctx.file_cache_stats != nullptr) {
         _io_ctx.file_cache_stats->inverted_index_io_timer += inverted_index_io_timer;
     }
+
+    bufferLength = len;
+    _pos += bufferLength;
 }
 
 void DorisFSDirectory::FSIndexOutput::init(const io::FileSystemSPtr& fs, const char* path) {

@@ -27,22 +27,23 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <cstring>
 #include <map>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
-#include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/tablet/tablet_schema.h"
-#include "storage/tablet/tablet_schema_helper.h"
 #include "util/slice.h"
 
 using namespace lucene::index;
@@ -1000,59 +1001,340 @@ TEST_F(DorisCompoundReaderTest, OpenInputFromRAMDirectory) {
     reader.close();
 }
 
-// Verify that after initialize() + setIoContext(nullptr) (the cache-safe
-// transition), the main stream's io_ctx is cleared and sub-streams created
-// via openInput() do NOT carry stale io_ctx pointers.  This is the pattern
-// used by both MATCH and SEARCH paths before inserting an IndexSearcher
-// into the global InvertedIndexSearcherCache.
-TEST_F(DorisCompoundReaderTest, InitializeThenClearIoCtxForCacheSafety) {
-    std::string index_path = kTestDir + "/test_io_ctx_lifecycle.idx";
-    std::vector<std::string> file_names = {"segments.gen", "posting.dat"};
-    std::vector<int64_t> lengths = {30, 60};
+// -----------------------------------------------------------------------------
+// TC-P0-* : CSIndexInput deep-clone tests (AIR-12, design doc v2.1 §三)
+// Each test uses sub-files larger than 16 MB so they go through the body
+// (CSIndexInput) path rather than the in-RAM header path.
+// -----------------------------------------------------------------------------
 
-    CL_NS(store)::IndexInput* index_input =
-            create_mock_index_input(index_path, file_names, lengths);
-
+// TC-P0-3-1: Independence — seeking one clone must not move the file pointer of
+// the source or of a sibling clone.
+TEST_F(DorisCompoundReaderTest, CSIndexInputCloneIsIndependent) {
+    std::string index_path = kTestDir + "/tc_p0_3_1.idx";
+    std::vector<std::string> names = {"data.dat"};
+    std::vector<int64_t> lens = {17 * 1024 * 1024};
+    auto* index_input = create_mock_index_input(index_path, names, lens);
     DorisCompoundReader reader(index_input, 4096, nullptr);
 
-    // --- Phase 1: initialization (simulates index open with a query's io_ctx) ---
-    io::IOContext io_ctx;
-    io_ctx.reader_type = ReaderType::READER_QUERY;
-    reader.initialize(&io_ctx);
-
-    auto* stream = reader.getDorisIndexInput();
-    auto* ctx_after_init = (const io::IOContext*)stream->getIoContext();
-    // Main stream should carry the io_ctx during initialization reads
-    EXPECT_EQ(ctx_after_init->reader_type, ReaderType::READER_QUERY);
-
-    // --- Phase 2: cache-safe transition (mirrors create_index_searcher) ---
-    stream->setIoContext(nullptr);
-    stream->setIndexFile(false);
-
-    auto* ctx_after_clear = (const io::IOContext*)stream->getIoContext();
-    // Main stream io_ctx should be reset to defaults
-    EXPECT_EQ(ctx_after_clear->reader_type, ReaderType::UNKNOWN);
-    EXPECT_EQ(ctx_after_clear->file_cache_stats, nullptr);
-
-    // --- Phase 3: verify sub-streams don't inherit stale io_ctx ---
     CLuceneError err;
-    lucene::store::IndexInput* sub_input = nullptr;
-    EXPECT_TRUE(reader.openInput("posting.dat", sub_input, err, 4096));
-    EXPECT_NE(sub_input, nullptr);
+    lucene::store::IndexInput* a = nullptr;
+    ASSERT_TRUE(reader.openInput("data.dat", a, err, 4096));
+    auto* b = a->clone();
+    ASSERT_NE(b, nullptr);
 
-    // CSIndexInput._io_ctx should be nullptr (not set by openInput on master)
-    // This means readInternal() will skip setIoContext on the base stream,
-    // allowing query-phase reads to use their own io_ctx through the
-    // CLucene API parameter chain (termDocs/termPositions/terms).
-    // We verify this indirectly: cloning should also have nullptr _io_ctx.
-    lucene::store::IndexInput* cloned = sub_input->clone();
-    EXPECT_NE(cloned, nullptr);
+    a->seek(100);
+    EXPECT_EQ(a->getFilePointer(), 100);
+    EXPECT_EQ(b->getFilePointer(), 0) << "clone must not share source position";
 
-    sub_input->close();
-    cloned->close();
-    _CLLDELETE(sub_input);
-    _CLLDELETE(cloned);
+    b->seek(500);
+    EXPECT_EQ(b->getFilePointer(), 500);
+    EXPECT_EQ(a->getFilePointer(), 100) << "source must be unaffected by clone seek";
 
+    _CLLDELETE(a);
+    _CLLDELETE(b);
+    reader.close();
+}
+
+// TC-P0-3-2: Data correctness — two clones reading independently produce the
+// same bytes as the underlying file.
+TEST_F(DorisCompoundReaderTest, CSIndexInputCloneReadsCorrectly) {
+    std::string index_path = kTestDir + "/tc_p0_3_2.idx";
+    std::vector<std::string> names = {"data.dat"};
+    // 17 MB of 'Z' bytes (single sub-file => 'Z' - 0 = 'Z'; see create_mock_index_input).
+    std::vector<int64_t> lens = {17 * 1024 * 1024};
+    auto* index_input = create_mock_index_input(index_path, names, lens);
+    DorisCompoundReader reader(index_input, 4096, nullptr);
+
+    CLuceneError err;
+    lucene::store::IndexInput* a = nullptr;
+    ASSERT_TRUE(reader.openInput("data.dat", a, err, 4096));
+    auto* b = a->clone();
+    ASSERT_NE(b, nullptr);
+
+    a->seek(1024);
+    uint8_t abuf[256] = {0};
+    a->readBytes(abuf, static_cast<int32_t>(sizeof(abuf)));
+
+    b->seek(2048);
+    uint8_t bbuf[256] = {0};
+    b->readBytes(bbuf, static_cast<int32_t>(sizeof(bbuf)));
+
+    for (uint8_t c : abuf) EXPECT_EQ(c, 'Z');
+    for (uint8_t c : bbuf) EXPECT_EQ(c, 'Z');
+
+    _CLLDELETE(a);
+    _CLLDELETE(b);
+    reader.close();
+}
+
+// TC-P0-3-3: Lifecycle — destroying the source must not invalidate a clone's
+// state (ASAN-observable; pread through shared SharedHandle still valid).
+TEST_F(DorisCompoundReaderTest, CSIndexInputCloneOutlivesSource) {
+    std::string index_path = kTestDir + "/tc_p0_3_3.idx";
+    std::vector<std::string> names = {"data.dat"};
+    std::vector<int64_t> lens = {17 * 1024 * 1024};
+    auto* index_input = create_mock_index_input(index_path, names, lens);
+    DorisCompoundReader reader(index_input, 4096, nullptr);
+
+    CLuceneError err;
+    lucene::store::IndexInput* a = nullptr;
+    ASSERT_TRUE(reader.openInput("data.dat", a, err, 4096));
+    auto* b = a->clone();
+    ASSERT_NE(b, nullptr);
+
+    // Destroy source first.
+    _CLLDELETE(a);
+
+    // Clone must still be fully usable.
+    b->seek(4096);
+    uint8_t buf[128] = {0};
+    b->readBytes(buf, static_cast<int32_t>(sizeof(buf)));
+    for (uint8_t c : buf) EXPECT_EQ(c, 'Z');
+
+    _CLLDELETE(b);
+    reader.close();
+}
+
+// TC-P0-3-4: Multi-level clone A -> B -> C. Any destruction order must not
+// crash because the underlying base (FSIndexInput / SharedHandle) is
+// shared_ptr-managed and each CSIndexInput owns its own cloned base.
+TEST_F(DorisCompoundReaderTest, CSIndexInputCloneChainIsIndependent) {
+    std::string index_path = kTestDir + "/tc_p0_3_4.idx";
+    std::vector<std::string> names = {"data.dat"};
+    std::vector<int64_t> lens = {17 * 1024 * 1024};
+    auto* index_input = create_mock_index_input(index_path, names, lens);
+    DorisCompoundReader reader(index_input, 4096, nullptr);
+
+    CLuceneError err;
+    lucene::store::IndexInput* a = nullptr;
+    ASSERT_TRUE(reader.openInput("data.dat", a, err, 4096));
+    auto* b = a->clone();
+    auto* c = b->clone();
+    ASSERT_NE(b, nullptr);
+    ASSERT_NE(c, nullptr);
+
+    // Destroy middle clone first, then source, then finally the leaf.
+    _CLLDELETE(b);
+    _CLLDELETE(a);
+
+    c->seek(8192);
+    uint8_t buf[64] = {0};
+    c->readBytes(buf, static_cast<int32_t>(sizeof(buf)));
+    for (uint8_t x : buf) EXPECT_EQ(x, 'Z');
+
+    _CLLDELETE(c);
+    reader.close();
+}
+
+// TC-P0-4-1 (behavioral): Opening several sub-files of the same compound
+// must produce CSIndexInputs whose positions are independent. This proves,
+// at the observable level, that each CSIndexInput has its own base clone
+// (the only way seek-on-one-not-affecting-another can hold).
+TEST_F(DorisCompoundReaderTest, OpenInputProducesIndependentBases) {
+    std::string index_path = kTestDir + "/tc_p0_4_1.idx";
+    std::vector<std::string> names = {"a.dat", "b.dat", "c.dat"};
+    std::vector<int64_t> lens = {17 * 1024 * 1024, 17 * 1024 * 1024, 17 * 1024 * 1024};
+    auto* index_input = create_mock_index_input(index_path, names, lens);
+    DorisCompoundReader reader(index_input, 4096, nullptr);
+
+    CLuceneError err;
+    lucene::store::IndexInput* ia = nullptr;
+    lucene::store::IndexInput* ib = nullptr;
+    lucene::store::IndexInput* ic = nullptr;
+    ASSERT_TRUE(reader.openInput("a.dat", ia, err, 4096));
+    ASSERT_TRUE(reader.openInput("b.dat", ib, err, 4096));
+    ASSERT_TRUE(reader.openInput("c.dat", ic, err, 4096));
+
+    ia->seek(100);
+    ib->seek(200);
+    ic->seek(300);
+    EXPECT_EQ(ia->getFilePointer(), 100);
+    EXPECT_EQ(ib->getFilePointer(), 200);
+    EXPECT_EQ(ic->getFilePointer(), 300);
+
+    _CLLDELETE(ia);
+    _CLLDELETE(ib);
+    _CLLDELETE(ic);
+    reader.close();
+}
+
+// TC-P0-4-2: Concurrent read through sibling CSIndexInputs. Validates that
+// after removing FSIndexInput::_this_lock (P0-6), parallel reads across
+// sub-files of the same compound do not race.
+TEST_F(DorisCompoundReaderTest, ConcurrentReadAcrossSubFiles) {
+    std::string index_path = kTestDir + "/tc_p0_4_2.idx";
+    std::vector<std::string> names = {"a.dat", "b.dat", "c.dat"};
+    std::vector<int64_t> lens = {17 * 1024 * 1024, 17 * 1024 * 1024, 17 * 1024 * 1024};
+    auto* index_input = create_mock_index_input(index_path, names, lens);
+    DorisCompoundReader reader(index_input, 4096, nullptr);
+
+    constexpr int kReadsPerThread = 200;
+    constexpr int kChunkSize = 4096;
+    std::vector<lucene::store::IndexInput*> inputs;
+    for (const auto& n : names) {
+        CLuceneError err;
+        lucene::store::IndexInput* in = nullptr;
+        ASSERT_TRUE(reader.openInput(n.c_str(), in, err, 4096));
+        inputs.push_back(in);
+    }
+
+    std::atomic<int> mismatches {0};
+    std::vector<std::thread> threads;
+    for (size_t t = 0; t < inputs.size(); ++t) {
+        auto* in = inputs[t];
+        // Mock writer fills sub-file i with the byte ('Z' - i % 26).
+        const uint8_t expected = static_cast<uint8_t>('Z' - (t % 26));
+        threads.emplace_back([in, expected, &mismatches]() {
+            doris::ThreadLocalHandle::create_thread_local_if_not_exits();
+            std::vector<uint8_t> buf(kChunkSize);
+            for (int i = 0; i < kReadsPerThread; ++i) {
+                int64_t off = (i * 73) % (16 * 1024 * 1024);
+                in->seek(off);
+                in->readBytes(buf.data(), kChunkSize);
+                for (uint8_t c : buf) {
+                    if (c != expected) {
+                        mismatches.fetch_add(1);
+                        doris::ThreadLocalHandle::del_thread_local_if_count_is_zero();
+                        return;
+                    }
+                }
+            }
+            doris::ThreadLocalHandle::del_thread_local_if_count_is_zero();
+        });
+    }
+    for (auto& th : threads) th.join();
+    EXPECT_EQ(mismatches.load(), 0);
+
+    for (auto* in : inputs) _CLLDELETE(in);
+    reader.close();
+}
+
+// TC-P0-5-1: CSIndexInput::clone() goes through the (deep) copy ctor, so the
+// clone is a distinct IndexInput* that survives independent of the source.
+TEST_F(DorisCompoundReaderTest, CloneReturnsDistinctUsableInput) {
+    std::string index_path = kTestDir + "/tc_p0_5_1.idx";
+    std::vector<std::string> names = {"data.dat"};
+    std::vector<int64_t> lens = {17 * 1024 * 1024};
+    auto* index_input = create_mock_index_input(index_path, names, lens);
+    DorisCompoundReader reader(index_input, 4096, nullptr);
+
+    CLuceneError err;
+    lucene::store::IndexInput* a = nullptr;
+    ASSERT_TRUE(reader.openInput("data.dat", a, err, 4096));
+    auto* b = a->clone();
+    ASSERT_NE(b, a);
+    EXPECT_EQ(a->length(), b->length());
+    EXPECT_STREQ(b->getObjectName(), "CSIndexInput");
+
+    _CLLDELETE(a);
+
+    // Reading from clone after source destruction must still work.
+    b->seek(0);
+    uint8_t buf[16] = {0};
+    b->readBytes(buf, static_cast<int32_t>(sizeof(buf)));
+    for (uint8_t c : buf) EXPECT_EQ(c, 'Z');
+
+    _CLLDELETE(b);
+    reader.close();
+}
+
+// TC-P0-6-1a (CI gate, TSAN-sensitive): multiple threads stress read the same
+// sub-file through independent clones. If FSIndexInput::_this_lock or
+// SharedHandle::_shared_lock were still required on the read path, removing
+// them would surface as TSAN data races here or as corrupted reads.
+TEST_F(DorisCompoundReaderTest, ConcurrentReadStressAcrossClones) {
+    std::string index_path = kTestDir + "/tc_p0_6_1a.idx";
+    std::vector<std::string> names = {"data.dat"};
+    std::vector<int64_t> lens = {17 * 1024 * 1024};
+    auto* index_input = create_mock_index_input(index_path, names, lens);
+    DorisCompoundReader reader(index_input, 4096, nullptr);
+
+    CLuceneError err;
+    lucene::store::IndexInput* source = nullptr;
+    ASSERT_TRUE(reader.openInput("data.dat", source, err, 4096));
+
+    constexpr int kNumThreads = 5;
+    constexpr int kReadsPerThread = 500;
+    constexpr int kChunkSize = 1024;
+
+    std::vector<lucene::store::IndexInput*> clones(kNumThreads, nullptr);
+    for (int i = 0; i < kNumThreads; ++i) {
+        clones[i] = source->clone();
+        ASSERT_NE(clones[i], nullptr);
+    }
+
+    std::atomic<int> mismatches {0};
+    std::atomic<int> exceptions {0};
+    std::vector<std::thread> threads;
+    for (int t = 0; t < kNumThreads; ++t) {
+        threads.emplace_back([t, in = clones[t], &mismatches, &exceptions]() {
+            doris::ThreadLocalHandle::create_thread_local_if_not_exits();
+            std::vector<uint8_t> buf(kChunkSize);
+            for (int i = 0; i < kReadsPerThread; ++i) {
+                int64_t off = ((t * 97 + i * 31) * 251) % (16 * 1024 * 1024 - kChunkSize);
+                try {
+                    in->seek(off);
+                    in->readBytes(buf.data(), kChunkSize);
+                } catch (const CLuceneError&) {
+                    exceptions.fetch_add(1);
+                    continue;
+                }
+                for (uint8_t c : buf) {
+                    if (c != 'Z') {
+                        mismatches.fetch_add(1);
+                        break;
+                    }
+                }
+            }
+            doris::ThreadLocalHandle::del_thread_local_if_count_is_zero();
+        });
+    }
+    for (auto& th : threads) th.join();
+
+    EXPECT_EQ(mismatches.load(), 0);
+    EXPECT_EQ(exceptions.load(), 0);
+
+    for (auto* c : clones) _CLLDELETE(c);
+    _CLLDELETE(source);
+    reader.close();
+}
+
+// TC-P0-6-4: BufferedIndexInput buffer-boundary behavior. Two clones reading
+// from different offsets must each refill their own (per-instance) buffer
+// without cross-contamination.
+TEST_F(DorisCompoundReaderTest, ClonesRefillBuffersIndependently) {
+    std::string index_path = kTestDir + "/tc_p0_6_4.idx";
+    std::vector<std::string> names = {"data.dat"};
+    std::vector<int64_t> lens = {17 * 1024 * 1024};
+    auto* index_input = create_mock_index_input(index_path, names, lens);
+    // Use a small buffer so the refill path is exercised many times.
+    DorisCompoundReader reader(index_input, 1024, nullptr);
+
+    CLuceneError err;
+    lucene::store::IndexInput* a = nullptr;
+    ASSERT_TRUE(reader.openInput("data.dat", a, err, 1024));
+    auto* b = a->clone();
+
+    // A reads linearly from offset 0; B reads linearly from a staggered offset
+    // that is not buffer-aligned. Interleave reads so each instance crosses
+    // its own buffer boundary multiple times.
+    int64_t a_off = 0;
+    int64_t b_off = 3003;
+    for (int i = 0; i < 64; ++i) {
+        uint8_t abuf[512] = {0};
+        uint8_t bbuf[777] = {0}; // odd size to avoid alignment
+        a->seek(a_off);
+        a->readBytes(abuf, static_cast<int32_t>(sizeof(abuf)));
+        b->seek(b_off);
+        b->readBytes(bbuf, static_cast<int32_t>(sizeof(bbuf)));
+        for (uint8_t c : abuf) ASSERT_EQ(c, 'Z');
+        for (uint8_t c : bbuf) ASSERT_EQ(c, 'Z');
+        a_off += sizeof(abuf);
+        b_off += sizeof(bbuf);
+    }
+
+    _CLLDELETE(a);
+    _CLLDELETE(b);
     reader.close();
 }
 

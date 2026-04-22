@@ -19,14 +19,18 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <thread>
+#include <vector>
 
 #include "common/config.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
 #include "testutil/test_util.h"
 #include "util/debug_points.h"
 
@@ -255,7 +259,9 @@ TEST_F(DorisFSDirectoryTest, FSIndexInputReadInternalWithReadError) {
             "DorisFSDirectory::FSIndexInput::readInternal_reader_read_at_error");
 
     uint8_t buffer[10];
+    int64_t original_pos = input->getFilePointer();
     EXPECT_THROW(input->readBytes(buffer, 10), CLuceneError);
+    EXPECT_EQ(input->getFilePointer(), original_pos);
 
     DebugPoints::instance()->remove(
             "DorisFSDirectory::FSIndexInput::readInternal_reader_read_at_error");
@@ -714,6 +720,207 @@ TEST_F(DorisFSDirectoryTest, FSIndexInputCopyConstructorWithNullHandle) {
 
     _CLDELETE(cloned_input);
     _CLDELETE(input);
+}
+
+// Regression for the IOContext leak: if the source FSIndexInput had per-query
+// stats pointers set (e.g. the root `_stream` carries the caller's
+// `file_cache_stats` during InvertedIndexReader::handle_searcher_cache()),
+// clones produced later (e.g. one per sub-file inside a cached searcher) must
+// NOT inherit those raw pointers. Otherwise a later query hitting the cache
+// would write into the original query's already-freed stats.
+TEST_F(DorisFSDirectoryTest, FSIndexInputCloneDoesNotInheritPerQueryIoCtx) {
+    std::filesystem::path test_file = _tmp_dir / "test_file_ioctx_leak";
+    {
+        std::ofstream ofs(test_file);
+        ofs << "0123456789";
+    }
+
+    lucene::store::IndexInput* src = nullptr;
+    CLuceneError error;
+    ASSERT_TRUE(DorisFSDirectory::FSIndexInput::open(_fs, test_file.string().c_str(), src, error));
+    ASSERT_NE(src, nullptr);
+
+    // Simulate the pre-searcher-build state: inject per-query stats + query_id
+    // via setIoContext(), the same way DorisCompoundReader::initialize() does
+    // for the root stream.
+    io::FileCacheStatistics q1_stats {};
+    TUniqueId q1_id;
+    q1_id.__set_hi(0xdeadbeef);
+    q1_id.__set_lo(0xcafef00d);
+    io::IOContext q1_ctx;
+    q1_ctx.query_id = &q1_id;
+    q1_ctx.file_cache_stats = &q1_stats;
+    q1_ctx.is_inverted_index = true;
+    src->setIoContext(&q1_ctx);
+
+    // Clone the stream as DorisCompoundReader::openInput() does per sub-file.
+    auto* clone = src->clone();
+    ASSERT_NE(clone, nullptr);
+    auto* clone_fs = dynamic_cast<DorisFSDirectory::FSIndexInput*>(clone);
+    ASSERT_NE(clone_fs, nullptr);
+
+    // The clone's IOContext must be clean: no dangling query_id / stats refs,
+    // only the structural `is_inverted_index` flag retained.
+    const auto* clone_ctx = static_cast<const io::IOContext*>(clone_fs->getIoContext());
+    EXPECT_EQ(clone_ctx->query_id, nullptr);
+    EXPECT_EQ(clone_ctx->file_cache_stats, nullptr);
+    EXPECT_EQ(clone_ctx->file_reader_stats, nullptr);
+    EXPECT_TRUE(clone_ctx->is_inverted_index);
+
+    _CLDELETE(clone);
+    _CLDELETE(src);
+}
+
+TEST_F(DorisFSDirectoryTest, FSIndexInputClonePreservesCurrentPosition) {
+    std::filesystem::path test_file = _tmp_dir / "test_file_clone_pos";
+    std::ofstream ofs(test_file);
+    ofs << "0123456789abcdef";
+    ofs.close();
+
+    lucene::store::IndexInput* input = nullptr;
+    CLuceneError error;
+    ASSERT_TRUE(
+            DorisFSDirectory::FSIndexInput::open(_fs, test_file.string().c_str(), input, error));
+    ASSERT_NE(input, nullptr);
+
+    input->seek(5);
+    uint8_t consumed = 0;
+    input->readBytes(&consumed, 1);
+    EXPECT_EQ(consumed, '5');
+    EXPECT_EQ(input->getFilePointer(), 6);
+
+    auto* cloned_input = input->clone();
+    ASSERT_NE(cloned_input, nullptr);
+    EXPECT_EQ(cloned_input->getFilePointer(), input->getFilePointer());
+
+    uint8_t next_byte = 0;
+    cloned_input->readBytes(&next_byte, 1);
+    EXPECT_EQ(next_byte, '6');
+    EXPECT_EQ(input->getFilePointer(), 6);
+
+    _CLDELETE(cloned_input);
+    _CLDELETE(input);
+}
+
+// TC-P1-1-2: 4 per-thread clones reading different offsets of the same file
+// concurrently. Validates that after removing `_shared_lock`, pread through
+// `_handle->_reader` is still race-free (pread is stateless). This is the
+// functional proof that §3-A "different clones sharing the same _handle is
+// safe" holds in practice.
+TEST_F(DorisFSDirectoryTest, FSIndexInputConcurrentReadAcrossClones) {
+    // Build a file whose byte at offset i equals (i % 251). 251 is prime so
+    // there is no trivial pattern aliasing a buffer-size boundary.
+    constexpr int kFileSize = 64 * 1024;
+    std::filesystem::path test_file = _tmp_dir / "test_file_concurrent_clones";
+    {
+        std::ofstream ofs(test_file, std::ios::binary);
+        for (int i = 0; i < kFileSize; ++i) {
+            ofs.put(static_cast<char>(i % 251));
+        }
+    }
+
+    lucene::store::IndexInput* source = nullptr;
+    CLuceneError error;
+    ASSERT_TRUE(
+            DorisFSDirectory::FSIndexInput::open(_fs, test_file.string().c_str(), source, error));
+    ASSERT_NE(source, nullptr);
+
+    constexpr int kNumThreads = 4;
+    constexpr int kReadsPerThread = 200;
+    constexpr int kChunkSize = 128;
+
+    // Clone per thread BEFORE spawning. §3-A contract: clone() on the source
+    // is done serially, threads then use their own clones independently.
+    std::vector<lucene::store::IndexInput*> clones(kNumThreads, nullptr);
+    for (int i = 0; i < kNumThreads; ++i) {
+        clones[i] = source->clone();
+        ASSERT_NE(clones[i], nullptr);
+    }
+
+    std::atomic<int> mismatches {0};
+    std::atomic<int> exceptions {0};
+    std::vector<std::thread> threads;
+    threads.reserve(kNumThreads);
+    for (int tid = 0; tid < kNumThreads; ++tid) {
+        threads.emplace_back([&, tid]() {
+            doris::ThreadLocalHandle::create_thread_local_if_not_exits();
+            auto* in = clones[tid];
+            std::vector<uint8_t> buf(kChunkSize);
+            for (int i = 0; i < kReadsPerThread; ++i) {
+                // Pseudo-random offset that stays inside the file.
+                int64_t off = ((static_cast<int64_t>(tid) * 37 + i * 13) * 251) %
+                              (kFileSize - kChunkSize);
+                try {
+                    in->seek(off);
+                    in->readBytes(buf.data(), kChunkSize);
+                } catch (const CLuceneError&) {
+                    exceptions.fetch_add(1);
+                    continue;
+                }
+                for (int k = 0; k < kChunkSize; ++k) {
+                    if (buf[k] != static_cast<uint8_t>((off + k) % 251)) {
+                        mismatches.fetch_add(1);
+                        break;
+                    }
+                }
+            }
+            doris::ThreadLocalHandle::del_thread_local_if_count_is_zero();
+        });
+    }
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    EXPECT_EQ(mismatches.load(), 0);
+    EXPECT_EQ(exceptions.load(), 0);
+
+    for (auto* c : clones) {
+        _CLDELETE(c);
+    }
+    _CLDELETE(source);
+}
+
+// TC-P1-3-3: shared_ptr refcount across a chain of clones. Validates that
+// destroying the source does not invalidate the underlying file handle for
+// the surviving clones (SharedHandle is shared_ptr-managed).
+TEST_F(DorisFSDirectoryTest, FSIndexInputCloneChainOutlivesSource) {
+    std::filesystem::path test_file = _tmp_dir / "test_file_clone_chain";
+    {
+        std::ofstream ofs(test_file);
+        ofs << "0123456789abcdef";
+    }
+
+    lucene::store::IndexInput* a = nullptr;
+    CLuceneError error;
+    ASSERT_TRUE(DorisFSDirectory::FSIndexInput::open(_fs, test_file.string().c_str(), a, error));
+    ASSERT_NE(a, nullptr);
+
+    auto* b = a->clone();
+    ASSERT_NE(b, nullptr);
+    auto* c = b->clone();
+    ASSERT_NE(c, nullptr);
+
+    // Destroy the original ("grandparent") first; b and c must still work.
+    _CLDELETE(a);
+
+    b->seek(4);
+    uint8_t bbuf[3] = {0, 0, 0};
+    b->readBytes(bbuf, 3);
+    EXPECT_EQ(bbuf[0], '4');
+    EXPECT_EQ(bbuf[1], '5');
+    EXPECT_EQ(bbuf[2], '6');
+
+    // Destroy the middle clone; c (grandchild) must still work.
+    _CLDELETE(b);
+
+    c->seek(10);
+    uint8_t cbuf[3] = {0, 0, 0};
+    c->readBytes(cbuf, 3);
+    EXPECT_EQ(cbuf[0], 'a');
+    EXPECT_EQ(cbuf[1], 'b');
+    EXPECT_EQ(cbuf[2], 'c');
+
+    _CLDELETE(c);
 }
 
 // Test 44: FSIndexOutput flushBuffer error
