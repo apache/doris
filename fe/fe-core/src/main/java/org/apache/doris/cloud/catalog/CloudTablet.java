@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletSlidingWindowAccessStats;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -78,7 +79,8 @@ public class CloudTablet extends Tablet implements GsonPostProcessable {
     }
 
     public Multimap<Long, Long> getNormalReplicaBackendPathMap(String beEndpoint) throws UserException {
-        Multimap<Long, Long> pathMap = getNormalReplicaBackendPathMapImpl(beEndpoint,
+        TabletSlidingWindowAccessStats.recordTablet(getId());
+        Multimap<Long, Long> pathMap = super.getNormalReplicaBackendPathMapImpl(beEndpoint,
                 (rep, be) -> ((CloudReplica) rep).getBackendId(be));
         return backendPathMapReprocess(pathMap);
     }
