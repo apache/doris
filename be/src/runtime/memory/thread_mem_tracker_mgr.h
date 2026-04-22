@@ -29,6 +29,7 @@
 
 #include "common/be_mock_util.h"
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/status.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/global_memory_arbitrator.h"
@@ -101,6 +102,15 @@ public:
 
     MemTrackerLimiter* limiter_mem_tracker() {
         CHECK(init());
+        if (UNLIKELY(_limiter_tracker == nullptr)) {
+            throw Exception(Status::FatalError(
+                    "ThreadMemTrackerMgr::limiter_mem_tracker() returns nullptr. "
+                    "This means a previous attach_limiter_tracker() received a null "
+                    "shared_ptr (silent in RELEASE because DCHECK is no-op). "
+                    "_init={}, _limiter_tracker_sptr.get()={}, snapshot_stack_depth={}",
+                    _init, fmt::ptr(_limiter_tracker_sptr.get()),
+                    _last_attach_snapshots_stack.size()));
+        }
         return _limiter_tracker;
     }
 

@@ -168,6 +168,24 @@ public:
     void attach_task(const std::shared_ptr<ResourceContext>& rc) {
         // will only attach_task at the beginning of the thread function, there should be no duplicate attach_task.
         DCHECK(resource_ctx_ == nullptr);
+        // Disambiguate which sub-object is null when attach silently propagates a null
+        // mem_tracker (see attach_limiter_tracker). These checks tell us at the source
+        // whether `rc` itself is empty, the embedded MemoryContext is null, or the
+        // MemoryContext exists but its mem_tracker_ was never set
+        // (i.e. _init_query_mem_tracker hasn't run yet for this ResourceContext).
+        if (UNLIKELY(rc == nullptr)) {
+            throw Exception(Status::FatalError("ThreadContext::attach_task: rc is null"));
+        }
+        if (UNLIKELY(rc->memory_context() == nullptr)) {
+            throw Exception(Status::FatalError(
+                    "ThreadContext::attach_task: rc->memory_context() is null"));
+        }
+        if (UNLIKELY(rc->memory_context()->mem_tracker() == nullptr)) {
+            throw Exception(Status::FatalError(
+                    "ThreadContext::attach_task: rc->memory_context()->mem_tracker() is null. "
+                    "ResourceContext was created but set_mem_tracker has not been called yet "
+                    "(likely a half-initialized QueryContext used before _init_query_mem_tracker)."));
+        }
         resource_ctx_ = rc;
         thread_mem_tracker_mgr->attach_limiter_tracker(rc->memory_context()->mem_tracker(),
                                                        rc->workload_group());

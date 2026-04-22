@@ -19,6 +19,7 @@
 
 #include <gen_cpp/types.pb.h>
 
+#include "common/exception.h"
 #include "runtime/exec_env.h"
 
 namespace doris {
@@ -26,6 +27,16 @@ namespace doris {
 void ThreadMemTrackerMgr::attach_limiter_tracker(
         const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
     DCHECK(mem_tracker);
+    if (UNLIKELY(!mem_tracker)) {
+        // Catch the null in RELEASE. Without this, _limiter_tracker silently
+        // becomes null and any later allocation on this thread NPEs deep inside
+        // Allocator::memory_tracker_exceed (allocator.cpp:211) with no clue.
+        throw Exception(Status::FatalError(
+                "ThreadMemTrackerMgr::attach_limiter_tracker called with null mem_tracker. "
+                "previous limiter label={}, snapshot_stack_depth={}",
+                _limiter_tracker ? _limiter_tracker->label() : "<null>",
+                _last_attach_snapshots_stack.size()));
+    }
     CHECK(init());
     flush_untracked_mem();
     _last_attach_snapshots_stack.push_back(
@@ -54,7 +65,25 @@ void ThreadMemTrackerMgr::detach_limiter_tracker() {
     CHECK(init());
     flush_untracked_mem();
     shrink_reserved();
+    if (UNLIKELY(_last_attach_snapshots_stack.empty())) {
+        // attach/detach must be balanced. Detaching from an empty stack would let
+        // _limiter_tracker_sptr become a default-constructed null shared_ptr below,
+        // poisoning the thread tracker for any future allocation.
+        throw Exception(Status::FatalError(
+                "ThreadMemTrackerMgr::detach_limiter_tracker called with empty snapshot stack. "
+                "current limiter label={}",
+                _limiter_tracker ? _limiter_tracker->label() : "<null>"));
+    }
     DCHECK(!_last_attach_snapshots_stack.empty());
+    if (UNLIKELY(!_last_attach_snapshots_stack.back().limiter_tracker)) {
+        // The snapshot saved a null limiter (means a prior attach with null mem_tracker
+        // already poisoned the chain — earlier patch in attach_limiter_tracker should
+        // have caught it; this is a second-line defense).
+        throw Exception(Status::FatalError(
+                "ThreadMemTrackerMgr::detach_limiter_tracker restored null limiter from snapshot. "
+                "stack_depth_before_pop={}",
+                _last_attach_snapshots_stack.size()));
+    }
     _limiter_tracker_sptr = _last_attach_snapshots_stack.back().limiter_tracker;
     _limiter_tracker = _limiter_tracker_sptr.get();
     _wg_wptr = _last_attach_snapshots_stack.back().wg_wptr;

@@ -44,6 +44,21 @@ AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
 }
 
 AttachTask::AttachTask(RuntimeState* runtime_state) {
+    // Walk the chain `runtime_state -> get_query_ctx() -> resource_ctx()` step by
+    // step in RELEASE so that if any link is unexpectedly null the FatalError
+    // pinpoints exactly which one — instead of crashing with a generic NPE inside
+    // ThreadContext::attach_task or even later inside Allocator.
+    if (UNLIKELY(runtime_state == nullptr)) {
+        throw Exception(Status::FatalError("AttachTask(RuntimeState*): runtime_state is null"));
+    }
+    if (UNLIKELY(runtime_state->get_query_ctx() == nullptr)) {
+        throw Exception(Status::FatalError(
+                "AttachTask(RuntimeState*): runtime_state->get_query_ctx() is null"));
+    }
+    if (UNLIKELY(runtime_state->get_query_ctx()->resource_ctx() == nullptr)) {
+        throw Exception(Status::FatalError(
+                "AttachTask(RuntimeState*): query_ctx->resource_ctx() is null"));
+    }
     signal::set_signal_is_nereids(runtime_state->is_nereids());
     init(runtime_state->get_query_ctx()->resource_ctx());
 }
@@ -64,6 +79,21 @@ SwitchResourceContext::SwitchResourceContext(const std::shared_ptr<ResourceConte
     DCHECK(thread_context()->is_attach_task());
     old_resource_ctx_ = thread_context()->resource_ctx();
     if (rc != old_resource_ctx_) {
+        // Symmetric to the checks in ThreadContext::attach_task — SwitchResourceContext
+        // also reaches attach_limiter_tracker() and can silently propagate a null
+        // mem_tracker if any link in the chain is empty in RELEASE.
+        if (UNLIKELY(rc == nullptr)) {
+            throw Exception(Status::FatalError("SwitchResourceContext: rc is null"));
+        }
+        if (UNLIKELY(rc->memory_context() == nullptr)) {
+            throw Exception(Status::FatalError(
+                    "SwitchResourceContext: rc->memory_context() is null"));
+        }
+        if (UNLIKELY(rc->memory_context()->mem_tracker() == nullptr)) {
+            throw Exception(Status::FatalError(
+                    "SwitchResourceContext: rc->memory_context()->mem_tracker() is null. "
+                    "ResourceContext was switched in before _init_query_mem_tracker ran."));
+        }
         signal::set_signal_task_id(rc->task_controller()->task_id());
         thread_context()->resource_ctx_ = rc;
         thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(
