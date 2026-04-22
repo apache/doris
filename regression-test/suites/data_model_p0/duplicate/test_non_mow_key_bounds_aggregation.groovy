@@ -117,4 +117,61 @@ suite("test_non_mow_key_bounds_aggregation", "nonConcurrent") {
         assertFalse((dupMeta.segments_key_bounds_aggregated ?: false) as boolean)
         assertEquals(dupMeta.num_segments as int, dupMeta.segments_key_bounds.size())
     }
+
+    // Case 4: rebuilding an already-aggregated non-MOW rowset through the index rewrite
+    // path must preserve the aggregated flag and single-entry layout. Regression guard for
+    // IndexBuilder clobbering the flag via set_segments_key_bounds's default parameter.
+    // IndexBuilder runs on local rowsets only, so skip this case in cloud mode.
+    if (!isCloudMode()) {
+        def idxTable = "test_non_mow_key_bounds_aggregation_idx"
+        sql """ DROP TABLE IF EXISTS ${idxTable} force; """
+        sql """ CREATE TABLE ${idxTable} (
+            `k` varchar(65533) NOT NULL,
+            `v` int,
+            INDEX idx_v (v) USING INVERTED)
+            DUPLICATE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
+            PROPERTIES("replication_num" = "1",
+                    "disable_auto_compaction" = "true",
+                    "light_schema_change" = "true"); """
+
+        def waitAlterFinish = { String tbl, int timeoutSec ->
+            for (int i = 0; i < timeoutSec; i++) {
+                def rs = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${tbl}" ORDER BY CreateTime DESC LIMIT 1;"""
+                if (rs.size() == 0 || rs[0][9] == "FINISHED") {
+                    return
+                }
+                if (rs[0][9] == "CANCELLED") {
+                    throw new IllegalStateException("alter cancelled: ${rs}")
+                }
+                Thread.sleep(1000)
+            }
+            throw new IllegalStateException("waitAlterFinish timeout")
+        }
+
+        setBeConfigTemporary(configOn) {
+            String idxK1 = "idx00000"
+            String idxK2 = "idxzzzzz"
+            sql """insert into ${idxTable} values("${idxK1}", 1), ("${idxK2}", 2);"""
+            int idxVersion = 2
+            def beforeMeta = fetchRowsetMetaAtVersion(idxTable, idxVersion)
+            assertNotNull(beforeMeta)
+            logger.info("idx rowset meta before DROP INDEX: ${beforeMeta}")
+            assertTrue(beforeMeta.segments_key_bounds_aggregated as boolean)
+            assertEquals(1, beforeMeta.segments_key_bounds.size())
+
+            // DROP INDEX drives IndexBuilder, which rebuilds rowset meta in place.
+            sql """ALTER TABLE ${idxTable} DROP INDEX idx_v;"""
+            waitAlterFinish(idxTable, 120)
+
+            def afterMeta = fetchRowsetMetaAtVersion(idxTable, idxVersion)
+            assertNotNull(afterMeta)
+            logger.info("idx rowset meta after DROP INDEX: ${afterMeta}")
+            assertTrue(afterMeta.segments_key_bounds_aggregated as boolean)
+            assertEquals(1, afterMeta.segments_key_bounds.size())
+            assertEquals(beforeMeta.segments_key_bounds.get(0).min_key,
+                         afterMeta.segments_key_bounds.get(0).min_key)
+            assertEquals(beforeMeta.segments_key_bounds.get(0).max_key,
+                         afterMeta.segments_key_bounds.get(0).max_key)
+        }
+    }
 }
