@@ -508,16 +508,6 @@ Status PipelineTask::execute(bool* done) {
         // called. This relies on _wake_up_early and _always_ready both being std::atomic with the
         // default seq_cst ordering — do not weaken them to relaxed or acq/rel.
         if (_wake_up_early) {
-            // Sanity-check the pointers we are about to dereference so the failure
-            // mode tells us *which* pointer is null instead of an opaque NPE inside
-            // the operator's terminate() call. Also dump the query_id for triage.
-            if (UNLIKELY(_state == nullptr || _root == nullptr || _sink == nullptr)) {
-                throw Exception(Status::FatalError(
-                        "PipelineTask::execute defer wake_up_early branch: null pointer. "
-                        "_state={}, _root={}, _sink={}, query_id={}",
-                        fmt::ptr(_state), fmt::ptr(_root), fmt::ptr(_sink.get()),
-                        print_id(_query_id)));
-            }
             THROW_IF_ERROR(_root->terminate(_state));
             THROW_IF_ERROR(_sink->terminate(_state));
         }

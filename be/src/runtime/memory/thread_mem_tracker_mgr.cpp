@@ -20,6 +20,7 @@
 #include <gen_cpp/types.pb.h>
 
 #include "common/exception.h"
+#include "common/signal_handler.h"
 #include "runtime/exec_env.h"
 
 namespace doris {
@@ -28,14 +29,21 @@ void ThreadMemTrackerMgr::attach_limiter_tracker(
         const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
     DCHECK(mem_tracker);
     if (UNLIKELY(!mem_tracker)) {
-        // Catch the null in RELEASE. Without this, _limiter_tracker silently
-        // becomes null and any later allocation on this thread NPEs deep inside
-        // Allocator::memory_tracker_exceed (allocator.cpp:211) with no clue.
+        // Without this guard, _limiter_tracker silently becomes null and any
+        // later allocation on this thread would dereference it inside the
+        // allocator's memory check path, surfacing as a generic NPE far from
+        // the real call site that fed the null tracker. Embed the full
+        // ThreadMemTrackerMgr state (consumer stack, untracked_mem,
+        // reserved_mem) so the FATAL message alone is enough to triage. The
+        // query id is read from signal-handler thread-local storage; it
+        // does not depend on any object that may already be torn down.
         throw Exception(Status::FatalError(
                 "ThreadMemTrackerMgr::attach_limiter_tracker called with null mem_tracker. "
-                "previous limiter label={}, snapshot_stack_depth={}",
+                "previous limiter label={}, snapshot_stack_depth={}, "
+                "query_id={:x}-{:x}, mgr_state={{{}}}",
                 _limiter_tracker ? _limiter_tracker->label() : "<null>",
-                _last_attach_snapshots_stack.size()));
+                _last_attach_snapshots_stack.size(), doris::signal::query_id_hi,
+                doris::signal::query_id_lo, print_debug_string()));
     }
     CHECK(init());
     flush_untracked_mem();
@@ -66,23 +74,24 @@ void ThreadMemTrackerMgr::detach_limiter_tracker() {
     flush_untracked_mem();
     shrink_reserved();
     if (UNLIKELY(_last_attach_snapshots_stack.empty())) {
-        // attach/detach must be balanced. Detaching from an empty stack would let
-        // _limiter_tracker_sptr become a default-constructed null shared_ptr below,
-        // poisoning the thread tracker for any future allocation.
-        throw Exception(Status::FatalError(
-                "ThreadMemTrackerMgr::detach_limiter_tracker called with empty snapshot stack. "
-                "current limiter label={}",
-                _limiter_tracker ? _limiter_tracker->label() : "<null>"));
+        // detach_limiter_tracker() is invoked from RAII destructors that are
+        // noexcept; throwing would call std::terminate without a useful
+        // message. A LOG(FATAL) gives a controlled abort with a flushed
+        // message and a glog-captured stack trace.
+        LOG(FATAL) << "ThreadMemTrackerMgr::detach_limiter_tracker called with empty snapshot "
+                      "stack. current limiter label="
+                   << (_limiter_tracker ? _limiter_tracker->label() : "<null>")
+                   << ", query_id=" << std::hex << doris::signal::query_id_hi << "-"
+                   << doris::signal::query_id_lo << std::dec;
     }
     DCHECK(!_last_attach_snapshots_stack.empty());
     if (UNLIKELY(!_last_attach_snapshots_stack.back().limiter_tracker)) {
-        // The snapshot saved a null limiter (means a prior attach with null mem_tracker
-        // already poisoned the chain — earlier patch in attach_limiter_tracker should
-        // have caught it; this is a second-line defense).
-        throw Exception(Status::FatalError(
-                "ThreadMemTrackerMgr::detach_limiter_tracker restored null limiter from snapshot. "
-                "stack_depth_before_pop={}",
-                _last_attach_snapshots_stack.size()));
+        // Same noexcept-destructor rationale as above.
+        LOG(FATAL) << "ThreadMemTrackerMgr::detach_limiter_tracker restored null limiter from "
+                      "snapshot. stack_depth_before_pop="
+                   << _last_attach_snapshots_stack.size()
+                   << ", query_id=" << std::hex << doris::signal::query_id_hi << "-"
+                   << doris::signal::query_id_lo << std::dec;
     }
     _limiter_tracker_sptr = _last_attach_snapshots_stack.back().limiter_tracker;
     _limiter_tracker = _limiter_tracker_sptr.get();
