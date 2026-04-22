@@ -208,6 +208,21 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         this.hasPartitionPredicate = hasPartitionPredicate;
     }
 
+    static boolean containsPartitionPredicate(List<Column> partitionColumns, TupleDescriptor tupleDescriptor,
+            List<Expr> conjuncts, PartitionInfo partitionInfo) {
+        for (Column partitionColumn : partitionColumns) {
+            SlotDescriptor slotDescriptor = tupleDescriptor.getColumnSlot(partitionColumn.getName());
+            if (slotDescriptor == null) {
+                continue;
+            }
+            if (createPartitionFilter(slotDescriptor, conjuncts, partitionInfo) != null
+                    || createColumnRange(slotDescriptor, conjuncts, partitionInfo).hasFilter()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static ColumnRange createColumnRange(SlotDescriptor desc,
             List<Expr> conjuncts, PartitionInfo partitionsInfo) {
         ColumnRange result = ColumnRange.create();

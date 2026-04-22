@@ -1854,6 +1854,9 @@ public class StmtExecutor {
                 if (item != null && !item.equals(FeConstants.null_string)) {
                     Column col = metaData.getColumn(i);
                     switch (col.getType().getPrimitiveType()) {
+                        case BOOLEAN:
+                            serializer.writeInt1(parseBooleanResultValue(item));
+                            break;
                         case INT:
                             serializer.writeInt4(Integer.parseInt(item));
                             break;
@@ -1885,6 +1888,16 @@ public class StmtExecutor {
             }
             context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
+    }
+
+    private static int parseBooleanResultValue(String item) {
+        if ("1".equals(item) || "true".equalsIgnoreCase(item)) {
+            return 1;
+        }
+        if ("0".equals(item) || "false".equalsIgnoreCase(item)) {
+            return 0;
+        }
+        throw new IllegalArgumentException("Invalid boolean result value: " + item);
     }
 
     public void handleExplainPlanProcessStmt(List<PlanProcess> result) throws IOException {

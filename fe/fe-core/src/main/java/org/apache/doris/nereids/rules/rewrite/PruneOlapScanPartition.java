@@ -115,8 +115,11 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
                 ConnectContext.get().getStatementContext().getNextRelationId(),
                 ctx.root.getOutput()), Optional.empty());
         }
+        boolean hasPartitionPredicate = prunedPartitionsByFilters.hasPartitionPredicate
+                || !scan.getManuallySpecifiedPartitions().isEmpty()
+                || !scan.getManuallySpecifiedTabletIds().isEmpty();
         return Pair.of(scan.withSelectedPartitionIds(prunedPartitions,
-                prunedPartitionsByFilters.hasPartitionPredicate),
+                hasPartitionPredicate),
                 prunedPartitionsByFilters.prunedPartitionPredicate);
     }
 
@@ -157,7 +160,7 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
                     PartitionTableType.OLAP, sortedPartitionRanges);
         } else if (!manuallySpecifiedPartitions.isEmpty()) {
             return new PartitionPruneResult<>(Utils.fastToImmutableList(idToPartitions.keySet()),
-                    Optional.empty(), false);
+                    Optional.empty(), true);
         } else {
             return new PartitionPruneResult<>(null, Optional.empty(), false);
         }

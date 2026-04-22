@@ -68,7 +68,8 @@ public class AlterSqlBlockRuleCommand extends SqlBlockRuleCommand {
         String partitionNumString = properties.get(SCANNED_PARTITION_NUM);
         String tabletNumString = properties.get(SCANNED_TABLET_NUM);
         String cardinalityString = properties.get(SCANNED_CARDINALITY);
-        this.requirePartitionFilter = getOptionalBooleanProperty(properties, REQUIRE_PARTITION_FILTER_PROPERTY);
+        this.requirePartitionFilter = SqlBlockUtil.getOptionalBooleanProperty(
+                properties, REQUIRE_PARTITION_FILTER_PROPERTY);
 
         SqlBlockUtil.checkSqlAndSqlHashSetBoth(sql, sqlHash);
         SqlBlockUtil.checkSqlAndLimitationsSetBoth(sql, sqlHash,
@@ -81,7 +82,7 @@ public class AlterSqlBlockRuleCommand extends SqlBlockRuleCommand {
         this.cardinality = Util.getLongPropertyOrDefault(cardinalityString, SqlBlockRuleCommand.LONG_NOT_SET, null,
                 SCANNED_CARDINALITY + " should be a long");
         // allow null, represents no modification
-        this.global = getOptionalBooleanProperty(properties, GLOBAL_PROPERTY);
-        this.enable = getOptionalBooleanProperty(properties, ENABLE_PROPERTY);
+        this.global = SqlBlockUtil.getOptionalBooleanProperty(properties, GLOBAL_PROPERTY);
+        this.enable = SqlBlockUtil.getOptionalBooleanProperty(properties, ENABLE_PROPERTY);
     }
 }

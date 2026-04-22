@@ -182,7 +182,7 @@ public class OlapScanNodeTest {
         List<Expr> conjuncts = Lists.newArrayList(new BinaryPredicate(BinaryPredicate.Operator.EQ,
                 new SlotRef(partitionSlot), new IntLiteral(1)));
 
-        Assert.assertTrue(OlapScanNode.hasPartitionPredicate(
+        Assert.assertTrue(ScanNode.containsPartitionPredicate(
                 Lists.newArrayList(partitionSlot.getColumn()), tupleDescriptor, conjuncts, null));
     }
 
@@ -195,7 +195,7 @@ public class OlapScanNodeTest {
         List<Expr> inList = Lists.newArrayList(new IntLiteral(1), new IntLiteral(2));
         List<Expr> conjuncts = Lists.newArrayList(new InPredicate(new SlotRef(partitionSlot), inList, false));
 
-        Assert.assertTrue(OlapScanNode.hasPartitionPredicate(
+        Assert.assertTrue(ScanNode.containsPartitionPredicate(
                 Lists.newArrayList(partitionSlot.getColumn()), tupleDescriptor, conjuncts, null));
     }
 
@@ -208,7 +208,7 @@ public class OlapScanNodeTest {
         List<Expr> conjuncts = Lists.newArrayList(new BinaryPredicate(BinaryPredicate.Operator.EQ,
                 new SlotRef(nonPartitionSlot), new IntLiteral(1)));
 
-        Assert.assertFalse(OlapScanNode.hasPartitionPredicate(
+        Assert.assertFalse(ScanNode.containsPartitionPredicate(
                 Lists.newArrayList(partitionSlot.getColumn()), tupleDescriptor, conjuncts, null));
     }
 

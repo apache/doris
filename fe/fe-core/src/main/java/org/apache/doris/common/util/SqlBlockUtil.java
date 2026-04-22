@@ -24,6 +24,8 @@ import org.apache.doris.common.ErrorReport;
 
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.Map;
+
 public class SqlBlockUtil {
 
     public static final String STRING_DEFAULT = "NULL";
@@ -79,6 +81,32 @@ public class SqlBlockUtil {
     public static Boolean isSqlBlockLimitationsNull(Long partitionNum, Long tabletNum, Long cardinality,
             Boolean requirePartitionFilter) {
         return partitionNum == null && tabletNum == null && cardinality == null && requirePartitionFilter == null;
+    }
+
+    public static boolean getBooleanPropertyOrDefault(Map<String, String> properties,
+            String propertyName, boolean defaultValue) throws AnalysisException {
+        if (!properties.containsKey(propertyName)) {
+            return defaultValue;
+        }
+        return parseBooleanProperty(properties.get(propertyName), propertyName);
+    }
+
+    public static Boolean getOptionalBooleanProperty(Map<String, String> properties,
+            String propertyName) throws AnalysisException {
+        if (!properties.containsKey(propertyName)) {
+            return null;
+        }
+        return parseBooleanProperty(properties.get(propertyName), propertyName);
+    }
+
+    public static boolean parseBooleanProperty(String value, String propertyName) throws AnalysisException {
+        if ("true".equalsIgnoreCase(value)) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(value)) {
+            return false;
+        }
+        throw new AnalysisException(propertyName + " should be a boolean");
     }
 
     // alter operation not allowed to change other properties that not set

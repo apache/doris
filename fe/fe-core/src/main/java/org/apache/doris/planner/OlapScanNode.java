@@ -290,22 +290,6 @@ public class OlapScanNode extends ScanNode {
         this.selectedPartitionIds = selectedPartitionIds;
     }
 
-    @VisibleForTesting
-    static boolean hasPartitionPredicate(List<Column> partitionColumns, TupleDescriptor tupleDescriptor,
-            List<Expr> conjuncts, PartitionInfo partitionInfo) {
-        for (Column partitionColumn : partitionColumns) {
-            SlotDescriptor slotDescriptor = tupleDescriptor.getColumnSlot(partitionColumn.getName());
-            if (slotDescriptor == null) {
-                continue;
-            }
-            if (createPartitionFilter(slotDescriptor, conjuncts, partitionInfo) != null
-                    || createColumnRange(slotDescriptor, conjuncts, partitionInfo).hasFilter()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     /**
      * Only used for Nereids to set rollup or materialized view selection result.
      */
@@ -704,7 +688,7 @@ public class OlapScanNode extends ScanNode {
         // Step1: compute partition ids
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
-            setHasPartitionPredicate(hasPartitionPredicate(
+            setHasPartitionPredicate(ScanNode.containsPartitionPredicate(
                     partitionInfo.getPartitionColumns(), desc, conjuncts, partitionInfo));
             selectedPartitionIds = partitionPrune(partitionInfo);
         } else {

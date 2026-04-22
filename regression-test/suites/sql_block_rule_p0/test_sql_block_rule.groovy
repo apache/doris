@@ -257,6 +257,21 @@ suite("test_sql_block_rule", "nonConcurrent") {
         assertEquals(1, filteredPartitionRows.size())
         assertEquals("1", filteredPartitionRows[0][0].toString())
 
+        def explicitlySelectedPartitionRows = sql """
+            SELECT id
+            FROM a_partitioned_table_for_sql_block_rule PARTITION(p1)
+            ORDER BY id
+        """
+        assertEquals(1, explicitlySelectedPartitionRows.size())
+        assertEquals("1", explicitlySelectedPartitionRows[0][0].toString())
+
+        def tabletsInPartition = sql """SHOW TABLETS FROM a_partitioned_table_for_sql_block_rule PARTITION(p1)"""
+        assertTrue(tabletsInPartition.size() > 0)
+        sql """
+            SELECT count(*)
+            FROM a_partitioned_table_for_sql_block_rule TABLET(${tabletsInPartition[0][0]})
+        """
+
         test {
             sql("""
                 INSERT INTO table_2

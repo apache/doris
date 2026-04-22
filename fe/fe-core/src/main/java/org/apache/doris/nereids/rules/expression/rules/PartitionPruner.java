@@ -189,7 +189,6 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             PartitionTableType partitionTableType, Optional<SortedPartitionRanges<K>> sortedPartitionRanges) {
         partitionPredicate = PartitionPruneExpressionExtractor.extract(
                 partitionPredicate, ImmutableSet.copyOf(partitionSlots), cascadesContext);
-        boolean hasPartitionPredicate = !BooleanLiteral.TRUE.equals(partitionPredicate);
         Expression originalPartitionPredicate = partitionPredicate;
         partitionPredicate = PredicateRewriteForPartitionPrune.rewrite(partitionPredicate, cascadesContext);
         int expandThreshold = cascadesContext.getAndCacheSessionVariable(
@@ -201,10 +200,10 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         if (BooleanLiteral.TRUE.equals(partitionPredicate)) {
             // The partition column predicate is always true and can be deleted, the partition cannot be pruned
             return new PartitionPruneResult<>(Utils.fastToImmutableList(idToPartitions.keySet()),
-                    Optional.of(originalPartitionPredicate), hasPartitionPredicate);
+                    Optional.of(originalPartitionPredicate), false);
         } else if (BooleanLiteral.FALSE.equals(partitionPredicate) || partitionPredicate.isNullLiteral()) {
             // The partition column predicate is always false, and all partitions can be pruned.
-            return new PartitionPruneResult<>(ImmutableList.<K>of(), Optional.empty(), hasPartitionPredicate);
+            return new PartitionPruneResult<>(ImmutableList.<K>of(), Optional.empty(), true);
         }
 
         if (sortedPartitionRanges.isPresent()) {
@@ -215,6 +214,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
                         sortedPartitionRanges.get(), partitionSlots, partitionPredicate, cascadesContext,
                         expandThreshold, predicateRanges
                 );
+                boolean hasPartitionPredicate = hasEffectivePartitionPredicate(res.first, idToPartitions.size());
                 if (res.second) {
                     return new PartitionPruneResult<>(res.first, Optional.of(originalPartitionPredicate),
                             hasPartitionPredicate);
@@ -227,12 +227,18 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         Pair<List<K>, Boolean> res = sequentialFiltering(
                 idToPartitions, partitionSlots, partitionPredicate, cascadesContext, expandThreshold
         );
+        boolean hasPartitionPredicate = hasEffectivePartitionPredicate(res.first, idToPartitions.size());
         if (res.second) {
             return new PartitionPruneResult<>(res.first, Optional.of(originalPartitionPredicate),
                     hasPartitionPredicate);
         } else {
             return new PartitionPruneResult<>(res.first, Optional.empty(), hasPartitionPredicate);
         }
+    }
+
+    private static <K extends Comparable<K>> boolean hasEffectivePartitionPredicate(
+            List<K> selectedPartitions, int totalPartitions) {
+        return selectedPartitions.size() != totalPartitions;
     }
 
     /**

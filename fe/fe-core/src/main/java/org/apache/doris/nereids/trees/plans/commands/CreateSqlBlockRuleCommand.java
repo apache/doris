@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlBlockUtil;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -71,22 +72,22 @@ public class CreateSqlBlockRuleCommand extends SqlBlockRuleCommand {
         String partitionNumString = properties.get(SCANNED_PARTITION_NUM);
         String tabletNumString = properties.get(SCANNED_TABLET_NUM);
         String cardinalityString = properties.get(SCANNED_CARDINALITY);
-        this.requirePartitionFilter = getBooleanPropertyOrDefault(
+        this.requirePartitionFilter = SqlBlockUtil.getBooleanPropertyOrDefault(
                 properties, REQUIRE_PARTITION_FILTER_PROPERTY, false);
 
         SqlBlockUtil.checkSqlAndSqlHashSetBoth(sql, sqlHash);
         SqlBlockUtil.checkPropertiesValidate(sql, sqlHash, partitionNumString, tabletNumString,
                 cardinalityString, requirePartitionFilter);
 
-        this.partitionNum = org.apache.doris.common.util.Util.getLongPropertyOrDefault(partitionNumString, 0L, null,
+        this.partitionNum = Util.getLongPropertyOrDefault(partitionNumString, 0L, null,
                 SCANNED_PARTITION_NUM + " should be a long");
-        this.tabletNum = org.apache.doris.common.util.Util.getLongPropertyOrDefault(tabletNumString, 0L, null,
+        this.tabletNum = Util.getLongPropertyOrDefault(tabletNumString, 0L, null,
                 SCANNED_TABLET_NUM + " should be a long");
-        this.cardinality = org.apache.doris.common.util.Util.getLongPropertyOrDefault(cardinalityString, 0L, null,
+        this.cardinality = Util.getLongPropertyOrDefault(cardinalityString, 0L, null,
                 SCANNED_CARDINALITY + " should be a long");
 
-        this.global = getBooleanPropertyOrDefault(properties, GLOBAL_PROPERTY, false);
-        this.enable = getBooleanPropertyOrDefault(properties, ENABLE_PROPERTY, true);
+        this.global = SqlBlockUtil.getBooleanPropertyOrDefault(properties, GLOBAL_PROPERTY, false);
+        this.enable = SqlBlockUtil.getBooleanPropertyOrDefault(properties, ENABLE_PROPERTY, true);
     }
 
     @Override
