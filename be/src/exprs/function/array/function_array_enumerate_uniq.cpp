@@ -23,7 +23,6 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 #include <new>
-#include <ostream>
 #include <string>
 #include <utility>
 

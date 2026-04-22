@@ -27,7 +27,6 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
-#include <ostream>
 #include <utility>
 
 #include "io/fs/file_reader.h"

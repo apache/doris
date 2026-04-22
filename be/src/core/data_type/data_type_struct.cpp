@@ -29,7 +29,6 @@
 #include <algorithm>
 #include <cstddef>
 #include <memory>
-#include <ostream>
 #include <typeinfo>
 #include <unordered_set>
 #include <utility>

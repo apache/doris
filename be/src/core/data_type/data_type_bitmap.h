@@ -22,7 +22,6 @@
 #include <stdint.h>
 
 #include <memory>
-#include <ostream>
 #include <string>
 #include <typeinfo>
 

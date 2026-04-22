@@ -32,7 +32,6 @@
 
 #include <algorithm>
 #include <execution>
-#include <ostream>
 #include <utility>
 
 #include "common/config.h"

@@ -26,7 +26,6 @@
 #include <pdqsort.h>
 
 #include <limits>
-#include <ostream>
 #include <string>
 
 #include "core/arena.h"

@@ -29,7 +29,6 @@
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <filesystem>
-#include <ostream>
 #include <thread>
 #include <utility>
 

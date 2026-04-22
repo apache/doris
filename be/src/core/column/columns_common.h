@@ -24,7 +24,6 @@
 #include <stdint.h>
 #include <sys/types.h>
 
-#include <ostream>
 #include <string>
 #include <vector>
 

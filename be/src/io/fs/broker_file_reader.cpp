@@ -23,7 +23,6 @@
 #include <thrift/transport/TTransportException.h>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
-#include <ostream>
 #include <string>
 #include <thread>
 #include <utility>

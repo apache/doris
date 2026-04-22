@@ -24,8 +24,6 @@
 #include <string.h>
 #include <unistd.h>
 
-#include <ostream>
-
 namespace doris {
 
 MessageBodyFileSink::~MessageBodyFileSink() {

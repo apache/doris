@@ -23,7 +23,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <ostream>
 #include <vector>
 
 #include "common/status.h"
