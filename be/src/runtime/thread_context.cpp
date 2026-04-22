@@ -67,6 +67,15 @@ AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
     // if parameter is `orphan_mem_tracker`, if you do not switch thraed mem tracker afterwards,
     // alloc or free memory from Allocator will fail DCHECK. unless you know for sure that
     // the thread will not alloc or free memory from Allocator later.
+    //
+    // Validate before constructing the ResourceContext: MemoryContext::set_mem_tracker()
+    // immediately dereferences mem_tracker->limit(), so a null shared_ptr would
+    // crash there before reaching init()'s diagnostics.
+    if (UNLIKELY(mem_tracker == nullptr)) {
+        throw Exception(Status::FatalError(
+                "AttachTask(MemTrackerLimiter): mem_tracker is null. signal_query_id={:x}-{:x}",
+                signal::query_id_hi, signal::query_id_lo));
+    }
     std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared();
     rc->memory_context()->set_mem_tracker(mem_tracker);
     init(rc);
@@ -99,6 +108,11 @@ AttachTask::AttachTask(RuntimeState* runtime_state) {
 }
 
 AttachTask::AttachTask(QueryContext* query_ctx) {
+    if (UNLIKELY(query_ctx == nullptr)) {
+        throw Exception(Status::FatalError(
+                "AttachTask(QueryContext*): query_ctx is null. signal_query_id={:x}-{:x}",
+                signal::query_id_hi, signal::query_id_lo));
+    }
     init(query_ctx->resource_ctx());
 }
 

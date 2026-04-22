@@ -32,18 +32,20 @@ void ThreadMemTrackerMgr::attach_limiter_tracker(
         // Without this guard, _limiter_tracker silently becomes null and any
         // later allocation on this thread would dereference it inside the
         // allocator's memory check path, surfacing as a generic NPE far from
-        // the real call site that fed the null tracker. Embed the full
-        // ThreadMemTrackerMgr state (consumer stack, untracked_mem,
-        // reserved_mem) so the FATAL message alone is enough to triage. The
-        // query id is read from signal-handler thread-local storage; it
-        // does not depend on any object that may already be torn down.
+        // the real call site that fed the null tracker. The query id is
+        // read from signal-handler thread-local storage; it does not depend
+        // on any object that may already be torn down. Note: do not call
+        // print_debug_string() here — it itself dereferences _limiter_tracker
+        // (via make_profile_str()), which on a fresh ThreadMemTrackerMgr is
+        // still null and would crash inside the format call before the
+        // intended FatalError is thrown.
         throw Exception(Status::FatalError(
                 "ThreadMemTrackerMgr::attach_limiter_tracker called with null mem_tracker. "
                 "previous limiter label={}, snapshot_stack_depth={}, "
-                "query_id={:x}-{:x}, mgr_state={{{}}}",
+                "query_id={:x}-{:x}",
                 _limiter_tracker ? _limiter_tracker->label() : "<null>",
                 _last_attach_snapshots_stack.size(), doris::signal::query_id_hi,
-                doris::signal::query_id_lo, print_debug_string()));
+                doris::signal::query_id_lo));
     }
     CHECK(init());
     flush_untracked_mem();
