@@ -1193,37 +1193,37 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = RESOURCE_VARIABLE)
     public String resourceGroup = "";
 
-    @VarAttrDef.VarAttr(name = "enable_paimon_jni_writer", needForward = true)
+    @VariableMgr.VarAttr(name = "enable_paimon_jni_writer", needForward = true)
     public boolean enablePaimonJniWriter = false;
 
-    @VarAttrDef.VarAttr(name = "enable_paimon_jni_compact", needForward = true)
+    @VariableMgr.VarAttr(name = "enable_paimon_jni_compact", needForward = true)
     public boolean enablePaimonJniCompact = true;
 
-    @VarAttrDef.VarAttr(name = ENABLE_PAIMON_DISTRIBUTED_BUCKET_SHUFFLE, needForward = true)
+    @VariableMgr.VarAttr(name = ENABLE_PAIMON_DISTRIBUTED_BUCKET_SHUFFLE, needForward = true)
     public boolean enablePaimonDistributedBucketShuffle = true;
 
-    @VarAttrDef.VarAttr(name = PAIMON_TARGET_FILE_SIZE, needForward = true)
+    @VariableMgr.VarAttr(name = PAIMON_TARGET_FILE_SIZE, needForward = true)
     public long paimonTargetFileSize = 268435456L;
 
-    @VarAttrDef.VarAttr(name = PAIMON_WRITE_BUFFER_SIZE, needForward = true)
+    @VariableMgr.VarAttr(name = PAIMON_WRITE_BUFFER_SIZE, needForward = true)
     public long paimonWriteBufferSize = 268435456;
 
-    @VarAttrDef.VarAttr(name = ENABLE_PAIMON_JNI_SPILL, needForward = true)
+    @VariableMgr.VarAttr(name = ENABLE_PAIMON_JNI_SPILL, needForward = true)
     public boolean enablePaimonJniSpill = false;
 
-    @VarAttrDef.VarAttr(name = PAIMON_SPILL_MAX_DISK_SIZE, needForward = true)
+    @VariableMgr.VarAttr(name = PAIMON_SPILL_MAX_DISK_SIZE, needForward = true)
     public long paimonSpillMaxDiskSize = 53687091200L; // 50GB
 
-    @VarAttrDef.VarAttr(name = PAIMON_SPILL_SORT_BUFFER_SIZE, needForward = true)
+    @VariableMgr.VarAttr(name = PAIMON_SPILL_SORT_BUFFER_SIZE, needForward = true)
     public long paimonSpillSortBufferSize = 67108864L; // 64MB
 
-    @VarAttrDef.VarAttr(name = PAIMON_SPILL_SORT_THRESHOLD, needForward = true)
+    @VariableMgr.VarAttr(name = PAIMON_SPILL_SORT_THRESHOLD, needForward = true)
     public int paimonSpillSortThreshold = 10;
 
-    @VarAttrDef.VarAttr(name = PAIMON_SPILL_COMPRESSION, needForward = true)
+    @VariableMgr.VarAttr(name = PAIMON_SPILL_COMPRESSION, needForward = true)
     public String paimonSpillCompression = "zstd";
 
-    @VarAttrDef.VarAttr(name = PAIMON_GLOBAL_MEMORY_POOL_SIZE, needForward = true)
+    @VariableMgr.VarAttr(name = PAIMON_GLOBAL_MEMORY_POOL_SIZE, needForward = true)
     public long paimonGlobalMemoryPoolSize = 1073741824L; // 1GB default
 
     // this is used to make mysql client happy
@@ -2202,13 +2202,13 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN, fuzzy = true)
     public boolean enableShareHashTableForBroadcastJoin = true;
 
-    @VarAttrDef.VarAttr(name = PAIMON_WRITER_QUEUE_SIZE, fuzzy = true, needForward = true)
+    @VariableMgr.VarAttr(name = PAIMON_WRITER_QUEUE_SIZE, fuzzy = true, needForward = true)
     public int paimonWriterQueueSize = 3;
 
-    @VarAttrDef.VarAttr(name = ENABLE_PAIMON_ADAPTIVE_BUFFER_SIZE, fuzzy = true, needForward = true)
+    @VariableMgr.VarAttr(name = ENABLE_PAIMON_ADAPTIVE_BUFFER_SIZE, fuzzy = true, needForward = true)
     public boolean enablePaimonAdaptiveBufferSize = false;
 
-    @VarAttrDef.VarAttr(name = ENABLE_HASH_JOIN_EARLY_START_PROBE, fuzzy = false)
+    @VariableMgr.VarAttr(name = ENABLE_HASH_JOIN_EARLY_START_PROBE, fuzzy = false)
     public boolean enableHashJoinEarlyStartProbe = false;
     @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT, needForward = true)
     public boolean enableUnicodeNameSupport = true;
