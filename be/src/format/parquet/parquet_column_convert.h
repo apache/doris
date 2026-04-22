@@ -92,6 +92,7 @@ inline bool try_convert_timestamp_with_fixed_offset(DateType& value, int64_t epo
                               &second)) {
         return false;
     }
+    // The caller sets sub-second precision immediately after this conversion.
     value.unchecked_set_time(year, month, day, hour, minute, second, 0);
     return true;
 }

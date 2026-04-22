@@ -166,7 +166,15 @@ TEST(TimezoneUtilsTest, TryGetFixedOffsetSeconds) {
     EXPECT_TRUE(TimezoneUtils::try_get_fixed_offset_seconds(result, &offset_seconds));
     EXPECT_EQ(0, offset_seconds);
 
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("Etc/UTC", result));
+    EXPECT_TRUE(TimezoneUtils::try_get_fixed_offset_seconds(result, &offset_seconds));
+    EXPECT_EQ(0, offset_seconds);
+
     ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("+08:00", result));
+    EXPECT_TRUE(TimezoneUtils::try_get_fixed_offset_seconds(result, &offset_seconds));
+    EXPECT_EQ(8 * 3600, offset_seconds);
+
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("Etc/GMT-8", result));
     EXPECT_TRUE(TimezoneUtils::try_get_fixed_offset_seconds(result, &offset_seconds));
     EXPECT_EQ(8 * 3600, offset_seconds);
 

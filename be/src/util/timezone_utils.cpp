@@ -180,14 +180,17 @@ bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_
 bool TimezoneUtils::try_get_fixed_offset_seconds(const cctz::time_zone& timezone,
                                                  int32_t* offset_seconds) {
     const std::string& timezone_name = timezone.name();
-    if (timezone_name == "UTC") {
+    if (timezone_name == "UTC" || timezone_name == "Etc/UTC" || timezone_name == "Etc/GMT") {
         *offset_seconds = 0;
         return true;
     }
 
+    // cctz names fixed_time_zone() instances with the "Fixed/" prefix. TZDB's Etc/GMT*
+    // zones are fixed offsets too; cctz handles their POSIX-style reversed sign in lookup_offset().
+    // If this naming convention changes, falling through to the generic path remains correct.
     static const auto epoch = std::chrono::time_point_cast<cctz::sys_seconds>(
             std::chrono::system_clock::from_time_t(0));
-    if (timezone_name.compare(0, 6, "Fixed/") == 0) {
+    if (timezone_name.compare(0, 6, "Fixed/") == 0 || timezone_name.compare(0, 7, "Etc/GMT") == 0) {
         *offset_seconds = timezone.lookup_offset(epoch).offset;
         return true;
     }
