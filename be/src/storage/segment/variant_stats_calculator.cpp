@@ -35,7 +35,7 @@ VariantStatsCaculator::VariantStatsCaculator(SegmentFooterPB* footer,
         const auto& column = _footer->columns(i);
         // path that need to record stats
         if (column.has_column_path_info() &&
-            column.column_path_info().parrent_column_unique_id() >= 0) {
+            column.column_path_info().has_parrent_column_unique_id()) {
             _path_to_footer_index[column.column_path_info().parrent_column_unique_id()]
                                  [column.column_path_info().path()] = i;
         }

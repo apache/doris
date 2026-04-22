@@ -1,4 +1,5 @@
-CREATE EXTERNAL TABLE `parquet_delta_binary_packed`(
+drop table if exists `parquet_delta_binary_packed`;
+create external table `parquet_delta_binary_packed`(
   bitwidth0 bigint,
   bitwidth1 bigint,
   bitwidth2 bigint,
@@ -71,6 +72,3 @@ LOCATION
   '/user/doris/preinstalled_data/parquet_table/parquet_delta_binary_packed'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1661955829');
-
-msck repair table parquet_delta_binary_packed;
-

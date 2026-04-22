@@ -38,6 +38,7 @@ import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HiveUtil;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
@@ -657,6 +658,18 @@ public class BindSink implements AnalysisRuleFactory {
 
         if (!sink.getPartitions().isEmpty()) {
             throw new AnalysisException("Not support insert with partition spec in hive catalog.");
+        }
+
+        // Fast-fail: if the table-level SD already declares an LZO InputFormat, reject immediately
+        // without entering the expensive partition-lookup path in bindDataSink().
+        // Note: this is a best-effort early check.  The definitive LZO guard lives in
+        // BaseExternalTableDataSink.getTFileFormatType(), which is called for both the table-level
+        // SD and every existing partition SD — covering the case where the table SD is plain text
+        // but individual partitions override it with an LZO InputFormat.
+        String inputFormat = table.getRemoteTable().getSd().getInputFormat();
+        if (HiveUtil.isLzoInputFormat(inputFormat)) {
+            throw new AnalysisException("INSERT INTO is not supported for LZO Hive tables "
+                    + "(input format: " + inputFormat + "). LZO tables are read-only in Doris.");
         }
 
         List<Column> bindColumns;

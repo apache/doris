@@ -430,14 +430,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return getColumnStatistic(catalogRelation.getTable(), slot.getName(), idxId);
     }
 
-    /**
-     * if get partition col stats failed, then return table level col stats
-     */
-    private ColumnStatistic getColumnStatsFromPartitionCacheOrTableCache(
-            OlapTableStatistics olapTableStats, SlotReference slot, List<String> partitionNames) {
-        return getColumnStatistic(olapTableStats, slot.getName(), partitionNames);
-    }
-
     private double getSelectedPartitionRowCount(OlapScan olapScan, double tableRowCount) {
         // the number of partitions whose row count is not available
         double unknownPartitionCount = 0;
@@ -626,8 +618,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             for (SlotReference slot : visibleOutputSlots) {
                 ColumnStatistic cache;
                 if (enablePartitionStatics) {
-                    cache = getColumnStatsFromPartitionCacheOrTableCache(
-                            olapTableStats, slot, selectedPartitionNames);
+                    cache = getColumnStatistic(olapTableStats, slot.getName(), selectedPartitionNames);
                 } else {
                     cache = olapTableStats.getColumnStatistics(slot.getName(), connectContext);
                 }
@@ -636,7 +627,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 }
                 ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache,
                         selectedPartitionsRowCount);
-                colStatsBuilder.normalizeAvgSizeByte(slot);
+                colStatsBuilder.normalizeAvgSizeByte(slot.getDataType());
+                //scale null_num
+                double scale = tableRowCount == 0 ? 1 : selectedPartitionsRowCount / tableRowCount;
+                colStatsBuilder.setNumNulls(colStatsBuilder.getNumNulls() * scale);
                 builder.putColumnStatistics(slot, colStatsBuilder.build());
             }
             checkIfUnknownStatsUsedAsKey(builder);
@@ -646,7 +640,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             for (SlotReference slot : visibleOutputSlots) {
                 ColumnStatistic cache = olapTableStats.getColumnStatistics(slot.getName(), connectContext);
                 ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache, tableRowCount);
-                colStatsBuilder.normalizeAvgSizeByte(slot);
+                colStatsBuilder.normalizeAvgSizeByte(slot.getDataType());
                 builder.putColumnStatistics(slot, colStatsBuilder.build());
             }
             checkIfUnknownStatsUsedAsKey(builder);
@@ -1269,6 +1263,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return columnStatistics;
     }
 
+    /**
+     * - partition pruned: try to get partition col stats, if failed, then fall back to table level col stats
+     * - no partition pruned: get table level col stats
+     */
     private ColumnStatistic getColumnStatistic(
             OlapTableStatistics olapTableStatistics, String colName, List<String> partitionNames) {
         if (connectContext != null && connectContext.getState().isPlanWithUnKnownColumnStats()) {

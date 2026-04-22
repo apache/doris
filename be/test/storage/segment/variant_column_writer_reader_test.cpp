@@ -642,6 +642,137 @@ static std::vector<std::string> normalize_json_rows(const std::vector<std::strin
     return normalized;
 }
 
+// Regression test for legacy flat-dot-key compatibility.
+//
+// Old versions (e.g. cloud-4.1.2 with variant_max_subcolumns_count=0) stored
+// a flat JSON key like {"a.b": 1} as a single PathInData part "a.b" in the
+// segment's ColumnPathInfo protobuf. New master compaction schema builds
+// query paths by splitting on dots (3+ parts including root), which does not
+// match the 1-part tree node and causes silent data loss during compaction.
+//
+// This test writes a normal variant segment via the writer, then *mutates*
+// the resulting footer to turn a subcolumn's `column_path_info` into the
+// legacy 1-part form, then calls `VariantColumnReader::init()` and verifies
+// that the normalization inside init() rebuilds a multi-level tree that can
+// be queried via both `get_subcolumn_meta_by_path` and prefix-path lookup.
+TEST_F(VariantColumnWriterReaderTest, test_legacy_flat_dot_key_reader_init) {
+    // 1. create tablet_schema with a variant column that has nested subcolumns
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "V1", /*max_subcolumns=*/10);
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _tablet_schema->init_from_pb(schema_pb);
+
+    // 2. create tablet
+    TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    _tablet_schema->set_external_segment_meta_used_default(false);
+    tablet_meta->_tablet_id = 20000;
+    _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
+    EXPECT_TRUE(_tablet->init().ok());
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
+
+    // 3. create file_writer
+    io::FileWriterPtr file_writer;
+    auto file_path = local_segment_path(_tablet->tablet_path(), "0", 0);
+    auto st = io::global_local_filesystem()->create_file(file_path, &file_writer);
+    EXPECT_TRUE(st.ok()) << st.msg();
+
+    // 4. create column_writer
+    SegmentFooterPB footer;
+    ColumnWriterOptions opts;
+    opts.meta = footer.add_columns();
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.file_writer = file_writer.get();
+    opts.footer = &footer;
+    RowsetWriterContext rowset_ctx;
+    rowset_ctx.write_type = DataWriteType::TYPE_DIRECT;
+    opts.rowset_ctx = &rowset_ctx;
+    opts.rowset_ctx->tablet_schema = _tablet_schema;
+    TabletColumn column = _tablet_schema->column(0);
+    _init_column_meta(opts.meta, 0, column, CompressionTypePB::LZ4);
+
+    std::unique_ptr<ColumnWriter> writer;
+    EXPECT_TRUE(ColumnWriter::create(opts, &column, file_writer.get(), &writer).ok());
+    EXPECT_TRUE(writer->init().ok());
+
+    // 5. write nested json so the writer naturally creates a subcolumn "a.b"
+    // with a 2-part path ["a", "b"].
+    std::vector<std::string> jsons;
+    const int kNumRows = 8;
+    for (int i = 0; i < kNumRows; ++i) {
+        jsons.push_back(R"({"a": {"b": "v)" + std::to_string(i) + R"("}})");
+    }
+    EXPECT_TRUE(append_json_batch(writer.get(), jsons).ok());
+    EXPECT_TRUE(writer->finish().ok());
+    EXPECT_TRUE(writer->write_data().ok());
+    EXPECT_TRUE(writer->write_ordinal_index().ok());
+    EXPECT_TRUE(writer->write_zone_map().ok());
+    EXPECT_TRUE(file_writer->close().ok());
+    footer.set_num_rows(kNumRows);
+
+    // 6. Locate the "V1.a.b" subcolumn in the footer and mutate its
+    // column_path_info into the legacy 1-part form: pb.path = "V1.a.b" but
+    // path_part_infos = [{"V1"}, {"a.b"}]. This is exactly what cloud-4.1.2
+    // wrote for JSON key {"a.b": ...}.
+    int target_idx = -1;
+    for (int i = 1; i < footer.columns_size(); ++i) {
+        const auto& col_meta = footer.columns(i);
+        if (!col_meta.has_column_path_info()) {
+            continue;
+        }
+        if (col_meta.column_path_info().path() == "v1.a.b") {
+            target_idx = i;
+            break;
+        }
+    }
+    ASSERT_GT(target_idx, 0) << "failed to locate subcolumn V1.a.b in footer";
+
+    auto* target_path_info = footer.mutable_columns(target_idx)->mutable_column_path_info();
+    target_path_info->clear_path_part_infos();
+    auto* root_part = target_path_info->add_path_part_infos();
+    root_part->set_key("v1");
+    root_part->set_is_nested(false);
+    root_part->set_anonymous_array_level(0);
+    auto* legacy_part = target_path_info->add_path_part_infos();
+    legacy_part->set_key("a.b"); // single legacy part containing a dot
+    legacy_part->set_is_nested(false);
+    legacy_part->set_anonymous_array_level(0);
+    target_path_info->set_has_nested(false);
+
+    // 7. Now initialize a fresh VariantColumnReader with the mutated footer.
+    // The init() path calls _subcolumns_meta_info->add() for each subcolumn;
+    // our fix normalizes the legacy 1-part relative path "a.b" into a
+    // 2-part path ["a", "b"] so the tree has root -> "a" -> "b".
+    io::FileReaderSPtr file_reader;
+    st = io::global_local_filesystem()->open_file(file_path, &file_reader);
+    ASSERT_TRUE(st.ok()) << st.msg();
+
+    std::shared_ptr<segment_v2::ColumnReader> column_reader;
+    st = create_variant_root_reader(footer, file_reader, _tablet_schema, &column_reader);
+    ASSERT_TRUE(st.ok()) << st.msg();
+    auto* variant_reader = assert_cast<segment_v2::VariantColumnReader*>(column_reader.get());
+    ASSERT_NE(variant_reader, nullptr);
+
+    // 8. Verify that queries against the normalized tree succeed.
+    //    - Leaf lookup "a.b" (PathInData splits into 2 parts) should hit.
+    //    - Intermediate lookup "a" should return the TUPLE parent, which
+    //      has exactly one child "b".
+    const auto* leaf_node = variant_reader->get_subcolumn_meta_by_path(PathInData("a.b"));
+    ASSERT_NE(leaf_node, nullptr)
+            << "normalized tree should be able to find leaf 'a.b' via multi-part query";
+    EXPECT_TRUE(leaf_node->is_scalar());
+    EXPECT_GE(leaf_node->data.footer_ordinal, 0);
+
+    const auto* subtree = variant_reader->get_subcolumns_meta_info();
+    ASSERT_NE(subtree, nullptr);
+    const auto* intermediate = subtree->find_exact(PathInData("a"));
+    ASSERT_NE(intermediate, nullptr)
+            << "normalized tree should expose intermediate node 'a' as a TUPLE";
+    EXPECT_FALSE(intermediate->is_scalar());
+    EXPECT_EQ(intermediate->children.size(), 1U);
+}
+
 TEST_F(VariantColumnWriterReaderTest, test_statics) {
     // VariantStatisticsPB stats_pb;
     // auto* subcolumns_stats = stats_pb.mutable_sparse_column_non_null_size();

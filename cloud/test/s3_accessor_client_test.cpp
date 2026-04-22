@@ -60,6 +60,15 @@ namespace doris::cloud {
         return val ? std::string(val) : "";  \
     }())
 
+static std::string get_env_with_fallback(const char* primary, const char* fallback) {
+    const char* value = std::getenv(primary);
+    if (value != nullptr) {
+        return value;
+    }
+    value = std::getenv(fallback);
+    return value != nullptr ? value : "";
+}
+
 class S3TestConfig {
 public:
     S3TestConfig() {
@@ -72,18 +81,25 @@ public:
 
         access_key = GET_ENV_IF_DEFINED(S3_AK);
         secret_key = GET_ENV_IF_DEFINED(S3_SK);
-        endpoint = GET_ENV_IF_DEFINED(S3_ENDPOINT);
+        role_arn = GET_ENV_IF_DEFINED(AWS_ROLE_ARN);
+        external_id = GET_ENV_IF_DEFINED(AWS_EXTERNAL_ID);
+        endpoint = get_env_with_fallback("S3_ENDPOINT", "AWS_ENDPOINT");
         provider = GET_ENV_IF_DEFINED(S3_PROVIDER);
-        bucket = GET_ENV_IF_DEFINED(S3_BUCKET);
-        region = GET_ENV_IF_DEFINED(S3_REGION);
-        prefix = GET_ENV_IF_DEFINED(S3_PREFIX);
+        bucket = get_env_with_fallback("S3_BUCKET", "AWS_BUCKET");
+        region = get_env_with_fallback("S3_REGION", "AWS_REGION");
+        prefix = get_env_with_fallback("S3_PREFIX", "AWS_PREFIX");
     }
 
     bool is_enabled() const { return enabled; }
 
     bool is_valid() const {
-        return enabled && !access_key.empty() && !secret_key.empty() && !endpoint.empty() &&
-               !region.empty() && !bucket.empty();
+        if (!enabled || endpoint.empty() || region.empty() || bucket.empty() || prefix.empty()) {
+            return false;
+        }
+        if (has_partial_static_credentials()) {
+            return false;
+        }
+        return has_static_credentials() || use_instance_profile();
     }
 
     std::string get_access_key() const { return access_key; }
@@ -93,14 +109,22 @@ public:
     std::string get_bucket() const { return bucket; }
     std::string get_prefix() const { return prefix; }
     std::string get_region() const { return region; }
+    std::string get_role_arn() const { return role_arn; }
+    std::string get_external_id() const { return external_id; }
+    bool use_instance_profile() const { return !has_static_credentials(); }
 
     void print_config() const {
         std::cout << "S3 Test Configuration:" << std::endl;
         std::cout << "  Enabled: " << (enabled ? "Yes" : "No") << std::endl;
         if (enabled) {
+            std::cout << "  Auth Mode: " << (has_static_credentials() ? "AK/SK" : "IAM Role")
+                      << std::endl;
             std::cout << "  Access Key: " << (access_key.empty() ? "<empty>" : "<set>")
                       << std::endl;
             std::cout << "  Secret Key: " << (secret_key.empty() ? "<empty>" : "<hidden>")
+                      << std::endl;
+            std::cout << "  Role Arn: " << (role_arn.empty() ? "<empty>" : role_arn) << std::endl;
+            std::cout << "  External Id: " << (external_id.empty() ? "<empty>" : "<hidden>")
                       << std::endl;
             std::cout << "  Endpoint: " << endpoint << std::endl;
             std::cout << "  Provider: " << provider << std::endl;
@@ -111,9 +135,17 @@ public:
     }
 
 private:
+    bool has_static_credentials() const { return !access_key.empty() && !secret_key.empty(); }
+
+    bool has_partial_static_credentials() const {
+        return !has_static_credentials() && (!access_key.empty() || !secret_key.empty());
+    }
+
     bool enabled = false;
     std::string access_key;
     std::string secret_key;
+    std::string role_arn;
+    std::string external_id;
     std::string endpoint;
     std::string provider;
     std::string bucket;
@@ -135,7 +167,8 @@ protected:
         }
 
         if (!config_->is_valid()) {
-            GTEST_SKIP() << "S3 configuration is incomplete. Required: AK, SK, ENDPOINT, BUCKET.";
+            GTEST_SKIP() << "S3 configuration is incomplete. Required: ENDPOINT, REGION, BUCKET, "
+                            "PREFIX and either AK/SK or iam role credentials.";
         }
 
         // Attempt to create S3 accessor
@@ -169,6 +202,11 @@ protected:
         s3_conf.bucket = config_->get_bucket();
         s3_conf.prefix = config_->get_prefix();
         s3_conf.provider = convert_provider(config_->get_provider());
+        if (config_->use_instance_profile()) {
+            s3_conf.cred_provider_type = CredProviderType::InstanceProfile;
+            s3_conf.role_arn = config_->get_role_arn();
+            s3_conf.external_id = config_->get_external_id();
+        }
 
         std::shared_ptr<S3Accessor> accessor;
         int ret = S3Accessor::create(s3_conf, &accessor);

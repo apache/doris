@@ -1,4 +1,5 @@
-CREATE TABLE `parquet_decimal_bool`(
+drop table if exists `parquet_decimal_bool`;
+create table `parquet_decimal_bool`(
 	decimals decimal(20,3),
 	bool_rle boolean
 )
@@ -10,6 +11,3 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
 LOCATION
   '/user/doris/preinstalled_data/parquet_table/parquet_decimal_bool';
-
-msck repair table partition_table;
-
