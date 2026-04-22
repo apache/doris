@@ -30,19 +30,32 @@ suite("test_hive_analyze_long_string", "p0,external,hive,external_docker,externa
     assertEquals(1, cfgRows.size())
     assertEquals("1024", cfgRows[0][1].toString())
 
+    String longVal = "x" * 2048
+
     for (String hivePrefix : ["hive3"]) {
+        setHivePrefix(hivePrefix)
         String extHiveHmsHost = context.config.otherConfigs.get("externalEnvIp")
         String extHiveHmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+        String hdfsPort = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
         String catalogName = hivePrefix + "_test_analyze_long_string"
         String dbName = "test_analyze_long_string_db"
         String tblName = "t1"
+
+        // Seed the hive side via hive_docker so this suite is self-contained and
+        // does not require any pre-install hql.
+        hive_docker """drop table if exists ${dbName}.${tblName}"""
+        hive_docker """drop database if exists ${dbName} cascade"""
+        hive_docker """create database ${dbName}"""
+        hive_docker """create table ${dbName}.${tblName} (id int, s string) stored as parquet"""
+        hive_docker """insert into ${dbName}.${tblName} values (1, 'short'), (2, 'another'), (3, '${longVal}')"""
 
         sql "drop catalog if exists ${catalogName}"
         sql """
             create catalog if not exists ${catalogName} properties (
                 'type'='hms',
                 'hadoop.username' = 'hadoop',
-                'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}'
+                'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}',
+                'fs.defaultFS' = 'hdfs://${extHiveHmsHost}:${hdfsPort}'
             )
         """
         sql "refresh catalog ${catalogName}"
@@ -106,5 +119,7 @@ suite("test_hive_analyze_long_string", "p0,external,hive,external_docker,externa
         assertEquals(1, idColStats.size())
 
         sql "drop catalog if exists ${catalogName}"
+        hive_docker """drop table if exists ${dbName}.${tblName}"""
+        hive_docker """drop database if exists ${dbName} cascade"""
     }
 }
