@@ -24,7 +24,10 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.property.common.AwsCredentialsProviderFactory;
+import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.fs.GlobListResult;
 import org.apache.doris.fs.remote.RemoteFile;
 
@@ -35,7 +38,13 @@ import org.apache.http.HttpStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
@@ -66,6 +75,10 @@ import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
+import software.amazon.awssdk.services.sts.StsClient;
+import software.amazon.awssdk.services.sts.model.AssumeRoleRequest;
+import software.amazon.awssdk.services.sts.model.AssumeRoleResponse;
+import software.amazon.awssdk.services.sts.model.Credentials;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -80,6 +93,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 public class S3ObjStorage implements ObjStorage<S3Client> {
@@ -246,7 +260,55 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     @Override
     public Triple<String, String, String> getStsToken() throws DdlException {
-        return null;
+        Map<String, String> backendProperties = s3Properties.getBackendConfigProperties();
+        String roleArn = backendProperties.get(S3Properties.Env.ROLE_ARN);
+        if (StringUtils.isBlank(roleArn)) {
+            throw new DdlException("Missing [AWS_ROLE_ARN] in properties.");
+        }
+        String externalId = backendProperties.get(S3Properties.Env.EXTERNAL_ID);
+        String region = StringUtils.defaultIfBlank(s3Properties.getRegion(), "us-east-1");
+        try (StsClient stsClient = buildStsClient(buildStsSourceCredentialsProvider(backendProperties), region)) {
+            AssumeRoleRequest.Builder requestBuilder = AssumeRoleRequest.builder()
+                    .roleArn(roleArn)
+                    .durationSeconds(Config.sts_duration)
+                    .roleSessionName("doris_" + UUID.randomUUID().toString().replace("-", ""));
+            if (StringUtils.isNotBlank(externalId)) {
+                requestBuilder.externalId(externalId);
+            }
+            AssumeRoleResponse assumeRoleResponse = stsClient.assumeRole(requestBuilder.build());
+            Credentials credentials = assumeRoleResponse.credentials();
+            return Triple.of(credentials.accessKeyId(), credentials.secretAccessKey(), credentials.sessionToken());
+        } catch (Exception e) {
+            LOG.warn("Failed to get s3 sts token, roleArn={}", roleArn, e);
+            throw new DdlException("Failed to get s3 sts token: " + Util.getRootCauseMessage(e));
+        }
+    }
+
+    protected StsClient buildStsClient(AwsCredentialsProvider credentialsProvider, String region) {
+        return StsClient.builder()
+                .credentialsProvider(credentialsProvider)
+                .region(Region.of(region))
+                .build();
+    }
+
+    private AwsCredentialsProvider buildStsSourceCredentialsProvider(Map<String, String> backendProperties) {
+        String accessKey = backendProperties.get(S3Properties.Env.ACCESS_KEY);
+        String secretKey = backendProperties.get(S3Properties.Env.SECRET_KEY);
+        String sessionToken = backendProperties.get(S3Properties.Env.TOKEN);
+        if (StringUtils.isNotBlank(accessKey) && StringUtils.isNotBlank(secretKey)) {
+            if (StringUtils.isNotBlank(sessionToken)) {
+                return StaticCredentialsProvider.create(
+                        AwsSessionCredentials.create(accessKey, secretKey, sessionToken));
+            }
+            return StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey));
+        }
+
+        if (Config.aws_credentials_provider_version.equalsIgnoreCase("v2")) {
+            String providerType = backendProperties.get("AWS_CREDENTIALS_PROVIDER_TYPE");
+            AwsCredentialsProviderMode providerMode = AwsCredentialsProviderMode.fromString(providerType);
+            return AwsCredentialsProviderFactory.createV2(providerMode, false);
+        }
+        return DefaultCredentialsProvider.create();
     }
 
     @Override
