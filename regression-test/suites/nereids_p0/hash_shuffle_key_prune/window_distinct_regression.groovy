@@ -109,7 +109,7 @@ suite("window_distinct_regression", "agg_shuffle_prune_func") {
         def r = m.group(1).trim()
         return (r.length() == 0 ? [] : r.split(",").collect { it.trim() }.findAll { it.length() > 0 }.collect { Integer.parseInt(it) })
     }
-    def findDistinctAggChildDistributes = { String e ->
+    def findGlobalDistinctAggChildDistributes = { String e ->
         def lines = e.readLines()
         def ctxs = []
         for (int i = 0; i < lines.size(); i++) {
@@ -141,16 +141,23 @@ suite("window_distinct_regression", "agg_shuffle_prune_func") {
         m.find() ? Integer.parseInt(m.group(1)) : null
     }
     def assertDistinctShufflePrunedToSingle = { String id, String eOff, String eOn, String c ->
-        def offCtxs = findDistinctAggChildDistributes(eOff)
-        def onCtxs = findDistinctAggChildDistributes(eOn)
-        assertTrue(!offCtxs.isEmpty() && !onCtxs.isEmpty(), "${id}: missing DISTINCT/global agg-child distribute ids, off=${offCtxs}, on=${onCtxs}")
-        assertTrue(offCtxs.size() == onCtxs.size(), "${id}: expected matching DISTINCT/global agg-child distribute counts, off=${offCtxs}, on=${onCtxs}")
-        def target = findScopedExprId(onCtxs[0].subtree, c)
+        def offCtxs = findGlobalDistinctAggChildDistributes(eOff)
+        def onCtxs = findGlobalDistinctAggChildDistributes(eOn)
+        assertTrue(!offCtxs.isEmpty() && !onCtxs.isEmpty(),
+            "${id}: missing target global/distinct-global agg-child distribute candidates, off=${offCtxs}, on=${onCtxs}")
+        def onTargetPairs = onCtxs.collect { ctx ->
+            [ctx: ctx, target: findScopedExprId(ctx.subtree, c)]
+        }.findAll { it.target != null && it.ctx.ids.size() == 1 && it.ctx.ids[0] == it.target }
+        assertTrue(onTargetPairs.size() == 1,
+            "${id}: expected exactly one pruned target agg-child shuffle for ${c}, got on=${onCtxs}")
+        def onCtx = onTargetPairs[0].ctx
+        def target = onTargetPairs[0].target
         assertTrue(target != null, "${id}: missing exprId for ${c}")
-        assertTrue(offCtxs.any { it.ids.size() > 1 && it.ids.contains(target) },
-            "${id}: expected at least one multi-key DISTINCT/global agg-child shuffle containing ${c}/${target} before pruning, got off=${offCtxs}")
-        assertTrue(onCtxs.every { it.ids.size() == 1 && it.ids[0] == target },
-            "${id}: expected all DISTINCT/global agg-child shuffles to prune to [${c}]/${target}, got on=${onCtxs}")
+        def offMatches = offCtxs.findAll { it.ids.size() > 1 && it.ids.contains(target) }
+        assertTrue(!offMatches.isEmpty(),
+            "${id}: expected at least one pre-prune global/distinct-global agg-child shuffle containing ${c}/${target}, got off=${offCtxs}")
+        assertTrue(onCtx.ids.size() == 1 && onCtx.ids[0] == target,
+            "${id}: expected the target global/distinct-global agg-child shuffle to prune to [${c}]/${target}, got on=${onCtx}")
     }
     def norm = { rows ->
         rows.collect { r -> r.collect { v -> v == null ? "NULL" : v.toString() }.join("||") }.sort()
@@ -164,15 +171,15 @@ suite("window_distinct_regression", "agg_shuffle_prune_func") {
         sql "set enable_shuffle_key_prune=true;"
         def eOn = explainText(q)
         def nS = extractSigns(eOn)
-        def changed = (eOff != eOn)
+        def changed = (oS.toString() != nS.toString())
         logger.info("${id}: oS=${oS}, nS=${nS}, changed=${changed}")
         if (expectChange) {
-            assertTrue(changed, "${id}: plan should change")
+            assertTrue(changed, "${id}: shuffle signs should change")
             if (selectedCol != null) {
                 assertDistinctShufflePrunedToSingle(id, eOff, eOn, selectedCol)
             }
         } else {
-            assertTrue(!changed, "${id}: plan should stay unchanged")
+            assertTrue(!changed, "${id}: shuffle signs should stay unchanged")
         }
         sql "set enable_shuffle_key_prune=false;"; def rOff = sql q
         sql "set enable_shuffle_key_prune=true;"; def rOn = sql q

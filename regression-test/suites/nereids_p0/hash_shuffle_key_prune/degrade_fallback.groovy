@@ -23,14 +23,14 @@
 //   Validate fallback (no optimization) behavior of Shuffle Key Pruning in special scenarios:
 //   1. ROLLUP/GROUPING SETS -> the Repeat operator produces multiple group-by key sets -> no pruning
 //   2. All candidate columns are skewed -> no safe column can be chosen -> no pruning
-//   3. Missing/partial statistics -> conservative fallback -> no pruning
+//   3. Missing/partial column statistics -> conservative fallback -> no pruning
 //   4. String fallback: when step 1 cannot pick a single key, step 2 removes string-typed columns
 //
 // Case List
 //   R01: GROUP BY ROLLUP(b,c,d,e,f) -> Repeat operator -> no pruning (negative)
 //   R02: GROUP BY GROUPING SETS -> same behavior -> no pruning (negative)
 //   SK01: k1~k5 all have hot_values=0.8 -> all skewed -> no pruning (negative)
-//   N01: Some partitions of a partitioned table have no stats -> conservative -> no pruning (negative)
+//   N01: Enable partition stats and leave some scanned partitions without stats -> conservative -> no pruning (negative)
 //   N02: Only column b is analyzed -> other columns miss stats -> no pruning (negative)
 //   E01: All non-string columns are skewed / low-NDV -> step 2 removes strings and keeps a 3-column composite key (positive)
 //   E02: Only string columns remain -> no usable key after removing strings -> no pruning (negative)
@@ -176,10 +176,12 @@ suite("degrade_fallback", "agg_shuffle_prune_func") {
     ss("t_04_allskew","v","60000","0","1600000","0","1999","")
     runEx("SK01","select k1,k2,k3,k4,k5,sum(v) from t_04_allskew group by k1,k2,k3,k4,k5",0,false,true,false,null,[])
 
-    // ===== N group: stale/partial stats -> conservative =====
+    // ===== N group: missing/partial stats -> conservative =====
     def oldAutoAnalyze = sql("""show global variables like 'enable_auto_analyze'""")[0][1].toString()
+    def oldPartitionAnalyze = sql("""show global variables like 'enable_partition_analyze'""")[0][1].toString()
     try {
         sql """set global enable_auto_analyze=false;"""
+        sql """set global enable_partition_analyze=true;"""
         sql "drop table if exists t_04_stale;"
         sql "drop table if exists t_04_partial;"
         sql """create table t_04_stale (part_key int, x bigint, b bigint, c bigint, d bigint, e bigint, f bigint, v bigint)
@@ -202,7 +204,8 @@ suite("degrade_fallback", "agg_shuffle_prune_func") {
             (bitand(murmur_hash3_32(concat(cast(number as string),'_e')),2147483647)%2200)*100000+5,
             (bitand(murmur_hash3_32(concat(cast(number as string),'_f')),2147483647)%2000)*100000+6,
             number from numbers("number"="6000");"""
-        // Analyze only p1 so p2 remains without partition stats; this isolates the "partial partition stats" guard.
+        // With partition-level stats enabled, collect only p1 so the scan sees one analyzed partition and one
+        // partition without stats; that partial merge path should fall back conservatively.
         sql "analyze table t_04_stale partition(p1) with sync;"
         sql """insert into t_04_stale select 110,
             (bitand(murmur_hash3_32(concat(cast(number as string),'_qx')),2147483647)%3500)*100000+1,
@@ -212,6 +215,12 @@ suite("degrade_fallback", "agg_shuffle_prune_func") {
             (bitand(murmur_hash3_32(concat(cast(number as string),'_qe')),2147483647)%2400)*100000+5,
             (bitand(murmur_hash3_32(concat(cast(number as string),'_qf')),2147483647)%2200)*100000+6,
             number from numbers("number"="2000");"""
+        def p1PartitionStats = sql """show column stats t_04_stale (b) partition(p1)"""
+        assertEquals(1, p1PartitionStats.size())
+        def p2PartitionStats = sql """show column stats t_04_stale (b) partition(p2)"""
+        assertEquals(0, p2PartitionStats.size())
+        def tableLevelStats = sql """show column stats t_04_stale (b)"""
+        assertEquals(0, tableLevelStats.size())
         runEx("N01","select b,c,d,e,f,sum(v) from t_04_stale where part_key in (10,110) group by b,c,d,e,f",0,false,true,false,null,[])
         sql "analyze table t_04_partial(b) with sync;"
         // Keep b itself prunable and leave c/d/e/f without stats, so the failure is really "partial stats".
@@ -220,6 +229,7 @@ suite("degrade_fallback", "agg_shuffle_prune_func") {
         ss("t_04_partial","v","60000","0","1600000","0","1999","")
         runEx("N02","select b,c,d,e,f,sum(v) from t_04_partial group by b,c,d,e,f",0,false,true,false,null,[])
     } finally {
+        sql """set global enable_partition_analyze=${oldPartitionAnalyze};"""
         sql """set global enable_auto_analyze=${oldAutoAnalyze};"""
     }
 
