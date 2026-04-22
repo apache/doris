@@ -94,6 +94,7 @@ public class ExternalAnalysisTask extends BaseAnalysisTask {
             params.put("type", col.getType().toString());
         }
         params.put("lastAnalyzeTimeInMs", String.valueOf(System.currentTimeMillis()));
+        addLengthAssertParam(params);
         return params;
     }
 
