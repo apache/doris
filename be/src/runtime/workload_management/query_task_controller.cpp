@@ -212,22 +212,22 @@ std::vector<PipelineTask*> QueryTaskController::get_revocable_tasks() {
     return tasks;
 }
 
+void QueryTaskController::add_total_task_num(int delta) {
+    _total_task_num.fetch_add(delta, std::memory_order_relaxed);
+}
+
+void QueryTaskController::inc_finished_task_num() {
+    _finished_task_num.fetch_add(1, std::memory_order_relaxed);
+}
+
 int QueryTaskController::get_total_task_num() const {
-    // Read task-level total counter from query context for external statistics reporting.
-    auto query_ctx = query_ctx_.lock();
-    if (query_ctx == nullptr) {
-        return 0;
-    }
-    return query_ctx->get_total_task_num();
+    // Read from controller-owned counters to avoid lifecycle dependency on QueryContext.
+    return _total_task_num.load(std::memory_order_relaxed);
 }
 
 int QueryTaskController::get_finished_task_num() const {
-    // Read task-level finished counter from query context for external statistics reporting.
-    auto query_ctx = query_ctx_.lock();
-    if (query_ctx == nullptr) {
-        return 0;
-    }
-    return query_ctx->get_finished_task_num();
+    // Read from controller-owned counters to avoid lifecycle dependency on QueryContext.
+    return _finished_task_num.load(std::memory_order_relaxed);
 }
 
 } // namespace doris

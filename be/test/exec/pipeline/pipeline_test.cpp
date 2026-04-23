@@ -482,6 +482,22 @@ TEST_F(PipelineTest, QueryTaskProgressCounters) {
     EXPECT_EQ(query_task_controller->get_finished_task_num(), 3);
 }
 
+TEST_F(PipelineTest, QueryTaskProgressCountersOutliveQueryContext) {
+    // Verify controller-owned counters still work after QueryContext is destroyed.
+    auto resource_ctx = _query_ctx->resource_ctx();
+    auto* query_task_controller =
+            dynamic_cast<QueryTaskController*>(resource_ctx->task_controller());
+    ASSERT_NE(query_task_controller, nullptr);
+
+    _query_ctx->add_total_task_num(5);
+    _query_ctx->inc_finished_task_num();
+    _query_ctx->inc_finished_task_num();
+
+    _query_ctx.reset();
+    EXPECT_EQ(query_task_controller->get_total_task_num(), 5);
+    EXPECT_EQ(query_task_controller->get_finished_task_num(), 2);
+}
+
 TEST_F(PipelineTest, PLAN_LOCAL_EXCHANGE) {
     _reset();
     // Pipeline(ExchangeOperator(id=0, HASH_PARTITIONED) -> ExchangeSinkOperatorX(id=1, UNPARTITIONED))
