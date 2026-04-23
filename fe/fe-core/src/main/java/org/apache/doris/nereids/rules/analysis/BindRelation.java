@@ -441,7 +441,15 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         String ddlSql = hmsTable.getViewText();
                         Plan hiveViewPlan = parseAndAnalyzeExternalView(
                                 hmsTable, hiveCatalog, hiveDb, ddlSql, cascadesContext);
-                        return new LogicalSubQueryAlias<>(qualifiedTableName, hiveViewPlan);
+                        // Ensure Hive view column aliases are visible to outer query by passing them explicitly
+                        List<String> columnAliases = new ArrayList<>();
+                        List<Column> viewSchema = hmsTable.getFullSchema();
+                        if (viewSchema != null && !viewSchema.isEmpty()) {
+                            for (Column col : viewSchema) {
+                                columnAliases.add(col.getName());
+                            }
+                        }
+                        return new LogicalSubQueryAlias<>(qualifiedTableName, Optional.of(columnAliases), hiveViewPlan);
                     }
                     if (hmsTable.getDlaType() == DLAType.HUDI) {
                         LogicalHudiScan hudiScan = new LogicalHudiScan(unboundRelation.getRelationId(), hmsTable,
