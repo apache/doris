@@ -20,7 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeNumbers;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -49,7 +49,7 @@ class PushDownFilterThroughGenerateTest implements MemoPatternMatchSupported {
     void testPushDownDeterministicFilter() {
         SlotReference idSlot = (SlotReference) scan.getOutput().get(0);
         SlotReference genOut = new SlotReference("g1", IntegerType.INSTANCE);
-        Unnest gen = new Unnest(new IntegerLiteral(1));
+        ExplodeNumbers gen = new ExplodeNumbers(new IntegerLiteral(1));
         LogicalGenerate<LogicalPlan> generate = new LogicalGenerate<>(
                 ImmutableList.of(gen), ImmutableList.of(genOut), scan);
 
@@ -71,7 +71,7 @@ class PushDownFilterThroughGenerateTest implements MemoPatternMatchSupported {
     void testDoNotPushUniqueFunctionThroughGenerate() {
         SlotReference idSlot = (SlotReference) scan.getOutput().get(0);
         SlotReference genOut = new SlotReference("g1", IntegerType.INSTANCE);
-        Unnest gen = new Unnest(new IntegerLiteral(1));
+        ExplodeNumbers gen = new ExplodeNumbers(new IntegerLiteral(1));
         LogicalGenerate<LogicalPlan> generate = new LogicalGenerate<>(
                 ImmutableList.of(gen), ImmutableList.of(genOut), scan);
 
