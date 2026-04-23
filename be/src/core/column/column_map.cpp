@@ -557,6 +557,12 @@ Status ColumnMap::deduplicate_keys(bool recursive) {
     const auto inner_rows = keys_column->size();
     const auto rows = offsets_column->size();
 
+    if (inner_rows != values_column->size()) {
+        return Status::InternalError(
+                "ColumnMap::deduplicate_keys: keys size {} != values size {}",
+                inner_rows, values_column->size());
+    }
+
     if (recursive) {
         auto values_column_ = values_column;
         if (values_column_->is_nullable()) {
