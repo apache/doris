@@ -55,7 +55,12 @@ public:
     bool is_constant() const override { return _is_constant; }
 
     Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override {
+                          size_t count, ColumnPtr& result_column) const {
+        return Status::OK();
+    }
+
+    Status execute_column_impl(VExprContext* context, const Block* block, Selector* selector,
+                               size_t count, ColumnPtr& result_column) const {
         return Status::OK();
     }
 
