@@ -21,10 +21,12 @@ import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.GroupId;
+import org.apache.doris.nereids.processor.post.RecomputeLogicalPropertiesProcessor;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
@@ -42,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
@@ -590,7 +593,7 @@ class ChildOutputPropertyDeriverTest {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
                 Lists.newArrayList(new EqualTo(
                         leftSlot, rightSlot
-                        )),
+                )),
                 ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE),
                 Optional.empty(), logicalProperties, leftGroupPlan, rightGroupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
@@ -970,5 +973,170 @@ class ChildOutputPropertyDeriverTest {
         projects3.add(c1);
         PhysicalProperties phyProp3 = ChildOutputPropertyDeriver.computeProjectOutputProperties(projects3, hashC1);
         Assertions.assertEquals(hashC1, phyProp3);
+    }
+
+    @Test
+    void testComputeUniformAfterRecomputeLogicalProperties() {
+        // left child has a uniform slot, right child empty
+        SlotReference leftSlot = new SlotReference(new ExprId(100), "left", IntegerType.INSTANCE, false,
+                Collections.emptyList());
+        SlotReference rightSlot = new SlotReference(new ExprId(101), "right", IntegerType.INSTANCE, false,
+                Collections.emptyList());
+        List<Slot> leftOutput = Lists.newArrayList(leftSlot);
+        List<Slot> rightOutput = Lists.newArrayList(rightSlot);
+
+        DataTrait.Builder leftBuilder = new DataTrait.Builder();
+        leftBuilder.addUniformSlot(leftSlot);
+        DataTrait leftTrait = leftBuilder.build();
+
+        LogicalProperties leftLogical = new LogicalProperties(() -> leftOutput, () -> leftTrait);
+        LogicalProperties rightLogical = new LogicalProperties(() -> rightOutput, () -> DataTrait.EMPTY_TRAIT);
+
+        IdGenerator<GroupId> idGenerator = GroupId.createGenerator();
+        GroupPlan leftGroupPlan = new GroupPlan(new Group(idGenerator.getNextId(), leftLogical));
+        GroupPlan rightGroupPlan = new GroupPlan(new Group(idGenerator.getNextId(), rightLogical));
+
+        PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.ASOF_LEFT_OUTER_JOIN,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION,
+                new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
+                leftGroupPlan, rightGroupPlan);
+
+        // run RecomputeLogicalPropertiesProcessor to simulate physical-tree logical prop recompute
+        RecomputeLogicalPropertiesProcessor processor = new RecomputeLogicalPropertiesProcessor();
+        CascadesContext ctx = CascadesContext.initTempContext();
+        Plan processed = processor.processRoot(join, ctx);
+
+        Assertions.assertInstanceOf(PhysicalHashJoin.class, processed);
+
+        DataTrait.Builder builder = new DataTrait.Builder();
+        processed.computeUniform(builder);
+        DataTrait result = builder.build();
+
+        // left slot should still be recognized as uniform after recompute
+        Assertions.assertTrue(result.isUniformAndNotNull(leftSlot));
+    }
+
+    @Test
+    void testComputeUniformAfterRecomputeLogicalProperties_AsOfLeftInner() {
+        SlotReference leftSlot = new SlotReference(new ExprId(200), "l", IntegerType.INSTANCE, false,
+                Collections.emptyList());
+        SlotReference rightSlot = new SlotReference(new ExprId(201), "r", IntegerType.INSTANCE, false,
+                Collections.emptyList());
+        List<Slot> leftOutput = Lists.newArrayList(leftSlot);
+        List<Slot> rightOutput = Lists.newArrayList(rightSlot);
+
+        DataTrait.Builder leftBuilder = new DataTrait.Builder();
+        leftBuilder.addUniformSlot(leftSlot);
+        DataTrait leftTrait = leftBuilder.build();
+
+        DataTrait.Builder rightBuilder = new DataTrait.Builder();
+        rightBuilder.addUniformSlot(rightSlot);
+        DataTrait rightTrait = rightBuilder.build();
+
+        LogicalProperties leftLogical = new LogicalProperties(() -> leftOutput, () -> leftTrait);
+        LogicalProperties rightLogical = new LogicalProperties(() -> rightOutput, () -> rightTrait);
+
+        IdGenerator<GroupId> idGenerator = GroupId.createGenerator();
+        GroupPlan leftGroupPlan = new GroupPlan(new Group(idGenerator.getNextId(), leftLogical));
+        GroupPlan rightGroupPlan = new GroupPlan(new Group(idGenerator.getNextId(), rightLogical));
+
+        PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.ASOF_LEFT_INNER_JOIN,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION,
+                new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
+                leftGroupPlan, rightGroupPlan);
+
+        RecomputeLogicalPropertiesProcessor processor = new RecomputeLogicalPropertiesProcessor();
+        CascadesContext ctx = CascadesContext.initTempContext();
+        Plan processed = processor.processRoot(join, ctx);
+
+        Assertions.assertInstanceOf(PhysicalHashJoin.class, processed);
+
+        DataTrait.Builder builder = new DataTrait.Builder();
+        processed.computeUniform(builder);
+        DataTrait result = builder.build();
+
+        Assertions.assertTrue(result.isUniformAndNotNull(leftSlot));
+        Assertions.assertTrue(result.isUniformAndNotNull(rightSlot));
+    }
+
+    @Test
+    void testComputeUniformAfterRecomputeLogicalProperties_AsOfRightInner() {
+        SlotReference leftSlot = new SlotReference(new ExprId(300), "l2", IntegerType.INSTANCE, false,
+                Collections.emptyList());
+        SlotReference rightSlot = new SlotReference(new ExprId(301), "r2", IntegerType.INSTANCE, false,
+                Collections.emptyList());
+        List<Slot> leftOutput = Lists.newArrayList(leftSlot);
+        List<Slot> rightOutput = Lists.newArrayList(rightSlot);
+
+        DataTrait.Builder leftBuilder = new DataTrait.Builder();
+        leftBuilder.addUniformSlot(leftSlot);
+        DataTrait leftTrait = leftBuilder.build();
+
+        DataTrait.Builder rightBuilder = new DataTrait.Builder();
+        rightBuilder.addUniformSlot(rightSlot);
+        DataTrait rightTrait = rightBuilder.build();
+
+        LogicalProperties leftLogical = new LogicalProperties(() -> leftOutput, () -> leftTrait);
+        LogicalProperties rightLogical = new LogicalProperties(() -> rightOutput, () -> rightTrait);
+
+        IdGenerator<GroupId> idGenerator = GroupId.createGenerator();
+        GroupPlan leftGroupPlan = new GroupPlan(new Group(idGenerator.getNextId(), leftLogical));
+        GroupPlan rightGroupPlan = new GroupPlan(new Group(idGenerator.getNextId(), rightLogical));
+
+        PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.ASOF_RIGHT_INNER_JOIN,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION,
+                new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
+                leftGroupPlan, rightGroupPlan);
+
+        RecomputeLogicalPropertiesProcessor processor = new RecomputeLogicalPropertiesProcessor();
+        CascadesContext ctx = CascadesContext.initTempContext();
+        Plan processed = processor.processRoot(join, ctx);
+
+        Assertions.assertInstanceOf(PhysicalHashJoin.class, processed);
+
+        DataTrait.Builder builder = new DataTrait.Builder();
+        processed.computeUniform(builder);
+        DataTrait result = builder.build();
+
+        Assertions.assertTrue(result.isUniformAndNotNull(leftSlot));
+        Assertions.assertTrue(result.isUniformAndNotNull(rightSlot));
+    }
+
+    @Test
+    void testComputeUniformAfterRecomputeLogicalProperties_AsOfRightOuter() {
+        SlotReference leftSlot = new SlotReference(new ExprId(400), "l3", IntegerType.INSTANCE, false,
+                Collections.emptyList());
+        SlotReference rightSlot = new SlotReference(new ExprId(401), "r3", IntegerType.INSTANCE, false,
+                Collections.emptyList());
+        List<Slot> leftOutput = Lists.newArrayList(leftSlot);
+        List<Slot> rightOutput = Lists.newArrayList(rightSlot);
+
+        DataTrait.Builder rightBuilder = new DataTrait.Builder();
+        rightBuilder.addUniformSlot(rightSlot);
+        DataTrait rightTrait = rightBuilder.build();
+
+        LogicalProperties leftLogical = new LogicalProperties(() -> leftOutput, () -> DataTrait.EMPTY_TRAIT);
+        LogicalProperties rightLogical = new LogicalProperties(() -> rightOutput, () -> rightTrait);
+
+        IdGenerator<GroupId> idGenerator = GroupId.createGenerator();
+        GroupPlan leftGroupPlan = new GroupPlan(new Group(idGenerator.getNextId(), leftLogical));
+        GroupPlan rightGroupPlan = new GroupPlan(new Group(idGenerator.getNextId(), rightLogical));
+
+        PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.ASOF_RIGHT_OUTER_JOIN,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION,
+                new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
+                leftGroupPlan, rightGroupPlan);
+
+        RecomputeLogicalPropertiesProcessor processor = new RecomputeLogicalPropertiesProcessor();
+        CascadesContext ctx = CascadesContext.initTempContext();
+        Plan processed = processor.processRoot(join, ctx);
+
+        Assertions.assertInstanceOf(PhysicalHashJoin.class, processed);
+
+        DataTrait.Builder builder = new DataTrait.Builder();
+        processed.computeUniform(builder);
+        DataTrait result = builder.build();
+
+        Assertions.assertTrue(result.isUniformAndNotNull(rightSlot));
     }
 }
