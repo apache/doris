@@ -67,68 +67,92 @@ suite("test_streaming_insert_job_compute_group") {
     assert clusterRows.size() >= 1 : "cloud mode expects at least one cluster"
     def cg = clusterRows.get(0).get(0)
 
-    // 1) Invalid compute_group -> CREATE should fail
-    test {
+    try {
+        // 0) Empty compute_group -> CREATE rejected
+        test {
+            sql """
+                CREATE JOB ${jobName}
+                PROPERTIES ("compute_group" = "")
+                ON STREAMING DO INSERT INTO ${tableName} ${s3Source};
+            """
+            exception "compute_group cannot be empty"
+        }
+
+        // 1) Invalid compute_group -> CREATE should fail
+        test {
+            sql """
+                CREATE JOB ${jobName}
+                PROPERTIES (
+                    "s3.max_batch_files" = "1",
+                    "compute_group" = "__not_exist_cg__"
+                )
+                ON STREAMING DO INSERT INTO ${tableName} ${s3Source};
+            """
+            exception "not exist"
+        }
+
+        // 2) Valid compute_group -> CREATE succeeds; properties reflect it
         sql """
             CREATE JOB ${jobName}
             PROPERTIES (
                 "s3.max_batch_files" = "1",
-                "compute_group" = "__not_exist_cg__"
+                "compute_group" = "${cg}"
             )
             ON STREAMING DO INSERT INTO ${tableName} ${s3Source};
         """
-        exception "does not exist"
-    }
 
-    // 2) Valid compute_group -> CREATE succeeds; properties reflect it
-    sql """
-        CREATE JOB ${jobName}
-        PROPERTIES (
-            "s3.max_batch_files" = "1",
-            "compute_group" = "${cg}"
-        )
-        ON STREAMING DO INSERT INTO ${tableName} ${s3Source};
-    """
+        def props = sql """select properties from jobs("type"="insert") where Name='${jobName}'"""
+        log.info("job properties: " + props)
+        assert props.get(0).get(0).contains("\"compute_group\":\"${cg}\"")
 
-    def props = sql """select properties from jobs("type"="insert") where Name='${jobName}'"""
-    log.info("job properties: " + props)
-    assert props.get(0).get(0).contains("\"compute_group\":\"${cg}\"")
+        // Wait for at least one successful task so the cluster binding is exercised end-to-end
+        try {
+            Awaitility.await().atMost(300, SECONDS).pollInterval(1, SECONDS).until({
+                def cnt = sql """select SucceedTaskCount from jobs("type"="insert") where Name='${jobName}'"""
+                cnt.size() == 1 && Integer.parseInt(cnt.get(0).get(0).toString()) >= 1
+            })
+        } catch (Exception ex) {
+            log.info("job: " + sql("""select * from jobs("type"="insert") where Name='${jobName}'"""))
+            log.info("task: " + sql("""select * from tasks("type"="insert") where JobName='${jobName}'"""))
+            throw ex
+        }
 
-    // Wait for at least one successful task so the cluster binding is exercised end-to-end
-    try {
-        Awaitility.await().atMost(300, SECONDS).pollInterval(1, SECONDS).until({
-            def cnt = sql """select SucceedTaskCount from jobs("type"="insert") where Name='${jobName}'"""
-            cnt.size() == 1 && Integer.parseInt(cnt.get(0).get(0).toString()) >= 1
+        // 3) ALTER without PAUSE -> rejected by upstream guard (Only PAUSED job can be altered)
+        test {
+            sql """ALTER JOB ${jobName} PROPERTIES ("compute_group" = "${cg}")"""
+            exception "Only PAUSED job can be altered"
+        }
+
+        sql """PAUSE JOB where jobname = '${jobName}'"""
+        Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until({
+            def s = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
+            s.size() == 1 && 'PAUSED' == s.get(0).get(0)
         })
-    } catch (Exception ex) {
-        log.info("job: " + sql("""select * from jobs("type"="insert") where Name='${jobName}'"""))
-        log.info("task: " + sql("""select * from tasks("type"="insert") where JobName='${jobName}'"""))
-        throw ex
-    }
 
-    // 3) ALTER without PAUSE -> rejected by upstream guard (Only PAUSED job can be altered)
-    test {
+        // 4) ALTER to non-existent cluster -> rejected; state + bound cg unchanged
+        test {
+            sql """ALTER JOB ${jobName} PROPERTIES ("compute_group" = "__not_exist_cg__")"""
+            exception "not exist"
+        }
+        def afterBadAlter = sql """select status, properties from jobs("type"="insert") where Name='${jobName}'"""
+        assert afterBadAlter.get(0).get(0) == "PAUSED"
+        assert afterBadAlter.get(0).get(1).contains("\"compute_group\":\"${cg}\"")
+
+        // 5) ALTER with empty compute_group -> rejected; bound cg unchanged
+        test {
+            sql """ALTER JOB ${jobName} PROPERTIES ("compute_group" = "")"""
+            exception "compute_group cannot be empty"
+        }
+        def afterEmptyAlter = sql """select properties from jobs("type"="insert") where Name='${jobName}'"""
+        assert afterEmptyAlter.get(0).get(0).contains("\"compute_group\":\"${cg}\"")
+
+        // 6) ALTER to the same valid cluster -> succeeds, properties updated
         sql """ALTER JOB ${jobName} PROPERTIES ("compute_group" = "${cg}")"""
-        exception "Only PAUSED job can be altered"
+        def afterAlter = sql """select status, properties from jobs("type"="insert") where Name='${jobName}'"""
+        assert afterAlter.get(0).get(0) == "PAUSED"
+        assert afterAlter.get(0).get(1).contains("\"compute_group\":\"${cg}\"")
+    } finally {
+        sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
+        sql """drop table if exists `${tableName}` force"""
     }
-
-    sql """PAUSE JOB where jobname = '${jobName}'"""
-    Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until({
-        def s = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
-        s.size() == 1 && 'PAUSED' == s.get(0).get(0)
-    })
-
-    // 4) ALTER to non-existent cluster -> rejected
-    test {
-        sql """ALTER JOB ${jobName} PROPERTIES ("compute_group" = "__not_exist_cg__")"""
-        exception "does not exist"
-    }
-
-    // 5) ALTER to the same valid cluster -> succeeds, properties updated
-    sql """ALTER JOB ${jobName} PROPERTIES ("compute_group" = "${cg}")"""
-    def afterAlter = sql """select status, properties from jobs("type"="insert") where Name='${jobName}'"""
-    assert afterAlter.get(0).get(0) == "PAUSED"
-    assert afterAlter.get(0).get(1).contains("\"compute_group\":\"${cg}\"")
-
-    sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
 }

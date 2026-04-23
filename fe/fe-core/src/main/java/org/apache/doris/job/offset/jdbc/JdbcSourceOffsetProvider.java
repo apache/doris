@@ -62,6 +62,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 @Getter
@@ -92,7 +93,8 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     volatile boolean hasMoreData = true;
 
-    transient String cloudCluster;
+    // read from the owning job so ALTER takes effect without re-push
+    transient Supplier<String> cloudClusterSupplier = () -> null;
 
     /**
      * No-arg constructor for subclass use.
@@ -211,7 +213,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public void fetchRemoteMeta(Map<String, String> properties) throws Exception {
-        Backend backend = StreamingJobUtils.selectBackend(cloudCluster);
+        Backend backend = StreamingJobUtils.selectBackend(cloudClusterSupplier.get());
         JobBaseConfig requestParams =
                 new JobBaseConfig(getJobId().toString(), sourceType.name(), sourceProperties, getFrontendAddress());
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
@@ -295,7 +297,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     private boolean compareOffset(Map<String, String> offsetFirst, Map<String, String> offsetSecond)
             throws JobException {
-        Backend backend = StreamingJobUtils.selectBackend(cloudCluster);
+        Backend backend = StreamingJobUtils.selectBackend(cloudClusterSupplier.get());
         CompareOffsetRequest requestParams =
                 new CompareOffsetRequest(getJobId(), sourceType.name(), sourceProperties,
                         getFrontendAddress(), offsetFirst, offsetSecond);
@@ -515,7 +517,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     }
 
     private List<SnapshotSplit> requestTableSplits(String table) throws JobException {
-        Backend backend = StreamingJobUtils.selectBackend(cloudCluster);
+        Backend backend = StreamingJobUtils.selectBackend(cloudClusterSupplier.get());
         FetchTableSplitsRequest requestParams =
                 new FetchTableSplitsRequest(getJobId(), sourceType.name(),
                         sourceProperties, getFrontendAddress(), table);
@@ -588,7 +590,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
      * otherwise, conflicts will occur in multi-backends scenarios.
      */
     private void initSourceReader() throws JobException {
-        Backend backend = StreamingJobUtils.selectBackend(cloudCluster);
+        Backend backend = StreamingJobUtils.selectBackend(cloudClusterSupplier.get());
         JobBaseConfig requestParams =
                 new JobBaseConfig(getJobId().toString(), sourceType.name(), sourceProperties, getFrontendAddress());
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
@@ -636,7 +638,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     public void cleanMeta(Long jobId) throws JobException {
         // clean meta table
         StreamingJobUtils.deleteJobMeta(jobId);
-        Backend backend = StreamingJobUtils.selectBackend(cloudCluster);
+        Backend backend = StreamingJobUtils.selectBackend(cloudClusterSupplier.get());
         JobBaseConfig requestParams =
                 new JobBaseConfig(getJobId().toString(), sourceType.name(), sourceProperties, getFrontendAddress());
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()

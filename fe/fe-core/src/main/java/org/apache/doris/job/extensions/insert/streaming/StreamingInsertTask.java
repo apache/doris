@@ -90,10 +90,12 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         this.status = TaskStatus.RUNNING;
         this.startTimeMs = System.currentTimeMillis();
         ctx = InsertTask.makeConnectContext(userIdentity, currentDb);
+        ctx.setSessionVariable(jobProperties.getSessionVariable(ctx.getSessionVariable()));
+        // apply after session merge so compute_group wins over session.cloud_cluster
         if (Config.isCloudMode() && StringUtils.isNotEmpty(cloudCluster)) {
             ctx.setCloudCluster(cloudCluster);
+            ctx.getSessionVariable().setCloudCluster(cloudCluster);
         }
-        ctx.setSessionVariable(jobProperties.getSessionVariable(ctx.getSessionVariable()));
         StatementContext statementContext = new StatementContext();
         ctx.setStatementContext(statementContext);
 

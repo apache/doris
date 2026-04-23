@@ -110,6 +110,8 @@ suite("test_streaming_insert_job_compute_group_multi_cluster") {
         log.info("phase1 a_after=${aAfterPhase1} b_after=${bAfterPhase1}")
         assertTrue(aAfterPhase1 > aBefore, "phase1 expects cluster A load_rows to increase")
         assertTrue(bAfterPhase1 == bBefore, "phase1 expects cluster B untouched")
+        def rowsAfterPhase1 = (sql """SELECT count(*) FROM ${tableName}""").get(0).get(0) as long
+        assertTrue(rowsAfterPhase1 > 0, "phase1 expects target table to receive rows")
 
         // Phase 2: pause, switch to cluster B, reset offset to re-consume the same files
         // on the new cluster (see test_streaming_insert_job_offset.groovy for the pattern).
@@ -137,6 +139,36 @@ suite("test_streaming_insert_job_compute_group_multi_cluster") {
         log.info("phase2 a_after=${aAfterPhase2} b_after=${bAfterPhase2}")
         assertTrue(aAfterPhase2 == aAfterPhase1, "phase2 expects cluster A load_rows unchanged")
         assertTrue(bAfterPhase2 > bAfterPhase1, "phase2 expects cluster B load_rows to increase")
+        def rowsAfterPhase2 = (sql """SELECT count(*) FROM ${tableName}""").get(0).get(0) as long
+        assertTrue(rowsAfterPhase2 > rowsAfterPhase1, "phase2 expects target table to receive more rows")
+
+        // Phase 3: set session.cloud_cluster=cgB but compute_group=cgA at the same time.
+        // compute_group must win over session.cloud_cluster; traffic stays on A.
+        sql """PAUSE JOB where jobname = '${jobName}'"""
+        Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until({
+            def s = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
+            s.size() == 1 && 'PAUSED' == s.get(0).get(0)
+        })
+
+        sql """
+            ALTER JOB ${jobName} PROPERTIES (
+                "compute_group" = "${cgA}",
+                "session.cloud_cluster" = "${cgB}",
+                "offset" = '{"fileName":"regression/load/data/anoexist56789.csv"}'
+            )
+        """
+        sql """RESUME JOB where jobname = '${jobName}'"""
+
+        Awaitility.await().atMost(300, SECONDS).pollInterval(1, SECONDS).until({
+            def cnt = sql """select SucceedTaskCount from jobs("type"="insert") where Name='${jobName}'"""
+            cnt.size() == 1 && Integer.parseInt(cnt.get(0).get(0).toString()) >= 6
+        })
+
+        def aAfterPhase3 = get_be_metric(ipList[0], httpPortList[0], "load_rows") as long
+        def bAfterPhase3 = get_be_metric(ipList[1], httpPortList[1], "load_rows") as long
+        log.info("phase3 a_after=${aAfterPhase3} b_after=${bAfterPhase3}")
+        assertTrue(aAfterPhase3 > aAfterPhase2, "phase3 expects cluster A load_rows to increase (compute_group wins)")
+        assertTrue(bAfterPhase3 == bAfterPhase2, "phase3 expects cluster B untouched despite session.cloud_cluster=cgB")
     } finally {
         sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
         sql """drop table if exists `${tableName}` force"""

@@ -20,12 +20,13 @@ package org.apache.doris.job.extensions.insert.streaming;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
-import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.InternalErrorCode;
@@ -238,7 +239,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             }
             this.offsetProvider = new JdbcSourceOffsetProvider(getJobId(), dataSourceType,
                     StreamingJobUtils.convertCertFile(getDbId(), sourceProperties));
-            pushCloudClusterToOffsetProvider();
+            bindCloudClusterSupplier();
             JdbcSourceOffsetProvider rdsOffsetProvider = (JdbcSourceOffsetProvider) this.offsetProvider;
             rdsOffsetProvider.splitChunks(createTbls);
         } catch (Exception ex) {
@@ -306,34 +307,46 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     private void resolveCloudCluster() throws AnalysisException {
-        String requested = jobProperties.getComputeGroup();
-        if (StringUtils.isNotEmpty(requested)) {
-            if (!Config.isCloudMode()) {
-                throw new AnalysisException("compute_group is only supported in cloud mode");
-            }
-            validateCloudClusterExists(requested);
+        String requested = validateComputeGroupProperty(properties);
+        if (requested != null) {
             this.cloudCluster = requested;
             return;
         }
-        if (Config.isCloudMode() && ConnectContext.get() != null) {
-            try {
-                this.cloudCluster = ConnectContext.get().getCloudCluster();
-            } catch (ComputeGroupException e) {
-                log.warn("failed to resolve cloud cluster for streaming job", e);
-            }
+        // fall back to session-resolved cluster in cloud mode
+        if (!Config.isCloudMode() || ConnectContext.get() == null) {
+            return;
+        }
+        try {
+            this.cloudCluster = ConnectContext.get().getCloudCluster();
+        } catch (ComputeGroupException e) {
+            log.warn("jobId={} failed to resolve cloud cluster", getJobId(), e);
         }
     }
 
-    private void validateCloudClusterExists(String clusterName) throws AnalysisException {
-        String id = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterIdByName(clusterName);
-        if (StringUtils.isEmpty(id)) {
-            throw new AnalysisException("compute_group '" + clusterName + "' does not exist");
+    // returns the validated compute_group value, or null when the property is absent.
+    // throws if the key is present but blank, non-cloud mode, or the user lacks USAGE on the cluster.
+    private String validateComputeGroupProperty(Map<String, String> props) throws AnalysisException {
+        if (props == null || !props.containsKey(StreamingJobProperties.COMPUTE_GROUP_PROPERTY)) {
+            return null;
         }
+        String value = props.get(StreamingJobProperties.COMPUTE_GROUP_PROPERTY);
+        if (StringUtils.isBlank(value)) {
+            throw new AnalysisException("compute_group cannot be empty");
+        }
+        if (!Config.isCloudMode()) {
+            throw new AnalysisException("compute_group is only supported in cloud mode");
+        }
+        try {
+            ((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(value);
+        } catch (DdlException e) {
+            throw new AnalysisException(e.getMessage());
+        }
+        return value;
     }
 
-    private void pushCloudClusterToOffsetProvider() {
+    private void bindCloudClusterSupplier() {
         if (offsetProvider instanceof JdbcSourceOffsetProvider) {
-            ((JdbcSourceOffsetProvider) offsetProvider).setCloudCluster(cloudCluster);
+            ((JdbcSourceOffsetProvider) offsetProvider).setCloudClusterSupplier(this::getCloudCluster);
         }
     }
 
@@ -345,7 +358,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.originTvfProps = currentTvf.getProperties().getMap();
             this.offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(currentTvf.getFunctionName());
             this.offsetProvider.ensureInitialized(getJobId(), originTvfProps);
-            pushCloudClusterToOffsetProvider();
+            bindCloudClusterSupplier();
             this.offsetProvider.initOnCreate();
             // validate offset props, only for s3 cause s3 tvf no offset prop
             if (jobProperties.getOffsetProperty() != null
@@ -430,13 +443,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             logParts.add("sql: " + encryptedSql);
         }
 
-        String newComputeGroup = alterJobCommand.getProperties().get(StreamingJobProperties.COMPUTE_GROUP_PROPERTY);
-        if (StringUtils.isNotEmpty(newComputeGroup)) {
-            if (!Config.isCloudMode()) {
-                throw new AnalysisException("compute_group is only supported in cloud mode");
-            }
-            validateCloudClusterExists(newComputeGroup);
-        }
+        validateComputeGroupProperty(alterJobCommand.getProperties());
 
         // update properties
         if (!alterJobCommand.getProperties().isEmpty()) {
@@ -843,10 +850,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 resetCloudProgress(offset);
             }
         }
-        String newGroup = inputStreamProps.getComputeGroup();
-        if (StringUtils.isNotEmpty(newGroup)) {
-            this.cloudCluster = newGroup;
-            pushCloudClusterToOffsetProvider();
+        // compute_group was validated upstream in alterJob; Supplier reads the live cloudCluster field.
+        if (inputProperties.containsKey(StreamingJobProperties.COMPUTE_GROUP_PROPERTY)) {
+            this.cloudCluster = inputProperties.get(StreamingJobProperties.COMPUTE_GROUP_PROPERTY);
         }
         this.properties.putAll(inputProperties);
         this.jobProperties = new StreamingJobProperties(this.properties);
@@ -1217,7 +1223,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 offsetProvider = new JdbcSourceOffsetProvider(getJobId(), dataSourceType, sourceProperties);
             }
         }
-        pushCloudClusterToOffsetProvider();
+        bindCloudClusterSupplier();
 
         if (jobProperties == null && properties != null) {
             jobProperties = new StreamingJobProperties(properties);
