@@ -21,12 +21,10 @@ import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.IdGenerator;
-import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.GroupId;
-import org.apache.doris.nereids.processor.post.RecomputeLogicalPropertiesProcessor;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
@@ -44,10 +42,10 @@ import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -1001,10 +999,9 @@ class ChildOutputPropertyDeriverTest {
                 new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
                 leftGroupPlan, rightGroupPlan);
 
-        // run RecomputeLogicalPropertiesProcessor to simulate physical-tree logical prop recompute
-        RecomputeLogicalPropertiesProcessor processor = new RecomputeLogicalPropertiesProcessor();
-        CascadesContext ctx = CascadesContext.initTempContext();
-        Plan processed = processor.processRoot(join, ctx);
+        // simulate physical-tree logical prop recompute by resetting logical properties on the join
+        AbstractPhysicalPlan processed = (AbstractPhysicalPlan) join.resetLogicalProperties();
+        processed = (AbstractPhysicalPlan) processed.copyStatsAndGroupIdFrom((AbstractPhysicalPlan) join);
 
         Assertions.assertInstanceOf(PhysicalHashJoin.class, processed);
 
@@ -1045,9 +1042,9 @@ class ChildOutputPropertyDeriverTest {
                 new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
                 leftGroupPlan, rightGroupPlan);
 
-        RecomputeLogicalPropertiesProcessor processor = new RecomputeLogicalPropertiesProcessor();
-        CascadesContext ctx = CascadesContext.initTempContext();
-        Plan processed = processor.processRoot(join, ctx);
+        // simulate physical-tree logical prop recompute by resetting logical properties on the join
+        AbstractPhysicalPlan processed = (AbstractPhysicalPlan) join.resetLogicalProperties();
+        processed = (AbstractPhysicalPlan) processed.copyStatsAndGroupIdFrom((AbstractPhysicalPlan) join);
 
         Assertions.assertInstanceOf(PhysicalHashJoin.class, processed);
 
@@ -1088,9 +1085,9 @@ class ChildOutputPropertyDeriverTest {
                 new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
                 leftGroupPlan, rightGroupPlan);
 
-        RecomputeLogicalPropertiesProcessor processor = new RecomputeLogicalPropertiesProcessor();
-        CascadesContext ctx = CascadesContext.initTempContext();
-        Plan processed = processor.processRoot(join, ctx);
+        // simulate physical-tree logical prop recompute by resetting logical properties on the join
+        AbstractPhysicalPlan processed = (AbstractPhysicalPlan) join.resetLogicalProperties();
+        processed = (AbstractPhysicalPlan) processed.copyStatsAndGroupIdFrom((AbstractPhysicalPlan) join);
 
         Assertions.assertInstanceOf(PhysicalHashJoin.class, processed);
 
@@ -1127,9 +1124,9 @@ class ChildOutputPropertyDeriverTest {
                 new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
                 leftGroupPlan, rightGroupPlan);
 
-        RecomputeLogicalPropertiesProcessor processor = new RecomputeLogicalPropertiesProcessor();
-        CascadesContext ctx = CascadesContext.initTempContext();
-        Plan processed = processor.processRoot(join, ctx);
+        // simulate physical-tree logical prop recompute by resetting logical properties on the join
+        AbstractPhysicalPlan processed = (AbstractPhysicalPlan) join.resetLogicalProperties();
+        processed = (AbstractPhysicalPlan) processed.copyStatsAndGroupIdFrom((AbstractPhysicalPlan) join);
 
         Assertions.assertInstanceOf(PhysicalHashJoin.class, processed);
 
