@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/ann/ann_topn_runtime.h"
-
 #include <gtest/gtest.h>
 
 #include <memory>
@@ -26,6 +24,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "exprs/vexpr.h"
+#include "storage/index/ann/ann_topn_runtime.h"
 
 namespace doris::segment_v2 {
 
@@ -55,8 +54,7 @@ public:
 
     bool is_constant() const override { return _is_constant; }
 
-    Status execute(VExprContext* context, Block* block,
-                   int* result_column_id) const override {
+    Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
         return Status::OK();
     }
 
@@ -65,8 +63,7 @@ public:
         return Status::OK();
     }
 
-    Status prepare(RuntimeState* state, const RowDescriptor& desc,
-                   VExprContext* context) override {
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override {
         return Status::OK();
     }
 
@@ -75,8 +72,7 @@ public:
         return Status::OK();
     }
 
-    void close(VExprContext* context,
-               FunctionContext::FunctionStateScope scope) override {}
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override {}
 
     const std::string& expr_name() const override {
         static std::string name = "MockConstVExpr";
