@@ -21,59 +21,68 @@
 #include <gtest/gtest.h>
 
 #include <memory>
-#include <tuple>
 
 #include "common/object_pool.h"
-#include "pipeline/exec/olap_scan_operator.h"
-#include "runtime/descriptors.h"
-#include "runtime/runtime_state.h"
-#include "util/runtime_profile.h"
-#include "vec/exec/scan/olap_scanner.h"
 
-namespace doris::vectorized {
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wkeyword-macro"
+#endif
+#define private public
+#include "exec/operator/olap_scan_operator.h"
+#include "exec/scan/olap_scanner.h"
+#undef private
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
+
+#include "runtime/descriptors.h"
+#include "runtime/runtime_profile.h"
+#include "runtime/runtime_state.h"
+
+namespace doris {
 
 class OlapScannerIOContextTest : public testing::Test {
 protected:
     void SetUp() override {
-        _obj_pool = std::make_unique<ObjectPool>();
+        obj_pool = std::make_unique<ObjectPool>();
 
-        _plan_node.__set_node_type(TPlanNodeType::OLAP_SCAN_NODE);
-        _plan_node.row_tuples.push_back(TTupleId(0));
-        _plan_node.row_tuples.push_back(TTupleId(1));
-        _plan_node.olap_scan_node.__set_tuple_id(0);
-        _plan_node.__isset.olap_scan_node = true;
+        plan_node.__set_node_type(TPlanNodeType::OLAP_SCAN_NODE);
+        plan_node.row_tuples.push_back(TTupleId(0));
+        plan_node.row_tuples.push_back(TTupleId(1));
+        plan_node.olap_scan_node.__set_tuple_id(0);
+        plan_node.__isset.olap_scan_node = true;
 
-        _table_desc.tableType = TTableType::OLAP_TABLE;
-        _thrift_desc_tbl.tableDescriptors.push_back(_table_desc);
+        table_desc.tableType = TTableType::OLAP_TABLE;
+        thrift_desc_tbl.tableDescriptors.push_back(table_desc);
 
         TTupleDescriptor tuple_desc;
         tuple_desc.id = 0;
-        _thrift_desc_tbl.tupleDescriptors.push_back(tuple_desc);
+        thrift_desc_tbl.tupleDescriptors.push_back(tuple_desc);
         tuple_desc.id = 1;
-        _thrift_desc_tbl.tupleDescriptors.push_back(tuple_desc);
+        thrift_desc_tbl.tupleDescriptors.push_back(tuple_desc);
 
-        ASSERT_TRUE(
-                DescriptorTbl::create(_obj_pool.get(), _thrift_desc_tbl, &_descriptor_table).ok());
+        ASSERT_TRUE(DescriptorTbl::create(obj_pool.get(), thrift_desc_tbl, &descriptor_table).ok());
     }
 
-    RuntimeState _runtime_state {TQueryOptions(), TQueryGlobals()};
-    RuntimeProfile _profile {"olap_scanner_io_context"};
-    TPlanNode _plan_node;
-    TTableDescriptor _table_desc;
-    TDescriptorTable _thrift_desc_tbl;
-    DescriptorTbl* _descriptor_table = nullptr;
-    std::unique_ptr<ObjectPool> _obj_pool;
+    RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile {"olap_scanner_io_context"};
+    TPlanNode plan_node;
+    TTableDescriptor table_desc;
+    TDescriptorTable thrift_desc_tbl;
+    DescriptorTbl* descriptor_table = nullptr;
+    std::unique_ptr<ObjectPool> obj_pool;
 };
 
 TEST_F(OlapScannerIOContextTest, ConstructorStoresRangeFileCacheContext) {
-    auto scan_operator = std::make_unique<pipeline::OlapScanOperatorX>(
-            _obj_pool.get(), _plan_node, 0, *_descriptor_table, 1, TQueryCacheParam {});
-    auto local_state =
-            pipeline::OlapScanLocalState::create_unique(&_runtime_state, scan_operator.get());
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), plan_node, 0,
+                                                             *descriptor_table, 1,
+                                                             TQueryCacheParam {});
+    auto local_state = OlapScanLocalState::create_unique(&runtime_state, scan_operator.get());
 
     OlapScanner::Params params;
-    params.state = &_runtime_state;
-    params.profile = &_profile;
+    params.state = &runtime_state;
+    params.profile = &profile;
     params.limit = -1;
     params.key_ranges = {};
     params.table_name = "internal.test.tbl(base_index)";
@@ -85,4 +94,4 @@ TEST_F(OlapScannerIOContextTest, ConstructorStoresRangeFileCacheContext) {
     EXPECT_EQ(scanner->_tablet_reader_params.partition_name, "p20260319");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

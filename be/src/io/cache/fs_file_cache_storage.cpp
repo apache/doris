@@ -39,6 +39,7 @@
 #include <random>
 #include <system_error>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -323,11 +324,12 @@ Status FSFileCacheStorage::finalize(const FileCacheKey& key, const size_t size) 
     BlockMetaKey mkey(key.meta.tablet_id, UInt128Wrapper(key.hash), key.offset);
     uint64_t context_id = 0;
     if (_meta_store) {
+        // Table/partition context is only used for observability. Any dictionary lookup/write
+        // failure must degrade to an empty context id instead of affecting cache writes.
         context_id =
                 _meta_store->get_or_create_context_id(key.meta.table_name, key.meta.partition_name);
+        _meta_store->put(mkey, BlockMeta(key.meta.type, size, key.meta.expiration_time, context_id));
     }
-    BlockMeta meta(key.meta.type, size, key.meta.expiration_time, context_id);
-    _meta_store->put(mkey, meta);
 
     return Status::OK();
 }
@@ -996,6 +998,9 @@ Status FSFileCacheStorage::get_file_cache_infos(std::vector<FileCacheInfo>& info
 }
 
 void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* mgr) const {
+    if (!_meta_store) {
+        return;
+    }
     TEST_SYNC_POINT_CALLBACK("BlockFileCache::TmpFile1");
     int scan_length = 10000;
     std::vector<BatchLoadArgs> batch_load_buffer;
@@ -1022,6 +1027,7 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* mgr
         LOG(WARNING) << "Failed to create iterator for meta store";
         return;
     }
+    std::unordered_map<uint64_t, std::pair<std::string, std::string>> context_cache;
 
     while (iterator->valid()) {
         BlockMetaKey meta_key = iterator->key();
@@ -1053,9 +1059,13 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* mgr
         ctx.tablet_id =
                 meta_key.tablet_id; //TODO(zhengyu): zero if loaded from v2, we can use this to decide whether the block is loaded from v2 or v3
         if (meta_value.context_id != 0) {
-            if (auto context = _meta_store->get_context(meta_value.context_id); context) {
+            if (auto it = context_cache.find(meta_value.context_id); it != context_cache.end()) {
+                ctx.table_name = it->second.first;
+                ctx.partition_name = it->second.second;
+            } else if (auto context = _meta_store->get_context(meta_value.context_id); context) {
                 ctx.table_name = context->first;
                 ctx.partition_name = context->second;
+                context_cache.emplace(meta_value.context_id, *context);
             }
         }
         args.ctx = ctx;

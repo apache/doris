@@ -502,7 +502,6 @@ uint64_t CacheBlockMetaStore::get_or_create_context_id(std::string_view table_na
     status = _db->Write(rocksdb::WriteOptions(), &batch);
     if (!status.ok()) {
         LOG(WARNING) << "Failed to create context id in rocksdb: " << status.ToString();
-        _next_context_id.store(context_id, std::memory_order_release);
         return 0;
     }
 

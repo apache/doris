@@ -30,14 +30,13 @@ import java.util.Collections;
 public class FileScanNodeTest {
 
     @Test
-    public void testFillTablePartitionContextUsesFullQualifiedName() {
+    public void testFillTablePartitionContextOnlySetsPartitionName() {
         TableIf table = Mockito.mock(TableIf.class);
         Mockito.when(table.getNameWithFullQualifiers()).thenReturn("hms_ctl.db.tbl");
 
         TFileRangeDesc range = new TFileRangeDesc();
         FileScanNode.fillTablePartitionContext(range, table, "dt=20260319");
 
-        Assert.assertEquals("hms_ctl.db.tbl", range.getTableName());
         Assert.assertEquals("dt=20260319", range.getPartitionName());
     }
 
@@ -49,7 +48,6 @@ public class FileScanNodeTest {
         TFileRangeDesc range = new TFileRangeDesc();
         FileScanNode.fillTablePartitionContext(range, table, "");
 
-        Assert.assertEquals("hms_ctl.db.tbl", range.getTableName());
         Assert.assertFalse(range.isSetPartitionName());
     }
 
@@ -59,6 +57,8 @@ public class FileScanNodeTest {
                 FileScanNode.buildPartitionName(Arrays.asList("country", "dt"),
                         Arrays.asList("cn", "20260319")));
         Assert.assertEquals("", FileScanNode.buildPartitionName(Collections.singletonList("dt"), null));
+        Assert.assertEquals("", FileScanNode.buildPartitionName(Collections.singletonList("dt"),
+                Arrays.asList("20260319", "extra")));
         Assert.assertEquals("", FileScanNode.buildPartitionName(Collections.emptyList(),
                 Collections.singletonList("20260319")));
     }

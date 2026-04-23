@@ -426,9 +426,9 @@ Status OlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.common_expr_ctxs_push_down = _common_expr_ctxs_push_down;
     _tablet_reader_params.virtual_column_exprs = _virtual_column_exprs;
     _tablet_reader_params.score_runtime = _score_runtime;
-    _tablet_reader_params.output_columns = ((OlapScanLocalState*)_local_state)->_output_column_ids;
+    _tablet_reader_params.output_columns = olap_local_state->_output_column_ids;
     _tablet_reader_params.ann_topn_runtime = _ann_topn_runtime;
-    for (const auto& ele : ((OlapScanLocalState*)_local_state)->_cast_types_for_variants) {
+    for (const auto& ele : olap_local_state->_cast_types_for_variants) {
         _tablet_reader_params.target_cast_type_for_variants[ele.first] = ele.second;
     };
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
@@ -474,7 +474,7 @@ Status OlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.profile = _local_state->custom_profile();
     _tablet_reader_params.runtime_state = _state;
     {
-        auto* olap_scan_local_state = (pipeline::OlapScanLocalState*)_local_state;
+        auto* olap_scan_local_state = static_cast<OlapScanLocalState*>(_local_state);
         TOlapScanNode& olap_scan_node = olap_scan_local_state->olap_scan_node();
         if (_tablet_reader_params.table_name.empty() && olap_scan_node.__isset.table_name) {
             _tablet_reader_params.table_name = olap_scan_node.table_name;
@@ -602,7 +602,7 @@ Status OlapScanner::_init_tablet_reader_params(
     DBUG_EXECUTE_IF("NewOlapScanner::_init_tablet_reader_params.block", DBUG_BLOCK);
 
     if (!_state->skip_storage_engine_merge()) {
-        auto* olap_scan_local_state = (OlapScanLocalState*)_local_state;
+        auto* olap_scan_local_state = static_cast<OlapScanLocalState*>(_local_state);
         TOlapScanNode& olap_scan_node = olap_scan_local_state->olap_scan_node();
 
         // Set MOR value predicate pushdown flag
@@ -930,7 +930,7 @@ void OlapScanner::_collect_profile_before_close() {
     // Update counters for OlapScanner
     // Update counters from tablet reader's stats
     auto& stats = _tablet_reader->stats();
-    auto* local_state = (OlapScanLocalState*)_local_state;
+    auto* local_state = static_cast<OlapScanLocalState*>(_local_state);
     COUNTER_UPDATE(local_state->_io_timer, stats.io_ns);
     COUNTER_UPDATE(local_state->_read_compressed_counter, stats.compressed_bytes_read);
     COUNTER_UPDATE(local_state->_scan_bytes, stats.uncompressed_bytes_read);

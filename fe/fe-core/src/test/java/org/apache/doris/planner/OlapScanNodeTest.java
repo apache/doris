@@ -234,12 +234,13 @@ public class OlapScanNodeTest {
         desc.setTable(table);
         int nextSlotId = 1;
         for (Column column : table.getBaseSchema()) {
-            SlotDescriptor slot = new SlotDescriptor(new SlotId(nextSlotId++), desc);
+            SlotDescriptor slot = new SlotDescriptor(new SlotId(nextSlotId++), desc.getId());
             slot.setColumn(column);
             desc.addSlot(slot);
         }
 
-        OlapScanNode node = new OlapScanNode(new PlanNodeId(1), desc, "olapScanNode");
+        OlapScanNode node = new OlapScanNode(new PlanNodeId(1), desc, "olapScanNode",
+                ScanContext.EMPTY);
         node.setSelectedIndexInfo(table.getBaseIndexId(), true, "");
         node.setSelectedPartitionIds(Lists.newArrayList(table.getPartition(UnitTestUtil.PARTITION_NAME).getId()));
 
@@ -261,12 +262,13 @@ public class OlapScanNodeTest {
         desc.setTable(table);
         int nextSlotId = 10;
         for (Column column : table.getBaseSchema()) {
-            SlotDescriptor slot = new SlotDescriptor(new SlotId(nextSlotId++), desc);
+            SlotDescriptor slot = new SlotDescriptor(new SlotId(nextSlotId++), desc.getId());
             slot.setColumn(column);
             desc.addSlot(slot);
         }
 
-        OlapScanNode node = new OlapScanNode(new PlanNodeId(2), desc, "olapScanNode");
+        OlapScanNode node = new OlapScanNode(new PlanNodeId(2), desc, "olapScanNode",
+                ScanContext.EMPTY);
         node.setSelectedIndexInfo(table.getBaseIndexId(), true, "");
         node.setSelectedPartitionIds(Lists.newArrayList(1L, 2L));
 

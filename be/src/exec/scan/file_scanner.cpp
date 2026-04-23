@@ -991,7 +991,7 @@ void FileScanner::_truncate_char_or_varchar_column(Block* block, int idx, int le
 std::shared_ptr<segment_v2::RowIdColumnIteratorV2> FileScanner::_create_row_id_column_iterator() {
     auto& id_file_map = _state->get_id_file_map();
     auto file_id = id_file_map->get_file_mapping_id(
-            std::make_shared<FileMapping>(((FileScanLocalState*)_local_state)->parent_id(),
+            std::make_shared<FileMapping>(_local_state->cast<FileScanLocalState>().parent_id(),
                                           _current_range, _should_enable_file_meta_cache()));
     return std::make_shared<RowIdColumnIteratorV2>(IdManager::ID_VERSION,
                                                    BackendOptions::get_backend_id(), file_id);
@@ -2078,10 +2078,8 @@ void FileScanner::_update_io_context_from_range() {
     if (!_io_ctx) {
         return;
     }
-    if (_current_range.__isset.table_name) {
-        _io_ctx->table_name = _current_range.table_name;
-    } else if (_local_state) {
-        auto& local_state = _local_state->cast<pipeline::FileScanLocalState>();
+    if (_local_state) {
+        auto& local_state = _local_state->cast<FileScanLocalState>();
         _io_ctx->table_name = local_state.table_name();
     } else {
         _io_ctx->table_name.clear();
