@@ -740,6 +740,11 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PUSHDOWN_STRING_MINMAX = "enable_pushdown_string_minmax";
 
+    public static final String ENABLE_MOR_VALUE_PREDICATE_PUSHDOWN_TABLES
+            = "enable_mor_value_predicate_pushdown_tables";
+
+    public static final String READ_MOR_AS_DUP_TABLES = "read_mor_as_dup_tables";
+
     // When set use fix replica = true, the fixed replica maybe bad, try to use the health one if
     // this session variable is set to true.
     public static final String FALLBACK_OTHER_REPLICA_WHEN_FIXED_CORRUPT = "fallback_other_replica_when_fixed_corrupt";
@@ -2232,6 +2237,21 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_STRING_MINMAX, needForward = true, description = {
         "是否启用 string 类型 min max 下推。", "Set whether to enable push down string type minmax."})
     public boolean enablePushDownStringMinMax = false;
+
+    // Comma-separated list of MOR tables to enable value predicate pushdown.
+    @VariableMgr.VarAttr(name = ENABLE_MOR_VALUE_PREDICATE_PUSHDOWN_TABLES, needForward = true, description = {
+        "指定启用MOR表value列谓词下推的表列表，格式：db1.tbl1,db2.tbl2 或 * 表示所有MOR表。",
+        "Comma-separated list of MOR tables to enable value predicate pushdown. "
+                + "Format: db1.tbl1,db2.tbl2 or * for all MOR tables."})
+    public String enableMorValuePredicatePushdownTables = "";
+
+    // Comma-separated list of MOR tables to read as DUP (skip merge, skip delete sign filter).
+    @VariableMgr.VarAttr(name = READ_MOR_AS_DUP_TABLES, needForward = true,
+            affectQueryResultInPlan = true, description = {
+                    "指定以DUP模式读取MOR表的表列表（跳过合并和删除标记过滤），格式：db1.tbl1,db2.tbl2 或 * 表示所有MOR表。",
+                    "Comma-separated list of MOR tables to read as DUP (skip merge, skip delete sign filter). "
+                            + "Format: db1.tbl1,db2.tbl2 or * for all MOR tables."})
+    public String readMorAsDupTables = "";
 
     // Whether drop table when create table as select insert data appear error.
     @VariableMgr.VarAttr(name = DROP_TABLE_IF_CTAS_FAILED, needForward = true)
@@ -4827,6 +4847,55 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnablePushDownStringMinMax() {
         return enablePushDownStringMinMax;
+    }
+
+    public String getEnableMorValuePredicatePushdownTables() {
+        return enableMorValuePredicatePushdownTables;
+    }
+
+    public boolean isMorValuePredicatePushdownEnabled(String dbName, String tableName) {
+        return isTableInList(enableMorValuePredicatePushdownTables, dbName, tableName);
+    }
+
+    public boolean isReadMorAsDupEnabled(String dbName, String tableName) {
+        return isTableInList(readMorAsDupTables, dbName, tableName);
+    }
+
+    /**
+     * Check if a table matches any entry in a comma-separated table list.
+     * Parses entries the same way as TableNameInfo: split by "." to extract
+     * component parts (table, db.table, or ctl.db.table).
+     * When entry specifies db, both db and table must match.
+     * When entry is just a table name, it matches any database.
+     */
+    private static boolean isTableInList(String tableList, String dbName, String tableName) {
+        if (tableList == null || tableList.isEmpty()) {
+            return false;
+        }
+        String trimmed = tableList.trim();
+        if ("*".equals(trimmed)) {
+            return true;
+        }
+        for (String entry : trimmed.split(",")) {
+            String trimmedEntry = entry.trim();
+            if (trimmedEntry.isEmpty()) {
+                continue;
+            }
+            String[] parts = trimmedEntry.split("\\.");
+            String entryTbl = parts[parts.length - 1];
+            String entryDb = parts.length >= 2 ? parts[parts.length - 2] : null;
+            if (!entryTbl.equalsIgnoreCase(tableName)) {
+                continue;
+            }
+            if (entryDb != null) {
+                if (dbName != null && entryDb.equalsIgnoreCase(dbName)) {
+                    return true;
+                }
+            } else {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** canUseNereidsDistributePlanner */

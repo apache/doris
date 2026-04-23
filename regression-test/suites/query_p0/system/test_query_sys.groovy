@@ -20,6 +20,7 @@ suite("test_query_sys", "query,p0") {
 
     def tableName = "test"
     sql "SELECT DATABASE();"
+    sql "SELECT CURRENT_DATABASE();"
     sql "SELECT \"welecome to my blog!\";"
     sql "describe ${tableName};"
     sql "select version();"

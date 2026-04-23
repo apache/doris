@@ -1231,6 +1231,19 @@ public class OlapScanNode extends ScanNode {
         msg.olap_scan_node.setTableName(tableName);
         msg.olap_scan_node.setEnableUniqueKeyMergeOnWrite(olapTable.getEnableUniqueKeyMergeOnWrite());
 
+        // Set MOR value predicate pushdown flag based on session variable
+        if (olapTable.isMorTable() && ConnectContext.get() != null) {
+            String dbName = olapTable.getQualifiedDbName();
+            String tblName = olapTable.getName();
+            boolean enabled = ConnectContext.get().getSessionVariable()
+                    .isMorValuePredicatePushdownEnabled(dbName, tblName);
+            msg.olap_scan_node.setEnableMorValuePredicatePushdown(enabled);
+            if (ConnectContext.get().getSessionVariable()
+                    .isReadMorAsDupEnabled(dbName, tblName)) {
+                msg.olap_scan_node.setReadMorAsDup(true);
+            }
+        }
+
         msg.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
 
         msg.olap_scan_node.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);

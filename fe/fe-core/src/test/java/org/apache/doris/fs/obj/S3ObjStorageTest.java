@@ -21,8 +21,10 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.remote.RemoteFile;
 
+import org.apache.commons.lang3.tuple.Triple;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -53,14 +55,20 @@ import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
+import software.amazon.awssdk.services.sts.StsClient;
+import software.amazon.awssdk.services.sts.model.AssumeRoleRequest;
+import software.amazon.awssdk.services.sts.model.AssumeRoleResponse;
+import software.amazon.awssdk.services.sts.model.Credentials;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class S3ObjStorageTest {
@@ -553,5 +561,57 @@ public class S3ObjStorageTest {
         // Verify that the prefix was adjusted correctly for the directory bucket.
         // "data/files*.csv" -> longest prefix is "data/files", adjusted to "data/"
         Assertions.assertEquals("data/", captor.getValue().prefix());
+    }
+
+    @Test
+    public void testGetStsTokenWithRoleArn() throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put("AWS_ENDPOINT", "https://s3.us-west-2.amazonaws.com");
+        props.put("AWS_REGION", "us-west-2");
+        props.put("AWS_ROLE_ARN", "arn:aws:iam::123456789012:role/snapshot-role");
+        props.put("AWS_EXTERNAL_ID", "external-123");
+
+        StsClient mockStsClient = Mockito.mock(StsClient.class);
+        Mockito.when(mockStsClient.assumeRole(Mockito.any(AssumeRoleRequest.class)))
+                .thenReturn(AssumeRoleResponse.builder()
+                        .credentials(Credentials.builder()
+                                .accessKeyId("sts-ak")
+                                .secretAccessKey("sts-sk")
+                                .sessionToken("sts-token")
+                                .build())
+                        .build());
+
+        S3ObjStorage roleBasedStorage = new TestableRoleBasedS3ObjStorage(
+                (AbstractS3CompatibleProperties) StorageProperties.createPrimary(props), mockStsClient);
+
+        Triple<String, String, String> stsToken = roleBasedStorage.getStsToken();
+
+        Assertions.assertEquals(Triple.of("sts-ak", "sts-sk", "sts-token"), stsToken);
+        org.mockito.ArgumentCaptor<AssumeRoleRequest> requestCaptor =
+                org.mockito.ArgumentCaptor.forClass(AssumeRoleRequest.class);
+        Mockito.verify(mockStsClient).assumeRole(requestCaptor.capture());
+        Assertions.assertEquals("arn:aws:iam::123456789012:role/snapshot-role",
+                requestCaptor.getValue().roleArn());
+        Assertions.assertEquals("external-123", requestCaptor.getValue().externalId());
+    }
+
+    @Test
+    public void testGetStsTokenWithoutRoleArn() {
+        Assertions.assertThrows(DdlException.class, () -> storage.getStsToken());
+    }
+
+    private static class TestableRoleBasedS3ObjStorage extends S3ObjStorage {
+        private final StsClient stsClient;
+
+        TestableRoleBasedS3ObjStorage(AbstractS3CompatibleProperties properties, StsClient stsClient) {
+            super(properties);
+            this.stsClient = stsClient;
+        }
+
+        @Override
+        protected StsClient buildStsClient(
+                software.amazon.awssdk.auth.credentials.AwsCredentialsProvider credentialsProvider, String region) {
+            return stsClient;
+        }
     }
 }

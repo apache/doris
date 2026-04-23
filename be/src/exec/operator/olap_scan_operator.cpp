@@ -471,7 +471,13 @@ bool OlapScanLocalState::_storage_no_merge() {
     return (p._olap_scan_node.keyType == TKeysType::DUP_KEYS ||
             (p._olap_scan_node.keyType == TKeysType::UNIQUE_KEYS &&
              p._olap_scan_node.__isset.enable_unique_key_merge_on_write &&
-             p._olap_scan_node.enable_unique_key_merge_on_write));
+             p._olap_scan_node.enable_unique_key_merge_on_write)) ||
+           _read_mor_as_dup();
+}
+
+bool OlapScanLocalState::_read_mor_as_dup() {
+    auto& p = _parent->cast<OlapScanOperatorX>();
+    return p._olap_scan_node.__isset.read_mor_as_dup && p._olap_scan_node.read_mor_as_dup;
 }
 
 Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {

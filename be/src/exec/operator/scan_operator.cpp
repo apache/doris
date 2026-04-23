@@ -468,7 +468,7 @@ Status ScanLocalState<Derived>::_normalize_predicate(VExprContext* context, cons
         return Status::OK();
     }
 
-    if (pdt == PushDownType::ACCEPTABLE && (_is_key_column(slot->col_name()))) {
+    if (pdt == PushDownType::ACCEPTABLE && _is_key_column(slot->col_name())) {
         output_expr = nullptr;
         return Status::OK();
     } else {
