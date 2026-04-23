@@ -71,10 +71,9 @@ public:
 
     IcebergParquetReader(ShardedKVCache* kv_cache, RuntimeProfile* profile,
                          const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                         size_t batch_size, const cctz::time_zone* ctz, io::IOContext* io_ctx,
-                         RuntimeState* state, FileMetaCache* meta_cache)
-            : IcebergReaderMixin<ParquetReader>(kv_cache, profile, params, range, batch_size, ctz,
-                                                io_ctx, state, meta_cache) {}
+                         io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache)
+            : IcebergReaderMixin<ParquetReader>(kv_cache, profile, params, range, io_ctx, state,
+                                                meta_cache) {}
 
     void set_delete_rows() final {
         // Call ParquetReader's set_delete_rows(const vector<int64_t>*)
@@ -87,10 +86,11 @@ protected:
 
     std::unique_ptr<GenericReader> _create_equality_reader(
             const TFileRangeDesc& delete_desc) final {
-        return ParquetReader::create_unique(this->get_profile(), this->get_scan_params(),
-                                            delete_desc, READ_DELETE_FILE_BATCH_SIZE,
-                                            &this->get_state()->timezone_obj(), this->get_io_ctx(),
-                                            this->get_state(), this->_meta_cache);
+        auto reader = ParquetReader::create_unique(this->get_profile(), this->get_scan_params(),
+                                                   delete_desc, this->get_io_ctx(),
+                                                   this->get_state(), this->_meta_cache);
+        reader->use_delete_file_batch_size();
+        return reader;
     }
 
     static ColumnIdResult _create_column_ids(const FieldDescriptor* field_desc,
@@ -108,10 +108,9 @@ public:
 
     IcebergOrcReader(ShardedKVCache* kv_cache, RuntimeProfile* profile, RuntimeState* state,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                     size_t batch_size, const std::string& ctz, io::IOContext* io_ctx,
-                     FileMetaCache* meta_cache)
-            : IcebergReaderMixin<OrcReader>(kv_cache, profile, state, params, range, batch_size,
-                                            ctz, io_ctx, meta_cache) {}
+                     io::IOContext* io_ctx, FileMetaCache* meta_cache)
+            : IcebergReaderMixin<OrcReader>(kv_cache, profile, state, params, range, io_ctx,
+                                            meta_cache) {}
 
     void set_delete_rows() final {
         // Call OrcReader's set_position_delete_rowids
@@ -124,10 +123,11 @@ protected:
 
     std::unique_ptr<GenericReader> _create_equality_reader(
             const TFileRangeDesc& delete_desc) override {
-        return OrcReader::create_unique(this->get_profile(), this->get_state(),
-                                        this->get_scan_params(), delete_desc,
-                                        READ_DELETE_FILE_BATCH_SIZE, this->get_state()->timezone(),
-                                        this->get_io_ctx(), this->_meta_cache);
+        auto reader = OrcReader::create_unique(this->get_profile(), this->get_state(),
+                                               this->get_scan_params(), delete_desc,
+                                               this->get_io_ctx(), this->_meta_cache);
+        reader->use_delete_file_batch_size();
+        return reader;
     }
 
     static ColumnIdResult _create_column_ids(const orc::Type* orc_type,

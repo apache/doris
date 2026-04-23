@@ -369,8 +369,8 @@ ColumnIdResult IcebergParquetReader::_create_column_ids(const FieldDescriptor* f
 Status IcebergParquetReader::_read_position_delete_file(const TFileRangeDesc* delete_range,
                                                         DeleteFile* position_delete) {
     ParquetReader parquet_delete_reader(get_profile(), get_scan_params(), *delete_range,
-                                        READ_DELETE_FILE_BATCH_SIZE, &get_state()->timezone_obj(),
                                         get_io_ctx(), get_state(), _meta_cache);
+    parquet_delete_reader.use_delete_file_batch_size();
     // The delete file range has size=-1 (read whole file). We must disable
     // row group filtering before init; otherwise _do_init_reader returns EndOfFile
     // when _filter_groups && _range_size < 0.
@@ -644,8 +644,8 @@ ColumnIdResult IcebergOrcReader::_create_column_ids(const orc::Type* orc_type,
 Status IcebergOrcReader::_read_position_delete_file(const TFileRangeDesc* delete_range,
                                                     DeleteFile* position_delete) {
     OrcReader orc_delete_reader(get_profile(), get_state(), get_scan_params(), *delete_range,
-                                READ_DELETE_FILE_BATCH_SIZE, get_state()->timezone(), get_io_ctx(),
-                                _meta_cache);
+                                get_io_ctx(), _meta_cache);
+    orc_delete_reader.use_delete_file_batch_size();
     OrcInitContext delete_ctx;
     delete_ctx.column_names = delete_file_col_names;
     delete_ctx.col_name_to_block_idx =

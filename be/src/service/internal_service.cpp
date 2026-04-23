@@ -97,6 +97,7 @@
 #include "runtime/result_block_buffer.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_profile.h"
+#include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
@@ -828,6 +829,7 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         auto file_reader_stats = std::make_shared<io::FileReaderStats>();
         io_ctx->file_cache_stats = file_cache_statis.get();
         io_ctx->file_reader_stats = file_reader_stats.get();
+        RuntimeState state;
         // file_slots is no use, but the lifetime should be longer than reader
         std::vector<SlotDescriptor*> file_slots;
         switch (params.format_type) {
@@ -849,11 +851,11 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {
-            reader = ParquetReader::create_unique(params, range, io_ctx, nullptr);
+            reader = ParquetReader::create_unique(profile.get(), params, range, io_ctx, &state);
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
-            reader = OrcReader::create_unique(params, range, "", io_ctx);
+            reader = OrcReader::create_unique(profile.get(), &state, params, range, io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_NATIVE: {

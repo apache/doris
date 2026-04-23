@@ -50,7 +50,6 @@ struct IcebergDeleteFileReaderOptions {
     io::IOContext* io_ctx = nullptr;
     FileMetaCache* meta_cache = nullptr;
     const std::string* fs_name = nullptr;
-    size_t batch_size = 102400;
 };
 
 class IcebergPositionDeleteVisitor {

@@ -56,6 +56,10 @@ public:
     /// Get missing columns computed by on_before_init_reader / get_columns().
     const std::unordered_set<std::string>& missing_cols() const { return _fill_missing_cols; }
 
+    /// Override _batch_size to DELETE_FILE_BATCH_SIZE.
+    /// Must be called immediately after construction, before init_reader().
+    void use_delete_file_batch_size() { _batch_size = DELETE_FILE_BATCH_SIZE; }
+
     // ---- Fill-column hooks (called by RowGroupReader and ORC per-batch reading) ----
 
     /// Fill partition columns from metadata values.
@@ -267,6 +271,17 @@ protected:
             const TFileRangeDesc& range, const TupleDescriptor* tuple_descriptor,
             std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_values);
+
+    /// Base batch size initialized from RuntimeState::batch_size()
+    /// in derived-class constructors.  May be increased by use_delete_file_batch_size()
+    /// when this reader is serving as a delete-file reader (Iceberg, Hive ACID).
+    int _batch_size = 0;
+
+    /// Convenience accessor.
+    int get_batch_size() const { return _batch_size; }
+
+    /// Larger batch size for delete file reads to amortize per-batch overhead.
+    static constexpr int DELETE_FILE_BATCH_SIZE = 102400;
 
     // ---- Fill column data (set by on_before_init_reader / _do_init_reader) ----
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>

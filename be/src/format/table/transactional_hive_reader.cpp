@@ -36,10 +36,9 @@ namespace doris {
 
 TransactionalHiveReader::TransactionalHiveReader(RuntimeProfile* profile, RuntimeState* state,
                                                  const TFileScanRangeParams& params,
-                                                 const TFileRangeDesc& range, size_t batch_size,
-                                                 const std::string& ctz, io::IOContext* io_ctx,
+                                                 const TFileRangeDesc& range, io::IOContext* io_ctx,
                                                  FileMetaCache* meta_cache)
-        : OrcReader(profile, state, params, range, batch_size, ctz, io_ctx, meta_cache, false) {
+        : OrcReader(profile, state, params, range, io_ctx, meta_cache, false) {
     static const char* transactional_hive_profile = "TransactionalHiveProfile";
     ADD_TIMER(get_profile(), transactional_hive_profile);
     _transactional_orc_profile.num_delete_files = ADD_CHILD_COUNTER(
@@ -186,8 +185,8 @@ Status TransactionalHiveReader::on_after_init_reader(ReaderInitContext* /*ctx*/)
         delete_range.file_size = -1;
 
         OrcReader delete_reader(get_profile(), get_state(), get_scan_params(), delete_range,
-                                256 /*batch_size*/, get_state()->timezone(), get_io_ctx(),
-                                _meta_cache, false);
+                                get_io_ctx(), _meta_cache, false);
+        delete_reader.use_delete_file_batch_size();
 
         auto acid_info_node = std::make_shared<StructNode>();
         for (auto idx = 0; idx < TransactionalHive::DELETE_ROW_COLUMN_NAMES_LOWER_CASE.size();

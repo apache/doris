@@ -327,8 +327,6 @@ protected:
             {ICEBERG_FILE_PATH, 0}, {ICEBERG_ROW_POS, 1}};
     const int ICEBERG_FILE_PATH_INDEX = 0;
     const int ICEBERG_FILE_POS_INDEX = 1;
-    const int READ_DELETE_FILE_BATCH_SIZE = 102400;
-
     // all ids that need read for eq delete (from all eq delete files)
     std::set<int> _equality_delete_col_ids;
     // eq delete column ids -> location of _equality_delete_blocks / _equality_delete_impls

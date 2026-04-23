@@ -634,8 +634,7 @@ Status PushBrokerReader::_get_next_reader() {
     switch (_file_params.format_type) {
     case TFileFormatType::FORMAT_PARQUET: {
         std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
-                _runtime_profile, _file_params, range, _runtime_state->query_options().batch_size,
-                &_runtime_state->timezone_obj(), _io_ctx.get(), _runtime_state.get());
+                _runtime_profile, _file_params, range, _io_ctx.get(), _runtime_state.get());
 
         ParquetInitContext ctx;
         ctx.column_names = _all_col_names;

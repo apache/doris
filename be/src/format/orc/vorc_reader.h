@@ -152,21 +152,11 @@ public:
     };
 
     OrcReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
-              const TFileRangeDesc& range, size_t batch_size, const std::string& ctz,
-              io::IOContext* io_ctx, FileMetaCache* meta_cache = nullptr,
-              bool enable_lazy_mat = true);
+              const TFileRangeDesc& range, io::IOContext* io_ctx,
+              FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true);
 
     OrcReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
-              const TFileRangeDesc& range, size_t batch_size, const std::string& ctz,
-              std::shared_ptr<io::IOContext> io_ctx_holder, FileMetaCache* meta_cache = nullptr,
-              bool enable_lazy_mat = true);
-
-    OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-              const std::string& ctz, io::IOContext* io_ctx, FileMetaCache* meta_cache = nullptr,
-              bool enable_lazy_mat = true);
-
-    OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-              const std::string& ctz, std::shared_ptr<io::IOContext> io_ctx_holder,
+              const TFileRangeDesc& range, std::shared_ptr<io::IOContext> io_ctx_holder,
               FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true);
 
     ~OrcReader() override = default;
@@ -248,6 +238,13 @@ public:
         _condition_cache_ctx = std::move(ctx);
     }
 
+private:
+    OrcReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
+              const TFileRangeDesc& range, io::IOContext* io_ctx,
+              std::shared_ptr<io::IOContext> io_ctx_holder, FileMetaCache* meta_cache,
+              bool enable_lazy_mat);
+
+protected:
     bool supports_count_pushdown() const override { return true; }
 
     int64_t get_total_rows() const override {
@@ -712,9 +709,9 @@ private:
     Status _set_read_one_line_impl() override {
         _batch_size = 1;
         // If the ORC row reader already exists, the batch was created earlier
-        // (during _do_init_reader) with the original _batch_size (capped to
-        // _MIN_BATCH_SIZE = 4064).  We must recreate it with the new size of 1
-        // so that nextBatch() returns at most 1 row per call.
+        // during _do_init_reader with the previous _batch_size. We must recreate
+        // it with the new size of 1 so that nextBatch() returns at most 1 row
+        // per call.
         if (_row_reader) {
             _batch = _row_reader->createRowBatch(_batch_size);
         }
@@ -730,15 +727,11 @@ private:
     const TFileRangeDesc& _scan_range;
     io::FileSystemProperties _system_properties;
     io::FileDescription _file_description;
-    size_t _batch_size;
     // Bytes-per-row estimate from the previous batch, used to pre-shrink _batch_size
     // before reading so that oversized blocks are prevented from the current call onward.
     // Zero means no prior data (first batch).
     size_t _load_bytes_per_row = 0;
     int64_t _range_start_offset;
-
-protected:
-    size_t get_batch_size() const { return _batch_size; }
 
 private:
     int64_t _range_size;

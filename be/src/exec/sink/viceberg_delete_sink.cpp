@@ -91,7 +91,6 @@ Status load_rewritable_delete_rows(RuntimeState* state, RuntimeProfile* profile,
     options.profile = profile;
     options.scan_params = &params;
     options.io_ctx = &delete_file_io_ctx.io_ctx;
-    options.batch_size = 102400;
 
     for (const auto& delete_file : delete_files) {
         if (is_iceberg_deletion_vector(delete_file)) {

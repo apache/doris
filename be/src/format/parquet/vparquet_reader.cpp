@@ -81,96 +81,40 @@ class Block;
 namespace doris {
 
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                             const TFileRangeDesc& range, size_t batch_size,
-                             const cctz::time_zone* ctz, io::IOContext* io_ctx, RuntimeState* state,
-                             FileMetaCache* meta_cache, bool enable_lazy_mat)
-        : _profile(profile),
-          _scan_params(params),
-          _scan_range(range),
-          _batch_size(std::max(batch_size, _MIN_BATCH_SIZE)),
-          _range_start_offset(range.start_offset),
-          _range_size(range.size),
-          _ctz(ctz),
-          _io_ctx(io_ctx),
-          _state(state),
-          _enable_lazy_mat(enable_lazy_mat),
-          _enable_filter_by_min_max(
-                  state == nullptr ? true
-                                   : state->query_options().enable_parquet_filter_by_min_max),
-          _enable_filter_by_bloom_filter(
-                  state == nullptr ? true
-                                   : state->query_options().enable_parquet_filter_by_bloom_filter) {
-    _meta_cache = meta_cache;
-    _init_profile();
-    _init_system_properties();
-    _init_file_description();
-}
+                             const TFileRangeDesc& range, io::IOContext* io_ctx,
+                             RuntimeState* state, FileMetaCache* meta_cache, bool enable_lazy_mat)
+        : ParquetReader(profile, params, range, io_ctx, nullptr, state, meta_cache,
+                        enable_lazy_mat) {}
 
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                             const TFileRangeDesc& range, size_t batch_size,
-                             const cctz::time_zone* ctz,
+                             const TFileRangeDesc& range,
+                             std::shared_ptr<io::IOContext> io_ctx_holder, RuntimeState* state,
+                             FileMetaCache* meta_cache, bool enable_lazy_mat)
+        : ParquetReader(profile, params, range, io_ctx_holder ? io_ctx_holder.get() : nullptr,
+                        std::move(io_ctx_holder), state, meta_cache, enable_lazy_mat) {}
+
+ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                             const TFileRangeDesc& range, io::IOContext* io_ctx,
                              std::shared_ptr<io::IOContext> io_ctx_holder, RuntimeState* state,
                              FileMetaCache* meta_cache, bool enable_lazy_mat)
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
-          _batch_size(std::max(batch_size, _MIN_BATCH_SIZE)),
           _range_start_offset(range.start_offset),
           _range_size(range.size),
-          _ctz(ctz),
-          _io_ctx(io_ctx_holder ? io_ctx_holder.get() : nullptr),
-          _io_ctx_holder(std::move(io_ctx_holder)),
-          _state(state),
-          _enable_lazy_mat(enable_lazy_mat),
-          _enable_filter_by_min_max(
-                  state == nullptr ? true
-                                   : state->query_options().enable_parquet_filter_by_min_max),
-          _enable_filter_by_bloom_filter(
-                  state == nullptr ? true
-                                   : state->query_options().enable_parquet_filter_by_bloom_filter) {
-    _meta_cache = meta_cache;
-    _init_profile();
-    _init_system_properties();
-    _init_file_description();
-}
-
-ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                             io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache,
-                             bool enable_lazy_mat)
-        : _profile(nullptr),
-          _scan_params(params),
-          _scan_range(range),
+          _ctz(&state->timezone_obj()),
           _io_ctx(io_ctx),
-          _state(state),
-          _enable_lazy_mat(enable_lazy_mat),
-          _enable_filter_by_min_max(
-                  state == nullptr ? true
-                                   : state->query_options().enable_parquet_filter_by_min_max),
-          _enable_filter_by_bloom_filter(
-                  state == nullptr ? true
-                                   : state->query_options().enable_parquet_filter_by_bloom_filter) {
-    _meta_cache = meta_cache;
-    _init_system_properties();
-    _init_file_description();
-}
-
-ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                             std::shared_ptr<io::IOContext> io_ctx_holder, RuntimeState* state,
-                             FileMetaCache* meta_cache, bool enable_lazy_mat)
-        : _profile(nullptr),
-          _scan_params(params),
-          _scan_range(range),
-          _io_ctx(io_ctx_holder ? io_ctx_holder.get() : nullptr),
           _io_ctx_holder(std::move(io_ctx_holder)),
           _state(state),
           _enable_lazy_mat(enable_lazy_mat),
-          _enable_filter_by_min_max(
-                  state == nullptr ? true
-                                   : state->query_options().enable_parquet_filter_by_min_max),
+          _enable_filter_by_min_max(state->query_options().enable_parquet_filter_by_min_max),
           _enable_filter_by_bloom_filter(
-                  state == nullptr ? true
-                                   : state->query_options().enable_parquet_filter_by_bloom_filter) {
+                  state->query_options().enable_parquet_filter_by_bloom_filter) {
+    _batch_size = state->batch_size();
     _meta_cache = meta_cache;
+    if (_profile != nullptr) {
+        _init_profile();
+    }
     _init_system_properties();
     _init_file_description();
 }
@@ -781,8 +725,7 @@ Status ParquetReader::_do_get_next_block(Block* block, size_t* read_rows, bool* 
                     ? config::load_reader_max_block_bytes
                     : 0;
     if (max_block_bytes > 0 && _load_bytes_per_row > 0) {
-        _batch_size = std::max((size_t)1,
-                               (size_t)((int64_t)max_block_bytes / (int64_t)_load_bytes_per_row));
+        _batch_size = std::max(1, (int)((int64_t)max_block_bytes / (int64_t)_load_bytes_per_row));
     }
 
     SCOPED_RAW_TIMER(&_reader_statistics.column_read_time);

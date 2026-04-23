@@ -30,6 +30,8 @@
 #include "format/orc/orc_memory_stream_test.h"
 #include "format/orc/vorc_reader.h"
 #include "orc/ColumnPrinter.hh"
+#include "runtime/runtime_profile.h"
+#include "runtime/runtime_state.h"
 
 namespace doris {
 class OrcReaderFillDataTest : public ::testing::Test {
@@ -38,8 +40,18 @@ protected:
 
     void TearDown() override {}
 
+    std::unique_ptr<OrcReader> create_reader(const TFileScanRangeParams& params,
+                                             const TFileRangeDesc& range,
+                                             bool enable_lazy_mat = true) {
+        return OrcReader::create_unique(&profile, &state, params, range,
+                                        static_cast<io::IOContext*>(nullptr), nullptr,
+                                        enable_lazy_mat);
+    }
+
     std::shared_ptr<TableSchemaChangeHelper::ConstNode> const_node =
             std::make_shared<TableSchemaChangeHelper::ConstNode>();
+    RuntimeProfile profile {"test"};
+    RuntimeState state;
 };
 
 std::unique_ptr<orc::LongVectorBatch> create_long_batch(size_t size,
@@ -80,7 +92,7 @@ TEST_F(OrcReaderFillDataTest, TestFillLongColumn) {
 
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+    auto reader = create_reader(params, range);
 
     MutableColumnPtr xx = column->assume_mutable();
 
@@ -106,7 +118,7 @@ TEST_F(OrcReaderFillDataTest, TestFillLongColumnWithNull) {
 
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+    auto reader = create_reader(params, range);
 
     MutableColumnPtr xx = column->assume_mutable();
 
@@ -160,7 +172,7 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
 
         TFileScanRangeParams params;
         TFileRangeDesc range;
-        auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+        auto reader = create_reader(params, range);
 
         auto doris_struct_type = std::make_shared<DataTypeStruct>(
                 std::vector<DataTypePtr> {
@@ -246,7 +258,7 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
 
         TFileScanRangeParams params;
         TFileRangeDesc range;
-        auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+        auto reader = create_reader(params, range);
 
         auto doris_struct_type = std::make_shared<DataTypeStruct>(
                 std::vector<DataTypePtr> {std::make_shared<DataTypeInt32>(),
@@ -332,7 +344,7 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
 
         TFileScanRangeParams params;
         TFileRangeDesc range;
-        auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+        auto reader = create_reader(params, range);
 
         auto doris_struct_type = std::make_shared<DataTypeStruct>(
                 std::vector<DataTypePtr> {std::make_shared<DataTypeDecimal64>(18, 5)},
@@ -446,7 +458,7 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
 
         TFileScanRangeParams params;
         TFileRangeDesc range;
-        auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+        auto reader = create_reader(params, range);
 
         auto doris_struct_type = std::make_shared<DataTypeMap>(std::make_shared<DataTypeInt32>(),
                                                                std::make_shared<DataTypeFloat32>());

@@ -23,6 +23,8 @@
 #include "format/orc/orc_memory_stream_test.h"
 #include "format/orc/vorc_reader.h"
 #include "orc/ColumnPrinter.hh"
+#include "runtime/runtime_profile.h"
+#include "runtime/runtime_state.h"
 
 namespace doris {
 class OrcReaderInitColumnTest : public ::testing::Test {
@@ -30,6 +32,17 @@ protected:
     void SetUp() override {}
 
     void TearDown() override {}
+
+    std::unique_ptr<OrcReader> create_reader(const TFileScanRangeParams& params,
+                                             const TFileRangeDesc& range,
+                                             bool enable_lazy_mat = true) {
+        return OrcReader::create_unique(&profile, &state, params, range,
+                                        static_cast<io::IOContext*>(nullptr), nullptr,
+                                        enable_lazy_mat);
+    }
+
+    RuntimeProfile profile {"test"};
+    RuntimeState state;
 };
 TEST_F(OrcReaderInitColumnTest, InitReadColumn) {
     {
@@ -53,7 +66,7 @@ TEST_F(OrcReaderInitColumnTest, InitReadColumn) {
 
         TFileScanRangeParams params;
         TFileRangeDesc range;
-        auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+        auto reader = create_reader(params, range);
         reader->_reader = std::move(orc_reader);
         std::vector<std::string> tmp;
         tmp.emplace_back("col1");
@@ -72,7 +85,7 @@ TEST_F(OrcReaderInitColumnTest, CheckAcidSchemaTest) {
     using namespace orc;
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto _reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+    auto _reader = create_reader(params, range);
     // 1. Test standard ACID schema
     {
         // Create standard ACID structure
@@ -139,7 +152,7 @@ TEST_F(OrcReaderInitColumnTest, RemoveAcidTest) {
     using namespace orc;
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto _reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+    auto _reader = create_reader(params, range);
     // 1. Test removing ACID info from ACID schema
     {
         // Create ACID schema

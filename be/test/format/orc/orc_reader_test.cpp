@@ -32,6 +32,7 @@
 #include "io/fs/file_meta_cache.h"
 #include "orc/sargs/SearchArgument.hh"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "testutil/desc_tbl_builder.h"
 namespace doris {
@@ -83,7 +84,11 @@ private:
         range.path = "./be/test/exec/test_data/orc_scanner/orders.orc";
         range.start_offset = 0;
         range.size = 1293;
-        auto reader = OrcReader::create_unique(params, range, "UTC", nullptr, &cache, true);
+        RuntimeProfile profile("test");
+        RuntimeState state;
+        state.set_timezone("UTC");
+        auto reader = OrcReader::create_unique(&profile, &state, params, range,
+                                               static_cast<io::IOContext*>(nullptr), &cache, true);
         OrcInitContext orc_ctx;
         orc_ctx.column_names = column_names;
         orc_ctx.col_name_to_block_idx = &col_name_to_block_idx;
@@ -101,7 +106,6 @@ private:
         EXPECT_TRUE(status.ok());
 
         // prepare expr context
-        RuntimeState state;
         state.set_desc_tbl(desc_tbl);
         status = context->prepare(&state, row_desc);
         EXPECT_TRUE(status.ok()) << status.to_string();

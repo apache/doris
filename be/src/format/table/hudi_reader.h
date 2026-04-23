@@ -29,11 +29,9 @@ class HudiParquetReader final : public ParquetReader, public TableSchemaChangeHe
 public:
     ENABLE_FACTORY_CREATOR(HudiParquetReader);
     HudiParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                      const TFileRangeDesc& range, size_t batch_size, const cctz::time_zone* ctz,
-                      io::IOContext* io_ctx, RuntimeState* state,
+                      const TFileRangeDesc& range, io::IOContext* io_ctx, RuntimeState* state,
                       FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true)
-            : ParquetReader(profile, params, range, batch_size, ctz, io_ctx, state, meta_cache,
-                            enable_lazy_mat) {}
+            : ParquetReader(profile, params, range, io_ctx, state, meta_cache, enable_lazy_mat) {}
     ~HudiParquetReader() final = default;
 
 protected:
@@ -45,11 +43,9 @@ class HudiOrcReader final : public OrcReader, public TableSchemaChangeHelper {
 public:
     ENABLE_FACTORY_CREATOR(HudiOrcReader);
     HudiOrcReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
-                  const TFileRangeDesc& range, size_t batch_size, const std::string& ctz,
-                  io::IOContext* io_ctx, FileMetaCache* meta_cache = nullptr,
-                  bool enable_lazy_mat = true)
-            : OrcReader(profile, state, params, range, batch_size, ctz, io_ctx, meta_cache,
-                        enable_lazy_mat) {}
+                  const TFileRangeDesc& range, io::IOContext* io_ctx,
+                  FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true)
+            : OrcReader(profile, state, params, range, io_ctx, meta_cache, enable_lazy_mat) {}
     ~HudiOrcReader() final = default;
 
 protected:

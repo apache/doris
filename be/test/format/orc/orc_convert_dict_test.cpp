@@ -25,6 +25,8 @@
 #include "core/column/column_struct.h"
 #include "format/orc/vorc_reader.h"
 #include "orc/ColumnPrinter.hh"
+#include "runtime/runtime_profile.h"
+#include "runtime/runtime_state.h"
 
 namespace doris {
 class OrcReaderConvertDictTest : public ::testing::Test {
@@ -32,6 +34,17 @@ protected:
     void SetUp() override {}
 
     void TearDown() override {}
+
+    std::unique_ptr<OrcReader> create_reader(const TFileScanRangeParams& params,
+                                             const TFileRangeDesc& range,
+                                             bool enable_lazy_mat = true) {
+        return OrcReader::create_unique(&profile, &state, params, range,
+                                        static_cast<io::IOContext*>(nullptr), nullptr,
+                                        enable_lazy_mat);
+    }
+
+    RuntimeProfile profile {"test"};
+    RuntimeState state;
 };
 
 std::unique_ptr<orc::EncodedStringVectorBatch> create_encoded_string_batch(
@@ -81,7 +94,7 @@ TEST_F(OrcReaderConvertDictTest, ConvertDictColumnToStringColumnBasic) {
 
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+    auto reader = create_reader(params, range);
 
     // Execute conversion
     auto result_column = reader->_convert_dict_column_to_string_column(
@@ -118,7 +131,7 @@ TEST_F(OrcReaderConvertDictTest, ConvertDictColumnToStringColumnWithNulls) {
 
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto _reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+    auto _reader = create_reader(params, range);
 
     // Execute conversion
     auto result_column = _reader->_convert_dict_column_to_string_column(
@@ -150,7 +163,7 @@ TEST_F(OrcReaderConvertDictTest, ConvertDictColumnToStringColumnChar) {
     auto orc_type_ptr = createPrimitiveType(orc::TypeKind::CHAR);
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto _reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+    auto _reader = create_reader(params, range);
 
     // Execute conversion
     auto result_column = _reader->_convert_dict_column_to_string_column(
@@ -181,7 +194,7 @@ TEST_F(OrcReaderConvertDictTest, ConvertDictColumnToStringColumnEmpty) {
     auto orc_type_ptr = createPrimitiveType(orc::TypeKind::STRING);
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto _reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+    auto _reader = create_reader(params, range);
     // Execute conversion
     auto result_column = _reader->_convert_dict_column_to_string_column(
             dict_column.get(), nullptr, string_batch.get(), orc_type_ptr.get());
@@ -213,7 +226,7 @@ TEST_F(OrcReaderConvertDictTest, ConvertDictColumnToStringColumnMixed) {
     auto orc_type_ptr = createPrimitiveType(orc::TypeKind::STRING);
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto _reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+    auto _reader = create_reader(params, range);
     // Execute conversion
     auto result_column = _reader->_convert_dict_column_to_string_column(
             dict_column.get(), &null_map, string_batch.get(), orc_type_ptr.get());

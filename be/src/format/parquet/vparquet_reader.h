@@ -118,22 +118,13 @@ public:
     };
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                  const TFileRangeDesc& range, size_t batch_size, const cctz::time_zone* ctz,
-                  io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache = nullptr,
-                  bool enable_lazy_mat = true);
+                  const TFileRangeDesc& range, io::IOContext* io_ctx, RuntimeState* state,
+                  FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true);
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                  const TFileRangeDesc& range, size_t batch_size, const cctz::time_zone* ctz,
-                  std::shared_ptr<io::IOContext> io_ctx_holder, RuntimeState* state,
-                  FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true);
-
-    ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                  io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache = nullptr,
+                  const TFileRangeDesc& range, std::shared_ptr<io::IOContext> io_ctx_holder,
+                  RuntimeState* state, FileMetaCache* meta_cache = nullptr,
                   bool enable_lazy_mat = true);
-
-    ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                  std::shared_ptr<io::IOContext> io_ctx_holder, RuntimeState* state,
-                  FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true);
 
     ~ParquetReader() override;
 #ifdef BE_TEST
@@ -218,6 +209,13 @@ public:
 protected:
     void _collect_profile_before_close() override;
 
+private:
+    ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                  const TFileRangeDesc& range, io::IOContext* io_ctx,
+                  std::shared_ptr<io::IOContext> io_ctx_holder, RuntimeState* state,
+                  FileMetaCache* meta_cache, bool enable_lazy_mat);
+
+protected:
     // Core block reading implementation
     Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
@@ -227,6 +225,7 @@ protected:
         return Status::OK();
     }
 
+protected:
     // Protected accessors so CRTP mixin subclasses can reach private members
     io::IOContext* get_io_ctx() const { return _io_ctx; }
     std::unordered_map<std::string, uint32_t>*& col_name_to_block_idx_ref() {
@@ -394,7 +393,6 @@ private:
     RuntimeProfile* _profile = nullptr;
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
-    size_t _batch_size;
     // Bytes-per-row estimate from the previous batch, used to pre-shrink _batch_size
     // before reading so that oversized blocks are prevented from the current call onward.
     // Zero means no prior data (first batch).
@@ -430,7 +428,6 @@ protected:
     // register synthesized columns in on_before_init_reader.
     RowGroupReader::LazyReadContext _lazy_read_ctx;
     bool _filter_groups = true;
-    size_t get_batch_size() const { return _batch_size; }
 
     std::function<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>()>
             _create_topn_row_id_column_iterator;

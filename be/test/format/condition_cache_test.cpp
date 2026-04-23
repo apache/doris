@@ -28,10 +28,27 @@
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "format/table/transactional_hive_common.h"
+#include "runtime/runtime_profile.h"
+#include "runtime/runtime_state.h"
 
 namespace doris::vectorized {
 
 constexpr int GS = ConditionCacheContext::GRANULE_SIZE; // 2048
+
+std::unique_ptr<ParquetReader> create_test_parquet_reader(RuntimeProfile* profile,
+                                                          RuntimeState* state,
+                                                          const TFileScanRangeParams& params,
+                                                          const TFileRangeDesc& range) {
+    return ParquetReader::create_unique(profile, params, range,
+                                        static_cast<io::IOContext*>(nullptr), state);
+}
+
+std::unique_ptr<OrcReader> create_test_orc_reader(RuntimeProfile* profile, RuntimeState* state,
+                                                  const TFileScanRangeParams& params,
+                                                  const TFileRangeDesc& range) {
+    return OrcReader::create_unique(profile, state, params, range,
+                                    static_cast<io::IOContext*>(nullptr));
+}
 
 class FilterRangesByCacheTest : public testing::Test {};
 
@@ -442,7 +459,9 @@ protected:
 TEST_F(ConditionCacheDeleteOpsTest, ParquetNoDeletes_CachePopulated) {
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto reader = ParquetReader::create_unique(params, range, nullptr, nullptr);
+    RuntimeProfile profile("test");
+    RuntimeState state;
+    auto reader = create_test_parquet_reader(&profile, &state, params, range);
 
     bool hit = false;
     std::shared_ptr<std::vector<bool>> cache;
@@ -459,7 +478,9 @@ TEST_F(ConditionCacheDeleteOpsTest, ParquetNoDeletes_CachePopulated) {
 TEST_F(ConditionCacheDeleteOpsTest, ParquetWithPositionDeletes_CacheSkipped) {
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto reader = ParquetReader::create_unique(params, range, nullptr, nullptr);
+    RuntimeProfile profile("test");
+    RuntimeState state;
+    auto reader = create_test_parquet_reader(&profile, &state, params, range);
     std::vector<int64_t> deletes = {1, 5, 10};
     reader->set_delete_rows(&deletes);
 
@@ -476,7 +497,9 @@ TEST_F(ConditionCacheDeleteOpsTest, ParquetWithPositionDeletes_CacheSkipped) {
 TEST_F(ConditionCacheDeleteOpsTest, OrcNoDeletes_CachePopulated) {
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto reader = OrcReader::create_unique(params, range, "", nullptr);
+    RuntimeProfile profile("test");
+    RuntimeState state;
+    auto reader = create_test_orc_reader(&profile, &state, params, range);
 
     bool hit = false;
     std::shared_ptr<std::vector<bool>> cache;
@@ -493,7 +516,9 @@ TEST_F(ConditionCacheDeleteOpsTest, OrcNoDeletes_CachePopulated) {
 TEST_F(ConditionCacheDeleteOpsTest, OrcWithPositionDeletes_CacheSkipped) {
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto reader = OrcReader::create_unique(params, range, "", nullptr);
+    RuntimeProfile profile("test");
+    RuntimeState state;
+    auto reader = create_test_orc_reader(&profile, &state, params, range);
     std::vector<int64_t> pos_deletes = {0, 3, 7};
     reader->set_position_delete_rowids(&pos_deletes);
 
@@ -510,7 +535,9 @@ TEST_F(ConditionCacheDeleteOpsTest, OrcWithPositionDeletes_CacheSkipped) {
 TEST_F(ConditionCacheDeleteOpsTest, OrcWithAcidDeletes_CacheSkipped) {
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto reader = OrcReader::create_unique(params, range, "", nullptr);
+    RuntimeProfile profile("test");
+    RuntimeState state;
+    auto reader = create_test_orc_reader(&profile, &state, params, range);
     AcidRowIDSet acid_deletes;
     acid_deletes.insert({1, 0, 5});
     reader->set_delete_rows(&acid_deletes);
@@ -569,7 +596,9 @@ TEST_F(ConditionCacheDeleteOpsTest, CacheHitSkippedWhenDeletesExist) {
     {
         TFileScanRangeParams params;
         TFileRangeDesc range;
-        auto reader = ParquetReader::create_unique(params, range, nullptr, nullptr);
+        RuntimeProfile profile("test");
+        RuntimeState state;
+        auto reader = create_test_parquet_reader(&profile, &state, params, range);
 
         bool hit = false;
         std::shared_ptr<std::vector<bool>> cache;
@@ -587,7 +616,9 @@ TEST_F(ConditionCacheDeleteOpsTest, CacheHitSkippedWhenDeletesExist) {
     {
         TFileScanRangeParams params;
         TFileRangeDesc range;
-        auto reader = ParquetReader::create_unique(params, range, nullptr, nullptr);
+        RuntimeProfile profile("test");
+        RuntimeState state;
+        auto reader = create_test_parquet_reader(&profile, &state, params, range);
         std::vector<int64_t> deletes = {1, 2, 3};
         reader->set_delete_rows(&deletes);
 
@@ -606,7 +637,9 @@ TEST_F(ConditionCacheDeleteOpsTest, CacheHitSkippedWhenDeletesExist) {
 TEST_F(ConditionCacheDeleteOpsTest, ZeroDigest_CacheAlwaysSkipped) {
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto reader = ParquetReader::create_unique(params, range, nullptr, nullptr);
+    RuntimeProfile profile("test");
+    RuntimeState state;
+    auto reader = create_test_parquet_reader(&profile, &state, params, range);
 
     bool hit = false;
     std::shared_ptr<std::vector<bool>> cache;

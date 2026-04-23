@@ -255,8 +255,6 @@ protected:
         return Status::NotSupported("read_by_rows is not implemented for this reader.");
     }
 
-    const size_t _MIN_BATCH_SIZE = 4064; // 4094 - 32(padding)
-
     TPushAggOp::type _push_down_agg_type {};
 
 public:

@@ -179,90 +179,38 @@ void StripeStreamInputStream::read(void* buf, uint64_t length, uint64_t offset) 
                                                length, has_read, _file_name));
     }
 }
+OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
+                     const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                     io::IOContext* io_ctx, FileMetaCache* meta_cache, bool enable_lazy_mat)
+        : OrcReader(profile, state, params, range, io_ctx, nullptr, meta_cache, enable_lazy_mat) {}
 
 OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                     size_t batch_size, const std::string& ctz, io::IOContext* io_ctx,
-                     FileMetaCache* meta_cache, bool enable_lazy_mat)
-        : _profile(profile),
-          _state(state),
-          _scan_params(params),
-          _scan_range(range),
-          _batch_size(std::max(batch_size, _MIN_BATCH_SIZE)),
-          _range_start_offset(range.start_offset),
-          _range_size(range.size),
-          _ctz(ctz),
-          _io_ctx(io_ctx),
-          _enable_lazy_mat(enable_lazy_mat),
-          _enable_filter_by_min_max(
-                  state == nullptr ? true : state->query_options().enable_orc_filter_by_min_max),
-          _dict_cols_has_converted(false) {
-    TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
-    _meta_cache = meta_cache;
-    _init_profile();
-    _init_system_properties();
-    _init_file_description();
-}
-
-OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
-                     const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                     size_t batch_size, const std::string& ctz,
                      std::shared_ptr<io::IOContext> io_ctx_holder, FileMetaCache* meta_cache,
                      bool enable_lazy_mat)
+        : OrcReader(profile, state, params, range, io_ctx_holder ? io_ctx_holder.get() : nullptr,
+                    std::move(io_ctx_holder), meta_cache, enable_lazy_mat) {}
+
+OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
+                     const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                     io::IOContext* io_ctx, std::shared_ptr<io::IOContext> io_ctx_holder,
+                     FileMetaCache* meta_cache, bool enable_lazy_mat)
         : _profile(profile),
           _state(state),
           _scan_params(params),
           _scan_range(range),
-          _batch_size(std::max(batch_size, _MIN_BATCH_SIZE)),
           _range_start_offset(range.start_offset),
           _range_size(range.size),
-          _ctz(ctz),
-          _io_ctx(io_ctx_holder ? io_ctx_holder.get() : nullptr),
+          _ctz(state->timezone()),
+          _io_ctx(io_ctx),
           _io_ctx_holder(std::move(io_ctx_holder)),
           _enable_lazy_mat(enable_lazy_mat),
-          _enable_filter_by_min_max(
-                  state == nullptr ? true : state->query_options().enable_orc_filter_by_min_max),
+          _enable_filter_by_min_max(state->query_options().enable_orc_filter_by_min_max),
           _dict_cols_has_converted(false) {
-    TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
+    _batch_size = state->batch_size();
+    _time_zone = state->timezone_obj();
     _meta_cache = meta_cache;
     _init_profile();
-    _init_system_properties();
-    _init_file_description();
-}
-
-OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                     const std::string& ctz, io::IOContext* io_ctx, FileMetaCache* meta_cache,
-                     bool enable_lazy_mat)
-        : _profile(nullptr),
-          _scan_params(params),
-          _scan_range(range),
-          _batch_size(_MIN_BATCH_SIZE),
-          _ctz(ctz),
-          _file_system(nullptr),
-          _io_ctx(io_ctx),
-          _enable_lazy_mat(enable_lazy_mat),
-          _enable_filter_by_min_max(true),
-          _dict_cols_has_converted(false) {
-    _meta_cache = meta_cache;
-    _init_system_properties();
-    _init_file_description();
-}
-
-OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                     const std::string& ctz, std::shared_ptr<io::IOContext> io_ctx_holder,
-                     FileMetaCache* meta_cache, bool enable_lazy_mat)
-        : _profile(nullptr),
-          _scan_params(params),
-          _scan_range(range),
-          _batch_size(_MIN_BATCH_SIZE),
-          _ctz(ctz),
-          _file_system(nullptr),
-          _io_ctx(io_ctx_holder ? io_ctx_holder.get() : nullptr),
-          _io_ctx_holder(std::move(io_ctx_holder)),
-          _enable_lazy_mat(enable_lazy_mat),
-          _enable_filter_by_min_max(true),
-          _dict_cols_has_converted(false) {
-    _meta_cache = meta_cache;
     _init_system_properties();
     _init_file_description();
 }
@@ -2272,8 +2220,8 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
                     : 0;
 
     if (max_block_bytes > 0 && _load_bytes_per_row > 0 && _row_reader) {
-        size_t new_batch_size = std::max(
-                (size_t)1, (size_t)((int64_t)max_block_bytes / (int64_t)_load_bytes_per_row));
+        int new_batch_size =
+                std::max(1, (int)((int64_t)max_block_bytes / (int64_t)_load_bytes_per_row));
         if (new_batch_size != _batch_size) {
             _batch_size = new_batch_size;
             _batch = _row_reader->createRowBatch(_batch_size);

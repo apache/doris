@@ -51,8 +51,7 @@ class TransactionalHiveReader final : public OrcReader, public TableSchemaChange
 public:
     TransactionalHiveReader(RuntimeProfile* profile, RuntimeState* state,
                             const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                            size_t batch_size, const std::string& ctz, io::IOContext* io_ctx,
-                            FileMetaCache* meta_cache = nullptr);
+                            io::IOContext* io_ctx, FileMetaCache* meta_cache = nullptr);
     ~TransactionalHiveReader() final = default;
 
 protected:

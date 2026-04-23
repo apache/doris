@@ -233,9 +233,9 @@ Status read_iceberg_position_delete_file(const TIcebergDeleteFileDesc& delete_fi
     RETURN_IF_ERROR(validate_position_delete_file_format(delete_file, &file_format));
 
     if (file_format == TFileFormatType::FORMAT_PARQUET) {
-        ParquetReader reader(options.profile, *options.scan_params, delete_range,
-                             options.batch_size, &options.state->timezone_obj(), options.io_ctx,
+        ParquetReader reader(options.profile, *options.scan_params, delete_range, options.io_ctx,
                              options.state, options.meta_cache);
+        reader.use_delete_file_batch_size();
         bool dictionary_coded = false;
         RETURN_IF_ERROR(init_parquet_delete_reader(&reader, &dictionary_coded));
 
@@ -262,8 +262,8 @@ Status read_iceberg_position_delete_file(const TIcebergDeleteFileDesc& delete_fi
 
     if (file_format == TFileFormatType::FORMAT_ORC) {
         OrcReader reader(options.profile, options.state, *options.scan_params, delete_range,
-                         options.batch_size, options.state->timezone(), options.io_ctx,
-                         options.meta_cache);
+                         options.io_ctx, options.meta_cache);
+        reader.use_delete_file_batch_size();
         RETURN_IF_ERROR(init_orc_delete_reader(&reader));
 
         bool eof = false;
