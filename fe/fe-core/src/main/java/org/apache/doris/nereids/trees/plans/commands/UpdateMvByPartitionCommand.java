@@ -34,6 +34,7 @@ import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionExprDateTruncDateAddSub;
 import org.apache.doris.mtmv.MTMVPartitionExprFactory;
+import org.apache.doris.mtmv.MTMVPartitionExprService;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -148,8 +149,8 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         long hourOffset = 0;
         try {
             if (mv.getMvPartitionInfo() != null && mv.getMvPartitionInfo().getExpr() != null) {
-                MTMVPartitionExprFactory.getExprService(mv.getMvPartitionInfo().getExpr());
-                Object service = MTMVPartitionExprFactory.getExprService(mv.getMvPartitionInfo().getExpr());
+                MTMVPartitionExprService service =
+                        MTMVPartitionExprFactory.getExprService(mv.getMvPartitionInfo().getExpr());
                 if (service instanceof MTMVPartitionExprDateTruncDateAddSub) {
                     hourOffset = ((MTMVPartitionExprDateTruncDateAddSub) service).getOffsetHours();
                 }

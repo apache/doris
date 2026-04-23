@@ -720,6 +720,189 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
     }
 
     // =========================================================================
+    // New tests — toSql(), dateFormat fallback, getOffsetHours
+    // =========================================================================
+
+    @Test
+    public void testToSqlReturnsExprString() throws AnalysisException {
+        FunctionCallExpr expr = new FunctionCallExpr("date_trunc",
+                Lists.newArrayList(
+                        new TimestampArithmeticExpr("date_add", new SlotRef(null, null), new IntLiteral(3), "HOUR"),
+                        new StringLiteral("day")),
+                true);
+        MTMVPartitionExprDateTruncDateAddSub service = new MTMVPartitionExprDateTruncDateAddSub(expr);
+
+        MTMVPartitionInfo partitionInfo = Mockito.mock(MTMVPartitionInfo.class);
+        Mockito.when(partitionInfo.getExpr()).thenReturn(expr);
+
+        String sql = service.toSql(partitionInfo);
+        Assert.assertNotNull(sql);
+        Assert.assertTrue("toSql should mention date_trunc: " + sql,
+                sql.toLowerCase().contains("date_trunc"));
+    }
+
+    @Test
+    public void testGetRollUpIdentityWithDateFormat() throws AnalysisException {
+        FunctionCallExpr expr = new FunctionCallExpr("date_trunc",
+                Lists.newArrayList(
+                        new TimestampArithmeticExpr("date_add", new SlotRef(null, null), new IntLiteral(3), "HOUR"),
+                        new StringLiteral("day")),
+                true);
+        MTMVPartitionExprDateTruncDateAddSub service = new MTMVPartitionExprDateTruncDateAddSub(expr);
+
+        // Use a non-standard date format that requires strToDate fallback
+        Map<String, String> props = Maps.newHashMap();
+        props.put(org.apache.doris.common.util.PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT, "%d/%m/%Y");
+        PartitionKeyDesc inDesc = generateInDesc("24/07/2025");
+        String identity = service.getRollUpIdentity(inDesc, props);
+        Assert.assertEquals("2025-07-24 00:00:00", identity);
+    }
+
+    @Test
+    public void testConstructorRejectsNonLiteralOffset() {
+        FunctionCallExpr exprBadParamCount = new FunctionCallExpr("date_trunc",
+                Lists.newArrayList(new StringLiteral("day")),
+                true);
+        try {
+            new MTMVPartitionExprDateTruncDateAddSub(exprBadParamCount);
+            Assert.fail("Expected AnalysisException for wrong param count");
+        } catch (org.apache.doris.common.AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("size should be 2"));
+        }
+    }
+
+    @Test
+    public void testConstructorRejectsNonStringLiteralUnit() {
+        FunctionCallExpr expr = new FunctionCallExpr("date_trunc",
+                Lists.newArrayList(
+                        new TimestampArithmeticExpr("date_add", new SlotRef(null, null), new IntLiteral(3), "HOUR"),
+                        new IntLiteral(1)),
+                true);
+        try {
+            new MTMVPartitionExprDateTruncDateAddSub(expr);
+            Assert.fail("Expected AnalysisException for non-string-literal unit");
+        } catch (org.apache.doris.common.AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("not string literal"));
+        }
+    }
+
+    @Test
+    public void testGetOffsetHoursPositive() throws AnalysisException {
+        FunctionCallExpr expr = new FunctionCallExpr("date_trunc",
+                Lists.newArrayList(
+                        new TimestampArithmeticExpr("date_add", new SlotRef(null, null), new IntLiteral(8), "HOUR"),
+                        new StringLiteral("day")),
+                true);
+        MTMVPartitionExprDateTruncDateAddSub service = new MTMVPartitionExprDateTruncDateAddSub(expr);
+        Assert.assertEquals(8, service.getOffsetHours());
+    }
+
+    @Test
+    public void testGetOffsetHoursNegative() throws AnalysisException {
+        FunctionCallExpr expr = new FunctionCallExpr("date_trunc",
+                Lists.newArrayList(
+                        new TimestampArithmeticExpr("date_sub", new SlotRef(null, null), new IntLiteral(5), "HOUR"),
+                        new StringLiteral("day")),
+                true);
+        MTMVPartitionExprDateTruncDateAddSub service = new MTMVPartitionExprDateTruncDateAddSub(expr);
+        Assert.assertEquals(-5, service.getOffsetHours());
+    }
+
+    @Test
+    public void testConstructorRejectsOffsetBeyondTimezoneLimit() {
+        // Hour offset should be in range [-14, 14] based on real-world timezone limits
+        // UTC-12 (Baker Island) to UTC+14 (Line Islands, Kiribati)
+
+        // Test +15 hours (exceeds +14 limit)
+        FunctionCallExpr exprPositive = new FunctionCallExpr("date_trunc",
+                Lists.newArrayList(
+                        new TimestampArithmeticExpr("date_add", new SlotRef(null, null), new IntLiteral(15), "HOUR"),
+                        new StringLiteral("day")),
+                true);
+        try {
+            new MTMVPartitionExprDateTruncDateAddSub(exprPositive);
+            Assert.fail("Expected AnalysisException for offset > 14");
+        } catch (org.apache.doris.common.AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("[-14, 14]"));
+            Assert.assertTrue(e.getMessage().contains("15"));
+        }
+
+        // Test -15 hours (exceeds -14 limit)
+        FunctionCallExpr exprNegative = new FunctionCallExpr("date_trunc",
+                Lists.newArrayList(
+                        new TimestampArithmeticExpr("date_sub", new SlotRef(null, null), new IntLiteral(15), "HOUR"),
+                        new StringLiteral("day")),
+                true);
+        try {
+            new MTMVPartitionExprDateTruncDateAddSub(exprNegative);
+            Assert.fail("Expected AnalysisException for offset < -14");
+        } catch (org.apache.doris.common.AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("[-14, 14]"));
+            Assert.assertTrue(e.getMessage().contains("-15"));
+        }
+    }
+
+    @Test
+    public void testConstructorAcceptsBoundaryOffsets() throws AnalysisException {
+        // +14 hours should be accepted (UTC+14 - Line Islands)
+        FunctionCallExpr expr14 = new FunctionCallExpr("date_trunc",
+                Lists.newArrayList(
+                        new TimestampArithmeticExpr("date_add", new SlotRef(null, null), new IntLiteral(14), "HOUR"),
+                        new StringLiteral("day")),
+                true);
+        MTMVPartitionExprDateTruncDateAddSub service14 = new MTMVPartitionExprDateTruncDateAddSub(expr14);
+        Assert.assertEquals(14, service14.getOffsetHours());
+
+        // -14 hours should be accepted (beyond UTC-12 but symmetric limit)
+        FunctionCallExpr exprMinus14 = new FunctionCallExpr("date_trunc",
+                Lists.newArrayList(
+                        new TimestampArithmeticExpr("date_sub", new SlotRef(null, null), new IntLiteral(14), "HOUR"),
+                        new StringLiteral("day")),
+                true);
+        MTMVPartitionExprDateTruncDateAddSub serviceMinus14 = new MTMVPartitionExprDateTruncDateAddSub(exprMinus14);
+        Assert.assertEquals(-14, serviceMinus14.getOffsetHours());
+    }
+
+    @Test
+    public void testRejectsMinValueMaxValuePartitionBounds() throws AnalysisException {
+        // Create service with +3h offset
+        FunctionCallExpr expr = new FunctionCallExpr("date_trunc",
+                Lists.newArrayList(
+                        new TimestampArithmeticExpr("date_add", new SlotRef(null, null), new IntLiteral(3), "HOUR"),
+                        new StringLiteral("day")),
+                true);
+        MTMVPartitionExprDateTruncDateAddSub service = new MTMVPartitionExprDateTruncDateAddSub(expr);
+
+        try (MockedStatic<MTMVPartitionUtil> mock = Mockito.mockStatic(MTMVPartitionUtil.class)) {
+            mock.when(() -> MTMVPartitionUtil.getPartitionColumnType(
+                    Mockito.nullable(MTMVRelatedTableIf.class), Mockito.nullable(String.class)))
+                    .thenReturn(Type.DATETIMEV2);
+
+            // MINVALUE lower bound should be rejected
+            PartitionKeyDesc minValueDesc = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("MINVALUE", true)),
+                    Lists.newArrayList(new PartitionValue("2025-01-01 00:00:00")));
+            try {
+                service.generateRollUpPartitionKeyDescs(minValueDesc, mtmvPartitionInfo, null);
+                Assert.fail("Expected AnalysisException for MINVALUE partition bound");
+            } catch (org.apache.doris.common.AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains("MINVALUE/MAXVALUE"));
+            }
+
+            // MAXVALUE upper bound should be rejected
+            PartitionKeyDesc maxValueDesc = PartitionKeyDesc.createFixed(
+                    Lists.newArrayList(new PartitionValue("2025-01-01 00:00:00")),
+                    Lists.newArrayList(new PartitionValue("MAXVALUE", true)));
+            try {
+                service.generateRollUpPartitionKeyDescs(maxValueDesc, mtmvPartitionInfo, null);
+                Assert.fail("Expected AnalysisException for MAXVALUE partition bound");
+            } catch (org.apache.doris.common.AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains("MINVALUE/MAXVALUE"));
+            }
+        }
+    }
+
+    // =========================================================================
     // Helper
     // =========================================================================
 

@@ -490,4 +490,21 @@ suite("test_rollup_partition_mtmv_date_add", "mtmv") {
     assertEquals("2", yearRows[0][1].toString())
     assertEquals("2026-01-01 00:00:00", yearRows[1][0].toString())
     assertEquals("1", yearRows[1][1].toString())
+
+    // Hour offset exceeds timezone limit (>14 hours)
+    sql """drop materialized view if exists mv_test_rollup_partition_mtmv_date_add_invalid_offset"""
+    test {
+        sql """
+            CREATE MATERIALIZED VIEW mv_test_rollup_partition_mtmv_date_add_invalid_offset
+                BUILD IMMEDIATE REFRESH AUTO ON MANUAL
+                partition by (date_trunc(date_add(k2, INTERVAL 15 HOUR), 'day'))
+                DISTRIBUTED BY RANDOM BUCKETS 1
+                PROPERTIES ('replication_num' = '1')
+                AS
+                SELECT date_trunc(date_add(k2, INTERVAL 15 HOUR), 'day') AS day_alias, count(*) AS cnt
+                FROM t_test_rollup_partition_mtmv_date_add
+                GROUP BY day_alias;
+        """
+        exception "hour offset should be in range [-14, 14]"
+    }
 }

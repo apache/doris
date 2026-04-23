@@ -97,6 +97,12 @@ public class MTMVPartitionExprDateTruncDateAddSub implements MTMVPartitionExprSe
         } else {
             throw new AnalysisException("only date_add/date_sub is supported in mtmv partition");
         }
+        // Validate hour offset range based on real-world timezone limits:
+        // UTC-12 (Baker Island) to UTC+14 (Line Islands, Kiribati)
+        if (Math.abs(this.offsetHours) > 14) {
+            throw new AnalysisException(
+                    "hour offset should be in range [-14, 14] (timezone limits), got: " + this.offsetHours);
+        }
     }
 
     @Override
@@ -138,6 +144,14 @@ public class MTMVPartitionExprDateTruncDateAddSub implements MTMVPartitionExprSe
                 .getPartitionColumnType(pctTable, mvPartitionInfo.getPartitionColByPctTable(pctTable));
         Preconditions.checkState(partitionKeyDesc.getLowerValues().size() == 1,
                 "only support one partition column");
+
+        // Validate that partition bounds are concrete datetime values, not MINVALUE/MAXVALUE
+        String lowerStr = partitionKeyDesc.getLowerValues().get(0).getStringValue();
+        String upperStr = partitionKeyDesc.getUpperValues().get(0).getStringValue();
+        if ("MINVALUE".equalsIgnoreCase(lowerStr) || "MAXVALUE".equalsIgnoreCase(upperStr)) {
+            throw new AnalysisException(
+                    "date_trunc + date_add/date_sub does not support MINVALUE/MAXVALUE partition bounds");
+        }
 
         DateTimeV2Literal beginBucket = dateTruncByOffset(
                 partitionKeyDesc.getLowerValues().get(0).getStringValue(), Optional.empty());
