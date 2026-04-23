@@ -233,6 +233,7 @@ protected:
         FileReaderOptions opts;
         opts.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
         opts.is_doris_table = true;
+        opts.tablet_id = 10086;
 
         for (size_t i = 0; i < config.file_count; ++i) {
             std::string path =
