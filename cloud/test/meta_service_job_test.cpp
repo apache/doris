@@ -927,7 +927,7 @@ TEST(MetaServiceJobTest, CompactionJobTest) {
         txn->put(stats_key, stats.SerializeAsString());
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
         start_compaction_job(meta_service.get(), tablet_id, job_id, "ip:port", 0, 0, type, res);
-        ASSERT_NE(res.status().msg().find("internal error"), std::string::npos);
+        ASSERT_NE(res.status().msg().find("unexpected error"), std::string::npos);
         idx_pb.set_tablet_id(tablet_id); // Correct tablet_id
         idx_val = idx_pb.SerializeAsString();
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);

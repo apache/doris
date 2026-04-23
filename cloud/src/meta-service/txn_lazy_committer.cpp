@@ -159,24 +159,14 @@ static std::pair<MetaServiceCode, std::string> get_tablet_index(
     std::string msg;
 
     if (!is_versioned_read) {
-        std::string tablet_idx_key = meta_tablet_idx_key({instance_id, tablet_id});
-        std::string tablet_idx_val;
-        TxnErrorCode err = txn->get(tablet_idx_key, &tablet_idx_val, true);
-        if (TxnErrorCode::TXN_OK != err) {
-            code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TXN_ID_NOT_FOUND
-                                                          : cast_as<ErrCategory::READ>(err);
-            ss << "failed to get tablet idx, txn_id=" << txn_id << " key=" << hex(tablet_idx_key)
-               << " err=" << err;
+        std::tie(code, msg) = get_tablet_index(txn, instance_id, tablet_id, tablet_idx, true);
+        if (code != MetaServiceCode::OK) {
+            if (code == MetaServiceCode::TABLET_NOT_FOUND) {
+                code = MetaServiceCode::TXN_ID_NOT_FOUND;
+            }
+            ss << "txn_id=" << txn_id << " " << msg;
             msg = ss.str();
             LOG(WARNING) << msg;
-            return {code, msg};
-        }
-
-        if (!tablet_idx->ParseFromString(tablet_idx_val)) {
-            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-            ss << "failed to parse tablet idx pb txn_id=" << txn_id
-               << " key=" << hex(tablet_idx_key);
-            msg = ss.str();
             return {code, msg};
         }
     } else {

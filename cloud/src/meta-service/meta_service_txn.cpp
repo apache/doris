@@ -1401,53 +1401,6 @@ void process_mow_when_commit_txn(
     lock_values.clear();
 }
 
-std::pair<MetaServiceCode, std::string> get_tablet_indexes(
-        Transaction* txn, std::unordered_map<int64_t, TabletIndexPB>* tablet_indexes,
-        std::string_view instance_id, const std::vector<int64_t>& tablet_ids,
-        bool snapshot = false) {
-    std::vector<std::string> tablet_idx_keys;
-    std::vector<std::optional<std::string>> tablet_idx_values;
-    tablet_idx_keys.reserve(tablet_ids.size());
-    tablet_idx_values.resize(tablet_idx_keys.size());
-
-    for (int64_t tablet_id : tablet_ids) {
-        tablet_idx_keys.push_back(meta_tablet_idx_key({instance_id, tablet_id}));
-    }
-
-    TxnErrorCode err = txn->batch_get(&tablet_idx_values, tablet_idx_keys,
-                                      Transaction::BatchGetOptions(snapshot));
-    if (err != TxnErrorCode::TXN_OK) {
-        auto msg = fmt::format("failed to get tablet table index ids, err={}", err);
-        LOG_WARNING(msg);
-        return {cast_as<ErrCategory::READ>(err), msg};
-    }
-
-    size_t total_tablets = tablet_idx_values.size();
-    for (size_t i = 0; i < total_tablets; i++) {
-        int64_t tablet_id = tablet_ids[i];
-        if (!tablet_idx_values[i].has_value()) [[unlikely]] {
-            // The value must existed
-            auto msg = fmt::format(
-                    "failed to get tablet table index ids, err=not found tablet_id={} ", tablet_id);
-            LOG_WARNING(msg).tag("err", err).tag("key", hex(tablet_idx_keys[i]));
-            return {MetaServiceCode::KV_TXN_GET_ERR, msg};
-        }
-
-        TabletIndexPB tablet_index;
-        if (!tablet_index.ParseFromString(tablet_idx_values[i].value())) [[unlikely]] {
-            auto msg = fmt::format("malformed tablet index value tablet_id={} snapshot={}",
-                                   tablet_id, snapshot);
-            LOG_WARNING(msg).tag("key", hex(tablet_idx_keys[i]));
-            return {MetaServiceCode::PROTOBUF_PARSE_ERR, msg};
-        }
-
-        VLOG_DEBUG << "tablet_id:" << tablet_id << " value:" << tablet_index.ShortDebugString();
-        tablet_indexes->emplace(tablet_id, std::move(tablet_index));
-    }
-
-    return {MetaServiceCode::OK, ""};
-}
-
 std::pair<MetaServiceCode, std::string> get_partition_versions(
         Transaction* txn, std::unordered_map<int64_t, int64_t>* versions,
         int64_t* last_pending_txn_id, std::string_view instance_id,
@@ -2081,17 +2034,17 @@ void repair_tablet_index(
         const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
         bool is_versioned_write) {
     std::stringstream ss;
-    std::vector<std::string> tablet_idx_keys;
+    std::vector<int64_t> tablet_ids;
+    tablet_ids.reserve(tmp_rowsets_meta.size());
     for (auto& [_, i] : tmp_rowsets_meta) {
-        tablet_idx_keys.push_back(meta_tablet_idx_key({instance_id, i.tablet_id()}));
+        tablet_ids.push_back(i.tablet_id());
     }
 
-    for (size_t i = 0; i < tablet_idx_keys.size(); i += config::max_tablet_index_num_per_batch) {
-        size_t end = (i + config::max_tablet_index_num_per_batch) > tablet_idx_keys.size()
-                             ? tablet_idx_keys.size()
+    for (size_t i = 0; i < tablet_ids.size(); i += config::max_tablet_index_num_per_batch) {
+        size_t end = (i + config::max_tablet_index_num_per_batch) > tablet_ids.size()
+                             ? tablet_ids.size()
                              : i + config::max_tablet_index_num_per_batch;
-        const std::vector<std::string> sub_tablet_idx_keys(tablet_idx_keys.begin() + i,
-                                                           tablet_idx_keys.begin() + end);
+        const std::vector<int64_t> sub_tablet_ids(tablet_ids.begin() + i, tablet_ids.begin() + end);
 
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv->create_txn(&txn);
@@ -2103,54 +2056,32 @@ void repair_tablet_index(
             return;
         }
 
-        std::vector<std::optional<std::string>> tablet_idx_values;
-        // batch get snapshot is false
-        err = txn->batch_get(&tablet_idx_values, sub_tablet_idx_keys,
-                             Transaction::BatchGetOptions(false));
-        if (err != TxnErrorCode::TXN_OK) {
-            code = cast_as<ErrCategory::READ>(err);
-            ss << "failed to get tablet table index ids, err=" << err;
-            msg = ss.str();
+        std::unordered_map<int64_t, TabletIndexPB> tablet_indexes;
+        std::tie(code, msg) =
+                get_tablet_indexes(txn.get(), &tablet_indexes, instance_id, sub_tablet_ids);
+        if (code != MetaServiceCode::OK) {
             LOG(WARNING) << msg << " txn_id=" << txn_id;
             return;
         }
-        DCHECK(tablet_idx_values.size() <= config::max_tablet_index_num_per_batch);
 
-        for (size_t j = 0; j < sub_tablet_idx_keys.size(); j++) {
-            if (!tablet_idx_values[j].has_value()) [[unlikely]] {
-                // The value must existed
-                code = MetaServiceCode::KV_TXN_GET_ERR;
-                ss << "failed to get tablet table index ids, err=not found"
-                   << " key=" << hex(tablet_idx_keys[j]);
-                msg = ss.str();
-                LOG(WARNING) << msg << " err=" << err << " txn_id=" << txn_id;
-                return;
-            }
-            TabletIndexPB tablet_idx_pb;
-            if (!tablet_idx_pb.ParseFromString(tablet_idx_values[j].value())) [[unlikely]] {
-                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                ss << "malformed tablet index value key=" << hex(tablet_idx_keys[j])
-                   << " txn_id=" << txn_id;
-                msg = ss.str();
-                LOG(WARNING) << msg;
-                return;
-            }
-
+        for (int64_t tablet_id : sub_tablet_ids) {
+            TabletIndexPB& tablet_idx_pb = tablet_indexes[tablet_id];
             if (!tablet_idx_pb.has_db_id()) {
                 tablet_idx_pb.set_db_id(db_id);
                 std::string idx_val;
                 if (!tablet_idx_pb.SerializeToString(&idx_val)) {
                     code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-                    ss << "failed to serialize tablet index value key=" << hex(tablet_idx_keys[j])
+                    ss << "failed to serialize tablet index value tablet_id=" << tablet_id
                        << " txn_id=" << txn_id;
                     msg = ss.str();
                     LOG(WARNING) << msg;
                     return;
                 }
-                txn->put(sub_tablet_idx_keys[j], idx_val);
+                std::string tablet_idx_key = meta_tablet_idx_key({instance_id, tablet_id});
+                txn->put(tablet_idx_key, idx_val);
                 LOG(INFO) << " repair tablet index txn_id=" << txn_id
                           << " tablet_idx_pb:" << tablet_idx_pb.ShortDebugString()
-                          << " key=" << hex(sub_tablet_idx_keys[j]);
+                          << " key=" << hex(tablet_idx_key);
                 if (is_versioned_write) {
                     std::string versioned_tablet_idx_key =
                             versioned::tablet_index_key({instance_id, tablet_idx_pb.tablet_id()});

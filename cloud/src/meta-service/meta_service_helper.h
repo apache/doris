@@ -23,8 +23,11 @@
 
 #include <iomanip>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <vector>
 
 #include "common/bvars.h"
 #include "common/config.h"
@@ -363,8 +366,83 @@ int decrypt_instance_info(InstanceInfoPB& instance, const std::string& instance_
 void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
                              KVStats* stats, bool include_self = false);
 
-void get_tablet_idx(MetaServiceCode& code, std::string& msg, Transaction* txn,
-                    const std::string& instance_id, int64_t tablet_id, TabletIndexPB& tablet_idx);
+inline std::pair<MetaServiceCode, std::string> get_tablet_index(Transaction* txn,
+                                                                std::string_view instance_id,
+                                                                int64_t tablet_id,
+                                                                TabletIndexPB* tablet_idx,
+                                                                bool snapshot = false) {
+    std::string key = meta_tablet_idx_key({instance_id, tablet_id});
+    std::string value;
+    TxnErrorCode err = txn->get(key, &value, snapshot);
+    if (err != TxnErrorCode::TXN_OK) {
+        std::stringstream ss;
+        ss << "failed to get tablet index, tablet_id=" << tablet_id << " key=" << hex(key)
+           << " err=" << err;
+        return {err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TABLET_NOT_FOUND
+                                                       : cast_as<ErrCategory::READ>(err),
+                ss.str()};
+    }
+
+    if (!tablet_idx->ParseFromString(value)) [[unlikely]] {
+        std::stringstream ss;
+        ss << "malformed tablet index value, tablet_id=" << tablet_id << " key=" << hex(key);
+        return {MetaServiceCode::PROTOBUF_PARSE_ERR, ss.str()};
+    }
+
+    if (tablet_id != tablet_idx->tablet_id()) [[unlikely]] {
+        std::stringstream ss;
+        ss << "unexpected error given_tablet_id=" << tablet_id
+           << " idx_pb_tablet_id=" << tablet_idx->tablet_id() << " key=" << hex(key);
+        return {MetaServiceCode::UNDEFINED_ERR, ss.str()};
+    }
+
+    return {MetaServiceCode::OK, ""};
+}
+
+inline std::pair<MetaServiceCode, std::string> get_tablet_indexes(
+        Transaction* txn, std::unordered_map<int64_t, TabletIndexPB>* tablet_indexes,
+        std::string_view instance_id, const std::vector<int64_t>& tablet_ids,
+        bool snapshot = false) {
+    if (tablet_ids.empty()) {
+        return {MetaServiceCode::OK, ""};
+    }
+
+    std::vector<std::string> tablet_idx_keys;
+    tablet_idx_keys.reserve(tablet_ids.size());
+    for (int64_t tablet_id : tablet_ids) {
+        tablet_idx_keys.push_back(meta_tablet_idx_key({instance_id, tablet_id}));
+    }
+
+    std::vector<std::optional<std::string>> tablet_idx_values;
+    TxnErrorCode err = txn->batch_get(&tablet_idx_values, tablet_idx_keys,
+                                      Transaction::BatchGetOptions(snapshot));
+    if (err != TxnErrorCode::TXN_OK) {
+        std::stringstream ss;
+        ss << "failed to get tablet indexes, err=" << err;
+        return {cast_as<ErrCategory::READ>(err), ss.str()};
+    }
+
+    for (size_t i = 0; i < tablet_ids.size(); ++i) {
+        if (!tablet_idx_values[i].has_value()) [[unlikely]] {
+            std::stringstream ss;
+            ss << "failed to get tablet indexes, err=not found tablet_id=" << tablet_ids[i]
+               << " key=" << hex(tablet_idx_keys[i]);
+            return {MetaServiceCode::KV_TXN_GET_ERR, ss.str()};
+        }
+
+        TabletIndexPB tablet_index;
+        if (!tablet_index.ParseFromString(tablet_idx_values[i].value())) [[unlikely]] {
+            std::stringstream ss;
+            ss << "malformed tablet index value, tablet_id=" << tablet_ids[i]
+               << " key=" << hex(tablet_idx_keys[i]);
+            return {MetaServiceCode::PROTOBUF_PARSE_ERR, ss.str()};
+        }
+
+        tablet_indexes->emplace(tablet_ids[i], std::move(tablet_index));
+    }
+
+    return {MetaServiceCode::OK, ""};
+}
 
 bool is_dropped_tablet(Transaction* txn, const std::string& instance_id, int64_t index_id,
                        int64_t partition_id);

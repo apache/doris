@@ -189,35 +189,6 @@ bool is_dropped_tablet(Transaction* txn, const std::string& instance_id, int64_t
     return false;
 }
 
-void get_tablet_idx(MetaServiceCode& code, std::string& msg, Transaction* txn,
-                    const std::string& instance_id, int64_t tablet_id, TabletIndexPB& tablet_idx) {
-    std::string key, val;
-    meta_tablet_idx_key({instance_id, tablet_id}, &key);
-    TxnErrorCode err = txn->get(key, &val);
-    if (err != TxnErrorCode::TXN_OK) {
-        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            code = MetaServiceCode::TABLET_NOT_FOUND;
-        } else {
-            code = cast_as<ErrCategory::READ>(err);
-        }
-        msg = fmt::format("failed to get tablet_idx, err={} tablet_id={} key={}", err, tablet_id,
-                          hex(key));
-        return;
-    }
-    if (!tablet_idx.ParseFromString(val)) [[unlikely]] {
-        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-        msg = fmt::format("malformed tablet index value, tablet_id={} key={}", tablet_id, hex(key));
-        return;
-    }
-    if (tablet_id != tablet_idx.tablet_id()) [[unlikely]] {
-        code = MetaServiceCode::UNDEFINED_ERR;
-        msg = "internal error";
-        LOG(WARNING) << "unexpected error given_tablet_id=" << tablet_id
-                     << " idx_pb_tablet_id=" << tablet_idx.tablet_id() << " key=" << hex(key);
-        return;
-    }
-}
-
 void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
                                   const GetVersionRequest* request, GetVersionResponse* response,
                                   ::google::protobuf::Closure* done) {
@@ -1044,7 +1015,7 @@ void internal_get_tablet(MetaServiceCode& code, std::string& msg, const std::str
                          bool skip_schema) {
     // TODO: validate request
     TabletIndexPB tablet_idx;
-    get_tablet_idx(code, msg, txn, instance_id, tablet_id, tablet_idx);
+    std::tie(code, msg) = get_tablet_index(txn, instance_id, tablet_id, &tablet_idx);
     if (code != MetaServiceCode::OK) return;
 
     MetaTabletKeyInfo key_info1 {instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
@@ -1519,7 +1490,8 @@ void MetaServiceImpl::prepare_restore_job(::google::protobuf::RpcController* con
 
     // validate request
     TabletIndexPB tablet_idx;
-    get_tablet_idx(code, msg, txn0.get(), instance_id, request->tablet_id(), tablet_idx);
+    std::tie(code, msg) =
+            get_tablet_index(txn0.get(), instance_id, request->tablet_id(), &tablet_idx);
     if (code != MetaServiceCode::OK) {
         return;
     }
@@ -1694,7 +1666,8 @@ void MetaServiceImpl::commit_restore_job(::google::protobuf::RpcController* cont
     }
 
     TabletIndexPB tablet_idx;
-    get_tablet_idx(code, msg, txn0.get(), instance_id, request->tablet_id(), tablet_idx);
+    std::tie(code, msg) =
+            get_tablet_index(txn0.get(), instance_id, request->tablet_id(), &tablet_idx);
     if (code != MetaServiceCode::OK) {
         return;
     }
@@ -2208,7 +2181,8 @@ void MetaServiceImpl::finish_restore_job(::google::protobuf::RpcController* cont
     }
 
     TabletIndexPB tablet_idx;
-    get_tablet_idx(code, msg, txn0.get(), instance_id, request->tablet_id(), tablet_idx);
+    std::tie(code, msg) =
+            get_tablet_index(txn0.get(), instance_id, request->tablet_id(), &tablet_idx);
     if (code != MetaServiceCode::OK) {
         return;
     }
@@ -2330,7 +2304,7 @@ bool check_job_existed(Transaction* txn, MetaServiceCode& code, std::string& msg
                        bool is_versioned_read, ResourceManager* resource_mgr) {
     TabletIndexPB tablet_idx;
     if (!is_versioned_read) {
-        get_tablet_idx(code, msg, txn, instance_id, tablet_id, tablet_idx);
+        std::tie(code, msg) = get_tablet_index(txn, instance_id, tablet_id, &tablet_idx);
         if (code != MetaServiceCode::OK) {
             return false;
         }
@@ -2537,7 +2511,8 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
                 existed_rowset_meta->set_index_id(rowset_meta.index_id());
             } else if (!is_versioned_read) {
                 TabletIndexPB tablet_idx;
-                get_tablet_idx(code, msg, txn.get(), instance_id, tablet_id, tablet_idx);
+                std::tie(code, msg) =
+                        get_tablet_index(txn.get(), instance_id, tablet_id, &tablet_idx);
                 if (code != MetaServiceCode::OK) return;
                 existed_rowset_meta->set_index_id(tablet_idx.index_id());
                 rowset_meta.set_index_id(tablet_idx.index_id());
@@ -2758,8 +2733,8 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
                 existed_rowset_meta->set_index_id(rowset_meta.index_id());
             } else if (!is_versioned_read) {
                 TabletIndexPB tablet_idx;
-                get_tablet_idx(code, msg, txn.get(), instance_id, rowset_meta.tablet_id(),
-                               tablet_idx);
+                std::tie(code, msg) = get_tablet_index(txn.get(), instance_id,
+                                                       rowset_meta.tablet_id(), &tablet_idx);
                 if (code != MetaServiceCode::OK) return;
                 existed_rowset_meta->set_index_id(tablet_idx.index_id());
             } else {
@@ -2804,7 +2779,8 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
     if (config::write_schema_kv && rowset_meta.has_tablet_schema()) {
         if (!rowset_meta.has_index_id() && !is_versioned_read) {
             TabletIndexPB tablet_idx;
-            get_tablet_idx(code, msg, txn.get(), instance_id, rowset_meta.tablet_id(), tablet_idx);
+            std::tie(code, msg) =
+                    get_tablet_index(txn.get(), instance_id, rowset_meta.tablet_id(), &tablet_idx);
             if (code != MetaServiceCode::OK) return;
             rowset_meta.set_index_id(tablet_idx.index_id());
         } else if (!rowset_meta.has_index_id()) {
@@ -3223,7 +3199,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
         TabletIndexPB idx;
         // Get tablet id index from kv
         if (!is_versioned_read) {
-            get_tablet_idx(code, msg, txn.get(), instance_id, tablet_id, idx);
+            std::tie(code, msg) = get_tablet_index(txn.get(), instance_id, tablet_id, &idx);
             if (code != MetaServiceCode::OK) {
                 return;
             }
@@ -3450,7 +3426,8 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
         if (!is_versioned_read) {
             if (!(/* idx.has_db_id() && */ idx.has_table_id() && idx.has_index_id() &&
                   idx.has_partition_id() && i.has_tablet_id())) {
-                get_tablet_idx(code, msg, txn.get(), instance_id, idx.tablet_id(), idx);
+                std::tie(code, msg) =
+                        get_tablet_index(txn.get(), instance_id, idx.tablet_id(), &idx);
                 if (code != MetaServiceCode::OK) return;
             }
             internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, *tablet_stats, true);
@@ -5674,18 +5651,11 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::fix_tablet_db_id(
 
     TabletIndexPB tablet_index_pb;
     std::string key = meta_tablet_idx_key({instance_id, tablet_id});
-    std::string value;
-    err = txn->get(key, &value);
-    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-        std::string msg = fmt::format("tablet index pb not found, key={}", hex(key));
-        return {MetaServiceCode::TABLET_NOT_FOUND, msg};
-    } else if (err != TxnErrorCode::TXN_OK) {
-        std::string msg =
-                fmt::format("failed to get tablet index pb, key={}, err={}", hex(key), err);
-        return {cast_as<ErrCategory::READ>(err), msg};
-    } else if (!tablet_index_pb.ParseFromString(value)) {
-        std::string msg = fmt::format("failed to parse TabletIndexPB, key={}", hex(key));
-        return {MetaServiceCode::PROTOBUF_PARSE_ERR, msg};
+    MetaServiceCode code;
+    std::string msg;
+    std::tie(code, msg) = get_tablet_index(txn.get(), instance_id, tablet_id, &tablet_index_pb);
+    if (code != MetaServiceCode::OK) {
+        return {code, std::move(msg)};
     } else if (tablet_index_pb.db_id() == db_id) {
         LOG(INFO) << "no need to fix tablet db id, same db id, tablet_id=" << tablet_id
                   << ", db_id=" << db_id;
