@@ -168,9 +168,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @SerializedName("tprops")
     private Map<String, String> targetProperties;
 
+    // volatile so ALTER writes are visible to scheduler / RPC reader threads
     @Getter
     @SerializedName("ccn")
-    private String cloudCluster;
+    private volatile String cloudCluster;
 
     // The sampling window starts at the beginning of the sampling window.
     // If the error rate exceeds `max_filter_ratio` within the window, the sampling fails.
