@@ -587,6 +587,11 @@ Status DataTypeStructSerDe::from_string_strict_mode(StringRef& str, IColumn& col
 void DataTypeStructSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                                     const DataTypeSerDe::FormatOptions& options) const {
     const auto& struct_column = assert_cast<const ColumnStruct&>(column);
+
+    // Enable JSON escaping for nested strings in STRUCT
+    FormatOptions struct_options = options;
+    struct_options.escape_char = '\\';
+
     bw.write("{", 1);
     for (size_t idx = 0; idx < elem_serdes_ptrs.size(); idx++) {
         if (idx != 0) {
@@ -594,7 +599,8 @@ void DataTypeStructSerDe::to_string(const IColumn& column, size_t row_num, Buffe
         }
         std::string col_name = "\"" + elem_names[idx] + "\":";
         bw.write(col_name.c_str(), col_name.length());
-        elem_serdes_ptrs[idx]->to_string(struct_column.get_column(idx), row_num, bw, options);
+        elem_serdes_ptrs[idx]->to_string(struct_column.get_column(idx), row_num, bw,
+                                         struct_options);
     }
     bw.write("}", 1);
 }

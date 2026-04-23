@@ -430,7 +430,17 @@ void DataTypeStringSerDeBase<ColumnType>::to_string(const IColumn& column, size_
     const auto& value =
             assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data_at(
                     row_num);
-    bw.write(value.data, value.size);
+
+    if constexpr (std::is_same_v<ColumnType, ColumnString>) {
+        if (_nesting_level > 1 && options.escape_char != 0) {
+            write_with_escaped_char_to_json(value, bw);
+        } else {
+            bw.write(value.data, value.size);
+        }
+    } else {
+        bw.write(value.data, value.size);
+    }
+
     if (_nesting_level > 1) {
         bw.write('"');
     }

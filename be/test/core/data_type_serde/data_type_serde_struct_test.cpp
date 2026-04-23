@@ -158,4 +158,106 @@ TEST_F(DataTypeStructSerDeTest, ArrowMemNotAligned) {
     EXPECT_TRUE(st.ok());
 }
 
+TEST_F(DataTypeStructSerDeTest, SpecialCharactersInStrings) {
+    DataTypeSerDe::FormatOptions options;
+    auto time_zone = cctz::utc_time_zone();
+    options.timezone = &time_zone;
+
+    // Test 1: STRUCT with double quotes
+    {
+        auto struct_type = std::make_shared<DataTypeStruct>(
+                DataTypes {std::make_shared<DataTypeString>()}, Strings {"a"});
+        auto struct_col = struct_type->create_column();
+        auto& struct_column = assert_cast<ColumnStruct&>(*struct_col);
+        auto& string_col = assert_cast<ColumnString&>(struct_column.get_column(0));
+        string_col.insert_data("\"aa\"", 4);
+
+        auto out = ColumnString::create();
+        VectorBufferWriter bw(*out);
+        struct_type->get_serde()->to_string(*struct_col, 0, bw, options);
+        bw.commit();
+        auto result = assert_cast<ColumnString&>(*out).get_data_at(0);
+        std::string result_str(result.data, result.size);
+        EXPECT_EQ(result_str, "{\"a\":\"\\\"aa\\\"\"}");
+    }
+
+    // Test 2: STRUCT with backslashes
+    {
+        auto struct_type = std::make_shared<DataTypeStruct>(
+                DataTypes {std::make_shared<DataTypeString>()}, Strings {"b"});
+        auto struct_col = struct_type->create_column();
+        auto& struct_column = assert_cast<ColumnStruct&>(*struct_col);
+        auto& string_col = assert_cast<ColumnString&>(struct_column.get_column(0));
+        string_col.insert_data("a\\b", 3);
+
+        auto out = ColumnString::create();
+        VectorBufferWriter bw(*out);
+        struct_type->get_serde()->to_string(*struct_col, 0, bw, options);
+        bw.commit();
+        auto result = assert_cast<ColumnString&>(*out).get_data_at(0);
+        std::string result_str(result.data, result.size);
+        EXPECT_EQ(result_str, "{\"b\":\"a\\\\b\"}");
+    }
+
+    // Test 3: STRUCT with newlines and tabs
+    {
+        auto struct_type = std::make_shared<DataTypeStruct>(
+                DataTypes {std::make_shared<DataTypeString>()}, Strings {"c"});
+        auto struct_col = struct_type->create_column();
+        auto& struct_column = assert_cast<ColumnStruct&>(*struct_col);
+        auto& string_col = assert_cast<ColumnString&>(struct_column.get_column(0));
+        string_col.insert_data("a\nb\tc", 5);
+
+        auto out = ColumnString::create();
+        VectorBufferWriter bw(*out);
+        struct_type->get_serde()->to_string(*struct_col, 0, bw, options);
+        bw.commit();
+        auto result = assert_cast<ColumnString&>(*out).get_data_at(0);
+        std::string result_str(result.data, result.size);
+        EXPECT_EQ(result_str, "{\"c\":\"a\\nb\\tc\"}");
+    }
+}
+
+TEST_F(DataTypeStructSerDeTest, TopLevelStringNotEscaped) {
+    DataTypeSerDe::FormatOptions options;
+    auto time_zone = cctz::utc_time_zone();
+    options.timezone = &time_zone;
+
+    auto string_type = std::make_shared<DataTypeString>();
+    auto string_col = string_type->create_column();
+    auto& col = assert_cast<ColumnString&>(*string_col);
+    col.insert_data("\"aa\"", 4);
+    col.insert_data("a\\b", 3);
+    col.insert_data("a\nb\tc", 5);
+
+    // Top-level strings (nesting_level == 1) should NOT be escaped
+    {
+        auto out = ColumnString::create();
+        VectorBufferWriter bw(*out);
+        string_type->get_serde()->to_string(*string_col, 0, bw, options);
+        bw.commit();
+        auto result = assert_cast<ColumnString&>(*out).get_data_at(0);
+        std::string result_str(result.data, result.size);
+        EXPECT_EQ(result_str, "\"aa\"");
+    }
+    {
+        auto out = ColumnString::create();
+        VectorBufferWriter bw(*out);
+        string_type->get_serde()->to_string(*string_col, 1, bw, options);
+        bw.commit();
+        auto result = assert_cast<ColumnString&>(*out).get_data_at(0);
+        std::string result_str(result.data, result.size);
+        EXPECT_EQ(result_str, "a\\b");
+    }
+    {
+        auto out = ColumnString::create();
+        VectorBufferWriter bw(*out);
+        string_type->get_serde()->to_string(*string_col, 2, bw, options);
+        bw.commit();
+        auto result = assert_cast<ColumnString&>(*out).get_data_at(0);
+        std::string result_str(result.data, result.size);
+        EXPECT_EQ(result_str, "a\nb\tc");
+    }
+}
+
 } // namespace doris
