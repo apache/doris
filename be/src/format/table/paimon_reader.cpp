@@ -194,10 +194,6 @@ Status PaimonParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
 }
 
 Status PaimonParquetReader::on_after_init_reader(ReaderInitContext* /*ctx*/) {
-    return _init_deletion_vector();
-}
-
-Status PaimonParquetReader::_init_deletion_vector() {
     const auto& table_desc = get_scan_range().table_format_params.paimon_params;
     if (!table_desc.__isset.deletion_file) {
         return Status::OK();
@@ -206,6 +202,20 @@ Status PaimonParquetReader::_init_deletion_vector() {
     if (!get_scan_range().table_format_params.paimon_params.__isset.row_count) {
         set_push_down_agg_type(TPushAggOp::NONE);
     }
+    _has_pending_dv = true;
+    return Status::OK();
+}
+
+Status PaimonParquetReader::on_before_read_with_deletes() {
+    if (!_has_pending_dv) {
+        return Status::OK();
+    }
+    _has_pending_dv = false;
+    return _init_deletion_vector();
+}
+
+Status PaimonParquetReader::_init_deletion_vector() {
+    const auto& table_desc = get_scan_range().table_format_params.paimon_params;
     const auto& deletion_file = table_desc.deletion_file;
 
     Status create_status = Status::OK();

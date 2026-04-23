@@ -85,6 +85,8 @@ protected:
     // Parquet-specific schema matching via on_before_init_reader hook
     Status on_before_init_reader(ReaderInitContext* ctx) override;
 
+    Status on_before_read_with_deletes() override { return _load_pending_delete_files(); }
+
     std::unique_ptr<GenericReader> _create_equality_reader(
             const TFileRangeDesc& delete_desc) final {
         return ParquetReader::create_unique(this->get_profile(), this->get_scan_params(),

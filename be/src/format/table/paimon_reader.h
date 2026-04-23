@@ -44,6 +44,10 @@ public:
     }
     ~PaimonOrcReader() final = default;
 
+    bool has_delete_operations() const override {
+        return get_scan_range().table_format_params.paimon_params.__isset.deletion_file;
+    }
+
 protected:
     Status on_before_init_reader(ReaderInitContext* ctx) override;
 
@@ -79,10 +83,16 @@ public:
     }
     ~PaimonParquetReader() final = default;
 
+    bool has_delete_operations() const override {
+        return get_scan_range().table_format_params.paimon_params.__isset.deletion_file;
+    }
+
 protected:
     Status on_before_init_reader(ReaderInitContext* ctx) override;
 
     Status on_after_init_reader(ReaderInitContext* /*ctx*/) override;
+
+    Status on_before_read_with_deletes() override;
 
 private:
     void _init_paimon_profile();
@@ -97,6 +107,7 @@ private:
     const std::vector<int64_t>* _delete_rows = nullptr;
     ShardedKVCache* _kv_cache;
     PaimonProfile _paimon_profile;
+    bool _has_pending_dv = false;
 };
 
 } // namespace doris

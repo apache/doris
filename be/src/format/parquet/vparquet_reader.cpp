@@ -911,7 +911,15 @@ Status ParquetReader::_next_row_group_reader() {
     }
 
     // process page index and generate the ranges to read
-    auto& row_group = _t_metadata->row_groups[_current_row_group_index.row_group_id];
+    const auto& row_group = _t_metadata->row_groups[_current_row_group_index.row_group_id];
+
+    // On the first confirmed-viable data read, allow subclasses to complete deferred
+    // delete-file loading before the RowGroupReader is created, ensuring _delete_rows
+    // is set before _get_position_delete_ctx() consumes it.
+    if (!_delete_files_hook_called) {
+        RETURN_IF_ERROR(on_before_read_with_deletes());
+        _delete_files_hook_called = true;
+    }
 
     RowGroupReader::PositionDeleteContext position_delete_ctx =
             _get_position_delete_ctx(row_group, _current_row_group_index);

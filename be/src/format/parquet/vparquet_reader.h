@@ -227,6 +227,12 @@ protected:
         return Status::OK();
     }
 
+    // Called when the first row group passes statistics filtering (min/max, bloom filter),
+    // immediately before the RowGroupReader is created. Subclasses override this to defer
+    // delete file loading until data is confirmed to exist, avoiding wasted IO when all
+    // row groups are filtered out.
+    virtual Status on_before_read_with_deletes() { return Status::OK(); }
+
     // Protected accessors so CRTP mixin subclasses can reach private members
     io::IOContext* get_io_ctx() const { return _io_ctx; }
     std::unordered_map<std::string, uint32_t>*& col_name_to_block_idx_ref() {
@@ -373,6 +379,8 @@ private:
     RowGroupReader::RowGroupIndex _current_row_group_index {-1, 0, 0};
     // read to the end of current reader
     bool _row_group_eof = true;
+    // Ensures on_before_read_with_deletes() fires exactly once per file.
+    bool _delete_files_hook_called = false;
     size_t _total_groups; // num of groups(stripes) of a parquet(orc) file
 
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;

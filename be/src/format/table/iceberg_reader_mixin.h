@@ -30,19 +30,12 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
-#include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "format/generic_reader.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/equality_delete.h"
 #include "format/table/table_schema_change_helper.h"
 #include "runtime/runtime_profile.h"
-#include "runtime/runtime_state.h"
-#include "storage/olap_common.h"
-
-namespace doris {
-class TIcebergDeleteFileDesc;
-} // namespace doris
 
 namespace doris {
 
@@ -106,6 +99,10 @@ public:
     void set_create_row_id_column_iterator_func(
             std::function<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>()> create_func) {
         _create_topn_row_id_column_iterator = create_func;
+    }
+
+    bool has_delete_operations() const override {
+        return !this->get_scan_range().table_format_params.iceberg_params.delete_files.empty();
     }
 
 protected:
@@ -214,6 +211,8 @@ protected:
     // ---- Shared Iceberg methods ----
 
     Status _init_row_filters();
+    Status _prepare_pending_delete_files();
+    Status _load_pending_delete_files();
     Status _position_delete_base(const std::string data_file_path,
                                  const std::vector<TIcebergDeleteFileDesc>& delete_files);
     Status _equality_delete_base(const std::vector<TIcebergDeleteFileDesc>& delete_files);
@@ -319,6 +318,12 @@ protected:
     std::vector<std::string> _all_required_col_names;
     Fileformat _file_format = Fileformat::NONE;
 
+    // Pending position-delete / deletion-vector files accumulated during (_init_row_filters).
+    // They are loaded in on_before_read_with_deletes(), which fires
+    // only after data reads are confirmed necessary (statistics filtering passed).
+    std::vector<TIcebergDeleteFileDesc> _pending_pos_delete_files;
+    std::vector<TIcebergDeleteFileDesc> _pending_dv_files;
+
     const int64_t MIN_SUPPORT_DELETE_FILES_VERSION = 2;
     const std::string ICEBERG_FILE_PATH = "file_path";
     const std::string ICEBERG_ROW_POS = "pos";
@@ -376,43 +381,69 @@ Status IcebergReaderMixin<BaseReader>::_init_row_filters() {
         return Status::OK();
     }
 
-    std::vector<TIcebergDeleteFileDesc> position_delete_files;
     std::vector<TIcebergDeleteFileDesc> equality_delete_files;
-    std::vector<TIcebergDeleteFileDesc> deletion_vector_files;
     for (const TIcebergDeleteFileDesc& desc : table_desc.delete_files) {
         if (desc.content == POSITION_DELETE) {
-            position_delete_files.emplace_back(desc);
+            _pending_pos_delete_files.emplace_back(desc);
+        } else if (desc.content == DELETION_VECTOR) {
+            _pending_dv_files.emplace_back(desc);
         } else if (desc.content == EQUALITY_DELETE) {
             equality_delete_files.emplace_back(desc);
-        } else if (desc.content == DELETION_VECTOR) {
-            deletion_vector_files.emplace_back(desc);
         }
     }
 
+    // Equality delete: load schema AND row data eagerly. The column names/types are
+    // required immediately to configure the projection in _do_init_reader().
     if (!equality_delete_files.empty()) {
         RETURN_IF_ERROR(_equality_delete_base(equality_delete_files));
         this->set_push_down_agg_type(TPushAggOp::NONE);
+        COUNTER_UPDATE(_iceberg_profile.num_delete_files, equality_delete_files.size());
     }
 
-    if (!deletion_vector_files.empty()) {
-        if (deletion_vector_files.size() != 1) [[unlikely]] {
-            /*
-             * Deletion vectors are a binary representation of deletes for a single data file that is more efficient
-             * at execution time than position delete files. Unlike equality or position delete files, there can be
-             * at most one deletion vector for a given data file in a snapshot.
-             */
-            return Status::DataQualityError("This iceberg data file has multiple DVs.");
-        }
-        RETURN_IF_ERROR(
-                read_deletion_vector(table_desc.original_file_path, deletion_vector_files[0]));
-        this->set_push_down_agg_type(TPushAggOp::NONE);
-    } else if (!position_delete_files.empty()) {
-        RETURN_IF_ERROR(
-                _position_delete_base(table_desc.original_file_path, position_delete_files));
-        this->set_push_down_agg_type(TPushAggOp::NONE);
+    DCHECK(_file_format == Fileformat::PARQUET || _file_format == Fileformat::ORC);
+    RETURN_IF_ERROR(_prepare_pending_delete_files());
+    if (_file_format == Fileformat::PARQUET) {
+        // Parquet: statistics filtering (min/max, bloom filter) happens in _next_row_group_reader()
+        // before any data row is read. Defer pos delete / DV IO to on_before_read_with_deletes()
+        // so that if all row groups are statistics-filtered we skip the delete-file IO entirely.
+        // The num_delete_files counter for these is updated inside on_before_read_with_deletes().
+    } else {
+        // ORC: stripe filtering is internal to the ORC library and cannot be intercepted before
+        // IO starts, so there is no safe early-exit point. Load pos delete / DV eagerly.
+        RETURN_IF_ERROR(_load_pending_delete_files());
     }
 
-    COUNTER_UPDATE(_iceberg_profile.num_delete_files, table_desc.delete_files.size());
+    return Status::OK();
+}
+
+template <typename BaseReader>
+Status IcebergReaderMixin<BaseReader>::_prepare_pending_delete_files() {
+    if (_pending_pos_delete_files.empty() && _pending_dv_files.empty()) {
+        return Status::OK();
+    }
+    if (!_pending_dv_files.empty() && _pending_dv_files.size() != 1) [[unlikely]] {
+        return Status::DataQualityError("This iceberg data file has multiple DVs.");
+    }
+    this->set_push_down_agg_type(TPushAggOp::NONE);
+    return Status::OK();
+}
+
+template <typename BaseReader>
+Status IcebergReaderMixin<BaseReader>::_load_pending_delete_files() {
+    if (_pending_pos_delete_files.empty() && _pending_dv_files.empty()) {
+        return Status::OK();
+    }
+    const auto& table_desc = this->get_scan_range().table_format_params.iceberg_params;
+    if (!_pending_dv_files.empty()) {
+        RETURN_IF_ERROR(read_deletion_vector(table_desc.original_file_path, _pending_dv_files[0]));
+        COUNTER_UPDATE(_iceberg_profile.num_delete_files, 1);
+        _pending_dv_files.clear();
+    } else {
+        RETURN_IF_ERROR(
+                _position_delete_base(table_desc.original_file_path, _pending_pos_delete_files));
+        COUNTER_UPDATE(_iceberg_profile.num_delete_files, _pending_pos_delete_files.size());
+        _pending_pos_delete_files.clear();
+    }
     return Status::OK();
 }
 
