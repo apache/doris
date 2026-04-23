@@ -33,8 +33,7 @@ template <>
 inline constexpr bool can_fast_parse_fixed_canonical_time<VecDateTimeValue> = true;
 
 template <>
-inline constexpr bool can_fast_parse_fixed_canonical_time<DateV2Value<DateTimeV2ValueType>> =
-        true;
+inline constexpr bool can_fast_parse_fixed_canonical_time<DateV2Value<DateTimeV2ValueType>> = true;
 
 template <>
 inline constexpr bool can_fast_parse_fixed_canonical_time<DateV2Value<DateV2ValueType>> = true;
@@ -66,11 +65,9 @@ inline PURE uint32_t parse_fixed_four_digit_ascii(const char* ptr) {
 
 template <typename T>
 inline DatelikeFastParseResult try_parse_fixed_canonical_datelike_prefix(const char* ptr,
-                                                                         size_t size,
-                                                                         T& res) {
-    if (size < 10 || ptr[4] != '-' || ptr[7] != '-' ||
-        !is_fixed_four_digit_ascii(ptr) || !is_fixed_two_digit_ascii(ptr + 5) ||
-        !is_fixed_two_digit_ascii(ptr + 8)) {
+                                                                         size_t size, T& res) {
+    if (size < 10 || ptr[4] != '-' || ptr[7] != '-' || !is_fixed_four_digit_ascii(ptr) ||
+        !is_fixed_two_digit_ascii(ptr + 5) || !is_fixed_two_digit_ascii(ptr + 8)) {
         return DatelikeFastParseResult::FAIL;
     }
 

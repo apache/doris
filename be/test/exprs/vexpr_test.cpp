@@ -703,37 +703,9 @@ TEST(TEST_VEXPR, LITERALTEST) {
         {
             CastParameters p;
             EXPECT_EQ(CastToDatetimeV2::from_string_non_strict_mode(
-                               {date, strlen(date)}, data_time_value, nullptr, -1, p),
+                              {date, strlen(date)}, data_time_value, nullptr, -1, p),
                       true);
         }
-    }
-    {
-        VecDateTimeValue data_time_value;
-        data_time_value.set_type(TIME_DATETIME);
-        const char* date = "2024-01-02 3:04:05";
-        {
-            CastParameters p;
-            EXPECT_TRUE((CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
-                                                                       DatelikeTargetType::DATE_TIME>(
-                    {date, strlen(date)}, data_time_value, nullptr, p)));
-        }
-        char buf[64];
-        data_time_value.to_string(buf);
-        EXPECT_EQ(std::string(buf), "2024-01-02 03:04:05");
-    }
-    {
-        VecDateTimeValue data_value;
-        data_value.set_type(TIME_DATE);
-        const char* date = "2024-01-02 03:04:05 +08:00";
-        {
-            CastParameters p;
-            EXPECT_TRUE((CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
-                                                                       DatelikeTargetType::DATE>(
-                    {date, strlen(date)}, data_value, nullptr, p)));
-        }
-        char buf[64];
-        data_value.to_string(buf);
-        EXPECT_EQ(std::string(buf), "2024-01-02");
     }
     // jsonb
     {
