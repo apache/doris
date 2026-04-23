@@ -28,6 +28,7 @@
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 #include "recycler/storage_vault_accessor.h"
 #include "recycler/white_black_list.h"
@@ -81,6 +82,15 @@ private:
 
 class InstanceChecker {
 public:
+    struct ObjectCheckResult {
+        long num_scanned {0};
+        long num_scanned_with_segment {0};
+        long num_rowset_loss {0};
+        long checked_volume_bytes {0};
+        std::vector<std::string> missing_segment_files;
+        std::vector<std::string> missing_index_files;
+    };
+
     explicit InstanceChecker(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id);
     // Return 0 if success, otherwise error
     int init(const InstanceInfoPB& instance);
@@ -93,6 +103,11 @@ public:
     // Return 1 if data loss is identified.
     // Return negative if a temporary error occurred during the check process.
     int do_check();
+
+    // Return 0 if success.
+    // Return 1 if data loss is identified.
+    // Return negative if a temporary error occurred during the check process.
+    int do_tablet_check(int64_t tablet_id, ObjectCheckResult* result);
 
     // Return 0 if success.
     // Return 1 if delete bitmap leak is identified.
@@ -171,12 +186,23 @@ private:
         std::unordered_set<int64_t> segment_ids;
     };
 
+    struct TabletFilesCache {
+        int64_t tablet_id {0};
+        std::unordered_set<std::string> files;
+    };
+
 private:
     // returns 0 for success otherwise error
     int init_obj_store_accessors(const InstanceInfoPB& instance);
 
     // returns 0 for success otherwise error
     int init_storage_vault_accessors(const InstanceInfoPB& instance);
+
+    int load_tablet_files(const doris::RowsetMetaCloudPB& rs_meta, TabletFilesCache* cache,
+                          long* checked_volume_bytes);
+
+    int check_rowset_objects(doris::RowsetMetaCloudPB& rs_meta, std::string_view key,
+                             TabletFilesCache* cache, ObjectCheckResult* result);
 
     int traverse_mow_tablet(const std::function<int(int64_t, bool)>& check_func);
     int traverse_rowset_delete_bitmaps(

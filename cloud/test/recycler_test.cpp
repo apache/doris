@@ -4117,6 +4117,73 @@ TEST(CheckerTest, normal) {
     ASSERT_EQ(checker.do_check(), 0);
 }
 
+TEST(CheckerTest, tablet_check_normal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    auto accessor = checker.accessor_map_.begin()->second;
+    for (int v = 0; v < 3; ++v) {
+        create_committed_rowset(txn_kv.get(), accessor.get(), "1", 10001, v, 20002, 2);
+        create_committed_rowset(txn_kv.get(), accessor.get(), "1", 10002, v, 20004, 2);
+    }
+
+    InstanceChecker::ObjectCheckResult result;
+    ASSERT_EQ(checker.do_tablet_check(10001, &result), 0);
+    EXPECT_EQ(result.num_scanned, 3);
+    EXPECT_EQ(result.num_scanned_with_segment, 3);
+    EXPECT_EQ(result.num_rowset_loss, 0);
+    EXPECT_GT(result.checked_volume_bytes, 0);
+    EXPECT_TRUE(result.missing_segment_files.empty());
+    EXPECT_TRUE(result.missing_index_files.empty());
+}
+
+TEST(CheckerTest, tablet_check_abnormal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    auto accessor = checker.accessor_map_.begin()->second;
+    for (int v = 0; v < 3; ++v) {
+        create_committed_rowset(txn_kv.get(), accessor.get(), "1", 10001, v, 20002, 1);
+        create_committed_rowset(txn_kv.get(), accessor.get(), "1", 10002, v, 20004, 1);
+    }
+
+    std::unique_ptr<ListIterator> list_iter;
+    ASSERT_EQ(0, accessor->list_directory(tablet_path_prefix(10001), &list_iter));
+    auto file = list_iter->next();
+    ASSERT_TRUE(file.has_value());
+    std::string deleted_path = file->path;
+    ASSERT_EQ(0, accessor->delete_file(deleted_path));
+
+    InstanceChecker::ObjectCheckResult bad_result;
+    ASSERT_EQ(checker.do_tablet_check(10001, &bad_result), 1);
+    EXPECT_EQ(bad_result.num_scanned, 3);
+    EXPECT_EQ(bad_result.num_rowset_loss, 1);
+    EXPECT_NE(std::find(bad_result.missing_segment_files.begin(),
+                        bad_result.missing_segment_files.end(), deleted_path),
+              bad_result.missing_segment_files.end());
+
+    InstanceChecker::ObjectCheckResult good_result;
+    ASSERT_EQ(checker.do_tablet_check(10002, &good_result), 0);
+    EXPECT_EQ(good_result.num_scanned, 3);
+    EXPECT_EQ(good_result.num_rowset_loss, 0);
+    EXPECT_TRUE(good_result.missing_segment_files.empty());
+}
+
 TEST(CheckerTest, abnormal) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
