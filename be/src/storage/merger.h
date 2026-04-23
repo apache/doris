@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <functional>
 #include <vector>
 
 #include "common/status.h"
@@ -37,6 +38,9 @@ class SegmentWriter;
 
 class RowSourcesBuffer;
 class VerticalBlockReader;
+
+using VerticalCompactionProgressCallback =
+        std::function<void(int64_t total_groups, int64_t completed_groups)>;
 
 class Merger {
 public:
@@ -66,7 +70,7 @@ public:
             BaseTabletSPtr tablet, ReaderType reader_type, const TabletSchema& tablet_schema,
             const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
             RowsetWriter* dst_rowset_writer, uint32_t max_rows_per_segment, int64_t merge_way_num,
-            Statistics* stats_output);
+            Statistics* stats_output, VerticalCompactionProgressCallback progress_cb = nullptr);
 
     // for vertical compaction
     static void vertical_split_columns(const TabletSchema& tablet_schema,

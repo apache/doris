@@ -117,4 +117,59 @@ public class SessionVariablesTest extends TestWithFeService {
         sv.enableStrictConsistencyDml = false;
         Assertions.assertFalse(sv.isEnableStrictConsistencyDml());
     }
+
+    @Test
+    public void testMorValuePredicatePushdownEnabled() {
+        SessionVariable sv = new SessionVariable();
+
+        // default empty string — disabled for all tables
+        Assertions.assertFalse(sv.isMorValuePredicatePushdownEnabled("db1", "tbl1"));
+
+        // wildcard enables all tables
+        sv.enableMorValuePredicatePushdownTables = "*";
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled("db1", "tbl1"));
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled(null, "tbl1"));
+
+        // single table name without db — matches any database
+        sv.enableMorValuePredicatePushdownTables = "tbl1";
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled("db1", "tbl1"));
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled("db2", "tbl1"));
+        Assertions.assertFalse(sv.isMorValuePredicatePushdownEnabled("db1", "tbl2"));
+
+        // table name with db prefix — must match both
+        sv.enableMorValuePredicatePushdownTables = "db1.tbl1";
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled("db1", "tbl1"));
+        Assertions.assertFalse(sv.isMorValuePredicatePushdownEnabled("db2", "tbl1"));
+
+        // multiple tables comma-separated
+        sv.enableMorValuePredicatePushdownTables = "db1.tbl1,tbl2";
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled("db1", "tbl1"));
+        Assertions.assertFalse(sv.isMorValuePredicatePushdownEnabled("db2", "tbl1"));
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled("db2", "tbl2"));
+
+        // case-insensitive matching
+        sv.enableMorValuePredicatePushdownTables = "DB1.TBL1";
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled("db1", "tbl1"));
+
+        // whitespace handling
+        sv.enableMorValuePredicatePushdownTables = " tbl1 , db2.tbl2 ";
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled("db1", "tbl1"));
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled("db2", "tbl2"));
+        Assertions.assertFalse(sv.isMorValuePredicatePushdownEnabled("db1", "tbl2"));
+
+        // null dbName — matches table-only entries, not db-qualified entries
+        sv.enableMorValuePredicatePushdownTables = "tbl1,db2.tbl2";
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled(null, "tbl1"));
+        Assertions.assertFalse(sv.isMorValuePredicatePushdownEnabled(null, "tbl2"));
+
+        // consecutive commas / empty entries
+        sv.enableMorValuePredicatePushdownTables = "tbl1,,tbl2";
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled("db1", "tbl1"));
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled("db1", "tbl2"));
+
+        // ctl.db.table format — matches on db and table components
+        sv.enableMorValuePredicatePushdownTables = "ctl1.db1.tbl1";
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled("db1", "tbl1"));
+        Assertions.assertFalse(sv.isMorValuePredicatePushdownEnabled("db2", "tbl1"));
+    }
 }

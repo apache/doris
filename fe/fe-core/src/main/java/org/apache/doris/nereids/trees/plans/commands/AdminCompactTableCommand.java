@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -33,16 +32,12 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.util.List;
 
 /**
  * AdminCompactTableCommand
  */
 public class AdminCompactTableCommand extends Command implements ForwardWithSync {
-    private static final Logger LOG = LogManager.getLogger(AdminCompactTableCommand.class);
     private TableRefInfo tableRefInfo;
     private EqualTo where;
 
@@ -51,7 +46,8 @@ public class AdminCompactTableCommand extends Command implements ForwardWithSync
      */
     public enum CompactionType {
         CUMULATIVE,
-        BASE
+        BASE,
+        FULL
     }
 
     private CompactionType typeFilter;
@@ -92,12 +88,12 @@ public class AdminCompactTableCommand extends Command implements ForwardWithSync
         // analyze where clause if not null
         if (where == null) {
             throw new AnalysisException("Compaction type must be specified in"
-                + " Where clause like: type = 'BASE/CUMULATIVE'");
+                + " Where clause like: type = 'BASE/CUMULATIVE/FULL'");
         }
 
         if (!analyzeWhere()) {
             throw new AnalysisException(
-                "Where clause should looks like: type = 'BASE/CUMULATIVE'");
+                "Where clause should looks like: type = 'BASE/CUMULATIVE/FULL'");
         }
     }
 
@@ -108,11 +104,9 @@ public class AdminCompactTableCommand extends Command implements ForwardWithSync
             return false;
         }
 
-        if (typeFilter == null || (typeFilter != CompactionType.CUMULATIVE && typeFilter != CompactionType.BASE)) {
-            return false;
-        }
-
-        return true;
+        return typeFilter == CompactionType.CUMULATIVE
+                || typeFilter == CompactionType.BASE
+                || typeFilter == CompactionType.FULL;
     }
 
     @Override
@@ -121,16 +115,15 @@ public class AdminCompactTableCommand extends Command implements ForwardWithSync
     }
 
     private String getCompactionType() {
-        if (typeFilter == CompactionType.CUMULATIVE) {
-            return "cumulative";
-        } else {
-            return "base";
+        switch (typeFilter) {
+            case CUMULATIVE:
+                return "cumulative";
+            case BASE:
+                return "base";
+            case FULL:
+                return "full";
+            default:
+                throw new IllegalStateException("unexpected compaction type: " + typeFilter);
         }
-    }
-
-    @Override
-    protected void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {
-        LOG.info("AdminCompactTableCommand not supported in cloud mode");
-        throw new DdlException("Unsupported operation");
     }
 }

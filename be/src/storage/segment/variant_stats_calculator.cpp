@@ -37,7 +37,7 @@ VariantStatsCaculator::VariantStatsCaculator(SegmentFooterPB* footer,
         const auto& column = _footer->columns(i);
         // path that need to record stats
         if (column.has_column_path_info() &&
-            column.column_path_info().parrent_column_unique_id() > 0) {
+            column.column_path_info().has_parrent_column_unique_id()) {
             _path_to_footer_index[column.column_path_info().parrent_column_unique_id()]
                                  [column.column_path_info().path()] = i;
         }
@@ -50,7 +50,7 @@ Status VariantStatsCaculator::calculate_variant_stats(const Block* block, size_t
         const TabletColumn& tablet_column = _tablet_schema->column(_column_ids[i]);
         // Only process sub columns and sparse columns during compaction
         if (tablet_column.has_path_info() && tablet_column.path_info_ptr()->need_record_stats() &&
-            tablet_column.parent_unique_id() > 0) {
+            tablet_column.parent_unique_id() >= 0) {
             const std::string& column_path = tablet_column.path_info_ptr()->get_path();
             // Find the parent column in footer
             auto it = _path_to_footer_index.find(tablet_column.parent_unique_id());

@@ -28,6 +28,7 @@
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -35,6 +36,7 @@
 #include "common/status.h"
 #include "io/io_common.h"
 #include "runtime/runtime_profile.h"
+#include "storage/compaction_task_tracker.h"
 #include "storage/merger.h"
 #include "storage/olap_common.h"
 #include "storage/rowid_conversion.h"
@@ -75,6 +77,21 @@ public:
     virtual ReaderType compaction_type() const = 0;
     virtual std::string_view compaction_name() const = 0;
 
+    // Returns compaction profile type for task tracking.
+    // Default returns std::nullopt (not tracked). Only base/cumulative/full override.
+    virtual std::optional<CompactionProfileType> profile_type() const { return std::nullopt; }
+
+    // Accessors for tracker registration
+    int64_t compaction_id() const { return _compaction_id; }
+    int64_t input_rowsets_data_size() const { return _input_rowsets_data_size; }
+    int64_t input_rowsets_index_size() const { return _input_rowsets_index_size; }
+    int64_t input_rowsets_total_size() const { return _input_rowsets_total_size; }
+    int64_t input_row_num_value() const { return _input_row_num; }
+    int64_t input_rowsets_count() const { return static_cast<int64_t>(_input_rowsets.size()); }
+    virtual int64_t input_segments_num_value() const { return _input_num_segments; }
+    bool is_vertical() const { return _is_vertical; }
+    std::string input_version_range_str() const;
+
     // the difference between index change compmaction and other compaction.
     // 1. delete predicate should be kept when input is cumu rowset.
     // 2. inverted compaction should be skipped.
@@ -109,6 +126,11 @@ protected:
     int64_t merge_way_num();
 
     virtual Status update_delete_bitmap() = 0;
+
+    int64_t _compaction_id {0};
+
+    void submit_profile_record(bool success, int64_t start_time_ms,
+                               const std::string& status_msg = "");
 
     // the root tracker for this compaction
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;

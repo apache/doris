@@ -61,6 +61,7 @@
 #include "runtime/memory/cache_manager.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
+#include "storage/compaction_task_tracker.h"
 #include "storage/storage_policy.h"
 #include "util/parse_util.h"
 #include "util/time.h"
@@ -801,7 +802,8 @@ Status CloudStorageEngine::_request_tablet_global_compaction_lock(
     }
 }
 
-Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& tablet) {
+Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& tablet,
+                                                        int trigger_method) {
     using namespace std::chrono;
     {
         std::lock_guard lock(_compaction_mtx);
@@ -824,6 +826,32 @@ Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& t
         _submitted_base_compactions.erase(tablet->tablet_id());
         return st;
     }
+    // Register task with CompactionTaskTracker as PENDING
+    auto* tracker = CompactionTaskTracker::instance();
+    int64_t compaction_id = compaction->compaction_id();
+    {
+        CompactionTaskInfo info;
+        info.compaction_id = compaction_id;
+        info.tablet_id = tablet->tablet_id();
+        info.table_id = tablet->table_id();
+        info.partition_id = tablet->partition_id();
+        info.compaction_type = CompactionProfileType::BASE;
+        info.status = CompactionTaskStatus::PENDING;
+        info.trigger_method = static_cast<TriggerMethod>(trigger_method);
+        info.scheduled_time_ms =
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        info.backend_id = BackendOptions::get_backend_id();
+        info.compaction_score = tablet->get_real_compaction_score();
+        info.input_rowsets_count = compaction->input_rowsets_count();
+        info.input_row_num = compaction->input_row_num_value();
+        info.input_data_size = compaction->input_rowsets_data_size();
+        info.input_index_size = compaction->input_rowsets_index_size();
+        info.input_total_size = compaction->input_rowsets_total_size();
+        info.input_segments_num = compaction->input_segments_num_value();
+        info.input_version_range = compaction->input_version_range_str();
+        info.is_vertical = compaction->is_vertical();
+        tracker->register_task(std::move(info));
+    }
     {
         std::lock_guard lock(_compaction_mtx);
         _submitted_base_compactions[tablet->tablet_id()] = compaction;
@@ -835,6 +863,8 @@ Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& t
         g_base_compaction_running_task_count << 1;
         signal::tablet_id = tablet->tablet_id();
         Defer defer {[&]() {
+            // Idempotent cleanup: remove task from tracker
+            CompactionTaskTracker::instance()->remove_task(compaction_id);
             g_base_compaction_running_task_count << -1;
             std::lock_guard lock(_compaction_mtx);
             _submitted_base_compactions.erase(tablet->tablet_id());
@@ -845,6 +875,13 @@ Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& t
         auto st = _request_tablet_global_compaction_lock(ReaderType::READER_BASE_COMPACTION, tablet,
                                                          compaction);
         if (!st.ok()) return;
+        // Update tracker to RUNNING after acquiring global lock
+        {
+            RunningStats rs;
+            rs.start_time_ms =
+                    duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+            CompactionTaskTracker::instance()->update_to_running(compaction_id, rs);
+        }
         st = compaction->execute_compact();
         if (!st.ok()) {
             // Error log has been output in `execute_compact`
@@ -857,6 +894,7 @@ Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& t
     DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
             _base_compaction_thread_pool->get_queue_size());
     if (!st.ok()) {
+        tracker->remove_task(compaction_id);
         std::lock_guard lock(_compaction_mtx);
         _submitted_base_compactions.erase(tablet->tablet_id());
         return Status::InternalError("failed to submit base compaction, tablet_id={}",
@@ -865,7 +903,8 @@ Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& t
     return st;
 }
 
-Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletSPtr& tablet) {
+Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletSPtr& tablet,
+                                                              int trigger_method) {
     using namespace std::chrono;
     {
         std::lock_guard lock(_compaction_mtx);
@@ -897,6 +936,34 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
         std::lock_guard lock(_compaction_mtx);
         _tablet_preparing_cumu_compaction.erase(tablet->tablet_id());
         return st;
+    }
+    // Register task with CompactionTaskTracker as PENDING
+    // IMPORTANT: use compaction->compaction_id(), NOT tracker->next_compaction_id(),
+    // because the Compaction constructor already allocated an ID via the tracker.
+    auto* tracker = CompactionTaskTracker::instance();
+    int64_t compaction_id = compaction->compaction_id();
+    {
+        CompactionTaskInfo info;
+        info.compaction_id = compaction_id;
+        info.tablet_id = tablet->tablet_id();
+        info.table_id = tablet->table_id();
+        info.partition_id = tablet->partition_id();
+        info.compaction_type = CompactionProfileType::CUMULATIVE;
+        info.status = CompactionTaskStatus::PENDING;
+        info.trigger_method = static_cast<TriggerMethod>(trigger_method);
+        info.scheduled_time_ms =
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        info.backend_id = BackendOptions::get_backend_id();
+        info.compaction_score = tablet->get_real_compaction_score();
+        info.input_rowsets_count = compaction->input_rowsets_count();
+        info.input_row_num = compaction->input_row_num_value();
+        info.input_data_size = compaction->input_rowsets_data_size();
+        info.input_index_size = compaction->input_rowsets_index_size();
+        info.input_total_size = compaction->input_rowsets_total_size();
+        info.input_segments_num = compaction->input_segments_num_value();
+        info.input_version_range = compaction->input_version_range_str();
+        info.is_vertical = compaction->is_vertical();
+        tracker->register_task(std::move(info));
     }
     {
         std::lock_guard lock(_compaction_mtx);
@@ -947,6 +1014,8 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
         Defer defer {[&]() {
             DBUG_EXECUTE_IF("CloudStorageEngine._submit_cumulative_compaction_task.sleep",
                             { sleep(5); })
+            // Idempotent cleanup: remove task from tracker
+            CompactionTaskTracker::instance()->remove_task(compaction_id);
             std::lock_guard lock(_cumu_compaction_delay_mtx);
             _cumu_compaction_thread_pool_used_threads--;
             if (!is_large_task) {
@@ -961,6 +1030,13 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
         auto st = _request_tablet_global_compaction_lock(ReaderType::READER_CUMULATIVE_COMPACTION,
                                                          tablet, compaction);
         if (!st.ok()) return;
+        // Update tracker to RUNNING after acquiring global lock
+        {
+            RunningStats rs;
+            rs.start_time_ms =
+                    duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+            CompactionTaskTracker::instance()->update_to_running(compaction_id, rs);
+        }
         do {
             std::lock_guard lock(_cumu_compaction_delay_mtx);
             _cumu_compaction_thread_pool_used_threads++;
@@ -1012,6 +1088,7 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
     DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
             _cumu_compaction_thread_pool->get_queue_size());
     if (!st.ok()) {
+        tracker->remove_task(compaction_id);
         erase_submitted_cumu_compaction();
         return Status::InternalError("failed to submit cumu compaction, tablet_id={}",
                                      tablet->tablet_id());
@@ -1019,7 +1096,8 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
     return st;
 }
 
-Status CloudStorageEngine::_submit_full_compaction_task(const CloudTabletSPtr& tablet) {
+Status CloudStorageEngine::_submit_full_compaction_task(const CloudTabletSPtr& tablet,
+                                                        int trigger_method) {
     using namespace std::chrono;
     {
         std::lock_guard lock(_compaction_mtx);
@@ -1041,6 +1119,32 @@ Status CloudStorageEngine::_submit_full_compaction_task(const CloudTabletSPtr& t
         _submitted_full_compactions.erase(tablet->tablet_id());
         return st;
     }
+    // Register task with CompactionTaskTracker as PENDING
+    auto* tracker = CompactionTaskTracker::instance();
+    int64_t compaction_id = compaction->compaction_id();
+    {
+        CompactionTaskInfo info;
+        info.compaction_id = compaction_id;
+        info.tablet_id = tablet->tablet_id();
+        info.table_id = tablet->table_id();
+        info.partition_id = tablet->partition_id();
+        info.compaction_type = CompactionProfileType::FULL;
+        info.status = CompactionTaskStatus::PENDING;
+        info.trigger_method = static_cast<TriggerMethod>(trigger_method);
+        info.scheduled_time_ms =
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        info.backend_id = BackendOptions::get_backend_id();
+        info.compaction_score = tablet->get_real_compaction_score();
+        info.input_rowsets_count = compaction->input_rowsets_count();
+        info.input_row_num = compaction->input_row_num_value();
+        info.input_data_size = compaction->input_rowsets_data_size();
+        info.input_index_size = compaction->input_rowsets_index_size();
+        info.input_total_size = compaction->input_rowsets_total_size();
+        info.input_segments_num = compaction->input_segments_num_value();
+        info.input_version_range = compaction->input_version_range_str();
+        info.is_vertical = compaction->is_vertical();
+        tracker->register_task(std::move(info));
+    }
     {
         std::lock_guard lock(_compaction_mtx);
         _submitted_full_compactions[tablet->tablet_id()] = compaction;
@@ -1049,6 +1153,8 @@ Status CloudStorageEngine::_submit_full_compaction_task(const CloudTabletSPtr& t
         g_full_compaction_running_task_count << 1;
         signal::tablet_id = tablet->tablet_id();
         Defer defer {[&]() {
+            // Idempotent cleanup: remove task from tracker
+            CompactionTaskTracker::instance()->remove_task(compaction_id);
             g_full_compaction_running_task_count << -1;
             std::lock_guard lock(_compaction_mtx);
             _submitted_full_compactions.erase(tablet->tablet_id());
@@ -1056,6 +1162,13 @@ Status CloudStorageEngine::_submit_full_compaction_task(const CloudTabletSPtr& t
         auto st = _request_tablet_global_compaction_lock(ReaderType::READER_FULL_COMPACTION, tablet,
                                                          compaction);
         if (!st.ok()) return;
+        // Update tracker to RUNNING after acquiring global lock
+        {
+            RunningStats rs;
+            rs.start_time_ms =
+                    duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+            CompactionTaskTracker::instance()->update_to_running(compaction_id, rs);
+        }
         st = compaction->execute_compact();
         if (!st.ok()) {
             // Error log has been output in `execute_compact`
@@ -1066,6 +1179,7 @@ Status CloudStorageEngine::_submit_full_compaction_task(const CloudTabletSPtr& t
         _executing_full_compactions.erase(tablet->tablet_id());
     });
     if (!st.ok()) {
+        tracker->remove_task(compaction_id);
         std::lock_guard lock(_compaction_mtx);
         _submitted_full_compactions.erase(tablet->tablet_id());
         return Status::InternalError("failed to submit full compaction, tablet_id={}",
@@ -1075,19 +1189,20 @@ Status CloudStorageEngine::_submit_full_compaction_task(const CloudTabletSPtr& t
 }
 
 Status CloudStorageEngine::submit_compaction_task(const CloudTabletSPtr& tablet,
-                                                  CompactionType compaction_type) {
+                                                  CompactionType compaction_type,
+                                                  int trigger_method) {
     DCHECK(compaction_type == CompactionType::CUMULATIVE_COMPACTION ||
            compaction_type == CompactionType::BASE_COMPACTION ||
            compaction_type == CompactionType::FULL_COMPACTION);
     switch (compaction_type) {
     case CompactionType::BASE_COMPACTION:
-        RETURN_IF_ERROR(_submit_base_compaction_task(tablet));
+        RETURN_IF_ERROR(_submit_base_compaction_task(tablet, trigger_method));
         return Status::OK();
     case CompactionType::CUMULATIVE_COMPACTION:
-        RETURN_IF_ERROR(_submit_cumulative_compaction_task(tablet));
+        RETURN_IF_ERROR(_submit_cumulative_compaction_task(tablet, trigger_method));
         return Status::OK();
     case CompactionType::FULL_COMPACTION:
-        RETURN_IF_ERROR(_submit_full_compaction_task(tablet));
+        RETURN_IF_ERROR(_submit_full_compaction_task(tablet, trigger_method));
         return Status::OK();
     default:
         return Status::InternalError("unknown compaction type!");

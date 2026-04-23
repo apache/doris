@@ -195,6 +195,9 @@ public:
 
         bool is_segcompaction = false;
 
+        // Enable value predicate pushdown for MOR tables
+        bool enable_mor_value_predicate_pushdown = false;
+
         std::vector<RowwiseIteratorUPtr>* segment_iters_ptr = nullptr;
 
         void check_validation() const;
