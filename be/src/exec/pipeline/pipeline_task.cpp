@@ -27,6 +27,7 @@
 #include <ostream>
 #include <vector>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/block/block.h"
