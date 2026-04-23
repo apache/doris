@@ -63,8 +63,10 @@ suite("test_hive_date_timezone", "p0,external") {
             def parquetTimestampFixedOffset = sql """select timestamp_col from parquet_primitive_types_to_timestamp order by id"""
             sql """set time_zone = '+8:00'"""
             def parquetTimestampShortOffset = sql """select timestamp_col from parquet_primitive_types_to_timestamp order by id"""
-            sql """set time_zone = 'Asia/Tokyo'"""
-            def parquetTimestampTokyo = sql """select timestamp_col from parquet_primitive_types_to_timestamp order by id"""
+            sql """set time_zone = 'Etc/GMT-8'"""
+            def parquetTimestampEtcGmtMinus8 = sql """select timestamp_col from parquet_primitive_types_to_timestamp order by id"""
+            sql """set time_zone = '-06:00'"""
+            def parquetTimestampFixedMexicoOffset = sql """select timestamp_col from parquet_primitive_types_to_timestamp order by id"""
             sql """set time_zone = 'America/Mexico_City'"""
             def parquetTimestampMexicoCity = sql """select timestamp_col from parquet_primitive_types_to_timestamp order by id"""
 
@@ -72,14 +74,12 @@ suite("test_hive_date_timezone", "p0,external") {
             assertEquals(parquetTimestampUtc, parquetTimestampEtcUtc)
             // These inputs are normalized to the same fixed offset and should match exactly.
             assertEquals(parquetTimestampFixedOffset, parquetTimestampShortOffset)
-            // Asia/Tokyo is a named timezone, but for these sample timestamps it should
-            // resolve to the same local wall clock values as +08:00.
-            assertEquals(parquetTimestampFixedOffset, parquetTimestampTokyo)
-            // America/Mexico_City must still read through the named-timezone path. The row
-            // count should be stable, while the rendered local timestamp values should differ
-            // from UTC for this dataset.
+            // Etc/GMT-8 is a fixed-offset TZDB name. The sign is POSIX-style, so it means UTC+8.
+            assertEquals(parquetTimestampFixedOffset, parquetTimestampEtcGmtMinus8)
+            // America/Mexico_City must still read through the named-timezone path, not a constant
+            // -06:00 offset. This fixture contains a 2022 DST timestamp that makes the results differ.
             assertEquals(parquetTimestampUtc.size(), parquetTimestampMexicoCity.size())
-            assertTrue(parquetTimestampUtc != parquetTimestampMexicoCity)
+            assertTrue(parquetTimestampFixedMexicoOffset != parquetTimestampMexicoCity)
         } finally {
             sql """set time_zone = default"""
             sql """switch internal"""
