@@ -328,7 +328,8 @@ Status FSFileCacheStorage::finalize(const FileCacheKey& key, const size_t size) 
         // failure must degrade to an empty context id instead of affecting cache writes.
         context_id =
                 _meta_store->get_or_create_context_id(key.meta.table_name, key.meta.partition_name);
-        _meta_store->put(mkey, BlockMeta(key.meta.type, size, key.meta.expiration_time, context_id));
+        _meta_store->put(mkey,
+                         BlockMeta(key.meta.type, size, key.meta.expiration_time, context_id));
     }
 
     return Status::OK();

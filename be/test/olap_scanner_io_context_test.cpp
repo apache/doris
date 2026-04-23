@@ -75,9 +75,8 @@ protected:
 };
 
 TEST_F(OlapScannerIOContextTest, ConstructorStoresRangeFileCacheContext) {
-    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), plan_node, 0,
-                                                             *descriptor_table, 1,
-                                                             TQueryCacheParam {});
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(
+            obj_pool.get(), plan_node, 0, *descriptor_table, 1, TQueryCacheParam {});
     auto local_state = OlapScanLocalState::create_unique(&runtime_state, scan_operator.get());
 
     OlapScanner::Params params;

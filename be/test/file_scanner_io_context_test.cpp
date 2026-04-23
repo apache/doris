@@ -61,8 +61,8 @@ protected:
 
         ASSERT_TRUE(DescriptorTbl::create(obj_pool.get(), thrift_desc_tbl, &descriptor_table).ok());
 
-        scan_operator =
-                std::make_unique<FileScanOperatorX>(obj_pool.get(), plan_node, 0, *descriptor_table, 1);
+        scan_operator = std::make_unique<FileScanOperatorX>(obj_pool.get(), plan_node, 0,
+                                                            *descriptor_table, 1);
         local_state = FileScanLocalState::create_unique(&runtime_state, scan_operator.get());
     }
 

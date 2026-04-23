@@ -40,13 +40,13 @@ using ScannerSPtr = std::shared_ptr<Scanner>;
 
 class ParallelScannerBuilder {
 public:
-    ParallelScannerBuilder(OlapScanLocalState* parent,
-                           const std::vector<TabletWithVersion>& tablets,
-                           std::vector<TabletReadSource>& read_sources,
-                           const std::shared_ptr<RuntimeProfile>& profile,
-                           std::unordered_map<int64_t, std::pair<std::string, std::string>> tablet_contexts,
-                           const std::vector<OlapScanRange*>& key_ranges, RuntimeState* state, int64_t limit,
-                           bool is_dup_mow_key, bool is_preaggregation)
+    ParallelScannerBuilder(
+            OlapScanLocalState* parent, const std::vector<TabletWithVersion>& tablets,
+            std::vector<TabletReadSource>& read_sources,
+            const std::shared_ptr<RuntimeProfile>& profile,
+            std::unordered_map<int64_t, std::pair<std::string, std::string>> tablet_contexts,
+            const std::vector<OlapScanRange*>& key_ranges, RuntimeState* state, int64_t limit,
+            bool is_dup_mow_key, bool is_preaggregation)
             : _parent(parent),
               _scanner_profile(profile),
               _state(state),
