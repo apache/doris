@@ -58,6 +58,7 @@
 #include "storage/tablet/tablet_fwd.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_reader.h"
+#include "storage/types.h"
 #include "storage/utils.h"
 #include "util/slice.h"
 
@@ -635,25 +636,43 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
                 break;
             }
 
-            int64_t col_per_row = 0;
+            // Any column without footer data (e.g. legacy segments written before
+            // raw_data_bytes existed) makes the group sample partial and unreliable.
+            // Fall back to the default for the whole group instead of summing only
+            // the columns we measured.
             auto it = column_raw_sizes.find(uid);
-            if (it != column_raw_sizes.end() && it->second.rows_with_data > 0) {
-                col_per_row = it->second.total_raw_bytes / it->second.rows_with_data;
+            if (it == column_raw_sizes.end() || it->second.rows_with_data <= 0) {
+                need_fallback = true;
+                break;
+            }
 
-                // Structural overhead compensation for scalar columns only.
-                // Only add when footer data actually exists for this column,
-                // to avoid creating a non-zero estimate purely from structural overhead.
-                // Complex types (ARRAY/MAP/STRUCT) have raw_data_bytes recursively aggregated
-                // from sub-writers, so no additional compensation is needed.
-                if (col.type() != FieldType::OLAP_FIELD_TYPE_ARRAY &&
-                    col.type() != FieldType::OLAP_FIELD_TYPE_MAP &&
-                    col.type() != FieldType::OLAP_FIELD_TYPE_STRUCT) {
-                    if (col.is_nullable()) {
-                        col_per_row += 1; // null map: 1 byte per row
-                    }
-                    if (col.is_length_variable_type()) {
-                        col_per_row += 8; // offset array: 8 bytes per row at runtime
-                    }
+            int64_t raw_per_row = it->second.total_raw_bytes / it->second.rows_with_data;
+            int64_t col_per_row = 0;
+
+            if (col.type() == FieldType::OLAP_FIELD_TYPE_ARRAY ||
+                col.type() == FieldType::OLAP_FIELD_TYPE_MAP ||
+                col.type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
+                // Complex types: raw_data_bytes recursively aggregates sub-writers.
+                col_per_row = raw_per_row;
+            } else if (col.is_length_variable_type()) {
+                // Variable-length scalar (VARCHAR/STRING/HLL/BITMAP/...): raw_per_row
+                // is the average char payload across all rows; reader still pays an
+                // 8-byte offset entry per row regardless of null-ness.
+                col_per_row = raw_per_row + 8;
+                if (col.is_nullable()) {
+                    col_per_row += 1; // null map
+                }
+            } else {
+                // Fixed-width scalar (INT/BIGINT/DOUBLE/DATE/...).
+                // raw_data_bytes only counts non-null payload (append_nulls() does
+                // not advance the page builder), but FileColumnIterator::next_batch
+                // still calls ColumnNullable::insert_many_defaults() for null runs,
+                // which grows the nested PODArray by N * type_size. So the runtime
+                // per-row footprint is at least type_size, no matter how sparse.
+                int64_t type_size = get_type_info(&col)->size();
+                col_per_row = std::max(raw_per_row, type_size);
+                if (col.is_nullable()) {
+                    col_per_row += 1; // null map
                 }
             }
 
