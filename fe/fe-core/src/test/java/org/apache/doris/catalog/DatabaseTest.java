@@ -23,17 +23,17 @@ import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -48,37 +48,26 @@ public class DatabaseTest {
     private Database db;
     private long dbId = 10000;
 
-    @Mocked
-    private Env env;
-    @Mocked
-    private EditLog editLog;
+    private Env env = Mockito.mock(Env.class);
+    private EditLog editLog = Mockito.mock(EditLog.class);
+
+    private MockedStatic<Env> mockedEnvStatic;
 
     @Before
     public void setup() {
         FeConstants.runningUnitTest = true;
         db = new Database(dbId, "dbTest");
-        new Expectations() {
-            {
-                editLog.logCreateTable((CreateTableInfo) any);
-                minTimes = 0;
 
-                env.getEditLog();
-                minTimes = 0;
-                result = editLog;
-            }
-        };
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
 
-        new Expectations(env) {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+        mockedEnvStatic = Mockito.mockStatic(Env.class);
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        mockedEnvStatic.when(Env::getCurrentEnvJournalVersion).thenReturn(FeConstants.meta_version);
+    }
 
-                Env.getCurrentEnvJournalVersion();
-                minTimes = 0;
-                result = FeConstants.meta_version;
-            }
-        };
+    @After
+    public void tearDown() {
+        mockedEnvStatic.close();
     }
 
     @Test

@@ -40,5 +40,12 @@ fe/fe-core/src/main/java/org/apache/doris/fsv2 @CalvinKirs
 be/src/vec/functions @zclllyybb
 be/**/CMakeLists.txt @zclllyybb @BiteTheDDDDt
 be/src/olap/rowset/segment_v2/variant @eldenmoon @csun5285
+be/src/storage/index/inverted/ @airborne12
+be/src/exprs/function/function_search.h @airborne12
+be/src/exprs/function/function_search.cpp @airborne12
+be/src/exprs/function/match.cpp @airborne12
+be/src/exprs/function/match.h @airborne12
+be/src/exprs/vsearch.h @airborne12
+be/src/exprs/vsearch.cpp @airborne12
 .claude/ @zclllyybb
 AGENTS.md @zclllyybb

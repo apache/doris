@@ -21,11 +21,11 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionLikeOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionOp;
@@ -102,6 +102,7 @@ public class InsertOverwriteUtil {
                 }
                 Map<String, String> properties = Maps.newHashMap();
                 properties.put(PropertyAnalyzer.PROPERTIES_USE_TEMP_PARTITION_NAME, "false");
+                properties.put(PropertyAnalyzer.PROPERTIES_STRICT_RANGE, "false");
                 ReplacePartitionOp replacePartitionOp = new ReplacePartitionOp(
                         new PartitionNamesInfo(false, validPartitionNames),
                         new PartitionNamesInfo(true, tempPartitionNames), isForce, properties);

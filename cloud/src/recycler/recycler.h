@@ -88,6 +88,8 @@ public:
 
     bool stopped() const { return stopped_.load(std::memory_order_acquire); }
 
+    RecyclerThreadPoolGroup& thread_pool_group() { return _thread_pool_group; }
+
 private:
     void recycle_callback();
 
@@ -138,6 +140,7 @@ struct RowsetDeleteTask {
     std::string recycle_rowset_key;       // Primary key marking "pending recycle"
     std::string non_versioned_rowset_key; // Legacy non-versioned rowset meta key
     std::string versioned_rowset_key;     // Versioned meta rowset key
+    Versionstamp versionstamp;
     std::string rowset_ref_count_key;
 };
 
@@ -416,7 +419,8 @@ public:
     }
 
     // Recycle snapshot meta and data, return 0 for success otherwise error.
-    int recycle_snapshot_meta_and_data(const std::string& resource_id,
+    int recycle_snapshot_meta_and_data(const std::string& instance_id,
+                                       const std::string& resource_id,
                                        Versionstamp snapshot_version,
                                        const SnapshotPB& snapshot_pb);
 
@@ -428,10 +432,15 @@ private:
     int init_storage_vault_accessors();
 
     /**
-     * Scan key-value pairs between [`begin`, `end`), and perform `recycle_func` on each key-value pair.
+     * Scan key-value pairs between [`begin`, `end`) with multiple rounds of range get(`RangeGetIterator`),
+     * and perform `recycle_func` on each key-value pair.
      *
-     * @param recycle_func defines how to recycle resources corresponding to a key-value pair. Returns 0 if the recycling is successful.
-     * @param loop_done is called after `RangeGetIterator` has no next kv. Usually used to perform a batch recycling. Returns 0 if success. 
+     * @param recycle_func defines how to recycle resources corresponding to a key-value pair.
+     *                     The scan will stop if recycle_func() returns non-zero.
+     *                     recycle_func() returns 0 if the recycling is successful or the scan can continue with ignorable errors.
+     * @param loop_done is called after a round (`RangeGetIterator`) in the scan has no next kv. Usually used to perform a batch recycling.
+     *                  The scan will stop if loop_done() returns non-zero.
+     *                  loop_done() returns 0 if the recycling is successful or the scan can continue with ignorable errors.
      * @return 0 if all corresponding resources are recycled successfully, otherwise non-zero
      */
     int scan_and_recycle(std::string begin, std::string_view end,
@@ -494,12 +503,8 @@ private:
 
     // Recycle rowset meta and data, return 0 for success otherwise error
     //
-    // Both recycle_rowset_key and non_versioned_rowset_key will be removed in the same transaction.
-    //
     // This function will decrease the rowset ref count and remove the rowset meta and data if the ref count is 1.
-    int recycle_rowset_meta_and_data(std::string_view recycle_rowset_key,
-                                     const RowsetMetaCloudPB& rowset_meta,
-                                     std::string_view non_versioned_rowset_key = "");
+    int recycle_rowset_meta_and_data(const RowsetDeleteTask& task);
 
     // Classify rowset task by ref_count, return 0 to add to batch delete, 1 if handled (ref>1), -1 on error
     int classify_rowset_task_by_ref_count(RowsetDeleteTask& task,

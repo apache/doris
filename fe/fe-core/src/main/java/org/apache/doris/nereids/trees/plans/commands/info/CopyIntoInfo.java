@@ -23,20 +23,20 @@ import org.apache.doris.analysis.CopyFromParam;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.Separator;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StageAndPattern;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB;
 import org.apache.doris.cloud.proto.Cloud.StagePB;
 import org.apache.doris.cloud.proto.Cloud.StagePB.StageType;
 import org.apache.doris.cloud.stage.StageUtil;
-import org.apache.doris.cloud.storage.RemoteBase;
-import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.cloud.storage.ObjectInfo;
+import org.apache.doris.cloud.storage.ObjectInfoAdapter;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.DebugUtil;
@@ -45,7 +45,6 @@ import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.S3PropertyUtils;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -76,7 +75,6 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -121,7 +119,7 @@ public class CopyIntoInfo {
     private String stageId;
     private StageType stageType;
     private String stagePrefix;
-    private RemoteBase.ObjectInfo objectInfo;
+    private ObjectInfo objectInfo;
     private String userName;
     private TableNameInfo tableNameInfo;
 
@@ -188,7 +186,7 @@ public class CopyIntoInfo {
         if (stage.isEmpty()) {
             throw new AnalysisException("Stage name can not be empty");
         }
-        this.userName = ClusterNamespace.getNameFromFullName(ctx.getCurrentUserIdentity().getQualifiedUser());
+        this.userName = ctx.getCurrentUserIdentity().getQualifiedUser();
         doValidate(userName, db, true);
     }
 
@@ -239,15 +237,11 @@ public class CopyIntoInfo {
         Scope scope = new Scope(slots);
         ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, scope, cascadesContext, false, false);
 
-        Map<SlotReference, SlotRef> translateMap = Maps.newHashMap();
-
         TupleDescriptor tupleDescriptor = context.generateTupleDesc();
         tupleDescriptor.setTable(((OlapScan) boundRelation).getTable());
         for (int i = 0; i < boundRelation.getOutput().size(); i++) {
             SlotReference slotReference = (SlotReference) boundRelation.getOutput().get(i);
-            SlotRef slotRef = new SlotRef(null, slotReference.getName());
-            translateMap.put(slotReference, slotRef);
-            context.createSlotDesc(tupleDescriptor, slotReference, ((OlapScan) boundRelation).getTable());
+            context.createSlotDesc(tupleDescriptor, slotReference);
         }
 
         List<Expr> legacyColumnMappingList = null;
@@ -334,7 +328,7 @@ public class CopyIntoInfo {
         stageId = stagePB.getStageId();
         ObjectStoreInfoPB objInfo = stagePB.getObjInfo();
         stagePrefix = objInfo.getPrefix();
-        objectInfo = RemoteBase.analyzeStageObjectStoreInfo(stagePB);
+        objectInfo = ObjectInfoAdapter.analyzeStageObjectStoreInfo(stagePB);
         brokerProperties.put(S3Properties.Env.ENDPOINT, objInfo.getEndpoint());
         brokerProperties.put(S3Properties.Env.REGION, objInfo.getRegion());
         brokerProperties.put(S3Properties.Env.ACCESS_KEY, objectInfo.getAk());
@@ -415,7 +409,7 @@ public class CopyIntoInfo {
         return userName;
     }
 
-    public RemoteBase.ObjectInfo getObjectInfo() {
+    public ObjectInfo getObjectInfo() {
         return objectInfo;
     }
 

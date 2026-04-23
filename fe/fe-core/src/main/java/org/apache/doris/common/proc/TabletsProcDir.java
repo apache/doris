@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.proc;
 
+import org.apache.doris.catalog.CloudTabletStatMgr;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -31,12 +32,15 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.query.QueryStatsUtil;
 import org.apache.doris.system.Backend;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -49,6 +53,7 @@ import java.util.Map;
  * show tablets' detail info within an index
  */
 public class TabletsProcDir implements ProcDirInterface {
+    private static final Logger LOG = LogManager.getLogger(TabletsProcDir.class);
     public static final ImmutableList<String> TITLE_NAMES;
 
     static {
@@ -90,6 +95,11 @@ public class TabletsProcDir implements ProcDirInterface {
                 pathHashToRoot.put(diskInfo.getPathHash(), diskInfo.getRootPath());
             }
         }
+        List<Long> tabletIds = null;
+        if (Config.isCloudMode() && ConnectContext.get() != null && ConnectContext.get()
+                .getSessionVariable().cloudForceSyncTabletStats) {
+            tabletIds = new ArrayList<>();
+        }
         table.readLock();
         try {
             Map<Long, Long> replicaIdToQueryHits = new HashMap<>();
@@ -105,6 +115,9 @@ public class TabletsProcDir implements ProcDirInterface {
 
             // get infos
             for (Tablet tablet : index.getTablets()) {
+                if (tabletIds != null) {
+                    tabletIds.add(tablet.getId());
+                }
                 long tabletId = tablet.getId();
                 if (tablet.getReplicas().size() == 0) {
                     List<Comparable> tabletInfo = new ArrayList<Comparable>();
@@ -207,6 +220,10 @@ public class TabletsProcDir implements ProcDirInterface {
             }
         } finally {
             table.readUnlock();
+        }
+        if (tabletIds != null && !tabletIds.isEmpty()) {
+            LOG.info("force sync tablet stats for table: {}, tabletNum: {}", table, tabletIds.size());
+            CloudTabletStatMgr.getInstance().addActiveTablets(tabletIds);
         }
         return tabletInfos;
     }

@@ -7,16 +7,16 @@ PhysicalResultSink
 --------PhysicalDistribute[DistributionSpecGather]
 ----------PhysicalTopN[LOCAL_SORT]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN broadcast] hashCondition=((sb.ss_store_sk = sc.ss_store_sk)) otherCondition=((cast(revenue as DECIMALV3(38, 5)) <= (0.1 * sb.ave))) build RFs:RF4 ss_store_sk->[s_store_sk,ss_store_sk]
+--------------hashJoin[INNER_JOIN broadcast] hashCondition=((sb.ss_store_sk = sc.ss_store_sk)) otherCondition=((cast(revenue as DECIMALV3(38, 5)) <= (0.1 * sb.ave))) build RFs:RF4 ss_store_sk->ss_store_sk;RF5 ss_store_sk->s_store_sk
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store.s_store_sk = sc.ss_store_sk)) otherCondition=() build RFs:RF3 s_store_sk->[ss_store_sk]
+------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store.s_store_sk = sc.ss_store_sk)) otherCondition=() build RFs:RF3 s_store_sk->ss_store_sk
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((item.i_item_sk = sc.ss_item_sk)) otherCondition=() build RFs:RF2 i_item_sk->[ss_item_sk]
+----------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((item.i_item_sk = sc.ss_item_sk)) otherCondition=() build RFs:RF2 i_item_sk->ss_item_sk
 ------------------------hashAgg[GLOBAL]
 --------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------hashAgg[LOCAL]
 ------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
+--------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->ss_sold_date_sk
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1 RF2 RF3 RF4
 ----------------------------------PhysicalProject
@@ -25,7 +25,7 @@ PhysicalResultSink
 ------------------------PhysicalProject
 --------------------------PhysicalLazyMaterializeOlapScan[item lazySlots:(item.i_current_price,item.i_wholesale_cost,item.i_brand)]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[store] apply RFs: RF4
+----------------------PhysicalOlapScan[store] apply RFs: RF5
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------hashAgg[LOCAL]
@@ -34,7 +34,7 @@ PhysicalResultSink
 --------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------hashAgg[LOCAL]
 ------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
+--------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->ss_sold_date_sk
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0
 ----------------------------------PhysicalProject

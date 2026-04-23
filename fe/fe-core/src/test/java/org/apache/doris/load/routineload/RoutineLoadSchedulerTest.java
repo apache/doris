@@ -34,148 +34,123 @@ import org.apache.doris.thrift.TResourceInfo;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 
-
 public class RoutineLoadSchedulerTest {
 
-    @Mocked
-    ConnectContext connectContext;
-    @Mocked
-    TResourceInfo tResourceInfo;
+    ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+    TResourceInfo tResourceInfo = Mockito.mock(TResourceInfo.class);
 
     @Test
-    public void testNormalRunOneCycle(@Mocked Env env, @Mocked InternalCatalog catalog,
-            @Injectable RoutineLoadManager routineLoadManager, @Injectable SystemInfoService systemInfoService,
-            @Injectable Database database, @Injectable RoutineLoadDesc routineLoadDesc,
-            @Injectable OlapTable olapTable)
-            throws LoadException, MetaNotFoundException {
-        List<Long> beIds = Lists.newArrayList();
-        beIds.add(1L);
-        beIds.add(2L);
+    public void testNormalRunOneCycle() throws LoadException, MetaNotFoundException {
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        RoutineLoadManager routineLoadManager = Mockito.mock(RoutineLoadManager.class);
+        SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
+        Database database = Mockito.mock(Database.class);
+        Mockito.mock(RoutineLoadDesc.class);
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
 
-        List<Integer> partitions = Lists.newArrayList();
-        partitions.add(100);
-        partitions.add(200);
-        partitions.add(300);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
 
-        RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
-        Deencapsulation.setField(env, "routineLoadTaskScheduler", routineLoadTaskScheduler);
+            List<Long> beIds = Lists.newArrayList();
+            beIds.add(1L);
+            beIds.add(2L);
 
-        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, "test", 1L, 1L,
-                "xxx", "test", UserIdentity.ADMIN);
-        Deencapsulation.setField(kafkaRoutineLoadJob, "state", RoutineLoadJob.JobState.NEED_SCHEDULE);
-        List<RoutineLoadJob> routineLoadJobList = new ArrayList<>();
-        routineLoadJobList.add(kafkaRoutineLoadJob);
+            List<Integer> partitions = Lists.newArrayList();
+            partitions.add(100);
+            partitions.add(200);
+            partitions.add(300);
 
-        Deencapsulation.setField(kafkaRoutineLoadJob, "customKafkaPartitions", partitions);
-        Deencapsulation.setField(kafkaRoutineLoadJob, "desireTaskConcurrentNum", 3);
+            RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
+            Deencapsulation.setField(env, "routineLoadTaskScheduler", routineLoadTaskScheduler);
 
-        new Expectations() {
-            {
-                env.getRoutineLoadManager();
-                minTimes = 0;
-                result = routineLoadManager;
-                routineLoadManager.getRoutineLoadJobByState(Sets.newHashSet(RoutineLoadJob.JobState.NEED_SCHEDULE));
-                minTimes = 0;
-                result = routineLoadJobList;
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
-                catalog.getDbNullable(anyLong);
-                minTimes = 0;
-                result = database;
-                database.getTableNullable(1L);
-                minTimes = 0;
-                result = olapTable;
-                systemInfoService.getAllBackendIds(true);
-                minTimes = 0;
-                result = beIds;
-                routineLoadManager.getSizeOfIdToRoutineLoadTask();
-                minTimes = 0;
-                result = 1;
-                routineLoadManager.getTotalMaxConcurrentTaskNum();
-                minTimes = 0;
-                result = 10;
-            }
-        };
+            KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, "test", 1L, 1L,
+                    "xxx", "test", UserIdentity.ADMIN);
+            Deencapsulation.setField(kafkaRoutineLoadJob, "state", RoutineLoadJob.JobState.NEED_SCHEDULE);
+            List<RoutineLoadJob> routineLoadJobList = new ArrayList<>();
+            routineLoadJobList.add(kafkaRoutineLoadJob);
 
-        RoutineLoadScheduler routineLoadScheduler = new RoutineLoadScheduler();
-        Deencapsulation.setField(routineLoadScheduler, "routineLoadManager", routineLoadManager);
-        routineLoadScheduler.runAfterCatalogReady();
+            Deencapsulation.setField(kafkaRoutineLoadJob, "customKafkaPartitions", partitions);
+            Deencapsulation.setField(kafkaRoutineLoadJob, "desireTaskConcurrentNum", 3);
 
-        List<RoutineLoadTaskInfo> routineLoadTaskInfoList =
-                Deencapsulation.getField(kafkaRoutineLoadJob, "routineLoadTaskInfoList");
-        for (RoutineLoadTaskInfo routineLoadTaskInfo : routineLoadTaskInfoList) {
-            KafkaTaskInfo kafkaTaskInfo = (KafkaTaskInfo) routineLoadTaskInfo;
-            if (kafkaTaskInfo.getPartitions().size() == 2) {
-                Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(100));
-                Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(300));
-            } else {
-                Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(200));
+            Mockito.when(env.getRoutineLoadManager()).thenReturn(routineLoadManager);
+            Mockito.when(routineLoadManager.getRoutineLoadJobByState(
+                    Sets.newHashSet(RoutineLoadJob.JobState.NEED_SCHEDULE))).thenReturn(routineLoadJobList);
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.when(catalog.getDbNullable(Mockito.anyLong())).thenReturn(database);
+            Mockito.when(database.getTableNullable(1L)).thenReturn(olapTable);
+            Mockito.when(systemInfoService.getAllBackendIds(true)).thenReturn(beIds);
+            Mockito.when(routineLoadManager.getSizeOfIdToRoutineLoadTask()).thenReturn(1);
+            Mockito.when(routineLoadManager.getTotalMaxConcurrentTaskNum()).thenReturn(10);
+
+            RoutineLoadScheduler routineLoadScheduler = new RoutineLoadScheduler();
+            Deencapsulation.setField(routineLoadScheduler, "routineLoadManager", routineLoadManager);
+            routineLoadScheduler.runAfterCatalogReady();
+
+            List<RoutineLoadTaskInfo> routineLoadTaskInfoList =
+                    Deencapsulation.getField(kafkaRoutineLoadJob, "routineLoadTaskInfoList");
+            for (RoutineLoadTaskInfo routineLoadTaskInfo : routineLoadTaskInfoList) {
+                KafkaTaskInfo kafkaTaskInfo = (KafkaTaskInfo) routineLoadTaskInfo;
+                if (kafkaTaskInfo.getPartitions().size() == 2) {
+                    Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(100));
+                    Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(300));
+                } else {
+                    Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(200));
+                }
             }
         }
     }
 
-    public void functionTest(@Mocked Env env, @Mocked InternalCatalog catalog,
-            @Mocked SystemInfoService systemInfoService, @Injectable Database database)
-            throws UserException, InterruptedException {
-        new Expectations() {
-            {
-                minTimes = 0;
-                result = tResourceInfo;
-            }
-        };
+    public void functionTest() throws UserException, InterruptedException {
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
+        Database database = Mockito.mock(Database.class);
 
-        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, "test", 1L, 1L,
-                "10.74.167.16:8092", "test", UserIdentity.ADMIN);
-        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob, "db", "table");
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
 
-        List<Long> backendIds = new ArrayList<>();
-        backendIds.add(1L);
+            KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, "test", 1L, 1L,
+                    "10.74.167.16:8092", "test", UserIdentity.ADMIN);
+            RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+            routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob, "db", "table");
 
-        new Expectations() {
-            {
-                env.getRoutineLoadManager();
-                minTimes = 0;
-                result = routineLoadManager;
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
-                catalog.getDbNullable(anyLong);
-                minTimes = 0;
-                result = database;
-                systemInfoService.getAllBackendIds(true);
-                minTimes = 0;
-                result = backendIds;
-            }
-        };
+            List<Long> backendIds = new ArrayList<>();
+            backendIds.add(1L);
 
-        RoutineLoadScheduler routineLoadScheduler = new RoutineLoadScheduler();
+            Mockito.when(env.getRoutineLoadManager()).thenReturn(routineLoadManager);
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            Mockito.when(catalog.getDbNullable(Mockito.anyLong())).thenReturn(database);
+            Mockito.when(systemInfoService.getAllBackendIds(true)).thenReturn(backendIds);
 
-        RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler();
-        routineLoadTaskScheduler.setInterval(5000);
+            RoutineLoadScheduler routineLoadScheduler = new RoutineLoadScheduler();
 
-        ExecutorService executorService = ThreadPoolManager.newDaemonFixedThreadPool(2, 2, "routine-load-task-scheduler", false);
-        executorService.submit(routineLoadScheduler);
-        executorService.submit(routineLoadTaskScheduler);
+            RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler();
+            routineLoadTaskScheduler.setInterval(5000);
 
-        KafkaRoutineLoadJob kafkaRoutineLoadJob1 = new KafkaRoutineLoadJob(1L, "test_custom_partition",
-                1L, 1L, "xxx", "test_1", UserIdentity.ADMIN);
-        List<Integer> customKafkaPartitions = new ArrayList<>();
-        customKafkaPartitions.add(2);
-        Deencapsulation.setField(kafkaRoutineLoadJob1, "customKafkaPartitions", customKafkaPartitions);
-        routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob1, "db", "table");
+            ExecutorService executorService = ThreadPoolManager.newDaemonFixedThreadPool(2, 2, "routine-load-task-scheduler", false);
+            executorService.submit(routineLoadScheduler);
+            executorService.submit(routineLoadTaskScheduler);
 
-        Thread.sleep(10000);
+            KafkaRoutineLoadJob kafkaRoutineLoadJob1 = new KafkaRoutineLoadJob(1L, "test_custom_partition",
+                    1L, 1L, "xxx", "test_1", UserIdentity.ADMIN);
+            List<Integer> customKafkaPartitions = new ArrayList<>();
+            customKafkaPartitions.add(2);
+            Deencapsulation.setField(kafkaRoutineLoadJob1, "customKafkaPartitions", customKafkaPartitions);
+            routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob1, "db", "table");
+
+            Thread.sleep(10000);
+        }
     }
 }

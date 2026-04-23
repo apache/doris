@@ -424,6 +424,10 @@ public:
                         const CloneInstanceRequest* request, CloneInstanceResponse* response,
                         ::google::protobuf::Closure* done) override;
 
+    void compact_snapshot(::google::protobuf::RpcController* controller,
+                          const CompactSnapshotRequest* request, CompactSnapshotResponse* response,
+                          ::google::protobuf::Closure* done) override;
+
 private:
     std::pair<MetaServiceCode, std::string> alter_instance(
             const AlterInstanceRequest* request,
@@ -1009,6 +1013,12 @@ public:
         call_impl(&cloud::MetaService::clone_instance, controller, request, response, done);
     }
 
+    void compact_snapshot(::google::protobuf::RpcController* controller,
+                          const CompactSnapshotRequest* request, CompactSnapshotResponse* response,
+                          ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::compact_snapshot, controller, request, response, done);
+    }
+
 private:
     template <typename Request, typename Response>
     using MetaServiceMethod = void (cloud::MetaService::*)(::google::protobuf::RpcController*,
@@ -1031,6 +1041,11 @@ private:
 
         if (!config::enable_txn_store_retry) {
             (impl_.get()->*method)(ctrl, req, resp, brpc::DoNothing());
+            if (resp->status().code() == MetaServiceCode::KV_TXN_MAYBE_COMMITTED) {
+                // Keep maybe-committed as an internal retry signal only. Older proto2
+                // clients may treat unknown enum values as unset and fall back to OK.
+                resp->mutable_status()->set_code(MetaServiceCode::KV_TXN_COMMIT_ERR);
+            }
             if (DCHECK_IS_ON()) {
                 MetaServiceCode code = resp->status().code();
                 DCHECK_NE(code, MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE)
@@ -1039,6 +1054,8 @@ private:
                         << "KV_TXN_STORE_COMMIT_RETRYABLE should not be sent back to client";
                 DCHECK_NE(code, MetaServiceCode::KV_TXN_STORE_CREATE_RETRYABLE)
                         << "KV_TXN_STORE_CREATE_RETRYABLE should not be sent back to client";
+                DCHECK_NE(code, MetaServiceCode::KV_TXN_MAYBE_COMMITTED)
+                        << "KV_TXN_MAYBE_COMMITTED should not be sent back to client";
             }
             return;
         }
@@ -1078,8 +1095,7 @@ private:
                         code == MetaServiceCode::KV_TXN_STORE_COMMIT_RETRYABLE   ? KV_TXN_COMMIT_ERR
                         : code == MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE    ? KV_TXN_GET_ERR
                         : code == MetaServiceCode::KV_TXN_STORE_CREATE_RETRYABLE ? KV_TXN_CREATE_ERR
-                        : code == MetaServiceCode::KV_TXN_MAYBE_COMMITTED
-                                ? MetaServiceCode::KV_TXN_MAYBE_COMMITTED
+                        : code == MetaServiceCode::KV_TXN_MAYBE_COMMITTED        ? KV_TXN_COMMIT_ERR
                         : code == MetaServiceCode::KV_TXN_CONFLICT
                                 ? KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES
                                 : MetaServiceCode::KV_TXN_TOO_OLD);

@@ -25,8 +25,8 @@
 #include <thread>
 #include <unordered_map>
 
+#include "common/metrics/metrics.h"
 #include "common/status.h"
-#include "util/metrics.h"
 
 namespace apache {
 namespace thrift {

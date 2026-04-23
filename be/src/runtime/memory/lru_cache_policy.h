@@ -22,15 +22,14 @@
 #include <memory>
 
 #include "common/be_mock_util.h"
-#include "olap/lru_cache.h"
 #include "runtime/memory/cache_policy.h"
 #include "runtime/memory/lru_cache_value_base.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
+#include "util/lru_cache.h"
 #include "util/time.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 // Base of lru cache, allow prune stale entry and prune all entry.
 class LRUCachePolicy : public CachePolicy {
@@ -324,5 +323,4 @@ protected:
     std::shared_ptr<MemTracker> _value_mem_tracker;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -45,14 +45,14 @@ TEST_F(TCountsTest, TotalTest) {
     double result = counts.terminate(0.2);
     EXPECT_EQ(1, result);
 
-    auto cs = vectorized::ColumnString::create();
-    vectorized::BufferWritable bw(*cs);
+    auto cs = ColumnString::create();
+    BufferWritable bw(*cs);
     counts.serialize(bw);
     bw.commit();
 
     Counts<int64_t> other;
     StringRef res(cs->get_chars().data(), cs->get_chars().size());
-    vectorized::BufferReadable br(res);
+    BufferReadable br(res);
     other.unserialize(br);
     double result1 = other.terminate(0.2);
     EXPECT_EQ(result, result1);
@@ -69,7 +69,7 @@ TEST_F(TCountsTest, TotalTest) {
     other1.serialize(bw);
     bw.commit();
     Counts<int64_t> other1_deserialized;
-    vectorized::BufferReadable br1(res);
+    BufferReadable br1(res);
     other1_deserialized.unserialize(br1);
 
     Counts<int64_t> merge_res;

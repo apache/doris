@@ -128,6 +128,8 @@ public class TabletStatMgr extends MasterDaemon {
         long tabletCount = 0L;
         long partitionCount = 0L;
         long tableCount = 0L;
+        long autoPartitionNearLimitCount = 0L;
+        long dynamicPartitionNearLimitCount = 0L;
         List<Long> dbIds = Env.getCurrentInternalCatalog().getDbIds();
         for (Long dbId : dbIds) {
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
@@ -162,7 +164,24 @@ public class TabletStatMgr extends MasterDaemon {
                 }
                 try {
                     List<Partition> allPartitions = olapTable.getAllPartitions();
+                    // Use getPartitionNum() (excludes temp partitions) for limit check,
+                    // consistent with how partition limits are enforced elsewhere.
+                    int nonTempPartitionNum = olapTable.getPartitionNum();
                     partitionCount += allPartitions.size();
+                    // Check if this table's partition count is near the limit (>80%)
+                    if (olapTable.getPartitionInfo().enableAutomaticPartition()) {
+                        int limit = Config.max_auto_partition_num;
+                        if (nonTempPartitionNum > limit * 8L / 10) {
+                            autoPartitionNearLimitCount++;
+                        }
+                    }
+                    if (olapTable.dynamicPartitionExists()
+                            && olapTable.getTableProperty().getDynamicPartitionProperty().getEnable()) {
+                        int limit = Config.max_dynamic_partition_num;
+                        if (nonTempPartitionNum > limit * 8L / 10) {
+                            dynamicPartitionNearLimitCount++;
+                        }
+                    }
                     for (Partition partition : allPartitions) {
                         long partitionDataSize = 0L;
                         long version = partition.getVisibleVersion();
@@ -295,6 +314,8 @@ public class TabletStatMgr extends MasterDaemon {
             // avoid ArithmeticException: / by zero
             long avgTabletSize = totalTableSize / Math.max(1, tabletCount);
             MetricRepo.GAUGE_AVG_TABLET_SIZE_BYTES.setValue(avgTabletSize);
+            MetricRepo.GAUGE_AUTO_PARTITION_NEAR_LIMIT.setValue(autoPartitionNearLimitCount);
+            MetricRepo.GAUGE_DYNAMIC_PARTITION_NEAR_LIMIT.setValue(dynamicPartitionNearLimitCount);
 
             LOG.info("OlapTable num=" + tableCount
                     + ", partition num=" + partitionCount + ", tablet num=" + tabletCount

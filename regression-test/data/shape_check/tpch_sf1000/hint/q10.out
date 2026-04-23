@@ -9,9 +9,10 @@ PhysicalResultSink
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=()
-------------------PhysicalProject
---------------------filter((lineitem.l_returnflag = 'R'))
-----------------------PhysicalOlapScan[lineitem]
+------------------hashAgg[GLOBAL]
+--------------------PhysicalProject
+----------------------filter((lineitem.l_returnflag = 'R'))
+------------------------PhysicalOlapScan[lineitem]
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_nationkey = nation.n_nationkey)) otherCondition=()
 ----------------------PhysicalProject

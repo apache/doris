@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.properties.ShuffleKeyPruneUtils;
 import org.apache.doris.nereids.rules.rewrite.DistinctAggStrategySelector.DistinctSelectorContext;
 import org.apache.doris.nereids.rules.rewrite.StatsDerive.DeriveContext;
 import org.apache.doris.nereids.trees.copier.DeepCopierContext;
@@ -492,8 +493,8 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         }
         LogicalCTEProducer<LogicalAggregate<Plan>> producer =
                 new LogicalCTEProducer<>(ctx.statementContext.getNextCTEId(), preAggClone);
+        ctx.statementContext.setCteProducer(producer.getCteId(), producer);
         ctx.cteProducerList.add(producer);
-        producer.accept(new StatsDerive(false), new DeriveContext());
         return producer;
     }
 
@@ -515,7 +516,9 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
             return Optional.empty();
         }
         int beNumber = Math.max(1, connectContext.getEnv().getClusterInfo().getBackendsNumber(true));
-        int parallelInstance = Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum());
+        String clusterName = connectContext.getSessionVariable().resolveCloudClusterName(connectContext);
+        int parallelInstance = Math.max(1,
+                connectContext.getSessionVariable().getParallelExecInstanceNum(clusterName));
         int totalInstanceNum = beNumber * parallelInstance;
         Optional<Expression> chosen;
         switch (repeat.getRepeatType()) {
@@ -543,10 +546,11 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         }
         for (Expression candidate : candidates) {
             ColumnStatistic columnStatistic = inputStats.findColumnStatistics(candidate);
-            if (columnStatistic == null || columnStatistic.isUnKnown()) {
+            if (columnStatistic == null || columnStatistic.isUnKnown() || columnStatistic.hotValues == null) {
                 continue;
             }
-            if (StatisticsUtil.isBalanced(columnStatistic, inputStats.getRowCount(), totalInstanceNum)) {
+            if (StatisticsUtil.isBalanced(columnStatistic, totalInstanceNum,
+                    ShuffleKeyPruneUtils.shuffleKeyHotValueThreshold, inputStats.getRowCount())) {
                 return Optional.of(candidate);
             }
         }

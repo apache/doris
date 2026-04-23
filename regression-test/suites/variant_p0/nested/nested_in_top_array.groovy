@@ -39,7 +39,7 @@ suite("nested_in_top_array", "p0"){
                     )
                     DUPLICATE KEY(`k`)
                     DISTRIBUTED BY HASH(k) BUCKETS 1 -- 1 bucket make really compaction in conflict case
-                    properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "true");
+                    properties("replication_num" = "1", "disable_auto_compaction" = "false", "deprecated_variant_enable_flatten_nested" = "true");
                 """
         sql """ insert into ${table_name} values (1, '[{"a": 1, "c": 1.1}, {"b": "1"}]'); """ 
         

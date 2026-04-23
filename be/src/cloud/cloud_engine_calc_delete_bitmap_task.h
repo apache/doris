@@ -17,14 +17,15 @@
 
 #pragma once
 
+#include <gen_cpp/AgentService_types.h>
+
 #include <memory>
 #include <optional>
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
-#include "gen_cpp/AgentService_types.h"
-#include "olap/tablet_fwd.h"
-#include "olap/task/engine_task.h"
+#include "storage/tablet/tablet_fwd.h"
+#include "storage/task/engine_task.h"
 
 namespace doris {
 

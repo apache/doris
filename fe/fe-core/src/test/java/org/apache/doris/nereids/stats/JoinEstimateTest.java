@@ -141,4 +141,46 @@ public class JoinEstimateTest {
         Assertions.assertNotNull(outAStats);
         Assertions.assertEquals(20.0, outCStats.ndv);
     }
+
+    @Test
+    public void testAsofInnerJoinStats() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        EqualTo eq = new EqualTo(a, b);
+
+        // left probe
+        Statistics leftStats = new StatisticsBuilder().setRowCount(100).build();
+        leftStats.addColumnStats(a,
+                new ColumnStatisticBuilder(100)
+                        .setNdv(50)
+                        .build()
+        );
+
+        // right build with original ndv larger than current ndv
+        Statistics rightStats = new StatisticsBuilder().setRowCount(80).build();
+        ColumnStatistic original = new ColumnStatisticBuilder(80)
+                .setNdv(20)
+                .build();
+        rightStats.addColumnStats(b,
+                new ColumnStatisticBuilder(80)
+                        .setNdv(10)
+                        .setOriginal(original)
+                        .build()
+        );
+
+        IdGenerator<GroupId> idGenerator = GroupId.createGenerator();
+        GroupPlan left = new GroupPlan(new Group(idGenerator.getNextId(), new LogicalProperties(
+                (Supplier<List<Slot>>) () -> Lists.newArrayList(a), () -> DataTrait.EMPTY_TRAIT)));
+        GroupPlan right = new GroupPlan(new Group(idGenerator.getNextId(), new LogicalProperties(
+                (Supplier<List<Slot>>) () -> Lists.newArrayList(b), () -> DataTrait.EMPTY_TRAIT)));
+
+        LogicalJoin join = new LogicalJoin(JoinType.ASOF_LEFT_INNER_JOIN, Lists.newArrayList(eq),
+                left, right, null);
+        Statistics outputStats = JoinEstimation.estimate(leftStats, rightStats, join);
+
+        // expected rowCount = left.rowCount * build.ndv / build.originalNdv = 100 * 10 / 20 = 50
+        Assertions.assertEquals(50.0, outputStats.getRowCount());
+        ColumnStatistic outAStats = outputStats.findColumnStatistics(a);
+        Assertions.assertNotNull(outAStats);
+    }
 }

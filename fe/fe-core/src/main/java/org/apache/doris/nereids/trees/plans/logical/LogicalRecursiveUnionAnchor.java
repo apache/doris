@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -61,7 +62,8 @@ public class LogicalRecursiveUnionAnchor<CHILD_TYPE extends Plan> extends Logica
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        return new LogicalRecursiveUnionAnchor<>(cteId, Optional.empty(), Optional.empty(), children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalRecursiveUnionAnchor<>(cteId, Optional.empty(), Optional.empty(), children));
     }
 
     @Override
@@ -76,14 +78,16 @@ public class LogicalRecursiveUnionAnchor<CHILD_TYPE extends Plan> extends Logica
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalRecursiveUnionAnchor<>(cteId, groupExpression,
-                Optional.of(getLogicalProperties()), children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalRecursiveUnionAnchor<>(cteId, groupExpression,
+                Optional.of(getLogicalProperties()), children));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalRecursiveUnionAnchor<>(cteId, groupExpression, logicalProperties, children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalRecursiveUnionAnchor<>(cteId, groupExpression, logicalProperties, children));
     }
 
     @Override

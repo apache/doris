@@ -17,11 +17,11 @@
 
 package org.apache.doris.cdcclient.source.reader.mysql;
 
-import org.apache.doris.cdcclient.source.deserialize.DebeziumJsonDeserializer;
-import org.apache.doris.cdcclient.source.deserialize.SourceRecordDeserializer;
+import org.apache.doris.cdcclient.source.deserialize.DeserializeResult;
+import org.apache.doris.cdcclient.source.deserialize.MySqlDebeziumJsonDeserializer;
 import org.apache.doris.cdcclient.source.factory.DataSource;
+import org.apache.doris.cdcclient.source.reader.AbstractCdcSourceReader;
 import org.apache.doris.cdcclient.source.reader.SnapshotReaderContext;
-import org.apache.doris.cdcclient.source.reader.SourceReader;
 import org.apache.doris.cdcclient.source.reader.SplitReadResult;
 import org.apache.doris.cdcclient.source.reader.SplitRecords;
 import org.apache.doris.cdcclient.utils.ConfigUtil;
@@ -62,7 +62,7 @@ import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.TableDiscoveryUtils;
 import org.apache.flink.cdc.connectors.mysql.table.StartupMode;
 import org.apache.flink.cdc.connectors.mysql.table.StartupOptions;
-import org.apache.flink.cdc.debezium.history.FlinkJsonTableChangeSerializer;
+import org.apache.flink.table.catalog.ObjectPath;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.kafka.connect.source.SourceRecord;
 
@@ -70,7 +70,6 @@ import java.io.IOException;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -110,13 +109,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 @Data
-public class MySqlSourceReader implements SourceReader {
+public class MySqlSourceReader extends AbstractCdcSourceReader {
     private static final Logger LOG = LoggerFactory.getLogger(MySqlSourceReader.class);
     private static ObjectMapper objectMapper = new ObjectMapper();
-    private static final FlinkJsonTableChangeSerializer TABLE_CHANGE_SERIALIZER =
-            new FlinkJsonTableChangeSerializer();
-    private SourceRecordDeserializer<SourceRecord, List<String>> serializer;
-    private Map<TableId, TableChanges.TableChange> tableSchemas;
 
     // Support for multiple snapshot splits with Round-Robin polling
     private List<
@@ -135,12 +130,12 @@ public class MySqlSourceReader implements SourceReader {
     private MySqlBinlogSplitState binlogSplitState;
 
     public MySqlSourceReader() {
-        this.serializer = new DebeziumJsonDeserializer();
+        this.serializer = new MySqlDebeziumJsonDeserializer();
         this.snapshotReaderContexts = new ArrayList<>();
     }
 
     @Override
-    public void initialize(long jobId, DataSource dataSource, Map<String, String> config) {
+    public void initialize(String jobId, DataSource dataSource, Map<String, String> config) {
         this.serializer.init(config);
 
         // Initialize thread pool for parallel polling
@@ -168,7 +163,7 @@ public class MySqlSourceReader implements SourceReader {
         StartupMode startupMode = sourceConfig.getStartupOptions().startupMode;
         List<MySqlSnapshotSplit> remainingSnapshotSplits = new ArrayList<>();
         MySqlBinlogSplit remainingBinlogSplit = null;
-        if (startupMode.equals(StartupMode.INITIAL)) {
+        if (startupMode.equals(StartupMode.INITIAL) || startupMode.equals(StartupMode.SNAPSHOT)) {
             remainingSnapshotSplits =
                     startSplitChunks(sourceConfig, ftsReq.getSnapshotTable(), ftsReq.getConfig());
         } else {
@@ -339,8 +334,22 @@ public class MySqlSourceReader implements SourceReader {
     /** Prepare binlog split */
     private SplitReadResult prepareBinlogSplit(
             Map<String, Object> offsetMeta, JobBaseRecordRequest baseReq) throws Exception {
+        // Load tableSchemas from FE if available (avoids re-discover on restart)
+        tryLoadTableSchemasFromRequest(baseReq);
         Tuple2<MySqlSplit, Boolean> splitFlag = createBinlogSplit(offsetMeta, baseReq);
         this.binlogSplit = (MySqlBinlogSplit) splitFlag.f0;
+
+        // Close previous binlog reader to release resources before creating a new one.
+        // This prevents connection leaks when a cancelled task's reader is still active
+        // while a new task arrives.
+        if (this.binlogReader != null) {
+            LOG.info(
+                    "Closing previous binlog reader before creating new one for job {}",
+                    baseReq.getJobId());
+            this.binlogReader.close();
+            this.binlogReader = null;
+        }
+
         this.binlogReader = getBinlogSplitReader(baseReq);
 
         LOG.info("Prepare binlog split: {}", this.binlogSplit.toString());
@@ -778,20 +787,22 @@ public class MySqlSourceReader implements SourceReader {
         configFactory.serverTimeZone(
                 ConfigUtil.getTimeZoneFromProps(cu.getOriginalProperties()).toString());
 
+        // Schema change handling for MySQL is not yet implemented; keep disabled to avoid
+        // unnecessary processing overhead until DDL support is added.
         configFactory.includeSchemaChanges(false);
 
-        String includingTables = cdcConfig.get(DataSourceConfigKeys.INCLUDE_TABLES);
-        String[] includingTbls =
-                Arrays.stream(includingTables.split(","))
-                        .map(t -> databaseName + "." + t.trim())
-                        .toArray(String[]::new);
-        configFactory.tableList(includingTbls);
+        // Set table list
+        String[] tableList = ConfigUtil.getTableList(databaseName, cdcConfig);
+        com.google.common.base.Preconditions.checkArgument(
+                tableList.length >= 1, "include_tables or table is required");
+        configFactory.tableList(tableList);
 
         // setting startMode
         String startupMode = cdcConfig.get(DataSourceConfigKeys.OFFSET);
         if (DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(startupMode)) {
-            // do not need set offset when initial
-            // configFactory.startupOptions(StartupOptions.initial());
+            configFactory.startupOptions(StartupOptions.initial());
+        } else if (DataSourceConfigKeys.OFFSET_SNAPSHOT.equalsIgnoreCase(startupMode)) {
+            configFactory.startupOptions(StartupOptions.snapshot());
         } else if (DataSourceConfigKeys.OFFSET_EARLIEST.equalsIgnoreCase(startupMode)) {
             configFactory.startupOptions(StartupOptions.earliest());
             BinlogOffset binlogOffset =
@@ -811,7 +822,14 @@ public class MySqlSourceReader implements SourceReader {
             }
             if (offsetMap.containsKey(BinlogOffset.BINLOG_FILENAME_OFFSET_KEY)
                     && offsetMap.containsKey(BinlogOffset.BINLOG_POSITION_OFFSET_KEY)) {
-                BinlogOffset binlogOffset = new BinlogOffset(offsetMap);
+                BinlogOffset binlogOffset =
+                        BinlogOffset.builder()
+                                .setBinlogFilePosition(
+                                        offsetMap.get(BinlogOffset.BINLOG_FILENAME_OFFSET_KEY),
+                                        Long.parseLong(
+                                                offsetMap.get(
+                                                        BinlogOffset.BINLOG_POSITION_OFFSET_KEY)))
+                                .build();
                 configFactory.startupOptions(StartupOptions.specificOffset(binlogOffset));
             } else {
                 throw new RuntimeException("Incorrect offset " + startupMode);
@@ -841,6 +859,22 @@ public class MySqlSourceReader implements SourceReader {
         if (cdcConfig.containsKey(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE)) {
             configFactory.splitSize(
                     Integer.parseInt(cdcConfig.get(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE)));
+        }
+
+        // todo: Currently, only one split key is supported; future will require multiple split
+        // keys.
+        if (cdcConfig.containsKey(DataSourceConfigKeys.SNAPSHOT_SPLIT_KEY)) {
+            String database = cdcConfig.get(DataSourceConfigKeys.DATABASE);
+            String table = cdcConfig.get(DataSourceConfigKeys.TABLE);
+            Preconditions.checkArgument(
+                    database != null && !database.isEmpty() && table != null && !table.isEmpty(),
+                    "When '%s' is set, both '%s' and '%s' must be configured (include_tables is not supported).",
+                    DataSourceConfigKeys.SNAPSHOT_SPLIT_KEY,
+                    DataSourceConfigKeys.DATABASE,
+                    DataSourceConfigKeys.TABLE);
+            ObjectPath objectPath = new ObjectPath(database, table);
+            configFactory.chunkKeyColumn(
+                    objectPath, cdcConfig.get(DataSourceConfigKeys.SNAPSHOT_SPLIT_KEY));
         }
 
         return configFactory.createConfig(0);
@@ -992,7 +1026,7 @@ public class MySqlSourceReader implements SourceReader {
     }
 
     @Override
-    public List<String> deserialize(Map<String, String> config, SourceRecord element)
+    public DeserializeResult deserialize(Map<String, String> config, SourceRecord element)
             throws IOException {
         return serializer.deserialize(config, element);
     }

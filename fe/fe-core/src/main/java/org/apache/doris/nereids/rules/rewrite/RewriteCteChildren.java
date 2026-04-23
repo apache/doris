@@ -126,7 +126,7 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             child = tryToConstructFilter(cascadesContext, cteProducer.getCteId(), child);
             Set<Slot> producerOutputs = cascadesContext.getStatementContext()
                     .getCteIdToOutputIds().get(cteProducer.getCteId());
-            if (producerOutputs.size() < child.getOutput().size()) {
+            if (producerOutputs != null && producerOutputs.size() < child.getOutput().size()) {
                 ImmutableList.Builder<NamedExpression> projectsBuilder
                         = ImmutableList.builderWithExpectedSize(producerOutputs.size());
                 for (Slot slot : child.getOutput()) {
@@ -147,7 +147,10 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             cascadesContext.addPlanProcesses(rewrittenCtx.getPlanProcesses());
             cascadesContext.getStatementContext().getRewrittenCteProducer().put(cteProducer.getCteId(), child);
         }
-        return cteProducer.withChildren(child);
+        LogicalCTEProducer<? extends Plan> rewrittenProducer = (LogicalCTEProducer<? extends Plan>) cteProducer
+                .withChildren(child);
+        cascadesContext.getStatementContext().setCteProducer(rewrittenProducer.getCteId(), rewrittenProducer);
+        return rewrittenProducer;
     }
 
     private LogicalPlan pushPlanUnderAnchor(LogicalPlan plan) {

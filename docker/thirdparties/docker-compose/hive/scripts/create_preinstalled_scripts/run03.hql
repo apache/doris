@@ -1,4 +1,5 @@
-CREATE TABLE `delta_byte_array`(
+drop table if exists `delta_byte_array`;
+create table `delta_byte_array`(
   `c_salutation` string,
   `c_first_name` string,
   `c_last_name` string,

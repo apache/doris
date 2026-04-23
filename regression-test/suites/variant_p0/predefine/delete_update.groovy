@@ -30,7 +30,7 @@ suite("regression_test_variant_predefine_delete_and_update", "variant_type"){
         )
         UNIQUE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 3
-        properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "false", "variant_enable_flatten_nested" = "false", "disable_auto_compaction" = "true");
+        properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "false", "deprecated_variant_enable_flatten_nested" = "false", "disable_auto_compaction" = "true");
     """
     // test mor table
 

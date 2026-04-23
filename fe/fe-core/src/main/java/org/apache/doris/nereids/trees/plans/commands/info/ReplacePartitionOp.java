@@ -18,10 +18,10 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Joiner;
@@ -69,7 +69,6 @@ public class ReplacePartitionOp extends AlterTableOp {
         super(AlterOpType.REPLACE_PARTITION);
         this.partitionNames = partitionNames;
         this.tempPartitionNames = tempPartitionNames;
-        this.needTableStable = false;
         this.forceDropOldPartition = isForce;
         this.properties = properties;
 

@@ -128,7 +128,6 @@ import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderLimit;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
 import org.apache.doris.nereids.rules.rewrite.PushCountIntoUnionAll;
-import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOnPkFk;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOneSide;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggWithDistinctThroughJoinOneSide;
@@ -140,6 +139,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownJoinOnAssertNumRows;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughUnion;
+import org.apache.doris.nereids.rules.rewrite.PushDownMatchProjectionAsVirtualColumn;
 import org.apache.doris.nereids.rules.rewrite.PushDownProjectThroughLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownScoreTopNIntoOlapScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughJoin;
@@ -158,6 +158,7 @@ import org.apache.doris.nereids.rules.rewrite.ReduceAggregateChildOutputRows;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
 import org.apache.doris.nereids.rules.rewrite.RewriteSearchToSlots;
+import org.apache.doris.nereids.rules.rewrite.RewriteSimpleAggToConstantRule;
 import org.apache.doris.nereids.rules.rewrite.SaltJoin;
 import org.apache.doris.nereids.rules.rewrite.SetPreAggStatus;
 import org.apache.doris.nereids.rules.rewrite.SimplifyEncodeDecode;
@@ -173,6 +174,7 @@ import org.apache.doris.nereids.rules.rewrite.VariantSubPathPruning;
 import org.apache.doris.nereids.rules.rewrite.batch.ApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.batch.CorrelateApplyToUnCorrelateApply;
 import org.apache.doris.nereids.rules.rewrite.batch.EliminateUselessPlanUnderApply;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.PushDownAggregation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
@@ -285,6 +287,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             topDown(
                                     new NormalizeAggregate(),
                                     new CountLiteralRewrite(),
+                                    new RewriteSimpleAggToConstantRule(),
                                     new NormalizeSort()
                             ),
 
@@ -522,6 +525,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topDown(
                         new NormalizeAggregate(),
                         new CountLiteralRewrite(),
+                        new RewriteSimpleAggToConstantRule(),
                         new NormalizeSort()
                 ),
 
@@ -657,19 +661,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new MergeAggregate()
                         )
                 ),
-                topic("Eager aggregation",
-                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(
-                                LogicalAggregate.class, LogicalJoin.class
-                        ),
-                        costBased(topDown(
-                                new PushDownAggWithDistinctThroughJoinOneSide(),
-                                new PushDownAggThroughJoinOneSide(),
-                                new PushDownAggThroughJoin()
-                        )),
-                        costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new)),
-                        topDown(new PushCountIntoUnionAll())
-                ),
-
                 // this rule should invoke after infer predicate and push down distinct, and before push down limit
                 topic("eliminate join according unique or foreign key",
                     cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalJoin.class),
@@ -686,7 +677,19 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topDown(new PushDownAggThroughJoinOnPkFk()),
                         topDown(new PullUpJoinFromUnionAll())
                 ),
+                topic("Eager aggregation",
+                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(
+                                LogicalAggregate.class, LogicalJoin.class
+                        ),
+                        costBased(topDown(
+                                new PushDownAggWithDistinctThroughJoinOneSide(),
+                                new PushDownAggThroughJoinOneSide()
+                        )),
 
+                        costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new)),
+                        custom(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN, PushDownAggregation::new),
+                        topDown(new PushCountIntoUnionAll())
+                ),
                 topic("Limit optimization",
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalLimit.class)
                                 || cascadesContext.rewritePlanContainsTypes(LogicalTopN.class)
@@ -791,6 +794,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
                 topDown(new PushDownVectorTopNIntoOlapScan()),
                 topDown(new PushDownVirtualColumnsIntoOlapScan()),
+                topDown(new PushDownMatchProjectionAsVirtualColumn()),
                 topic("score optimize",
                         topDown(new PushDownScoreTopNIntoOlapScan(),
                                 new CheckScoreUsage())
@@ -936,23 +940,24 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     }
                     rewriteJobs.add(
                             topic("nested column prune",
-                                custom(RuleType.NESTED_COLUMN_PRUNING, NestedColumnPruning::new)
+                                    custom(RuleType.NESTED_COLUMN_PRUNING, NestedColumnPruning::new)
                             )
                     );
                     rewriteJobs.addAll(jobs(
-                            topic("rewrite cte sub-tree after sub path push down",
-                                    custom(RuleType.CLEAR_CONTEXT_STATUS, ClearContextStatus::new),
-                                    custom(RuleType.REWRITE_CTE_CHILDREN,
-                                            () -> new RewriteCteChildren(afterPushDownJobs, runCboRules)
-                                    )
-                            ),
-                            topic("whole plan check",
-                                    custom(RuleType.ADJUST_NULLABLE, () -> new AdjustNullable(false))
-                            ),
-                            // NullableDependentExpressionRewrite need to be done after nullable fixed
-                            topic("condition function", bottomUp(ImmutableList.of(
-                                    new NullableDependentExpressionRewrite())))
-                    ));
+                                    topic("rewrite cte sub-tree after sub path push down",
+                                            custom(RuleType.CLEAR_CONTEXT_STATUS, ClearContextStatus::new),
+                                            custom(RuleType.REWRITE_CTE_CHILDREN,
+                                                    () -> new RewriteCteChildren(afterPushDownJobs, runCboRules)
+                                            )
+                                    ),
+                                    topic("whole plan check",
+                                            custom(RuleType.ADJUST_NULLABLE, () -> new AdjustNullable(false))
+                                    ),
+                                    // NullableDependentExpressionRewrite need to be done after nullable fixed
+                                    topic("condition function", bottomUp(ImmutableList.of(
+                                            new NullableDependentExpressionRewrite())))
+                            )
+                    );
                     return rewriteJobs;
                 }
         ));

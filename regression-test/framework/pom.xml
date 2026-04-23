@@ -66,6 +66,8 @@ under the License.
     </mailingLists>
     <properties>
         <doris.home>${basedir}/../../</doris.home>
+        <doris.thrift.executable>${doris.home}/thirdparty/installed/bin/thrift</doris.thrift.executable>
+        <doris.thrift.source>${doris.home}/gensrc/thrift</doris.thrift.source>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
@@ -78,6 +80,19 @@ under the License.
         <!-- Arrow 18 only supports jdk17 -->
         <arrow.version>17.0.0</arrow.version>
     </properties>
+    <profiles>
+        <profile>
+            <id>thrift-executable-override</id>
+            <activation>
+                <property>
+                    <name>env.DORIS_THIRDPARTY</name>
+                </property>
+            </activation>
+            <properties>
+                <doris.thrift.executable>${env.DORIS_THIRDPARTY}/installed/bin/thrift</doris.thrift.executable>
+            </properties>
+        </profile>
+    </profiles>
     <build>
         <plugins>
             <plugin>
@@ -156,6 +171,25 @@ under the License.
                 <configuration>
                     <visitor>true</visitor>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.thrift</groupId>
+                <artifactId>thrift-maven-plugin</artifactId>
+                <version>0.10.0</version>
+                <configuration>
+                    <generator>java:fullcamel</generator>
+                    <thriftExecutable>${doris.thrift.executable}</thriftExecutable>
+                    <thriftSourceRoot>${doris.thrift.source}</thriftSourceRoot>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>thrift-sources</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

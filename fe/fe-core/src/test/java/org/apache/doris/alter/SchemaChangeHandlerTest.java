@@ -17,7 +17,6 @@
 
 package org.apache.doris.alter;
 
-import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -26,12 +25,13 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.info.ColumnPosition;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -39,13 +39,12 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import mockit.Expectations;
-import mockit.Injectable;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.Map;
 
@@ -307,7 +306,6 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
             jobSize++;
             waitAlterJobDone(alterJobs);
-
 
             // positive test
             testAddSingleSubColumn(tbl, tableName, defaultVal);
@@ -617,21 +615,18 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     }
 
     @Test
-    public void testAddValueColumnOnAggMV(@Injectable OlapTable olapTable, @Injectable Column newColumn,
-            @Injectable ColumnPosition columnPosition) {
+    public void testAddValueColumnOnAggMV() {
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
+        Column newColumn = Mockito.mock(Column.class);
+        ColumnPosition columnPosition = Mockito.mock(ColumnPosition.class);
         SchemaChangeHandler schemaChangeHandler = new SchemaChangeHandler();
-        new Expectations() {
-            {
-                olapTable.getKeysType();
-                result = KeysType.DUP_KEYS;
-                newColumn.getAggregationType();
-                result = null;
-                olapTable.getIndexMetaByIndexId(2).getKeysType();
-                result = KeysType.AGG_KEYS;
-                newColumn.isKey();
-                result = false;
-            }
-        };
+
+        Mockito.when(olapTable.getKeysType()).thenReturn(KeysType.DUP_KEYS);
+        Mockito.when(newColumn.getAggregationType()).thenReturn(null);
+        MaterializedIndexMeta mockMeta = Mockito.mock(MaterializedIndexMeta.class);
+        Mockito.when(olapTable.getIndexMetaByIndexId(2)).thenReturn(mockMeta);
+        Mockito.when(mockMeta.getKeysType()).thenReturn(KeysType.AGG_KEYS);
+        Mockito.when(newColumn.isKey()).thenReturn(false);
 
         try {
             Deencapsulation.invoke(schemaChangeHandler, "addColumnInternal", olapTable, newColumn, columnPosition,
@@ -897,13 +892,13 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             Assertions.assertNotNull(indexMeta);
 
             Assertions.assertEquals("idx_error_msg", tbl.getIndexes().get(0).getIndexName());
-            Assertions.assertEquals(IndexDefinition.IndexType.NGRAM_BF, tbl.getIndexes().get(0).getIndexType());
+            Assertions.assertEquals(IndexType.NGRAM_BF, tbl.getIndexes().get(0).getIndexType());
             Map<String, String> props = tbl.getIndexes().get(0).getProperties();
             Assertions.assertEquals("2", props.get("gram_size"));
             Assertions.assertEquals("256", props.get("bf_size"));
             Index index = tbl.getIndexes().get(0);
             LOG.warn("index:{}", index.toString());
-            Assertions.assertEquals(IndexDefinition.IndexType.NGRAM_BF, index.getIndexType());
+            Assertions.assertEquals(IndexType.NGRAM_BF, index.getIndexType());
             Assertions.assertTrue(index.toString().contains("USING NGRAM_BF"));
         } finally {
             tbl.readUnlock();

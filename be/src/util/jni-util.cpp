@@ -34,14 +34,13 @@
 #include "absl/strings/substitute.h"
 #include "common/cast_set.h"
 #include "common/config.h"
-#include "util/doris_metrics.h"
+#include "common/metrics/doris_metrics.h"
 #include "util/jni_native_method.h"
 // #include "util/libjvm_loader.h"
 
 using std::string;
 
 namespace doris {
-#include "common/compile_check_begin.h"
 namespace Jni {
 JavaVM* g_vm;
 [[maybe_unused]] std::once_flag g_vm_once;
@@ -425,5 +424,4 @@ Status Util::_init_register_natives() {
 }
 
 } // namespace Jni
-#include "common/compile_check_end.h"
 } // namespace doris

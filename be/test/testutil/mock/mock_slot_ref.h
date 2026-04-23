@@ -20,8 +20,8 @@
 #include <string>
 
 #include "common/status.h"
-#include "vec/exprs/vexpr.h"
-#include "vec/exprs/vslot_ref.h"
+#include "exprs/vexpr.h"
+#include "exprs/vslot_ref.h"
 
 namespace doris {
 class SlotDescriptor;
@@ -29,7 +29,6 @@ class RowDescriptor;
 class RuntimeState;
 class TExprNode;
 
-namespace vectorized {
 class Block;
 class VExprContext;
 
@@ -76,5 +75,4 @@ private:
     std::string _name = "MockSlotRef";
 };
 
-} // namespace vectorized
 } // namespace doris

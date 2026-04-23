@@ -22,8 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Daemon;
-import org.apache.doris.fs.remote.AzureFileSystem;
-import org.apache.doris.fs.remote.S3FileSystem;
+import org.apache.doris.foundation.fs.FsStorageType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -111,8 +110,9 @@ public class RepositoryMgr extends Daemon implements Writable, GsonPostProcessab
         try {
             Repository repo = repoNameMap.get(newRepo.getName());
             if (repo != null) {
-                if (repo.getRemoteFileSystem() instanceof S3FileSystem
-                        || repo.getRemoteFileSystem() instanceof AzureFileSystem) {
+                if (repo.getFileSystemDescriptor() != null
+                        && (repo.getFileSystemDescriptor().getStorageType() == FsStorageType.S3
+                            || repo.getFileSystemDescriptor().getStorageType() == FsStorageType.AZURE)) {
                     repoNameMap.put(repo.getName(), newRepo);
                     repoIdMap.put(repo.getId(), newRepo);
 

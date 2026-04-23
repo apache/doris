@@ -22,12 +22,10 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import lombok.ToString;
 
 @Getter
 @Setter
 @NoArgsConstructor
-@ToString
 @AllArgsConstructor
 @Builder
 public class CommitOffsetRequest {
@@ -38,4 +36,19 @@ public class CommitOffsetRequest {
     public long filteredRows;
     public long loadedRows;
     public long loadBytes;
+    public String tableSchemas;
+
+    @Override
+    public String toString() {
+        return "CommitOffsetRequest{"
+                + "jobId=" + jobId
+                + ", taskId=" + taskId
+                + ", offset='" + offset + "'"
+                + ", scannedRows=" + scannedRows
+                + ", filteredRows=" + filteredRows
+                + ", loadedRows=" + loadedRows
+                + ", loadBytes=" + loadBytes
+                + ", tableSchemasSize=" + (tableSchemas != null ? tableSchemas.length() : 0)
+                + "}";
+    }
 }

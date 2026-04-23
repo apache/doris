@@ -20,8 +20,8 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include "core/string_ref.h"
 #include "gtest/gtest_pred_impl.h"
-#include "vec/common/string_ref.h"
 
 namespace doris::simd {
 

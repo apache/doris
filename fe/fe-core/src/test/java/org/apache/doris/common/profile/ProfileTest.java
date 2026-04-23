@@ -22,12 +22,12 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SafeStringBuilder;
 import org.apache.doris.thrift.TUniqueId;
 
-import mockit.Expectations;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.rules.TemporaryFolder;
+import org.mockito.Mockito;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -96,12 +96,9 @@ public class ProfileTest {
         Assertions.assertFalse(profile.shouldStoreToStorage());
 
 
-        new Expectations(executionProfile) {
-            {
-                executionProfile.isCompleted();
-                result = true;
-            }
-        };
+        executionProfile = Mockito.spy(executionProfile);
+        profile.getExecutionProfiles().set(0, executionProfile);
+        Mockito.doReturn(true).when(executionProfile).isCompleted();
         // Now it should be ready to store
         Assertions.assertTrue(profile.shouldStoreToStorage());
     }
@@ -111,12 +108,9 @@ public class ProfileTest {
         // Prepare for storage
         profile.markQueryFinished();
         profile.setQueryFinishTimestamp(System.currentTimeMillis());
-        new Expectations(executionProfile) {
-            {
-                executionProfile.isCompleted();
-                result = true;
-            }
-        };
+        executionProfile = Mockito.spy(executionProfile);
+        profile.getExecutionProfiles().set(0, executionProfile);
+        Mockito.doReturn(true).when(executionProfile).isCompleted();
 
         // Should be true before we write
         Assertions.assertTrue(profile.shouldStoreToStorage());
@@ -139,12 +133,9 @@ public class ProfileTest {
         profile.setQueryFinishTimestamp(System.currentTimeMillis());
 
         // Mock that execution profile is not completed
-        new Expectations(executionProfile) {
-            {
-                executionProfile.isCompleted();
-                result = false;
-            }
-        };
+        executionProfile = Mockito.spy(executionProfile);
+        profile.getExecutionProfiles().set(0, executionProfile);
+        Mockito.doReturn(false).when(executionProfile).isCompleted();
 
         // Should be false before we write because execution profile isn't complete
         Assertions.assertFalse(profile.shouldStoreToStorage());

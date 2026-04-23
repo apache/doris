@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
-import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.AnalysisException;
@@ -37,13 +36,11 @@ public class HashDistributionDesc extends DistributionDesc {
 
     public HashDistributionDesc(int numBucket, List<String> distributionColumnNames) {
         super(numBucket);
-        type = DistributionInfoType.HASH;
         this.distributionColumnNames = distributionColumnNames;
     }
 
     public HashDistributionDesc(int numBucket, boolean autoBucket, List<String> distributionColumnNames) {
         super(numBucket, autoBucket);
-        type = DistributionInfoType.HASH;
         this.distributionColumnNames = distributionColumnNames;
     }
 

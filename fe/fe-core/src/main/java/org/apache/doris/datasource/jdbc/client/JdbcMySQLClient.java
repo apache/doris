@@ -454,6 +454,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 return ScalarType.createHllType();
             case "BITMAP":
                 return Type.BITMAP;
+            case "QUANTILE_STATE":
+                return Type.QUANTILE_STATE;
             case "VARBINARY":
                 return ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize());
             default:

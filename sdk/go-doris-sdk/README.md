@@ -184,6 +184,29 @@ GroupCommit: doris.OFF,    // Off, use traditional mode
 
 > ⚠️ **Note**: When Group Commit is enabled, all Label configurations are automatically ignored and warning logs are recorded.
 
+### Gzip Compression
+
+```go
+config := &doris.Config{
+	Endpoints:   []string{"http://127.0.0.1:8030"},
+	User:        "root",
+	Password:    "password",
+	Database:    "test_db",
+	Table:       "users",
+	Format:      doris.DefaultCSVFormat(), // works with both CSV and JSON formats
+	Retry:       doris.DefaultRetry(),
+	GroupCommit: doris.OFF,
+	EnableGzip:  true, // SDK compresses the body with gzip and sets compress_type=gz header automatically
+}
+
+client, _ := doris.NewLoadClient(config)
+
+data := "1,Alice,25\n2,Bob,30\n3,Charlie,35"
+response, err := client.Load(doris.StringReader(data))
+```
+
+> **Note**: The SDK compresses the request body transparently — no need to pre-compress the data. Whether JSON compression is supported depends on the Doris version.
+
 ## 🔄 Concurrent Usage
 
 ### Basic Concurrency Example
@@ -330,6 +353,7 @@ go run cmd/examples/main.go single       # Large batch load (100k records)
 go run cmd/examples/main.go concurrent   # Concurrent load (1M records, 10 workers)
 go run cmd/examples/main.go json         # JSON load (50k records)
 go run cmd/examples/main.go basic        # Basic concurrency (5 workers)
+go run cmd/examples/main.go gzip         # Gzip compressed CSV load
 ```
 
 ## 🛠️ Utility Tools

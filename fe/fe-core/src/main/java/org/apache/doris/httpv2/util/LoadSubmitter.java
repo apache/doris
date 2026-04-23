@@ -18,7 +18,6 @@
 package org.apache.doris.httpv2.util;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.ThreadPoolManager;
@@ -91,7 +90,7 @@ public class LoadSubmitter {
             URL loadUrl = new URL(loadUrlStr);
             HttpURLConnection conn = (HttpURLConnection) loadUrl.openConnection();
             conn.setRequestMethod("PUT");
-            String auth = String.format("%s:%s", ClusterNamespace.getNameFromFullName(loadContext.user),
+            String auth = String.format("%s:%s", loadContext.user,
                     loadContext.passwd);
             String authEncoding = Base64.getEncoder().encodeToString(auth.getBytes(StandardCharsets.UTF_8));
             conn.setRequestProperty("Authorization", "Basic " + authEncoding);

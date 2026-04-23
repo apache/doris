@@ -63,6 +63,7 @@ under the License.
     <properties>
         <spring.version>3.5.7</spring.version>
         <flink.version>1.20.3</flink.version>
+        <flink.cdc.version>3.6.0-1.20</flink.cdc.version>
         <slf4j.version>1.7.36</slf4j.version>
         <doris.version>1.2-SNAPSHOT</doris.version>
         <spotless.version>2.43.0</spotless.version>
@@ -118,12 +119,12 @@ under the License.
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-connector-mysql-cdc</artifactId>
-            <version>3.5.0</version>
+            <version>${flink.cdc.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-connector-postgres-cdc</artifactId>
-            <version>3.5.0</version>
+            <version>${flink.cdc.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.flink</groupId>
@@ -176,6 +177,13 @@ under the License.
             <artifactId>lombok</artifactId>
             <version>${lombok.version}</version>
             <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>5.10.2</version>
+            <scope>test</scope>
         </dependency>
 
     </dependencies>

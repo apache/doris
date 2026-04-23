@@ -18,7 +18,7 @@
 package org.apache.doris.cdcclient.source.reader;
 
 import org.apache.doris.cdcclient.source.deserialize.DebeziumJsonDeserializer;
-import org.apache.doris.cdcclient.source.deserialize.SourceRecordDeserializer;
+import org.apache.doris.cdcclient.source.deserialize.DeserializeResult;
 import org.apache.doris.cdcclient.source.factory.DataSource;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
@@ -83,11 +83,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 @Data
-public abstract class JdbcIncrementalSourceReader implements SourceReader {
+public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReader {
     private static final Logger LOG = LoggerFactory.getLogger(JdbcIncrementalSourceReader.class);
     private static ObjectMapper objectMapper = new ObjectMapper();
-    private SourceRecordDeserializer<SourceRecord, List<String>> serializer;
-    private Map<TableId, TableChanges.TableChange> tableSchemas;
 
     // Support for multiple snapshot splits
     private List<
@@ -114,7 +112,7 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     }
 
     @Override
-    public void initialize(long jobId, DataSource dataSource, Map<String, String> config) {
+    public void initialize(String jobId, DataSource dataSource, Map<String, String> config) {
         this.serializer.init(config);
 
         // Initialize thread pool for parallel polling
@@ -145,7 +143,8 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
 
         // Check startup mode - for PostgreSQL, we use similar logic as MySQL
         String startupMode = ftsReq.getConfig().get(DataSourceConfigKeys.OFFSET);
-        if (DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(startupMode)) {
+        if (DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(startupMode)
+                || DataSourceConfigKeys.OFFSET_SNAPSHOT.equalsIgnoreCase(startupMode)) {
             remainingSnapshotSplits =
                     startSplitChunks(sourceConfig, ftsReq.getSnapshotTable(), ftsReq.getConfig());
         } else {
@@ -334,8 +333,36 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     /** Prepare stream split */
     private SplitReadResult prepareStreamSplit(
             Map<String, Object> offsetMeta, JobBaseRecordRequest baseReq) throws Exception {
+        // Load tableSchemas from FE if available (avoids re-discover on restart)
+        tryLoadTableSchemasFromRequest(baseReq);
+        // If still null (incremental-only startup, or snapshot→binlog transition where FE never
+        // persisted schema), do a JDBC discover so the deserializer has a baseline to diff against.
+        if (this.tableSchemas == null) {
+            LOG.info(
+                    "No tableSchemas available for stream split, discovering via JDBC for job {}",
+                    baseReq.getJobId());
+            Map<TableId, TableChanges.TableChange> discovered = getTableSchemas(baseReq);
+            this.tableSchemas = new java.util.concurrent.ConcurrentHashMap<>(discovered);
+            this.serializer.setTableSchemas(this.tableSchemas);
+            LOG.info(
+                    "Discovered {} table schema(s) for job {}",
+                    discovered.size(),
+                    baseReq.getJobId());
+        }
         Tuple2<SourceSplitBase, Boolean> splitFlag = createStreamSplit(offsetMeta, baseReq);
         this.streamSplit = splitFlag.f0.asStreamSplit();
+
+        // Close previous stream reader to release resources (e.g. PG replication slot)
+        // before creating a new one. This prevents connection leaks when a cancelled
+        // task's reader is still active while a new task arrives.
+        if (this.streamReader != null) {
+            LOG.info(
+                    "Closing previous stream reader before creating new one for job {}",
+                    baseReq.getJobId());
+            closeReaderInternal(this.streamReader);
+            this.streamReader = null;
+        }
+
         this.streamReader = getBinlogSplitReader(baseReq);
 
         LOG.info("Prepare stream split: {}", this.streamSplit.toString());
@@ -908,7 +935,7 @@ public abstract class JdbcIncrementalSourceReader implements SourceReader {
     }
 
     @Override
-    public List<String> deserialize(Map<String, String> config, SourceRecord element)
+    public DeserializeResult deserialize(Map<String, String> config, SourceRecord element)
             throws IOException {
         return serializer.deserialize(config, element);
     }

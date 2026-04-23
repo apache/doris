@@ -23,9 +23,8 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.base.Strings;
@@ -44,18 +43,17 @@ public class StorageTypeCheckAction extends RestBaseController {
 
     @RequestMapping(path = "/api/_check_storagetype", method = RequestMethod.GET)
     protected Object check_storagetype(HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
 
         String dbName = request.getParameter(DB_KEY);
         if (Strings.isNullOrEmpty(dbName)) {
             return ResponseEntityBuilder.badRequest("No database selected");
         }
 
-        String fullDbName = getFullDbName(dbName);
         Database db;
         try {
-            db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+            db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbName);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }

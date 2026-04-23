@@ -62,8 +62,8 @@
 #include "io/cache/file_cache_common.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/fs/path.h"
-#include "olap/options.h"
 #include "runtime/exec_env.h"
+#include "storage/options.h"
 #include "util/slice.h"
 #include "util/time.h"
 

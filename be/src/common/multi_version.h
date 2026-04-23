@@ -51,16 +51,13 @@ public:
     explicit MultiVersion(std::unique_ptr<const T>&& value) : current_version(std::move(value)) {}
 
     /// Obtain current version for read-only usage. Returns shared_ptr, that manages lifetime of version.
-    Version get() const { return std::atomic_load(&current_version); }
-
-    /// TODO: replace atomic_load/store() on shared_ptr (which is deprecated as of C++20) by C++20 std::atomic<std::shared_ptr>.
-    /// Clang 15 currently does not support it.
+    Version get() const { return current_version.load(); }
 
     /// Update an object with new version.
     void set(std::unique_ptr<const T>&& value) {
-        std::atomic_store(&current_version, Version {std::move(value)});
+        current_version.store(Version {std::move(value)});
     }
 
 private:
-    Version current_version;
+    std::atomic<Version> current_version;
 };

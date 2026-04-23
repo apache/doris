@@ -19,6 +19,7 @@
 
 #include <memory>
 
+#include "common/config.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/workload_management/resource_context.h"
 
@@ -76,7 +77,8 @@ void WorkloadSchedPolicyMgr::update_workload_sched_policy(
 }
 
 void WorkloadSchedPolicyMgr::_schedule_workload() {
-    while (!_stop_latch.wait_for(std::chrono::milliseconds(500))) {
+    while (!_stop_latch.wait_for(
+            std::chrono::milliseconds(config::workload_policy_check_interval_ms))) {
         // 1 get query resource context
         std::vector<std::weak_ptr<ResourceContext>> list;
         _exec_env->fragment_mgr()->get_runtime_query_info(&list);

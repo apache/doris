@@ -37,8 +37,6 @@ import org.apache.doris.thrift.TPythonEnvInfo;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -50,8 +48,6 @@ import java.util.Set;
  * Shows Python versions available on all alive backends (intersection).
  */
 public class ShowPythonVersionsCommand extends ShowCommand {
-    private static final Logger LOG = LogManager.getLogger(ShowPythonVersionsCommand.class);
-
     private static final String[] TITLE_NAMES = {
         "Version", "EnvName", "EnvType", "BasePath", "ExecutablePath"
     };
@@ -108,8 +104,6 @@ public class ShowPythonVersionsCommand extends ShowCommand {
                 } else {
                     commonVersions.retainAll(versions);
                 }
-            } catch (Exception e) {
-                LOG.warn("Failed to get python envs from backend[{}]", backend.getId(), e);
             } finally {
                 if (ok) {
                     ClientPool.backendPool.returnObject(address, client);
@@ -120,7 +114,7 @@ public class ShowPythonVersionsCommand extends ShowCommand {
         }
 
         List<List<String>> rows = Lists.newArrayList();
-        if (commonVersions != null && !allBeEnvs.isEmpty()) {
+        if (commonVersions != null) {
             // Use envs from the first BE as reference, filtered to common versions
             for (TPythonEnvInfo env : allBeEnvs.get(0)) {
                 if (commonVersions.contains(env.getFullVersion())) {

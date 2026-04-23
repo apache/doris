@@ -33,18 +33,17 @@
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/macros.h"
+#include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
-#include "olap/data_dir.h"
+#include "storage/data_dir.h"
 #include "util/debug_points.h"
-#include "util/doris_metrics.h"
 
 namespace doris::io {
-#include "common/compile_check_begin.h"
 namespace {
 
 Status sync_dir(const io::Path& dirname) {
@@ -245,6 +244,5 @@ Status LocalFileWriter::_close(bool sync) {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::close", Status::IOError("inject io error"));
     return fd_reclaim_func(Status::OK());
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris::io

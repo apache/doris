@@ -22,10 +22,10 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "network_util.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/brpc_client_cache.h"
+#include "util/network_util.h"
 
 namespace doris {
 

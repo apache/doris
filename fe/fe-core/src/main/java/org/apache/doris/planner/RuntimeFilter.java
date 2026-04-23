@@ -19,9 +19,13 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.foundation.util.BitUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
@@ -50,6 +54,35 @@ import java.util.stream.Collectors;
  */
 public final class RuntimeFilter {
     private static final Logger LOG = LogManager.getLogger(RuntimeFilter.class);
+
+    /**
+     * Internal class that encapsulates the max, min and default sizes used for creating
+     * bloom filter objects.
+     */
+    public static class FilterSizeLimits {
+        // Maximum filter size, in bytes, rounded up to a power of two.
+        public final long maxVal;
+
+        // Minimum filter size, in bytes, rounded up to a power of two.
+        public final long minVal;
+
+        // Pre-computed default filter size, in bytes, rounded up to a power of two.
+        public final long defaultVal;
+
+        public FilterSizeLimits(SessionVariable sessionVariable) {
+            // Round up all limits to a power of two
+            long maxLimit = sessionVariable.getRuntimeBloomFilterMaxSize();
+            maxVal = BitUtil.roundUpToPowerOf2(maxLimit);
+
+            long minLimit = sessionVariable.getRuntimeBloomFilterMinSize();
+            // Make sure minVal <= defaultVal <= maxVal
+            minVal = BitUtil.roundUpToPowerOf2(Math.min(minLimit, maxVal));
+
+            long defaultValue = sessionVariable.getRuntimeBloomFilterSize();
+            defaultValue = Math.max(defaultValue, minVal);
+            defaultVal = BitUtil.roundUpToPowerOf2(Math.min(defaultValue, maxVal));
+        }
+    }
 
     // Identifier of the filter (unique within a query)
     private final RuntimeFilterId id;
@@ -137,7 +170,7 @@ public final class RuntimeFilter {
     private RuntimeFilter(RuntimeFilterId filterId, PlanNode filterSrcNode, Expr srcExpr, int exprOrder,
                           List<Expr> origTargetExprs, List<Map<TupleId, List<SlotId>>> targetSlots,
                           TRuntimeFilterType type,
-                          RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits, long buildSizeNdv,
+                          FilterSizeLimits filterSizeLimits, long buildSizeNdv,
                           TMinMaxRuntimeFilterType tMinMaxRuntimeFilterType) {
         this.id = filterId;
         this.builderNode = filterSrcNode;
@@ -173,7 +206,7 @@ public final class RuntimeFilter {
 
     private RuntimeFilter(RuntimeFilterId filterId, PlanNode filterSrcNode, Expr srcExpr, int exprOrder,
             List<Expr> origTargetExprs, List<Map<TupleId, List<SlotId>>> targetSlots, TRuntimeFilterType type,
-            RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits, long buildSizeNdv) {
+            FilterSizeLimits filterSizeLimits, long buildSizeNdv) {
         this(filterId, filterSrcNode, srcExpr, exprOrder, origTargetExprs,
                 targetSlots, type, filterSizeLimits, buildSizeNdv, TMinMaxRuntimeFilterType.MIN_MAX);
     }
@@ -181,9 +214,9 @@ public final class RuntimeFilter {
     // only for nereids planner
     public static RuntimeFilter fromNereidsRuntimeFilter(
             org.apache.doris.nereids.trees.plans.physical.RuntimeFilter nereidsFilter,
-            JoinNodeBase node, Expr srcExpr, List<Expr> origTargetExprs,
+            PlanNode node, Expr srcExpr, List<Expr> origTargetExprs,
             List<Map<TupleId, List<SlotId>>> targetSlots,
-            RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits) {
+            FilterSizeLimits filterSizeLimits) {
         return new RuntimeFilter(nereidsFilter.getId(), node, srcExpr, nereidsFilter.getExprOrder(), origTargetExprs,
                 targetSlots, nereidsFilter.getType(), filterSizeLimits, nereidsFilter.getBuildSideNdv(),
                 nereidsFilter.gettMinMaxType());
@@ -220,7 +253,7 @@ public final class RuntimeFilter {
     public TRuntimeFilterDesc toThrift() {
         TRuntimeFilterDesc tFilter = new TRuntimeFilterDesc();
         tFilter.setFilterId(id.asInt());
-        tFilter.setSrcExpr(srcExpr.treeToThrift());
+        tFilter.setSrcExpr(ExprToThriftVisitor.treeToThrift(srcExpr));
         tFilter.setExprOrder(exprOrder);
         tFilter.setIsBroadcastJoin(isBroadcastJoin);
         tFilter.setHasLocalTargets(hasLocalTargets);
@@ -228,7 +261,7 @@ public final class RuntimeFilter {
 
         boolean hasSerialTargets = false;
         for (RuntimeFilterTarget target : targets) {
-            tFilter.putToPlanIdToTargetExpr(target.node.getId().asInt(), target.expr.treeToThrift());
+            tFilter.putToPlanIdToTargetExpr(target.node.getId().asInt(), ExprToThriftVisitor.treeToThrift(target.expr));
             hasSerialTargets = hasSerialTargets
                     || (target.node.isSerialOperator() && target.node.fragment.useSerialSource(ConnectContext.get()));
         }
@@ -258,7 +291,7 @@ public final class RuntimeFilter {
         tFilter.setType(runtimeFilterType);
         tFilter.setBloomFilterSizeBytes(filterSizeBytes);
         if (runtimeFilterType.equals(TRuntimeFilterType.BITMAP)) {
-            tFilter.setBitmapTargetExpr(targets.get(0).expr.treeToThrift());
+            tFilter.setBitmapTargetExpr(ExprToThriftVisitor.treeToThrift(targets.get(0).expr));
             tFilter.setBitmapFilterNotIn(bitmapFilterNotIn);
         }
         if (runtimeFilterType.equals(TRuntimeFilterType.MIN_MAX)) {
@@ -280,20 +313,12 @@ public final class RuntimeFilter {
         return tFilter;
     }
 
-    public List<RuntimeFilterTarget> getTargets() {
-        return targets;
-    }
-
     public boolean hasTargets() {
         return !targets.isEmpty();
     }
 
     public Expr getSrcExpr() {
         return srcExpr;
-    }
-
-    public List<Expr> getOrigTargetExprs() {
-        return origTargetExprs;
     }
 
     public List<Map<TupleId, List<SlotId>>> getTargetSlots() {
@@ -396,7 +421,7 @@ public final class RuntimeFilter {
      * Considering that the `IN` filter may be converted to the `Bloom FIlter` when crossing fragments,
      * the bloom filter size is always calculated.
      */
-    public void calculateFilterSize(RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits) {
+    public void calculateFilterSize(FilterSizeLimits filterSizeLimits) {
         if (ndvEstimate == -1) {
             filterSizeBytes = filterSizeLimits.defaultVal;
             return;
@@ -493,7 +518,7 @@ public final class RuntimeFilter {
         if (getBuilderNode().getId().equals(nodeId)) {
             // source side
             filterStr.append(" <- ");
-            filterStr.append(getSrcExpr().toSql());
+            filterStr.append(getSrcExpr().accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             filterStr.append("(").append(getEstimateNdv()).append("/")
                     .append(getExpectFilterSizeBytes()).append("/")
                     .append(getFilterSizeBytes()).append(")");
@@ -501,7 +526,7 @@ public final class RuntimeFilter {
             // target side
             if (getTargetExpr(nodeId) != null) {
                 filterStr.append(" -> ");
-                filterStr.append(getTargetExpr(nodeId).toSql());
+                filterStr.append(getTargetExpr(nodeId).accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }
         }
         return filterStr.toString();

@@ -33,10 +33,10 @@
 #include <unordered_map>
 
 #include "common/status.h"
+#include "core/string_ref.h"
 #include "cpp/aws_common.h"
 #include "cpp/s3_rate_limiter.h"
 #include "io/fs/obj_storage_client.h"
-#include "vec/common/string_ref.h"
 
 namespace Aws::S3 {
 class S3Client;
@@ -150,6 +150,7 @@ public:
         // So here we use a static instance, and deep copy every time
         // to avoid unnecessary operations.
         static Aws::Client::ClientConfiguration instance;
+        instance.requestTimeoutMs = config::aws_client_request_timeout_ms;
         return instance;
     }
 

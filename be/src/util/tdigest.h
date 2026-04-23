@@ -57,7 +57,6 @@
 #include "common/logging.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 using Value = float;
 using Weight = float;
@@ -789,5 +788,4 @@ private:
         return previousMean * previousWeight + nextMean * nextWeight;
     }
 };
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -18,9 +18,9 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
-import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
+import org.apache.doris.foundation.property.ConnectorProperty;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -329,5 +329,14 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     @Override
     public String getStorageName() {
         return "S3";
+    }
+
+    /** Returns the bucket name from the connector properties map. */
+    public String getBucket() {
+        String bucket = origProps.get("s3.bucket");
+        if (bucket == null) {
+            bucket = origProps.get("AWS_BUCKET");
+        }
+        return bucket != null ? bucket : "";
     }
 }

@@ -21,9 +21,11 @@
 #include <brpc/uri.h>
 #include <gen_cpp/cloud.pb.h>
 
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 
 #include "common/util.h"
 
@@ -76,5 +78,21 @@ inline static HttpResponse http_text_reply(const MetaServiceResponseStatus& stat
                                            const std::string& body) {
     return http_text_reply(status.code(), status.msg(), body);
 }
+
+// Forward declarations
+class MetaServiceImpl;
+class RecyclerServiceImpl;
+
+// Role-based HTTP handler
+enum class HttpRole { META_SERVICE = 1, RECYCLER = 2, BOTH = 3 };
+
+using HttpHandler = std::function<HttpResponse(void*, brpc::Controller*)>;
+
+struct HttpHandlerInfo {
+    HttpHandler handler;
+    // Route-local overrides keyed by API version, e.g. {"v2", handler_for_v2}.
+    std::unordered_map<std::string_view, HttpHandler> versioned_handlers;
+    HttpRole role;
+};
 
 } // namespace doris::cloud

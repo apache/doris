@@ -66,7 +66,7 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
         rStudent = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student,
                 ImmutableList.of());
         createDatabase("test");
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
         createTables(
                 "CREATE TABLE IF NOT EXISTS t1 (\n"
                         + "    id int not null,\n"

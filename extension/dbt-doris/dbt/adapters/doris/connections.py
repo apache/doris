@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import ContextManager, Optional, Union
 
 import mysql.connector
+from mysql.connector.constants import FieldType
 
 from dbt import exceptions
 from dbt.adapters.contracts.connection import Credentials
@@ -48,7 +49,7 @@ class DorisCredentials(Credentials):
         return "doris"
 
     def _connection_keys(self):
-        return "host", "port", "user", "schema"
+        return "host", "port", "username", "schema"
 
     @property
     def unique_field(self) -> str:
@@ -78,6 +79,7 @@ class DorisConnectionManager(SQLConnectionManager):
             "port": credentials.port,
             "user": credentials.username,
             "password": credentials.password,
+            "database": credentials.schema,
             "buffered": True,
             "charset": "utf8",
             "get_warnings": True,
@@ -86,16 +88,28 @@ class DorisConnectionManager(SQLConnectionManager):
         try:
             connection.handle = mysql.connector.connect(**kwargs)
             connection.state = 'open'
-        except mysql.connector.Error:
-
-            try:
-                logger.debug("Failed connection without supplying the `database`. "
-                             "Trying again with `database` included.")
-                connection.handle = mysql.connector.connect(**kwargs)
-                connection.state = 'open'
-            except mysql.connector.Error as e:
-
-                logger.debug("Got an error when attempting to open a mysql "
+        except mysql.connector.Error as e:
+            # If the database does not exist yet, connect without it.
+            # dbt will create the database/schema via create_schema().
+            if e.errno == 1049:  # Unknown database
+                logger.debug(
+                    f"Database '{credentials.schema}' does not exist, "
+                    "connecting without database."
+                )
+                kwargs.pop("database", None)
+                try:
+                    connection.handle = mysql.connector.connect(**kwargs)
+                    connection.state = 'open'
+                except mysql.connector.Error as e2:
+                    logger.debug(
+                        "Got an error when attempting to open a Doris "
+                        "connection: '{}'".format(e2)
+                    )
+                    connection.handle = None
+                    connection.state = 'fail'
+                    raise exceptions.DbtRuntimeError(str(e2))
+            else:
+                logger.debug("Got an error when attempting to open a Doris "
                              "connection: '{}'"
                              .format(e))
 
@@ -109,7 +123,6 @@ class DorisConnectionManager(SQLConnectionManager):
     def get_credentials(cls, credentials):
         return credentials
 
-    @classmethod
     def cancel(self, connection: Connection):
         connection.handle.close()
 
@@ -140,13 +153,72 @@ class DorisConnectionManager(SQLConnectionManager):
             raise exceptions.DbtRuntimeError(str(e)) from e
 
     @classmethod
+    def data_type_code_to_name(cls, type_code) -> str:
+        """Map mysql-connector type codes to Doris type names."""
+        mapping = {
+            FieldType.TINY: "TINYINT",
+            FieldType.SHORT: "SMALLINT",
+            FieldType.LONG: "INT",
+            FieldType.FLOAT: "FLOAT",
+            FieldType.DOUBLE: "DOUBLE",
+            FieldType.NULL: "NULL",
+            FieldType.TIMESTAMP: "DATETIME",
+            FieldType.LONGLONG: "BIGINT",
+            FieldType.INT24: "INT",
+            FieldType.DATE: "DATE",
+            FieldType.TIME: "TIME",
+            FieldType.DATETIME: "DATETIME",
+            FieldType.YEAR: "INT",
+            FieldType.NEWDATE: "DATE",
+            FieldType.VARCHAR: "VARCHAR",
+            FieldType.BIT: "BOOLEAN",
+            FieldType.JSON: "JSON",
+            FieldType.NEWDECIMAL: "DECIMAL",
+            FieldType.DECIMAL: "DECIMAL",
+            FieldType.ENUM: "VARCHAR",
+            FieldType.SET: "VARCHAR",
+            FieldType.TINY_BLOB: "STRING",
+            FieldType.MEDIUM_BLOB: "STRING",
+            FieldType.LONG_BLOB: "STRING",
+            FieldType.BLOB: "STRING",
+            FieldType.VAR_STRING: "VARCHAR",
+            FieldType.STRING: "STRING",
+            FieldType.GEOMETRY: "STRING",
+        }
+        return mapping.get(type_code, "STRING")
+
     def begin(self):
         """
-        https://doris.apache.org/docs/data-operate/import/import-scenes/load-atomicity/
-        Doris's inserting always transaction, ignore it
+        Doris BEGIN limitation: once BEGIN is issued, only INSERT/UPDATE/DELETE/
+        COMMIT/ROLLBACK are allowed — SELECT and DDL will error with:
+        "This is in a transaction, only insert, update, delete, commit, rollback
+        is acceptable."
+
+        We must NOT send literal BEGIN SQL. We only maintain dbt-core's
+        transaction_open flag so the framework tracks state correctly.
         """
+        connection = self.get_thread_connection()
+        if connection.transaction_open is True:
+            raise exceptions.DbtRuntimeError(
+                "Tried to begin a new transaction on connection '{}', but "
+                "it already had one open!".format(connection.name)
+            )
+        connection.transaction_open = True
+        return connection
+
+    def commit(self):
+        """
+        Do not send literal COMMIT SQL — bare COMMIT without BEGIN is a no-op
+        in Doris, but we avoid it for clarity. Just reset the framework flag.
+        """
+        connection = self.get_thread_connection()
+        connection.transaction_open = False
+        return connection
+
+    def add_begin_query(self):
+        """Override to prevent literal 'BEGIN' SQL from being sent to Doris."""
         pass
 
-    @classmethod
-    def commit(self):
+    def add_commit_query(self):
+        """Override to prevent literal 'COMMIT' SQL from being sent to Doris."""
         pass

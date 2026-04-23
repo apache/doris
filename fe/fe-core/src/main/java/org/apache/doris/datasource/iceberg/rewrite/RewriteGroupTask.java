@@ -216,8 +216,7 @@ public class RewriteGroupTask implements TransientTaskExecutor {
                 DMLCommandType.INSERT,
                 Optional.empty(), // labelName
                 Optional.empty(), // branchName
-                sourceRelation);
-
+                sourceRelation, true);
         // Create RewriteTableCommand for rewrite operation
         return new RewriteTableCommand(
                 tableSink,
@@ -288,7 +287,8 @@ public class RewriteGroupTask implements TransientTaskExecutor {
                 "availableBeCount must be greater than 0 for rewrite task");
 
         // 3. Get default parallelism from session variable (pipeline task num)
-        int defaultParallelism = connectContext.getSessionVariable().getParallelExecInstanceNum();
+        String clusterName = connectContext.getSessionVariable().resolveCloudClusterName(connectContext);
+        int defaultParallelism = connectContext.getSessionVariable().getParallelExecInstanceNum(clusterName);
 
         // 4. Determine strategy based on expected file count
         boolean useGather = false;

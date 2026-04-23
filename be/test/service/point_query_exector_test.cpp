@@ -16,20 +16,20 @@
 // under the License.
 
 #include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
 #include <gtest/gtest.h>
 
 #include "common/object_pool.h"
-#include "gen_cpp/Descriptors_types.h"
-#include "gen_cpp/Types_types.h"
-#include "gen_cpp/internal_service.pb.h"
-#include "olap/tablet_schema.h"
+#include "core/block/block.h"
+#include "exprs/vexpr.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "service/point_query_executor.h"
-#include "vec/core/block.h"
-#include "vec/exprs/vexpr.h"
+#include "storage/tablet/tablet_schema.h"
 
 namespace doris {
 

@@ -172,8 +172,9 @@ if [[ "${RUN_DAEMON}" -eq 1 ]]; then
     tail -n12 "${out_file}"
     exit 0
 elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
-    # stdout and stderr both output to doris_cloud.out
-    "${bin}" "$@" >>"${out_file}" 2>&1
+    # stdout for K8S log capture (StdoutLogSink), stderr (startup info + crash stack) to .out file
+    export DORIS_LOG_TO_STDERR=1
+    "${bin}" "$@" 2>>"${out_file}"
 else
     "${bin}" "$@"
 fi

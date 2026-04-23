@@ -18,6 +18,7 @@
 #pragma once
 
 #include <bthread/countdown_event.h>
+#include <gen_cpp/BackendService.h>
 
 #include <condition_variable>
 #include <deque>
@@ -29,7 +30,6 @@
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "common/status.h"
-#include "gen_cpp/BackendService.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -114,7 +114,8 @@ private:
     void submit_download_tasks(io::Path path, int64_t file_size, io::FileSystemSPtr file_system,
                                int64_t expiration_time,
                                std::shared_ptr<bthread::CountdownEvent> wait, bool is_index = false,
-                               std::function<void(Status)> done_cb = nullptr);
+                               std::function<void(Status)> done_cb = nullptr,
+                               int64_t tablet_id = -1);
     std::mutex _mtx;
     std::condition_variable _cond;
     int64_t _cur_job_id {0};

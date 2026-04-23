@@ -18,22 +18,24 @@
 package org.apache.doris.nereids.trees.plans.visitor;
 
 import org.apache.doris.nereids.analyzer.UnboundBlackholeSink;
+import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
-import org.apache.doris.nereids.analyzer.UnboundJdbcTableSink;
 import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundTVFTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalBlackholeSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalConnectorTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergDeleteSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergTableSink;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
@@ -41,12 +43,14 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalConnectorTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergDeleteSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
@@ -83,7 +87,7 @@ public interface SinkVisitor<R, C> {
         return visitLogicalSink(unboundTableSink, context);
     }
 
-    default R visitUnboundJdbcTableSink(UnboundJdbcTableSink<? extends Plan> unboundTableSink, C context) {
+    default R visitUnboundConnectorTableSink(UnboundConnectorTableSink<? extends Plan> unboundTableSink, C context) {
         return visitLogicalSink(unboundTableSink, context);
     }
 
@@ -135,8 +139,17 @@ public interface SinkVisitor<R, C> {
         return visitLogicalTableSink(mcTableSink, context);
     }
 
-    default R visitLogicalJdbcTableSink(LogicalJdbcTableSink<? extends Plan> jdbcTableSink, C context) {
-        return visitLogicalTableSink(jdbcTableSink, context);
+    default R visitLogicalIcebergDeleteSink(LogicalIcebergDeleteSink<? extends Plan> icebergDeleteSink, C context) {
+        return visitLogicalTableSink(icebergDeleteSink, context);
+    }
+
+    default R visitLogicalIcebergMergeSink(LogicalIcebergMergeSink<? extends Plan> icebergMergeSink, C context) {
+        return visitLogicalTableSink(icebergMergeSink, context);
+    }
+
+    default R visitLogicalConnectorTableSink(LogicalConnectorTableSink<? extends Plan> connectorTableSink,
+            C context) {
+        return visitLogicalTableSink(connectorTableSink, context);
     }
 
     default R visitLogicalResultSink(LogicalResultSink<? extends Plan> logicalResultSink, C context) {
@@ -195,8 +208,17 @@ public interface SinkVisitor<R, C> {
         return visitPhysicalTableSink(mcTableSink, context);
     }
 
-    default R visitPhysicalJdbcTableSink(PhysicalJdbcTableSink<? extends Plan> jdbcTableSink, C context) {
-        return visitPhysicalTableSink(jdbcTableSink, context);
+    default R visitPhysicalIcebergDeleteSink(PhysicalIcebergDeleteSink<? extends Plan> icebergDeleteSink, C context) {
+        return visitPhysicalTableSink(icebergDeleteSink, context);
+    }
+
+    default R visitPhysicalIcebergMergeSink(PhysicalIcebergMergeSink<? extends Plan> icebergMergeSink, C context) {
+        return visitPhysicalTableSink(icebergMergeSink, context);
+    }
+
+    default R visitPhysicalConnectorTableSink(PhysicalConnectorTableSink<? extends Plan> connectorTableSink,
+            C context) {
+        return visitPhysicalTableSink(connectorTableSink, context);
     }
 
     default R visitPhysicalDictionarySink(PhysicalDictionarySink<? extends Plan> dictionarySink, C context) {

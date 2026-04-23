@@ -19,7 +19,7 @@ package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.InsertTableContext;
 import org.apache.doris.nereids.DorisParser.JobFromToClauseContext;
@@ -132,6 +132,18 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
         return super.visitCreateStorageVault(ctx);
     }
 
+    // create authentication integration clause
+    @Override
+    public LogicalPlan visitCreateAuthenticationIntegration(DorisParser.CreateAuthenticationIntegrationContext ctx) {
+        if (ctx.properties != null && ctx.properties.fileProperties != null) {
+            DorisParser.PropertyClauseContext propertyClauseContext = ctx.properties;
+            encryptProperty(visitPropertyClause(propertyClauseContext),
+                    propertyClauseContext.fileProperties.start.getStartIndex(),
+                    propertyClauseContext.fileProperties.stop.getStopIndex());
+        }
+        return super.visitCreateAuthenticationIntegration(ctx);
+    }
+
     // alter storage vault clause
     @Override
     public LogicalPlan visitAlterStorageVault(DorisParser.AlterStorageVaultContext ctx) {
@@ -142,6 +154,19 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
                     propertyClauseContext.fileProperties.stop.getStopIndex());
         }
         return super.visitAlterStorageVault(ctx);
+    }
+
+    // alter authentication integration properties clause
+    @Override
+    public LogicalPlan visitAlterAuthenticationIntegrationProperties(
+            DorisParser.AlterAuthenticationIntegrationPropertiesContext ctx) {
+        if (ctx.properties != null && ctx.properties.fileProperties != null) {
+            DorisParser.PropertyClauseContext propertyClauseContext = ctx.properties;
+            encryptProperty(visitPropertyClause(propertyClauseContext),
+                    propertyClauseContext.fileProperties.start.getStartIndex(),
+                    propertyClauseContext.fileProperties.stop.getStopIndex());
+        }
+        return super.visitAlterAuthenticationIntegrationProperties(ctx);
     }
 
     // select from tvf
@@ -189,7 +214,7 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
 
     private void encryptProperty(Map<String, String> properties, int start, int stop) {
         if (MapUtils.isNotEmpty(properties)) {
-            PrintableMap<String, String> printableMap = new PrintableMap<>(properties, "=",
+            DatasourcePrintableMap<String, String> printableMap = new DatasourcePrintableMap<>(properties, "=",
                     true, false, true);
             indexInSqlToString.put(Pair.of(start, stop), printableMap.toString());
         }

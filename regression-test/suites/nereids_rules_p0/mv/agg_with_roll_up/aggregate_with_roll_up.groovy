@@ -39,7 +39,7 @@ suite("aggregate_with_roll_up") {
       O_COMMENT        VARCHAR(79) NOT NULL
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
-    DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
+    DISTRIBUTED BY HASH(o_orderkey) BUCKETS 2
     PROPERTIES (
       "replication_num" = "1"
     );
@@ -69,7 +69,7 @@ suite("aggregate_with_roll_up") {
       l_comment      VARCHAR(44) NOT NULL
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
-    DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
+    DISTRIBUTED BY HASH(l_orderkey) BUCKETS 2
     PROPERTIES (
       "replication_num" = "1"
     )
@@ -88,7 +88,7 @@ suite("aggregate_with_roll_up") {
       ps_comment     VARCHAR(199) NOT NULL 
     )
     DUPLICATE KEY(ps_partkey, ps_suppkey)
-    DISTRIBUTED BY HASH(ps_partkey) BUCKETS 3
+    DISTRIBUTED BY HASH(ps_partkey) BUCKETS 2
     PROPERTIES (
       "replication_num" = "1"
     )
@@ -137,6 +137,64 @@ suite("aggregate_with_roll_up") {
     sql """alter table orders modify column O_COMMENT set stats ('row_count'='8');"""
     sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
 
+    [
+            "mv13_0", "mv13_1", "mv14_0", "mv15_0", "mv15_1", "mv16_0", "mv17_0", "mv18_0",
+            "mv19_0", "mv19_1", "mv20_0", "mv20_1", "mv21_0", "mv22_0", "mv22_1", "mv23_0",
+            "mv24_0", "mv25_0", "mv25_1", "mv25_2", "mv25_3", "mv25_4", "mv25_5", "mv25_6",
+            "mv1_1", "mv2_0", "mv26_0", "mv27_0", "mv28_0", "mv29_0", "mv29_1", "mv29_2",
+            "mv30_0", "mv31_0", "mv32_0", "mv32_1", "mv32_2", "mv33_0", "mv33_1", "mv34_0",
+            "mv35_0", "mv36_0", "mv37_0"
+    ].each { mvName ->
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mvName}"""
+    }
+
+    def create_async_mv_without_drop = { dbName, mvSql, mvName, expectedPreRewriteStrategys = [], needAnalyze = true ->
+        if (!mvShouldContinueCheck(expectedPreRewriteStrategys)) {
+            return false
+        }
+        sql"""
+        CREATE MATERIALIZED VIEW ${mvName}
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1')
+        AS ${mvSql}
+        """
+        def jobName = getJobName(dbName, mvName)
+        if (needAnalyze) {
+            waitingMTMVTaskFinished(jobName)
+        } else {
+            waitingMTMVTaskFinishedWithoutAnalyze(jobName)
+        }
+        return true
+    }
+
+    // The suite drops each MV after validation, so we only need one upfront cleanup.
+    def async_mv_rewrite_success = { dbName, mvSql, querySql, mvName, expectedPreRewriteStrategys = [] ->
+        if (!create_async_mv_without_drop(dbName, mvSql, mvName, expectedPreRewriteStrategys)) {
+            return
+        }
+        mv_rewrite_success(querySql, mvName, true, expectedPreRewriteStrategys)
+    }
+
+    def async_mv_rewrite_fail = { dbName, mvSql, querySql, mvName, expectedPreRewriteStrategys = [] ->
+        // Fail cases only verify rewrite rejection, so they do not need MV stats for CBO choosing.
+        if (!create_async_mv_without_drop(dbName, mvSql, mvName, expectedPreRewriteStrategys, false)) {
+            return
+        }
+        mv_rewrite_fail(querySql, mvName, expectedPreRewriteStrategys)
+    }
+
+    def with_async_mv = { dbName, mvSql, mvName, boolean needAnalyze = true, Closure body ->
+        if (!create_async_mv_without_drop(dbName, mvSql, mvName, [], needAnalyze)) {
+            return
+        }
+        try {
+            body.call(mvName)
+        } finally {
+            sql """ DROP MATERIALIZED VIEW IF EXISTS ${mvName}"""
+        }
+    }
+
     // multi table
     // filter inside + left + use roll up dimension
     def mv13_0 =
@@ -170,12 +228,6 @@ suite("aggregate_with_roll_up") {
             l_partkey,
             l_suppkey
             """
-    order_qt_query13_0_before "${query13_0}"
-    async_mv_rewrite_success(db, mv13_0, query13_0, "mv13_0")
-    order_qt_query13_0_after "${query13_0}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv13_0"""
-
-
     def mv13_1 = """
             select l_shipdate, o_orderdate, l_partkey, l_suppkey,
             sum(o_totalprice) as sum_total,
@@ -205,10 +257,14 @@ suite("aggregate_with_roll_up") {
             l_partkey,
             l_suppkey;
     """
-    order_qt_query13_1_before "${query13_1}"
-    async_mv_rewrite_fail(db, mv13_1, query13_1, "mv13_1")
-    order_qt_query13_1_after "${query13_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv13_1"""
+    with_async_mv(db, mv13_0, "mv13_0") { mvName ->
+        order_qt_query13_0_before "${query13_0}"
+        mv_rewrite_success(query13_0, mvName)
+        order_qt_query13_0_after "${query13_0}"
+        order_qt_query13_1_before "${query13_1}"
+        mv_rewrite_fail(query13_1, mvName)
+        order_qt_query13_1_after "${query13_1}"
+    }
 
 
     // filter inside + right + use roll up dimension
@@ -276,11 +332,6 @@ suite("aggregate_with_roll_up") {
             "o_orderdate, " +
             "l_partkey, " +
             "l_suppkey"
-    order_qt_query15_0_before "${query15_0}"
-    async_mv_rewrite_success(db, mv15_0, query15_0, "mv15_0")
-    order_qt_query15_0_after "${query15_0}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv15_0"""
-
     def mv15_1 = """
             select l_shipdate, o_orderdate, l_partkey, l_suppkey,
             sum(o_totalprice) as sum_total,
@@ -315,11 +366,14 @@ suite("aggregate_with_roll_up") {
             l_partkey,
             l_suppkey;
     """
-
-    order_qt_query15_1_before "${query15_1}"
-    async_mv_rewrite_success(db, mv15_1, query15_1, "mv15_1")
-    order_qt_query15_1_after "${query15_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv15_1"""
+    with_async_mv(db, mv15_0, "mv15_0") { mvName ->
+        order_qt_query15_0_before "${query15_0}"
+        mv_rewrite_success(query15_0, mvName)
+        order_qt_query15_0_after "${query15_0}"
+        order_qt_query15_1_before "${query15_1}"
+        mv_rewrite_success(query15_1, mvName)
+        order_qt_query15_1_after "${query15_1}"
+    }
 
     // filter outside + left + use roll up dimension
     def mv16_0 = "select l_shipdate, o_orderdate, l_partkey, l_suppkey, " +
@@ -503,11 +557,6 @@ suite("aggregate_with_roll_up") {
             "l_shipdate, " +
             "o_orderdate, " +
             "l_suppkey"
-    order_qt_query20_0_before "${query20_0}"
-    async_mv_rewrite_success(db, mv20_0, query20_0, "mv20_0")
-    order_qt_query20_0_after "${query20_0}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv20_0"""
-
     def mv20_1 = """
             select l_shipdate, o_orderdate, l_partkey, l_suppkey,
             sum(o_totalprice) as sum_total,
@@ -543,10 +592,14 @@ suite("aggregate_with_roll_up") {
             l_partkey,
             l_suppkey;
             """
-    order_qt_query20_1_before "${query20_1}"
-    async_mv_rewrite_success(db, mv20_1, query20_1, "mv20_1")
-    order_qt_query20_1_after "${query20_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv20_1"""
+    with_async_mv(db, mv20_0, "mv20_0") { mvName ->
+        order_qt_query20_0_before "${query20_0}"
+        mv_rewrite_success(query20_0, mvName)
+        order_qt_query20_0_after "${query20_0}"
+        order_qt_query20_1_before "${query20_1}"
+        mv_rewrite_success(query20_1, mvName)
+        order_qt_query20_1_after "${query20_1}"
+    }
 
 
     // filter inside + right + left + use not roll up dimension
@@ -817,12 +870,6 @@ suite("aggregate_with_roll_up") {
             o_orderdate,
             l_suppkey;
     """
-    order_qt_query25_2_before "${query25_2}"
-    async_mv_rewrite_success(db, mv25_2, query25_2, "mv25_2")
-    order_qt_query25_2_after "${query25_2}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv25_2"""
-
-
     // bitmap_union roll up to bitmap_union_count
     def mv25_3 = """
            select l_shipdate, o_orderdate, l_partkey, l_suppkey,
@@ -858,10 +905,14 @@ suite("aggregate_with_roll_up") {
             o_orderdate,
             l_suppkey + l_partkey;
     """
-    order_qt_query25_3_before "${query25_3}"
-    async_mv_rewrite_success(db, mv25_3, query25_3, "mv25_3")
-    order_qt_query25_3_after "${query25_3}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv25_3"""
+    with_async_mv(db, mv25_2, "mv25_2") { mvName ->
+        order_qt_query25_2_before "${query25_2}"
+        mv_rewrite_success(query25_2, mvName)
+        order_qt_query25_2_after "${query25_2}"
+        order_qt_query25_3_before "${query25_3}"
+        mv_rewrite_success(query25_3, mvName)
+        order_qt_query25_3_after "${query25_3}"
+    }
 
 
     def mv25_4 = """
@@ -1008,12 +1059,6 @@ suite("aggregate_with_roll_up") {
             o_shippriority,
             o_comment;
             """
-    order_qt_query1_1_before "${query1_1}"
-    async_mv_rewrite_success(db, mv1_1, query1_1, "mv1_1")
-    order_qt_query1_1_after "${query1_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
-
-
     // filter + not use roll up dimension
     def mv2_0 = "select o_orderdate, o_shippriority, o_comment, " +
             "sum(o_totalprice) as sum_total, " +
@@ -1041,11 +1086,15 @@ suite("aggregate_with_roll_up") {
             o_shippriority,
             o_comment;
             """
-    order_qt_query2_0_before "${query2_0}"
-    async_mv_rewrite_success(db, mv2_0, query2_0, "mv2_0", [TRY_IN_RBO, FORCE_IN_RBO])
-    async_mv_rewrite_fail(db, mv2_0, query2_0, "mv2_0", [NOT_IN_RBO])
-    order_qt_query2_0_after "${query2_0}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_0"""
+    with_async_mv(db, mv1_1, "mv1_1") { mvName ->
+        order_qt_query1_1_before "${query1_1}"
+        mv_rewrite_success(query1_1, mvName)
+        order_qt_query1_1_after "${query1_1}"
+        order_qt_query2_0_before "${query2_0}"
+        mv_rewrite_success(query2_0, mvName, true, [TRY_IN_RBO, FORCE_IN_RBO])
+        mv_rewrite_fail(query2_0, mvName, [NOT_IN_RBO])
+        order_qt_query2_0_after "${query2_0}"
+    }
 
     // can not rewrite
     // bitmap_union_count is aggregate function but not support roll up
@@ -1207,12 +1256,6 @@ suite("aggregate_with_roll_up") {
             left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate;
     """
 
-    order_qt_query29_1_before "${query29_1}"
-    async_mv_rewrite_success(db, mv29_1, query29_1, "mv29_1")
-    order_qt_query29_1_after "${query29_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv29_1"""
-
-
     // mv and query both are scalar aggregate, and query calc the aggregate function
     def mv29_2 = """
             select
@@ -1233,10 +1276,14 @@ suite("aggregate_with_roll_up") {
             from lineitem
             left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate;
     """
-    order_qt_query29_2_before "${query29_2}"
-    async_mv_rewrite_success(db, mv29_2, query29_2, "mv29_2")
-    order_qt_query29_2_after "${query29_2}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv29_2"""
+    with_async_mv(db, mv29_1, "mv29_1") { mvName ->
+        order_qt_query29_1_before "${query29_1}"
+        mv_rewrite_success(query29_1, mvName)
+        order_qt_query29_1_after "${query29_1}"
+        order_qt_query29_2_before "${query29_2}"
+        mv_rewrite_success(query29_2, mvName)
+        order_qt_query29_2_after "${query29_2}"
+    }
 
 
     // join input has simple agg, simple agg which can not contains rollup, cube
@@ -1516,10 +1563,6 @@ suite("aggregate_with_roll_up") {
             o_orderstatus,
             l_suppkey;
     """
-    async_mv_rewrite_success(db, mv34_0, query34_0, "mv34_0")
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv34_0"""
-
-
     // mv is union, query is merge
     def mv35_0 = """
             select
@@ -1558,10 +1601,12 @@ suite("aggregate_with_roll_up") {
             l_suppkey
             order by o_orderstatus;
     """
-    order_qt_query35_0_before "${query35_0}"
-    async_mv_rewrite_success(db, mv35_0, query35_0, "mv35_0")
-    order_qt_query35_0_after "${query35_0}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv35_0"""
+    with_async_mv(db, mv34_0, "mv34_0") { mvName ->
+        mv_rewrite_success(query34_0, mvName)
+        order_qt_query35_0_before "${query35_0}"
+        mv_rewrite_success(query35_0, mvName)
+        order_qt_query35_0_after "${query35_0}"
+    }
 
 
     // mv is merge, query is merge
@@ -1602,12 +1647,6 @@ suite("aggregate_with_roll_up") {
             l_suppkey
             order by o_orderstatus;
     """
-    order_qt_query36_0_before "${query36_0}"
-    async_mv_rewrite_fail(db, mv36_0, query36_0, "mv36_0")
-    order_qt_query36_0_after "${query36_0}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv36_0"""
-
-
     // mv is merge, query is union
     def mv37_0 = """
             select
@@ -1645,6 +1684,10 @@ suite("aggregate_with_roll_up") {
             o_orderstatus,
             l_suppkey;
     """
-    async_mv_rewrite_fail(db, mv37_0, query37_0, "mv37_0")
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv37_0"""
+    with_async_mv(db, mv36_0, "mv36_0", false) { mvName ->
+        order_qt_query36_0_before "${query36_0}"
+        mv_rewrite_fail(query36_0, mvName)
+        order_qt_query36_0_after "${query36_0}"
+        mv_rewrite_fail(query37_0, mvName)
+    }
 }

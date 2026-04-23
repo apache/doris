@@ -17,12 +17,14 @@
 
 package org.apache.doris.mysql.authenticate.password;
 
+import org.apache.doris.authentication.CredentialType;
 import org.apache.doris.common.Config;
 import org.apache.doris.mysql.MysqlAuthPacket;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.qe.ConnectContext;
 
 import java.io.IOException;
@@ -30,10 +32,13 @@ import java.nio.ByteBuffer;
 import java.util.Optional;
 
 public class NativePasswordResolver implements PasswordResolver {
+    public static final String MYSQL_RANDOM_STRING_PROPERTY = "mysql.random_string";
+
     @Override
     public Optional<Password> resolvePassword(ConnectContext context, MysqlChannel channel, MysqlSerializer serializer,
             MysqlAuthPacket authPacket,
             MysqlHandshakePacket handshakePacket) throws IOException {
+        byte[] authResponse = authPacket.getAuthResponse();
         // Starting with MySQL 8.0.4, MySQL changed the default authentication plugin for MySQL client
         // from mysql_native_password to caching_sha2_password.
         // ref: https://mysqlserverteam.com/mysql-8-0-4-new-default-authentication-plugin-caching_sha2_password/
@@ -58,7 +63,7 @@ public class NativePasswordResolver implements PasswordResolver {
             }
             // 3. the client use default password plugin of Doris to dispose
             // password
-            authPacket.setAuthResponse(MysqlProto.readEofString(authSwitchResponse));
+            authResponse = MysqlProto.readEofString(authSwitchResponse);
         }
 
         // NOTE: when we behind proxy, we need random string sent by proxy.
@@ -66,6 +71,26 @@ public class NativePasswordResolver implements PasswordResolver {
         if (Config.proxy_auth_enable && authPacket.getRandomString() != null) {
             randomString = authPacket.getRandomString();
         }
-        return Optional.of(new NativePassword(authPacket.getAuthResponse(), randomString));
+        return Optional.of(new NativePassword(authResponse, randomString));
+    }
+
+    @Override
+    public Optional<AuthenticateRequest> resolveAuthenticateRequest(String userName, ConnectContext context,
+            MysqlChannel channel, MysqlSerializer serializer, MysqlAuthPacket authPacket,
+            MysqlHandshakePacket handshakePacket) throws IOException {
+        Optional<Password> password = resolvePassword(context, channel, serializer, authPacket, handshakePacket);
+        if (!password.isPresent()) {
+            return Optional.empty();
+        }
+        NativePassword nativePassword = (NativePassword) password.get();
+        return Optional.of(AuthenticateRequest.builder()
+                .userName(userName)
+                .password(nativePassword)
+                .remoteHost(channel.getRemoteIp())
+                .clientType("mysql")
+                .credentialType(CredentialType.MYSQL_NATIVE_PASSWORD)
+                .credential(nativePassword.getRemotePasswd())
+                .property(MYSQL_RANDOM_STRING_PROPERTY, nativePassword.getRandomString())
+                .build());
     }
 }

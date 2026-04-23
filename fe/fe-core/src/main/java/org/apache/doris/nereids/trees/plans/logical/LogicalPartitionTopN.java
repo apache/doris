@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.window.DenseRank;
 import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
@@ -179,28 +180,32 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     public LogicalPartitionTopN<Plan> withPartitionKeysAndOrderKeys(
             List<Expression> partitionKeys, List<OrderExpression> orderKeys) {
-        return new LogicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
-                Optional.empty(), Optional.of(getLogicalProperties()), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
+                Optional.empty(), Optional.of(getLogicalProperties()), child()));
     }
 
     @Override
     public LogicalPartitionTopN<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
-            children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
+            children.get(0)));
     }
 
     @Override
     public LogicalPartitionTopN<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
-            groupExpression, Optional.of(getLogicalProperties()), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
+            groupExpression, Optional.of(getLogicalProperties()), child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
-                groupExpression, logicalProperties, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
+                groupExpression, logicalProperties, children.get(0)));
     }
 }

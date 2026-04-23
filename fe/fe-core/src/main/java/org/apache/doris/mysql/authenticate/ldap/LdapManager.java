@@ -21,7 +21,6 @@ import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LdapConfig;
@@ -81,14 +80,28 @@ public class LdapManager {
         if (!checkParam(fullName)) {
             return null;
         }
+        long start = System.currentTimeMillis();
         LdapUserInfo ldapUserInfo = getUserInfoFromCache(fullName);
         if (ldapUserInfo != null && !ldapUserInfo.checkTimeout()) {
+            long elapsed = System.currentTimeMillis() - start;
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("LdapManager.getUserInfo: user={}, cacheHit=true, elapsed={}ms",
+                        fullName, elapsed);
+            }
             return ldapUserInfo;
         }
         try {
-            return getUserInfoAndUpdateCache(fullName);
+            LdapUserInfo result = getUserInfoAndUpdateCache(fullName);
+            long elapsed = System.currentTimeMillis() - start;
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("LdapManager.getUserInfo: user={}, cacheHit=false, elapsed={}ms",
+                        fullName, elapsed);
+            }
+            return result;
         } catch (DdlException e) {
-            LOG.warn("getUserInfo for {} failed", fullName, e);
+            long elapsed = System.currentTimeMillis() - start;
+            LOG.warn("LdapManager.getUserInfo failed: user={}, elapsed={}ms",
+                    fullName, elapsed, e);
             return null;
         }
     }
@@ -97,25 +110,48 @@ public class LdapManager {
         if (!checkParam(fullName)) {
             return false;
         }
+        long start = System.currentTimeMillis();
         LdapUserInfo info = getUserInfo(fullName);
-        return !Objects.isNull(info) && info.isExists();
+        boolean exists = !Objects.isNull(info) && info.isExists();
+        long elapsed = System.currentTimeMillis() - start;
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("LdapManager.doesUserExist: user={}, exists={}, elapsed={}ms",
+                    fullName, exists, elapsed);
+        }
+        return exists;
     }
 
     public boolean checkUserPasswd(String fullName, String passwd) {
-        String userName = ClusterNamespace.getNameFromFullName(fullName);
+        long start = System.currentTimeMillis();
+        String userName = fullName;
         if (AuthenticateType.getAuthTypeConfig() != AuthenticateType.LDAP || Strings.isNullOrEmpty(userName)
                 || Objects.isNull(passwd)) {
             return false;
         }
         LdapUserInfo ldapUserInfo = getUserInfo(fullName);
         if (Objects.isNull(ldapUserInfo) || !ldapUserInfo.isExists()) {
+            long elapsed = System.currentTimeMillis() - start;
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("LdapManager.checkUserPasswd: user={}, result=user_not_found, elapsed={}ms",
+                        fullName, elapsed);
+            }
             return false;
         }
 
         if (ldapUserInfo.isSetPasswd() && ldapUserInfo.getPasswd().equals(passwd)) {
+            long elapsed = System.currentTimeMillis() - start;
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("LdapManager.checkUserPasswd: user={}, result=cached_passwd_match, elapsed={}ms",
+                        fullName, elapsed);
+            }
             return true;
         }
         boolean isRightPasswd = ldapClient.checkPassword(userName, passwd);
+        long elapsed = System.currentTimeMillis() - start;
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("LdapManager.checkUserPasswd: user={}, result={}, elapsed={}ms",
+                    fullName, isRightPasswd ? "ldap_auth_ok" : "ldap_auth_fail", elapsed);
+        }
         if (!isRightPasswd) {
             return false;
         }
@@ -132,8 +168,15 @@ public class LdapManager {
     }
 
     public Set<Role> getUserRoles(String fullName) {
+        long start = System.currentTimeMillis();
         LdapUserInfo info = getUserInfo(fullName);
-        return info == null ? Collections.emptySet() : info.getRoles();
+        Set<Role> roles = info == null ? Collections.emptySet() : info.getRoles();
+        long elapsed = System.currentTimeMillis() - start;
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("LdapManager.getUserRoles: user={}, roles={}, elapsed={}ms",
+                    fullName, roles.size(), elapsed);
+        }
+        return roles;
     }
 
     private boolean checkParam(String fullName) {
@@ -143,7 +186,7 @@ public class LdapManager {
     }
 
     private LdapUserInfo getUserInfoAndUpdateCache(String fulName) throws DdlException {
-        String userName = ClusterNamespace.getNameFromFullName(fulName);
+        String userName = fulName;
         if (Strings.isNullOrEmpty(userName)) {
             return null;
         } else if (!ldapClient.doesUserExist(userName)) {

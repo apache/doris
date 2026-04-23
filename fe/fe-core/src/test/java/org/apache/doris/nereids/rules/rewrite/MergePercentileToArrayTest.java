@@ -34,7 +34,7 @@ public class MergePercentileToArrayTest extends TestWithFeService implements Mem
                         + "distributed by hash(pk) buckets 10\n"
                         + "properties('replication_num' = '1');"
         );
-        connectContext.setDatabase("default_cluster:merge_percentile_to_array");
+        connectContext.setDatabase("merge_percentile_to_array");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
 

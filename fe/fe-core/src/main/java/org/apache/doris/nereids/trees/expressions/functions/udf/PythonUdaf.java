@@ -17,10 +17,10 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.udf;
 
-import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.FunctionName;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.URI;
@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -47,7 +46,7 @@ import java.util.stream.Collectors;
 public class PythonUdaf extends AggregateFunction implements ExplicitlyCastableSignature, Udf {
     private final String dbName;
     private final long functionId;
-    private final TFunctionBinaryType binaryType;
+    private final Function.BinaryType binaryType;
     private final FunctionSignature signature;
     private final DataType intermediateType;
     private final NullableMode nullableMode;
@@ -69,7 +68,7 @@ public class PythonUdaf extends AggregateFunction implements ExplicitlyCastableS
     /**
      * Constructor of UDAF
      */
-    public PythonUdaf(String name, long functionId, String dbName, TFunctionBinaryType binaryType,
+    public PythonUdaf(String name, long functionId, String dbName, Function.BinaryType binaryType,
                       FunctionSignature signature,
                       DataType intermediateType, NullableMode nullableMode,
                       String objectFile, String symbol,

@@ -38,6 +38,7 @@ Available Examples:
   concurrent  - Production concurrent loading (1,000,000 records across 10 workers)
   json        - Production JSON data loading (50,000 JSON records)
   basic       - Basic concurrent loading demo (5 workers)
+  gzip        - Gzip compressed CSV stream load demo
   all         - Run all examples sequentially
 
 Examples:
@@ -45,6 +46,7 @@ Examples:
   go run cmd/examples/main.go concurrent
   go run cmd/examples/main.go json
   go run cmd/examples/main.go basic
+  go run cmd/examples/main.go gzip
   go run cmd/examples/main.go all
 
 Description:
@@ -52,6 +54,7 @@ Description:
   concurrent  - Shows high-throughput concurrent loading with 10 workers processing order data
   json        - Illustrates JSON Lines format loading with structured user activity data
   basic       - Simple concurrent example for learning and development
+  gzip        - Shows gzip-compressed CSV loading with automatic compression by the SDK
   all         - Runs all examples in sequence for comprehensive testing
 
 For more details, see examples/README.md
@@ -75,6 +78,9 @@ func runExample(name string) {
 	case "basic":
 		fmt.Println("Running Basic Concurrent Example...")
 		examples.RunBasicConcurrentExample()
+	case "gzip":
+		fmt.Println("Running Gzip Compression Example...")
+		examples.GzipExample()
 	case "all":
 		fmt.Println("Running All Examples...")
 		fmt.Println("\n" + strings.Repeat("=", 80))
@@ -85,6 +91,8 @@ func runExample(name string) {
 		examples.RunJSONExample()
 		fmt.Println("\n" + strings.Repeat("=", 80))
 		examples.RunBasicConcurrentExample()
+		fmt.Println("\n" + strings.Repeat("=", 80))
+		examples.GzipExample()
 		fmt.Println("\n" + strings.Repeat("=", 80))
 		fmt.Println("All examples completed!")
 	default:

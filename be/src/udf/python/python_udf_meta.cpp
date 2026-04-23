@@ -25,13 +25,12 @@
 #include <sstream>
 
 #include "common/status.h"
-#include "util/arrow/utils.h"
+#include "format/arrow/arrow_utils.h"
 #include "util/string_util.h"
 
 namespace doris {
 
-Status PythonUDFMeta::convert_types_to_schema(const vectorized::DataTypes& types,
-                                              const std::string& timezone,
+Status PythonUDFMeta::convert_types_to_schema(const DataTypes& types, const std::string& timezone,
                                               std::shared_ptr<arrow::Schema>* schema) {
     assert(!types.empty());
     arrow::SchemaBuilder builder;

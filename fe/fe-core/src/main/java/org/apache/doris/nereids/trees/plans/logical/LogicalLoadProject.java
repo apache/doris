@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
@@ -154,33 +155,39 @@ public class LogicalLoadProject<CHILD_TYPE extends Plan> extends LogicalUnary<CH
     @Override
     public LogicalLoadProject<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalLoadProject<>(projects, isDistinct, Utils.fastToImmutableList(children));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalLoadProject<>(projects, isDistinct, Utils.fastToImmutableList(children)));
     }
 
     @Override
     public LogicalLoadProject<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalLoadProject<>(projects, isDistinct,
-                groupExpression, Optional.of(getLogicalProperties()), children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalLoadProject<>(projects, isDistinct,
+                groupExpression, Optional.of(getLogicalProperties()), children));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalLoadProject<>(projects, isDistinct,
-                groupExpression, logicalProperties, children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalLoadProject<>(projects, isDistinct,
+                groupExpression, logicalProperties, children));
     }
 
     public LogicalLoadProject<Plan> withProjects(List<NamedExpression> projects) {
-        return new LogicalLoadProject<>(projects, isDistinct, children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalLoadProject<>(projects, isDistinct, children));
     }
 
     public LogicalLoadProject<Plan> withProjectsAndChild(List<NamedExpression> projects, Plan child) {
-        return new LogicalLoadProject<>(projects, isDistinct, ImmutableList.of(child));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalLoadProject<>(projects, isDistinct, ImmutableList.of(child)));
     }
 
     public LogicalLoadProject<Plan> withDistinct(boolean isDistinct) {
-        return new LogicalLoadProject<>(projects, isDistinct, children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalLoadProject<>(projects, isDistinct, children));
     }
 
     public boolean isDistinct() {

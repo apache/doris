@@ -35,6 +35,10 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * @deprecated Use {@link PostgreSQLTypeHandler} instead.
+ */
+@Deprecated
 public class PostgreSQLJdbcExecutor extends BaseJdbcExecutor {
     private static final Logger LOG = Logger.getLogger(PostgreSQLJdbcExecutor.class);
 

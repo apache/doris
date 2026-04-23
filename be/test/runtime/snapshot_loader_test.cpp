@@ -38,37 +38,37 @@
 
 #include "common/config.h"
 #include "common/object_pool.h"
-#include "exec/tablet_info.h"
-#include "http/action/download_action.h"
-#include "http/ev_http_server.h"
-#include "http/http_channel.h"
-#include "http/http_handler.h"
-#include "http/http_request.h"
+#include "core/block/block.h"
+#include "core/block/column_with_type_and_name.h"
+#include "core/column/column.h"
+#include "core/data_type/define_primitive_type.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
-#include "olap/data_dir.h"
-#include "olap/delta_writer.h"
-#include "olap/iterators.h"
-#include "olap/olap_define.h"
-#include "olap/options.h"
-#include "olap/rowset/beta_rowset.h"
-#include "olap/rowset/segment_v2/segment.h"
-#include "olap/schema.h"
-#include "olap/segment_loader.h"
-#include "olap/snapshot_manager.h"
-#include "olap/storage_engine.h"
-#include "olap/tablet.h"
-#include "olap/tablet_manager.h"
-#include "olap/task/engine_publish_version_task.h"
-#include "olap/txn_manager.h"
+#include "load/delta_writer/delta_writer.h"
 #include "runtime/cluster_info.h"
-#include "runtime/define_primitive_type.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "vec/columns/column.h"
-#include "vec/core/block.h"
-#include "vec/core/column_with_type_and_name.h"
+#include "service/http/action/download_action.h"
+#include "service/http/ev_http_server.h"
+#include "service/http/http_channel.h"
+#include "service/http/http_handler.h"
+#include "service/http/http_request.h"
+#include "storage/data_dir.h"
+#include "storage/iterators.h"
+#include "storage/olap_define.h"
+#include "storage/options.h"
+#include "storage/rowset/beta_rowset.h"
+#include "storage/schema.h"
+#include "storage/segment/segment.h"
+#include "storage/segment/segment_loader.h"
+#include "storage/snapshot/snapshot_manager.h"
+#include "storage/storage_engine.h"
+#include "storage/tablet/tablet.h"
+#include "storage/tablet/tablet_manager.h"
+#include "storage/tablet_info.h"
+#include "storage/task/engine_publish_version_task.h"
+#include "storage/txn/txn_manager.h"
 
 namespace doris {
 
@@ -203,11 +203,11 @@ static void add_rowset(int64_t tablet_id, int32_t schema_hash, int64_t partition
     auto delta_writer =
             std::make_unique<DeltaWriter>(*engine_ref, write_req, profile.get(), TUniqueId {});
 
-    vectorized::Block block;
+    Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
         std::cout << "slot_desc: " << slot_desc->col_name() << std::endl;
-        block.insert(vectorized::ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                       slot_desc->type(), slot_desc->col_name()));
+        block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(), slot_desc->type(),
+                                           slot_desc->col_name()));
     }
 
     std::cout << "total column " << block.mutate_columns().size() << std::endl;
@@ -324,6 +324,53 @@ TEST_F(SnapshotLoaderTest, NormalCase) {
                                                 &tablet_id);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(10005, tablet_id);
+}
+
+TEST_F(SnapshotLoaderTest, RejectBrokenSnapshotPath) {
+    SnapshotLoader loader(*engine_ref, ExecEnv::GetInstance(), 1L, 2L);
+    auto snapshot_path =
+            fmt::format("{}/snapshot/20260311120000.0.86400/10001/12345", storage_root_path);
+    std::filesystem::remove_all(snapshot_path);
+    std::filesystem::create_directories(snapshot_path);
+
+    std::map<std::string, std::string> src_to_dest;
+    src_to_dest[snapshot_path] = "unused";
+
+    auto st = loader._check_local_snapshot_paths(src_to_dest, true);
+    ASSERT_TRUE(st.ok()) << st;
+
+    engine_ref->add_broken_path(storage_root_path);
+    st = loader._check_local_snapshot_paths(src_to_dest, true);
+    EXPECT_FALSE(st.ok());
+    EXPECT_TRUE(st.is<ErrorCode::IO_ERROR>()) << st;
+    EXPECT_NE(st.to_string().find("broken storage path"), std::string::npos) << st;
+
+    EXPECT_TRUE(engine_ref->remove_broken_path(storage_root_path));
+    std::filesystem::remove_all(snapshot_path);
+}
+
+TEST_F(SnapshotLoaderTest, RejectBrokenSnapshotPathAfterCanonicalize) {
+    SnapshotLoader loader(*engine_ref, ExecEnv::GetInstance(), 1L, 2L);
+    auto snapshot_path =
+            fmt::format("{}/snapshot/20260311120001.0.86400/10001/12345", storage_root_path);
+    auto symlink_path = fmt::format("{}/snapshot-link", storage_root_path);
+    std::filesystem::remove_all(snapshot_path);
+    std::filesystem::remove(symlink_path);
+    std::filesystem::create_directories(snapshot_path);
+    std::filesystem::create_directory_symlink(snapshot_path, symlink_path);
+
+    std::map<std::string, std::string> src_to_dest;
+    src_to_dest[symlink_path] = "unused";
+
+    engine_ref->add_broken_path(storage_root_path);
+    auto st = loader._check_local_snapshot_paths(src_to_dest, true);
+    EXPECT_FALSE(st.ok());
+    EXPECT_TRUE(st.is<ErrorCode::IO_ERROR>()) << st;
+    EXPECT_NE(st.to_string().find("broken storage path"), std::string::npos) << st;
+
+    EXPECT_TRUE(engine_ref->remove_broken_path(storage_root_path));
+    std::filesystem::remove(symlink_path);
+    std::filesystem::remove_all(snapshot_path);
 }
 
 TEST_F(SnapshotLoaderTest, DirMoveTaskIsIdempotent) {

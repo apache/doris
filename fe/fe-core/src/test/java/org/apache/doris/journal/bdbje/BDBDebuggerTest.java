@@ -26,14 +26,14 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.sleepycat.je.rep.ReplicatedEnvironment;
-import mockit.Mock;
-import mockit.MockUp;
 import org.apache.commons.io.FileUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.RepeatedTest;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.File;
 import java.io.IOException;
@@ -104,72 +104,56 @@ public class BDBDebuggerTest {
         String nodeName = Env.genFeNodeName("127.0.0.1", port, false);
         long replayedJournalId = 0;
         File tmpDir = createTmpDir();
-        new MockUp<Env>() {
-            HostInfo selfNode = new HostInfo("127.0.0.1", port);
-            @Mock
-            public String getBdbDir() {
-                return tmpDir.getAbsolutePath();
-            }
+        Env mockEnv = Mockito.mock(Env.class);
+        HostInfo selfNode = new HostInfo("127.0.0.1", port);
+        Mockito.when(mockEnv.getBdbDir()).thenReturn(tmpDir.getAbsolutePath());
+        Mockito.when(mockEnv.getSelfNode()).thenReturn(selfNode);
+        Mockito.when(mockEnv.getHelperNode()).thenReturn(selfNode);
+        Mockito.when(mockEnv.isElectable()).thenReturn(true);
+        Mockito.when(mockEnv.getReplayedJournalId()).thenReturn(replayedJournalId);
 
-            @Mock
-            public HostInfo getSelfNode() {
-                return this.selfNode;
-            }
+        try (MockedStatic<Env> mockedEnvStatic = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedEnvStatic.when(Env::getServingEnv).thenReturn(mockEnv);
 
-            @Mock
-            public HostInfo getHelperNode() {
-                return this.selfNode;
+            LOG.info("BdbDir:{}, selfNode:{}, nodeName:{}", Env.getServingEnv().getBdbDir(),
+                    Env.getServingEnv().getBdbDir(), nodeName);
+            Assertions.assertEquals(tmpDir.getAbsolutePath(), Env.getServingEnv().getBdbDir());
+            BDBJEJournal journal = new BDBJEJournal(nodeName);
+            journal.open();
+            // BDBEnvrinment need several seconds election from unknown to master
+            for (int i = 0; i < 10; i++) {
+                if (journal.getBDBEnvironment().getReplicatedEnvironment().getState()
+                        .equals(ReplicatedEnvironment.State.MASTER)) {
+                    break;
+                }
+                Thread.sleep(1000);
             }
+            Assertions.assertEquals(ReplicatedEnvironment.State.MASTER,
+                    journal.getBDBEnvironment().getReplicatedEnvironment().getState());
 
-            @Mock
-            public boolean isElectable() {
-                return true;
+            journal.rollJournal();
+            for (int i = 0; i < 10; i++) {
+                Timestamp ts = new Timestamp();
+                journal.write(OperationType.OP_TIMESTAMP, ts);
             }
+            JournalEntity journalEntity = journal.read(1);
+            Assertions.assertEquals(OperationType.OP_TIMESTAMP, journalEntity.getOpCode());
+            journal.close();
 
-            @Mock
-            public long getReplayedJournalId() {
-                return replayedJournalId;
-            }
-        };
+            Deencapsulation.invoke(BDBDebugger.get(), "initDebugEnv", tmpDir.getAbsolutePath());
+            // BDBDebugger.BDBDebugEnv bdbDebugEnv = new BDBDebugger.BDBDebugEnv(tmpDir.getAbsolutePath());
+            // bdbDebugEnv.init();
+            BDBDebugger.BDBDebugEnv bdbDebugEnv = BDBDebugger.get().getEnv();
 
-        LOG.info("BdbDir:{}, selfNode:{}, nodeName:{}", Env.getServingEnv().getBdbDir(),
-                Env.getServingEnv().getBdbDir(), nodeName);
-        Assertions.assertEquals(tmpDir.getAbsolutePath(), Env.getServingEnv().getBdbDir());
-        BDBJEJournal journal = new BDBJEJournal(nodeName);
-        journal.open();
-        // BDBEnvrinment need several seconds election from unknown to master
-        for (int i = 0; i < 10; i++) {
-            if (journal.getBDBEnvironment().getReplicatedEnvironment().getState()
-                    .equals(ReplicatedEnvironment.State.MASTER)) {
-                break;
-            }
-            Thread.sleep(1000);
+            LOG.info("{}|{}|{}", bdbDebugEnv.listDbNames(), bdbDebugEnv.getJournalIds("1"),
+                    bdbDebugEnv.getJournalNumber("1"));
+            Assertions.assertEquals(2, bdbDebugEnv.listDbNames().size());
+            Assertions.assertEquals(10, bdbDebugEnv.getJournalIds("1").size());
+            Assertions.assertEquals(10, bdbDebugEnv.getJournalNumber("1"));
+            BDBDebugger.JournalEntityWrapper entityWrapper = bdbDebugEnv.getJournalEntity("1", 5L);
+            Assertions.assertEquals(5, entityWrapper.journalId);
+            Assertions.assertEquals(OperationType.OP_TIMESTAMP, entityWrapper.entity.getOpCode());
+            bdbDebugEnv.close();
         }
-        Assertions.assertEquals(ReplicatedEnvironment.State.MASTER,
-                journal.getBDBEnvironment().getReplicatedEnvironment().getState());
-
-        journal.rollJournal();
-        for (int i = 0; i < 10; i++) {
-            Timestamp ts = new Timestamp();
-            journal.write(OperationType.OP_TIMESTAMP, ts);
-        }
-        JournalEntity journalEntity = journal.read(1);
-        Assertions.assertEquals(OperationType.OP_TIMESTAMP, journalEntity.getOpCode());
-        journal.close();
-
-        Deencapsulation.invoke(BDBDebugger.get(), "initDebugEnv", tmpDir.getAbsolutePath());
-        // BDBDebugger.BDBDebugEnv bdbDebugEnv = new BDBDebugger.BDBDebugEnv(tmpDir.getAbsolutePath());
-        // bdbDebugEnv.init();
-        BDBDebugger.BDBDebugEnv bdbDebugEnv = BDBDebugger.get().getEnv();
-
-        LOG.info("{}|{}|{}", bdbDebugEnv.listDbNames(), bdbDebugEnv.getJournalIds("1"),
-                bdbDebugEnv.getJournalNumber("1"));
-        Assertions.assertEquals(2, bdbDebugEnv.listDbNames().size());
-        Assertions.assertEquals(10, bdbDebugEnv.getJournalIds("1").size());
-        Assertions.assertEquals(10, bdbDebugEnv.getJournalNumber("1"));
-        BDBDebugger.JournalEntityWrapper entityWrapper = bdbDebugEnv.getJournalEntity("1", 5L);
-        Assertions.assertEquals(5, entityWrapper.journalId);
-        Assertions.assertEquals(OperationType.OP_TIMESTAMP, entityWrapper.entity.getOpCode());
-        bdbDebugEnv.close();
     }
 }

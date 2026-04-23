@@ -23,14 +23,13 @@
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/jemalloc_control.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/workload_group/workload_group.h"
 #include "util/mem_info.h"
-#include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 int64_t MemoryReclamation::revoke_tasks_memory(
         int64_t need_free_mem, const std::vector<std::shared_ptr<ResourceContext>>& resource_ctxs,
@@ -248,5 +247,4 @@ void MemoryReclamation::je_purge_dirty_pages() {
 #endif
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

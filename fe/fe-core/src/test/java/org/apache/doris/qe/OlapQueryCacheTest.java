@@ -26,7 +26,6 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
@@ -45,6 +44,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
@@ -56,6 +56,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.cache.Cache;
@@ -73,19 +74,17 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.net.UnknownHostException;
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -105,8 +104,11 @@ public class OlapQueryCacheTest {
     private ConnectContext ctx;
     private QueryState state;
     private ConnectScheduler scheduler;
-    @Mocked
-    private MysqlChannel channel = null;
+    private MysqlChannel channel = Mockito.mock(MysqlChannel.class);
+
+    private MockedStatic<Util> mockedUtil;
+    private MockedStatic<Env> mockedEnv;
+    private MockedStatic<ConnectContext> mockedConnectContext;
 
     @BeforeClass
     public static void start() {
@@ -128,128 +130,58 @@ public class OlapQueryCacheTest {
     public void setUp() throws Exception {
         state = new QueryState();
         scheduler = new ConnectScheduler(10);
-        ctx = new ConnectContext();
-
         SessionVariable sessionVariable = new SessionVariable();
         Deencapsulation.setField(sessionVariable, "beNumberForTest", 1);
         MysqlSerializer serializer = MysqlSerializer.newInstance();
         env = AccessTestUtil.fetchAdminCatalog();
+        ctx = Mockito.spy(new ConnectContext());
+        InternalCatalog currentCatalog = (InternalCatalog) env.getCurrentCatalog();
+        Mockito.doReturn(new Database()).when(currentCatalog).getDbNullable(Mockito.<String>isNull());
+        CatalogMgr catalogMgr = env.getCatalogMgr();
+        Mockito.doReturn(currentCatalog).when(catalogMgr).getCatalog(Mockito.<String>isNull());
 
-        new MockUp<Util>() {
-            @Mock
-            public boolean showHiddenColumns() {
-                return true;
-            }
-        };
-        new MockUp<Env>() {
-            @Mock
-            Env getCurrentEnv() {
-                return env;
-            }
-        };
+        mockedUtil = Mockito.mockStatic(Util.class, Mockito.CALLS_REAL_METHODS);
+        mockedUtil.when(Util::showHiddenColumns).thenReturn(true);
 
-        FunctionSet fs = new FunctionSet();
-        Deencapsulation.setField(env, "functionSet", fs);
+        mockedEnv = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS);
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
 
         channel.reset();
 
-        new Expectations(channel) {
-            {
-                channel.sendOnePacket((ByteBuffer) any);
-                minTimes = 0;
+        Mockito.when(channel.getSerializer()).thenReturn(serializer);
+        ctx.setEnv(env);
+        ctx.setSessionVariable(sessionVariable);
+        ctx.setConnectScheduler(scheduler);
+        ctx.setConnectionId(1);
+        ctx.setDatabase(fullDbName);
+        ctx.setRemoteIP("192.168.1.1");
+        UserIdentity userIdentity = new UserIdentity(userName, "%");
+        userIdentity.setIsAnalyzed();
+        ctx.setCurrentUserIdentity(userIdentity);
 
-                channel.reset();
-                minTimes = 0;
+        Mockito.doReturn(channel).when(ctx).getMysqlChannel();
+        Mockito.doReturn(env).when(ctx).getEnv();
+        Mockito.doReturn(state).when(ctx).getState();
+        Mockito.doReturn(scheduler).when(ctx).getConnectScheduler();
+        Mockito.doReturn(1).when(ctx).getConnectionId();
+        Mockito.doReturn(userName).when(ctx).getQualifiedUser();
+        Mockito.doReturn(123L).when(ctx).getForwardedStmtId();
+        Mockito.doNothing().when(ctx).setKilled();
+        Mockito.doNothing().when(ctx).updateReturnRows(Mockito.anyInt());
+        Mockito.doNothing().when(ctx).setQueryId(Mockito.any(TUniqueId.class));
+        Mockito.doReturn(new TUniqueId()).when(ctx).queryId();
+        Mockito.doReturn(0L).when(ctx).getStartTime();
+        Mockito.doReturn(fullDbName).when(ctx).getDatabase();
+        Mockito.doReturn(sessionVariable).when(ctx).getSessionVariable();
+        Mockito.doNothing().when(ctx).setStmtId(Mockito.anyLong());
+        Mockito.doReturn(1L).when(ctx).getStmtId();
+        Mockito.doReturn(currentCatalog).when(ctx).getCurrentCatalog();
+        Mockito.doReturn(currentCatalog).when(ctx).getCatalog(Mockito.nullable(String.class));
+        Mockito.doReturn("192.168.1.1").when(ctx).getRemoteIP();
+        Mockito.doReturn(userIdentity).when(ctx).getCurrentUserIdentity();
 
-                channel.getSerializer();
-                minTimes = 0;
-                result = serializer;
-            }
-        };
-
-        new Expectations(ctx) {
-            {
-                ctx.getMysqlChannel();
-                minTimes = 0;
-                result = channel;
-
-                ctx.getEnv();
-                minTimes = 0;
-                result = env;
-
-                ctx.getState();
-                minTimes = 0;
-                result = state;
-
-                ctx.getConnectScheduler();
-                minTimes = 0;
-                result = scheduler;
-
-                ctx.getConnectionId();
-                minTimes = 0;
-                result = 1;
-
-                ctx.getQualifiedUser();
-                minTimes = 0;
-                result = userName;
-
-                ctx.getForwardedStmtId();
-                minTimes = 0;
-                result = 123L;
-
-                ctx.setKilled();
-                minTimes = 0;
-                ctx.updateReturnRows(anyInt);
-                minTimes = 0;
-                ctx.setQueryId((TUniqueId) any);
-                minTimes = 0;
-
-                ctx.queryId();
-                minTimes = 0;
-                result = new TUniqueId();
-
-                ctx.getStartTime();
-                minTimes = 0;
-                result = 0L;
-
-                ctx.getDatabase();
-                minTimes = 0;
-                result = fullDbName;
-
-                ctx.getSessionVariable();
-                minTimes = 0;
-                result = sessionVariable;
-
-                ctx.setStmtId(anyLong);
-                minTimes = 0;
-
-                ctx.getStmtId();
-                minTimes = 0;
-                result = 1L;
-
-                ctx.getCurrentCatalog();
-                minTimes = 0;
-                result = env.getCurrentCatalog();
-
-                ctx.getCatalog(anyString);
-                minTimes = 0;
-                result = env.getCurrentCatalog();
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = ctx;
-
-                ctx.getRemoteIP();
-                minTimes = 0;
-                result = "192.168.1.1";
-
-                ctx.getCurrentUserIdentity();
-                minTimes = 0;
-                UserIdentity userIdentity = new UserIdentity(userName, "%");
-                userIdentity.setIsAnalyzed();
-                result = userIdentity;
-            }
-        };
+        mockedConnectContext = Mockito.mockStatic(ConnectContext.class, Mockito.CALLS_REAL_METHODS);
+        mockedConnectContext.when(ConnectContext::get).thenReturn(ctx);
 
         newRangeList = Lists.newArrayList();
 
@@ -272,6 +204,19 @@ public class OlapQueryCacheTest {
         db.registerTable(view3);
         View view4 = createEventNestedView();
         db.registerTable(view4);
+    }
+
+    @After
+    public void tearDown() {
+        if (mockedUtil != null) {
+            mockedUtil.close();
+        }
+        if (mockedEnv != null) {
+            mockedEnv.close();
+        }
+        if (mockedConnectContext != null) {
+            mockedConnectContext.close();
+        }
     }
 
     private OlapTable createOrderTable() {
@@ -378,7 +323,7 @@ public class OlapQueryCacheTest {
         OlapTable table = createProfileTable();
         TupleDescriptor desc = new TupleDescriptor(new TupleId(20004));
         desc.setTable(table);
-        OlapScanNode node = new OlapScanNode(new PlanNodeId(20008), desc, "userprofilenode");
+        OlapScanNode node = new OlapScanNode(new PlanNodeId(20008), desc, "userprofilenode", ScanContext.EMPTY);
         node.setSelectedPartitionIds(selectedPartitionIds);
         return node;
     }
@@ -491,7 +436,7 @@ public class OlapQueryCacheTest {
         OlapTable table = createEventTable();
         TupleDescriptor desc = new TupleDescriptor(new TupleId(30002));
         desc.setTable(table);
-        OlapScanNode node = new OlapScanNode(new PlanNodeId(30004), desc, "appeventnode");
+        OlapScanNode node = new OlapScanNode(new PlanNodeId(30004), desc, "appeventnode", ScanContext.EMPTY);
         node.setSelectedPartitionIds(selectedPartitionIds);
         return node;
     }

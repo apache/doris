@@ -17,13 +17,13 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.analysis.SearchDslParser;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.types.StringType;

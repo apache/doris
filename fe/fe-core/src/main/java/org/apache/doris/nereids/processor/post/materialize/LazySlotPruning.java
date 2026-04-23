@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
@@ -194,6 +195,12 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
     }
 
     @Override
+    public Plan visitPhysicalBucketedHashAggregate(
+            PhysicalBucketedHashAggregate<? extends Plan> aggregate, Context context) {
+        return aggregate;
+    }
+
+    @Override
     public Plan visitPhysicalCTEConsumer(PhysicalCTEConsumer cteConsumer, Context context) {
         return cteConsumer;
     }
@@ -285,9 +292,11 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
                 SlotReference rowIdSlot = (SlotReference) plan.getOutput().get(rowIdPos);
                 if (join.getJoinType().isFullOuterJoin()) {
                     context.updateRowIdSlot(rowIdSlot.withNullable(true));
-                } else if (join.getJoinType().isLeftOuterJoin() && plan.child(1).getOutput().contains(rowIdSlot)) {
+                } else if ((join.getJoinType().isLeftOuterJoin() || join.getJoinType().isAsofLeftOuterJoin())
+                        && plan.child(1).getOutput().contains(rowIdSlot)) {
                     context.updateRowIdSlot(rowIdSlot.withNullable(true));
-                } else if (join.getJoinType().isRightOuterJoin() && plan.child(0).getOutput().contains(rowIdSlot)) {
+                } else if ((join.getJoinType().isRightOuterJoin() || join.getJoinType().isAsofRightOuterJoin())
+                        && plan.child(0).getOutput().contains(rowIdSlot)) {
                     context.updateRowIdSlot(rowIdSlot.withNullable(true));
                 }
             }

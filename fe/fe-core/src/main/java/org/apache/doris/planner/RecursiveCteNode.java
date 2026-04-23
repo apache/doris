@@ -18,6 +18,8 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
@@ -70,7 +72,8 @@ public class RecursiveCteNode extends PlanNode {
         output.append(prefix).append("isUnionAll: ").append(isUnionAll).append("\n");
         if (!conjuncts.isEmpty()) {
             Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
-            output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
+            output.append(prefix).append("PREDICATES: ")
+                    .append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
         }
         return output.toString();
     }

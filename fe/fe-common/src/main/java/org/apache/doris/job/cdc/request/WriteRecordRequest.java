@@ -28,7 +28,6 @@ public class WriteRecordRequest extends JobBaseRecordRequest {
     private long maxInterval;
     private String targetDb;
     private String token;
-    private String frontendAddress;
     private String taskId;
     private Map<String, String> streamLoadProps;
 }

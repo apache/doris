@@ -21,17 +21,20 @@ HIVE_SITE_CONF_javax_jdo_option_ConnectionUserName=hive
 HIVE_SITE_CONF_javax_jdo_option_ConnectionPassword=hive
 HIVE_SITE_CONF_datanucleus_autoCreateSchema=false
 HIVE_SITE_CONF_hive_metastore_port=${HMS_PORT}
-HIVE_SITE_CONF_hive_metastore_uris=thrift://${IP_HOST}:${HMS_PORT}
+HIVE_SITE_CONF_hive_metastore_uris=thrift://${HIVE_HOST_ALIAS}:${HMS_PORT}
 HIVE_SITE_CONF_hive_server2_thrift_bind_host=0.0.0.0
 HIVE_SITE_CONF_hive_server2_thrift_port=${HS_PORT}
 HIVE_SITE_CONF_hive_server2_webui_port=0
+HIVE_SITE_CONF_hive_server2_enable_doAs=false
 HIVE_SITE_CONF_hive_compactor_initiator_on=true
 HIVE_SITE_CONF_hive_compactor_worker_threads=2
 HIVE_SITE_CONF_metastore_storage_schema_reader_impl=org.apache.hadoop.hive.metastore.SerDeStorageSchemaReader
 HIVE_SITE_CONF_hive_stats_column_autogather=false
 HIVE_SITE_CONF_hive_exec_parallel=true
 
-CORE_CONF_fs_defaultFS=hdfs://${IP_HOST}:${FS_PORT}
+CORE_CONF_fs_defaultFS=hdfs://${HIVE_HOST_ALIAS}:${FS_PORT}
+CORE_CONF_fs_jfs_impl=io.juicefs.JuiceFileSystem
+CORE_CONF_juicefs_cluster_meta=${JFS_CLUSTER_META}
 CORE_CONF_hadoop_http_staticuser_user=root
 CORE_CONF_hadoop_proxyuser_hue_hosts=*
 CORE_CONF_hadoop_proxyuser_hue_groups=*
@@ -62,4 +65,4 @@ HADOOP_HEAPSIZE=4096
 
 NEED_LOAD_DATA=${NEED_LOAD_DATA}
 LOAD_PARALLEL=${LOAD_PARALLEL}
-
+HIVE_BOOTSTRAP_GROUPS=${HIVE_BOOTSTRAP_GROUPS}

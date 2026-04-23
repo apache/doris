@@ -18,11 +18,11 @@
 #pragma once
 
 #include <butil/macros.h>
+#include <gen_cpp/Types_types.h>
 
 #include <string>
 #include <vector>
 
-#include "gen_cpp/Types_types.h"
 #include "util/network_util.h"
 
 namespace doris {

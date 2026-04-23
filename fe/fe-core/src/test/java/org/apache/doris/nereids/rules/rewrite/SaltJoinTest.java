@@ -31,8 +31,8 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
-        createTable("create table test.test_skew9(a int,c varchar(100), b int) distributed by hash(a) buckets 32 properties(\"replication_num\"=\"1\");");
-        createTable("create table test.test_skew10(a int,c varchar(100), b int) distributed by hash(a) buckets 32 properties(\"replication_num\"=\"1\");");
+        createTable("create table test.test_skew9(a int,c varchar(100), b int, d date) distributed by hash(a) buckets 32 properties(\"replication_num\"=\"1\");");
+        createTable("create table test.test_skew10(a int,c varchar(100), b int, d date) distributed by hash(a) buckets 32 properties(\"replication_num\"=\"1\");");
         connectContext.setDatabase("test");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         connectContext.getSessionVariable().setParallelResultSink(false);
@@ -60,6 +60,27 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
     }
 
     @Test
+    public void testAsofInnerJoin() {
+        PlanChecker.from(connectContext)
+                .analyze("select * from test_skew9 tl asof inner join [shuffle[skew(tl.b(1,2))]] test_skew10 tr match_condition(tl.d > tr.d) on tl.b = tr.b")
+                .rewrite()
+                .printlnTree()
+                .matches(
+                        logicalJoin(
+                                logicalProject(
+                                        logicalOlapScan()),
+                                logicalProject(
+                                        logicalJoin(
+                                                logicalProject(
+                                                        logicalGenerate(
+                                                                logicalUnion())),
+                                                logicalOlapScan()
+                                        ).when(join -> join.getJoinType() == JoinType.RIGHT_OUTER_JOIN))
+                        ).when(join -> join.getHashJoinConjuncts().size() == 2 && join.getJoinType() == JoinType.ASOF_LEFT_INNER_JOIN)
+                );
+    }
+
+    @Test
     public void testLeftJoin() {
         PlanChecker.from(connectContext)
                 .analyze("select * from test_skew9 tl left join [shuffle[skew(tl.b(1,2))]] test_skew10 tr on tl.b = tr.b;")
@@ -77,6 +98,27 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
                                                 logicalOlapScan()
                                         ).when(join -> join.getJoinType() == JoinType.RIGHT_OUTER_JOIN))
                         ).when(join -> join.getHashJoinConjuncts().size() == 2 && join.getJoinType() == JoinType.LEFT_OUTER_JOIN)
+                );
+    }
+
+    @Test
+    public void testAsofLeftJoin() {
+        PlanChecker.from(connectContext)
+                .analyze("select * from test_skew9 tl asof left join [shuffle[skew(tl.b(1,2))]] test_skew10 tr match_condition(tl.d > tr.d) on tl.b = tr.b;")
+                .rewrite()
+                .printlnTree()
+                .matches(
+                        logicalJoin(
+                                logicalProject(
+                                        logicalOlapScan()),
+                                logicalProject(
+                                        logicalJoin(
+                                                logicalProject(
+                                                        logicalGenerate(
+                                                                logicalUnion())),
+                                                logicalOlapScan()
+                                        ).when(join -> join.getJoinType() == JoinType.RIGHT_OUTER_JOIN))
+                        ).when(join -> join.getHashJoinConjuncts().size() == 2 && join.getJoinType() == JoinType.ASOF_LEFT_OUTER_JOIN)
                 );
     }
 
@@ -146,6 +188,20 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
                 );
     }
 
+    @Test
+    void testAsofInnerSkewValueIsNull() {
+        PlanChecker.from(connectContext)
+                .analyze("select * from test_skew9 tl asof inner join [shuffle[skew(tl.b(null))]] test_skew10 tr match_condition(tl.d > tr.d) on tl.b = tr.b")
+                .rewrite()
+                .printlnTree()
+                .matches(
+                        logicalJoin(
+                                logicalOlapScan(),
+                                logicalOlapScan()
+                        ).when(join -> join.getHashJoinConjuncts().size() == 1 && join.getJoinType() == JoinType.ASOF_LEFT_INNER_JOIN)
+                );
+    }
+
     @Test void testLeftJoinSkewValueIsNull() {
         PlanChecker.from(connectContext)
                 .analyze("select * from test_skew9 tl left join [shuffle[skew(tl.b(null))]] test_skew10 tr on tl.b = tr.b")
@@ -159,6 +215,23 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
                                         logicalOlapScan()
                                 )
                         ).when(join -> join.getHashJoinConjuncts().size() == 2 && join.getJoinType() == JoinType.LEFT_OUTER_JOIN)
+                );
+    }
+
+    @Test
+    void testAsofLeftJoinSkewValueIsNull() {
+        PlanChecker.from(connectContext)
+                .analyze("select * from test_skew9 tl asof left join [shuffle[skew(tl.b(null))]] test_skew10 tr match_condition(tl.d > tr.d) on tl.b = tr.b")
+                .rewrite()
+                .printlnTree()
+                .matches(
+                        logicalJoin(
+                                logicalProject(
+                                        logicalOlapScan()),
+                                logicalProject(
+                                        logicalOlapScan()
+                                )
+                        ).when(join -> join.getHashJoinConjuncts().size() == 2 && join.getJoinType() == JoinType.ASOF_LEFT_OUTER_JOIN)
                 );
     }
 

@@ -19,7 +19,7 @@
 
 #include "io/fs/kafka_consumer_pipe.h"
 #include "io/fs/multi_table_pipe.h"
-#include "runtime/stream_load/stream_load_context.h"
+#include "load/stream_load/stream_load_context.h"
 
 namespace doris {
 namespace io {

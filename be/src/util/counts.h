@@ -23,9 +23,8 @@
 #include <cmath>
 #include <queue>
 
-#include "vec/common/pod_array.h"
-#include "vec/common/string_buffer.hpp"
-#include "vec/io/io_helper.h"
+#include "core/pod_array.h"
+#include "core/string_buffer.hpp"
 
 namespace doris {
 
@@ -50,11 +49,9 @@ public:
 
     void increment(Ty key) { _nums.push_back(key); }
 
-    void increment_batch(const vectorized::PaddedPODArray<Ty>& keys) {
-        _nums.insert(keys.begin(), keys.end());
-    }
+    void increment_batch(const PaddedPODArray<Ty>& keys) { _nums.insert(keys.begin(), keys.end()); }
 
-    void serialize(vectorized::BufferWritable& buf) {
+    void serialize(BufferWritable& buf) {
         if (!_nums.empty()) {
             pdqsort(_nums.begin(), _nums.end());
             size_t size = _nums.size();
@@ -67,7 +64,7 @@ public:
         }
     }
 
-    void unserialize(vectorized::BufferReadable& buf) {
+    void unserialize(BufferReadable& buf) {
         size_t size;
         buf.read_binary(size);
         _nums.resize(size);
@@ -222,8 +219,8 @@ private:
         return {first_number, second_number};
     }
 
-    vectorized::PODArray<Ty> _nums;
-    std::vector<vectorized::PODArray<Ty>> _sorted_nums_vec;
+    PODArray<Ty> _nums;
+    std::vector<PODArray<Ty>> _sorted_nums_vec;
 };
 
 } // namespace doris

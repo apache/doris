@@ -46,6 +46,8 @@ import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.lineage.LineageInfoExtractor;
+import org.apache.doris.nereids.lineage.LineageUtils;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -105,6 +107,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
     private AtomicBoolean isCancelled = new AtomicBoolean(false);
     private AtomicBoolean isRunning = new AtomicBoolean(false);
     private Optional<String> branchName;
+    private Optional<Plan> lineagePlan = Optional.empty();
 
     /**
      * constructor
@@ -165,7 +168,10 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         LogicalPlan logicalQuery = this.logicalQuery.get();
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+        LineageInfoExtractor.registerAnalyzePlanHook(ctx.getStatementContext(), planner);
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+        Plan analyzedPlan = planner.getAnalyzedPlan();
+        lineagePlan = Optional.ofNullable(analyzedPlan);
         executor.checkBlockRules();
         if (ctx.getConnectType() == ConnectType.MYSQL && ctx.getMysqlChannel() != null) {
             ctx.getMysqlChannel().reset();
@@ -282,6 +288,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
             insertOverwriteManager.dropRunningRecord(targetTable.getDatabase(), targetTable);
             isRunning.set(false);
         }
+        LineageUtils.submitLineageEventIfNeeded(executor, lineagePlan, getLogicalQuery(), getClass());
     }
 
     /**

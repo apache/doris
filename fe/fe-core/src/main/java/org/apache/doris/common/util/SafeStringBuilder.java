@@ -23,6 +23,9 @@ import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+/**
+ * use for profile
+ */
 public class SafeStringBuilder {
     private StringBuilder builder = new StringBuilder();
     @Getter

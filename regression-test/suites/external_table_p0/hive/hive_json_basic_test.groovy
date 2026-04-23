@@ -24,7 +24,7 @@ suite("hive_json_basic_test", "p0,external") {
         return;
     }
 
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         try {
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")

@@ -22,13 +22,16 @@ import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import lombok.Data;
+import org.apache.iceberg.DeleteFile;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
 @Data
 public class IcebergSplit extends FileSplit {
+    private static final LocationPath DUMMY_PATH = LocationPath.of("/dummyPath");
 
     // Doris will convert the schema in FileSystem to achieve the function of natively reading files.
     // For example, s3a:// will be converted to s3://.
@@ -37,12 +40,18 @@ public class IcebergSplit extends FileSplit {
     // but the original datafile path must be used.
     private final String originalPath;
     private Integer formatVersion;
+    private List<DeleteFile> deleteFiles = new ArrayList<>();
     private List<IcebergDeleteFileFilter> deleteFileFilters = new ArrayList<>();
     private Map<StorageProperties.Type, StorageProperties> config;
     // tableLevelRowCount will be set only table-level count push down opt is available.
     private long tableLevelRowCount = -1;
     // Partition values are used to do runtime filter partition pruning.
     private Map<String, String> icebergPartitionValues = null;
+    private Integer partitionSpecId = null;
+    private String partitionDataJson = null;
+    private Long firstRowId = null;
+    private Long lastUpdatedSequenceNumber = null;
+    private String serializedSplit;
 
     // File path will be changed if the file is modified, so there's no need to get modification time.
     public IcebergSplit(LocationPath file, long start, long length, long fileLength, String[] hosts,
@@ -55,8 +64,18 @@ public class IcebergSplit extends FileSplit {
         this.selfSplitWeight = length;
     }
 
-    public void setDeleteFileFilters(List<IcebergDeleteFileFilter> deleteFileFilters) {
+    public void setDeleteFileFilters(List<DeleteFile> deleteFiles, List<IcebergDeleteFileFilter> deleteFileFilters) {
+        this.deleteFiles = deleteFiles;
         this.deleteFileFilters = deleteFileFilters;
         this.selfSplitWeight += deleteFileFilters.stream().mapToLong(IcebergDeleteFileFilter::getFilesize).sum();
+    }
+
+    public static IcebergSplit newSysTableSplit(String serializedSplit, long rowCount) {
+        IcebergSplit split = new IcebergSplit(DUMMY_PATH, 0, 0, 0, null, null,
+                Collections.emptyMap(),
+                Collections.emptyList(), DUMMY_PATH.toStorageLocation().toString());
+        split.setSerializedSplit(serializedSplit);
+        split.setSelfSplitWeight(Math.max(rowCount, 1L));
+        return split;
     }
 }

@@ -17,14 +17,10 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.PartitionKeyDesc;
-import org.apache.doris.analysis.PartitionValue;
-import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.Backend;
@@ -32,14 +28,11 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 public class CatalogTestUtil {
 
@@ -91,8 +84,7 @@ public class CatalogTestUtil {
     public static String testTxnLabel10 = "testTxnLabel10";
     public static String testTxnLabel11 = "testTxnLabel11";
     public static String testTxnLabel12 = "testTxnLabel12";
-    public static String testEsTable1 = "partitionedEsTable1";
-    public static long testEsTableId1 = 14;
+
 
     public static Env createTestCatalog()
             throws InstantiationException, IllegalAccessException, IllegalArgumentException, InvocationTargetException,
@@ -246,14 +238,8 @@ public class CatalogTestUtil {
         Database db = new Database(dbId, testDb1);
         db.registerTable(table);
 
-        // add a es table to catalog
-        try {
-            createEsTable(db);
-            createDupTable(db);
-        } catch (DdlException e) {
-            // TODO Auto-generated catch block
-            // e.printStackTrace();
-        }
+        // add dup table to catalog
+        createDupTable(db);
         return db;
     }
 
@@ -309,36 +295,7 @@ public class CatalogTestUtil {
         db.registerTable(table);
     }
 
-    public static void createEsTable(Database db) throws DdlException {
-        // columns
-        List<Column> columns = new ArrayList<>();
-        Column userId = new Column("userId", PrimitiveType.VARCHAR);
-        columns.add(userId);
-        columns.add(new Column("time", PrimitiveType.BIGINT));
-        columns.add(new Column("type", PrimitiveType.VARCHAR));
 
-        // table
-        List<Column> partitionColumns = Lists.newArrayList();
-        List<SinglePartitionDesc> singlePartitionDescs = Lists.newArrayList();
-        partitionColumns.add(userId);
-
-        singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
-                PartitionKeyDesc.createLessThan(Lists.newArrayList(new PartitionValue("100"))),
-                null));
-
-        RangePartitionInfo partitionInfo = new RangePartitionInfo(partitionColumns);
-        Map<String, String> properties = Maps.newHashMap();
-        properties.put(EsResource.HOSTS, "xxx");
-        properties.put(EsResource.INDEX, "doe");
-        properties.put(EsResource.TYPE, "doc");
-        properties.put(EsResource.PASSWORD, "");
-        properties.put(EsResource.USER, "root");
-        properties.put(EsResource.DOC_VALUE_SCAN, "true");
-        properties.put(EsResource.KEYWORD_SNIFF, "true");
-        EsTable esTable = new EsTable(testEsTableId1, testEsTable1,
-                columns, properties, partitionInfo);
-        db.registerTable(esTable);
-    }
 
     public static Backend createBackend(long id, String host, int heartPort, int bePort, int httpPort) {
         Backend backend = new Backend(id, host, heartPort);

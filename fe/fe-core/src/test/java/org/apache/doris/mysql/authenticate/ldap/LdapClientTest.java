@@ -19,20 +19,21 @@ package org.apache.doris.mysql.authenticate.ldap;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LdapConfig;
+import org.apache.doris.common.util.NetUtils;
 
-import mockit.Expectations;
-import mockit.Tested;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 import org.springframework.ldap.query.LdapQuery;
+import org.springframework.ldap.support.LdapEncoder;
 
 import java.util.Arrays;
 import java.util.List;
 
 public class LdapClientTest {
-    @Tested
-    private LdapClient ldapClient;
+    private LdapClient ldapClient = Mockito.spy(new LdapClient());
 
     @Before
     public void setUp() {
@@ -43,18 +44,13 @@ public class LdapClientTest {
         LdapConfig.ldap_user_basedn = "dc=baidu,dc=com";
         LdapConfig.ldap_group_basedn = "ou=group,dc=baidu,dc=com";
         LdapConfig.ldap_user_filter = "(&(uid={login}))";
+        LdapConfig.ldap_use_ssl = false;
     }
 
     @Test
     public void testDoesUserExist() {
         List<String> list = Arrays.asList("zhangsan");
-
-        new Expectations(ldapClient) {
-            {
-                ldapClient.getDn((LdapQuery) any);
-                result = list;
-            }
-        };
+        Mockito.doReturn(list).when(ldapClient).getDn(Mockito.any(LdapQuery.class));
 
         boolean result = ldapClient.doesUserExist("zhangsan");
         Assert.assertTrue(result);
@@ -62,24 +58,14 @@ public class LdapClientTest {
 
     @Test
     public void testDoesUserExistFail() {
-        new Expectations(ldapClient) {
-            {
-                ldapClient.getDn((LdapQuery) any);
-                result = null;
-            }
-        };
+        Mockito.doReturn(null).when(ldapClient).getDn(Mockito.any(LdapQuery.class));
         Assert.assertFalse(ldapClient.doesUserExist("zhangsan"));
     }
 
     @Test(expected = RuntimeException.class)
     public void testDoesUserExistException() {
         List<String> list = Arrays.asList("zhangsan", "zhangsan");
-        new Expectations(ldapClient) {
-            {
-                ldapClient.getDn((LdapQuery) any);
-                result = list;
-            }
-        };
+        Mockito.doReturn(list).when(ldapClient).getDn(Mockito.any(LdapQuery.class));
         Assert.assertTrue(ldapClient.doesUserExist("zhangsan"));
         Assert.fail("No Exception throws.");
     }
@@ -87,12 +73,58 @@ public class LdapClientTest {
     @Test
     public void testGetGroups() {
         List<String> list = Arrays.asList("cn=groupName,ou=groups,dc=example,dc=com");
-        new Expectations(ldapClient) {
-            {
-                ldapClient.getDn((LdapQuery) any);
-                result = list;
-            }
-        };
+        Mockito.doReturn(list).when(ldapClient).getDn(Mockito.any(LdapQuery.class));
         Assert.assertEquals(1, ldapClient.getGroups("zhangsan").size());
+    }
+
+    @Test
+    public void testSecuredProtocolIsUsed() {
+        String insecureUrl = LdapConfig.getConnectionURL(
+                NetUtils.getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port));
+
+        Assert.assertNotNull("connection URL should not be null", insecureUrl);
+        Assert.assertTrue("with ldap_use_ssl = false or not specified URL should start with ldap, but received: " + insecureUrl,
+                          insecureUrl.startsWith("ldap://"));
+
+        LdapConfig.ldap_use_ssl = true;
+        String secureUrl = LdapConfig.getConnectionURL(
+                NetUtils.getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port));
+        Assert.assertNotNull("connection URL should not be null", secureUrl);
+        Assert.assertTrue("with ldap_use_ssl = true URL should start with ldaps, but received: " + secureUrl,
+                          secureUrl.startsWith("ldaps://"));
+    }
+
+    @Test
+    public void testLdapFilterEncoding() {
+        // Combined special characters
+        String input = "test*()\\\u0000";
+        String expected = "test\\2a\\28\\29\\5c\\00";
+        Assert.assertEquals(expected, LdapEncoder.filterEncode(input));
+
+        // Null input
+        Assert.assertNull(LdapEncoder.filterEncode(null));
+
+        // Normal username should not be altered
+        Assert.assertEquals("zhangsan", LdapEncoder.filterEncode("zhangsan"));
+        Assert.assertEquals("user.name@example.com", LdapEncoder.filterEncode("user.name@example.com"));
+
+        // Empty string
+        Assert.assertEquals("", LdapEncoder.filterEncode(""));
+
+        // Each special character individually
+        Assert.assertEquals("\\2a", LdapEncoder.filterEncode("*"));
+        Assert.assertEquals("\\28", LdapEncoder.filterEncode("("));
+        Assert.assertEquals("\\29", LdapEncoder.filterEncode(")"));
+        Assert.assertEquals("\\5c", LdapEncoder.filterEncode("\\"));
+        Assert.assertEquals("\\00", LdapEncoder.filterEncode("\u0000"));
+
+        // Injection payload: dorisuser6)(mail=testp*
+        Assert.assertEquals("dorisuser6\\29\\28mail=testp\\2a",
+                LdapEncoder.filterEncode("dorisuser6)(mail=testp*"));
+    }
+
+    @After
+    public void tearDown() {
+        LdapConfig.ldap_use_ssl = false;
     }
 }

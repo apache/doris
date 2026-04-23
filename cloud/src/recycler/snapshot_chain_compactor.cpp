@@ -123,11 +123,6 @@ void SnapshotChainCompactor::scan_instance_loop() {
     while (!stopped()) {
         std::vector<InstanceInfoPB> instances;
         get_all_instances(txn_kv_.get(), instances);
-        LOG(INFO) << "Snapshot chain compactor get instances: " << [&instances] {
-            std::stringstream ss;
-            for (auto& i : instances) ss << ' ' << i.instance_id();
-            return ss.str();
-        }();
         if (!instances.empty()) {
             // enqueue instances
             std::lock_guard lock(mtx_);
@@ -144,7 +139,7 @@ void SnapshotChainCompactor::scan_instance_loop() {
         }
         {
             std::unique_lock lock(mtx_);
-            notifier_.wait_for(lock, std::chrono::seconds(config::recycle_interval_seconds),
+            notifier_.wait_for(lock, std::chrono::seconds(config::scan_instances_interval_seconds),
                                [&]() { return stopped(); });
         }
     }
@@ -230,6 +225,16 @@ int is_instance_cloned(TxnKv* txn_kv, const std::string& instance_id, bool* is_c
 }
 
 bool SnapshotChainCompactor::is_snapshot_chain_need_compact(const InstanceInfoPB& instance_info) {
+    // Skip instances that have already completed compact
+    if (instance_info.snapshot_compact_status() == SnapshotCompactStatus::SNAPSHOT_COMPACT_DONE) {
+        return false;
+    }
+
+    // Instances with DOING status should be compacted (manually triggered)
+    if (instance_info.snapshot_compact_status() == SnapshotCompactStatus::SNAPSHOT_COMPACT_DOING) {
+        return true;
+    }
+
     // compact the instance which meets the following conditions:
     // 1. the instance is cloned from snapshot
     // 2. its source instance is not cloned from other snapshots
@@ -247,7 +252,9 @@ bool SnapshotChainCompactor::is_snapshot_chain_need_compact(const InstanceInfoPB
                      << instance_info.source_instance_id();
         return false;
     }
-    if (is_instance_cloned_from_snapshot(source_instance_info)) {
+    if (is_instance_cloned_from_snapshot(source_instance_info) &&
+        source_instance_info.snapshot_compact_status() !=
+                SnapshotCompactStatus::SNAPSHOT_COMPACT_DONE) {
         return false;
     }
 
@@ -435,8 +442,8 @@ int InstanceChainCompactor::handle_compaction_completion() {
     std::string reference_key = versioned::snapshot_reference_key(ref_key_info);
     txn->remove(reference_key);
 
-    // instance_info.clear_source_instance_id();
-    instance_info.clear_source_snapshot_id();
+    // Preserve source_instance_id and source_snapshot_id, mark compact as done
+    instance_info.set_snapshot_compact_status(SnapshotCompactStatus::SNAPSHOT_COMPACT_DONE);
     instance_info.clear_compacted_key_sets();
     txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, instance_info.SerializeAsString());

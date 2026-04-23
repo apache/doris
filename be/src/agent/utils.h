@@ -23,7 +23,7 @@
 #include <string>
 
 #include "common/status.h"
-#include "runtime/client_cache.h"
+#include "util/client_cache.h"
 
 namespace doris {
 class TConfirmUnusedRemoteFilesRequest;

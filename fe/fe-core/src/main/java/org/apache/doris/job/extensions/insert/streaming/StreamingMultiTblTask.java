@@ -61,6 +61,10 @@ import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
+/**
+ * In PostgreSQL/MySQL, multi-table writes are performed by tasks that only make calls.
+ * The write logic resides in the `cdc_client` and is implemented via `stream_load`.
+ */
 @Log4j2
 @Getter
 public class StreamingMultiTblTask extends AbstractStreamingTask {
@@ -81,7 +85,6 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     public StreamingMultiTblTask(Long jobId,
             long taskId,
             DataSourceType dataSourceType,
-
             SourceOffsetProvider offsetProvider,
             Map<String, String> sourceProperties,
             String targetDb,
@@ -178,10 +181,10 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     private WriteRecordRequest buildRequestParams() throws JobException {
         JdbcOffset offset = (JdbcOffset) runningOffset;
         WriteRecordRequest request = new WriteRecordRequest();
-        request.setJobId(getJobId());
+        request.setJobId(String.valueOf(getJobId()));
         request.setConfig(sourceProperties);
-        request.setDataSource(dataSourceType.name());
 
+        request.setDataSource(dataSourceType.name());
         request.setTaskId(getTaskId() + "");
         request.setToken(getToken());
         request.setTargetDb(targetDb);
@@ -189,12 +192,20 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         Map<String, String> props = generateStreamLoadProps();
         request.setStreamLoadProps(props);
 
+        //`meta` refers to the data synchronized by the job in this instance,
+        // while `sourceProperties.offset` is the data entered by the user.
         Map<String, Object> splitMeta = offset.generateMeta();
         Preconditions.checkArgument(!splitMeta.isEmpty(), "split meta is empty");
         request.setMeta(splitMeta);
         String feAddr = Env.getCurrentEnv().getMasterHost() + ":" + Env.getCurrentEnv().getMasterHttpPort();
         request.setFrontendAddress(feAddr);
         request.setMaxInterval(jobProperties.getMaxIntervalSecond());
+        if (offsetProvider instanceof JdbcSourceOffsetProvider) {
+            String schemas = ((JdbcSourceOffsetProvider) offsetProvider).getTableSchemas();
+            if (schemas != null) {
+                request.setTableSchemas(schemas);
+            }
+        }
         return request;
     }
 
@@ -228,7 +239,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     /**
      * Callback function for offset commit success.
      */
-    public void successCallback(CommitOffsetRequest offsetRequest) {
+    public void successCallback(CommitOffsetRequest offsetRequest) throws JobException {
         if (getIsCanceled().get()) {
             return;
         }
@@ -306,7 +317,12 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
             // It's still pending, waiting for scheduling.
             return false;
         }
-        return (System.currentTimeMillis() - startTimeMs) > timeoutMs;
+        long elapsed = System.currentTimeMillis() - startTimeMs;
+        if (elapsed > timeoutMs) {
+            log.info("Task {} timeout detected: elapsed={}ms, timeoutMs={}ms", taskId, elapsed, timeoutMs);
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -348,7 +364,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
                 log.warn("Failed to get task timeout reason, response: {}", response);
             }
         } catch (ExecutionException | InterruptedException ex) {
-            log.error("Send get task fail reason request failed: ", ex);
+            log.warn("Send get task fail reason request failed: ", ex);
         }
         return "";
     }

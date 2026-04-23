@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
@@ -104,28 +105,29 @@ public class PhysicalCTEAnchor<
     @Override
     public PhysicalCTEAnchor<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new PhysicalCTEAnchor<>(cteId, groupExpression, getLogicalProperties(), physicalProperties,
-                statistics, children.get(0), children.get(1));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalCTEAnchor<>(cteId, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, children.get(0), children.get(1)));
     }
 
     @Override
     public PhysicalCTEAnchor<Plan, Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalCTEAnchor<>(cteId, groupExpression, getLogicalProperties(), child(0), child(1));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalCTEAnchor<>(cteId, groupExpression,
+                getLogicalProperties(), child(0), child(1)));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new PhysicalCTEAnchor<>(cteId, groupExpression, logicalProperties.get(), children.get(0),
-                children.get(1));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalCTEAnchor<>(cteId, groupExpression,
+                logicalProperties.get(), children.get(0), children.get(1)));
     }
 
     @Override
     public PhysicalCTEAnchor<Plan, Plan> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return new PhysicalCTEAnchor<>(cteId, groupExpression, getLogicalProperties(), physicalProperties,
-                statistics, child(0), child(1));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalCTEAnchor<>(cteId, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, child(0), child(1)));
     }
 
     @Override

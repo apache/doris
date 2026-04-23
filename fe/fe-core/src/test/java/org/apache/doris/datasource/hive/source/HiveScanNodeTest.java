@@ -21,8 +21,9 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 
 import org.junit.Assert;
@@ -46,13 +47,13 @@ public class HiveScanNodeTest {
         Mockito.when(table.getCatalog()).thenReturn(catalog);
         Mockito.when(catalog.bindBrokerName()).thenReturn("");
         desc.setTable(table);
-        HiveScanNode node = new HiveScanNode(new PlanNodeId(0), desc, false, sv, null);
+        HiveScanNode node = new HiveScanNode(new PlanNodeId(0), desc, false, sv, null, ScanContext.EMPTY);
 
-        HiveMetaStoreCache.FileCacheValue fileCacheValue = new HiveMetaStoreCache.FileCacheValue();
-        HiveMetaStoreCache.HiveFileStatus status = new HiveMetaStoreCache.HiveFileStatus();
+        HiveExternalMetaCache.FileCacheValue fileCacheValue = new HiveExternalMetaCache.FileCacheValue();
+        HiveExternalMetaCache.HiveFileStatus status = new HiveExternalMetaCache.HiveFileStatus();
         status.setLength(10_000L * MB);
         fileCacheValue.getFiles().add(status);
-        List<HiveMetaStoreCache.FileCacheValue> caches = Collections.singletonList(fileCacheValue);
+        List<HiveExternalMetaCache.FileCacheValue> caches = Collections.singletonList(fileCacheValue);
 
         Method method = HiveScanNode.class.getDeclaredMethod(
                 "determineTargetFileSplitSize", List.class, boolean.class);
@@ -71,13 +72,13 @@ public class HiveScanNodeTest {
         Mockito.when(table.getCatalog()).thenReturn(catalog);
         Mockito.when(catalog.bindBrokerName()).thenReturn("");
         desc.setTable(table);
-        HiveScanNode node = new HiveScanNode(new PlanNodeId(0), desc, false, sv, null);
+        HiveScanNode node = new HiveScanNode(new PlanNodeId(0), desc, false, sv, null, ScanContext.EMPTY);
 
-        HiveMetaStoreCache.FileCacheValue fileCacheValue = new HiveMetaStoreCache.FileCacheValue();
-        HiveMetaStoreCache.HiveFileStatus status = new HiveMetaStoreCache.HiveFileStatus();
+        HiveExternalMetaCache.FileCacheValue fileCacheValue = new HiveExternalMetaCache.FileCacheValue();
+        HiveExternalMetaCache.HiveFileStatus status = new HiveExternalMetaCache.HiveFileStatus();
         status.setLength(500L * MB);
         fileCacheValue.getFiles().add(status);
-        List<HiveMetaStoreCache.FileCacheValue> caches = Collections.singletonList(fileCacheValue);
+        List<HiveExternalMetaCache.FileCacheValue> caches = Collections.singletonList(fileCacheValue);
 
         Method method = HiveScanNode.class.getDeclaredMethod(
                 "determineTargetFileSplitSize", List.class, boolean.class);

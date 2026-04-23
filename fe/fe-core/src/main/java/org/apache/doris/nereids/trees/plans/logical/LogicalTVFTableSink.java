@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
@@ -79,7 +80,8 @@ public class LogicalTVFTableSink<CHILD_TYPE extends Plan> extends LogicalSink<CH
     public LogicalTVFTableSink<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "LogicalTVFTableSink's children size must be 1, but real is %s", children.size());
-        return new LogicalTVFTableSink<>(tvfName, properties, cols, outputExprs, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalTVFTableSink<>(tvfName, properties, cols, outputExprs, children.get(0)));
     }
 
     @Override
@@ -89,21 +91,24 @@ public class LogicalTVFTableSink<CHILD_TYPE extends Plan> extends LogicalSink<CH
 
     @Override
     public LogicalTVFTableSink<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalTVFTableSink<>(tvfName, properties, cols, outputExprs,
-                groupExpression, Optional.of(getLogicalProperties()), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalTVFTableSink<>(tvfName, properties, cols, outputExprs,
+                groupExpression, Optional.of(getLogicalProperties()), child()));
     }
 
     @Override
     public LogicalTVFTableSink<Plan> withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "LogicalTVFTableSink only accepts one child");
-        return new LogicalTVFTableSink<>(tvfName, properties, cols, outputExprs,
-                groupExpression, logicalProperties, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalTVFTableSink<>(tvfName, properties, cols, outputExprs,
+                groupExpression, logicalProperties, children.get(0)));
     }
 
     @Override
     public LogicalTVFTableSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
-        return new LogicalTVFTableSink<>(tvfName, properties, cols, outputExprs, child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalTVFTableSink<>(tvfName, properties, cols, outputExprs, child()));
     }
 
     @Override

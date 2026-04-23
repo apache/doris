@@ -19,11 +19,11 @@
 
 #include <limits>
 
-#include "vec/common/arithmetic_overflow.h"
-#include "vec/core/types.h"
-#include "vec/io/io_helper.h"
+#include "core/types.h"
+#include "exec/common/arithmetic_overflow.h"
+#include "exprs/function/cast/cast_to_basic_number_common.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct CheckOverFlowTest : public testing::Test {
     void SetUp() override {
@@ -37,7 +37,8 @@ struct CheckOverFlowTest : public testing::Test {
     Int128 to_i128(std::string str) {
         StringRef str_ref(str.data(), str.size());
         Int128 val;
-        EXPECT_TRUE(try_read_int_text(val, str_ref));
+        CastParameters params;
+        EXPECT_TRUE(CastToInt::from_string<false>(str_ref, val, params));
         return val;
     };
 
@@ -237,4 +238,4 @@ TEST_F(CheckOverFlowTest, test_overflow_int256) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

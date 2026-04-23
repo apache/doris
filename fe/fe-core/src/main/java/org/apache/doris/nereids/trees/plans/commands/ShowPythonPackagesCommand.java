@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -37,8 +38,6 @@ import org.apache.doris.thrift.TPythonPackageInfo;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -50,8 +49,6 @@ import java.util.Map;
  * Shows pip packages installed for the given Python version, collected from all alive BEs.
  */
 public class ShowPythonPackagesCommand extends ShowCommand {
-    private static final Logger LOG = LogManager.getLogger(ShowPythonPackagesCommand.class);
-
     private static final String[] TITLE_NAMES = {"Package", "Version"};
     private static final String[] TITLE_NAMES_INCONSISTENT = {"Package", "Version", "Consistent", "Backends"};
 
@@ -116,8 +113,6 @@ public class ShowPythonPackagesCommand extends ShowCommand {
                 }
                 allBePackages.add(pkgMap);
                 beIdentifiers.add(backend.getHost() + ":" + backend.getBePort());
-            } catch (Exception e) {
-                LOG.warn("Failed to get python packages from backend[{}]", backend.getId(), e);
             } finally {
                 if (ok) {
                     ClientPool.backendPool.returnObject(address, client);
@@ -128,7 +123,7 @@ public class ShowPythonPackagesCommand extends ShowCommand {
         }
 
         if (allBePackages.isEmpty()) {
-            return new ShowResultSet(getMetaData(), Lists.newArrayList());
+            throw new AnalysisException("No alive backends found to get python packages");
         }
 
         // Check consistency across BEs

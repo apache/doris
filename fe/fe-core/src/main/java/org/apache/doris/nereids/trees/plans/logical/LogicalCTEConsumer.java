@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -129,23 +130,26 @@ public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDeps
 
     public Plan withTwoMaps(Map<Slot, Slot> consumerToProducerOutputMap,
             Multimap<Slot, Slot> producerToConsumerOutputMap) {
-        return new LogicalCTEConsumer(relationId, cteId, name,
-                consumerToProducerOutputMap, producerToConsumerOutputMap);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalCTEConsumer(relationId, cteId, name,
+                consumerToProducerOutputMap, producerToConsumerOutputMap));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalCTEConsumer(relationId, cteId, name,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalCTEConsumer(relationId, cteId, name,
                 consumerToProducerOutputMap, producerToConsumerOutputMap,
-                groupExpression, Optional.of(getLogicalProperties()));
+                groupExpression, Optional.of(getLogicalProperties())));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalCTEConsumer(relationId, cteId, name,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalCTEConsumer(relationId, cteId, name,
                 consumerToProducerOutputMap, producerToConsumerOutputMap,
-                groupExpression, logicalProperties);
+                groupExpression, logicalProperties));
     }
 
     @Override

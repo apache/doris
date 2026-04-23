@@ -41,25 +41,28 @@ suite("test_paimon_schema_change", "p0,external") {
         sql """use test_paimon_schema_change """ 
 
 
-        qt_desc_1  """ desc sc_parquet_pk """
-
-        qt_parquet_pk_1  """SELECT * FROM sc_parquet_pk order by id;"""
-        qt_parquet_pk_2  """SELECT full_name, location FROM sc_parquet_pk order by id;"""
-        qt_parquet_pk_3  """SELECT * FROM sc_parquet_pk WHERE salary IS  NULL order by id;"""
-        qt_parquet_pk_4  """SELECT * FROM sc_parquet_pk WHERE salary IS NOT NULL order by id;"""
-        qt_parquet_pk_5  """SELECT * FROM sc_parquet_pk WHERE location = 'New York' OR location = 'Los Angeles'  order by id;"""
-        qt_parquet_pk_6  """SELECT * FROM sc_parquet_pk WHERE id > 5 order by id;"""
-        qt_parquet_pk_7  """SELECT * FROM sc_parquet_pk WHERE salary > 6000 order by id;"""
 
 
-        qt_desc_2 """ desc sc_orc_pk """
-        qt_orc_pk_1 """SELECT * FROM sc_orc_pk order by id;"""
-        qt_orc_pk_2 """SELECT full_name, location FROM sc_orc_pk order by id;"""
-        qt_orc_pk_3 """SELECT * FROM sc_orc_pk WHERE salary IS  NULL order by id;"""
-        qt_orc_pk_4 """SELECT * FROM sc_orc_pk WHERE salary IS NOT NULL order by id;"""
-        qt_orc_pk_5 """SELECT * FROM sc_orc_pk WHERE location = 'New York' OR location = 'Los Angeles'  order by id;"""
-        qt_orc_pk_6 """SELECT * FROM sc_orc_pk WHERE id > 5 order by id;"""
-        qt_orc_pk_7 """SELECT * FROM sc_orc_pk WHERE salary > 6000 order by id;"""
+        // paimon 1.3 : org.apache.spark.sql.execution.QueryExecutionException: java.lang.UnsupportedOperationException: Cannot update primary key
+        // https://github.com/apache/incubator-paimon/pull/6264
+        // qt_desc_1  """ desc sc_parquet_pk """
+        // qt_parquet_pk_1  """SELECT * FROM sc_parquet_pk order by id;"""
+        // qt_parquet_pk_2  """SELECT full_name, location FROM sc_parquet_pk order by id;"""
+        // qt_parquet_pk_3  """SELECT * FROM sc_parquet_pk WHERE salary IS  NULL order by id;"""
+        // qt_parquet_pk_4  """SELECT * FROM sc_parquet_pk WHERE salary IS NOT NULL order by id;"""
+        // qt_parquet_pk_5  """SELECT * FROM sc_parquet_pk WHERE location = 'New York' OR location = 'Los Angeles'  order by id;"""
+        // qt_parquet_pk_6  """SELECT * FROM sc_parquet_pk WHERE id > 5 order by id;"""
+        // qt_parquet_pk_7  """SELECT * FROM sc_parquet_pk WHERE salary > 6000 order by id;"""
+
+
+        // qt_desc_2 """ desc sc_orc_pk """
+        // qt_orc_pk_1 """SELECT * FROM sc_orc_pk order by id;"""
+        // qt_orc_pk_2 """SELECT full_name, location FROM sc_orc_pk order by id;"""
+        // qt_orc_pk_3 """SELECT * FROM sc_orc_pk WHERE salary IS  NULL order by id;"""
+        // qt_orc_pk_4 """SELECT * FROM sc_orc_pk WHERE salary IS NOT NULL order by id;"""
+        // qt_orc_pk_5 """SELECT * FROM sc_orc_pk WHERE location = 'New York' OR location = 'Los Angeles'  order by id;"""
+        // qt_orc_pk_6 """SELECT * FROM sc_orc_pk WHERE id > 5 order by id;"""
+        // qt_orc_pk_7 """SELECT * FROM sc_orc_pk WHERE salary > 6000 order by id;"""
 
 
 
@@ -76,8 +79,8 @@ suite("test_paimon_schema_change", "p0,external") {
         qt_orc_3  """select * from sc_orc where k <= 1;"""
 
 
-        qt_count_1 """ select count(*) from sc_parquet_pk;"""
-        qt_count_2 """ select count(*) from sc_orc_pk;"""
+        // qt_count_1 """ select count(*) from sc_parquet_pk;"""
+        // qt_count_2 """ select count(*) from sc_orc_pk;"""
         qt_count_3 """ select count(*) from sc_parquet;"""
         qt_count_4 """ select count(*) from sc_orc;"""
 

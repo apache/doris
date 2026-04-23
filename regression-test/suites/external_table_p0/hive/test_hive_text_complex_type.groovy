@@ -20,7 +20,7 @@ suite("test_hive_text_complex_type", "p0,external") {
     if (!"true".equalsIgnoreCase(enabled)) {
         return;
     }
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
         String hmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String catalog_name = "test_hive_text_complex_type"

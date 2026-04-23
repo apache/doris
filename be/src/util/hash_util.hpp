@@ -30,14 +30,13 @@
 #include <functional>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "exec/common/endian.h"
 #include "util/cpu_info.h"
 #include "util/hash/city.h"
-#include "util/murmur_hash3.h"
+#include "util/hash/murmur_hash3.h"
 #include "util/sse_util.hpp"
-#include "vec/common/endian.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 namespace detail {
 // Slicing-by-4 table: t[0] is the standard byte-at-a-time table,
 // t[1..3] are extended tables for parallel 4-byte processing.
@@ -510,5 +509,3 @@ struct std::hash<std::pair<First, Second>> {
         return doris::util_hash::HashLen16(h1, h2);
     }
 };
-
-#include "common/compile_check_end.h"

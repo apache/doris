@@ -21,6 +21,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.DataGenScanNode;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TDataGenFunctionName;
@@ -34,6 +35,7 @@ public abstract class DataGenTableValuedFunction extends TableValuedFunctionIf {
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
-        return new DataGenScanNode(id, desc, this);
+        return new DataGenScanNode(id, desc, this,
+                ScanContext.builder().clusterName(sv.resolveCloudClusterName()).build());
     }
 }

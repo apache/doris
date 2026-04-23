@@ -23,10 +23,10 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
@@ -82,7 +82,7 @@ public class ShowViewCommand extends ShowCommand {
             // this act same as in MySQL
             tbl.setDb(db);
         }
-        tbl.analyze(ctx);
+        tbl.analyze(ctx.getNameSpaceContext());
         // disallow external catalog
         Util.prohibitExternalCatalog(tbl.getCtl(), this.getClass().getSimpleName());
 
@@ -102,7 +102,7 @@ public class ShowViewCommand extends ShowCommand {
             // get table refs instead of get tables because it don't need to check table's validity
             List<TableNameInfo> tableNameInfos = getTableNames(ctx, view.getInlineViewDef());
             for (TableNameInfo tableNameInfo : tableNameInfos) {
-                tableNameInfo.analyze(ctx);
+                tableNameInfo.analyze(ctx.getNameSpaceContext());
                 if (tableNameInfo.equals(tbl)) {
                     matchViews.add(view);
                 }

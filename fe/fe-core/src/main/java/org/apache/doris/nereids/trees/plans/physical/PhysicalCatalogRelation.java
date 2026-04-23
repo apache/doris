@@ -21,13 +21,15 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterV2;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -197,24 +199,23 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
             getAppliedRuntimeFilters()
                     .stream().forEach(rf -> shapeBuilder.append(" RF").append(rf.getId().asInt()));
         }
-        if (!runtimeFiltersV2.isEmpty()) {
-            shapeBuilder.append(" RFV2:");
-            for (RuntimeFilterV2 rfv2 : runtimeFiltersV2) {
-                shapeBuilder.append(" RF").append(rfv2.getId().asInt());
-            }
-        }
         return shapeBuilder.toString();
     }
 
     @Override
     public void computeUnique(DataTrait.Builder builder) {
         Set<Slot> outputSet = Utils.fastToImmutableSet(getOutputSet());
-        for (PrimaryKeyConstraint c : table.getPrimaryKeyConstraints()) {
+        TableNameInfo tableNameInfo = TableNameInfoUtils.fromTableOrNull(table);
+        if (tableNameInfo == null) {
+            return;
+        }
+        ConstraintManager cm = Env.getCurrentEnv().getConstraintManager();
+        for (PrimaryKeyConstraint c : cm.getPrimaryKeyConstraints(tableNameInfo)) {
             Set<Column> columns = c.getPrimaryKeys(table);
             builder.addUniqueSlot((ImmutableSet) findSlotsByColumn(outputSet, columns));
         }
 
-        for (UniqueConstraint c : table.getUniqueConstraints()) {
+        for (UniqueConstraint c : cm.getUniqueConstraints(tableNameInfo)) {
             Set<Column> columns = c.getUniqueKeys(table);
             builder.addUniqueSlot((ImmutableSet) findSlotsByColumn(outputSet, columns));
         }

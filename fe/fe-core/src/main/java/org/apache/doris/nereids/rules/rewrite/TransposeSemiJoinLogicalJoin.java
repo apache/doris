@@ -21,7 +21,6 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinLogicalJoinProject.ContainsType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.qe.ConnectContext;
@@ -66,7 +65,7 @@ public class TransposeSemiJoinLogicalJoin extends OneRewriteRuleFactory {
                          * A      B                A      C
                          */
                         // RIGHT_OUTER_JOIN should be eliminated in rewrite phase
-                        if (bottomJoin.getJoinType() == JoinType.RIGHT_OUTER_JOIN) {
+                        if (bottomJoin.getJoinType().isRightOuterJoin()) {
                             return null;
                         }
                         Plan newBottomSemiJoin = topSemiJoin.withChildren(a, c);
@@ -80,7 +79,7 @@ public class TransposeSemiJoinLogicalJoin extends OneRewriteRuleFactory {
                          * A      B                       B        C
                          */
                         // LEFT_OUTER_JOIN should be eliminated in rewrite phase
-                        if (bottomJoin.getJoinType() == JoinType.LEFT_OUTER_JOIN) {
+                        if (bottomJoin.getJoinType().isLeftOuterJoin()) {
                             return null;
                         }
                         Plan newBottomSemiJoin = topSemiJoin.withChildren(b, c);

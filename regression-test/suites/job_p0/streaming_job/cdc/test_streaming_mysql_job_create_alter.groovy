@@ -196,7 +196,11 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
             sql """INSERT INTO ${mysqlDb}.${table1} (name, age) VALUES ('B1', 2);"""
         }
 
+        // internal pass-through property "__source_subtype" should be accepted in job properties
         sql """CREATE JOB ${jobName}
+                PROPERTIES (
+                    "__source_subtype" = "aws_aurora_mysql"
+                )
                 ON STREAMING
                 FROM MYSQL (
                     "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
@@ -205,7 +209,7 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
                     "user" = "root",
                     "password" = "123456",
                     "database" = "${mysqlDb}",
-                    "include_tables" = "${table1}", 
+                    "include_tables" = "${table1}",
                     "offset" = "initial"
                 )
                 TO DATABASE ${currentDb} (
@@ -419,10 +423,11 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
         """
         log.info("jobInfoOrigin: " + jobInfoOrigin)
 
-        // alter job properties
+        // alter job properties with internal pass-through property
         sql """ALTER JOB ${jobName}
                PROPERTIES(
-                "max_interval" = "5"
+                "max_interval" = "5",
+                "__source_subtype" = "aws_rds_mysql"
                ) """
 
         sql "RESUME JOB where jobname =  '${jobName}'";
@@ -452,7 +457,8 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
         log.info("jobInfoCurrent: " + jobInfoCurrent)
         assert jobInfoCurrent.get(0).get(0) == jobInfoOrigin.get(0).get(0)
         assert jobInfoCurrent.get(0).get(1) == jobInfoOrigin.get(0).get(1)
-        assert jobInfoCurrent.get(0).get(2) == "{\"max_interval\":\"5\"}"
+        assert jobInfoCurrent.get(0).get(2).contains("\"max_interval\":\"5\"")
+        assert jobInfoCurrent.get(0).get(2).contains("\"__source_subtype\":\"aws_rds_mysql\"")
         assert jobInfoCurrent.get(0).get(3).contains("latest")
 
         sql """

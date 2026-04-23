@@ -21,7 +21,7 @@
 #include <memory>
 #include <string>
 
-#include "util/doris_metrics.h"
+#include "common/metrics/doris_metrics.h"
 
 namespace doris::io {
 

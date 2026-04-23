@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.catalog.info.BranchOptions;
+import org.apache.doris.catalog.info.CreateOrReplaceBranchInfo;
 
 import java.util.Map;
 

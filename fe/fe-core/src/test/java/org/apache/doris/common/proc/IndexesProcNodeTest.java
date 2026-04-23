@@ -24,8 +24,8 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.TableIndexes;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition.IndexType;
 
 import com.google.common.collect.Lists;
 import org.junit.Assert;

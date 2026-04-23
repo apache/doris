@@ -21,14 +21,14 @@
 #include <gtest/gtest.h>
 
 #include "common/object_pool.h"
-#include "pipeline/exec/exchange_sink_operator.h"
-#include "pipeline/exec/mock_operator.h"
-#include "pipeline/exec/operator.h"
+#include "exec/operator/exchange_sink_operator.h"
+#include "exec/operator/mock_operator.h"
+#include "exec/operator/operator.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 class ProfileSpecTest : public testing::Test {
 public:
@@ -73,7 +73,7 @@ private:
         Status prepare(RuntimeState* state) override { return Status::OK(); }
         Status open(RuntimeState* state) { return Status::OK(); }
         Status close(RuntimeState* state) override { return Status::OK(); }
-        Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override {
+        Status get_block(RuntimeState* state, Block* block, bool* eos) override {
             return Status::OK();
         }
     };
@@ -125,7 +125,7 @@ TEST_F(ProfileSpecTest, SourceOperatorNameSuffixTest2) {
     op._nereids_id = 100;
     RuntimeState* runtime_state = nullptr;
     auto local_state = std::make_unique<MockLocalState>(runtime_state, &op);
-    ASSERT_EQ(local_state->name_suffix(), "(nereids_id=100)(id=1)");
+    ASSERT_EQ(local_state->name_suffix(), "(nereids_id=100, id=1)");
 }
 
 TEST_F(ProfileSpecTest, DataStreamSinkOperatorTest) {
@@ -144,7 +144,7 @@ TEST_F(ProfileSpecTest, DataStreamSinkOperatorTest) {
     ExchangeSinkLocalState local_state(state.get());
     local_state._parent = &sink_op;
 
-    ASSERT_EQ(local_state.name_suffix(), "(dest_id=101)");
+    ASSERT_EQ(local_state.name_suffix(), "(id=101, dest_id=101)");
 }
 
 TEST_F(ProfileSpecTest, CommonCountersCustomCounters) {
@@ -171,4 +171,4 @@ TEST_F(ProfileSpecTest, CommonCountersCustomCounters) {
     ASSERT_TRUE(local_state->operator_profile()->get_child("CommonCounters") != nullptr);
 }
 
-} // namespace doris::pipeline
+} // namespace doris

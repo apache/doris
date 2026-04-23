@@ -27,7 +27,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
-#include "util/runtime_profile.h"
+#include "runtime/runtime_profile.h"
 #include "util/time.h"
 
 using std::string;

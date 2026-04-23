@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.analysis.ColumnAccessPath;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
@@ -25,9 +26,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
-import org.apache.doris.thrift.TAccessPathType;
-import org.apache.doris.thrift.TColumnAccessPath;
-import org.apache.doris.thrift.TDataAccessPath;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
@@ -205,39 +203,37 @@ public class VariantPruningLogicTest extends TestWithFeService {
         Assertions.assertEquals(expectedSubColPathSet, actualSubColPaths);
     }
 
-    private void assertPredicateAccessPathsEqual(String sql, List<TColumnAccessPath> expected) throws Exception {
+    private void assertPredicateAccessPathsEqual(String sql, List<ColumnAccessPath> expected) throws Exception {
         Pair<PhysicalPlan, List<SlotDescriptor>> result = collectVariantSlots(sql);
-        TreeSet<TColumnAccessPath> actualSet = new TreeSet<>();
+        TreeSet<ColumnAccessPath> actualSet = new TreeSet<>();
         for (SlotDescriptor slotDescriptor : result.second) {
-            List<TColumnAccessPath> predicate = slotDescriptor.getPredicateAccessPaths();
+            List<ColumnAccessPath> predicate = slotDescriptor.getPredicateAccessPaths();
             if (predicate != null) {
                 actualSet.addAll(predicate);
             }
         }
 
-        TreeSet<TColumnAccessPath> expectedSet = new TreeSet<>(expected);
+        TreeSet<ColumnAccessPath> expectedSet = new TreeSet<>(expected);
         Assertions.assertEquals(expectedSet, actualSet);
     }
 
     private void assertAllAccessPathsContain(
-            String sql, List<TColumnAccessPath> expectedContain, List<TColumnAccessPath> expectedNotContain)
+            String sql, List<ColumnAccessPath> expectedContain, List<ColumnAccessPath> expectedNotContain)
             throws Exception {
         Pair<PhysicalPlan, List<SlotDescriptor>> result = collectVariantSlots(sql);
-        TreeSet<TColumnAccessPath> allAccessPaths = new TreeSet<>();
+        TreeSet<ColumnAccessPath> allAccessPaths = new TreeSet<>();
         for (SlotDescriptor slotDescriptor : result.second) {
             allAccessPaths.addAll(slotDescriptor.getAllAccessPaths());
         }
-        for (TColumnAccessPath accessPath : expectedContain) {
+        for (ColumnAccessPath accessPath : expectedContain) {
             Assertions.assertTrue(allAccessPaths.contains(accessPath));
         }
-        for (TColumnAccessPath accessPath : expectedNotContain) {
+        for (ColumnAccessPath accessPath : expectedNotContain) {
             Assertions.assertFalse(allAccessPaths.contains(accessPath));
         }
     }
 
-    private TColumnAccessPath path(String... path) {
-        TColumnAccessPath accessPath = new TColumnAccessPath(TAccessPathType.DATA);
-        accessPath.data_access_path = new TDataAccessPath(ImmutableList.copyOf(path));
-        return accessPath;
+    private ColumnAccessPath path(String... path) {
+        return ColumnAccessPath.data(ImmutableList.copyOf(path));
     }
 }

@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
-import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -46,23 +45,19 @@ public class LinearHistogram extends NotNullableAggregateFunction implements Exp
     );
 
     public LinearHistogram(Expression arg0, Expression arg1) {
-        super(FunctionSet.LINEAR_HISTOGRAM, arg0, arg1);
+        super("linear_histogram", arg0, arg1);
     }
 
     public LinearHistogram(Expression arg0, Expression arg1, Expression arg2) {
-        super(FunctionSet.LINEAR_HISTOGRAM, arg0, arg1, arg2);
-    }
-
-    private LinearHistogram(boolean distinct, List<Expression> args) {
-        super(FunctionSet.LINEAR_HISTOGRAM, distinct, args);
+        super("linear_histogram", arg0, arg1, arg2);
     }
 
     public LinearHistogram(boolean distinct, Expression arg0, Expression arg1) {
-        super(FunctionSet.LINEAR_HISTOGRAM, distinct, arg0, arg1);
+        super("linear_histogram", distinct, arg0, arg1);
     }
 
     public LinearHistogram(boolean distinct, Expression arg0, Expression arg1, Expression arg2) {
-        super(FunctionSet.LINEAR_HISTOGRAM, distinct, arg0, arg1, arg2);
+        super("linear_histogram", distinct, arg0, arg1, arg2);
     }
 
     /** constructor for withChildren and reuse signature */

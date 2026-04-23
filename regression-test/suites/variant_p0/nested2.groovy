@@ -37,7 +37,7 @@ suite("variant_nested_type_conflict", "p0"){
     //             )
     //             DUPLICATE KEY(`k`)
     //             DISTRIBUTED BY HASH(k) BUCKETS 1 -- 1 bucket make really compaction in conflict case
-    //             properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "true");
+    //             properties("replication_num" = "1", "disable_auto_compaction" = "false", "deprecated_variant_enable_flatten_nested" = "true");
     //         """
     //     def sql_select_batch = {
     //         qt_sql_0 """select * from ${table_name} order by k"""

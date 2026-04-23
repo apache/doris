@@ -52,8 +52,18 @@ suite("test_paimon_partition_table", "p0,external") {
            String baseQueryName = "qt_show_partition_${tableName}"
            "$baseQueryName" """show partitions from ${tableName};"""
        }
-
-
+/*
+mysql> show partitions from sales_by_date;
++----------------------+--------------+-------------+-----------------+-----------+
+| Partition            | PartitionKey | RecordCount | FileSizeInBytes | FileCount |
++----------------------+--------------+-------------+-----------------+-----------+
+| sale_date=2024-01-15 | sale_date    | 2           | 2051            | 1         |
+| sale_date=2024-01-16 | sale_date    | 2           | 3899            | 2         |
+| sale_date=2024-01-17 | sale_date    | 1           | 1959            | 1         |
++----------------------+--------------+-------------+-----------------+-----------+
+3 rows in set (0.01 sec)
+FileSizeInBytes maybe changed, when upgrade paimon version.
+*/
     } finally {
          sql """drop catalog if exists ${catalog_name}"""
     }

@@ -18,7 +18,9 @@
 package org.apache.doris.datasource.property;
 
 import org.apache.doris.common.CatalogConfigFileUtils;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
+import org.apache.doris.foundation.property.ConnectorProperty;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -30,6 +32,7 @@ import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public abstract class ConnectionProperties {
     /**
@@ -110,5 +113,28 @@ public abstract class ConnectionProperties {
                 }
             }
         }
+    }
+
+    /**
+     * Two ConnectionProperties are equal if they are of the same concrete type and
+     * have the same original properties. This ensures that logically identical
+     * configurations share the same cache key in {@code FileSystemCache}, preventing
+     * cache entry duplication and use-after-eviction race conditions.
+     */
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) {
+            return true;
+        }
+        if (obj == null || getClass() != obj.getClass()) {
+            return false;
+        }
+        ConnectionProperties other = (ConnectionProperties) obj;
+        return Objects.equals(origProps, other.origProps);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(getClass().getName(), origProps);
     }
 }

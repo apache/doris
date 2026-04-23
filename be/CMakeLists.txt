@@ -123,7 +123,11 @@ endif()
 
 # Set dirs
 set(BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
-set(ENV{DORIS_HOME} "${BASE_DIR}/..")
+if (DEFINED ENV{DORIS_HOME})
+    message(STATUS "DORIS_HOME is $ENV{DORIS_HOME}")
+else()
+    message(FATAL_ERROR "DORIS_HOME is not defined")
+endif()
 set(BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}")
 set(GENSRC_DIR "${BASE_DIR}/../gensrc/build/")
 set(COMMON_SRC_DIR "${BASE_DIR}/../common")
@@ -159,6 +163,27 @@ if (DEFINED ENV{ENABLE_PAIMON_CPP})
 endif()
 if (DEFINED ENV{PAIMON_HOME} AND NOT PAIMON_HOME)
     set(PAIMON_HOME "$ENV{PAIMON_HOME}" CACHE PATH "" FORCE)
+endif()
+
+option(BUILD_RUST_READERS "Build Rust-based format readers (Lance, etc.)" OFF)
+if (DEFINED ENV{BUILD_RUST_READERS})
+    set(BUILD_RUST_READERS "$ENV{BUILD_RUST_READERS}" CACHE BOOL "" FORCE)
+endif()
+# Auto-enable if pre-built Rust library exists (from zigbuild or manylinux2014)
+if (NOT BUILD_RUST_READERS)
+    if (EXISTS "${SRC_DIR}/rust/doris-native/target/x86_64-unknown-linux-gnu/release/libdoris_ffi.a"
+        OR EXISTS "${SRC_DIR}/rust/doris-native/target/release/libdoris_ffi.a")
+        set(BUILD_RUST_READERS ON)
+        message(STATUS "Auto-enabling BUILD_RUST_READERS: pre-built library found")
+    endif()
+endif()
+if (BUILD_RUST_READERS)
+    # rust.cmake detects pre-built .a or builds via Corrosion.
+    # If neither exists, it sets BUILD_RUST_READERS=OFF and returns.
+    include(cmake/rust.cmake)
+endif()
+if (BUILD_RUST_READERS)
+    add_definitions(-DBUILD_RUST_READERS)
 endif()
 
 set(CMAKE_SKIP_RPATH TRUE)
@@ -297,6 +322,10 @@ endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_STANDARD 17)
 
+add_compile_options(
+  "-ffile-prefix-map=$ENV{DORIS_HOME}=."
+)
+
 add_compile_options(-g
                     -gdwarf-5
                     -Wall
@@ -309,7 +338,6 @@ add_compile_options(-g
                     $<$<COMPILE_LANGUAGE:CXX>:-Wnon-virtual-dtor>)
 
 add_compile_options(-Wno-unused-parameter
-                    -Wno-deprecated-declarations
                     -Wno-sign-compare)
 
 if (COMPILER_GCC)
@@ -419,7 +447,11 @@ endif()
 #   -O3: Enable all compiler optimizations
 #   -DNDEBUG: Turn off dchecks/asserts/debug only code.
 set(CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
-set(CXX_FLAGS_ASAN "-O0 -fsanitize=address -fsanitize=undefined -fno-sanitize=float-cast-overflow  -fsanitize-ignorelist=${BASE_DIR}/../conf/ubsan_ignorelist.txt -DUNDEFINED_BEHAVIOR_SANITIZER -DADDRESS_SANITIZER")
+message(STATUS "UBSAN_IGNORELIST is ${UBSAN_IGNORELIST}")
+set(CXX_FLAGS_ASAN "-O0 -fsanitize=address -fsanitize=undefined -fno-sanitize=float-cast-overflow -DUNDEFINED_BEHAVIOR_SANITIZER -DADDRESS_SANITIZER")
+if (COMPILER_CLANG)
+    set(CXX_FLAGS_ASAN "${CXX_FLAGS_ASAN} -fsanitize-ignorelist=${UBSAN_IGNORELIST}")
+endif()
 set(CXX_FLAGS_LSAN "-O0 -fsanitize=leak -DLEAK_SANITIZER")
 ## Use for BE-UT
 set(CXX_FLAGS_ASAN_UT "-O0 -fsanitize=address -DADDRESS_SANITIZER")
@@ -529,21 +561,19 @@ set(DORIS_LINK_LIBS
     ${WL_START_GROUP}
     Agent
     Common
+    Core
     Exec
     Exprs
+    Format
     IO
-    Olap
+    Storage
     Runtime
-    RuntimeFilter
     Service
     Udf
     Util
     DorisGen
-    Webserver
-    Geo
-    GeoType
-    Vec
-    Pipeline
+    Load
+    InformationSchema
     Cloud
     ${WL_END_GROUP}
     CommonCPP
@@ -625,77 +655,16 @@ if (BUILD_BENCHMARK)
 endif()
 
 set(PAIMON_FACTORY_REGISTRY_LIBS)
-set(PAIMON_ARROW_CORE_LIB)
-set(PAIMON_ARROW_FILESYSTEM_LIB)
-set(PAIMON_ARROW_DATASET_LIB)
-set(PAIMON_ARROW_ACERO_LIB)
 if (ENABLE_PAIMON_CPP)
-    set(_paimon_arrow_core_candidates
-        ${THIRDPARTY_DIR}/paimon-cpp/lib64/paimon_deps/libarrow.a
-        ${THIRDPARTY_DIR}/lib64/libarrow.a
-        ${THIRDPARTY_DIR}/lib/libarrow.a
-    )
-    foreach(_paimon_arrow_core_candidate IN LISTS _paimon_arrow_core_candidates)
-        if (EXISTS "${_paimon_arrow_core_candidate}")
-            add_library(paimon_arrow_core STATIC IMPORTED)
-            set_target_properties(paimon_arrow_core PROPERTIES
-                IMPORTED_LOCATION ${_paimon_arrow_core_candidate})
-            set(PAIMON_ARROW_CORE_LIB paimon_arrow_core)
-            break()
-        endif()
-    endforeach()
-    set(_paimon_arrow_filesystem_candidates
-        ${THIRDPARTY_DIR}/paimon-cpp/lib64/paimon_deps/libarrow_filesystem.a
-        ${THIRDPARTY_DIR}/lib64/libarrow_filesystem.a
-        ${THIRDPARTY_DIR}/lib/libarrow_filesystem.a
-    )
-    foreach(_paimon_arrow_filesystem_candidate IN LISTS _paimon_arrow_filesystem_candidates)
-        if (EXISTS "${_paimon_arrow_filesystem_candidate}")
-            add_library(paimon_arrow_filesystem STATIC IMPORTED)
-            set_target_properties(paimon_arrow_filesystem PROPERTIES
-                IMPORTED_LOCATION ${_paimon_arrow_filesystem_candidate})
-            set(PAIMON_ARROW_FILESYSTEM_LIB paimon_arrow_filesystem)
-            break()
-        endif()
-    endforeach()
-    set(_paimon_arrow_dataset_candidates
-        ${THIRDPARTY_DIR}/paimon-cpp/lib64/paimon_deps/libarrow_dataset.a
-        ${THIRDPARTY_DIR}/lib64/libarrow_dataset.a
-        ${THIRDPARTY_DIR}/lib/libarrow_dataset.a
-    )
-    foreach(_paimon_arrow_dataset_candidate IN LISTS _paimon_arrow_dataset_candidates)
-        if (EXISTS "${_paimon_arrow_dataset_candidate}")
-            add_library(paimon_arrow_dataset STATIC IMPORTED)
-            set_target_properties(paimon_arrow_dataset PROPERTIES
-                IMPORTED_LOCATION ${_paimon_arrow_dataset_candidate})
-            set(PAIMON_ARROW_DATASET_LIB paimon_arrow_dataset)
-            break()
-        endif()
-    endforeach()
-    set(_paimon_arrow_acero_candidates
-        ${THIRDPARTY_DIR}/paimon-cpp/lib64/paimon_deps/libarrow_acero.a
-        ${THIRDPARTY_DIR}/lib64/libarrow_acero.a
-        ${THIRDPARTY_DIR}/lib/libarrow_acero.a
-    )
-    foreach(_paimon_arrow_acero_candidate IN LISTS _paimon_arrow_acero_candidates)
-        if (EXISTS "${_paimon_arrow_acero_candidate}")
-            add_library(paimon_arrow_acero STATIC IMPORTED)
-            set_target_properties(paimon_arrow_acero PROPERTIES
-                IMPORTED_LOCATION ${_paimon_arrow_acero_candidate})
-            set(PAIMON_ARROW_ACERO_LIB paimon_arrow_acero)
-            break()
-        endif()
-    endforeach()
-    if (PAIMON_ARROW_DATASET_LIB)
-        # paimon_parquet_file_format depends on Arrow Dataset symbols.
-        # Force-link it only when arrow_dataset is available.
-        set(PAIMON_FACTORY_REGISTRY_LIBS
-            paimon_parquet_file_format
-        )
-        list(REMOVE_ITEM COMMON_THIRDPARTY ${PAIMON_FACTORY_REGISTRY_LIBS})
-    else()
-        message(STATUS "Paimon C++: libarrow_dataset.a not found, keep paimon_parquet_file_format as regular static lib")
-    endif()
+    # Plan B: Doris Arrow is now built with COMPUTE/DATASET/ACERO/FILESYSTEM,
+    # so arrow, arrow_dataset, arrow_acero are all in COMMON_THIRDPARTY via
+    # thirdparty.cmake.  paimon-cpp reuses the same Arrow (no paimon_deps).
+    # No dual-stack selection needed — single Arrow for everything.
+
+    # paimon_parquet_file_format depends on Arrow Dataset symbols.
+    # Force-link it with --whole-archive so its factory registration runs.
+    set(PAIMON_FACTORY_REGISTRY_LIBS paimon_parquet_file_format)
+    list(REMOVE_ITEM COMMON_THIRDPARTY ${PAIMON_FACTORY_REGISTRY_LIBS})
 endif()
 
 set(DORIS_DEPENDENCIES
@@ -717,22 +686,17 @@ set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-contribs-lib)
 
 if (ENABLE_PAIMON_CPP)
     if (PAIMON_FACTORY_REGISTRY_LIBS)
-        set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
-            -Wl,--whole-archive
-            ${PAIMON_FACTORY_REGISTRY_LIBS}
-            -Wl,--no-whole-archive)
-    endif()
-    if (PAIMON_ARROW_CORE_LIB)
-        set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${PAIMON_ARROW_CORE_LIB})
-    endif()
-    if (PAIMON_ARROW_FILESYSTEM_LIB)
-        set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${PAIMON_ARROW_FILESYSTEM_LIB})
-    endif()
-    if (PAIMON_ARROW_DATASET_LIB)
-        set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${PAIMON_ARROW_DATASET_LIB})
-    endif()
-    if (PAIMON_ARROW_ACERO_LIB)
-        set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${PAIMON_ARROW_ACERO_LIB})
+        if (APPLE)
+            foreach(lib ${PAIMON_FACTORY_REGISTRY_LIBS})
+                set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
+                    -Wl,-force_load,$<TARGET_FILE:${lib}>)
+            endforeach()
+        else()
+            set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
+                -Wl,--whole-archive
+                ${PAIMON_FACTORY_REGISTRY_LIBS}
+                -Wl,--no-whole-archive)
+        endif()
     endif()
 
     # paimon-cpp internal dependencies (renamed with _paimon suffix)
@@ -741,6 +705,10 @@ if (ENABLE_PAIMON_CPP)
     set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} xxhash_paimon)
     set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} fmt_paimon)
     set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} tbb_paimon)
+endif()
+
+if (BUILD_RUST_READERS)
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} doris_ffi_lib)
 endif()
 
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
@@ -765,6 +733,11 @@ else()
         -lresolv
         -liconv
     )
+    # On macOS arm64, large binaries (>2GB) can cause the virtual address space
+    # to overlap with the dyld shared cache region, resulting in "dyld cache not
+    # loaded: syscall to map cache into shared region failed". Use -dead_strip to
+    # remove unreachable code/data and reduce binary size.
+    add_link_options(-Wl,-dead_strip)
 endif()
 
 
@@ -953,22 +926,24 @@ endfunction(pch_reuse target)
 
 add_subdirectory(${SRC_DIR}/agent)
 add_subdirectory(${SRC_DIR}/common)
+add_subdirectory(${SRC_DIR}/core)
 add_subdirectory(${SRC_DIR}/exec)
 add_subdirectory(${SRC_DIR}/exprs)
+add_subdirectory(${SRC_DIR}/format)
 add_subdirectory(${SRC_DIR}/gen_cpp)
-add_subdirectory(${SRC_DIR}/geo)
-add_subdirectory(${SRC_DIR}/http)
 add_subdirectory(${SRC_DIR}/io)
-add_subdirectory(${SRC_DIR}/olap/rowset/segment_v2/ann_index)
-add_subdirectory(${SRC_DIR}/olap)
+add_subdirectory(${SRC_DIR}/storage/index/ann)
+add_subdirectory(${SRC_DIR}/storage)
 add_subdirectory(${SRC_DIR}/runtime)
-add_subdirectory(${SRC_DIR}/runtime_filter)
 add_subdirectory(${SRC_DIR}/service) # this include doris_be
 add_subdirectory(${SRC_DIR}/udf)
 add_subdirectory(${SRC_DIR}/cloud)
+add_subdirectory(${SRC_DIR}/load)
+add_subdirectory(${SRC_DIR}/information_schema)
 
 option(BUILD_META_TOOL "Build meta tool" OFF)
-if (BUILD_META_TOOL)
+option(BUILD_INDEX_TOOL "Build index tool" OFF)
+if (BUILD_META_TOOL OR BUILD_INDEX_TOOL)
     add_subdirectory(${SRC_DIR}/tools)
 endif()
 
@@ -983,14 +958,7 @@ if (BUILD_FILE_CACHE_MICROBENCH_TOOL)
         DESTINATION ${OUTPUT_DIR}/bin)
 endif()
 
-option(BUILD_INDEX_TOOL "Build index tool" OFF)
-if (BUILD_INDEX_TOOL)
-    add_subdirectory(${SRC_DIR}/index-tools)
-endif()
-
 add_subdirectory(${SRC_DIR}/util)
-add_subdirectory(${SRC_DIR}/vec)
-add_subdirectory(${SRC_DIR}/pipeline)
 
 # this include doris_be_test
 if (MAKE_TEST)

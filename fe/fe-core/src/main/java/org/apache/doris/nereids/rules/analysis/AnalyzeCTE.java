@@ -133,7 +133,9 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
                         .withChildren(ImmutableList.of(analyzedCtePlan));
                 outerCteCtx = new CTEContext(cteId, logicalSubQueryAlias, outerCteCtx);
                 outerCteCtx.setAnalyzedPlan(logicalSubQueryAlias);
-                cteProducerPlans.add(new LogicalCTEProducer<>(cteId, logicalSubQueryAlias));
+                LogicalCTEProducer<Plan> cteProducer = new LogicalCTEProducer<>(cteId, logicalSubQueryAlias);
+                cascadesContext.getStatementContext().setCteProducer(cteId, cteProducer);
+                cteProducerPlans.add(cteProducer);
             }
         }
         return Pair.of(outerCteCtx, cteProducerPlans);
@@ -237,6 +239,7 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
         outerCteCtx = new CTEContext(cteId, logicalSubQueryAlias, outerCteCtx);
         outerCteCtx.setAnalyzedPlan(logicalSubQueryAlias);
         LogicalCTEProducer<Plan> cteProducer = new LogicalCTEProducer<>(cteId, logicalSubQueryAlias);
+        cascadesContext.getStatementContext().setCteProducer(cteId, cteProducer);
         return Pair.of(outerCteCtx, cteProducer);
     }
 

@@ -31,27 +31,26 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
-#include "olap/data_dir.h"
-#include "olap/olap_common.h"
-#include "olap/olap_define.h"
-#include "olap/pb_helper.h"
-#include "olap/rowset/rowset.h"
-#include "olap/rowset/rowset_factory.h"
-#include "olap/rowset/rowset_meta.h"
-#include "olap/rowset/rowset_writer.h"
-#include "olap/rowset/rowset_writer_context.h"
-#include "olap/storage_policy.h"
-#include "olap/tablet_meta.h"
-#include "olap/tablet_schema.h"
-#include "olap/tablet_schema_cache.h"
-#include "olap/utils.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
+#include "storage/data_dir.h"
+#include "storage/olap_common.h"
+#include "storage/olap_define.h"
+#include "storage/pb_helper.h"
+#include "storage/rowset/rowset.h"
+#include "storage/rowset/rowset_factory.h"
+#include "storage/rowset/rowset_meta.h"
+#include "storage/rowset/rowset_writer.h"
+#include "storage/rowset/rowset_writer_context.h"
+#include "storage/storage_policy.h"
+#include "storage/tablet/tablet_meta.h"
+#include "storage/tablet/tablet_schema.h"
+#include "storage/tablet/tablet_schema_cache.h"
+#include "storage/utils.h"
 #include "util/slice.h"
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 CloudSnapshotMgr::CloudSnapshotMgr(CloudStorageEngine& engine) : _engine(engine) {
@@ -306,5 +305,4 @@ Status CloudSnapshotMgr::_rename_index_ids(TabletSchemaPB& schema_pb,
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

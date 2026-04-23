@@ -21,19 +21,17 @@ import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.load.NereidsLoadUtils;
@@ -41,7 +39,6 @@ import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Function;
@@ -93,7 +90,7 @@ public class DataDescription {
             "md5sum",
             "replace_value",
             "now",
-            FunctionSet.HLL_HASH,
+            "hll_hash",
             "substitute");
 
     private static final String DEFAULT_READ_JSON_BY_LINE = "true";
@@ -115,13 +112,11 @@ public class DataDescription {
     // this only used in multi load, all filePaths is file not dir
     private List<Long> fileSize;
     // column names of source files
-    private List<String> fileFieldNames;
-    // Used for mini load
-    private TNetworkAddress beAddr;
+    private final List<String> fileFieldNames;
     private String columnDef;
     private long backendId;
 
-    private String sequenceCol;
+    private final String sequenceCol;
 
     // Merged from fileFieldNames, columnsFromPath and columnMappingList
     // ImportColumnDesc: column name to (expr or null)
@@ -369,14 +364,6 @@ public class DataDescription {
         return isNegative;
     }
 
-    public TNetworkAddress getBeAddr() {
-        return beAddr;
-    }
-
-    public void setBeAddr(TNetworkAddress addr) {
-        beAddr = addr;
-    }
-
     public String getSequenceCol() {
         return sequenceCol;
     }
@@ -415,14 +402,6 @@ public class DataDescription {
 
     public List<ImportColumnDesc> getParsedColumnExprList() {
         return parsedColumnExprList;
-    }
-
-    public void setIsHadoopLoad(boolean isHadoopLoad) {
-        this.isHadoopLoad = isHadoopLoad;
-    }
-
-    public boolean isHadoopLoad() {
-        return isHadoopLoad;
     }
 
     public boolean isClientLocal() {
@@ -509,7 +488,7 @@ public class DataDescription {
         for (Expr columnExpr : columnMappingList) {
             if (!(columnExpr instanceof BinaryPredicate)) {
                 throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
-                        + "Expr: " + columnExpr.toSql());
+                        + "Expr: " + columnExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }
             BinaryPredicate predicate = (BinaryPredicate) columnExpr;
             if (predicate.getOp() != Operator.EQ) {
@@ -522,7 +501,8 @@ public class DataDescription {
                 child0 = predicate.getChild(0);
             } else if (!(child0 instanceof SlotRef)) {
                 throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
-                        + "The mapping column error. column: " + child0.toSql());
+                        + "The mapping column error. column: "
+                        + child0.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }
             String column = ((SlotRef) child0).getColumnName();
             if (!columnMappingNames.add(column)) {
@@ -533,7 +513,7 @@ public class DataDescription {
             if (isHadoopLoad && !(child1 instanceof FunctionCallExpr)) {
                 throw new AnalysisException(
                         "Hadoop load only supports the designated function. " + "The error mapping function is:"
-                                + child1.toSql());
+                                + child1.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }
             // Must clone the expr, because in routine load, the expr will be analyzed for each task.
             Expr cloned = child1.clone();
@@ -590,7 +570,8 @@ public class DataDescription {
             } else {
                 if (isHadoopLoad) {
                     // hadoop function only support slot, string and null parameters
-                    throw new AnalysisException("Mapping function args error, arg: " + paramExpr.toSql());
+                    throw new AnalysisException("Mapping function args error, arg: "
+                            + paramExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
                 }
             }
         }
@@ -652,7 +633,7 @@ public class DataDescription {
 
         // check auth
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, fullDbName, tableName,
+                .checkTblPriv(ConnectContext.get(), NameSpaceContext.INTERNAL_CATALOG_NAME, fullDbName, tableName,
                         PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(),
@@ -662,8 +643,8 @@ public class DataDescription {
         // check hive table auth
         if (isLoadFromTable()) {
             if (!Env.getCurrentEnv().getAccessManager()
-                    .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, fullDbName, srcTableName,
-                            PrivPredicate.SELECT)) {
+                    .checkTblPriv(ConnectContext.get(), NameSpaceContext.INTERNAL_CATALOG_NAME, fullDbName,
+                            srcTableName, PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
                         ConnectContext.get().getQualifiedUser(),
                         ConnectContext.get().getRemoteIP(), fullDbName + ": " + srcTableName);
@@ -740,18 +721,13 @@ public class DataDescription {
         } else {
             sb.append(mergeType.toString());
             sb.append(" DATA INFILE (");
-            Joiner.on(", ").appendTo(sb, Lists.transform(filePaths, new Function<String, String>() {
-                @Override
-                public String apply(String s) {
-                    return "'" + s + "'";
-                }
-            })).append(")");
+            Joiner.on(", ").appendTo(sb, Lists.transform(filePaths, s -> "'" + s + "'")).append(")");
         }
         if (isNegative) {
             sb.append(" NEGATIVE");
         }
         sb.append(" INTO TABLE ");
-        sb.append(isMysqlLoad ? ClusterNamespace.getNameFromFullName(dbName) + "." + tableName : tableName);
+        sb.append(isMysqlLoad ? dbName + "." + tableName : tableName);
         if (partitionNamesInfo != null) {
             sb.append(" ");
             sb.append(partitionNamesInfo.toSql());
@@ -769,7 +745,7 @@ public class DataDescription {
                     .append("'");
         }
         if (!Strings.isNullOrEmpty(analysisMap.get(FileFormatProperties.PROP_FORMAT))) {
-            sb.append(" FORMAT AS '" + analysisMap.get(FileFormatProperties.PROP_FORMAT) + "'");
+            sb.append(" FORMAT AS '").append(analysisMap.get(FileFormatProperties.PROP_FORMAT)).append("'");
         }
         if (fileFieldNames != null && !fileFieldNames.isEmpty()) {
             sb.append(" (");
@@ -781,18 +757,15 @@ public class DataDescription {
         }
         if (columnMappingList != null && !columnMappingList.isEmpty()) {
             sb.append(" SET (");
-            Joiner.on(", ").appendTo(sb, Lists.transform(columnMappingList, new Function<Expr, Object>() {
-                @Override
-                public Object apply(Expr expr) {
-                    return expr.toSql();
-                }
-            })).append(")");
+            Joiner.on(", ").appendTo(sb, Lists.transform(columnMappingList,
+                    (Function<Expr, Object>) expr -> expr.accept(
+                            ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE))).append(")");
         }
         if (whereExpr != null) {
-            sb.append(" WHERE ").append(whereExpr.toSql());
+            sb.append(" WHERE ").append(whereExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
         }
         if (deleteCondition != null && mergeType == LoadTask.MergeType.MERGE) {
-            sb.append(" DELETE ON ").append(deleteCondition.toSql());
+            sb.append(" DELETE ON ").append(deleteCondition.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
         }
         return sb.toString();
     }

@@ -117,7 +117,6 @@ public class DateTimeFormatterUtils {
     private static final int WEEK_FIRST_WEEKDAY = 4;
 
     private static final int MAX_FORMAT_RESULT_LENGTH = 100;
-    private static final int SAFE_FORMAT_STRING_MARGIN = 12;
     private static final int MAX_FORMAT_STRING_LENGTH = 128;
 
     private static final String[] ABBR_MONTH_NAMES = {

@@ -25,7 +25,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -33,6 +32,7 @@ import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -432,7 +432,9 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start analyze plan");
         }
+        statementContext.getPlannerHooks().forEach(hook -> hook.beforeAnalyze(this));
         keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newAnalyzer().analyze());
+        statementContext.getPlannerHooks().forEach(hook -> hook.afterAnalyze(this));
         NereidsTracer.logImportantTime("EndAnalyzePlan");
         if (LOG.isDebugEnabled()) {
             LOG.debug("End analyze plan");
@@ -1106,10 +1108,7 @@ public class NereidsPlanner extends Planner {
 
     @Override
     public List<RuntimeFilter> getRuntimeFilters() {
-        ArrayList<RuntimeFilter> runtimeFilters = new ArrayList<>();
-        runtimeFilters.addAll(cascadesContext.getRuntimeFilterContext().getLegacyFilters());
-        runtimeFilters.addAll(cascadesContext.getRuntimeFilterV2Context().getLegacyFilters());
-        return runtimeFilters;
+        return new ArrayList<>(cascadesContext.getRuntimeFilterContext().getLegacyFilters());
     }
 
     @Override
@@ -1188,6 +1187,10 @@ public class NereidsPlanner extends Planner {
     @VisibleForTesting
     public void setOptimizedPlan(Plan optimizedPlan) {
         this.optimizedPlan = optimizedPlan;
+    }
+
+    public void setAnalyzedPlan(Plan analyzedPlan) {
+        this.analyzedPlan = analyzedPlan;
     }
 
     @VisibleForTesting

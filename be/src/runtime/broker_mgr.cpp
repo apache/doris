@@ -29,13 +29,13 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/metrics/doris_metrics.h"
+#include "common/metrics/metrics.h"
 #include "common/status.h"
-#include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
-#include "util/doris_metrics.h"
+#include "util/client_cache.h"
 #include "util/hash_util.hpp"
-#include "util/metrics.h"
 #include "util/thread.h"
 
 namespace doris {

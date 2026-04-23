@@ -45,7 +45,6 @@
 #include "util/stopwatch.hpp"
 
 namespace doris::io {
-#include "common/compile_check_begin.h"
 
 bvar::Adder<uint64_t> s3_file_writer_total("s3_file_writer_total_num");
 bvar::Adder<uint64_t> s3_bytes_written_total("s3_file_writer_bytes_written");
@@ -549,6 +548,5 @@ std::string S3FileWriter::_dump_completed_part() const {
     }
     return ss.str();
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris::io

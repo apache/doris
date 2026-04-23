@@ -28,6 +28,9 @@
 #include <vector>
 
 #include "common/status.h"
+#include "core/custom_allocator.h"
+#include "core/pod_array.h"
+#include "core/typeid_cast.h"
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/file_factory.h"
 #include "io/fs/broker_file_reader.h"
@@ -35,14 +38,10 @@
 #include "io/fs/path.h"
 #include "io/fs/s3_file_reader.h"
 #include "io/io_common.h"
-#include "olap/olap_define.h"
-#include "util/runtime_profile.h"
+#include "runtime/runtime_profile.h"
+#include "storage/olap_define.h"
 #include "util/slice.h"
-#include "vec/common/custom_allocator.h"
-#include "vec/common/typeid_cast.h"
 namespace doris {
-
-#include "common/compile_check_begin.h"
 
 namespace io {
 
@@ -436,7 +435,6 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
               _reader(reader),
               _io_ctx_holder(std::move(io_ctx)),
               _io_ctx(_io_ctx_holder.get()),
-              _buf(new char[buffer_size]),
               _sync_profile(std::move(sync_profile)) {}
 
     PrefetchBuffer(PrefetchBuffer&& other)
@@ -465,7 +463,7 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
     io::FileReader* _reader = nullptr;
     std::shared_ptr<const IOContext> _io_ctx_holder;
     const IOContext* _io_ctx = nullptr;
-    std::unique_ptr<char[]> _buf;
+    PODArray<char> _buf;
     BufferStatus _buffer_status {BufferStatus::RESET};
     std::mutex _lock;
     std::condition_variable _prefetched;
@@ -682,7 +680,5 @@ private:
 };
 
 } // namespace io
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

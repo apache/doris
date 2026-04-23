@@ -19,6 +19,10 @@ package org.apache.doris.jdbc;
 
 import java.util.Map;
 
+/**
+ * @deprecated Use {@link JdbcJniScanner} for reads and {@link JdbcJniWriter} for writes instead.
+ */
+@Deprecated
 public interface JdbcExecutor {
     int read() throws JdbcExecutorException;
 

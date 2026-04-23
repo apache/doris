@@ -147,11 +147,13 @@ supportedDmlStatement
     | explain? cte? UPDATE tableName=multipartIdentifier tableAlias
         SET updateAssignmentSeq
         fromClause?
-        whereClause?                                                   #update
+        whereClause?
+        queryOrganization                                              #update
     | explain? cte? DELETE FROM tableName=multipartIdentifier
         partitionSpec? tableAlias
         (USING relations)?
-        whereClause?                                                   #delete
+        whereClause?
+        queryOrganization                                              #delete
     | explain? cte? MERGE INTO targetTable=multipartIdentifier
         (AS? identifier)? USING srcRelation=relationPrimary
         ON expression
@@ -202,12 +204,22 @@ supportedCreateStatement
     | CREATE (OR REPLACE)? VIEW (IF NOT EXISTS)? name=multipartIdentifier
         (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
         (COMMENT STRING_LITERAL)? AS? query                               #createView
+    | CREATE (OR REPLACE)? STREAM (IF NOT EXISTS)? name=multipartIdentifier
+            ON TABLE baseTable=multipartIdentifier
+            (COMMENT STRING_LITERAL)?
+            properties=propertyClause?                                    #createStream
     | CREATE FILE name=STRING_LITERAL
         ((FROM | IN) database=identifier)? properties=propertyClause            #createFile
     | CREATE (EXTERNAL | TEMPORARY)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
         LIKE existedTable=multipartIdentifier
         (WITH ROLLUP (rollupNames=identifierList)?)?                      #createTableLike
     | CREATE ROLE (IF NOT EXISTS)? name=identifierOrText (COMMENT STRING_LITERAL)?    #createRole
+    | CREATE AUTHENTICATION INTEGRATION (IF NOT EXISTS)? integrationName=identifier
+        properties=propertyClause commentSpec?                                  #createAuthenticationIntegration
+    | CREATE ROLE MAPPING (IF NOT EXISTS)? mappingName=identifier
+        ON AUTHENTICATION INTEGRATION integrationName=identifier
+        rules+=roleMappingRuleClause (COMMA rules+=roleMappingRuleClause)*
+        commentSpec?                                                            #createRoleMapping
     | CREATE WORKLOAD GROUP (IF NOT EXISTS)?
         name=identifierOrText (FOR computeGroup=identifierOrText)? properties=propertyClause? #createWorkloadGroup
     | CREATE CATALOG (IF NOT EXISTS)? catalogName=identifier
@@ -292,6 +304,12 @@ supportedAlterStatement
         properties=propertyClause?                                                          #alterComputeGroup
     | ALTER CATALOG name=identifier SET PROPERTIES
         LEFT_PAREN propertyItemList RIGHT_PAREN                                             #alterCatalogProperties        
+    | ALTER AUTHENTICATION INTEGRATION integrationName=identifier
+        SET properties=propertyClause                                                       #alterAuthenticationIntegrationProperties
+    | ALTER AUTHENTICATION INTEGRATION integrationName=identifier
+        UNSET properties=propertyKeyClause                                                  #alterAuthenticationIntegrationUnsetProperties
+    | ALTER AUTHENTICATION INTEGRATION integrationName=identifier
+        SET COMMENT comment=STRING_LITERAL                                                   #alterAuthenticationIntegrationComment
     | ALTER WORKLOAD POLICY name=identifierOrText
         properties=propertyClause?                                                          #alterWorkloadPolicy
     | ALTER SQL_BLOCK_RULE name=identifier properties=propertyClause?                       #alterSqlBlockRule
@@ -335,6 +353,8 @@ supportedDropStatement
     | DROP STORAGE POLICY (IF EXISTS)? name=identifier                          #dropStoragePolicy
     | DROP WORKLOAD GROUP (IF EXISTS)? name=identifierOrText (FOR computeGroup=identifierOrText)?                    #dropWorkloadGroup
     | DROP CATALOG (IF EXISTS)? name=identifier                                 #dropCatalog
+    | DROP AUTHENTICATION INTEGRATION (IF EXISTS)? name=identifier              #dropAuthenticationIntegration
+    | DROP ROLE MAPPING (IF EXISTS)? name=identifier                            #dropRoleMapping
     | DROP FILE name=STRING_LITERAL
         ((FROM | IN) database=identifier)? properties=propertyClause            #dropFile
     | DROP WORKLOAD POLICY (IF EXISTS)? name=identifierOrText                   #dropWorkloadPolicy
@@ -343,7 +363,8 @@ supportedDropStatement
     | DROP (DATABASE | SCHEMA) (IF EXISTS)? name=multipartIdentifier FORCE?     #dropDatabase
     | DROP statementScope? FUNCTION (IF EXISTS)?
         functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN            #dropFunction
-    | DROP INDEX (IF EXISTS)? name=identifier ON tableName=multipartIdentifier  #dropIndex
+    | DROP INDEX (IF EXISTS)? name=identifier ON tableName=multipartIdentifier
+        partitionSpec?                                                            #dropIndex
     | DROP RESOURCE (IF EXISTS)? name=identifierOrText                          #dropResource
     | DROP ROW POLICY (IF EXISTS)? policyName=identifier
         ON tableName=multipartIdentifier
@@ -356,6 +377,7 @@ supportedDropStatement
     | DROP INVERTED INDEX TOKEN_FILTER (IF EXISTS)? name=identifier             #dropIndexTokenFilter
     | DROP INVERTED INDEX CHAR_FILTER (IF EXISTS)? name=identifier              #dropIndexCharFilter
     | DROP INVERTED INDEX NORMALIZER (IF EXISTS)? name=identifier               #dropIndexNormalizer
+    | DROP STREAM (IF EXISTS)? name=multipartIdentifier FORCE?                  #dropStream
     ;
 
 supportedShowStatement
@@ -477,6 +499,8 @@ supportedShowStatement
     | SHOW WARM UP JOB wildWhere?                                                   #showWarmUpJob
     | SHOW PYTHON VERSIONS                                                           #showPythonVersions
     | SHOW PYTHON PACKAGES IN STRING_LITERAL                                         #showPythonPackages
+    | SHOW STREAMS ((FROM | IN) database=multipartIdentifier)? wildWhere?           #showStreams
+    | SHOW CREATE STREAM name=multipartIdentifier                                   #showCreateStream
     ;
 
 supportedLoadStatement
@@ -532,7 +556,7 @@ supportedOtherStatement
     ;
 
 warmUpSingleTableRef
-    : multipartIdentifier tableAlias?
+    : multipartIdentifier tableAlias
     ;
 
 lockTable
@@ -647,6 +671,13 @@ supportedAdminStatement
     | ADMIN ROTATE TDE ROOT KEY properties=propertyClause?                          #adminRotateTdeRootKey
     ;
 
+roleMappingRuleClause
+    : RULE LEFT_PAREN
+        USING CEL condition=STRING_LITERAL
+        GRANT ROLE grantedRoles+=identifierOrText (COMMA grantedRoles+=identifierOrText)*
+      RIGHT_PAREN
+    ;
+
 supportedRecoverStatement
     : RECOVER DATABASE name=identifier id=INTEGER_VALUE? (AS alias=identifier)?     #recoverDatabase
     | RECOVER TABLE name=multipartIdentifier
@@ -755,7 +786,7 @@ alterTableClause
     | RENAME PARTITION name=identifier newName=identifier                           #renamePartitionClause
     | RENAME COLUMN name=identifier newName=identifier                              #renameColumnClause
     | ADD indexDef                                                                  #addIndexClause
-    | DROP INDEX (IF EXISTS)? name=identifier                                       #dropIndexClause
+    | DROP INDEX (IF EXISTS)? name=identifier partitionSpec?                          #dropIndexClause
     | ENABLE FEATURE name=STRING_LITERAL (WITH properties=propertyClause)?          #enableFeatureClause
     | MODIFY DISTRIBUTION (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM)
         (BUCKETS (INTEGER_VALUE | autoBucket=AUTO))?)?                              #modifyDistributionClause
@@ -1296,7 +1327,11 @@ relation
     ;
 
 joinRelation
-    : (joinType) JOIN distributeType? right=relationPrimary joinCriteria?
+    : (joinType) JOIN distributeType? right=relationPrimary matchCondition? joinCriteria?
+    ;
+
+matchCondition
+    : MATCH_CONDITION LEFT_PAREN valueExpression RIGHT_PAREN
     ;
 
 // Just like `opt_plan_hints` in legacy CUP parser.
@@ -1418,6 +1453,8 @@ joinType
     | RIGHT SEMI
     | LEFT ANTI
     | RIGHT ANTI
+    | ASOF LEFT?
+    | ASOF INNER
     ;
 
 joinCriteria
@@ -1454,6 +1491,10 @@ materializedViewName
 
 propertyClause
     : PROPERTIES LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN
+    ;
+
+propertyKeyClause
+    : PROPERTIES LEFT_PAREN keys+=propertyKey (COMMA keys+=propertyKey)* RIGHT_PAREN
     ;
 
 propertyItemList
@@ -1666,8 +1707,6 @@ primaryExpression
         (ORDER BY sortItem (COMMA sortItem)*)?
         (SEPARATOR sep=expression)? RIGHT_PAREN
         (OVER windowSpec)?                                                                     #groupConcat
-    | GET_FORMAT LEFT_PAREN
-        expression COMMA expression RIGHT_PAREN                                         #getFormatFunction
     | TRIM LEFT_PAREN
         ((BOTH | LEADING | TRAILING) expression? | expression) FROM expression RIGHT_PAREN     #trim
     | (SUBSTR | SUBSTRING | MID) LEFT_PAREN
@@ -1957,6 +1996,7 @@ nonReserved
     | ARRAY
     | AT
     | AUTHORS
+    | AUTHENTICATION
     | AUTO_INCREMENT
     | BACKENDS
     | BACKUP
@@ -1988,7 +2028,6 @@ nonReserved
     | CHAIN
     | CIPHER
     | CHAR
-
     | CHARSET
     | CHECK
     | CLUSTER
@@ -2081,7 +2120,6 @@ nonReserved
     | FRONTENDS
     | FUNCTION
     | GENERATED
-    | GET_FORMAT
     | GENERIC
     | GLOBAL
     | GRAPH
@@ -2108,6 +2146,7 @@ nonReserved
     | IGNORE
     | IMMEDIATE
     | INCREMENTAL
+    | INTEGRATION
     | INDEXES
     | INSERT
     | INVERTED
@@ -2279,6 +2318,7 @@ nonReserved
     | STOP
     | STORAGE
     | STREAM
+    | STREAMS
     | STREAMING
     | STRING
     | STRUCT

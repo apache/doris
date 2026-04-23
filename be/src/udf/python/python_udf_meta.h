@@ -23,8 +23,8 @@
 #include "arrow/flight/client.h"
 #include "arrow/flight/server.h"
 #include "common/status.h"
-#include "util/arrow/row_batch.h"
-#include "vec/data_types/data_type.h"
+#include "core/data_type/data_type.h"
+#include "format/arrow/arrow_row_batch.h"
 
 namespace doris {
 
@@ -41,13 +41,12 @@ struct PythonUDFMeta {
     std::string runtime_version;
     std::string inline_code;
     bool always_nullable;
-    vectorized::DataTypes input_types;
-    vectorized::DataTypePtr return_type;
+    DataTypes input_types;
+    DataTypePtr return_type;
     PythonUDFLoadType type;
     PythonClientType client_type;
 
-    static Status convert_types_to_schema(const vectorized::DataTypes& types,
-                                          const std::string& timezone,
+    static Status convert_types_to_schema(const DataTypes& types, const std::string& timezone,
                                           std::shared_ptr<arrow::Schema>* schema);
 
     static Status serialize_arrow_schema(const std::shared_ptr<arrow::Schema>& schema,

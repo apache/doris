@@ -94,6 +94,7 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                 .flatMap(e -> e.getInputSlots().stream()).collect(Collectors.toList());
         switch (join.getJoinType()) {
             case LEFT_OUTER_JOIN:
+            case ASOF_LEFT_OUTER_JOIN:
                 if (join.left() instanceof TopN) {
                     return null;
                 }
@@ -104,6 +105,7 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                 }
                 return null;
             case RIGHT_OUTER_JOIN:
+            case ASOF_RIGHT_OUTER_JOIN:
                 if (join.right() instanceof TopN) {
                     return null;
                 }

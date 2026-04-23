@@ -25,7 +25,6 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cloud.catalog.ComputeGroup;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -133,7 +132,7 @@ public class ShowClustersCommand extends ShowCommand {
             // common user, not admin
             if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx.getCurrentUserIdentity(),
                     PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV), Operator.OR))) {
-                users.removeIf(user -> !user.equals(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser())));
+                users.removeIf(user -> !user.equals(ctx.getQualifiedUser()));
             }
 
             String result = Joiner.on(", ").join(users);

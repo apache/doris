@@ -33,9 +33,7 @@
 
 namespace doris {
 
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 class RuntimeQueryStatisticsMgr {
 public:
@@ -54,7 +52,7 @@ public:
     void report_runtime_query_statistics();
 
     // used for backend_active_tasks
-    void get_active_be_tasks_block(vectorized::Block* block);
+    void get_active_be_tasks_block(Block* block);
     Status get_query_statistics(const std::string& query_id, TQueryStatistics* query_stats);
 
     // used for MemoryReclamation

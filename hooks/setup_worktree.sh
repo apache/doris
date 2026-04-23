@@ -17,6 +17,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
+# should have UBSAN_IGNORELIST in it to enable ccache
 cp "$ROOT_WORKSPACE_PATH/custom_env.sh" custom_env.sh
 echo "Copied custom_env.sh"
 

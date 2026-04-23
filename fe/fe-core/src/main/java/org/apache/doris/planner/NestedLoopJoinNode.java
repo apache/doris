@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -54,7 +55,9 @@ public class NestedLoopJoinNode extends JoinNodeBase {
     public static boolean canParallelize(JoinOperator joinOp) {
         return joinOp == JoinOperator.CROSS_JOIN || joinOp == JoinOperator.INNER_JOIN
                 || joinOp == JoinOperator.LEFT_OUTER_JOIN || joinOp == JoinOperator.LEFT_SEMI_JOIN
-                || joinOp == JoinOperator.LEFT_ANTI_JOIN || joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
+                || joinOp == JoinOperator.LEFT_ANTI_JOIN || joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN
+                || joinOp == JoinOperator.ASOF_LEFT_INNER_JOIN || joinOp == JoinOperator.ASOF_RIGHT_INNER_JOIN
+                || joinOp == JoinOperator.ASOF_LEFT_OUTER_JOIN;
     }
 
 
@@ -83,11 +86,11 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         msg.nested_loop_join_node = new TNestedLoopJoinNode();
         msg.nested_loop_join_node.join_op = joinOp.toThrift();
         for (Expr conjunct : joinConjuncts) {
-            msg.nested_loop_join_node.addToJoinConjuncts(conjunct.treeToThrift());
+            msg.nested_loop_join_node.addToJoinConjuncts(ExprToThriftVisitor.treeToThrift(conjunct));
         }
         if (markJoinConjuncts != null) {
             for (Expr conjunct : markJoinConjuncts) {
-                msg.nested_loop_join_node.addToMarkJoinConjuncts(conjunct.treeToThrift());
+                msg.nested_loop_join_node.addToMarkJoinConjuncts(ExprToThriftVisitor.treeToThrift(conjunct));
             }
         }
 

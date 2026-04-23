@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
@@ -116,20 +117,23 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalCheckPolicy<>(groupExpression, Optional.of(getLogicalProperties()), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalCheckPolicy<>(groupExpression, Optional.of(getLogicalProperties()), child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalCheckPolicy<>(groupExpression, logicalProperties, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalCheckPolicy<>(groupExpression, logicalProperties, children.get(0)));
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalCheckPolicy<>(children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalCheckPolicy<>(children.get(0)));
     }
 
     /**

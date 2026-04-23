@@ -62,7 +62,8 @@ enum TPlanNodeType {
   GROUP_COMMIT_SCAN_NODE = 33,
   MATERIALIZATION_NODE = 34,
   REC_CTE_NODE = 35,
-  REC_CTE_SCAN_NODE = 36
+  REC_CTE_SCAN_NODE = 36,
+  BUCKETED_AGGREGATION_NODE = 37
 }
 
 struct TKeyRange {
@@ -111,7 +112,9 @@ enum TFileFormatType {
     FORMAT_WAL = 15,
     FORMAT_ARROW = 16,
     FORMAT_TEXT = 17,
-    FORMAT_NATIVE = 18
+    FORMAT_NATIVE = 18,
+    FORMAT_LANCE = 19,
+    FORMAT_ES_HTTP = 20
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -253,9 +256,21 @@ struct TFileTextScanRangeParams {
     8: optional bool empty_field_as_null
 }
 
+enum TColumnCategory {
+    REGULAR = 0,
+    PARTITION_KEY = 1,
+    SYNTHESIZED = 2,
+    GENERATED = 3,
+}
+
 struct TFileScanSlotInfo {
     1: optional Types.TSlotId slot_id;
     2: optional bool is_file_slot;
+    3: optional TColumnCategory category;
+    // Default value expression for this column when it is missing from the data file.
+    // Populated by FE from Column.getDefaultValue() or NULL literal.
+    // This replaces the separate default_value_of_src_slot map in TFileScanRangeParams.
+    4: optional Exprs.TExpr default_value_expr;
 }
 
 // descirbe how to read file
@@ -294,8 +309,9 @@ struct TIcebergDeleteFileDesc {
     5: optional i32 content;
     // 6 & 7 : iceberg v3 deletion vector.
     // The content_offset and content_size_in_bytes fields are used to reference a specific blob for direct access to a deletion vector. 
-    6: optional i32 content_offset;
-    7: optional i32 content_size_in_bytes;
+    6: optional i64 content_offset;
+    7: optional i64 content_size_in_bytes;
+    8: optional TFileFormatType file_format;
 }
 
 struct TIcebergFileDesc {
@@ -312,6 +328,13 @@ struct TIcebergFileDesc {
     6: optional string original_file_path;
     // Deprecated
     7: optional i64 row_count;
+    8: optional i32 partition_spec_id;
+    9: optional string partition_data_json;
+    // Only for format_version >= 3, the starting _row_id to assign to rows added by ADDED data files. 
+    10: optional i64 first_row_id;
+    // Only for format_version >= 3, the sequence number which last updated this file.
+    11: optional i64 last_updated_sequence_number;
+    12: optional string serialized_split;
 }
 
 struct TPaimonDeletionFileDesc {
@@ -405,6 +428,15 @@ struct TRemoteDorisFileDesc {
     6: optional string password
 }
 
+struct TLanceFileDesc {
+    // URI of the Lance dataset (s3://..., file:///..., etc.)
+    1: optional string dataset_uri
+    // Specific fragment IDs to read (for split-level parallelism)
+    2: optional list<i64> fragment_ids
+    // Dataset version for time travel
+    3: optional i64 version
+}
+
 struct TTableFormatFileDesc {
     1: optional string table_format_type
     2: optional TIcebergFileDesc iceberg_params
@@ -416,6 +448,12 @@ struct TTableFormatFileDesc {
     8: optional TLakeSoulFileDesc lakesoul_params
     9: optional i64 table_level_row_count = -1
     10: optional TRemoteDorisFileDesc remote_doris_params
+    // JDBC connection parameters (used when table_format_type == "jdbc")
+    11: optional map<string, string> jdbc_params
+    12: optional TLanceFileDesc lance_params
+    // ES per-shard parameters (used when table_format_type == "es")
+    // Contains: index, type, shard_id, host_port, es_hosts
+    13: optional map<string, string> es_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
@@ -489,6 +527,15 @@ struct TFileScanRangeParams {
     // enable mapping varbinary type for Doris external table and TVF
     28: optional bool enable_mapping_varbinary = false;
     29: optional bool enable_mapping_timestamp_tz = false;
+    // Paimon options from FE, used for jni/native scanner
+    // Set at ScanNode level to avoid redundant serialization in each split
+    30: optional map<string, string> paimon_options
+    // ES node-level properties (query_dsl, auth, doc_values_mode, etc.)
+    31: optional map<string, string> es_properties
+    // ES docvalue field→docvalue_type mappings
+    32: optional map<string, string> es_docvalue_context
+    // ES fields field→keyword mappings
+    33: optional map<string, string> es_fields_context
 }
 
 struct TFileRangeDesc {
@@ -520,6 +567,7 @@ struct TFileRangeDesc {
     14: optional i64 self_split_weight
     // whether the value of columns_from_path is null
     15: optional list<bool> columns_from_path_is_null;
+    16: optional bool file_cache_admission;
 }
 
 struct TSplitSource {
@@ -596,6 +644,7 @@ struct TBackendsMetadataParams {
 
 struct TFrontendsMetadataParams {
   1: optional string cluster_name
+  2: optional string current_connected_fe_host
 }
 
 struct TMaterializedViewsMetadataParams {
@@ -894,6 +943,10 @@ struct TOlapScanNode {
   21: optional TSortInfo ann_sort_info
   22: optional i64 ann_sort_limit
   23: optional TScoreRangeInfo score_range_info
+  // Enable value predicate pushdown for MOR tables
+  24: optional bool enable_mor_value_predicate_pushdown
+  // Read MOR table as DUP table: skip merge, skip delete sign
+  25: optional bool read_mor_as_dup
 }
 
 struct TEqJoinCondition {
@@ -923,7 +976,11 @@ enum TJoinOp {
   // be rejected (ANTI-join), based on the other join conjuncts. This is in contrast
   // to LEFT_ANTI_JOIN where NULLs are not matches and therefore always returned.
   NULL_AWARE_LEFT_ANTI_JOIN = 10,
-  NULL_AWARE_LEFT_SEMI_JOIN = 11
+  NULL_AWARE_LEFT_SEMI_JOIN = 11,
+  ASOF_LEFT_INNER_JOIN = 12,
+  ASOF_RIGHT_INNER_JOIN = 13,
+  ASOF_LEFT_OUTER_JOIN = 14,
+  ASOF_RIGHT_OUTER_JOIN = 15
 }
 
 enum TJoinDistributionType {
@@ -968,6 +1025,7 @@ struct THashJoinNode {
   // use_specific_projections true, if output exprssions is denoted by srcExprList represents, o.w. PlanNode.projections
   // deprecated
   14: optional bool use_specific_projections
+  15: optional Exprs.TExpr match_condition
 }
 
 struct TNestedLoopJoinNode {
@@ -1060,6 +1118,15 @@ struct TAggregationNode {
   8: optional bool is_first_phase
   9: optional bool is_colocate
   10: optional TSortInfo agg_sort_info_by_group_key
+}
+
+struct TBucketedAggregationNode {
+  1: optional list<Exprs.TExpr> grouping_exprs
+  2: optional list<Exprs.TExpr> aggregate_functions
+  // Single tuple ID — bucketed agg is one-phase (raw input → final result),
+  // so intermediate and output tuples are always identical.
+  3: optional Types.TTupleId tuple_id
+  5: optional bool need_finalize
 }
 
 struct TRepeatNode {
@@ -1510,6 +1577,7 @@ struct TPlanNode {
   50: optional list<list<Exprs.TExpr>> distribute_expr_lists
   51: optional bool is_serial_operator
   52: optional TRecCTEScanNode rec_cte_scan_node
+  53: optional TBucketedAggregationNode bucketed_agg_node
 
   // projections is final projections, which means projecting into results and materializing them into the output block.
   101: optional list<Exprs.TExpr> projections

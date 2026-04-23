@@ -80,6 +80,19 @@ public class TableIdentifier {
         return Objects.hash(catalogId, databaseId, tableId);
     }
 
+    /**
+     * Resolve this identifier to a qualified name in the form "catalog.db.table".
+     * Returns null if the referenced objects no longer exist.
+     */
+    public String toQualifiedName() {
+        try {
+            TableIf tableIf = this.toTableIf();
+            return tableIf.getNameWithFullQualifiers();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     @Override
     public String toString() {
         TableIf tableIf = this.toTableIf();

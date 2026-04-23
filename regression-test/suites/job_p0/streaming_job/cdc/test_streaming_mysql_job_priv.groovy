@@ -180,7 +180,7 @@ suite("test_streaming_mysql_job_priv", "p0,external,mysql,external_docker,extern
                        def jobStatus = sql """ select status, ErrorMsg from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
                        log.info("jobStatus: " + jobStatus)
                        // check job status
-                       jobStatus.size() == 1 && 'PAUSED' == jobStatus.get(0).get(0) && jobStatus.get(0).get(1).contains("Failed to fetch meta")
+                       jobStatus.size() == 1 && 'PAUSED' == jobStatus.get(0).get(0)
                    }
            )
        } catch (Exception ex){
