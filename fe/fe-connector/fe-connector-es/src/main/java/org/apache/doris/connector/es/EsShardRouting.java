@@ -59,7 +59,7 @@ public class EsShardRouting {
 
     /** Returns "host:port" string for convenience. */
     public String getHttpAddress() {
-        return httpHost + ":" + httpPort;
+        return EsHostAddress.formatHostPort(httpHost, httpPort);
     }
 
     public void setHttpAddress(String host, int port) {
@@ -77,7 +77,7 @@ public class EsShardRouting {
                 + "indexName='" + indexName + '\''
                 + ", shardId=" + shardId
                 + ", isPrimary=" + isPrimary
-                + ", httpAddress=" + httpHost + ":" + httpPort
+                + ", httpAddress=" + getHttpAddress()
                 + ", nodeId='" + nodeId + '\''
                 + '}';
     }

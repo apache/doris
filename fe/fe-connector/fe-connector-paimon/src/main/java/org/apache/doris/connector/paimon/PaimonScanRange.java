@@ -19,9 +19,16 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
+import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TPaimonDeletionFileDesc;
+import org.apache.doris.thrift.TPaimonFileDesc;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -141,6 +148,82 @@ public class PaimonScanRange implements ConnectorScanRange {
     public String toString() {
         return "PaimonScanRange{path=" + path + ", format=" + fileFormat
                 + ", start=" + start + ", length=" + length + "}";
+    }
+
+    @Override
+    public void populateRangeParams(TTableFormatFileDesc formatDesc,
+            TFileRangeDesc rangeDesc) {
+        Map<String, String> props = getProperties();
+        TPaimonFileDesc fileDesc = new TPaimonFileDesc();
+
+        String paimonSplitVal = props.get("paimon.split");
+        if (paimonSplitVal != null) {
+            // JNI reader path
+            rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
+            fileDesc.setPaimonSplit(paimonSplitVal);
+            String tableLocation = props.get("paimon.table_location");
+            if (tableLocation != null) {
+                fileDesc.setPaimonTable(tableLocation);
+            }
+            String weightStr = props.get("paimon.self_split_weight");
+            if (weightStr != null) {
+                rangeDesc.setSelfSplitWeight(Long.parseLong(weightStr));
+            }
+        } else {
+            // Native reader path — format already set by file extension
+            String fmt = getFileFormat();
+            if ("orc".equals(fmt)) {
+                rangeDesc.setFormatType(TFileFormatType.FORMAT_ORC);
+            } else if ("parquet".equals(fmt)) {
+                rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
+            }
+            String schemaIdStr = props.get("paimon.schema_id");
+            if (schemaIdStr != null) {
+                fileDesc.setSchemaId(Long.parseLong(schemaIdStr));
+            }
+        }
+
+        fileDesc.setFileFormat(getFileFormat());
+
+        // Deletion file
+        String deletionPath = props.get("paimon.deletion_file.path");
+        if (deletionPath != null) {
+            TPaimonDeletionFileDesc deletionFile =
+                    new TPaimonDeletionFileDesc();
+            deletionFile.setPath(deletionPath);
+            deletionFile.setOffset(Long.parseLong(
+                    props.getOrDefault("paimon.deletion_file.offset", "0")));
+            deletionFile.setLength(Long.parseLong(
+                    props.getOrDefault("paimon.deletion_file.length", "0")));
+            fileDesc.setDeletionFile(deletionFile);
+        }
+
+        // Row count for count pushdown
+        String rowCountStr = props.get("paimon.row_count");
+        if (rowCountStr != null) {
+            formatDesc.setTableLevelRowCount(Long.parseLong(rowCountStr));
+        } else {
+            formatDesc.setTableLevelRowCount(-1);
+        }
+
+        formatDesc.setPaimonParams(fileDesc);
+
+        // Partition values
+        Map<String, String> partValues = getPartitionValues();
+        if (partValues != null && !partValues.isEmpty()) {
+            List<String> pathKeys = new ArrayList<>();
+            List<String> pathValues = new ArrayList<>();
+            List<Boolean> pathIsNull = new ArrayList<>();
+            for (Map.Entry<String, String> entry : partValues.entrySet()) {
+                pathKeys.add(entry.getKey());
+                pathValues.add(entry.getValue() != null
+                        ? entry.getValue() : "");
+                pathIsNull.add(entry.getValue() == null);
+            }
+            rangeDesc.setColumnsFromPathKeys(pathKeys);
+            rangeDesc.setColumnsFromPath(pathValues);
+            rangeDesc.setColumnsFromPathIsNull(pathIsNull);
+        }
     }
 
     /** Builder for constructing PaimonScanRange instances. */

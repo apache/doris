@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/es/es_scan_reader.h"
+#include "format/table/es/es_scan_reader.h"
 
 #include <stdlib.h>
 
@@ -26,8 +26,8 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "exec/es/es_scroll_parser.h"
-#include "exec/es/es_scroll_query.h"
+#include "format/table/es/es_scroll_parser.h"
+#include "format/table/es/es_scroll_query.h"
 #include "service/http/http_method.h"
 
 namespace doris {

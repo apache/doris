@@ -297,6 +297,13 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
                 brpc_request->set_allocated_block(request.block.get());
             }
         }
+        Defer release_block([&]() {
+            if (!_send_multi_blocks && request.block) {
+                static_cast<void>(brpc_request->release_block());
+            } else {
+                brpc_request->clear_blocks();
+            }
+        });
 
         instance_data.seq += requests.size();
         brpc_request->set_packet_seq(instance_data.seq);
@@ -367,11 +374,6 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
             }
         }
 
-        if (!_send_multi_blocks && request.block) {
-            static_cast<void>(brpc_request->release_block());
-        } else {
-            brpc_request->clear_blocks();
-        }
         if (mem_byte) {
             COUNTER_UPDATE(channel->_parent->memory_used_counter(), -mem_byte);
         }
@@ -427,6 +429,16 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
                 brpc_request->set_allocated_block(request.block_holder->get_block());
             }
         }
+        Defer release_block([&]() {
+            if (!_send_multi_blocks && request.block_holder->get_block()) {
+                static_cast<void>(brpc_request->release_block());
+            } else {
+                for (int i = 0; i < brpc_request->mutable_blocks()->size(); ++i) {
+                    static_cast<void>(brpc_request->mutable_blocks(i)->release_column_values());
+                }
+                brpc_request->clear_blocks();
+            }
+        });
         instance_data.seq += requests.size();
         brpc_request->set_packet_seq(instance_data.seq);
         brpc_request->set_eos(requests.back().eos);
@@ -494,14 +506,6 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
             } else {
                 transmit_blockv2(channel->_brpc_stub.get(), std::move(send_remote_block_closure));
             }
-        }
-        if (!_send_multi_blocks && request.block_holder->get_block()) {
-            static_cast<void>(brpc_request->release_block());
-        } else {
-            for (int i = 0; i < brpc_request->mutable_blocks()->size(); ++i) {
-                static_cast<void>(brpc_request->mutable_blocks(i)->release_column_values());
-            }
-            brpc_request->clear_blocks();
         }
     } else {
         instance_data.rpc_channel_is_idle = true;

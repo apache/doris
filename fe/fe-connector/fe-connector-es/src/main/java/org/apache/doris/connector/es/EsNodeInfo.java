@@ -75,9 +75,9 @@ public class EsNodeInfo {
             String address = (String) httpMap.get("publish_address");
             if (address != null) {
                 address = address.substring(address.lastIndexOf('/') + 1);
-                String[] scratch = address.split(":");
-                this.publishHost = (httpSslEnabled ? "https://" : "") + scratch[0];
-                this.publishPort = Integer.parseInt(scratch[1]);
+                EsHostAddress.ParsedAddress parsed = EsHostAddress.parse(address, -1);
+                this.publishHost = (httpSslEnabled ? "https://" : "") + parsed.getHost();
+                this.publishPort = parsed.getPort();
                 this.hasHttp = true;
             } else {
                 this.hasHttp = false;
@@ -92,30 +92,10 @@ public class EsNodeInfo {
      */
     public EsNodeInfo(String id, String seed) {
         this.id = id;
-        String[] scratch = seed.split(":");
-        String remoteHost;
-        int port;
-        if (scratch.length == 3) {
-            // "http://host:port" or "https://host:port"
-            String portStr = scratch[2];
-            if (portStr.contains("/")) {
-                portStr = portStr.substring(0, portStr.indexOf('/'));
-            }
-            port = Integer.parseInt(portStr);
-            remoteHost = scratch[0] + ":" + scratch[1];
-        } else if (scratch.length == 2) {
-            // "host:port" (no scheme)
-            String portStr = scratch[1];
-            if (portStr.contains("/")) {
-                portStr = portStr.substring(0, portStr.indexOf('/'));
-            }
-            port = Integer.parseInt(portStr);
-            remoteHost = scratch[0];
-        } else {
-            // "host" only
-            port = 80;
-            remoteHost = seed;
-        }
+        String schemePrefix = EsHostAddress.extractSchemePrefix(seed);
+        EsHostAddress.ParsedAddress parsed = EsHostAddress.parse(seed, 80);
+        String remoteHost = schemePrefix + parsed.getHost();
+        int port = parsed.getPort();
         this.name = remoteHost;
         this.host = remoteHost;
         this.ip = remoteHost;
@@ -165,7 +145,7 @@ public class EsNodeInfo {
 
     /** Returns "host:port" string for convenience. */
     public String getPublishAddress() {
-        return publishHost + ":" + publishPort;
+        return EsHostAddress.formatHostPort(publishHost, publishPort);
     }
 
     @Override
@@ -209,7 +189,7 @@ public class EsNodeInfo {
                 + ", name='" + name + '\''
                 + ", host='" + host + '\''
                 + ", ip='" + ip + '\''
-                + ", publishAddress=" + publishHost + ":" + publishPort
+                + ", publishAddress=" + getPublishAddress()
                 + ", hasHttp=" + hasHttp
                 + ", isClient=" + isClient
                 + ", isData=" + isData

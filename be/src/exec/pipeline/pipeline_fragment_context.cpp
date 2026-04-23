@@ -62,7 +62,6 @@
 #include "exec/operator/dict_sink_operator.h"
 #include "exec/operator/distinct_streaming_aggregation_operator.h"
 #include "exec/operator/empty_set_operator.h"
-#include "exec/operator/es_scan_operator.h"
 #include "exec/operator/exchange_sink_operator.h"
 #include "exec/operator/exchange_source_operator.h"
 #include "exec/operator/file_scan_operator.h"
@@ -1338,14 +1337,6 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     case TPlanNodeType::FILE_SCAN_NODE: {
         op = std::make_shared<FileScanOperatorX>(pool, tnode, next_operator_id(), descs,
                                                  _num_instances);
-        RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
-        fe_with_old_version = !tnode.__isset.is_serial_operator;
-        break;
-    }
-    case TPlanNodeType::ES_SCAN_NODE:
-    case TPlanNodeType::ES_HTTP_SCAN_NODE: {
-        op = std::make_shared<EsScanOperatorX>(pool, tnode, next_operator_id(), descs,
-                                               _num_instances);
         RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
         fe_with_old_version = !tnode.__isset.is_serial_operator;
         break;

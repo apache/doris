@@ -113,7 +113,8 @@ enum TFileFormatType {
     FORMAT_ARROW = 16,
     FORMAT_TEXT = 17,
     FORMAT_NATIVE = 18,
-    FORMAT_LANCE = 19
+    FORMAT_LANCE = 19,
+    FORMAT_ES_HTTP = 20
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -450,6 +451,9 @@ struct TTableFormatFileDesc {
     // JDBC connection parameters (used when table_format_type == "jdbc")
     11: optional map<string, string> jdbc_params
     12: optional TLanceFileDesc lance_params
+    // ES per-shard parameters (used when table_format_type == "es")
+    // Contains: index, type, shard_id, host_port, es_hosts
+    13: optional map<string, string> es_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
@@ -526,6 +530,12 @@ struct TFileScanRangeParams {
     // Paimon options from FE, used for jni/native scanner
     // Set at ScanNode level to avoid redundant serialization in each split
     30: optional map<string, string> paimon_options
+    // ES node-level properties (query_dsl, auth, doc_values_mode, etc.)
+    31: optional map<string, string> es_properties
+    // ES docvalue field→docvalue_type mappings
+    32: optional map<string, string> es_docvalue_context
+    // ES fields field→keyword mappings
+    33: optional map<string, string> es_fields_context
 }
 
 struct TFileRangeDesc {

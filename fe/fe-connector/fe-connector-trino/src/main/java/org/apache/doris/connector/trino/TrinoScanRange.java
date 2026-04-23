@@ -19,6 +19,14 @@ package org.apache.doris.connector.trino;
 
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TTableFormatFileDesc;
+import org.apache.doris.thrift.TTrinoConnectorFileDesc;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -35,6 +43,10 @@ import java.util.Map;
 public class TrinoScanRange implements ConnectorScanRange {
 
     private static final long serialVersionUID = 1L;
+    private static final Logger LOG = LogManager.getLogger(TrinoScanRange.class);
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final TypeReference<Map<String, String>> MAP_TYPE_REF =
+            new TypeReference<Map<String, String>>() {};
 
     /** Property key for JSON-serialized ConnectorSplit. */
     public static final String KEY_SPLIT = "trino_connector_split";
@@ -81,6 +93,36 @@ public class TrinoScanRange implements ConnectorScanRange {
     @Override
     public List<String> getHosts() {
         return hosts;
+    }
+
+    @Override
+    public void populateRangeParams(TTableFormatFileDesc formatDesc,
+            TFileRangeDesc rangeDesc) {
+        Map<String, String> props = getProperties();
+        TTrinoConnectorFileDesc fileDesc = new TTrinoConnectorFileDesc();
+        fileDesc.setCatalogName(props.getOrDefault(KEY_CATALOG_NAME, ""));
+        fileDesc.setDbName(props.getOrDefault(KEY_DB_NAME, ""));
+        fileDesc.setTableName(props.getOrDefault(KEY_TABLE_NAME, ""));
+        fileDesc.setTrinoConnectorSplit(props.getOrDefault(KEY_SPLIT, ""));
+        fileDesc.setTrinoConnectorTableHandle(
+                props.getOrDefault(KEY_TABLE_HANDLE, ""));
+        fileDesc.setTrinoConnectorColumnHandles(
+                props.getOrDefault(KEY_COLUMN_HANDLES, ""));
+        fileDesc.setTrinoConnectorColumnMetadata(
+                props.getOrDefault(KEY_COLUMN_METADATA, ""));
+        fileDesc.setTrinoConnectorTrascationHandle(
+                props.getOrDefault(KEY_TRANSACTION_HANDLE, ""));
+
+        String optionsJson = props.getOrDefault(KEY_OPTIONS, "{}");
+        try {
+            Map<String, String> options = OBJECT_MAPPER
+                    .readValue(optionsJson, MAP_TYPE_REF);
+            fileDesc.setTrinoConnectorOptions(options);
+        } catch (Exception e) {
+            LOG.warn("Failed to parse trino_connector_options JSON, using empty map", e);
+            fileDesc.setTrinoConnectorOptions(new HashMap<>());
+        }
+        formatDesc.setTrinoConnectorParams(fileDesc);
     }
 
     /**
