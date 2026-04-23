@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
@@ -52,15 +53,19 @@ public class CloudSchemaChangeHandlerTest {
     private int originalCloudTxnTabletBatchSize;
     private String originalCloudUniqueId;
     private String originalMetaServiceEndpoint;
+    private boolean originalEnableDebugPoints;
 
     @Before
     public void setUp() {
         originalCloudTxnTabletBatchSize = Config.cloud_txn_tablet_batch_size;
         originalCloudUniqueId = Config.cloud_unique_id;
         originalMetaServiceEndpoint = Config.meta_service_endpoint;
+        originalEnableDebugPoints = Config.enable_debug_points;
         Config.cloud_txn_tablet_batch_size = 2;
         Config.cloud_unique_id = "cloud-test";
         Config.meta_service_endpoint = "127.0.0.1:20121";
+        Config.enable_debug_points = false;
+        DebugPointUtil.clearDebugPoints();
     }
 
     @After
@@ -68,6 +73,8 @@ public class CloudSchemaChangeHandlerTest {
         Config.cloud_txn_tablet_batch_size = originalCloudTxnTabletBatchSize;
         Config.cloud_unique_id = originalCloudUniqueId;
         Config.meta_service_endpoint = originalMetaServiceEndpoint;
+        Config.enable_debug_points = originalEnableDebugPoints;
+        DebugPointUtil.clearDebugPoints();
     }
 
     @Test
@@ -195,6 +202,101 @@ public class CloudSchemaChangeHandlerTest {
         }
 
         Mockito.verify(backendServiceProxy, Mockito.times(2))
+                .syncTabletMeta(Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void testNotifyBackendsToSyncTabletMetaReturnsForEmptyTabletList() {
+        CloudSchemaChangeHandler handler = new CloudSchemaChangeHandler();
+        BackendServiceProxy backendServiceProxy = Mockito.mock(BackendServiceProxy.class);
+
+        try (MockedStatic<BackendServiceProxy> backendProxyMock = Mockito.mockStatic(BackendServiceProxy.class)) {
+            backendProxyMock.when(BackendServiceProxy::getInstance).thenReturn(backendServiceProxy);
+
+            handler.notifyBackendsToSyncTabletMeta("test_table", Arrays.asList());
+        }
+
+        Mockito.verifyNoInteractions(backendServiceProxy);
+    }
+
+    @Test
+    public void testNotifyBackendsToSyncTabletMetaReturnsWhenDebugPointEnabled() {
+        CloudSchemaChangeHandler handler = new CloudSchemaChangeHandler();
+        BackendServiceProxy backendServiceProxy = Mockito.mock(BackendServiceProxy.class);
+        Config.enable_debug_points = true;
+        DebugPointUtil.addDebugPoint("CloudSchemaChangeHandler.notifyBackendsToSyncTabletMeta.skip");
+
+        try (MockedStatic<BackendServiceProxy> backendProxyMock = Mockito.mockStatic(BackendServiceProxy.class)) {
+            backendProxyMock.when(BackendServiceProxy::getInstance).thenReturn(backendServiceProxy);
+
+            handler.notifyBackendsToSyncTabletMeta("test_table", Arrays.asList(101L, 102L));
+        }
+
+        Mockito.verifyNoInteractions(backendServiceProxy);
+    }
+
+    @Test
+    public void testNotifyBackendsToSyncTabletMetaSkipsUnavailableBackends() throws Exception {
+        CloudSchemaChangeHandler handler = new CloudSchemaChangeHandler();
+        Backend aliveBackend = new Backend(1L, "be-1", 9050);
+        aliveBackend.setAlive(true);
+        aliveBackend.setBrpcPort(8060);
+        Backend deadBackend = new Backend(2L, "be-dead", 9050);
+        deadBackend.setAlive(false);
+        deadBackend.setBrpcPort(8061);
+        Backend noBrpcBackend = new Backend(3L, "be-no-brpc", 9050);
+        noBrpcBackend.setAlive(true);
+        noBrpcBackend.setBrpcPort(0);
+
+        SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
+        Mockito.when(systemInfoService.getAllBackendsByAllCluster()).thenReturn(ImmutableMap.of(
+                aliveBackend.getId(), aliveBackend,
+                deadBackend.getId(), deadBackend,
+                noBrpcBackend.getId(), noBrpcBackend));
+
+        BackendServiceProxy backendServiceProxy = Mockito.mock(BackendServiceProxy.class);
+        Mockito.when(backendServiceProxy.syncTabletMeta(Mockito.any(), Mockito.any()))
+                .thenReturn(Futures.immediateFuture(okSyncTabletMetaResponse()));
+
+        try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class);
+                MockedStatic<BackendServiceProxy> backendProxyMock = Mockito.mockStatic(BackendServiceProxy.class)) {
+            envMock.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+            backendProxyMock.when(BackendServiceProxy::getInstance).thenReturn(backendServiceProxy);
+
+            handler.notifyBackendsToSyncTabletMeta("test_table", Arrays.asList(101L, 102L));
+        }
+
+        ArgumentCaptor<InternalService.PSyncTabletMetaRequest> syncCaptor =
+                ArgumentCaptor.forClass(InternalService.PSyncTabletMetaRequest.class);
+        Mockito.verify(backendServiceProxy, Mockito.times(1))
+                .syncTabletMeta(Mockito.argThat(addr -> "be-1".equals(addr.getHostname())), syncCaptor.capture());
+        Assert.assertEquals(Arrays.asList(101L, 102L), syncCaptor.getValue().getTabletIdsList());
+    }
+
+    @Test
+    public void testNotifyBackendsToSyncTabletMetaSwallowsAsyncFailure() throws Exception {
+        CloudSchemaChangeHandler handler = new CloudSchemaChangeHandler();
+        Backend aliveBackend = new Backend(1L, "be-1", 9050);
+        aliveBackend.setAlive(true);
+        aliveBackend.setBrpcPort(8060);
+
+        SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
+        Mockito.when(systemInfoService.getAllBackendsByAllCluster()).thenReturn(ImmutableMap.of(
+                aliveBackend.getId(), aliveBackend));
+
+        BackendServiceProxy backendServiceProxy = Mockito.mock(BackendServiceProxy.class);
+        Mockito.when(backendServiceProxy.syncTabletMeta(Mockito.any(), Mockito.any()))
+                .thenReturn(Futures.immediateFailedFuture(new RuntimeException("async failed")));
+
+        try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class);
+                MockedStatic<BackendServiceProxy> backendProxyMock = Mockito.mockStatic(BackendServiceProxy.class)) {
+            envMock.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+            backendProxyMock.when(BackendServiceProxy::getInstance).thenReturn(backendServiceProxy);
+
+            handler.notifyBackendsToSyncTabletMeta("test_table", Arrays.asList(101L, 102L));
+        }
+
+        Mockito.verify(backendServiceProxy, Mockito.times(1))
                 .syncTabletMeta(Mockito.any(), Mockito.any());
     }
 
