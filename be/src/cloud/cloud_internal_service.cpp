@@ -20,6 +20,7 @@
 #include <bthread/countdown_event.h>
 
 #include <algorithm>
+#include <chrono>
 #include <thread>
 
 #include "cloud/cloud_storage_engine.h"
@@ -64,8 +65,10 @@ void CloudInternalServiceImpl::sync_tablet_meta(google::protobuf::RpcController*
                                                 const PSyncTabletMetaRequest* request,
                                                 PSyncTabletMetaResponse* response,
                                                 google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+    auto start_time = std::chrono::steady_clock::now();
+    bool ret = _light_work_pool.try_offer([this, request, response, done, start_time]() {
         brpc::ClosureGuard closure_guard(done);
+        LOG(INFO) << "begin to sync tablet meta, request=" << request->ShortDebugString();
         int64_t synced = 0;
         int64_t skipped = 0;
         int64_t failed = 0;
@@ -92,11 +95,22 @@ void CloudInternalServiceImpl::sync_tablet_meta(google::protobuf::RpcController*
         response->set_skipped_tablets(skipped);
         response->set_failed_tablets(failed);
         Status::OK().to_protobuf(response->mutable_status());
+        auto cost_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                               std::chrono::steady_clock::now() - start_time)
+                               .count();
+        LOG(INFO) << "finish to sync tablet meta, request=" << request->ShortDebugString()
+                  << ", response=" << response->ShortDebugString() << ", cost_ms=" << cost_ms;
     });
     if (!ret) {
         brpc::ClosureGuard closure_guard(done);
         Status::InternalError("failed to offer sync_tablet_meta request to work pool")
                 .to_protobuf(response->mutable_status());
+        auto cost_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                               std::chrono::steady_clock::now() - start_time)
+                               .count();
+        LOG(WARNING) << "failed to offer sync_tablet_meta request to work pool, request="
+                     << request->ShortDebugString() << ", response=" << response->ShortDebugString()
+                     << ", cost_ms=" << cost_ms;
     }
 }
 

@@ -550,59 +550,79 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                 throw new UserException(response.getStatus().getMsg());
             }
 
-            notifyBackendsToSyncTabletMeta(updateTabletReq.getTabletMetaInfosList().stream()
+            notifyBackendsToSyncTabletMeta(tableName, updateTabletReq.getTabletMetaInfosList().stream()
                     .map(Cloud.TabletMetaInfoPB::getTabletId)
                     .collect(Collectors.toList()));
         }
     }
 
-    void notifyBackendsToSyncTabletMeta(List<Long> tabletIds) {
+    void notifyBackendsToSyncTabletMeta(String tableName, List<Long> tabletIds) {
         if (tabletIds.isEmpty()) {
             return;
         }
         if (DebugPointUtil.isEnable("CloudSchemaChangeHandler.notifyBackendsToSyncTabletMeta.skip")) {
-            LOG.info("skip sync tablet meta rpc dispatch by debug point, tabletIds={}", tabletIds);
+            LOG.info("skip sync tablet meta rpc dispatch by debug point, tableName={}, tabletIds={}",
+                    tableName, tabletIds);
             return;
         }
         List<Backend> backends;
         try {
             backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
         } catch (UserException e) {
-            LOG.warn("failed to get alive backends for sync tablet meta, tabletIds={}", tabletIds, e);
+            LOG.warn("failed to get alive backends for sync tablet meta, tableName={}, tabletIds={}",
+                    tableName, tabletIds, e);
             return;
         }
 
         InternalService.PSyncTabletMetaRequest request = InternalService.PSyncTabletMetaRequest.newBuilder()
                 .addAllTabletIds(tabletIds)
                 .build();
+        long dispatchStartTimeMs = System.currentTimeMillis();
+        int sentBackends = 0;
+        int skippedBackends = 0;
+        LOG.info("start to dispatch sync tablet meta rpc, tableName={}, tabletIds={}, request={}",
+                tableName, tabletIds, request);
         for (Backend backend : backends) {
             if (!backend.isAlive() || backend.getBrpcPort() <= 0) {
+                skippedBackends++;
                 continue;
             }
             try {
+                long rpcStartTimeMs = System.currentTimeMillis();
                 ListenableFuture<InternalService.PSyncTabletMetaResponse> future =
                         BackendServiceProxy.getInstance().syncTabletMeta(backend.getBrpcAddress(), request);
+                sentBackends++;
                 Futures.addCallback(future, new FutureCallback<InternalService.PSyncTabletMetaResponse>() {
                     @Override
                     public void onSuccess(InternalService.PSyncTabletMetaResponse response) {
+                        long costMs = System.currentTimeMillis() - rpcStartTimeMs;
                         if (response == null || !response.hasStatus()
                                 || response.getStatus().getStatusCode() != TStatusCode.OK.getValue()) {
                             LOG.warn("sync tablet meta rpc returned non-ok response, backendId={}, tabletIds={},"
-                                            + " response={}",
-                                    backend.getId(), tabletIds, response);
+                                            + " tableName={}, response={}, costMs={}",
+                                    backend.getId(), tabletIds, tableName, response, costMs);
+                            return;
                         }
+                        LOG.info("sync tablet meta rpc finished, backendId={}, tableName={}, tabletIds={},"
+                                        + " response={}, costMs={}",
+                                backend.getId(), tableName, tabletIds, response, costMs);
                     }
 
                     @Override
                     public void onFailure(Throwable t) {
-                        LOG.warn("sync tablet meta rpc failed, backendId={}, tabletIds={}",
-                                backend.getId(), tabletIds, t);
+                        LOG.warn("sync tablet meta rpc failed, backendId={}, tableName={}, tabletIds={}, costMs={}",
+                                backend.getId(), tableName, tabletIds,
+                                System.currentTimeMillis() - rpcStartTimeMs, t);
                     }
                 }, MoreExecutors.directExecutor());
             } catch (Exception e) {
-                LOG.warn("failed to dispatch sync tablet meta rpc, backendId={}, tabletIds={}",
-                        backend.getId(), tabletIds, e);
+                LOG.warn("failed to dispatch sync tablet meta rpc, backendId={}, tableName={}, tabletIds={}",
+                        backend.getId(), tableName, tabletIds, e);
             }
         }
+        LOG.info("finish dispatching sync tablet meta rpc, tableName={}, tabletIds={}, backendNum={},"
+                        + " sentBackends={}, skippedBackends={}, costMs={}",
+                tableName, tabletIds, backends.size(), sentBackends, skippedBackends,
+                System.currentTimeMillis() - dispatchStartTimeMs);
     }
 }

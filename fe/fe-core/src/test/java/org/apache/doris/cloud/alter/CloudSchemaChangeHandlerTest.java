@@ -191,7 +191,7 @@ public class CloudSchemaChangeHandlerTest {
             envMock.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
             backendProxyMock.when(BackendServiceProxy::getInstance).thenReturn(backendServiceProxy);
 
-            handler.notifyBackendsToSyncTabletMeta(Arrays.asList(101L, 102L));
+            handler.notifyBackendsToSyncTabletMeta("test_table", Arrays.asList(101L, 102L));
         }
 
         Mockito.verify(backendServiceProxy, Mockito.times(2))
@@ -226,7 +226,7 @@ public class CloudSchemaChangeHandlerTest {
             envMock.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
             backendProxyMock.when(BackendServiceProxy::getInstance).thenReturn(backendServiceProxy);
 
-            handler.notifyBackendsToSyncTabletMeta(Arrays.asList(101L, 102L));
+            handler.notifyBackendsToSyncTabletMeta("test_table", Arrays.asList(101L, 102L));
         }
 
         Mockito.verify(backendServiceProxy, Mockito.times(2))
@@ -247,7 +247,7 @@ public class CloudSchemaChangeHandlerTest {
             envMock.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
             backendProxyMock.when(BackendServiceProxy::getInstance).thenReturn(backendServiceProxy);
 
-            handler.notifyBackendsToSyncTabletMeta(Arrays.asList(101L, 102L));
+            handler.notifyBackendsToSyncTabletMeta("test_table", Arrays.asList(101L, 102L));
         }
 
         Mockito.verifyNoInteractions(backendServiceProxy);
