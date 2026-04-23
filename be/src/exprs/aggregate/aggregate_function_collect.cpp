@@ -53,6 +53,9 @@ void register_aggregate_function_collect_list(AggregateFunctionSimpleFactory& fa
     // notice: array_agg only differs from collect_list in that array_agg will show null elements in array
     factory.register_function_both("collect_list", create_aggregate_function_collect);
     factory.register_function_both("collect_set", create_aggregate_function_collect);
+    // v1 aliases: new FE sends collect_list_v1/collect_set_v1 to old BE during rolling upgrade
+    factory.register_function_both("collect_list_v1", create_aggregate_function_collect);
+    factory.register_function_both("collect_set_v1", create_aggregate_function_collect);
     factory.register_alias("collect_list", "group_array");
     factory.register_alias("collect_set", "group_uniq_array");
 }

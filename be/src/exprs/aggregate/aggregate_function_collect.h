@@ -47,6 +47,7 @@ namespace doris {
 template <PrimitiveType T, bool HasLimit>
 struct AggregateFunctionCollectSetData {
     static constexpr PrimitiveType PType = T;
+    static constexpr bool is_collect_list = false;
     using ElementType = typename PrimitiveTypeTraits<T>::CppType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using SelfType = AggregateFunctionCollectSetData;
@@ -116,6 +117,7 @@ template <PrimitiveType T, bool HasLimit>
     requires(is_string_type(T))
 struct AggregateFunctionCollectSetData<T, HasLimit> {
     static constexpr PrimitiveType PType = T;
+    static constexpr bool is_collect_list = false;
     using ElementType = StringRef;
     using ColVecType = ColumnString;
     using SelfType = AggregateFunctionCollectSetData<T, HasLimit>;
@@ -184,6 +186,7 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
 template <PrimitiveType T, bool HasLimit>
 struct AggregateFunctionCollectListData {
     static constexpr PrimitiveType PType = T;
+    static constexpr bool is_collect_list = true;
     using ElementType = typename PrimitiveTypeTraits<T>::CppType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using SelfType = AggregateFunctionCollectListData<T, HasLimit>;
@@ -245,6 +248,7 @@ template <PrimitiveType T, bool HasLimit>
     requires(is_string_type(T))
 struct AggregateFunctionCollectListData<T, HasLimit> {
     static constexpr PrimitiveType PType = T;
+    static constexpr bool is_collect_list = true;
     using ElementType = StringRef;
     using ColVecType = ColumnString;
     MutableColumnPtr data;
@@ -313,6 +317,7 @@ template <PrimitiveType T, bool HasLimit>
              !is_date_type(T) && !is_ip(T) && !is_timestamptz_type(T))
 struct AggregateFunctionCollectListData<T, HasLimit> {
     static constexpr PrimitiveType PType = T;
+    static constexpr bool is_collect_list = true;
     using ElementType = StringRef;
     using Self = AggregateFunctionCollectListData<T, HasLimit>;
     DataTypeSerDeSPtr serde; // for complex serialize && deserialize from multi BE
@@ -393,9 +398,164 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
     void insert_result_into(IColumn& to) const { to.insert_range_from(*column_data, 0, size()); }
 };
 
-template <typename Data, bool HasLimit>
+// V2 complex type specialization: uses IColumn::serialize_value_into_arena /
+// deserialize_and_insert_from_arena for binary serialization instead of JSON text.
+template <PrimitiveType T, bool HasLimit>
+    requires(!is_string_type(T) && !is_int_or_bool(T) && !is_float_or_double(T) && !is_decimal(T) &&
+             !is_date_type(T) && !is_ip(T) && !is_timestamptz_type(T))
+struct AggregateFunctionCollectListDataV2 {
+    static constexpr PrimitiveType PType = T;
+    static constexpr bool is_collect_list = true;
+    using ElementType = StringRef;
+    using Self = AggregateFunctionCollectListDataV2<T, HasLimit>;
+    MutableColumnPtr column_data;
+    Int64 max_size = -1;
+
+    AggregateFunctionCollectListDataV2(const DataTypes& argument_types) {
+        column_data = argument_types[0]->create_column();
+    }
+
+    size_t size() const { return column_data->size(); }
+
+    void add(const IColumn& column, size_t row_num) { column_data->insert_from(column, row_num); }
+
+    void merge(const Self& rhs) {
+        if constexpr (HasLimit) {
+            if (max_size == -1) {
+                max_size = rhs.max_size;
+            }
+            max_size = rhs.max_size;
+            column_data->insert_range_from(
+                    *rhs.column_data, 0,
+                    std::min(assert_cast<size_t, TypeCheckOnRelease::DISABLE>(
+                                     static_cast<size_t>(max_size - size())),
+                             rhs.size()));
+        } else {
+            column_data->insert_range_from(*rhs.column_data, 0, rhs.size());
+        }
+    }
+
+    void write(BufferWritable& buf) const {
+        const size_t n = column_data->size();
+        buf.write_binary(n);
+        Arena arena;
+        for (size_t i = 0; i < n; ++i) {
+            const char* begin = nullptr;
+            StringRef ref = column_data->serialize_value_into_arena(i, arena, begin);
+            buf.write_binary(ref);
+        }
+        write_var_int(max_size, buf);
+    }
+
+    void read(BufferReadable& buf) {
+        size_t n = 0;
+        buf.read_binary(n);
+        column_data->clear();
+        column_data->reserve(n);
+        StringRef s;
+        for (size_t i = 0; i < n; ++i) {
+            buf.read_binary(s);
+            column_data->deserialize_and_insert_from_arena(s.data);
+        }
+        read_var_int(max_size, buf);
+    }
+
+    void reset() { column_data->clear(); }
+
+    void insert_result_into(IColumn& to) const { to.insert_range_from(*column_data, 0, size()); }
+};
+
+// V2 implementation for collect_set on complex types (ARRAY / MAP / STRUCT).
+// Uses binary serde (serialize_value_into_arena) for element storage and
+// deduplicates by comparing serialized byte representations.
+template <PrimitiveType T, bool HasLimit>
+    requires(!is_string_type(T) && !is_int_or_bool(T) && !is_float_or_double(T) && !is_decimal(T) &&
+             !is_date_type(T) && !is_ip(T) && !is_timestamptz_type(T))
+struct AggregateFunctionCollectSetDataV2 {
+    static constexpr PrimitiveType PType = T;
+    static constexpr bool is_collect_list = false;
+    using Self = AggregateFunctionCollectSetDataV2<T, HasLimit>;
+    MutableColumnPtr column_data;
+    phmap::flat_hash_set<std::string> seen;
+    Int64 max_size = -1;
+
+    AggregateFunctionCollectSetDataV2(const DataTypes& argument_types) {
+        column_data = argument_types[0]->create_column();
+    }
+
+    size_t size() const { return column_data->size(); }
+
+    void add(const IColumn& column, size_t row_num) {
+        Arena arena;
+        const char* begin = nullptr;
+        StringRef ref = column.serialize_value_into_arena(row_num, arena, begin);
+        std::string key(ref.data, ref.size);
+        if (seen.insert(std::move(key)).second) {
+            column_data->insert_from(column, row_num);
+        }
+    }
+
+    void merge(const Self& rhs) {
+        if constexpr (HasLimit) {
+            if (max_size == -1) {
+                max_size = rhs.max_size;
+            }
+        }
+        for (size_t i = 0; i < rhs.column_data->size(); ++i) {
+            if constexpr (HasLimit) {
+                if (max_size != -1 && static_cast<Int64>(size()) >= max_size) {
+                    break;
+                }
+            }
+            Arena arena;
+            const char* begin = nullptr;
+            StringRef ref = rhs.column_data->serialize_value_into_arena(i, arena, begin);
+            std::string key(ref.data, ref.size);
+            if (seen.insert(std::move(key)).second) {
+                column_data->insert_from(*rhs.column_data, i);
+            }
+        }
+    }
+
+    void write(BufferWritable& buf) const {
+        const size_t n = column_data->size();
+        buf.write_binary(n);
+        Arena arena;
+        for (size_t i = 0; i < n; ++i) {
+            const char* begin = nullptr;
+            StringRef ref = column_data->serialize_value_into_arena(i, arena, begin);
+            buf.write_binary(ref);
+        }
+        write_var_int(max_size, buf);
+    }
+
+    void read(BufferReadable& buf) {
+        size_t n = 0;
+        buf.read_binary(n);
+        column_data->clear();
+        seen.clear();
+        column_data->reserve(n);
+        StringRef s;
+        for (size_t i = 0; i < n; ++i) {
+            buf.read_binary(s);
+            seen.insert(std::string(s.data, s.size));
+            column_data->deserialize_and_insert_from_arena(s.data);
+        }
+        read_var_int(max_size, buf);
+    }
+
+    void reset() {
+        column_data->clear();
+        seen.clear();
+    }
+
+    void insert_result_into(IColumn& to) const { to.insert_range_from(*column_data, 0, size()); }
+};
+
+template <typename Data, bool HasLimit, bool IsV2 = false>
 class AggregateFunctionCollect final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>, true>,
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit, IsV2>,
+                                              true>,
           VarargsExpression,
           NotNullableAggregateFunction {
     static constexpr bool ENABLE_ARENA =
@@ -405,16 +565,15 @@ class AggregateFunctionCollect final
 
 public:
     AggregateFunctionCollect(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>, true>(
-                      {argument_types_}),
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit, IsV2>,
+                                           true>({argument_types_}),
               return_type(std::make_shared<DataTypeArray>(make_nullable(argument_types_[0]))) {}
 
     std::string get_name() const override {
-        if constexpr (std::is_same_v<AggregateFunctionCollectListData<Data::PType, HasLimit>,
-                                     Data>) {
-            return "collect_list";
+        if constexpr (Data::is_collect_list) {
+            return IsV2 ? "collect_list_v2" : "collect_list";
         } else {
-            return "collect_set";
+            return IsV2 ? "collect_set_v2" : "collect_set";
         }
     }
 

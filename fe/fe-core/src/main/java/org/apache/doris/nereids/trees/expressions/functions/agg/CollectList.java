@@ -50,28 +50,28 @@ public class CollectList extends NotNullableAggregateFunction
      * constructor with 1 argument.
      */
     public CollectList(Expression arg) {
-        super("collect_list", arg);
+        super("collect_list_v1", arg);
     }
 
     /**
      * constructor with 2 argument.
      */
     public CollectList(Expression arg0, Expression arg1) {
-        super("collect_list", arg0, arg1);
+        super("collect_list_v1", arg0, arg1);
     }
 
     /**
      * constructor with 1 argument.
      */
     public CollectList(boolean distinct, Expression arg) {
-        super("collect_list", distinct, arg);
+        super("collect_list_v1", distinct, arg);
     }
 
     /**
      * constructor with 2 argument.
      */
     public CollectList(boolean distinct, Expression arg0, Expression arg1) {
-        super("collect_list", distinct, arg0, arg1);
+        super("collect_list_v1", distinct, arg0, arg1);
     }
 
     /** constructor for withChildren and reuse signature */
