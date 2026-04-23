@@ -581,6 +581,23 @@ std::vector<TReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_id
 }
 
 void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_timeout_ms) {
+    if (sync_wait_timeout_ms <= 0) {
+        auto rs_meta_pb = std::make_shared<RowsetMetaPB>(rs_meta.get_rowset_pb());
+        auto st = _thread_pool_token->submit_func([this, rs_meta_pb, sync_wait_timeout_ms]() {
+            RowsetMeta async_rs_meta;
+            if (!async_rs_meta.init_from_pb(*rs_meta_pb)) {
+                LOG(WARNING) << "Failed to init rowset meta when warming up rowset asynchronously";
+                return;
+            }
+            _warm_up_rowset(async_rs_meta, sync_wait_timeout_ms);
+        });
+        if (!st.ok()) {
+            LOG(WARNING) << "Failed to submit warm up rowset task: " << st;
+            file_cache_warm_up_failed_task_num << 1;
+        }
+        return;
+    }
+
     bthread::Mutex mu;
     bthread::ConditionVariable cv;
     std::unique_lock<bthread::Mutex> lock(mu);
