@@ -66,11 +66,13 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
         return ImmutableList.of(
                 logicalOlapScan()
                     .when(scan -> !scan.isPartitionPruned()
-                            && !scan.getManuallySpecifiedTabletIds().isEmpty()
+                            && (!scan.getManuallySpecifiedTabletIds().isEmpty()
+                            || !scan.getManuallySpecifiedPartitions().isEmpty())
                             && scan.getTable().isPartitionedTable()
                     )
                     .thenApply(ctx -> {
-                        // Case1: sql without filter condition, e.g. SELECT * FROM tbl (${tabletID})
+                        // Case1: sql without filter condition, e.g. SELECT * FROM tbl PARTITION(p1)
+                        // or SELECT * FROM tbl TABLET(${tabletID})
                         LogicalOlapScan scan = ctx.root;
                         OlapTable table = scan.getTable();
                         return prunePartition(scan, table, null, ctx).first;

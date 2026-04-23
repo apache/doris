@@ -177,6 +177,10 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 "select * from test_db.partitioned_t where p1 = 1");
         Assertions.assertTrue(filteredScanNode.hasPartitionPredicate());
 
+        OlapScanNode manuallyPartitionedScanNode = getFirstOlapScanNode(
+                "select * from test_db.partitioned_t partition(p1)");
+        Assertions.assertTrue(manuallyPartitionedScanNode.hasPartitionPredicate());
+
         OlapScanNode nonPartitionFilteredScanNode = getFirstOlapScanNode(
                 "select * from test_db.partitioned_t where k1 = 1");
         Assertions.assertFalse(nonPartitionFilteredScanNode.hasPartitionPredicate());
