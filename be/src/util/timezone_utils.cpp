@@ -240,9 +240,8 @@ static bool normalize_offset_string(const std::string& timezone, bool allow_hour
         return false;
     }
 
-    char result[7];
-    snprintf(result, sizeof(result), "%c%02d:%02d", positive ? '+' : '-', hour, minute);
-    *normalized = result;
+    *normalized = std::string(1, positive ? '+' : '-') + (hour < 10 ? "0" : "") +
+                  std::to_string(hour) + ":" + (minute < 10 ? "0" : "") + std::to_string(minute);
     return true;
 }
 
