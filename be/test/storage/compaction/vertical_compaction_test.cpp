@@ -1354,4 +1354,101 @@ TEST_F(VerticalCompactionTest, TestFooterRawDataBytesAccuracy) {
             << raw_bytes_by_uid[2];
 }
 
+// Verify that raw_data_bytes only counts non-null payload for nullable
+// fixed-width columns. This is the premise that motivates the type_size
+// lower bound in merger.cpp's footer-based per-row estimation: without it,
+// a sparse nullable column would produce a per-row estimate far below the
+// reader's actual memory footprint (which still allocates the full nested
+// slot for null rows via ColumnNullable::insert_many_defaults).
+TEST_F(VerticalCompactionTest, TestFooterRawDataBytesNullableSparse) {
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    TabletSchemaPB tablet_schema_pb;
+    tablet_schema_pb.set_keys_type(DUP_KEYS);
+    tablet_schema_pb.set_num_short_key_columns(1);
+    tablet_schema_pb.set_num_rows_per_row_block(1024);
+    tablet_schema_pb.set_compress_kind(COMPRESS_NONE);
+    tablet_schema_pb.set_next_column_unique_id(3);
+
+    ColumnPB* col_key = tablet_schema_pb.add_column();
+    col_key->set_unique_id(1);
+    col_key->set_name("c_key");
+    col_key->set_type("INT");
+    col_key->set_is_key(true);
+    col_key->set_length(4);
+    col_key->set_index_length(4);
+    col_key->set_is_nullable(false);
+    col_key->set_is_bf_column(false);
+
+    ColumnPB* col_val = tablet_schema_pb.add_column();
+    col_val->set_unique_id(2);
+    col_val->set_name("c_val");
+    col_val->set_type("INT");
+    col_val->set_is_key(false);
+    col_val->set_length(4);
+    col_val->set_index_length(4);
+    col_val->set_is_nullable(true);
+    col_val->set_is_bf_column(false);
+
+    tablet_schema->init_from_pb(tablet_schema_pb);
+
+    constexpr int kNumRows = 1000;
+    constexpr int kNonNullCount = 100; // 10% non-null, 90% null
+
+    auto writer_context =
+            create_rowset_writer_context(tablet_schema, NONOVERLAPPING, UINT32_MAX, {0, 0});
+    auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto rowset_writer = std::move(res).value();
+
+    Block block = tablet_schema->create_block();
+    auto columns = block.mutate_columns();
+    for (int i = 0; i < kNumRows; i++) {
+        int32_t key_val = i;
+        columns[0]->insert_data(reinterpret_cast<const char*>(&key_val), sizeof(key_val));
+        if (i < kNonNullCount) {
+            int32_t val = i;
+            columns[1]->insert_data(reinterpret_cast<const char*>(&val), sizeof(val));
+        } else {
+            columns[1]->insert_default(); // ColumnNullable default is null
+        }
+    }
+    ASSERT_TRUE(rowset_writer->add_block(&block).ok());
+    ASSERT_TRUE(rowset_writer->flush().ok());
+
+    RowsetSharedPtr rowset;
+    ASSERT_EQ(Status::OK(), rowset_writer->build(rowset));
+    ASSERT_EQ(1, rowset->rowset_meta()->num_segments());
+
+    auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
+    ASSERT_NE(beta_rowset, nullptr);
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    ASSERT_TRUE(beta_rowset->load_segments(&segments).ok());
+    ASSERT_EQ(1, segments.size());
+
+    std::unordered_map<int32_t, uint64_t> raw_bytes_by_uid;
+    auto st = segments[0]->traverse_column_meta_pbs([&](const segment_v2::ColumnMetaPB& meta) {
+        if (meta.unique_id() >= 0 && meta.has_raw_data_bytes()) {
+            raw_bytes_by_uid[meta.unique_id()] = meta.raw_data_bytes();
+        }
+    });
+    ASSERT_TRUE(st.ok()) << st;
+
+    // Key column (non-null INT): full coverage, raw == kNumRows * 4.
+    ASSERT_TRUE(raw_bytes_by_uid.count(1) > 0);
+    EXPECT_EQ(raw_bytes_by_uid[1], kNumRows * sizeof(int32_t));
+
+    // Value column (nullable INT, 90% null): raw_data_bytes only reflects
+    // the non-null payload because ScalarColumnWriter::append_nulls() does
+    // not advance the page builder. So raw == kNonNullCount * 4.
+    //
+    // If merger.cpp used `raw / total_rows` directly the per-row estimate
+    // would be ~0.4 bytes (+1 for null map = 1.4), but the reader actually
+    // allocates 4 bytes for every nested slot (regardless of null-ness)
+    // plus 1 byte of null map = 5 bytes/row. The fixed-width type_size
+    // lower bound is what closes that ~3.5x gap.
+    ASSERT_TRUE(raw_bytes_by_uid.count(2) > 0);
+    EXPECT_EQ(raw_bytes_by_uid[2], kNonNullCount * sizeof(int32_t));
+    EXPECT_LT(raw_bytes_by_uid[2], kNumRows * sizeof(int32_t));
+}
+
 } // namespace doris
