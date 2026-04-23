@@ -127,6 +127,6 @@ public class UtilTest {
 
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> Util.getBooleanPropertyOrDefault(properties, "flag", false));
-        Assertions.assertEquals("flag should be a boolean", exception.getMessage());
+        Assertions.assertEquals("flag should be a boolean", exception.getDetailMessage());
     }
 }
