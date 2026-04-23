@@ -62,7 +62,7 @@ struct LevenshteinImpl {
         res.resize(size);
         const bool right_ascii = simd::VStringFunctions::is_ascii(rdata);
         std::vector<size_t> right_offsets;
-        utf8_char_offsets(rdata, right_offsets);
+        simd::VStringFunctions::get_utf8_char_offsets(rdata, right_offsets);
         std::vector<size_t> left_offsets;
         for (size_t i = 0; i < size; ++i) {
             res[i] = levenshtein_distance_with_right_offsets(string_ref_at(ldata, loffsets, i),
@@ -78,7 +78,7 @@ struct LevenshteinImpl {
         res.resize(size);
         const bool left_ascii = simd::VStringFunctions::is_ascii(ldata);
         std::vector<size_t> left_offsets;
-        utf8_char_offsets(ldata, left_offsets);
+        simd::VStringFunctions::get_utf8_char_offsets(ldata, left_offsets);
         std::vector<size_t> right_offsets;
         for (size_t i = 0; i < size; ++i) {
             res[i] = levenshtein_distance_with_left_offsets(ldata, left_offsets, left_ascii,
