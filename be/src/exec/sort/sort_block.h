@@ -54,7 +54,6 @@ class ColumnVector;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 /// Sort one block by `description`. If limit != 0, then the partial sort of the first `limit` rows is produced.
 void sort_block(Block& src_block, Block& dest_block, const SortDescription& description,
                 HybridSorter& hybrid_sorter, UInt64 limit = 0);
@@ -526,5 +525,4 @@ private:
     const int _direction;
     HybridSorter& _hybrid_sorter;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

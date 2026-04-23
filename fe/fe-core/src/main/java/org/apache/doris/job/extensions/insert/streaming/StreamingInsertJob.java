@@ -51,6 +51,7 @@ import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.job.offset.SourceOffsetProviderFactory;
 import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
+import org.apache.doris.job.offset.jdbc.JdbcTvfSourceOffsetProvider;
 import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
@@ -72,6 +73,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.transaction.TransactionException;
@@ -106,6 +108,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     public static final String JOB_FILE_CATALOG = "streaming_job";
     private long dbId;
     // Streaming job statistics, all persisted in txn attachment
+    // when checkpoint image replay need Serialized
+    @SerializedName("jstc")
     private StreamingJobStatistic jobStatistic = new StreamingJobStatistic();
     // Non-txn persisted statistics, used for streaming multi task
     @Getter
@@ -300,8 +304,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.tvfType = currentTvf.getFunctionName();
             this.originTvfProps = currentTvf.getProperties().getMap();
             this.offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(currentTvf.getFunctionName());
-            // validate offset props
-            if (jobProperties.getOffsetProperty() != null) {
+            this.offsetProvider.ensureInitialized(getJobId(), originTvfProps);
+            this.offsetProvider.initOnCreate();
+            // validate offset props, only for s3 cause s3 tvf no offset prop
+            if (jobProperties.getOffsetProperty() != null
+                    && S3TableValuedFunction.NAME.equalsIgnoreCase(tvfType)) {
                 Offset offset = validateOffset(jobProperties.getOffsetProperty());
                 this.offsetProvider.updateOffset(offset);
             }
@@ -432,8 +439,15 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             if (runningStreamTask == null) {
                 return;
             }
+            // Check status before cancel: if the task was still active (RUNNING or PENDING),
+            // count it as canceled. If already in a terminal state (e.g. FAILED), it was
+            // already counted by onStreamTaskFail(), so skip to avoid double-counting.
+            boolean wasActive = TaskStatus.RUNNING.equals(runningStreamTask.getStatus())
+                    || TaskStatus.PENDING.equals(runningStreamTask.getStatus());
             runningStreamTask.cancel(needWaitCancelComplete);
-            canceledTaskCount.incrementAndGet();
+            if (wasActive) {
+                canceledTaskCount.incrementAndGet();
+            }
         } finally {
             lock.writeLock().unlock();
         }
@@ -536,6 +550,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 if (originTvfProps == null) {
                     this.originTvfProps = getCurrentTvf().getProperties().getMap();
                 }
+                // when fe restart, offsetProvider.jobId may be null
+                offsetProvider.ensureInitialized(getJobId(), originTvfProps);
                 offsetProvider.fetchRemoteMeta(originTvfProps);
             } else {
                 offsetProvider.fetchRemoteMeta(new HashMap<>());
@@ -653,7 +669,17 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         this.jobStatistic.setLoadBytes(this.jobStatistic.getLoadBytes() + attachment.getLoadBytes());
         this.jobStatistic.setFileNumber(this.jobStatistic.getFileNumber() + attachment.getNumFiles());
         this.jobStatistic.setFileSize(this.jobStatistic.getFileSize() + attachment.getFileBytes());
-        offsetProvider.updateOffset(offsetProvider.deserializeOffset(attachment.getOffset()));
+        Offset endOffset = offsetProvider.deserializeOffset(attachment.getOffset());
+        offsetProvider.updateOffset(endOffset);
+        // Sync offsetProviderPersist after each offset update so the checkpoint thread
+        // (which replays journals on its own Env) writes the latest offset into the image.
+        this.offsetProviderPersist = offsetProvider.getPersistInfo();
+        if (!isReplay) {
+            offsetProvider.onTaskCommitted(attachment.getScannedRows(), attachment.getLoadBytes());
+            if (runningStreamTask != null) {
+                offsetProvider.applyEndOffsetToTask(runningStreamTask.getRunningOffset(), endOffset);
+            }
+        }
 
         //update metric
         if (MetricRepo.isInit && !isReplay) {
@@ -757,9 +783,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      */
     private void modifyPropertiesInternal(Map<String, String> inputProperties) throws AnalysisException, JobException {
         StreamingJobProperties inputStreamProps = new StreamingJobProperties(inputProperties);
-        if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty()) && this.tvfType != null) {
+        if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty())
+                && S3TableValuedFunction.NAME.equalsIgnoreCase(this.tvfType)) {
             Offset offset = validateOffset(inputStreamProps.getOffsetProperty());
             this.offsetProvider.updateOffset(offset);
+            this.offsetProviderPersist = offsetProvider.getPersistInfo();
             if (Config.isCloudMode()) {
                 resetCloudProgress(offset);
             }
@@ -997,13 +1025,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void beforeCommitted(TransactionState txnState) throws TransactionException {
-        boolean shouldReleaseLock = false;
         writeLock();
+        boolean passCheck = false;
         try {
             if (runningStreamTask.getIsCanceled().get()) {
-                log.info("streaming insert job {} task {} is canceled, skip beforeCommitted",
-                        getJobId(), runningStreamTask.getTaskId());
-                return;
+                throw new TransactionException("streaming insert job " + getJobId()
+                        + " task " + runningStreamTask.getTaskId()
+                        + " is canceled, txn " + txnState.getTransactionId() + " could not be committed");
             }
 
             ArrayList<Long> taskIds = new ArrayList<>();
@@ -1016,6 +1044,16 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             }
             LoadJob loadJob = loadJobs.get(0);
             LoadStatistic loadStatistic = loadJob.getLoadStatistic();
+
+            String offsetJson = offsetProvider.getCommitOffsetJson(
+                    runningStreamTask.getRunningOffset(),
+                    runningStreamTask.getTaskId(),
+                    runningStreamTask.getScanBackendIds());
+
+            if (StringUtils.isBlank(offsetJson)) {
+                throw new TransactionException("Cannot find offset for attachment, load job id is "
+                        + runningStreamTask.getTaskId());
+            }
             txnState.setTxnCommitAttachment(new StreamingTaskTxnCommitAttachment(
                         getJobId(),
                         runningStreamTask.getTaskId(),
@@ -1023,9 +1061,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                         loadStatistic.getLoadBytes(),
                         loadStatistic.getFileNumber(),
                         loadStatistic.getTotalFileSizeB(),
-                        runningStreamTask.getRunningOffset().toSerializedJson()));
+                        offsetJson));
+            passCheck = true;
         } finally {
-            if (shouldReleaseLock) {
+            if (!passCheck) {
                 writeUnlock();
             }
         }
@@ -1117,6 +1156,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (offsetProvider == null) {
             if (tvfType != null) {
                 offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(tvfType);
+                offsetProvider.restoreFromPersistInfo(offsetProviderPersist);
             } else {
                 offsetProvider = new JdbcSourceOffsetProvider(getJobId(), dataSourceType, sourceProperties);
             }
@@ -1186,10 +1226,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 }
                 checkDataQuality(offsetRequest);
                 updateNoTxnJobStatisticAndOffset(offsetRequest);
-                if (offsetRequest.getScannedRows() == 0 && offsetRequest.getLoadBytes() == 0) {
-                    JdbcSourceOffsetProvider op = (JdbcSourceOffsetProvider) offsetProvider;
-                    op.setHasMoreData(false);
-                }
+                offsetProvider.onTaskCommitted(offsetRequest.getScannedRows(), offsetRequest.getLoadBytes());
                 if (offsetRequest.getTableSchemas() != null) {
                     JdbcSourceOffsetProvider op = (JdbcSourceOffsetProvider) offsetProvider;
                     op.setTableSchemas(offsetRequest.getTableSchemas());
@@ -1278,6 +1315,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      */
     public void cleanup() throws JobException {
         log.info("cleanup streaming job {}", getJobId());
+
         // s3 tvf clean offset
         if (tvfType != null && Config.isCloudMode()) {
             Cloud.DeleteStreamingJobResponse resp = null;
@@ -1296,6 +1334,14 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             } catch (RpcException e) {
                 log.warn("failed to delete streaming job {}", resp, e);
             }
+        }
+
+        // For TVF path, provider fields may be null after FE restart
+        if (this.offsetProvider instanceof JdbcTvfSourceOffsetProvider) {
+            if (originTvfProps == null) {
+                this.originTvfProps = getCurrentTvf().getProperties().getMap();
+            }
+            offsetProvider.ensureInitialized(getJobId(), originTvfProps);
         }
 
         if (this.offsetProvider instanceof JdbcSourceOffsetProvider) {

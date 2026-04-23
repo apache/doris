@@ -64,7 +64,6 @@
 #include "exprs/function/function_totype.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/json_functions.h"
-#include "util/io_helper.h"
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
 
@@ -73,7 +72,6 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 static const re2::RE2 JSON_PATTERN("^([^\\\"\\[\\]]*)(?:\\[([0-9]+|\\*)\\])?");
 
 template <typename T, typename U>

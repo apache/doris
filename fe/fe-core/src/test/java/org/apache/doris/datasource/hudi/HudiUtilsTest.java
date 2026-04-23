@@ -28,13 +28,13 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 
 import com.google.common.collect.Maps;
-import mockit.Mock;
-import mockit.MockUp;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.File;
 import java.io.IOException;
@@ -42,6 +42,16 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 public class HudiUtilsTest {
+
+    private MockedStatic<Env> envMockedStatic;
+
+    @org.junit.After
+    public void tearDown() {
+        if (envMockedStatic != null) {
+            envMockedStatic.close();
+            envMockedStatic = null;
+        }
+    }
 
     @Test
     public void testGetHudiSchemaWithCleanCommit() throws IOException {
@@ -159,17 +169,6 @@ public class HudiUtilsTest {
         File meta = new File(hudiTable + "/.hoodie");
         Assert.assertTrue(meta.mkdirs());
 
-        new MockUp<HMSExternalTable>(HMSExternalTable.class) {
-            @Mock
-            public org.apache.hadoop.hive.metastore.api.Table getRemoteTable() {
-                Table table = new Table();
-                StorageDescriptor storageDescriptor = new StorageDescriptor();
-                storageDescriptor.setLocation("file://" + hudiTable.toAbsolutePath());
-                table.setSd(storageDescriptor);
-                return table;
-            }
-        };
-
         // 2. generate properties and commit
         File prop = new File(meta + "/hoodie.properties");
         Files.write(prop.toPath(), propContent.getBytes());
@@ -177,13 +176,18 @@ public class HudiUtilsTest {
         Files.write(commit1.toPath(), commitContent1.getBytes());
 
         // 3. now, we can get the schema from this table.
-        HMSExternalCatalog catalog = new HMSExternalCatalog(10001, "hudi_ut", null, Maps.newHashMap(), "");
+        HMSExternalCatalog catalog = Mockito.spy(new HMSExternalCatalog(10001, "hudi_ut", null, Maps.newHashMap(), ""));
         Env env = mockCurrentEnvWithCatalog(catalog);
         Assert.assertNotNull(env);
         env.getExtMetaCacheMgr().prepareCatalogByEngine(catalog.getId(), HudiExternalMetaCache.ENGINE,
                 catalog.getProperties());
-        HMSExternalDatabase db = new HMSExternalDatabase(catalog, 1, "db", "db");
-        HMSExternalTable hmsExternalTable = new HMSExternalTable(2, "tb", "tb", catalog, db);
+        HMSExternalDatabase db = Mockito.spy(new HMSExternalDatabase(catalog, 1, "db", "db"));
+        HMSExternalTable hmsExternalTable = Mockito.spy(new HMSExternalTable(2, "tb", "tb", catalog, db));
+        Table remoteTable = new Table();
+        StorageDescriptor storageDescriptor = new StorageDescriptor();
+        storageDescriptor.setLocation("file://" + hudiTable.toAbsolutePath());
+        remoteTable.setSd(storageDescriptor);
+        Mockito.doReturn(remoteTable).when(hmsExternalTable).getRemoteTable();
         mockCatalogLookup(catalog, db, hmsExternalTable);
         HiveMetaStoreClientHelper.getHudiTableSchema(hmsExternalTable, new boolean[] {false}, "20241219214518880");
 
@@ -212,33 +216,22 @@ public class HudiUtilsTest {
     private Env mockCurrentEnvWithCatalog(HMSExternalCatalog catalog) {
         CatalogMgr catalogMgr = new TestingCatalogMgr(catalog);
         Env env = new TestingEnv(catalogMgr);
-        new MockUp<Env>() {
-            @Mock
-            Env getCurrentEnv() {
-                return env;
-            }
-        };
+        envMockedStatic = Mockito.mockStatic(Env.class);
+        envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
         return env;
     }
 
     private void mockCatalogLookup(HMSExternalCatalog catalog, HMSExternalDatabase db, HMSExternalTable table) {
-        new MockUp<HMSExternalCatalog>(HMSExternalCatalog.class) {
-            @Mock
-            public HMSExternalDatabase getDbNullable(String dbName) {
-                return "db".equals(dbName) ? db : null;
-            }
+        Mockito.doAnswer(invocation -> {
+            String dbName = invocation.getArgument(0);
+            return "db".equals(dbName) ? db : null;
+        }).when(catalog).getDbNullable(Mockito.anyString());
+        Mockito.doReturn(new Configuration()).when(catalog).getConfiguration();
 
-            @Mock
-            public Configuration getConfiguration() {
-                return new Configuration();
-            }
-        };
-        new MockUp<HMSExternalDatabase>(HMSExternalDatabase.class) {
-            @Mock
-            public HMSExternalTable getTableNullable(String tableName) {
-                return "tb".equals(tableName) ? table : null;
-            }
-        };
+        Mockito.doAnswer(invocation -> {
+            String tableName = invocation.getArgument(0);
+            return "tb".equals(tableName) ? table : null;
+        }).when(db).getTableNullable(Mockito.anyString());
     }
 
     private static final class TestingCatalogMgr extends CatalogMgr {

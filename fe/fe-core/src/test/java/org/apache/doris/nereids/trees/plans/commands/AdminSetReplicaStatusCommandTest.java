@@ -22,51 +22,46 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.HashMap;
 import java.util.Map;
 
 public class AdminSetReplicaStatusCommandTest {
-    @Mocked
-    private Env env;
-    @Mocked
-    private AccessControllerManager accessControllerManager;
-    @Mocked
-    private ConnectContext connectContext;
+    private Env env = Mockito.mock(Env.class);
+    private AccessControllerManager accessControllerManager = Mockito.mock(AccessControllerManager.class);
+    private ConnectContext connectContext = Mockito.mock(ConnectContext.class);
 
-    private void runBefore() {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+    private MockedStatic<Env> mockedEnv;
+    private MockedStatic<ConnectContext> mockedConnectContext;
 
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
+    @BeforeEach
+    public void setUp() {
+        mockedEnv = Mockito.mockStatic(Env.class);
+        mockedConnectContext = Mockito.mockStatic(ConnectContext.class);
 
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+        mockedConnectContext.when(ConnectContext::get).thenReturn(connectContext);
 
-                connectContext.isSkipAuth();
-                minTimes = 0;
-                result = true;
+        Mockito.when(env.getAccessManager()).thenReturn(accessControllerManager);
+        Mockito.when(accessControllerManager.checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class),
+                Mockito.any(PrivPredicate.class))).thenReturn(true);
+    }
 
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = true;
-            }
-        };
+    @AfterEach
+    public void tearDown() {
+        mockedConnectContext.close();
+        mockedEnv.close();
     }
 
     @Test
     public void testValidateNormal() {
-        runBefore();
         Map<String, String> properties = new HashMap<>();
         properties.put("tablet_id", "1000");
         properties.put("backend_id", "1000");

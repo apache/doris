@@ -43,7 +43,6 @@
 #include "util/encryption_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class FunctionContext;
 } // namespace doris
 

@@ -22,7 +22,6 @@
 #include "core/value/bitmap_value.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 namespace detail {
 class Helper {
@@ -328,5 +327,4 @@ public:
 protected:
     phmap::flat_hash_map<std::string, BitmapValue> _bitmaps;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

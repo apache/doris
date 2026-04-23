@@ -29,7 +29,10 @@ import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Preconditions;
+import org.apache.commons.lang3.StringUtils;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -41,6 +44,14 @@ import java.util.UUID;
 public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunction {
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final String URI = "http://127.0.0.1:CDC_CLIENT_PORT/api/fetchRecordStream";
+    private static final String ENABLE_CDC_CLIENT_KEY = "enable_cdc_client";
+    private static final String HTTP_ENABLE_RANGE_REQUEST_KEY = "http.enable.range.request";
+    private static final String HTTP_ENABLE_CHUNK_RESPONSE_KEY = "http.enable.chunk.response";
+    private static final String HTTP_METHOD_KEY = "http.method";
+    private static final String HTTP_PAYLOAD_KEY = "http.payload";
+    public static final String JOB_ID_KEY = "job.id";
+    public static final String TASK_ID_KEY = "task.id";
+    public static final String META_KEY = "meta";
 
     public CdcStreamTableValuedFunction(Map<String, String> properties) throws AnalysisException {
         validate(properties);
@@ -51,24 +62,34 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
         Map<String, String> copyProps = new HashMap<>(properties);
         copyProps.put("format", "json");
         super.parseCommonProperties(copyProps);
-        this.processedParams.put("enable_cdc_client", "true");
-        this.processedParams.put("uri", URI);
-        this.processedParams.put("http.enable.range.request", "false");
-        this.processedParams.put("http.enable.chunk.response", "true");
-        this.processedParams.put("http.method", "POST");
+        this.processedParams.put(ENABLE_CDC_CLIENT_KEY, "true");
+        this.processedParams.put(URI_KEY, URI);
+        this.processedParams.put(HTTP_ENABLE_RANGE_REQUEST_KEY, "false");
+        this.processedParams.put(HTTP_ENABLE_CHUNK_RESPONSE_KEY, "true");
+        this.processedParams.put(HTTP_METHOD_KEY, "POST");
 
         String payload = generateParams(properties);
-        this.processedParams.put("http.payload", payload);
+        this.processedParams.put(HTTP_PAYLOAD_KEY, payload);
         this.backendConnectProperties.putAll(processedParams);
         generateFileStatus();
     }
 
     private String generateParams(Map<String, String> properties) throws AnalysisException {
         FetchRecordRequest recordRequest = new FetchRecordRequest();
-        recordRequest.setJobId(UUID.randomUUID().toString().replace("-", ""));
+        String defaultJobId = UUID.randomUUID().toString().replace("-", "");
+        recordRequest.setJobId(properties.getOrDefault(JOB_ID_KEY, defaultJobId));
         recordRequest.setDataSource(properties.get(DataSourceConfigKeys.TYPE));
         recordRequest.setConfig(properties);
         try {
+            // for tvf with job
+            if (properties.containsKey(TASK_ID_KEY)) {
+                recordRequest.setTaskId(properties.remove(TASK_ID_KEY));
+                String meta = properties.remove(META_KEY);
+                Preconditions.checkArgument(StringUtils.isNotEmpty(meta), "meta is required when task.id is provided");
+                Map<String, Object> metaMap = objectMapper.readValue(meta, new TypeReference<Map<String, Object>>() {});
+                recordRequest.setMeta(metaMap);
+            }
+
             return objectMapper.writeValueAsString(recordRequest);
         } catch (IOException e) {
             LOG.warn("Failed to serialize fetch record request", e);

@@ -19,9 +19,10 @@
 # Shared JuiceFS helper functions used by build and docker scripts.
 
 JUICEFS_DEFAULT_VERSION="${JUICEFS_DEFAULT_VERSION:-1.3.1}"
+MAVEN_REPOSITORY_URL="${MAVEN_REPOSITORY_URL:-https://repo1.maven.org/maven2}"
 JUICEFS_THIRDPARTY_REPOSITORY_URL="${JUICEFS_THIRDPARTY_REPOSITORY_URL:-}"
 JUICEFS_DEFAULT_THIRDPARTY_REPOSITORY_URL="${JUICEFS_DEFAULT_THIRDPARTY_REPOSITORY_URL:-}"
-JUICEFS_HADOOP_MAVEN_REPO="${JUICEFS_HADOOP_MAVEN_REPO:-https://repo1.maven.org/maven2/io/juicefs/juicefs-hadoop}"
+JUICEFS_HADOOP_MAVEN_REPO="${JUICEFS_HADOOP_MAVEN_REPO:-${MAVEN_REPOSITORY_URL}/io/juicefs/juicefs-hadoop}"
 JUICEFS_CLI_RELEASE_REPO="${JUICEFS_CLI_RELEASE_REPO:-https://github.com/juicedata/juicefs/releases/download}"
 
 juicefs_default_thirdparty_repository_url() {

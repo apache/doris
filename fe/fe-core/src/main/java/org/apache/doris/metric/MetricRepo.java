@@ -265,6 +265,14 @@ public final class MetricRepo {
     public static AutoMappedMetric<LongCounterMetric> COUNTER_AGENT_TASK_TOTAL;
     public static AutoMappedMetric<LongCounterMetric> COUNTER_AGENT_TASK_RESEND_TOTAL;
 
+    // TSO
+    public static LongCounterMetric COUNTER_TSO_CLOCK_DRIFT_DETECTED;
+    public static LongCounterMetric COUNTER_TSO_CLOCK_BACKWARD_DETECTED;
+    public static LongCounterMetric COUNTER_TSO_CLOCK_CALCULATED;
+    public static LongCounterMetric COUNTER_TSO_CLOCK_UPDATED;
+    public static LongCounterMetric COUNTER_TSO_CLOCK_UPDATE_FAILED;
+    public static LongCounterMetric COUNTER_TSO_CLOCK_GET_SUCCESS;
+
     private static Map<Pair<EtlJobType, JobState>, Long> loadJobNum = Maps.newHashMap();
 
     private static final ScheduledThreadPoolExecutor metricTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
@@ -1062,6 +1070,26 @@ public final class MetricRepo {
                 new LongCounterMetric("agent_task_total", MetricUnit.NOUNIT, "total agent task"));
         COUNTER_AGENT_TASK_RESEND_TOTAL = addLabeledMetrics("task", () ->
                 new LongCounterMetric("agent_task_resend_total", MetricUnit.NOUNIT, "total agent task resend"));
+
+        // TSO
+        COUNTER_TSO_CLOCK_DRIFT_DETECTED = new LongCounterMetric("tso_clock_drift_detected", MetricUnit.NOUNIT,
+                "counter of tso clock drift detected");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_TSO_CLOCK_DRIFT_DETECTED);
+        COUNTER_TSO_CLOCK_BACKWARD_DETECTED = new LongCounterMetric("tso_clock_backward_detected", MetricUnit.NOUNIT,
+                "counter of tso clock backward detected");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_TSO_CLOCK_BACKWARD_DETECTED);
+        COUNTER_TSO_CLOCK_CALCULATED = new LongCounterMetric("tso_clock_calculated", MetricUnit.NOUNIT,
+                "counter of tso clock calculated");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_TSO_CLOCK_CALCULATED);
+        COUNTER_TSO_CLOCK_UPDATED = new LongCounterMetric("tso_clock_updated", MetricUnit.NOUNIT,
+                "counter of tso clock updated");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_TSO_CLOCK_UPDATED);
+        COUNTER_TSO_CLOCK_UPDATE_FAILED = new LongCounterMetric("tso_clock_update_failed", MetricUnit.NOUNIT,
+                "counter of tso clock update failed");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_TSO_CLOCK_UPDATE_FAILED);
+        COUNTER_TSO_CLOCK_GET_SUCCESS = new LongCounterMetric("tso_clock_get_success", MetricUnit.NOUNIT,
+                "counter of tso clock get success");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_TSO_CLOCK_GET_SUCCESS);
 
         // init system metrics
         initSystemMetrics();

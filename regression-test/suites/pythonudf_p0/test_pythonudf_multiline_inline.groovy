@@ -18,7 +18,7 @@
 suite("test_pythonudf_multiline_inline") {
     // Test complex multi-line inline Python code
     
-    def runtime_version = "3.8.10"
+    def runtime_version = getPythonUdfRuntimeVersion()
     try {
         // Test 1: Inline code with helper functions
         sql """ DROP FUNCTION IF EXISTS py_complex_calculation(INT, INT); """

@@ -27,8 +27,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
-
 void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topic_info_list) {
     std::set<uint64_t> current_wg_ids;
     bool is_set_workload_group_info = false;
@@ -87,5 +85,4 @@ void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topi
     _exec_env->workload_group_mgr()->delete_workload_group_by_ids(current_wg_ids);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

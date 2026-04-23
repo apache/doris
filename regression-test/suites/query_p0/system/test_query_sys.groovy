@@ -43,6 +43,7 @@ suite("test_query_sys", "query,p0") {
     sql "select pi();"
     sql "select e();"
     sql "select sleep(2);"
+    sql "select sleep('1.1');"
     sql "select sleep(null);"
     sql "select last_query_id();"
     sql "select LAST_QUERY_ID();"
@@ -54,6 +55,26 @@ suite("test_query_sys", "query,p0") {
     test {
         sql "select * from http_stream('format'='csv');"
         exception "No Alive backends"
+    }
+
+    test {
+        sql "select random(random());"
+        exception "The param of rand function must be literal"
+    }
+
+    sql """
+        CREATE TABLE IF NOT EXISTS `test_random` (
+        fcst_emp varchar(128) NOT NULL
+        ) ENGINE=OLAP
+        DISTRIBUTED BY HASH(`fcst_emp`)
+        PROPERTIES(
+        "replication_num" = "1",
+        "compression" = "LZ4" );
+    """
+    sql """ insert into test_random values('123,1233,4123,3131'); """
+    test {
+        sql "select random(1,array_size(split_by_string(fcst_emp,','))) from test_random;"
+        exception "The param of rand function must be literal"
     }
 
     // `workload_group_resource_usage` will be refresh 30s after BE startup so sleep 30s to get a stable result

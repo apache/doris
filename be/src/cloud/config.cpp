@@ -20,7 +20,6 @@
 #include "common/status.h"
 
 namespace doris::config {
-#include "common/compile_check_begin.h"
 
 DEFINE_String(deploy_mode, "");
 DEFINE_mString(cloud_unique_id, "");
@@ -173,5 +172,4 @@ DEFINE_mInt64(cache_read_from_peer_expired_seconds, "-1");
 DEFINE_mBool(enable_file_cache_write_base_compaction_index_only, "false");
 DEFINE_mBool(enable_file_cache_write_cumu_compaction_index_only, "false");
 
-#include "common/compile_check_end.h"
 } // namespace doris::config

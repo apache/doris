@@ -29,7 +29,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 static const int MAX_WARNINGS = 1000;
 
@@ -151,5 +150,4 @@ StringRef FunctionContext::create_temp_string_val(int64_t len) {
     return StringRef((uint8_t*)_string_result.c_str(), len);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

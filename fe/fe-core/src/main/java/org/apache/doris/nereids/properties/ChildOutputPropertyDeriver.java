@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFun
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
@@ -221,6 +222,18 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             default:
                 throw new RuntimeException("Could not derive output properties for agg phase: " + agg.getAggPhase());
         }
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalBucketedHashAggregate(
+            PhysicalBucketedHashAggregate<? extends Plan> agg, PlanContext context) {
+        Preconditions.checkState(childrenOutputProperties.size() == 1);
+        // Although bucketed agg internally re-distributes data into 256 buckets by
+        // group-by keys (so the output is "complete" per group), we cannot claim
+        // EXECUTION_BUCKETED distribution because the 256-bucket hash function differs
+        // from the shuffle hash function. Downstream operators expecting shuffle-compatible
+        // distribution would be incorrect. Preserve distribution ANY.
+        return PhysicalProperties.ANY;
     }
 
     @Override

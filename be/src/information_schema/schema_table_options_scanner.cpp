@@ -27,7 +27,6 @@
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 std::vector<SchemaScanner::ColumnDesc> SchemaTableOptionsScanner::_s_tbls_columns = {
         {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringRef), true},

@@ -25,7 +25,6 @@
 #include "exprs/vectorized_agg_fn.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* parent)
         : PipelineXLocalState<AnalyticSharedState>(state, parent) {}

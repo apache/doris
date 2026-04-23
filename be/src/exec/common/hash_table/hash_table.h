@@ -30,7 +30,6 @@
 #include "common/status.h"
 #include "core/types.h"
 #include "runtime/runtime_profile.h"
-#include "util/io_helper.h"
 
 /** NOTE HashTable could only be used for memmoveable (position independent) types.
   * Example: std::string is not position independent in libstdc++ with C++11 ABI or in libc++.
@@ -45,7 +44,6 @@
   *  Another example: for an approximate calculation of the number of unique visitors, there is a hash table for UniquesHashSet.
   *  It has the concept of "degree". At each overflow, cells with keys that do not divide by the corresponding power of the two are deleted.
   */
-#include "common/compile_check_begin.h"
 struct HashTableNoState {
     /// Serialization, in binary and text form.
     void write(doris::BufferWritable&) const {}
@@ -1079,4 +1077,3 @@ private:
         }
     }
 };
-#include "common/compile_check_end.h"

@@ -32,7 +32,6 @@
 #include "util/sse_util.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // namespace ErrorCodes
 // {
 //     extern const int BAD_ARGUMENTS;
@@ -416,5 +415,4 @@ struct LibCASCIICaseInsensitiveStringSearcher : public StringSearcherBase {
         return search(haystack, haystack + haystack_size);
     }
 };
-#include "common/compile_check_end.h"
 } // namespace doris

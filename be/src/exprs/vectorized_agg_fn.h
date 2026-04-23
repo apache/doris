@@ -31,7 +31,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class RuntimeState;
 class SlotDescriptor;
@@ -152,5 +151,4 @@ private:
     std::vector<const IColumn*> _agg_columns;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

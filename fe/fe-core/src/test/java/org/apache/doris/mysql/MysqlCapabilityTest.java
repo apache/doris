@@ -44,9 +44,12 @@ public class MysqlCapabilityTest {
     public void testDefaultFlags() {
         MysqlCapability capability = MysqlCapability.DEFAULT_CAPABILITY;
         Assert.assertEquals("CLIENT_LONG_FLAG | CLIENT_CONNECT_WITH_DB | CLIENT_LOCAL_FILES | CLIENT_PROTOCOL_41"
-                + " | CLIENT_SECURE_CONNECTION | CLIENT_PLUGIN_AUTH | CLIENT_DEPRECATE_EOF",
+                + " | CLIENT_SECURE_CONNECTION | CLIENT_PLUGIN_AUTH | CLIENT_CONNECT_ATTRS"
+                + " | CLIENT_PLUGIN_AUTH_LENENC_CLIENT_DATA | CLIENT_DEPRECATE_EOF",
                 capability.toString());
         Assert.assertTrue(capability.supportClientLocalFile());
+        Assert.assertTrue(capability.isConnectAttrs());
+        Assert.assertTrue(capability.isPluginAuthDataLengthEncoded());
         Assert.assertTrue(capability.isDeprecatedEOF());
     }
 }

@@ -8,6 +8,6 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------filter(( not (MobilePhoneModel = '')))
+----------------filter(( not (length(MobilePhoneModel) = 0)))
 ------------------PhysicalOlapScan[hits]
 

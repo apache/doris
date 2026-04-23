@@ -30,7 +30,6 @@
 #include "util/stopwatch.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 int64_t MemoryReclamation::revoke_tasks_memory(
         int64_t need_free_mem, const std::vector<std::shared_ptr<ResourceContext>>& resource_ctxs,
@@ -248,5 +247,4 @@ void MemoryReclamation::je_purge_dirty_pages() {
 #endif
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -30,7 +30,6 @@
 #include "util/slice.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 Status BoolRLEDecoder::set_data(Slice* slice) {
     _data = slice;
     _num_bytes = slice->size;
@@ -106,6 +105,5 @@ Status BoolRLEDecoder::_decode_values(MutableColumnPtr& doris_column, DataTypePt
     }
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris

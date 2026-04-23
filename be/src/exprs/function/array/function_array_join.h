@@ -27,7 +27,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 struct NameArrayJoin {
     static constexpr auto name = "array_join";
 };
@@ -167,5 +166,4 @@ private:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

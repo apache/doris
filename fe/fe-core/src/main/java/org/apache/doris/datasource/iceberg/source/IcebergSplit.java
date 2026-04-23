@@ -25,11 +25,13 @@ import lombok.Data;
 import org.apache.iceberg.DeleteFile;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
 @Data
 public class IcebergSplit extends FileSplit {
+    private static final LocationPath DUMMY_PATH = LocationPath.of("/dummyPath");
 
     // Doris will convert the schema in FileSystem to achieve the function of natively reading files.
     // For example, s3a:// will be converted to s3://.
@@ -49,6 +51,7 @@ public class IcebergSplit extends FileSplit {
     private String partitionDataJson = null;
     private Long firstRowId = null;
     private Long lastUpdatedSequenceNumber = null;
+    private String serializedSplit;
 
     // File path will be changed if the file is modified, so there's no need to get modification time.
     public IcebergSplit(LocationPath file, long start, long length, long fileLength, String[] hosts,
@@ -65,5 +68,14 @@ public class IcebergSplit extends FileSplit {
         this.deleteFiles = deleteFiles;
         this.deleteFileFilters = deleteFileFilters;
         this.selfSplitWeight += deleteFileFilters.stream().mapToLong(IcebergDeleteFileFilter::getFilesize).sum();
+    }
+
+    public static IcebergSplit newSysTableSplit(String serializedSplit, long rowCount) {
+        IcebergSplit split = new IcebergSplit(DUMMY_PATH, 0, 0, 0, null, null,
+                Collections.emptyMap(),
+                Collections.emptyList(), DUMMY_PATH.toStorageLocation().toString());
+        split.setSerializedSplit(serializedSplit);
+        split.setSelfSplitWeight(Math.max(rowCount, 1L));
+        return split;
     }
 }

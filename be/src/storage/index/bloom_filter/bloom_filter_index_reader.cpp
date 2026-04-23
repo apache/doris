@@ -31,7 +31,6 @@
 #include "util/debug_points.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 Status BloomFilterIndexReader::load(bool use_page_cache, bool kept_in_memory,
                                     OlapReaderStatistics* index_load_stats) {
     // TODO yyq: implement a new once flag to avoid status construct.
@@ -86,4 +85,3 @@ Status BloomFilterIndexIterator::read_bloom_filter(rowid_t ordinal,
 }
 
 } // namespace doris::segment_v2
-#include "common/compile_check_end.h"

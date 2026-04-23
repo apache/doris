@@ -18,6 +18,7 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.thrift.TFileType;
 
 import lombok.Getter;
@@ -63,6 +64,11 @@ public enum SchemaTypeMapper {
     JFS("jfs", StorageProperties.Type.HDFS, FileSystemType.HDFS, TFileType.FILE_HDFS),
     VIEWFS("viewfs", StorageProperties.Type.HDFS, FileSystemType.HDFS, TFileType.FILE_HDFS),
     FILE("file", StorageProperties.Type.LOCAL, FileSystemType.FILE, TFileType.FILE_LOCAL),
+    // OSS-HDFS (Alibaba Cloud OSS HDFS-compatible interface) shares the "oss://" URI scheme
+    // with standard OSS. Because the static SCHEMA_TO_TYPE_MAP is built by iterating enum values,
+    // the later OSS entry overwrites OSS_HDFS for scheme-based lookups. OSS_HDFS catalogs are
+    // identified via OSSHdfsProperties at catalog initialization time, not via scheme routing.
+    // TODO: assign a distinct scheme (e.g. "oss-hdfs://") to avoid this collision.
     OSS_HDFS("oss", StorageProperties.Type.OSS_HDFS, FileSystemType.HDFS, TFileType.FILE_HDFS),
     OSS("oss", StorageProperties.Type.OSS, FileSystemType.S3, TFileType.FILE_S3),
     OBS("obs", StorageProperties.Type.OBS, FileSystemType.S3, TFileType.FILE_S3),

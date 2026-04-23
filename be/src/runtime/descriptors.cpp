@@ -46,7 +46,6 @@
 #include "util/string_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 const int RowDescriptor::INVALID_IDX = -1;
 
 SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
@@ -742,5 +741,4 @@ std::string DescriptorTbl::debug_string() const {
 
     return out.str();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

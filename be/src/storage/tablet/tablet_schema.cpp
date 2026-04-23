@@ -55,7 +55,6 @@
 #include "util/json/path_in_data.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
     switch (primitiveType) {
     case PrimitiveType::INVALID_TYPE:
@@ -128,8 +127,6 @@ FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
         return FieldType::OLAP_FIELD_TYPE_IPV4;
     case PrimitiveType::TYPE_IPV6:
         return FieldType::OLAP_FIELD_TYPE_IPV6;
-    case PrimitiveType::TYPE_LAMBDA_FUNCTION:
-        return FieldType::OLAP_FIELD_TYPE_UNKNOWN; // Not implemented
     case PrimitiveType::TYPE_AGG_STATE:
         return FieldType::OLAP_FIELD_TYPE_AGG_STATE;
     default:
@@ -1983,5 +1980,4 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
 bool operator!=(const TabletSchema& a, const TabletSchema& b) {
     return !(a == b);
 }
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -24,7 +24,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class AggSinkOperatorX;
 
 class AggSinkLocalState : public PipelineXSinkLocalState<AggSharedState> {
@@ -164,6 +163,9 @@ public:
                            : DataSinkOperatorX<AggSinkLocalState>::required_data_distribution(
                                      state);
         }
+        if (!_needs_finalize && !state->enable_local_exchange_before_agg()) {
+            return DataSinkOperatorX<AggSinkLocalState>::required_data_distribution(state);
+        }
         return _is_colocate && _require_bucket_distribution
                        ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                        : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
@@ -236,4 +238,3 @@ protected:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

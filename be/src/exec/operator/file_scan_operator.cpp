@@ -30,7 +30,6 @@
 #include "storage/tablet/tablet_manager.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 PushDownType FileScanLocalState::_should_push_down_binary_predicate(
         VectorizedFnCall* fn_call, VExprContext* expr_ctx, Field& constant_val,

@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.iceberg.fileio;
 
-import org.apache.doris.fs.io.DorisInputStream;
+import org.apache.doris.filesystem.DorisInputStream;
 
 import org.apache.iceberg.io.SeekableInputStream;
 
@@ -52,7 +52,7 @@ public class DelegateSeekableInputStream extends SeekableInputStream {
      */
     @Override
     public long getPos() throws IOException {
-        return stream.getPosition();
+        return stream.getPos();
     }
 
     /**

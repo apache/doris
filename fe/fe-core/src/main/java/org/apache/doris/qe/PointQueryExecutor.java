@@ -22,6 +22,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Column;
@@ -225,7 +226,7 @@ public class PointQueryExecutor implements CoordInterface {
                 if (!colType.equals(literalExpr.getType())
                         && !colType.matchesType(literalExpr.getType())) {
                     try {
-                        literalExpr = LiteralExpr.create(
+                        literalExpr = LiteralExprUtils.createLiteral(
                                 ((LiteralExpr) literalExpr).getStringValue(), colType);
                     } catch (org.apache.doris.common.AnalysisException e) {
                         throw new TException("Failed to re-type literal for key column "

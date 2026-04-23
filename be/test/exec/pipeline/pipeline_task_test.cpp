@@ -69,12 +69,9 @@ public:
 private:
     void _build_fragment_context() {
         int fragment_id = 0;
-        _context = std::make_shared<PipelineFragmentContext>(
-                _query_id, TPipelineFragmentParams(), _query_ctx, ExecEnv::GetInstance(),
-                empty_function,
-                std::bind<Status>(std::mem_fn(&FragmentMgr::trigger_pipeline_context_report),
-                                  ExecEnv::GetInstance()->fragment_mgr(), std::placeholders::_1,
-                                  std::placeholders::_2));
+        _context = std::make_shared<PipelineFragmentContext>(_query_id, TPipelineFragmentParams(),
+                                                             _query_ctx, ExecEnv::GetInstance(),
+                                                             empty_function);
         _runtime_state = std::make_unique<MockRuntimeState>(
                 _query_id, fragment_id, _query_options, _query_ctx->query_globals,
                 ExecEnv::GetInstance(), _query_ctx.get());
@@ -479,13 +476,84 @@ TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION) {
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         EXPECT_GT(task->_execution_dependencies.size(), 1);
     }
+    // Test normal LEGAL_STATE_TRANSITION table (with _wake_up_early = false).
+    task->_wake_up_early = false;
     for (int i = 0; i < task->LEGAL_STATE_TRANSITION.size(); i++) {
         auto target = (PipelineTask::State)i;
         for (int j = 0; j < task->LEGAL_STATE_TRANSITION.size(); j++) {
-            task->_exec_state = (PipelineTask::State)j;
+            auto from = (PipelineTask::State)j;
+            task->_exec_state = from;
             EXPECT_EQ(task->_state_transition(target).ok(),
-                      task->LEGAL_STATE_TRANSITION[i].contains((PipelineTask::State)j));
+                      task->LEGAL_STATE_TRANSITION[i].contains(from));
         }
+    }
+
+    // Test WAKE_UP_EARLY_LEGAL_STATE_TRANSITION table.
+    task->_wake_up_early = true;
+    for (int i = 0; i < task->WAKE_UP_EARLY_LEGAL_STATE_TRANSITION.size(); i++) {
+        auto target = (PipelineTask::State)i;
+        for (int j = 0; j < task->WAKE_UP_EARLY_LEGAL_STATE_TRANSITION.size(); j++) {
+            auto from = (PipelineTask::State)j;
+            task->_exec_state = from;
+            EXPECT_EQ(task->_state_transition(target).ok(),
+                      task->WAKE_UP_EARLY_LEGAL_STATE_TRANSITION[i].contains(from));
+        }
+    }
+
+    // FINISHED→RUNNABLE under wake_up_early is legal but no-op: state stays FINISHED.
+    task->_exec_state = PipelineTask::State::FINISHED;
+    EXPECT_TRUE(task->_state_transition(PipelineTask::State::RUNNABLE).ok());
+    EXPECT_EQ(task->_exec_state, PipelineTask::State::FINISHED);
+
+    // FINALIZED→RUNNABLE under wake_up_early is legal but no-op: state stays FINALIZED.
+    task->_exec_state = PipelineTask::State::FINALIZED;
+    EXPECT_TRUE(task->_state_transition(PipelineTask::State::RUNNABLE).ok());
+    EXPECT_EQ(task->_exec_state, PipelineTask::State::FINALIZED);
+
+    // BLOCKED→FINISHED under wake_up_early does transition.
+    task->_exec_state = PipelineTask::State::BLOCKED;
+    EXPECT_TRUE(task->_state_transition(PipelineTask::State::FINISHED).ok());
+    EXPECT_EQ(task->_exec_state, PipelineTask::State::FINISHED);
+    task->_wake_up_early = false;
+
+    // Test that wake_up() succeeds when the task has already finished (delayed wake_up race).
+    // _state_transition(RUNNABLE) is a no-op, and wake_up() must NOT re-submit the task to the
+    // scheduler. Submitting a finalized task causes SIGSEGV in is_blockable() because _sink is null.
+    {
+        task->_wake_up_early = true;
+        _task_scheduler->reset_submit_count();
+        std::mutex mtx;
+        task->_exec_state = PipelineTask::State::FINISHED;
+        auto dep = std::make_shared<Dependency>(0, 0, "test_dep", true);
+        task->_blocked_dep = dep.get();
+        std::unique_lock<std::mutex> lc(mtx);
+        task->wake_up(dep.get(), lc);
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::FINISHED);
+        EXPECT_EQ(_task_scheduler->submit_count(), 0);
+    }
+    {
+        _task_scheduler->reset_submit_count();
+        std::mutex mtx;
+        task->_exec_state = PipelineTask::State::FINALIZED;
+        auto dep = std::make_shared<Dependency>(0, 0, "test_dep", true);
+        task->_blocked_dep = dep.get();
+        std::unique_lock<std::mutex> lc(mtx);
+        task->wake_up(dep.get(), lc);
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::FINALIZED);
+        EXPECT_EQ(_task_scheduler->submit_count(), 0);
+        task->_wake_up_early = false;
+    }
+    // Positive test: wake_up() on a BLOCKED task DOES submit to the scheduler.
+    {
+        _task_scheduler->reset_submit_count();
+        std::mutex mtx;
+        task->_exec_state = PipelineTask::State::BLOCKED;
+        auto dep = std::make_shared<Dependency>(0, 0, "test_dep", true);
+        task->_blocked_dep = dep.get();
+        std::unique_lock<std::mutex> lc(mtx);
+        task->wake_up(dep.get(), lc);
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        EXPECT_EQ(_task_scheduler->submit_count(), 1);
     }
 }
 

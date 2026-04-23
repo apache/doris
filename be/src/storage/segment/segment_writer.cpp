@@ -77,7 +77,6 @@
 #include "util/simd/bits.h"
 namespace doris {
 namespace segment_v2 {
-#include "common/compile_check_begin.h"
 
 using namespace ErrorCode;
 using namespace KeyConsts;
@@ -629,6 +628,11 @@ Status SegmentWriter::append_block_with_partial_content(const Block* block, size
             _opts.rowset_ctx, _rsid_to_rowset, *_tablet_schema, full_block,
             use_default_or_null_flag, has_default_or_nullable,
             cast_set<uint32_t>(segment_start_pos), block));
+
+    if (_tablet_schema->num_variant_columns() > 0) {
+        RETURN_IF_ERROR(variant_util::parse_and_materialize_variant_columns(
+                full_block, *_tablet_schema, missing_cids));
+    }
 
     // convert block to row store format
     _serialize_block_to_row_column(full_block);
@@ -1249,8 +1253,6 @@ inline bool SegmentWriter::_is_mow() {
 inline bool SegmentWriter::_is_mow_with_cluster_key() {
     return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace segment_v2
 } // namespace doris

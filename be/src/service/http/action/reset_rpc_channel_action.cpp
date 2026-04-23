@@ -32,7 +32,6 @@
 #include "util/string_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 ResetRPCChannelAction::ResetRPCChannelAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
                                              TPrivilegeType::type type)
         : HttpHandlerWithAuth(exec_env, hier, type) {}
@@ -75,5 +74,4 @@ void ResetRPCChannelAction::handle(HttpRequest* req) {
         return;
     }
 }
-#include "common/compile_check_end.h"
 } // namespace doris

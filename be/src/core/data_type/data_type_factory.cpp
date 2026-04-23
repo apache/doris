@@ -69,7 +69,6 @@
 #include "storage/olap_common.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 DataTypePtr DataTypeFactory::create_data_type(const doris::StorageField& col_desc) {
     return create_data_type(col_desc.get_desc(), col_desc.is_nullable());
 }
@@ -457,7 +456,6 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
         nested = std::make_shared<DataTypeString>(len, primitive_type);
         break;
     case TYPE_BINARY:
-    case TYPE_LAMBDA_FUNCTION:
         nested = std::make_shared<DataTypeString>(len, TYPE_STRING);
         break;
     case TYPE_JSONB:

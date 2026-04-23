@@ -20,7 +20,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 template <typename LocalStateType>
 class JoinProbeOperatorX;
 template <typename SharedStateArg, typename Derived>
@@ -108,5 +107,4 @@ protected:
     const bool _short_circuit_for_null_in_build_side;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

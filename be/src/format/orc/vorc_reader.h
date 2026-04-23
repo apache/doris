@@ -82,7 +82,6 @@ class DataBuffer;
 } // namespace orc
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class ORCFileInputStream;
 
 struct LazyReadContext {
@@ -692,6 +691,10 @@ private:
     io::FileSystemProperties _system_properties;
     io::FileDescription _file_description;
     size_t _batch_size;
+    // Bytes-per-row estimate from the previous batch, used to pre-shrink _batch_size
+    // before reading so that oversized blocks are prevented from the current call onward.
+    // Zero means no prior data (first batch).
+    size_t _load_bytes_per_row = 0;
     int64_t _range_start_offset;
     int64_t _range_size;
     std::string _ctz;
@@ -932,5 +935,4 @@ private:
     const io::IOContext* _io_ctx = nullptr;
     RuntimeProfile* _profile = nullptr;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

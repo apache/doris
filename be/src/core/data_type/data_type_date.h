@@ -34,7 +34,6 @@
 #include "core/types.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class BufferWritable;
 class IColumn;
 
@@ -69,5 +68,4 @@ public:
         return std::make_shared<SerDeType>(nesting_level);
     }
 };
-#include "common/compile_check_end.h"
 } // namespace doris

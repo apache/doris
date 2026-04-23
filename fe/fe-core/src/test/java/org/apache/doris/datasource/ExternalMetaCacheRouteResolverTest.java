@@ -29,10 +29,11 @@ import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 
-import mockit.Mock;
-import mockit.MockUp;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -42,6 +43,16 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class ExternalMetaCacheRouteResolverTest {
+
+    private MockedStatic<Env> envMockedStatic;
+
+    @After
+    public void tearDown() {
+        if (envMockedStatic != null) {
+            envMockedStatic.close();
+            envMockedStatic = null;
+        }
+    }
 
     @Test
     public void testEngineAliasCompatibility() {
@@ -217,14 +228,13 @@ public class ExternalMetaCacheRouteResolverTest {
 
     private void mockCurrentCatalog(long catalogId,
             CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog) {
+        if (envMockedStatic != null) {
+            envMockedStatic.close();
+        }
         CatalogMgr catalogMgr = new TestingCatalogMgr(catalogId, catalog);
         Env env = new TestingEnv(catalogMgr);
-        new MockUp<Env>() {
-            @Mock
-            Env getCurrentEnv() {
-                return env;
-            }
-        };
+        envMockedStatic = Mockito.mockStatic(Env.class);
+        envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
     }
 
     private static final class TestingCatalogMgr extends CatalogMgr {

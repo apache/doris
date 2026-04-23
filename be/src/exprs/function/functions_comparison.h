@@ -42,7 +42,6 @@
 #include "storage/index/index_reader_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 /** Comparison functions: ==, !=, <, >, <=, >=.
   * The comparison functions always return 0 or 1 (UInt8).
@@ -601,7 +600,6 @@ public:
             return execute_num_type<TYPE_FLOAT>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_DOUBLE:
             return execute_num_type<TYPE_DOUBLE>(block, result, col_left_ptr, col_right_ptr);
-        case TYPE_TIME:
         case TYPE_TIMEV2:
             return execute_num_type<TYPE_TIMEV2>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_DECIMALV2:
@@ -623,5 +621,4 @@ public:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

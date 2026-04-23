@@ -30,10 +30,8 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
-#include "util/io_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 
 template <PrimitiveType T>
@@ -279,7 +277,7 @@ struct AggregateFunctionArrayAggData<T> {
 //ShowNull is just used to support array_agg because array_agg needs to display NULL
 //todo: Supports order by sorting for array_agg
 template <typename Data>
-class AggregateFunctionArrayAgg
+class AggregateFunctionArrayAgg final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionArrayAgg<Data>, true>,
           UnaryExpression,
           NotNullableAggregateFunction {
@@ -406,5 +404,3 @@ private:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

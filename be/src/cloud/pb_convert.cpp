@@ -24,7 +24,6 @@
 #include "common/logging.h"
 
 namespace doris::cloud {
-#include "common/compile_check_begin.h"
 
 RowsetMetaCloudPB doris_rowset_meta_to_cloud(const RowsetMetaPB& in) {
     RowsetMetaCloudPB out;
@@ -113,6 +112,9 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     if (in.has_job_id()) {
         out->set_job_id(in.job_id());
     }
+    if (in.has_commit_tso()) {
+        out->set_commit_tso(in.commit_tso());
+    }
 }
 
 void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
@@ -191,6 +193,9 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
     }
     if (in.has_job_id()) {
         out->set_job_id(in.job_id());
+    }
+    if (in.has_commit_tso()) {
+        out->set_commit_tso(in.commit_tso());
     }
 }
 
@@ -281,6 +286,9 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) 
     if (in.has_job_id()) {
         out->set_job_id(in.job_id());
     }
+    if (in.has_commit_tso()) {
+        out->set_commit_tso(in.commit_tso());
+    }
 }
 
 void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
@@ -358,6 +366,9 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
     }
     if (in.has_job_id()) {
         out->set_job_id(in.job_id());
+    }
+    if (in.has_commit_tso()) {
+        out->set_commit_tso(in.commit_tso());
     }
 }
 
@@ -906,6 +917,5 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
         out->set_encryption_algorithm(in.encryption_algorithm());
     }
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris::cloud

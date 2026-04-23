@@ -68,7 +68,6 @@
 #include "util/thrift_rpc_helper.h"
 
 namespace doris::cloud {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 void* run_bthread_work(void* arg) {
@@ -2375,5 +2374,4 @@ Status CloudMetaMgr::get_cluster_status(
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::cloud

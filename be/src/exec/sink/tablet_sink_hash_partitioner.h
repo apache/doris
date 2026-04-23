@@ -27,7 +27,6 @@
 #include "storage/tablet_info.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class TabletSinkHashPartitioner final : public PartitionerBase {
 public:
     TabletSinkHashPartitioner(uint32_t partition_count, int64_t txn_id,
@@ -82,6 +81,5 @@ private:
     mutable std::vector<HashValType> _hash_vals;
     mutable std::vector<bool> _skipped;
 };
-#include "common/compile_check_end.h"
 
 } // namespace doris

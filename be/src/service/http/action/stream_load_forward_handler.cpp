@@ -29,7 +29,6 @@
 #include "util/byte_buffer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 int StreamLoadForwardHandler::on_header(HttpRequest* req) {
     std::ostringstream params_info;
@@ -392,5 +391,4 @@ void StreamLoadForwardHandler::setup_forward_headers(HttpRequest* req,
                       evhttp_request_get_host(req->get_evhttp_request()));
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

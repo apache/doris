@@ -24,7 +24,6 @@
 #include "util/jni-util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 /**
  * VJniFormatTransformer is a VFileFormatTransformer implementation that delegates
@@ -73,5 +72,3 @@ private:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

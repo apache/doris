@@ -41,11 +41,9 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
-#include "util/io_helper.h"
 #include "util/var_int.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 template <PrimitiveType T, bool HasLimit>
 struct AggregateFunctionCollectSetData {
     static constexpr PrimitiveType PType = T;
@@ -394,7 +392,7 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
 };
 
 template <typename Data, bool HasLimit>
-class AggregateFunctionCollect
+class AggregateFunctionCollect final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>, true>,
           VarargsExpression,
           NotNullableAggregateFunction {
@@ -475,5 +473,3 @@ private:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

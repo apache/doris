@@ -23,6 +23,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "core/pod_array.h"
 #include "io/fs/file_handle_cache.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
@@ -66,7 +67,7 @@ private:
     // Called at the start of open() when enable_cdc_client=true.
     Status setup_cdc_client();
 
-    std::unique_ptr<char[]> _read_buffer;
+    PODArray<char> _read_buffer;
     static constexpr size_t READ_BUFFER_SIZE = 1 << 20; // 1MB
     // Default maximum file size for servers that don't support Range requests
     static constexpr size_t DEFAULT_MAX_REQUEST_SIZE = 100 << 20; // 100MB

@@ -22,14 +22,13 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.util.DebugPointUtil;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
@@ -38,10 +37,9 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Map;
@@ -83,37 +81,32 @@ public class TruncateTableCommandTest extends TestWithFeService {
     }
 
     @Test
-    public void testValidate(@Mocked AccessControllerManager accessManager) {
-        new Expectations() {
-            {
-                Env.getCurrentEnv().getAccessManager();
-                minTimes = 0;
-                result = accessManager;
-
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, PrivPredicate.LOAD);
-                minTimes = 0;
-                result = true;
-            }
-        };
+    public void testValidate() {
+        Env env = Env.getCurrentEnv();
+        AccessControllerManager spyAcm = Mockito.spy(env.getAccessManager());
+        Mockito.doReturn(true).when(spyAcm).checkTblPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.anyString(), Mockito.anyString(),
+                Mockito.anyString(), Mockito.eq(PrivPredicate.LOAD));
+        org.apache.doris.common.jmockit.Deencapsulation.setField(env, "accessManager", spyAcm);
 
         String truncateStr = "TRUNCATE TABLE internal.testcommand.case_sensitive_table_command PARTITION P20211008; \n";
 
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan plan = nereidsParser.parseSingle(truncateStr);
-        Assertions.assertTrue(plan instanceof TruncateTableCommand);
+        Assertions.assertInstanceOf(TruncateTableCommand.class, plan);
         Assertions.assertDoesNotThrow(() -> ((TruncateTableCommand) plan).validate(connectContext));
 
         // test no database
         TableNameInfo tableNameInfo = new TableNameInfo("internal", "", "test");
         TruncateTableCommand truncateTableCommand = new TruncateTableCommand(tableNameInfo, Optional.empty(), false);
         connectContext.setDatabase("");
-        Assertions.assertThrows(AnalysisException.class, () -> truncateTableCommand.validate(connectContext));
+        Assertions.assertThrows(RuntimeException.class, () -> truncateTableCommand.validate(connectContext));
         connectContext.setDatabase("test"); //reset database
 
         // test no table
         tableNameInfo = new TableNameInfo("internal", "testcommand", "");
         TruncateTableCommand truncateTableCommand1 = new TruncateTableCommand(tableNameInfo, Optional.empty(), false);
-        Assertions.assertThrows(AnalysisException.class, () -> truncateTableCommand1.validate(connectContext));
+        Assertions.assertThrows(RuntimeException.class, () -> truncateTableCommand1.validate(connectContext));
 
         // test no partition
         tableNameInfo = new TableNameInfo("internal", "testcommand", "test");

@@ -44,7 +44,6 @@ class IColumn;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 DataTypeVariant::DataTypeVariant(int32_t max_subcolumns_count, bool enable_doc_mode)
         : _max_subcolumns_count(max_subcolumns_count), _enable_doc_mode(enable_doc_mode) {

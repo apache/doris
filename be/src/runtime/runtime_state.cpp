@@ -56,7 +56,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
@@ -566,5 +565,4 @@ bool RuntimeState::low_memory_mode() const {
 void RuntimeState::set_id_file_map() {
     _id_file_map = _exec_env->get_id_manager()->add_id_file_map(_query_id, execution_timeout());
 }
-#include "common/compile_check_end.h"
 } // end namespace doris

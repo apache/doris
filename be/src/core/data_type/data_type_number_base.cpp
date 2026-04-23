@@ -41,13 +41,11 @@
 #include "core/types.h"
 #include "core/value/large_int_value.h"
 #include "exprs/function/cast/cast_to_string.h"
-#include "util/io_helper.h"
 #include "util/mysql_global.h"
 #include "util/string_parser.hpp"
 #include "util/to_string.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 #ifdef BE_TEST
 template <PrimitiveType T>
 std::string DataTypeNumberBase<T>::to_string(
@@ -55,7 +53,11 @@ std::string DataTypeNumberBase<T>::to_string(
     if constexpr (std::is_same<typename PrimitiveTypeTraits<T>::CppType, int128_t>::value ||
                   std::is_same<typename PrimitiveTypeTraits<T>::CppType, uint128_t>::value ||
                   std::is_same<typename PrimitiveTypeTraits<T>::CppType, UInt128>::value) {
-        return int128_to_string(value);
+        if constexpr (std::is_same<typename PrimitiveTypeTraits<T>::CppType, int128_t>::value) {
+            return CastToString::from_int128(value);
+        } else {
+            return CastToString::from_uint128(value);
+        }
     } else if constexpr (std::is_integral<typename PrimitiveTypeTraits<T>::CppType>::value) {
         return std::to_string(value);
     } else if constexpr (T == TYPE_DATETIME || T == TYPE_DATE) {
@@ -93,7 +95,7 @@ Field DataTypeNumberBase<T>::get_field(const TExprNode& node) const {
         return Field::create_field<T>(
                 typename PrimitiveTypeTraits<T>::CppType(node.int_literal.value));
     }
-    if constexpr (is_float_or_double(T) || T == TYPE_TIMEV2 || T == TYPE_TIME) {
+    if constexpr (is_float_or_double(T) || T == TYPE_TIMEV2) {
         return Field::create_field<T>(
                 typename PrimitiveTypeTraits<T>::CppType(node.float_literal.value));
     }
@@ -208,7 +210,6 @@ template class DataTypeNumberBase<TYPE_DATETIME>;
 template class DataTypeNumberBase<TYPE_DATETIMEV2>;
 template class DataTypeNumberBase<TYPE_IPV4>;
 template class DataTypeNumberBase<TYPE_IPV6>;
-template class DataTypeNumberBase<TYPE_TIME>;
 template class DataTypeNumberBase<TYPE_TIMEV2>;
 template class DataTypeNumberBase<TYPE_TIMESTAMPTZ>;
 

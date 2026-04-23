@@ -123,7 +123,11 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private int[] getProjected() {
-        return Arrays.stream(fields).mapToInt(paimonAllFieldNames::indexOf).toArray();
+        return Arrays.stream(fields).mapToInt(fieldName -> {
+            int index = paimonAllFieldNames.indexOf(fieldName);
+            Preconditions.checkArgument(index >= 0, "RequiredField %s not found in schema", fieldName);
+            return index;
+        }).toArray();
     }
 
     private List<Predicate> getPredicates() {

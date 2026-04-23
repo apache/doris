@@ -43,7 +43,6 @@ class FileWriter;
 using FileWriterPtr = std::unique_ptr<doris::io::FileWriter>;
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 /** Implementation of an IndexInput that reads from a portion of the
  *  compound file.
  */
@@ -412,4 +411,3 @@ void DorisCompoundReader::initialize(const io::IOContext* io_ctx) {
 }
 
 } // namespace doris::segment_v2
-#include "common/compile_check_end.h"

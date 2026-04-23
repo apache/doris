@@ -22,7 +22,6 @@
 #include "runtime/exec_env.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 void ThreadMemTrackerMgr::attach_limiter_tracker(
         const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
@@ -64,5 +63,4 @@ void ThreadMemTrackerMgr::detach_limiter_tracker() {
     _last_attach_snapshots_stack.pop_back();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

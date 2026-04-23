@@ -17,8 +17,6 @@
 
 suite("test_round") {
     sql "set enable_fold_constant_by_be=false;"
-    sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
 
     qt_select "SELECT round(123.123, 1.123);"
     qt_select """SELECT round(123.123, 1.123) FROM numbers("number"="10");"""
@@ -96,9 +94,6 @@ suite("test_round") {
     qt_select_fix """ SELECT round_bankers(col1, 6.234), round_bankers(col2, 6.234), round_bankers(col3, 6.234) FROM `${tableName}`; """
 
     sql """ DROP TABLE IF EXISTS `${tableName}` """
-
-    sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
 
     qt_nereids_round_arg1 "SELECT round(10.12345)"
     qt_nereids_round_arg2 "SELECT round(10.12345, 2)"

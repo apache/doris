@@ -30,7 +30,6 @@ class PValues;
 
 class IColumn;
 class Arena;
-#include "common/compile_check_begin.h"
 
 class DataTypeMapSerDe : public DataTypeSerDe {
 public:
@@ -123,5 +122,4 @@ private:
     DataTypeSerDeSPtr key_serde;
     DataTypeSerDeSPtr value_serde;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

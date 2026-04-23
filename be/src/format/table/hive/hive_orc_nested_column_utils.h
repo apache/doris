@@ -30,7 +30,6 @@ class Type;
 } // namespace orc
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class HiveOrcNestedColumnUtils {
 public:
@@ -39,5 +38,4 @@ public:
                                           std::set<uint64_t>& column_ids);
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

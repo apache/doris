@@ -24,7 +24,6 @@
 #include "format/parquet/schema_desc.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class FileMetaData {
 public:
     FileMetaData(tparquet::FileMetaData& metadata, size_t mem_size);
@@ -41,6 +40,5 @@ private:
     FieldDescriptor _schema;
     size_t _mem_size;
 };
-#include "common/compile_check_end.h"
 
 } // namespace doris

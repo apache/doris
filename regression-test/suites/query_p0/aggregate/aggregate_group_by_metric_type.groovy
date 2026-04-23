@@ -41,9 +41,6 @@ suite("aggregate_group_by_metric_type") {
         exception "${error_msg}"
     }
 
-    sql 'set enable_fallback_to_original_planner=false'
-    sql 'set enable_nereids_planner=true'
-
     test {
         sql "select distinct user_ids from test_group_by_hll_and_bitmap"
         exception "${error_msg}"
@@ -64,4 +61,13 @@ suite("aggregate_group_by_metric_type") {
         exception "${error_msg}"
     }
     sql "DROP TABLE test_group_by_hll_and_bitmap"
+
+    sql "DROP TABLE IF EXISTS test_group_by_array"
+    sql """
+        CREATE TABLE IF NOT EXISTS test_group_by_array (id int, c_array array<int>) ENGINE=OLAP DUPLICATE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1 properties("replication_num" = "1");
+        """
+    sql "insert into test_group_by_array values(1, [1,2,3])"
+
+    sql "DROP TABLE test_group_by_array"
 }

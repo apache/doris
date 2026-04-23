@@ -58,7 +58,6 @@
 #endif
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 #define TIME_FUNCTION_IMPL(CLASS, UNIT, FUNCTION)                                       \
     template <PrimitiveType PType>                                                      \
@@ -727,7 +726,6 @@ private:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris
 
 #if defined(__GNUC__) && (__GNUC__ >= 15)

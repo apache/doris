@@ -24,10 +24,13 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.datasource.property.storage.LocalProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TMetaScanRange;
@@ -306,9 +309,12 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
                                                      Map<String, String> storageParams) throws AnalysisException {
         List<TBrokerFileStatus> remoteFiles = new ArrayList<>();
         BrokerDesc brokerDesc = new BrokerDesc("ParquetMetaTvf", storageParams);
-        try {
-            BrokerUtil.parseFile(pattern, brokerDesc, remoteFiles);
-        } catch (UserException e) {
+        try (FileSystem fs = FileSystemFactory.getFileSystem(brokerDesc)) {
+            for (FileEntry e : fs.listFiles(Location.of(pattern))) {
+                remoteFiles.add(new TBrokerFileStatus(
+                        e.location().uri(), e.isDirectory(), e.length(), !e.isDirectory()));
+            }
+        } catch (UserException | java.io.IOException e) {
             throw new AnalysisException("Failed to expand glob pattern '" + pattern + "': "
                     + e.getMessage(), e);
         }

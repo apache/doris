@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.commands.BackupCommand.BackupContent
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.persist.gson.GsonUtilsBase;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -437,7 +438,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                     continue;
                 }
                 ((UploadTask) task).updateBrokerProperties(
-                        repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties());
+                        repo.getFileSystemDescriptor().getBackendConfigProperties());
                 AgentTaskQueue.updateTask(beId, TTaskType.UPLOAD, signature, task);
             }
             LOG.info("finished to update upload job properties. {}", this);
@@ -821,8 +822,8 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                 long signature = env.getNextId();
                 UploadTask task = new UploadTask(null, beId, signature, jobId, dbId, srcToDest,
                         brokers.get(0),
-                        repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties(),
-                        repo.getRemoteFileSystem().getStorageType(), repo.getLocation());
+                        repo.getFileSystemDescriptor().getBackendConfigProperties(),
+                        repo.getFileSystemDescriptor().getThriftStorageType(), repo.getLocation());
                 batchTask.addTask(task);
                 unfinishedTaskIds.put(signature, beId);
             }
@@ -1192,7 +1193,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
     public static BackupJob read(DataInput in) throws IOException {
         String json = Text.readString(in);
         if (AbstractJob.COMPRESSED_JOB_ID.equals(json)) {
-            return GsonUtils.fromJsonCompressed(in, BackupJob.class);
+            return GsonUtilsBase.fromJsonCompressed(in, BackupJob.class, GsonUtils.GSON);
         } else {
             return GsonUtils.GSON.fromJson(json, BackupJob.class);
         }

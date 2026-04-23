@@ -29,7 +29,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class Dependency;
 struct MultiCastSharedState;
@@ -128,5 +127,4 @@ private:
     // operator_profile of each source operator
     std::vector<RuntimeProfile*> _source_operator_profiles;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

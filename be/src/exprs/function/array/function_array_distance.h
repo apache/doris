@@ -21,11 +21,14 @@
 #include <faiss/utils/distances.h>
 #include <gen_cpp/Types_types.h>
 
+#include <optional>
+
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
@@ -115,97 +118,133 @@ public:
     // We want to make sure throw exception if input columns contain NULL.
     bool use_default_implementation_for_nulls() const override { return false; }
 
+    // Extract the ColumnArray from a column, unwrapping Nullable if present.
+    // Validates that no NULL values exist.
+    static const ColumnArray* _extract_array_column(const IColumn* col, const char* arg_name,
+                                                    const String& func_name) {
+        if (col->is_nullable()) {
+            if (col->has_null()) {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "{} for function {} cannot be null", arg_name, func_name);
+            }
+            auto nullable = assert_cast<const ColumnNullable*>(col);
+            return assert_cast<const ColumnArray*>(nullable->get_nested_column_ptr().get());
+        }
+        return assert_cast<const ColumnArray*>(col);
+    }
+
+    // Extract the ColumnFloat32 data from an array column, unwrapping Nullable if present.
+    // Validates that no NULL elements exist within the array.
+    static const ColumnFloat32* _extract_float_data(const ColumnArray* arr, const char* arg_name,
+                                                    const String& func_name) {
+        if (arr->get_data_ptr()->is_nullable()) {
+            if (arr->get_data_ptr()->has_null()) {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "{} for function {} cannot have null", arg_name, func_name);
+            }
+            auto nullable = assert_cast<const ColumnNullable*>(arr->get_data_ptr().get());
+            return assert_cast<const ColumnFloat32*>(nullable->get_nested_column_ptr().get());
+        }
+        return assert_cast<const ColumnFloat32*>(arr->get_data_ptr().get());
+    }
+
+    // Holds the extracted float data pointer and dimension for a const array argument,
+    // avoiding repeated per-row extraction.
+    struct ConstArrayInfo {
+        const float* data = nullptr;
+        ssize_t dim = 0;
+    };
+
+    // Try to extract const array info from a column. If the column is ColumnConst,
+    // extract the float data pointer and dimension once; otherwise return nullopt.
+    std::optional<ConstArrayInfo> _try_extract_const(const ColumnPtr& col,
+                                                     const char* arg_name) const {
+        if (!is_column_const(*col)) {
+            return std::nullopt;
+        }
+        auto const_col = assert_cast<const ColumnConst*>(col.get());
+        const IColumn* inner = const_col->get_data_column_ptr().get();
+        const ColumnArray* arr = _extract_array_column(inner, arg_name, get_name());
+        const ColumnFloat32* float_col = _extract_float_data(arr, arg_name, get_name());
+        ssize_t dim = static_cast<ssize_t>(float_col->size());
+        return ConstArrayInfo {float_col->get_data().data(), dim};
+    }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         const auto& arg1 = block.get_by_position(arguments[0]);
         const auto& arg2 = block.get_by_position(arguments[1]);
 
-        auto col1 = arg1.column->convert_to_full_column_if_const();
-        auto col2 = arg2.column->convert_to_full_column_if_const();
-        if (col1->size() != col2->size()) {
-            return Status::RuntimeError(
-                    fmt::format("function {} have different input array sizes: {} and {}",
-                                get_name(), col1->size(), col2->size()));
-        }
+        // Try to handle const columns without expanding them.
+        auto const_info1 = _try_extract_const(arg1.column, "First argument");
+        auto const_info2 = _try_extract_const(arg2.column, "Second argument");
 
+        // For non-const columns, expand and extract normally.
+        ColumnPtr materialized_col1, materialized_col2;
         const ColumnArray* arr1 = nullptr;
         const ColumnArray* arr2 = nullptr;
-
-        if (col1->is_nullable()) {
-            if (col1->has_null()) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "First argument for function {} cannot be null", get_name());
-            }
-            auto nullable1 = assert_cast<const ColumnNullable*>(col1.get());
-            arr1 = assert_cast<const ColumnArray*>(nullable1->get_nested_column_ptr().get());
-        } else {
-            arr1 = assert_cast<const ColumnArray*>(col1.get());
-        }
-
-        if (col2->is_nullable()) {
-            if (col2->has_null()) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "Second argument for function {} cannot be null",
-                                       get_name());
-            }
-            auto nullable2 = assert_cast<const ColumnNullable*>(col2.get());
-            arr2 = assert_cast<const ColumnArray*>(nullable2->get_nested_column_ptr().get());
-        } else {
-            arr2 = assert_cast<const ColumnArray*>(col2.get());
-        }
-
         const ColumnFloat32* float1 = nullptr;
         const ColumnFloat32* float2 = nullptr;
-        if (arr1->get_data_ptr()->is_nullable()) {
-            if (arr1->get_data_ptr()->has_null()) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "First argument for function {} cannot have null",
-                                       get_name());
-            }
-            auto nullable1 = assert_cast<const ColumnNullable*>(arr1->get_data_ptr().get());
-            float1 = assert_cast<const ColumnFloat32*>(nullable1->get_nested_column_ptr().get());
-        } else {
-            float1 = assert_cast<const ColumnFloat32*>(arr1->get_data_ptr().get());
+        const ColumnOffset64* offset1 = nullptr;
+        const ColumnOffset64* offset2 = nullptr;
+        const IColumn::Offsets64* offsets_data1 = nullptr;
+        const IColumn::Offsets64* offsets_data2 = nullptr;
+        const float* float_data1 = nullptr;
+        const float* float_data2 = nullptr;
+
+        if (!const_info1) {
+            materialized_col1 = arg1.column->convert_to_full_column_if_const();
+            arr1 = _extract_array_column(materialized_col1.get(), "First argument", get_name());
+            float1 = _extract_float_data(arr1, "First argument", get_name());
+            offset1 = assert_cast<const ColumnArray::ColumnOffsets*>(arr1->get_offsets_ptr().get());
+            offsets_data1 = &offset1->get_data();
+            float_data1 = float1->get_data().data();
         }
 
-        if (arr2->get_data_ptr()->is_nullable()) {
-            if (arr2->get_data_ptr()->has_null()) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "Second argument for function {} cannot have null",
-                                       get_name());
-            }
-            auto nullable2 = assert_cast<const ColumnNullable*>(arr2->get_data_ptr().get());
-            float2 = assert_cast<const ColumnFloat32*>(nullable2->get_nested_column_ptr().get());
-        } else {
-            float2 = assert_cast<const ColumnFloat32*>(arr2->get_data_ptr().get());
+        if (!const_info2) {
+            materialized_col2 = arg2.column->convert_to_full_column_if_const();
+            arr2 = _extract_array_column(materialized_col2.get(), "Second argument", get_name());
+            float2 = _extract_float_data(arr2, "Second argument", get_name());
+            offset2 = assert_cast<const ColumnArray::ColumnOffsets*>(arr2->get_offsets_ptr().get());
+            offsets_data2 = &offset2->get_data();
+            float_data2 = float2->get_data().data();
         }
 
-        const ColumnOffset64* offset1 =
-                assert_cast<const ColumnArray::ColumnOffsets*>(arr1->get_offsets_ptr().get());
-        const ColumnOffset64* offset2 =
-                assert_cast<const ColumnArray::ColumnOffsets*>(arr2->get_offsets_ptr().get());
         // prepare return data
         auto dst = ColumnType::create(input_rows_count);
         auto& dst_data = dst->get_data();
 
-        size_t elemt_cnt = offset1->size();
-        for (ssize_t row = 0; row < elemt_cnt; ++row) {
-            // Calculate actual array sizes for current row.
-            // For nullable arrays, we cannot compare absolute offset values directly because:
-            // 1. When a row is null, its offset might equal the previous offset (no elements added)
-            // 2. Or it might include the array size even if the row is null (implementation dependent)
-            // Therefore, we must calculate the actual array size as: offsets[row] - offsets[row-1]
-            ssize_t size1 = offset1->get_data()[row] - offset1->get_data()[row - 1];
-            ssize_t size2 = offset2->get_data()[row] - offset2->get_data()[row - 1];
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            const float* data_ptr1;
+            const float* data_ptr2;
+            ssize_t size1, size2;
+            const auto idx = static_cast<ssize_t>(row);
+
+            if (const_info1) {
+                data_ptr1 = const_info1->data;
+                size1 = const_info1->dim;
+            } else {
+                // -1 is valid for PaddedPODArray-backed offsets.
+                const auto prev_offset1 = (*offsets_data1)[idx - 1];
+                size1 = (*offsets_data1)[idx] - prev_offset1;
+                data_ptr1 = float_data1 + prev_offset1;
+            }
+
+            if (const_info2) {
+                data_ptr2 = const_info2->data;
+                size2 = const_info2->dim;
+            } else {
+                const auto prev_offset2 = (*offsets_data2)[idx - 1];
+                size2 = (*offsets_data2)[idx] - prev_offset2;
+                data_ptr2 = float_data2 + prev_offset2;
+            }
 
             if (size1 != size2) [[unlikely]] {
                 return Status::InvalidArgument(
                         "function {} have different input element sizes of array: {} and {}",
                         get_name(), size1, size2);
             }
-            dst_data[row] = DistanceImpl::distance(
-                    float1->get_data().data() + offset1->get_data()[row - 1],
-                    float2->get_data().data() + offset2->get_data()[row - 1], size1);
+            dst_data[row] = DistanceImpl::distance(data_ptr1, data_ptr2, size1);
         }
 
         block.replace_by_position(result, std::move(dst));

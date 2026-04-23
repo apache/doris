@@ -25,7 +25,6 @@
 #include "exec/partitioner/partitioner.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class ScaleWriterPartitioner final : public PartitionerBase {
 public:
     ScaleWriterPartitioner(int channel_size, int partition_count, int task_count,
@@ -124,5 +123,4 @@ private:
     const long _min_partition_data_processed_rebalance_threshold;
     const long _min_data_processed_rebalance_threshold;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

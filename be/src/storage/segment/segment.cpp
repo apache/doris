@@ -79,7 +79,6 @@
 #include "util/slice.h" // Slice
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 class InvertedIndexIterator;
 
@@ -1041,5 +1040,4 @@ StoragePageCache::CacheKey Segment::get_segment_footer_cache_key(
             static_cast<int64_t>(file_reader->size() - 12)};
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

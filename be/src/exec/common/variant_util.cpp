@@ -102,7 +102,6 @@
 #include "util/json/simd_json_parser.h"
 
 namespace doris::variant_util {
-#include "common/compile_check_begin.h"
 
 inline void append_escaped_regex_char(std::string* regex_output, char ch) {
     switch (ch) {
@@ -2052,7 +2051,8 @@ void materialize_docs_to_subcolumns(ColumnVariant& column_variant) {
 // ============ Implementation from variant_util.cpp ============
 
 phmap::flat_hash_map<std::string_view, ColumnVariant::Subcolumn> materialize_docs_to_subcolumns_map(
-        const ColumnVariant& variant) {
+        const ColumnVariant& variant, size_t expected_unique_paths) {
+    constexpr size_t kInitialPathReserve = 8192;
     phmap::flat_hash_map<std::string_view, ColumnVariant::Subcolumn> subcolumns;
 
     const auto [column_key, column_value] = variant.get_doc_value_data_paths_and_values();
@@ -2061,11 +2061,12 @@ phmap::flat_hash_map<std::string_view, ColumnVariant::Subcolumn> materialize_doc
 
     DCHECK_EQ(num_rows, variant.size()) << "doc snapshot offsets size mismatch with variant rows";
 
-    // Best-effort reserve: at most number of kv pairs.
-    subcolumns.reserve(column_key->size());
+    subcolumns.reserve(expected_unique_paths != 0
+                               ? expected_unique_paths
+                               : std::min<size_t>(column_key->size(), kInitialPathReserve));
 
     for (size_t row = 0; row < num_rows; ++row) {
-        const size_t start = (row == 0) ? 0 : column_offsets[row - 1];
+        const size_t start = column_offsets[row - 1];
         const size_t end = column_offsets[row];
         for (size_t i = start; i < end; ++i) {
             const auto& key = column_key->get_data_at(i);
@@ -2208,5 +2209,4 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::variant_util

@@ -18,13 +18,13 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -58,7 +58,7 @@ public class CreateStreamInfo {
      * validate create table stream info.
      */
     public void validate(ConnectContext ctx) throws UserException {
-        tableStreamName.analyze(ctx);
+        tableStreamName.analyze(ctx.getNameSpaceContext());
         FeNameFormat.checkTableName(tableStreamName.getTbl());
 
         // disallow external catalog
@@ -72,7 +72,7 @@ public class CreateStreamInfo {
         }
 
         // check base table
-        baseTableName.analyze(ctx);
+        baseTableName.analyze(ctx.getNameSpaceContext());
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx,
                 baseTableName.getCtl(), baseTableName.getDb(), baseTableName.getTbl(),
                 PrivPredicate.SELECT)) {

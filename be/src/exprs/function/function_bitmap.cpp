@@ -75,7 +75,6 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 struct BitmapEmpty {
     static constexpr auto name = "bitmap_empty";

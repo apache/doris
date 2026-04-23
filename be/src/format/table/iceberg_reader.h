@@ -38,7 +38,6 @@ class KeyValue;
 } // namespace tparquet
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RowDescriptor;
 class RuntimeState;
 class SlotDescriptor;
@@ -105,6 +104,8 @@ public:
     void set_row_lineage_columns(std::shared_ptr<RowLineageColumns> row_lineage_columns) {
         _row_lineage_columns = std::move(row_lineage_columns);
     }
+
+    static bool _is_fully_dictionary_encoded(const tparquet::ColumnMetaData& column_metadata);
 
 protected:
     struct IcebergProfile {
@@ -255,5 +256,4 @@ private:
     const orc::Type* _data_file_type_desc = nullptr;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

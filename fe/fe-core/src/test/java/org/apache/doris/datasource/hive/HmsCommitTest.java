@@ -18,17 +18,14 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.TestHMSCachedClient;
-import org.apache.doris.fs.FileSystem;
-import org.apache.doris.fs.FileSystemProvider;
-import org.apache.doris.fs.LocalDfsFileSystem;
-import org.apache.doris.fs.remote.SwitchingFileSystem;
+import org.apache.doris.filesystem.local.LocalFileSystem;
+import org.apache.doris.fs.SpiSwitchingFileSystem;
 import org.apache.doris.nereids.trees.plans.commands.insert.HiveInsertCommandContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.THiveLocationParams;
@@ -38,8 +35,6 @@ import org.apache.doris.thrift.TUpdateMode;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import mockit.Mock;
-import mockit.MockUp;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.Table;
@@ -49,8 +44,11 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.mockito.MockedConstruction;
+import org.mockito.Mockito;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -61,28 +59,30 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 public class HmsCommitTest {
 
     private static HiveMetadataOps hmsOps;
     private static HMSCachedClient hmsClient;
 
-    private static FileSystemProvider fileSystemProvider;
+    private static SpiSwitchingFileSystem fileSystemProvider;
     private static final String dbName = "test_db";
     private static final String tbWithPartition = "test_tb_with_partition";
     private static final String tbWithoutPartition = "test_tb_without_partition";
-    private static FileSystem fs;
-    private static LocalDfsFileSystem localDFSFileSystem;
+    private static SpiSwitchingFileSystem fs;
     private static Executor fileSystemExecutor;
     static String dbLocation;
     static String writeLocation;
     static String uri = "thrift://127.0.0.1:9083";
     static boolean hasRealHmsService = false;
     private ConnectContext connectContext;
+    private final List<AutoCloseable> mockedConstructions = new ArrayList<>();
+    private Consumer<HMSTransaction> transactionSpySetup;
 
     @BeforeClass
     public static void beforeClass() throws Throwable {
@@ -100,14 +100,8 @@ public class HmsCommitTest {
     }
 
     public static void createTestHiveCatalog() throws IOException {
-        localDFSFileSystem = new LocalDfsFileSystem();
-        new MockUp<SwitchingFileSystem>(SwitchingFileSystem.class) {
-            @Mock
-            public FileSystem fileSystem(String location) {
-                return localDFSFileSystem;
-            }
-        };
-        fs = new SwitchingFileSystem(null, null);
+        fs = new SpiSwitchingFileSystem(new LocalFileSystem(java.util.Collections.emptyMap()));
+        fileSystemProvider = fs;
 
         if (hasRealHmsService) {
             // If you have a real HMS service, then you can use this client to create real connections for testing
@@ -119,7 +113,6 @@ public class HmsCommitTest {
             hmsClient = new TestHMSCachedClient();
         }
         hmsOps = new HiveMetadataOps(null, hmsClient);
-        fileSystemProvider = ctx -> fs;
         fileSystemExecutor = Executors.newFixedThreadPool(16);
     }
 
@@ -167,6 +160,15 @@ public class HmsCommitTest {
     public void after() {
         hmsClient.dropTable(dbName, tbWithoutPartition);
         hmsClient.dropTable(dbName, tbWithPartition);
+        for (AutoCloseable mc : mockedConstructions) {
+            try {
+                mc.close();
+            } catch (Exception e) {
+                // ignore
+            }
+        }
+        mockedConstructions.clear();
+        transactionSpySetup = null;
     }
 
     @Test
@@ -183,25 +185,30 @@ public class HmsCommitTest {
         pus.add(createRandomAppend(null));
         pus.add(createRandomAppend(null));
         pus.add(createRandomAppend(null));
-        new MockUp<HMSTransaction.HmsCommitter>(HMSTransaction.HmsCommitter.class) {
-            @Mock
-            private void doNothing() {
-                Assert.assertEquals(Status.ErrCode.NOT_FOUND, fs.exists(getWritePath()).getErrCode());
-            }
-        };
-        commit(dbName, tbWithoutPartition, pus);
-        Table table = hmsClient.getTable(dbName, tbWithoutPartition);
-        assertNumRows(3, table);
+        try (MockedConstruction<HMSTransaction.HmsCommitter> mocked = Mockito.mockConstruction(
+                HMSTransaction.HmsCommitter.class,
+                Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
+                (mock, context) -> {
+                    initHmsCommitterFields(mock, context);
+                    Mockito.doAnswer(inv -> {
+                        Assert.assertFalse(fsExists(getWritePath()));
+                        return null;
+                    }).when(mock).doNothing();
+                })) {
+            commit(dbName, tbWithoutPartition, pus);
+            Table table = hmsClient.getTable(dbName, tbWithoutPartition);
+            assertNumRows(3, table);
 
 
-        genQueryID();
-        List<THivePartitionUpdate> pus2 = new ArrayList<>();
-        pus2.add(createRandomAppend(null));
-        pus2.add(createRandomAppend(null));
-        pus2.add(createRandomAppend(null));
-        commit(dbName, tbWithoutPartition, pus2);
-        table = hmsClient.getTable(dbName, tbWithoutPartition);
-        assertNumRows(6, table);
+            genQueryID();
+            List<THivePartitionUpdate> pus2 = new ArrayList<>();
+            pus2.add(createRandomAppend(null));
+            pus2.add(createRandomAppend(null));
+            pus2.add(createRandomAppend(null));
+            commit(dbName, tbWithoutPartition, pus2);
+            table = hmsClient.getTable(dbName, tbWithoutPartition);
+            assertNumRows(6, table);
+        }
     }
 
     @Test
@@ -220,28 +227,33 @@ public class HmsCommitTest {
 
     @Test
     public void testNewPartitionForPartitionedTable() throws IOException {
-        new MockUp<HMSTransaction.HmsCommitter>(HMSTransaction.HmsCommitter.class) {
-            @Mock
-            private void doNothing() {
-                Assert.assertEquals(Status.ErrCode.NOT_FOUND, fs.exists(getWritePath()).getErrCode());
-            }
-        };
-        genQueryID();
-        List<THivePartitionUpdate> pus = new ArrayList<>();
-        pus.add(createRandomNew("a"));
-        pus.add(createRandomNew("a"));
-        pus.add(createRandomNew("a"));
-        pus.add(createRandomNew("b"));
-        pus.add(createRandomNew("b"));
-        pus.add(createRandomNew("c"));
-        commit(dbName, tbWithPartition, pus);
+        try (MockedConstruction<HMSTransaction.HmsCommitter> mocked = Mockito.mockConstruction(
+                HMSTransaction.HmsCommitter.class,
+                Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
+                (mock, context) -> {
+                    initHmsCommitterFields(mock, context);
+                    Mockito.doAnswer(inv -> {
+                        Assert.assertFalse(fsExists(getWritePath()));
+                        return null;
+                    }).when(mock).doNothing();
+                })) {
+            genQueryID();
+            List<THivePartitionUpdate> pus = new ArrayList<>();
+            pus.add(createRandomNew("a"));
+            pus.add(createRandomNew("a"));
+            pus.add(createRandomNew("a"));
+            pus.add(createRandomNew("b"));
+            pus.add(createRandomNew("b"));
+            pus.add(createRandomNew("c"));
+            commit(dbName, tbWithPartition, pus);
 
-        Partition pa = hmsClient.getPartition(dbName, tbWithPartition, Lists.newArrayList("a"));
-        assertNumRows(3, pa);
-        Partition pb = hmsClient.getPartition(dbName, tbWithPartition, Lists.newArrayList("b"));
-        assertNumRows(2, pb);
-        Partition pc = hmsClient.getPartition(dbName, tbWithPartition, Lists.newArrayList("c"));
-        assertNumRows(1, pc);
+            Partition pa = hmsClient.getPartition(dbName, tbWithPartition, Lists.newArrayList("a"));
+            assertNumRows(3, pa);
+            Partition pb = hmsClient.getPartition(dbName, tbWithPartition, Lists.newArrayList("b"));
+            assertNumRows(2, pb);
+            Partition pc = hmsClient.getPartition(dbName, tbWithPartition, Lists.newArrayList("c"));
+            assertNumRows(1, pc);
+        }
     }
 
     @Test
@@ -375,12 +387,15 @@ public class HmsCommitTest {
         });
 
         if (mode != TUpdateMode.NEW) {
-            fs.makeDir(targetPath);
+            fs.mkdirs(org.apache.doris.filesystem.Location.of(targetPath));
         }
 
-        localDFSFileSystem.createFile(writePath + "/" + f1);
-        localDFSFileSystem.createFile(writePath + "/" + f2);
-        localDFSFileSystem.createFile(writePath + "/" + f3);
+        java.nio.file.Path writeDir = java.nio.file.Paths.get(
+                java.net.URI.create(writePath));
+        java.nio.file.Files.createDirectories(writeDir);
+        java.nio.file.Files.createFile(writeDir.resolve(f1));
+        java.nio.file.Files.createFile(writeDir.resolve(f2));
+        java.nio.file.Files.createFile(writeDir.resolve(f3));
         return pu;
     }
 
@@ -404,10 +419,22 @@ public class HmsCommitTest {
         return writeLocation + queryId + "/";
     }
 
+    private boolean fsExists(String path) {
+        try {
+            return fs.exists(org.apache.doris.filesystem.Location.of(path));
+        } catch (java.io.IOException e) {
+            return false;
+        }
+    }
+
     public void commit(String dbName,
             String tableName,
             List<THivePartitionUpdate> hivePUs) {
         HMSTransaction hmsTransaction = new HMSTransaction(hmsOps, fileSystemProvider, fileSystemExecutor);
+        if (transactionSpySetup != null) {
+            hmsTransaction = Mockito.spy(hmsTransaction);
+            transactionSpySetup.accept(hmsTransaction);
+        }
         hmsTransaction.setHivePartitionUpdates(hivePUs);
         HiveInsertCommandContext ctx = new HiveInsertCommandContext();
         String queryId = DebugUtil.printId(ConnectContext.get().queryId());
@@ -419,48 +446,56 @@ public class HmsCommitTest {
     }
 
     public void mockAddPartitionTaskException(Runnable runnable) {
-        new MockUp<HMSTransaction.AddPartitionsTask>(HMSTransaction.AddPartitionsTask.class) {
-            @Mock
-            private void run(HiveMetadataOps hiveOps) {
-                runnable.run();
-                throw new RuntimeException("failed to add partition");
-            }
-        };
+        MockedConstruction<HMSTransaction.AddPartitionsTask> mc = Mockito.mockConstruction(
+                HMSTransaction.AddPartitionsTask.class,
+                Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
+                (mock, context) -> {
+                    initAddPartitionsTaskFields(mock);
+                    Mockito.doAnswer(inv -> {
+                        runnable.run();
+                        throw new RuntimeException("failed to add partition");
+                    }).when(mock).run(Mockito.any());
+                });
+        mockedConstructions.add(mc);
     }
 
     public void mockAsyncRenameDir(Runnable runnable) {
-        new MockUp<HMSTransaction>(HMSTransaction.class) {
-            @Mock
-            private void wrapperAsyncRenameDirWithProfileSummary(Executor executor,
-                    List<CompletableFuture<?>> renameFileFutures,
-                    AtomicBoolean cancelled,
-                    String origFilePath,
-                    String destFilePath,
-                    Runnable runWhenPathNotExist) {
+        transactionSpySetup = tx -> {
+            Mockito.doAnswer(inv -> {
                 runnable.run();
                 throw new RuntimeException("failed to rename dir");
-            }
+            }).when(tx).wrapperAsyncRenameDirWithProfileSummary(
+                    Mockito.any(), Mockito.any(), Mockito.any(),
+                    Mockito.any(), Mockito.any(), Mockito.any());
         };
     }
 
     public void mockDoOther(Runnable runnable) {
-        new MockUp<HMSTransaction.HmsCommitter>(HMSTransaction.HmsCommitter.class) {
-            @Mock
-            private void doNothing() {
-                runnable.run();
-                throw new RuntimeException("failed to do nothing");
-            }
-        };
+        MockedConstruction<HMSTransaction.HmsCommitter> mc = Mockito.mockConstruction(
+                HMSTransaction.HmsCommitter.class,
+                Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
+                (mock, context) -> {
+                    initHmsCommitterFields(mock, context);
+                    Mockito.doAnswer(inv -> {
+                        runnable.run();
+                        throw new RuntimeException("failed to do nothing");
+                    }).when(mock).doNothing();
+                });
+        mockedConstructions.add(mc);
     }
 
     public void mockUpdateStatisticsTaskException(Runnable runnable) {
-        new MockUp<HMSTransaction.UpdateStatisticsTask>(HMSTransaction.UpdateStatisticsTask.class) {
-            @Mock
-            private void run(HiveMetadataOps hiveOps) {
-                runnable.run();
-                throw new RuntimeException("failed to update partition");
-            }
-        };
+        MockedConstruction<HMSTransaction.UpdateStatisticsTask> mc = Mockito.mockConstruction(
+                HMSTransaction.UpdateStatisticsTask.class,
+                Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
+                (mock, context) -> {
+                    initUpdateStatisticsTaskFields(mock, context);
+                    Mockito.doAnswer(inv -> {
+                        runnable.run();
+                        throw new RuntimeException("failed to update partition");
+                    }).when(mock).run(Mockito.any());
+                });
+        mockedConstructions.add(mc);
     }
 
     public void genQueryID() {
@@ -476,15 +511,15 @@ public class HmsCommitTest {
         THiveLocationParams location = pus.get(0).getLocation();
 
         // For new partition, there should be no target path
-        Assert.assertFalse(fs.exists(location.getTargetPath()).ok());
-        Assert.assertTrue(fs.exists(location.getWritePath()).ok());
+        Assert.assertFalse(fsExists(location.getTargetPath()));
+        Assert.assertTrue(fsExists(location.getWritePath()));
 
         mockAsyncRenameDir(() -> {
             // commit will be failed, and it will remain some files in write path
             String writePath = location.getWritePath();
-            Assert.assertTrue(fs.exists(writePath).ok());
+            Assert.assertTrue(fsExists(writePath));
             for (String file : pus.get(0).getFileNames()) {
-                Assert.assertTrue(fs.exists(writePath + "/" + file).ok());
+                Assert.assertTrue(fsExists(writePath + "/" + file));
             }
         });
 
@@ -497,9 +532,9 @@ public class HmsCommitTest {
 
         // After rollback, these files in write path will be deleted
         String writePath = location.getWritePath();
-        Assert.assertFalse(fs.exists(writePath).ok());
+        Assert.assertFalse(fsExists(writePath));
         for (String file : pus.get(0).getFileNames()) {
-            Assert.assertFalse(fs.exists(writePath + "/" + file).ok());
+            Assert.assertFalse(fsExists(writePath + "/" + file));
         }
     }
 
@@ -512,15 +547,15 @@ public class HmsCommitTest {
         THiveLocationParams location = pus.get(0).getLocation();
 
         // For new partition, there should be no target path
-        Assert.assertFalse(fs.exists(location.getTargetPath()).ok());
-        Assert.assertTrue(fs.exists(location.getWritePath()).ok());
+        Assert.assertFalse(fsExists(location.getTargetPath()));
+        Assert.assertTrue(fsExists(location.getWritePath()));
 
         mockAddPartitionTaskException(() -> {
             // When the commit is completed, these files should be renamed successfully
             String targetPath = location.getTargetPath();
-            Assert.assertTrue(fs.exists(targetPath).ok());
+            Assert.assertTrue(fsExists(targetPath));
             for (String file : pus.get(0).getFileNames()) {
-                Assert.assertTrue(fs.exists(targetPath + "/" + file).ok());
+                Assert.assertTrue(fsExists(targetPath + "/" + file));
             }
         });
 
@@ -533,9 +568,9 @@ public class HmsCommitTest {
 
         // After rollback, these files will be deleted
         String targetPath = location.getTargetPath();
-        Assert.assertFalse(fs.exists(targetPath).ok());
+        Assert.assertFalse(fsExists(targetPath));
         for (String file : pus.get(0).getFileNames()) {
-            Assert.assertFalse(fs.exists(targetPath + "/" + file).ok());
+            Assert.assertFalse(fsExists(targetPath + "/" + file));
         }
     }
 
@@ -559,15 +594,15 @@ public class HmsCommitTest {
         THiveLocationParams locationForA = pus.get(0).getLocation();
 
         // For new partition, there should be no target path
-        Assert.assertFalse(fs.exists(locationForX.getTargetPath()).ok());
-        Assert.assertTrue(fs.exists(locationForX.getWritePath()).ok());
+        Assert.assertFalse(fsExists(locationForX.getTargetPath()));
+        Assert.assertTrue(fsExists(locationForX.getWritePath()));
 
         mockUpdateStatisticsTaskException(() -> {
             // When the commit is completed, these files should be renamed successfully
             String targetPath = locationForX.getTargetPath();
-            Assert.assertTrue(fs.exists(targetPath).ok());
+            Assert.assertTrue(fsExists(targetPath));
             for (String file : pus.get(0).getFileNames()) {
-                Assert.assertTrue(fs.exists(targetPath + "/" + file).ok());
+                Assert.assertTrue(fsExists(targetPath + "/" + file));
             }
             // new partition will be executed before append partition,
             // so, we can get the new partition
@@ -584,12 +619,12 @@ public class HmsCommitTest {
 
         // After rollback, these files will be deleted
         String targetPath = locationForX.getTargetPath();
-        Assert.assertFalse(fs.exists(targetPath).ok());
+        Assert.assertFalse(fsExists(targetPath));
         for (String file : pus.get(0).getFileNames()) {
-            Assert.assertFalse(fs.exists(targetPath + "/" + file).ok());
+            Assert.assertFalse(fsExists(targetPath + "/" + file));
         }
-        Assert.assertFalse(fs.exists(locationForX.getWritePath()).ok());
-        Assert.assertFalse(fs.exists(locationForA.getWritePath()).ok());
+        Assert.assertFalse(fsExists(locationForX.getWritePath()));
+        Assert.assertFalse(fsExists(locationForA.getWritePath()));
         // x partition will be deleted
         Assert.assertThrows(
                 "the 'x' partition should be deleted",
@@ -620,22 +655,22 @@ public class HmsCommitTest {
         THiveLocationParams locationForParA = pus.get(1).getLocation();
 
         // For new partition, there should be no target path
-        Assert.assertFalse(fs.exists(locationForParX.getTargetPath()).ok());
-        Assert.assertTrue(fs.exists(locationForParX.getWritePath()).ok());
+        Assert.assertFalse(fsExists(locationForParX.getTargetPath()));
+        Assert.assertTrue(fsExists(locationForParX.getWritePath()));
 
         // For exist partition
-        Assert.assertTrue(fs.exists(locationForParA.getTargetPath()).ok());
+        Assert.assertTrue(fsExists(locationForParA.getTargetPath()));
 
         mockDoOther(() -> {
             // When the commit is completed, these files should be renamed successfully
             String targetPathForX = locationForParX.getTargetPath();
-            Assert.assertTrue(fs.exists(targetPathForX).ok());
+            Assert.assertTrue(fsExists(targetPathForX));
             for (String file : pus.get(0).getFileNames()) {
-                Assert.assertTrue(fs.exists(targetPathForX + "/" + file).ok());
+                Assert.assertTrue(fsExists(targetPathForX + "/" + file));
             }
             String targetPathForA = locationForParA.getTargetPath();
             for (String file : pus.get(1).getFileNames()) {
-                Assert.assertTrue(fs.exists(targetPathForA + "/" + file).ok());
+                Assert.assertTrue(fsExists(targetPathForA + "/" + file));
             }
             // new partition will be executed,
             // so, we can get the new partition
@@ -656,17 +691,17 @@ public class HmsCommitTest {
 
         // After rollback, these files will be deleted
         String targetPathForX = locationForParX.getTargetPath();
-        Assert.assertFalse(fs.exists(targetPathForX).ok());
+        Assert.assertFalse(fsExists(targetPathForX));
         for (String file : pus.get(0).getFileNames()) {
-            Assert.assertFalse(fs.exists(targetPathForX + "/" + file).ok());
+            Assert.assertFalse(fsExists(targetPathForX + "/" + file));
         }
-        Assert.assertFalse(fs.exists(locationForParX.getWritePath()).ok());
+        Assert.assertFalse(fsExists(locationForParX.getWritePath()));
         String targetPathForA = locationForParA.getTargetPath();
         for (String file : pus.get(1).getFileNames()) {
-            Assert.assertFalse(fs.exists(targetPathForA + "/" + file).ok());
+            Assert.assertFalse(fsExists(targetPathForA + "/" + file));
         }
-        Assert.assertTrue(fs.exists(targetPathForA).ok());
-        Assert.assertFalse(fs.exists(locationForParA.getWritePath()).ok());
+        Assert.assertTrue(fsExists(targetPathForA));
+        Assert.assertFalse(fsExists(locationForParA.getWritePath()));
         // x partition will be deleted
         Assert.assertThrows(
                 "the 'x' partition should be deleted",
@@ -715,5 +750,47 @@ public class HmsCommitTest {
         } catch (Throwable t) {
             Assert.fail();
         }
+    }
+
+    private void initHmsCommitterFields(Object mock, MockedConstruction.Context context) throws Exception {
+        Class<?> clazz = HMSTransaction.HmsCommitter.class;
+        setField(clazz, mock, "updateStatisticsTasks", new ArrayList<>());
+        setField(clazz, mock, "updateStatisticsExecutor", Executors.newFixedThreadPool(16));
+        setField(clazz, mock, "addPartitionsTask", new HMSTransaction.AddPartitionsTask());
+        setField(clazz, mock, "fileSystemTaskCancelled", new AtomicBoolean(false));
+        setField(clazz, mock, "asyncFileSystemTaskFutures", new ArrayList<>());
+        setField(clazz, mock, "directoryCleanUpTasksForAbort", new ConcurrentLinkedQueue<>());
+        setField(clazz, mock, "renameDirectoryTasksForAbort", new ArrayList<>());
+        setField(clazz, mock, "clearDirsForFinish", new ArrayList<>());
+        setField(clazz, mock, "s3cleanWhenSuccess", new ArrayList<>());
+        // Set the outer class reference (HMSTransaction instance)
+        if (!context.arguments().isEmpty()) {
+            Field outerRef = clazz.getDeclaredField("this$0");
+            outerRef.setAccessible(true);
+            outerRef.set(mock, context.arguments().get(0));
+        }
+    }
+
+    private void initAddPartitionsTaskFields(Object mock) throws Exception {
+        Class<?> clazz = HMSTransaction.AddPartitionsTask.class;
+        setField(clazz, mock, "partitions", new ArrayList<>());
+        setField(clazz, mock, "createdPartitionValues", new ArrayList<>());
+    }
+
+    private void initUpdateStatisticsTaskFields(Object mock, MockedConstruction.Context context) throws Exception {
+        Class<?> clazz = HMSTransaction.UpdateStatisticsTask.class;
+        List<?> args = context.arguments();
+        if (args.size() >= 4) {
+            setField(clazz, mock, "nameMapping", args.get(0));
+            setField(clazz, mock, "partitionName", args.get(1));
+            setField(clazz, mock, "updatePartitionStat", args.get(2));
+            setField(clazz, mock, "merge", args.get(3));
+        }
+    }
+
+    private void setField(Class<?> clazz, Object obj, String fieldName, Object value) throws Exception {
+        Field field = clazz.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.set(obj, value);
     }
 }

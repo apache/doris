@@ -37,7 +37,6 @@
 #include "util/slice.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 namespace {
 
 template <typename CppType>
@@ -390,4 +389,3 @@ Status PrimaryKeyBloomFilterIndexWriterImpl::create(const BloomFilterOptions& bf
 }
 
 } // namespace doris::segment_v2
-#include "common/compile_check_end.h"

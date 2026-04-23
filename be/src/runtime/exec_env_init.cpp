@@ -97,8 +97,8 @@
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/point_query_executor.h"
+#include "storage/cache/ann_index_ivf_list_cache.h"
 #include "storage/cache/page_cache.h"
-#include "storage/cache/schema_cache.h"
 #include "storage/id_manager.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/olap_define.h"
@@ -139,7 +139,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
 class PBackendService_Stub;
 class PFunctionService_Stub;
 
@@ -580,6 +579,20 @@ Status ExecEnv::init_mem_env() {
               << PrettyPrinter::print(storage_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::storage_page_cache_limit;
 
+    // Init ANN index IVF list cache (dedicated cache for IVF on disk)
+    {
+        int64_t ann_cache_limit = ParseUtil::parse_mem_spec(config::ann_index_ivf_list_cache_limit,
+                                                            MemInfo::mem_limit(),
+                                                            MemInfo::physical_mem(), &is_percent);
+        while (!is_percent && ann_cache_limit > MemInfo::mem_limit() / 2) {
+            ann_cache_limit = ann_cache_limit / 2;
+        }
+        _ann_index_ivf_list_cache = AnnIndexIVFListCache::create_global_cache(ann_cache_limit);
+        LOG(INFO) << "ANN index IVF list cache memory limit: "
+                  << PrettyPrinter::print(ann_cache_limit, TUnit::BYTES)
+                  << ", origin config value: " << config::ann_index_ivf_list_cache_limit;
+    }
+
     // Init row cache
     int64_t row_cache_mem_limit =
             ParseUtil::parse_mem_spec(config::row_cache_mem_limit, MemInfo::mem_limit(),
@@ -626,8 +639,6 @@ Status ExecEnv::init_mem_env() {
     LOG(INFO) << "segment_cache_capacity <= fd_number * 1 / 5, fd_number: " << fd_number
               << " segment_cache_capacity: " << segment_cache_capacity
               << " min_segment_cache_mem_limit " << segment_cache_mem_limit;
-
-    _schema_cache = new SchemaCache(config::schema_cache_capacity);
 
     size_t block_file_cache_fd_cache_size =
             std::min((uint64_t)config::file_cache_max_file_reader_cache_size, fd_number / 3);
@@ -711,7 +722,7 @@ void ExecEnv::init_mem_tracker() {
     _segcompaction_mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::COMPACTION, "SegCompaction");
     _tablets_no_cache_mem_tracker = MemTrackerLimiter::create_shared(
-            MemTrackerLimiter::Type::METADATA, "Tablets(not in SchemaCache, TabletSchemaCache)");
+            MemTrackerLimiter::Type::METADATA, "Tablets(not in TabletSchemaCache)");
     _segments_no_cache_mem_tracker = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::METADATA, "Segments(not in SegmentCache)");
     _rowsets_no_cache_mem_tracker =
@@ -846,7 +857,7 @@ void ExecEnv::destroy() {
         static_cast<CloudClusterInfo*>(_cluster_info)->stop_bg_worker();
     }
 
-    // StorageEngine must be destoried before _cache_manager destory
+    // StorageEngine must be destoried before _cache_manager destory.
     SAFE_STOP(_storage_engine);
     _storage_engine.reset();
 
@@ -871,7 +882,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_condition_cache);
     SAFE_DELETE(_encoding_info_resolver);
     SAFE_DELETE(_lookup_connection_cache);
-    SAFE_DELETE(_schema_cache);
     SAFE_DELETE(_segment_loader);
     SAFE_DELETE(_row_cache);
     SAFE_DELETE(_query_cache);
@@ -883,6 +893,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_tablet_column_object_pool);
 
     // _storage_page_cache must be destoried before _cache_manager
+    SAFE_DELETE(_ann_index_ivf_list_cache);
     SAFE_DELETE(_storage_page_cache);
 
     SAFE_DELETE(_small_file_mgr);

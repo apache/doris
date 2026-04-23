@@ -25,7 +25,6 @@
 #include "util/memcpy_inlined.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <tparquet::Type::type type>
 struct PhysicalTypeTraits {};
@@ -236,6 +235,5 @@ protected:
     // For dictionary encoding
     DorisVector<typename PhysicalTypeTraits<PhysicalType>::CppType> _dict_items;
 };
-#include "common/compile_check_end.h"
 
 } // namespace doris

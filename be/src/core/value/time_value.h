@@ -31,7 +31,6 @@
 #include "util/date_func.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 /// TODO:  Due to the "Time type is not supported for OLAP table" issue, a lot of basic content is missing.It will be supplemented later.
 // now we do check only when print.
@@ -50,6 +49,7 @@ public:
     using TimeType = typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType; // double
     using ColumnTimeV2 = typename PrimitiveTypeTraits<TYPE_TIMEV2>::ColumnType;
 
+#include "common/compile_check_avoid_begin.h"
     static int64_t round_time(TimeType value, uint32_t scale) {
         int64_t time = value;
         DCHECK(scale <= MICROS_SCALE);
@@ -88,6 +88,7 @@ public:
 
         return static_cast<TimeType>(time + microsecond);
     }
+#include "common/compile_check_avoid_end.h"
 
     // in existing scenario, we ensure microsecond's bound by caller.
     // ATTN: only for positive input.
@@ -168,4 +169,3 @@ public:
     }
 };
 } // namespace doris
-#include "common/compile_check_end.h"

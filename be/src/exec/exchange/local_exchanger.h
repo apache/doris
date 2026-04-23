@@ -21,7 +21,6 @@
 #include "exec/pipeline/dependency.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 template <typename T>
 void clear_blocks(moodycamel::ConcurrentQueue<T>& blocks,
                   RuntimeProfile::Counter* memory_used_counter = nullptr);
@@ -380,5 +379,4 @@ private:
     std::atomic_int32_t _total_block = 0;
     std::vector<std::vector<uint32_t>> _partition_rows_histogram;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

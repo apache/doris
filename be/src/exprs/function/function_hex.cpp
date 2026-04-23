@@ -46,7 +46,6 @@
 #include "exprs/function/string_hex_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class FunctionContext;
 } // namespace doris
 
