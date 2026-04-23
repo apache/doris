@@ -20,8 +20,8 @@ package org.apache.doris.transaction;
 import org.apache.doris.datasource.hive.HiveMetadataOps;
 import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
-import org.apache.doris.fs.FileSystemProvider;
 import org.apache.doris.datasource.paimon.PaimonMetadataOps;
+import org.apache.doris.fs.FileSystemProvider;
 
 import java.util.concurrent.Executor;
 

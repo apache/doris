@@ -599,7 +599,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     try {
         try {
             (*coord)->reportExecStatus(res, params);
-        } catch ([[maybe_unused]] TTransportException& e) {
+        } catch ([[maybe_unused]] apache::thrift::transport::TTransportException& e) {
 #ifndef ADDRESS_SANITIZER
             LOG(WARNING) << "Retrying ReportExecStatus. query id: " << print_id(req.query_id)
                          << ", instance id: " << print_id(req.fragment_instance_id) << " to "
@@ -616,7 +616,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
         }
 
         rpc_status = Status::create<false>(res.status);
-    } catch (TException& e) {
+    } catch (apache::thrift::TException& e) {
         rpc_status = Status::InternalError("ReportExecStatus() to {} failed: {}",
                                            PrintThriftNetworkAddress(req.coord_addr), e.what());
     }
