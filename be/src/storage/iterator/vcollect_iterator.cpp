@@ -295,6 +295,22 @@ Status VCollectIterator::next(Block* block) {
     }
 }
 
+Status VCollectIterator::refresh_for_late_arrival_runtime_filter() {
+    if (use_topn_next()) {
+        for (auto& rs_split : _rs_splits) {
+            RETURN_IF_ERROR(rs_split.rs_reader->refresh_for_late_arrival_runtime_filter());
+        }
+        return Status::OK();
+    }
+    if (_inner_iter != nullptr) {
+        return _inner_iter->refresh_for_late_arrival_runtime_filter();
+    }
+    for (auto& child : _children) {
+        RETURN_IF_ERROR(child->refresh_for_late_arrival_runtime_filter());
+    }
+    return Status::OK();
+}
+
 Status VCollectIterator::_topn_next(Block* block) {
     if (_topn_eof) {
         return Status::Error<END_OF_FILE>("");
@@ -584,6 +600,13 @@ Status VCollectIterator::Level0Iterator::refresh_current_row() {
     return Status::Error<END_OF_FILE>("");
 }
 
+Status VCollectIterator::Level0Iterator::refresh_for_late_arrival_runtime_filter() {
+    if (_rs_reader == nullptr) {
+        return Status::OK();
+    }
+    return _rs_reader->refresh_for_late_arrival_runtime_filter();
+}
+
 Status VCollectIterator::Level0Iterator::next(IteratorRowRef* ref) {
     if (_get_data_by_ref) {
         _current++;
@@ -728,6 +751,7 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
         for (auto&& child : _children) {
             DCHECK(child != nullptr);
             //DCHECK(child->current_row().ok());
+            _active_children.push_back(child.get());
             _heap->push(child.release());
         }
         _cur_child.reset(_heap->top());
@@ -741,6 +765,22 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
         _children.pop_front();
     }
     _ref = *_cur_child->current_row_ref();
+    return Status::OK();
+}
+
+Status VCollectIterator::Level1Iterator::refresh_for_late_arrival_runtime_filter() {
+    if (_cur_child != nullptr) {
+        RETURN_IF_ERROR(_cur_child->refresh_for_late_arrival_runtime_filter());
+    }
+    for (auto* child : _active_children) {
+        if (child == _cur_child.get()) {
+            continue;
+        }
+        RETURN_IF_ERROR(child->refresh_for_late_arrival_runtime_filter());
+    }
+    for (auto& child : _children) {
+        RETURN_IF_ERROR(child->refresh_for_late_arrival_runtime_filter());
+    }
     return Status::OK();
 }
 
@@ -780,12 +820,19 @@ void VCollectIterator::Level1Iterator::init_level0_iterators_for_union() {
 }
 
 Status VCollectIterator::Level1Iterator::_merge_next(IteratorRowRef* ref) {
+    auto remove_current_child = [this]() {
+        auto iter = std::find(_active_children.begin(), _active_children.end(), _cur_child.get());
+        if (iter != _active_children.end()) {
+            _active_children.erase(iter);
+        }
+    };
     auto res = _cur_child->next(ref);
     if (LIKELY(res.ok())) {
         _heap->push(_cur_child.release());
         _cur_child.reset(_heap->top());
         _heap->pop();
     } else if (res.is<END_OF_FILE>()) {
+        remove_current_child();
         // current child has been read, to read next
         if (!_heap->empty()) {
             _cur_child.reset(_heap->top());

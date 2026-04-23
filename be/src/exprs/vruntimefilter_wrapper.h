@@ -100,6 +100,8 @@ public:
     }
 
     bool is_rf_wrapper() const override { return true; }
+    bool is_null_aware() const { return _null_aware; }
+    ZoneMapEvalResult evaluate_zone_map(const ZoneMapEvalContext& ctx) const override;
 
     int filter_id() const { return _filter_id; }
 

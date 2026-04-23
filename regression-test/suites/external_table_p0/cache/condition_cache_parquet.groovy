@@ -98,16 +98,44 @@ suite("condition_cache_parquet", "tvf,external,external_docker") {
         return matcher.find() ? matcher.group(1).trim() : null
     }
 
+    def extractProfileLongMax = { String profileText, String keyName ->
+        def values = (profileText =~ /(?m)^\s*-\s*${Pattern.quote(keyName)}:\s*(\d+)\s*$/)
+                .collect { it[1].toLong() }
+        return values.isEmpty() ? 0L : values.max()
+    }
+
 
     List<List<Object>> backends = sql """ show backends """
     assertTrue(backends.size() > 0)
     def be_id = backends[0][0]
     def be_host = backends[0][1]
+    def be_http_port = backends[0][4]
     def basePath = "/tmp/test_condition_cache_parquet"
+    def localAddresses = java.net.NetworkInterface.networkInterfaces().toList()
+            .findAll { it.isUp() && !it.isLoopback() }
+            .collectMany { nic -> nic.inetAddresses.toList().collect { it.hostAddress } }
+            .toSet()
+    def runOnBeHost = { String command, boolean failOnError = true ->
+        if (be_host == "127.0.0.1" || be_host == "localhost" || localAddresses.contains(be_host)) {
+            def process = ["/bin/bash", "-c", command].execute()
+            def stdout = new StringBuffer()
+            def stderr = new StringBuffer()
+            process.consumeProcessOutput(stdout, stderr)
+            process.waitFor()
+            if (failOnError && process.exitValue() != 0) {
+                throw new IllegalStateException(
+                        "Failed to run local command on ${be_host}: ${command}\n${stderr}")
+            }
+            return process.exitValue()
+        }
+        return sshExec("root", be_host, command, failOnError)
+    }
 
-    sshExec("root", be_host, "rm -rf ${basePath}", false)
-    sshExec("root", be_host, "mkdir -p ${basePath}")
-    sshExec("root", be_host, "chmod 777 ${basePath}")
+    http_client("GET", "http://${be_host}:${be_http_port}/api/clear_cache/ConditionCache")
+
+    runOnBeHost("rm -rf ${basePath}", false)
+    runOnBeHost("mkdir -p ${basePath}")
+    runOnBeHost("chmod 777 ${basePath}")
 
     // ============ Source tables ============
 
@@ -179,7 +207,7 @@ suite("condition_cache_parquet", "tvf,external,external_docker") {
 
     def fmt = "parquet"
     // Export data to format
-    sshExec("root", be_host, "rm -f ${basePath}/${fmt}_main_*")
+    runOnBeHost("rm -f ${basePath}/${fmt}_main_*")
     sql """
         INSERT INTO local(
             "file_path" = "${basePath}/${fmt}_main_",
@@ -188,7 +216,7 @@ suite("condition_cache_parquet", "tvf,external,external_docker") {
         ) SELECT id, name, age, score FROM ${srcTable} ORDER BY id
     """
 
-    sshExec("root", be_host, "rm -f ${basePath}/${fmt}_join_*")
+    runOnBeHost("rm -f ${basePath}/${fmt}_join_*")
     sql """
         INSERT INTO local(
             "file_path" = "${basePath}/${fmt}_join_",
@@ -197,7 +225,7 @@ suite("condition_cache_parquet", "tvf,external,external_docker") {
         ) SELECT id, department, position, salary FROM ${joinSrcTable} ORDER BY id
     """
 
-    sshExec("root", be_host, "rm -f ${basePath}/${fmt}_large_*")
+    runOnBeHost("rm -f ${basePath}/${fmt}_large_*")
     sql """
         INSERT INTO local(
             "file_path" = "${basePath}/${fmt}_large_",
@@ -482,7 +510,37 @@ suite("condition_cache_parquet", "tvf,external,external_docker") {
     """
     // id=1: Alice(85.5)+Engineering(100000), id=4: David(92)+Engineering(140000)
 
-    // ---- Test 7: LIMIT with large file (verify incomplete cache not stored) ----
+    // ---- Test 7: Late runtime filter should prune parquet row groups without polluting cache ----
+    sql "set enable_condition_cache=true"
+    sql "set runtime_filter_type=12"
+    sql "set runtime_filter_wait_time_ms=0"
+
+    http_client("GET", "http://${be_host}:${be_http_port}/api/clear_cache/ConditionCache")
+
+    def runLateRfParquetQuery = { token, expectedConditionCacheHit ->
+        def queryResult = sql """
+            SELECT count(*) FROM (
+                SELECT t1.id, "${token}"
+                FROM ${largeTvf} t1
+                JOIN ${joinTvf} t2 ON t1.id = t2.id
+                WHERE t2.salary > 90000
+            ) late_rf_tmp
+        """
+        assertEquals("4", queryResult[0][0].toString())
+
+        profileText = getProfileWithToken(token)
+        def scannerMetrics = extractProfileBlockMetrics(profileText, "Scanner")
+        logger.info("late_rf_parquet_scanner_metrics = ${scannerMetrics}")
+        assertEquals(expectedConditionCacheHit, scannerMetrics["ConditionCacheHit"])
+        assertEquals("True", scannerMetrics["ApplyAllRuntimeFilters"])
+        assertTrue(profileText.contains("InListPredicateBase"))
+        assertTrue(profileText.contains("RowGroupsFilteredByMinMax"))
+    }
+
+    runLateRfParquetQuery(UUID.randomUUID().toString(), "0")
+    runLateRfParquetQuery(UUID.randomUUID().toString(), "1")
+
+    // ---- Test 8: LIMIT with large file (verify incomplete cache not stored) ----
     // Large table has 5000 rows spanning multiple granules.
     // age > 25 matches ~4000 rows. LIMIT 10 causes early termination.
     // The incomplete cache must NOT be stored; otherwise the subsequent

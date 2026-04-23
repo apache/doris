@@ -197,7 +197,14 @@ private:
     RuntimeProfile::Counter* _segment_generate_row_range_by_bf_timer = nullptr;
     RuntimeProfile::Counter* _collect_iterator_merge_next_timer = nullptr;
     RuntimeProfile::Counter* _segment_generate_row_range_by_zonemap_timer = nullptr;
+    RuntimeProfile::Counter* _segment_generate_row_range_by_zonemap_expr_timer = nullptr;
     RuntimeProfile::Counter* _segment_generate_row_range_by_dict_timer = nullptr;
+    RuntimeProfile::Counter* _zone_map_expr_evaluated_counter = nullptr;
+    RuntimeProfile::Counter* _zone_map_expr_skipped_pages_counter = nullptr;
+    RuntimeProfile::Counter* _zone_map_expr_unsupported_counter = nullptr;
+    RuntimeProfile::Counter* _zone_map_expr_missing_stats_counter = nullptr;
+    RuntimeProfile::Counter* _zone_map_expr_missing_index_counter = nullptr;
+    RuntimeProfile::Counter* _zone_map_expr_type_mismatch_counter = nullptr;
     RuntimeProfile::Counter* _predicate_column_read_timer = nullptr;
     RuntimeProfile::Counter* _non_predicate_column_read_timer = nullptr;
     RuntimeProfile::Counter* _predicate_column_read_seek_timer = nullptr;

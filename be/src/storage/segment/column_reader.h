@@ -23,7 +23,8 @@
 
 #include <cstddef> // for size_t
 #include <cstdint> // for uint32_t
-#include <memory>  // for unique_ptr
+#include <functional>
+#include <memory> // for unique_ptr
 #include <string>
 #include <utility>
 #include <vector>
@@ -119,6 +120,7 @@ using ColumnIteratorUPtr = std::unique_ptr<ColumnIterator>;
 using OffsetFileColumnIteratorUPtr = std::unique_ptr<OffsetFileColumnIterator>;
 using FileColumnIteratorUPtr = std::unique_ptr<FileColumnIterator>;
 using ColumnIteratorSPtr = std::shared_ptr<ColumnIterator>;
+using ZoneMapMatchFunc = std::function<bool(const ZoneMap&)>;
 
 // There will be concurrent users to read the same column. So
 // we should do our best to reduce resource usage through share
@@ -196,6 +198,9 @@ public:
             const AndBlockColumnPredicate* col_predicates,
             const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
             RowRanges* row_ranges, const ColumnIteratorOptions& iter_opts);
+    Status get_row_ranges_by_zone_map_expr(const ZoneMapMatchFunc& match_func,
+                                           RowRanges* row_ranges, int64_t* pass_all_count,
+                                           const ColumnIteratorOptions& iter_opts);
 
     // get row ranges with bloom filter index
     Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
@@ -347,6 +352,12 @@ public:
             RowRanges* row_ranges) {
         return Status::OK();
     }
+    virtual Status get_row_ranges_by_zone_map_expr(const ZoneMapMatchFunc& match_func,
+                                                   RowRanges* row_ranges,
+                                                   int64_t* pass_all_count = nullptr,
+                                                   int64_t* missing_index_count = nullptr) {
+        return Status::OK();
+    }
 
     virtual Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
                                                   RowRanges* row_ranges) {
@@ -466,6 +477,9 @@ public:
             const AndBlockColumnPredicate* col_predicates,
             const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
             RowRanges* row_ranges) override;
+    Status get_row_ranges_by_zone_map_expr(const ZoneMapMatchFunc& match_func,
+                                           RowRanges* row_ranges, int64_t* pass_all_count = nullptr,
+                                           int64_t* missing_index_count = nullptr) override;
 
     Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
                                           RowRanges* row_ranges) override;

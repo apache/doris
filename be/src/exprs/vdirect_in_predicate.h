@@ -17,12 +17,16 @@
 
 #pragma once
 
+#include <mutex>
+#include <optional>
+
 #include "common/status.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/vexpr.h"
 #include "exprs/vin_predicate.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
+#include "storage/index/zone_map/zone_map_eval_context.h"
 
 namespace doris {
 
@@ -67,6 +71,53 @@ public:
     const std::string& expr_name() const override { return _expr_name; }
 
     std::shared_ptr<HybridSetBase> get_set_func() const override { return _filter; }
+
+    ZoneMapEvalResult evaluate_zone_map(const ZoneMapEvalContext& ctx) const override {
+        if (_children.empty() || !_children[0]->is_slot_ref()) {
+            return ZoneMapEvalResult::kUnsupported;
+        }
+
+        int slot_index = static_cast<VSlotRef*>(_children[0].get())->column_id();
+        auto zone_map_it = ctx.slot_index_to_zone_map.find(slot_index);
+        if (zone_map_it == ctx.slot_index_to_zone_map.end()) {
+            return ZoneMapEvalResult::kUnsupported;
+        }
+        const auto& zone_map = *zone_map_it->second;
+        if (zone_map.pass_all) {
+            return ZoneMapEvalResult::kMayMatch;
+        }
+        if (!zone_map.has_not_null) {
+            return ZoneMapEvalResult::kNoMatch;
+        }
+
+        auto type_it = ctx.slot_index_to_data_type.find(slot_index);
+        if (type_it != ctx.slot_index_to_data_type.end()) {
+            auto zone_map_type = remove_nullable(type_it->second);
+            auto in_set_type = remove_nullable(get_child(0)->data_type());
+            if (!zone_map_type->equals(*in_set_type)) {
+                ctx.type_mismatch_count++;
+                return ZoneMapEvalResult::kUnsupported;
+            }
+        }
+
+        auto set_func = get_set_func();
+        if (!set_func || set_func->size() == 0) {
+            return ZoneMapEvalResult::kUnsupported;
+        }
+
+        std::call_once(_cached_in_set_min_max_once,
+                       [&]() { _cached_in_set_min_max = _compute_in_set_min_max(set_func.get()); });
+        if (!_cached_in_set_min_max.has_value() || !_cached_in_set_min_max->valid) {
+            return ZoneMapEvalResult::kUnsupported;
+        }
+
+        const auto& in_min_max = *_cached_in_set_min_max;
+        if (in_min_max.max_value < zone_map.min_value ||
+            in_min_max.min_value > zone_map.max_value) {
+            return ZoneMapEvalResult::kNoMatch;
+        }
+        return ZoneMapEvalResult::kMayMatch;
+    }
 
     bool get_slot_in_expr(VExprSPtr& new_root) const {
         if (!get_child(0)->is_slot_ref()) {
@@ -115,6 +166,59 @@ public:
     }
 
 private:
+    struct InSetMinMax {
+        Field min_value;
+        Field max_value;
+        bool valid = false;
+    };
+
+    InSetMinMax _compute_in_set_min_max(HybridSetBase* set_func) const {
+        InSetMinMax result;
+        auto slot_data_type = remove_nullable(get_child(0)->data_type());
+        auto primitive_type = slot_data_type->get_primitive_type();
+        int precision = slot_data_type->get_precision();
+        int scale = slot_data_type->get_scale();
+
+        auto* iter = set_func->begin();
+        bool first = true;
+        while (iter->has_next()) {
+            const void* value = iter->get_value();
+            if (value == nullptr) {
+                iter->next();
+                continue;
+            }
+            Field field_value = _make_field_from_value(value, primitive_type, precision, scale);
+            if (field_value.is_null()) {
+                iter->next();
+                continue;
+            }
+            if (first) {
+                result.min_value = field_value;
+                result.max_value = field_value;
+                first = false;
+            } else {
+                if (field_value < result.min_value) {
+                    result.min_value = field_value;
+                }
+                if (field_value > result.max_value) {
+                    result.max_value = field_value;
+                }
+            }
+            iter->next();
+        }
+        result.valid = !first;
+        return result;
+    }
+
+    Field _make_field_from_value(const void* value, PrimitiveType primitive_type, int precision,
+                                 int scale) const {
+        TExprNode literal_node = create_texpr_node_from(value, primitive_type, precision, scale);
+        auto literal = VLiteral::create_shared(literal_node);
+        Field field;
+        literal->get_column_ptr()->get(0, field);
+        return field;
+    }
+
     Status _do_execute(VExprContext* context, const Block* block, const uint8_t* __restrict filter,
                        const Selector* selector, size_t count, ColumnPtr& result_column,
                        ColumnPtr* arg_column) const {
@@ -152,6 +256,8 @@ private:
 
     std::shared_ptr<HybridSetBase> _filter;
     std::string _expr_name;
+    mutable std::once_flag _cached_in_set_min_max_once;
+    mutable std::optional<InSetMinMax> _cached_in_set_min_max;
 };
 
 } // namespace doris

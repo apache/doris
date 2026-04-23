@@ -47,6 +47,7 @@ public:
     Status init(const ReaderParams& read_params) override;
 
     Status next_block_with_aggregation(Block* block, bool* eof) override;
+    Status refresh_for_late_arrival_runtime_filter() override;
 
     std::vector<RowLocation> current_block_row_locations() { return _block_row_locations; }
 

@@ -25,8 +25,11 @@
 
 #include "core/data_type/define_primitive_type.h"
 #include "exec/common/util.hpp"
+#include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
+#include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
 #include "format/orc/orc_memory_pool.h"
 #include "format/orc/vorc_reader.h"
 #include "io/fs/file_meta_cache.h"
@@ -35,6 +38,7 @@
 #include "runtime/runtime_state.h"
 #include "testutil/desc_tbl_builder.h"
 namespace doris {
+
 class OrcReaderTest : public testing::Test {
 public:
     OrcReaderTest() : cache(1024) {}
@@ -179,6 +183,118 @@ TEST_F(OrcReaderTest, test_build_search_argument) {
         auto search_argument = build_search_argument(exprs[i]);
         ASSERT_EQ(search_argument, result_search_arguments[i]);
     }
+}
+
+TEST_F(OrcReaderTest, test_refresh_search_argument_after_late_runtime_filter) {
+    std::vector<std::string> column_names = {"o_orderkey",   "o_custkey",      "o_orderstatus",
+                                             "o_totalprice", "o_orderdate",    "o_orderpriority",
+                                             "o_clerk",      "o_shippriority", "o_comment"};
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {
+            {"o_orderkey", 0},   {"o_custkey", 1},      {"o_orderstatus", 2},
+            {"o_totalprice", 3}, {"o_orderdate", 4},    {"o_orderpriority", 5},
+            {"o_clerk", 6},      {"o_shippriority", 7}, {"o_comment", 8},
+    };
+    ObjectPool object_pool;
+    DescriptorTblBuilder builder(&object_pool);
+    builder.declare_tuple()
+            << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_INT, false),
+                               "o_orderkey")
+            << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_INT, false),
+                               "o_custkey")
+            << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_STRING, false),
+                               "o_orderstatus")
+            << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, false),
+                               "o_totalprice")
+            << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_DATEV2, false),
+                               "o_orderdate")
+            << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_STRING, false),
+                               "o_orderpriority")
+            << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_STRING, false),
+                               "o_clerk")
+            << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_INT, false),
+                               "o_shippriority")
+            << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_STRING, false),
+                               "o_comment");
+    DescriptorTbl* desc_tbl = builder.build();
+    auto* tuple_desc = const_cast<TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
+    RowDescriptor row_desc(tuple_desc);
+    RuntimeState state;
+    state.set_desc_tbl(desc_tbl);
+    RuntimeProfile profile("orc_reader");
+
+    TFileScanRangeParams params;
+    TFileRangeDesc range;
+    range.path = "./be/test/exec/test_data/orc_scanner/orders.orc";
+    range.start_offset = 0;
+    range.size = 1293;
+    auto reader = OrcReader::create_unique(&profile, &state, params, range, 1024, "UTC", nullptr,
+                                           &cache, true);
+
+    auto create_binary_ctx = [&](TExprOpcode::type opcode, int32_t literal) {
+        TFunction fn;
+        TFunctionName fn_name;
+        fn_name.__set_db_name("");
+        fn_name.__set_function_name(opcode == TExprOpcode::LT ? "lt" : "gt");
+        fn.__set_name(fn_name);
+        fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+        std::vector<TTypeDesc> arg_types;
+        arg_types.push_back(create_type_desc(PrimitiveType::TYPE_INT));
+        arg_types.push_back(create_type_desc(PrimitiveType::TYPE_INT));
+        fn.__set_arg_types(arg_types);
+        fn.__set_ret_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+        fn.__set_has_var_args(false);
+
+        TExprNode pred_node;
+        pred_node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+        pred_node.__set_node_type(TExprNodeType::BINARY_PRED);
+        pred_node.__set_opcode(opcode);
+        pred_node.__set_fn(fn);
+        pred_node.__set_num_children(2);
+        pred_node.__set_is_nullable(true);
+        auto root = VectorizedFnCall::create_shared(pred_node);
+        root->add_child(VSlotRef::create_shared(tuple_desc->slots()[0]));
+
+        TExprNode literal_node;
+        literal_node.__set_node_type(TExprNodeType::INT_LITERAL);
+        literal_node.__set_type(create_type_desc(TYPE_INT));
+        TIntLiteral int_literal;
+        int_literal.__set_value(literal);
+        literal_node.__set_int_literal(int_literal);
+        literal_node.__set_is_nullable(false);
+        root->add_child(VLiteral::create_shared(literal_node));
+
+        auto ctx = VExprContext::create_shared(root);
+        auto prepare_status = ctx->prepare(&state, row_desc);
+        EXPECT_TRUE(prepare_status.ok()) << prepare_status.to_string();
+        auto open_status = ctx->open(&state);
+        EXPECT_TRUE(open_status.ok()) << open_status.to_string();
+        return ctx;
+    };
+
+    VExprContextSPtrs conjuncts {create_binary_ctx(TExprOpcode::GT, 100)};
+    OrcInitContext orc_ctx;
+    orc_ctx.column_names = column_names;
+    orc_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+    orc_ctx.tuple_descriptor = tuple_desc;
+    orc_ctx.row_descriptor = &row_desc;
+    orc_ctx.params = &params;
+    orc_ctx.range = &range;
+    orc_ctx.conjuncts = &conjuncts;
+    auto status = reader->init_reader(&orc_ctx);
+    ASSERT_TRUE(status.ok()) << "init_reader failed: " << status.to_string();
+
+    auto* initial_sarg = profile.get_info_string("OrcReader SearchArgument: ");
+    ASSERT_NE(nullptr, initial_sarg);
+    const std::string initial_sarg_value = *initial_sarg;
+    conjuncts.push_back(create_binary_ctx(TExprOpcode::LT, 1000));
+
+    ASSERT_TRUE(reader->on_late_arrival_runtime_filter_changed().ok());
+
+    auto* refreshed_sarg = profile.get_info_string("OrcReader SearchArgument: ");
+    ASSERT_NE(nullptr, refreshed_sarg);
+    EXPECT_NE(initial_sarg_value, *refreshed_sarg);
+    EXPECT_NE(std::string::npos, refreshed_sarg->find("o_orderkey <= 100"));
+    EXPECT_NE(std::string::npos, refreshed_sarg->find("o_orderkey < 1000"));
 }
 
 } // namespace doris

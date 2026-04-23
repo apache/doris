@@ -175,6 +175,7 @@ public:
     // Subclasses (HiveOrcReader, IcebergOrcReader) call GenericReader::on_before_init_reader
     // directly, so this OrcReader-level override only applies to plain OrcReader (TVF, load).
     Status on_before_init_reader(ReaderInitContext* ctx) override;
+    Status on_late_arrival_runtime_filter_changed() override;
 
 protected:
     // ---- Unified init_reader(ReaderInitContext*) overrides ----
@@ -371,6 +372,7 @@ private:
             const std::unordered_map<std::string, VExprContextSPtr>& missing_columns);
     // Create ORC row reader with proper options, tiny stripe optimization, and type map.
     Status _init_orc_row_reader();
+    void _rebuild_filter_conjuncts();
 
     // functions for building search argument until _init_search_argument
     // Get predicate type from slot reference
@@ -812,6 +814,7 @@ private:
     const AcidRowIDSet* _delete_rows = nullptr;
     std::unique_ptr<IColumn::Filter> _delete_rows_filter_ptr;
 
+    const VExprContextSPtrs* _conjuncts = nullptr;
     VExprContextSPtrs _not_single_slot_filter_conjuncts;
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts = nullptr;
     VExprContextSPtrs _dict_filter_conjuncts;

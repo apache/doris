@@ -222,6 +222,8 @@ private:
     std::unordered_map<int, VExprContextSPtrs> _slot_id_to_filter_conjuncts;
     // not single(zero or multi) slot filter conjuncts
     VExprContextSPtrs _not_single_slot_filter_conjuncts;
+    VExprContextSPtrs _zone_map_filter_conjuncts;
+    bool _push_down_conjuncts_initialized = false;
     // save the path of current scan range
     std::string _current_range_path = "";
 
@@ -271,6 +273,7 @@ private:
     Status _process_runtime_filters_partition_prune(bool& is_partition_pruned);
     Status _process_conjuncts();
     Status _process_late_arrival_conjuncts();
+    void _build_zone_map_filter_conjuncts();
     void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);
     Status _generate_truncate_columns(bool need_to_get_parsed_schema);
     Status _set_fill_or_truncate_columns(bool need_to_get_parsed_schema);

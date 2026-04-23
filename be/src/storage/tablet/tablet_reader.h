@@ -34,6 +34,7 @@
 #include "common/status.h"
 #include "exprs/function_filter.h"
 #include "io/io_common.h"
+#include "runtime/late_arrival_rf_container.h"
 #include "storage/delete/delete_handler.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
@@ -213,6 +214,7 @@ public:
         std::shared_ptr<segment_v2::AnnTopNRuntime> ann_topn_runtime;
 
         uint64_t condition_cache_digest = 0;
+        std::shared_ptr<LateArrivalRFContainer> late_arrival_rf_container;
 
         // General limit pushdown for DUP_KEYS and UNIQUE_KEYS with MOW.
         // When > 0, the storage layer (VCollectIterator) will stop reading
@@ -238,6 +240,8 @@ public:
         return Status::Error<ErrorCode::READER_INITIALIZE_ERROR>(
                 "TabletReader not support next_block_with_aggregation");
     }
+
+    virtual Status refresh_for_late_arrival_runtime_filter() { return Status::OK(); }
 
     virtual uint64_t merged_rows() const { return _merged_rows; }
 

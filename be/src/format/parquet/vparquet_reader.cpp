@@ -48,6 +48,7 @@
 #include "format/parquet/parquet_common.h"
 #include "format/parquet/parquet_predicate.h"
 #include "format/parquet/parquet_thrift_util.h"
+#include "format/parquet/parquet_zone_map_adapter.h"
 #include "format/parquet/schema_desc.h"
 #include "format/parquet/vparquet_file_metadata.h"
 #include "format/parquet/vparquet_group_reader.h"
@@ -59,6 +60,7 @@
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/tracing_file_reader.h"
 #include "runtime/descriptors.h"
+#include "storage/index/zone_map/zone_map_eval_context.h"
 #include "util/slice.h"
 #include "util/string_util.h"
 #include "util/timezone_utils.h"
@@ -435,11 +437,13 @@ Status ParquetReader::_open_file_reader(ReaderInitContext* /*ctx*/) {
 Status ParquetReader::_do_init_reader(ReaderInitContext* base_ctx) {
     auto* ctx = checked_context_cast<ParquetInitContext>(base_ctx);
     _col_name_to_block_idx = base_ctx->col_name_to_block_idx;
+    _conjuncts = ctx->conjuncts;
     _tuple_descriptor = ctx->tuple_descriptor;
     _row_descriptor = ctx->row_descriptor;
     _colname_to_slot_id = ctx->colname_to_slot_id;
     _not_single_slot_filter_conjuncts = ctx->not_single_slot_filter_conjuncts;
     _slot_id_to_filter_conjuncts = ctx->slot_id_to_filter_conjuncts;
+    _zone_map_filter_conjuncts = ctx->zone_map_filter_conjuncts;
     _filter_groups = ctx->filter_groups;
     _table_info_node_ptr = base_ctx->table_info_node;
     _column_ids = base_ctx->column_ids;
@@ -518,6 +522,13 @@ Status ParquetReader::_do_init_reader(ReaderInitContext* base_ctx) {
         return Status::EndOfFile("No row group to read");
     }
 
+    return Status::OK();
+}
+
+Status ParquetReader::on_late_arrival_runtime_filter_changed() {
+    if (_conjuncts != nullptr) {
+        _lazy_read_ctx.conjuncts = *_conjuncts;
+    }
     return Status::OK();
 }
 
@@ -1281,6 +1292,10 @@ Status ParquetReader::_process_min_max_bloom_filter(
         RETURN_IF_ERROR(_process_column_stat_filter(row_group, push_down_pred,
                                                     &filter_this_row_group, &filtered_by_min_max,
                                                     &filtered_by_bloom_filter));
+        if (!filter_this_row_group) {
+            RETURN_IF_ERROR(_process_vexpr_zone_map_filter(row_group, &filter_this_row_group));
+            filtered_by_min_max = filtered_by_min_max || filter_this_row_group;
+        }
         // Update statistics based on filter type
         if (filter_this_row_group) {
             if (filtered_by_min_max) {
@@ -1431,6 +1446,78 @@ Status ParquetReader::_process_column_stat_filter(
 
     // Update filter statistics if this row group was not filtered
     // The statistics will be updated in _init_row_groups when filter_group is true
+    return Status::OK();
+}
+
+Status ParquetReader::_read_column_stat(const tparquet::RowGroup& row_group, const int file_col_idx,
+                                        ParquetPredicate::ColumnStat* column_stat) {
+    DCHECK(column_stat != nullptr);
+    if (file_col_idx < 0 || file_col_idx >= row_group.columns.size()) {
+        return Status::InvalidArgument("invalid parquet column index");
+    }
+    const auto& meta_data = row_group.columns[file_col_idx].meta_data;
+    const FieldSchema* col_schema = _file_metadata->schema().get_column(
+            row_group.columns[file_col_idx].meta_data.path_in_schema[0]);
+    if (col_schema == nullptr) {
+        return Status::InvalidArgument("parquet column schema is null");
+    }
+    column_stat->col_schema = col_schema;
+    column_stat->ctz = _ctz;
+    return ParquetPredicate::read_column_stats(col_schema, meta_data, &_ignored_stats,
+                                               _t_metadata->created_by, column_stat);
+}
+
+Status ParquetReader::_process_vexpr_zone_map_filter(const tparquet::RowGroup& row_group,
+                                                     bool* filter_group) {
+    if (_zone_map_filter_conjuncts == nullptr || _zone_map_filter_conjuncts->empty() ||
+        _tuple_descriptor == nullptr || _row_descriptor == nullptr) {
+        return Status::OK();
+    }
+
+    std::unordered_map<int, const segment_v2::ZoneMap*> slot_index_to_zone_map;
+    std::unordered_map<int, DataTypePtr> slot_index_to_data_type;
+    std::deque<segment_v2::ZoneMap> zone_maps;
+
+    for (auto* slot : _tuple_descriptor->slots()) {
+        const auto slot_id = slot->id();
+        if (_slot_id_to_filter_conjuncts == nullptr ||
+            !_slot_id_to_filter_conjuncts->contains(slot_id) ||
+            !_table_info_node_ptr->children_column_exists(slot->col_name())) {
+            continue;
+        }
+        const auto& file_col_name =
+                _table_info_node_ptr->children_file_column_name(slot->col_name());
+        const FieldSchema* col_schema = _file_metadata->schema().get_column(file_col_name);
+        if (col_schema == nullptr) {
+            continue;
+        }
+
+        ParquetPredicate::ColumnStat column_stat;
+        RETURN_IF_ERROR(
+                _read_column_stat(row_group, col_schema->physical_column_index, &column_stat));
+        if (column_stat.col_schema == nullptr) {
+            continue;
+        }
+
+        zone_maps.emplace_back();
+        if (!ParquetZoneMapAdapter::from_column_stat(column_stat, &zone_maps.back())) {
+            zone_maps.pop_back();
+            continue;
+        }
+
+        const int slot_index = _row_descriptor->get_column_id(slot_id);
+        if (slot_index < 0) {
+            zone_maps.pop_back();
+            continue;
+        }
+        slot_index_to_zone_map.emplace(slot_index, &zone_maps.back());
+        slot_index_to_data_type.emplace(slot_index, slot->get_data_type_ptr());
+    }
+
+    ZoneMapEvalContext eval_context {slot_index_to_zone_map, slot_index_to_data_type};
+    if (can_skip(VExprContext::evaluate_zone_map(*_zone_map_filter_conjuncts, eval_context))) {
+        *filter_group = true;
+    }
     return Status::OK();
 }
 

@@ -121,6 +121,7 @@ public:
 
     // Initialize this context and will prepare data for current_row()
     Status init(const StorageReadOptions& opts);
+    Status refresh_for_late_arrival_runtime_filter();
 
     bool compare(const VMergeIteratorContext& rhs) const;
 
@@ -235,6 +236,7 @@ public:
         return _next_batch(block_with_same_bit);
     }
     Status next_batch(BlockView* block_view) override { return _next_batch(block_view); }
+    Status refresh_for_late_arrival_runtime_filter() override;
 
     const Schema& schema() const override { return *_output_schema; }
 
@@ -344,6 +346,7 @@ private:
     uint64_t* _merged_rows = nullptr;
     bool _record_rowids = false;
     std::vector<RowLocation> _block_row_locations;
+    std::vector<std::shared_ptr<VMergeIteratorContext>> _all_contexts;
 };
 
 // Create a merge iterator for input iterators. Merge iterator will merge

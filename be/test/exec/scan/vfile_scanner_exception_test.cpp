@@ -60,6 +60,47 @@ public:
     TFileScanRangeParams* get_params() override { return &_scan_range.params; }
 };
 
+namespace {
+
+class RefreshTrackingReader final : public GenericReader {
+public:
+    Status _do_get_next_block(Block* /*block*/, size_t* read_rows, bool* eof) override {
+        *read_rows = 0;
+        *eof = true;
+        return Status::OK();
+    }
+
+    Status on_late_arrival_runtime_filter_changed() override {
+        ++refresh_count;
+        return Status::OK();
+    }
+
+    int refresh_count = 0;
+};
+
+VExprContextSPtr create_bool_literal_ctx(RuntimeState* runtime_state) {
+    doris::TExprNode expr_node;
+    expr_node.node_type = TExprNodeType::BOOL_LITERAL;
+    expr_node.type = create_type_desc(PrimitiveType::TYPE_BOOLEAN);
+    expr_node.num_children = 0;
+    expr_node.__isset.bool_literal = true;
+    expr_node.bool_literal.value = true;
+
+    doris::TExpr texpr;
+    texpr.nodes.push_back(expr_node);
+
+    VExprContextSPtr ctx;
+    Status st = VExpr::create_expr_tree(texpr, ctx);
+    EXPECT_TRUE(st.ok());
+    st = ctx->prepare(runtime_state, RowDescriptor());
+    EXPECT_TRUE(st.ok());
+    st = ctx->open(runtime_state);
+    EXPECT_TRUE(st.ok());
+    return ctx;
+}
+
+} // namespace
+
 class VfileScannerExceptionTest : public testing::Test {
 public:
     VfileScannerExceptionTest()
@@ -299,32 +340,14 @@ TEST_F(VfileScannerExceptionTest, process_late_arrival_conjuncts_retain) {
     std::shared_ptr<FileScanner> scanner = nullptr;
     generate_scanner(scanner);
 
-    // Simulate some conjuncts in scanner
-    // Let's create a dummy expr context to test the exact function
-    doris::TExprNode expr_node;
-    expr_node.node_type = TExprNodeType::BOOL_LITERAL;
-    expr_node.type = create_type_desc(PrimitiveType::TYPE_BOOLEAN);
-    expr_node.num_children = 0;
-    expr_node.__isset.bool_literal = true;
-    expr_node.bool_literal.value = true;
-
-    doris::TExpr texpr;
-    texpr.nodes.push_back(expr_node);
-
-    VExprContextSPtr ctx;
-    Status st = VExpr::create_expr_tree(texpr, ctx);
-    ASSERT_TRUE(st.ok());
-    st = ctx->prepare(&_runtime_state, RowDescriptor());
-    ASSERT_TRUE(st.ok());
-    st = ctx->open(&_runtime_state);
-    ASSERT_TRUE(st.ok());
+    VExprContextSPtr ctx = create_bool_literal_ctx(&_runtime_state);
 
     scanner->_conjuncts.push_back(ctx);
     ASSERT_EQ(scanner->_conjuncts.size(), 1);
     ASSERT_EQ(scanner->_push_down_conjuncts.size(), 0);
 
     // Call the function that used to clear conjuncts in branch-4.0
-    st = scanner->_process_late_arrival_conjuncts();
+    Status st = scanner->_process_late_arrival_conjuncts();
     ASSERT_TRUE(st.ok());
 
     // The key assertion: _conjuncts MUST NOT be cleared after this call!
@@ -332,6 +355,58 @@ TEST_F(VfileScannerExceptionTest, process_late_arrival_conjuncts_retain) {
     ASSERT_EQ(scanner->_conjuncts.size(), 1);
     // And push_down_conjuncts should be cloned/assigned successfully
     ASSERT_EQ(scanner->_push_down_conjuncts.size(), 1);
+
+    WARN_IF_ERROR(scanner->close(&_runtime_state), "fail to close scanner");
+}
+
+TEST_F(VfileScannerExceptionTest,
+       process_late_arrival_conjuncts_preserve_digest_on_initialization) {
+    std::shared_ptr<FileScanner> scanner = nullptr;
+    generate_scanner(scanner);
+    VExprContextSPtr ctx = create_bool_literal_ctx(&_runtime_state);
+    auto tracking_reader = std::make_unique<RefreshTrackingReader>();
+    auto* tracking_reader_ptr = tracking_reader.get();
+
+    scanner->_conjuncts.push_back(ctx);
+    scanner->_condition_cache_digest = 12345;
+    scanner->_cur_reader = std::move(tracking_reader);
+    scanner->_cur_reader_eof = false;
+    ASSERT_FALSE(scanner->_push_down_conjuncts_initialized);
+
+    Status st = scanner->_process_late_arrival_conjuncts();
+    ASSERT_TRUE(st.ok());
+
+    EXPECT_TRUE(scanner->_push_down_conjuncts_initialized);
+    EXPECT_EQ(12345, scanner->_condition_cache_digest);
+    EXPECT_EQ(0, tracking_reader_ptr->refresh_count);
+
+    WARN_IF_ERROR(scanner->close(&_runtime_state), "fail to close scanner");
+}
+
+TEST_F(VfileScannerExceptionTest, process_late_arrival_conjuncts_zero_digest_after_refresh) {
+    std::shared_ptr<FileScanner> scanner = nullptr;
+    generate_scanner(scanner);
+    VExprContextSPtr ctx1 = create_bool_literal_ctx(&_runtime_state);
+    VExprContextSPtr ctx2 = create_bool_literal_ctx(&_runtime_state);
+    auto tracking_reader = std::make_unique<RefreshTrackingReader>();
+    auto* tracking_reader_ptr = tracking_reader.get();
+
+    scanner->_conjuncts.push_back(ctx1);
+    scanner->_condition_cache_digest = 12345;
+    scanner->_cur_reader = std::move(tracking_reader);
+    scanner->_cur_reader_eof = false;
+    Status st = scanner->_process_late_arrival_conjuncts();
+    ASSERT_TRUE(st.ok());
+    ASSERT_EQ(12345, scanner->_condition_cache_digest);
+    ASSERT_EQ(0, tracking_reader_ptr->refresh_count);
+
+    scanner->_conjuncts.push_back(ctx2);
+    st = scanner->_process_late_arrival_conjuncts();
+    ASSERT_TRUE(st.ok());
+
+    EXPECT_EQ(0, scanner->_condition_cache_digest);
+    EXPECT_EQ(2, scanner->_push_down_conjuncts.size());
+    EXPECT_EQ(1, tracking_reader_ptr->refresh_count);
 
     WARN_IF_ERROR(scanner->close(&_runtime_state), "fail to close scanner");
 }

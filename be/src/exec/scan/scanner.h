@@ -21,11 +21,13 @@
 
 #include <algorithm>
 #include <atomic>
+#include <memory>
 #include <vector>
 
 #include "common/status.h"
 #include "core/block/block.h"
 #include "runtime/exec_env.h"
+#include "runtime/late_arrival_rf_container.h"
 #include "runtime/runtime_state.h"
 #include "storage/tablet/tablet.h"
 #include "util/stopwatch.hpp"
@@ -34,6 +36,7 @@ namespace doris {
 class RuntimeProfile;
 class TupleDescriptor;
 
+class VExpr;
 class VExprContext;
 
 class ScanLocalStateBase;
@@ -56,7 +59,12 @@ public:
 
     //only used for FileScanner read one line.
     Scanner(RuntimeState* state, RuntimeProfile* profile)
-            : _state(state), _limit(1), _profile(profile), _total_rf_num(0), _has_prepared(false) {
+            : _state(state),
+              _limit(1),
+              _profile(profile),
+              _total_rf_num(0),
+              _has_prepared(false),
+              _late_rf_container(std::make_shared<LateArrivalRFContainer>()) {
         DorisMetrics::instance()->scanner_cnt->increment(1);
     };
 
@@ -203,6 +211,9 @@ public:
     void update_block_avg_bytes(size_t block_avg_bytes) { _block_avg_bytes = block_avg_bytes; }
 
 protected:
+    bool _is_zone_map_eligible_expr(const VExpr* expr);
+    virtual Status _on_late_arrival_runtime_filter_appended() { return Status::OK(); }
+
     RuntimeState* _state = nullptr;
     ScanLocalStateBase* _local_state = nullptr;
 
@@ -262,6 +273,8 @@ protected:
     bool _is_load = false;
 
     bool _has_prepared = false;
+
+    std::shared_ptr<LateArrivalRFContainer> _late_rf_container;
 
     ScannerCounter _counter;
     int64_t _per_scanner_timer = 0;

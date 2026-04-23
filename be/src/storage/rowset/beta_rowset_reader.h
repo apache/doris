@@ -58,6 +58,7 @@ public:
     Status next_batch(BlockWithSameBit* block_with_same_bit) override {
         return _next_batch(block_with_same_bit);
     }
+    Status refresh_for_late_arrival_runtime_filter() override;
 
     bool is_merge_iterator() const override {
         return _read_context->need_ordered_result &&

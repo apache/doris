@@ -61,6 +61,7 @@
 #include "storage/index/ann/ann_index_iterator.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/index_reader.h"
+#include "storage/index/zone_map/zone_map_eval_context.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/virtual_column_iterator.h"
 
@@ -304,6 +305,138 @@ Status VectorizedFnCall::execute_column_impl(VExprContext* context, const Block*
                                              const Selector* selector, size_t count,
                                              ColumnPtr& result_column) const {
     return _do_execute(context, block, selector, count, result_column, nullptr);
+}
+
+ZoneMapEvalResult VectorizedFnCall::evaluate_zone_map(const ZoneMapEvalContext& ctx) const {
+    auto null_result = _evaluate_null_predicate(ctx);
+    if (null_result != ZoneMapEvalResult::kUnsupported) {
+        return null_result;
+    }
+
+    const VExpr* slot_expr = nullptr;
+    const VExpr* literal_expr = nullptr;
+    bool slot_on_left = false;
+    if (!_try_extract_slot_and_literal(&slot_expr, &literal_expr, &slot_on_left)) {
+        return ZoneMapEvalResult::kUnsupported;
+    }
+
+    int slot_index = static_cast<const VSlotRef*>(slot_expr)->column_id();
+    auto zone_map_it = ctx.slot_index_to_zone_map.find(slot_index);
+    if (zone_map_it == ctx.slot_index_to_zone_map.end()) {
+        return ZoneMapEvalResult::kUnsupported;
+    }
+    const auto& zone_map = *zone_map_it->second;
+    if (zone_map.pass_all) {
+        return ZoneMapEvalResult::kMayMatch;
+    }
+
+    const auto* literal = static_cast<const VLiteral*>(literal_expr);
+    auto type_it = ctx.slot_index_to_data_type.find(slot_index);
+    if (type_it != ctx.slot_index_to_data_type.end()) {
+        auto zone_map_type = remove_nullable(type_it->second);
+        auto literal_type = remove_nullable(literal->data_type());
+        if (!zone_map_type->equals(*literal_type)) {
+            ctx.type_mismatch_count++;
+            return ZoneMapEvalResult::kUnsupported;
+        }
+    }
+
+    if (!zone_map.has_not_null) {
+        return ZoneMapEvalResult::kNoMatch;
+    }
+
+    Field literal_value;
+    literal->get_column_ptr()->get(0, literal_value);
+    if (literal_value.is_null()) {
+        return ZoneMapEvalResult::kMayMatch;
+    }
+
+    auto opcode = slot_on_left ? op() : _flip_opcode(op());
+    switch (opcode) {
+    case TExprOpcode::EQ:
+        return literal_value >= zone_map.min_value && literal_value <= zone_map.max_value
+                       ? ZoneMapEvalResult::kMayMatch
+                       : ZoneMapEvalResult::kNoMatch;
+    case TExprOpcode::NE:
+        return zone_map.min_value == literal_value && zone_map.max_value == literal_value &&
+                               !zone_map.has_null
+                       ? ZoneMapEvalResult::kNoMatch
+                       : ZoneMapEvalResult::kMayMatch;
+    case TExprOpcode::LT:
+        return zone_map.min_value < literal_value ? ZoneMapEvalResult::kMayMatch
+                                                  : ZoneMapEvalResult::kNoMatch;
+    case TExprOpcode::LE:
+        return zone_map.min_value <= literal_value ? ZoneMapEvalResult::kMayMatch
+                                                   : ZoneMapEvalResult::kNoMatch;
+    case TExprOpcode::GT:
+        return zone_map.max_value > literal_value ? ZoneMapEvalResult::kMayMatch
+                                                  : ZoneMapEvalResult::kNoMatch;
+    case TExprOpcode::GE:
+        return zone_map.max_value >= literal_value ? ZoneMapEvalResult::kMayMatch
+                                                   : ZoneMapEvalResult::kNoMatch;
+    default:
+        return ZoneMapEvalResult::kUnsupported;
+    }
+}
+
+ZoneMapEvalResult VectorizedFnCall::_evaluate_null_predicate(const ZoneMapEvalContext& ctx) const {
+    const auto& fn_name = _fn.name.function_name;
+    if (fn_name != "is_null_pred" && fn_name != "is_not_null_pred") {
+        return ZoneMapEvalResult::kUnsupported;
+    }
+    if (_children.size() != 1 || !_children[0]->is_slot_ref()) {
+        return ZoneMapEvalResult::kUnsupported;
+    }
+
+    int slot_index = static_cast<const VSlotRef*>(_children[0].get())->column_id();
+    auto zone_map_it = ctx.slot_index_to_zone_map.find(slot_index);
+    if (zone_map_it == ctx.slot_index_to_zone_map.end()) {
+        return ZoneMapEvalResult::kUnsupported;
+    }
+    const auto& zone_map = *zone_map_it->second;
+    if (zone_map.pass_all) {
+        return ZoneMapEvalResult::kMayMatch;
+    }
+    if (fn_name == "is_null_pred") {
+        return zone_map.has_null ? ZoneMapEvalResult::kMayMatch : ZoneMapEvalResult::kNoMatch;
+    }
+    return zone_map.has_not_null ? ZoneMapEvalResult::kMayMatch : ZoneMapEvalResult::kNoMatch;
+}
+
+TExprOpcode::type VectorizedFnCall::_flip_opcode(TExprOpcode::type opcode) const {
+    switch (opcode) {
+    case TExprOpcode::LT:
+        return TExprOpcode::GT;
+    case TExprOpcode::LE:
+        return TExprOpcode::GE;
+    case TExprOpcode::GT:
+        return TExprOpcode::LT;
+    case TExprOpcode::GE:
+        return TExprOpcode::LE;
+    default:
+        return opcode;
+    }
+}
+
+bool VectorizedFnCall::_try_extract_slot_and_literal(const VExpr** slot_out,
+                                                     const VExpr** literal_out,
+                                                     bool* slot_on_left) const {
+    if (_children.size() != 2) {
+        return false;
+    }
+    if (_children[0]->is_slot_ref() && _children[1]->is_literal()) {
+        *slot_out = _children[0].get();
+        *literal_out = _children[1].get();
+        *slot_on_left = true;
+        return true;
+    }
+    if (_children[1]->is_slot_ref() && _children[0]->is_literal()) {
+        *slot_out = _children[1].get();
+        *literal_out = _children[0].get();
+        *slot_on_left = false;
+        return true;
+    }
+    return false;
 }
 
 const std::string& VectorizedFnCall::expr_name() const {
@@ -579,8 +712,7 @@ Status VectorizedFnCall::evaluate_ann_range_search(
         return Status::OK();
     }
 
-    segment_v2::AnnIndexIterator* ann_index_iterator =
-            dynamic_cast<segment_v2::AnnIndexIterator*>(index_iterator);
+    auto* ann_index_iterator = dynamic_cast<segment_v2::AnnIndexIterator*>(index_iterator);
     if (ann_index_iterator == nullptr) {
         VLOG_DEBUG << "ANN range search skipped: "
                    << fmt::format("Column cid {} has no ANN index iterator", src_col_cid);
@@ -657,7 +789,7 @@ Status VectorizedFnCall::evaluate_ann_range_search(
             DCHECK(column_iterators[dst_col_cid] != nullptr);
             segment_v2::ColumnIterator* column_iterator = column_iterators[dst_col_cid].get();
             DCHECK(column_iterator != nullptr);
-            segment_v2::VirtualColumnIterator* virtual_column_iterator =
+            auto* virtual_column_iterator =
                     dynamic_cast<segment_v2::VirtualColumnIterator*>(column_iterator);
             DCHECK(virtual_column_iterator != nullptr);
             // Now convert distance to column

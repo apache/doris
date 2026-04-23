@@ -189,8 +189,22 @@ Status OlapScanLocalState::_init_profile() {
     _collect_iterator_merge_next_timer = ADD_TIMER(_segment_profile, "CollectIteratorMergeTime");
     _segment_generate_row_range_by_zonemap_timer =
             ADD_TIMER(_segment_profile, "GenerateRowRangeByZoneMapIndexTime");
+    _segment_generate_row_range_by_zonemap_expr_timer =
+            ADD_TIMER(_segment_profile, "GenerateRowRangeByZoneMapExprTime");
     _segment_generate_row_range_by_dict_timer =
             ADD_TIMER(_segment_profile, "GenerateRowRangeByDictTime");
+    _zone_map_expr_evaluated_counter =
+            ADD_COUNTER(_segment_profile, "ZoneMapExprEvaluated", TUnit::UNIT);
+    _zone_map_expr_skipped_pages_counter =
+            ADD_COUNTER(_segment_profile, "ZoneMapExprSkippedPages", TUnit::UNIT);
+    _zone_map_expr_unsupported_counter =
+            ADD_COUNTER(_segment_profile, "ZoneMapExprUnsupported", TUnit::UNIT);
+    _zone_map_expr_missing_stats_counter =
+            ADD_COUNTER(_segment_profile, "ZoneMapExprMissingStats", TUnit::UNIT);
+    _zone_map_expr_missing_index_counter =
+            ADD_COUNTER(_segment_profile, "ZoneMapExprMissingIndex", TUnit::UNIT);
+    _zone_map_expr_type_mismatch_counter =
+            ADD_COUNTER(_segment_profile, "ZoneMapExprTypeMismatch", TUnit::UNIT);
 
     _rows_vec_cond_filtered_counter =
             ADD_COUNTER(_segment_profile, "RowsVectorPredFiltered", TUnit::UNIT);

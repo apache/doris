@@ -114,7 +114,7 @@ FileScanner::FileScanner(RuntimeState* state, FileScanLocalState* local_state, i
           _strict_mode(false),
           _col_name_to_slot_id(colname_to_slot_id) {
     if (state->get_query_ctx() != nullptr &&
-        state->get_query_ctx()->file_scan_range_params_map.count(local_state->parent_id()) > 0) {
+        state->get_query_ctx()->file_scan_range_params_map.contains(local_state->parent_id())) {
         _params = &(state->get_query_ctx()->file_scan_range_params_map[local_state->parent_id()]);
     } else {
         // old fe thrift protocol
@@ -374,17 +374,49 @@ Status FileScanner::_process_conjuncts() {
 
 Status FileScanner::_process_late_arrival_conjuncts() {
     if (_push_down_conjuncts.size() < _conjuncts.size()) {
+        const bool refresh_existing_pushdown = _push_down_conjuncts_initialized;
         _push_down_conjuncts = _conjuncts;
         // Do not clear _conjuncts here!
         // We must keep it for fallback filtering, especially when mixing
         // Native readers (which use _push_down_conjuncts) and JNI readers (which rely on _conjuncts).
         // _conjuncts.clear();
         RETURN_IF_ERROR(_process_conjuncts());
+        _build_zone_map_filter_conjuncts();
+        if (refresh_existing_pushdown) {
+            // The scan-local digest is computed from the initial conjunct set only, so once a late
+            // runtime filter changes the predicate set, the existing external condition-cache key is
+            // stale. Disable condition cache for the remainder of this scanner.
+            _condition_cache_digest = 0;
+            if (_cur_reader != nullptr && !_cur_reader_eof) {
+                RETURN_IF_ERROR(_cur_reader->on_late_arrival_runtime_filter_changed());
+            }
+        }
     }
+    _push_down_conjuncts_initialized = true;
     if (_applied_rf_num == _total_rf_num) {
+#ifndef BE_TEST // For test, _local_state is nullptr.
         _local_state->scanner_profile()->add_info_string("ApplyAllRuntimeFilters", "True");
+#endif
     }
     return Status::OK();
+}
+
+void FileScanner::_build_zone_map_filter_conjuncts() {
+    _zone_map_filter_conjuncts.clear();
+    for (const auto& [slot_id, conjuncts] : _slot_id_to_filter_conjuncts) {
+        if (_partition_slot_index_map.contains(slot_id)) {
+            continue;
+        }
+        auto* slot_desc = _state->desc_tbl().get_slot_descriptor(slot_id);
+        if (slot_desc == nullptr) {
+            continue;
+        }
+        for (const auto& conjunct : conjuncts) {
+            if (_is_zone_map_eligible_expr(conjunct->root().get())) {
+                _zone_map_filter_conjuncts.push_back(conjunct);
+            }
+        }
+    }
 }
 
 void FileScanner::_get_slot_ids(VExpr* expr, std::vector<int>* slot_ids) {
@@ -486,6 +518,8 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
         {
             SCOPED_TIMER(_get_block_timer);
 
+            RETURN_IF_ERROR(try_append_late_arrival_runtime_filter());
+            RETURN_IF_ERROR(_process_late_arrival_conjuncts());
             // Read next block.
             // Some of column in block may not be filled (column not exist in file)
             RETURN_IF_ERROR(
@@ -1039,9 +1073,9 @@ Status FileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {
-            auto file_meta_cache_ptr = _should_enable_file_meta_cache()
-                                               ? ExecEnv::GetInstance()->file_meta_cache()
-                                               : nullptr;
+            auto* file_meta_cache_ptr = _should_enable_file_meta_cache()
+                                                ? ExecEnv::GetInstance()->file_meta_cache()
+                                                : nullptr;
             if (push_down_predicates) {
                 RETURN_IF_ERROR(_process_late_arrival_conjuncts());
             }
@@ -1051,9 +1085,9 @@ Status FileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
-            auto file_meta_cache_ptr = _should_enable_file_meta_cache()
-                                               ? ExecEnv::GetInstance()->file_meta_cache()
-                                               : nullptr;
+            auto* file_meta_cache_ptr = _should_enable_file_meta_cache()
+                                                ? ExecEnv::GetInstance()->file_meta_cache()
+                                                : nullptr;
             if (push_down_predicates) {
                 RETURN_IF_ERROR(_process_late_arrival_conjuncts());
             }
@@ -1247,6 +1281,8 @@ Status FileScanner::_init_parquet_reader(FileMetaCache* file_meta_cache_ptr,
     pctx.colname_to_slot_id = _col_name_to_slot_id;
     pctx.not_single_slot_filter_conjuncts = &_not_single_slot_filter_conjuncts;
     pctx.slot_id_to_filter_conjuncts = &_slot_id_to_filter_conjuncts;
+    _build_zone_map_filter_conjuncts();
+    pctx.zone_map_filter_conjuncts = &_zone_map_filter_conjuncts;
 
     if (range.__isset.table_format_params &&
         range.table_format_params.table_format_type == "iceberg") {
@@ -1479,6 +1515,8 @@ Status FileScanner::prepare_for_read_lines(const TFileRangeDesc& range) {
     _push_down_conjuncts.clear();
     _not_single_slot_filter_conjuncts.clear();
     _slot_id_to_filter_conjuncts.clear();
+    _zone_map_filter_conjuncts.clear();
+    _push_down_conjuncts_initialized = false;
     _kv_cache = nullptr;
     return Status::OK();
 }
@@ -1493,9 +1531,9 @@ Status FileScanner::read_lines_from_range(const TFileRangeDesc& range,
     TFileFormatType::type format_type = _get_current_format_type();
     Status init_status = Status::OK();
 
-    auto file_meta_cache_ptr = external_info.enable_file_meta_cache
-                                       ? ExecEnv::GetInstance()->file_meta_cache()
-                                       : nullptr;
+    auto* file_meta_cache_ptr = external_info.enable_file_meta_cache
+                                        ? ExecEnv::GetInstance()->file_meta_cache()
+                                        : nullptr;
 
     RETURN_IF_ERROR(scope_timer_run(
             [&]() -> Status {

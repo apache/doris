@@ -95,7 +95,8 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .score_runtime {},
                                  .collection_statistics {},
                                  .ann_topn_runtime {},
-                                 .condition_cache_digest = parent->get_condition_cache_digest()}) {
+                                 .condition_cache_digest = parent->get_condition_cache_digest(),
+                                 .late_arrival_rf_container {}}) {
     _tablet_reader_params.set_read_source(std::move(params.read_source),
                                           _state->skip_delete_bitmap());
     _has_prepared = false;
@@ -369,6 +370,7 @@ Status OlapScanner::_init_tablet_reader_params(
 
     _tablet_reader_params.profile = _local_state->custom_profile();
     _tablet_reader_params.runtime_state = _state;
+    _tablet_reader_params.late_arrival_rf_container = _late_rf_container;
 
     _tablet_reader_params.origin_return_columns = &_return_columns;
     _tablet_reader_params.tablet_columns_convert_to_null_set = &_tablet_columns_convert_to_null_set;
@@ -641,6 +643,13 @@ Status OlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof
     return Status::OK();
 }
 
+Status OlapScanner::_on_late_arrival_runtime_filter_appended() {
+    if (_tablet_reader == nullptr) {
+        return Status::OK();
+    }
+    return _tablet_reader->refresh_for_late_arrival_runtime_filter();
+}
+
 Status OlapScanner::close(RuntimeState* state) {
     if (!_try_close()) {
         return Status::OK();
@@ -742,8 +751,21 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.collect_iterator_merge_next_timer);
     COUNTER_UPDATE(local_state->_segment_generate_row_range_by_zonemap_timer,
                    stats.generate_row_ranges_by_zonemap_ns);
+    COUNTER_UPDATE(local_state->_segment_generate_row_range_by_zonemap_expr_timer,
+                   stats.generate_row_ranges_by_zonemap_expr_ns);
     COUNTER_UPDATE(local_state->_segment_generate_row_range_by_dict_timer,
                    stats.generate_row_ranges_by_dict_ns);
+    COUNTER_UPDATE(local_state->_zone_map_expr_evaluated_counter, stats.zone_map_expr_evaluated);
+    COUNTER_UPDATE(local_state->_zone_map_expr_skipped_pages_counter,
+                   stats.zone_map_expr_skipped_pages);
+    COUNTER_UPDATE(local_state->_zone_map_expr_unsupported_counter,
+                   stats.zone_map_expr_unsupported);
+    COUNTER_UPDATE(local_state->_zone_map_expr_missing_stats_counter,
+                   stats.zone_map_expr_missing_stats);
+    COUNTER_UPDATE(local_state->_zone_map_expr_missing_index_counter,
+                   stats.zone_map_expr_missing_index);
+    COUNTER_UPDATE(local_state->_zone_map_expr_type_mismatch_counter,
+                   stats.zone_map_expr_type_mismatch);
     COUNTER_UPDATE(local_state->_predicate_column_read_timer, stats.predicate_column_read_ns);
     COUNTER_UPDATE(local_state->_non_predicate_column_read_timer, stats.non_predicate_read_ns);
     COUNTER_UPDATE(local_state->_predicate_column_read_seek_timer,

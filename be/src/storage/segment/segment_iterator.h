@@ -118,6 +118,7 @@ public:
     [[nodiscard]] Status init_iterators();
     [[nodiscard]] Status init(const StorageReadOptions& opts) override;
     [[nodiscard]] Status next_batch(Block* block) override;
+    [[nodiscard]] Status refresh_for_late_arrival_runtime_filter() override;
 
     // Get current block row locations. This function should be called
     // after the `next_batch` function.
@@ -188,6 +189,9 @@ private:
     // calculate row ranges that satisfy requested column conditions using various column index
     [[nodiscard]] Status _get_row_ranges_by_column_conditions();
     [[nodiscard]] Status _get_row_ranges_from_conditions(RowRanges* condition_row_ranges);
+    [[nodiscard]] Status _get_row_ranges_by_zone_map_expr(RowRanges* condition_row_ranges);
+    [[nodiscard]] Status _refresh_zone_map_exprs_from_late_arrival_runtime_filter();
+    void _reset_range_iter(const roaring::Roaring& row_bitmap);
 
     [[nodiscard]] Status _apply_inverted_index();
     [[nodiscard]] Status _apply_inverted_index_on_column_predicate(
@@ -326,6 +330,7 @@ private:
                                                                 bool default_return = false);
 
     void _calculate_expr_in_remaining_conjunct_root();
+    void _collect_slot_column_ids(const VExpr* expr, std::set<ColumnId>* cids);
 
     Status _process_eof(Block* block);
 
@@ -408,6 +413,9 @@ private:
     StorageReadOptions _opts;
     // make a copy of `_opts.column_predicates` in order to make local changes
     std::vector<std::shared_ptr<ColumnPredicate>> _col_predicates;
+    VExprContextSPtrs _zone_map_expr_ctxs;
+    std::set<ColumnId> _zone_map_expr_cids;
+    std::map<ColumnId, int> _storage_cid_to_slot_index;
     VExprContextSPtrs _common_expr_ctxs_push_down;
     bool _enable_common_expr_pushdown = false;
     std::vector<VExprSPtr> _remaining_conjunct_roots;
@@ -477,6 +485,7 @@ private:
     bool _find_condition_cache = false;
     std::shared_ptr<std::vector<bool>> _condition_cache;
     static constexpr int CONDITION_CACHE_OFFSET = 2048;
+    uint64_t _applied_late_arrival_rf_version = 0;
 };
 
 } // namespace segment_v2

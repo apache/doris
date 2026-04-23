@@ -70,6 +70,7 @@
 #include "information_schema/schema_scanner.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/descriptors.h"
+#include "storage/index/zone_map/zone_map_index.h"
 #include "storage/predicate/comparison_predicate.h"
 #include "storage/predicate/in_list_predicate.h"
 #include "storage/predicate/null_predicate.h"
@@ -255,7 +256,7 @@ public:
         create_table_desc(t_desc_table, t_table_desc, table_column_names, table_column_types);
 
         static_cast<void>(DescriptorTbl::create(&obj_pool, t_desc_table, &desc_tbl));
-        auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
+        auto* tuple_desc = desc_tbl->get_tuple_descriptor(0);
         slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
         auto local_fs = io::global_local_filesystem();
         io::FileReaderSPtr local_file_reader;
@@ -306,7 +307,7 @@ public:
         static_cast<void>(
                 DescriptorTbl::create(&local_obj_pool, local_desc_table, &local_desc_tbl));
 
-        auto tuple_desc = local_desc_tbl->get_tuple_descriptor(0);
+        auto* tuple_desc = local_desc_tbl->get_tuple_descriptor(0);
         auto slot_descs = tuple_desc->slots();
         auto local_fs = io::global_local_filesystem();
         io::FileReaderSPtr local_file_reader;
@@ -416,6 +417,63 @@ public:
             t_desc_table.tupleDescriptors.push_back(t_tuple_desc);
         }
     };
+
+    std::shared_ptr<MockSlotRef> create_slot_ref(int slot_id, const DataTypePtr& data_type,
+                                                 const std::string& expr_name = "") {
+        auto slot_ref = std::make_shared<MockSlotRef>(slot_id, data_type);
+        slot_ref->_slot_id = slot_id;
+        slot_ref->_column_id = slot_id;
+        if (!expr_name.empty()) {
+            slot_ref->set_expr_name(expr_name);
+        }
+        return slot_ref;
+    }
+
+    std::shared_ptr<MockFnCall> create_binary_pred(
+            TExprOpcode::type opcode, const ColumnWithTypeAndName& literal, int slot_id = 2,
+            const DataTypePtr& data_type = std::make_shared<DataTypeInt64>(),
+            bool slot_on_left = true, const std::string& expr_name = "int64_col") {
+        auto slot_ref = create_slot_ref(slot_id, data_type, expr_name);
+        auto fn = MockFnCall::create(opcode == TExprOpcode::EQ   ? "eq"
+                                     : opcode == TExprOpcode::NE ? "ne"
+                                     : opcode == TExprOpcode::LT ? "lt"
+                                     : opcode == TExprOpcode::LE ? "le"
+                                     : opcode == TExprOpcode::GT ? "gt"
+                                                                 : "ge");
+        if (slot_on_left) {
+            fn->add_child(slot_ref);
+            fn->add_child(std::make_shared<MockLiteral>(literal));
+        } else {
+            fn->add_child(std::make_shared<MockLiteral>(literal));
+            fn->add_child(slot_ref);
+        }
+        fn->_node_type = TExprNodeType::BINARY_PRED;
+        fn->_opcode = opcode;
+        return fn;
+    }
+
+    segment_v2::ZoneMap create_zone_map(const Field& min_value, const Field& max_value,
+                                        bool has_null, bool has_not_null, bool pass_all = false) {
+        segment_v2::ZoneMap zone_map;
+        zone_map.min_value = min_value;
+        zone_map.max_value = max_value;
+        zone_map.has_null = has_null;
+        zone_map.has_not_null = has_not_null;
+        zone_map.pass_all = pass_all;
+        return zone_map;
+    }
+
+    ZoneMapEvalContext create_eval_ctx(int slot_id, const segment_v2::ZoneMap* zone_map,
+                                       const DataTypePtr& data_type = nullptr) {
+        ZoneMapEvalContext ctx;
+        if (zone_map != nullptr) {
+            ctx.slot_index_to_zone_map.emplace(slot_id, zone_map);
+        }
+        if (data_type != nullptr) {
+            ctx.slot_index_to_data_type.emplace(slot_id, data_type);
+        }
+        return ctx;
+    }
 
     std::string file_path;
     std::unique_ptr<ParquetReader> p_reader;
@@ -1792,6 +1850,395 @@ TEST_F(ParquetExprTest, test_bloom_filter_reused_after_first_load) {
 
     EXPECT_TRUE(eq_pred.evaluate_and(&stat));
     EXPECT_EQ(2, loader_calls);
+}
+
+TEST_F(ParquetExprTest, test_vexpr_zone_map_filter_gt_int64) {
+    RowDescriptor row_desc(desc_tbl->get_tuple_descriptor(0));
+    p_reader->_row_descriptor = &row_desc;
+
+    auto slot_ref = std::make_shared<MockSlotRef>(2, std::make_shared<DataTypeInt64>());
+    slot_ref->_slot_id = 2;
+    slot_ref->_column_id = 2;
+    slot_ref->set_expr_name("int64_col");
+
+    auto fn_gt = MockFnCall::create("gt");
+    fn_gt->add_child(slot_ref);
+    fn_gt->add_child(std::make_shared<MockLiteral>(
+            ColumnHelper::create_column_with_name<DataTypeInt64>({10000000002})));
+    fn_gt->_node_type = TExprNodeType::BINARY_PRED;
+    fn_gt->_opcode = TExprOpcode::GT;
+
+    auto ctx = VExprContext::create_shared(fn_gt);
+    ctx->_prepared = true;
+    ctx->_opened = true;
+
+    VExprContextSPtrs zone_map_filter_conjuncts {ctx};
+    std::unordered_map<int, VExprContextSPtrs> slot_id_to_filter_conjuncts;
+    slot_id_to_filter_conjuncts[2] = {ctx};
+    p_reader->_zone_map_filter_conjuncts = &zone_map_filter_conjuncts;
+    p_reader->_slot_id_to_filter_conjuncts = &slot_id_to_filter_conjuncts;
+
+    bool filter_group = false;
+    ASSERT_TRUE(
+            p_reader->_process_vexpr_zone_map_filter(doris_metadata.row_groups[0], &filter_group)
+                    .ok());
+    EXPECT_TRUE(filter_group);
+
+    filter_group = false;
+    ASSERT_TRUE(
+            p_reader->_process_vexpr_zone_map_filter(doris_metadata.row_groups[1], &filter_group)
+                    .ok());
+    EXPECT_FALSE(filter_group);
+}
+
+TEST_F(ParquetExprTest, test_vexpr_zone_map_filter_direct_in) {
+    RowDescriptor row_desc(desc_tbl->get_tuple_descriptor(0));
+    p_reader->_row_descriptor = &row_desc;
+
+    auto slot_ref = std::make_shared<MockSlotRef>(2, std::make_shared<DataTypeInt64>());
+    slot_ref->_slot_id = 2;
+    slot_ref->_column_id = 2;
+    slot_ref->set_expr_name("int64_col");
+
+    auto direct_in_expr = std::make_shared<VDirectInPredicate>();
+    direct_in_expr->add_child(slot_ref);
+    std::shared_ptr<HybridSetBase> set(create_set(PrimitiveType::TYPE_BIGINT, false));
+    int64_t value = 10000000004;
+    set->insert(&value);
+    value = 10000000005;
+    set->insert(&value);
+    direct_in_expr->_filter = set;
+
+    auto ctx = VExprContext::create_shared(direct_in_expr);
+    ctx->_prepared = true;
+    ctx->_opened = true;
+
+    VExprContextSPtrs zone_map_filter_conjuncts {ctx};
+    std::unordered_map<int, VExprContextSPtrs> slot_id_to_filter_conjuncts;
+    slot_id_to_filter_conjuncts[2] = {ctx};
+    p_reader->_zone_map_filter_conjuncts = &zone_map_filter_conjuncts;
+    p_reader->_slot_id_to_filter_conjuncts = &slot_id_to_filter_conjuncts;
+
+    bool filter_group = false;
+    ASSERT_TRUE(
+            p_reader->_process_vexpr_zone_map_filter(doris_metadata.row_groups[0], &filter_group)
+                    .ok());
+    EXPECT_TRUE(filter_group);
+
+    filter_group = false;
+    ASSERT_TRUE(
+            p_reader->_process_vexpr_zone_map_filter(doris_metadata.row_groups[1], &filter_group)
+                    .ok());
+    EXPECT_FALSE(filter_group);
+}
+
+TEST_F(ParquetExprTest, test_vexpr_zone_map_filter_compound_and) {
+    RowDescriptor row_desc(desc_tbl->get_tuple_descriptor(0));
+    p_reader->_row_descriptor = &row_desc;
+
+    auto make_binary_pred = [](TExprOpcode::type opcode, int64_t value) {
+        auto slot_ref = std::make_shared<MockSlotRef>(2, std::make_shared<DataTypeInt64>());
+        slot_ref->_slot_id = 2;
+        slot_ref->_column_id = 2;
+        slot_ref->set_expr_name("int64_col");
+
+        auto fn = MockFnCall::create(opcode == TExprOpcode::GT ? "gt" : "lt");
+        fn->add_child(slot_ref);
+        fn->add_child(std::make_shared<MockLiteral>(
+                ColumnHelper::create_column_with_name<DataTypeInt64>({value})));
+        fn->_node_type = TExprNodeType::BINARY_PRED;
+        fn->_opcode = opcode;
+        return fn;
+    };
+
+    auto and_expr = std::make_shared<VCompoundPred>();
+    and_expr->_op = TExprOpcode::COMPOUND_AND;
+    and_expr->_opcode = TExprOpcode::COMPOUND_AND;
+    and_expr->_node_type = TExprNodeType::COMPOUND_PRED;
+    and_expr->add_child(make_binary_pred(TExprOpcode::GT, 10000000002));
+    and_expr->add_child(make_binary_pred(TExprOpcode::LT, 10000000005));
+
+    auto ctx = VExprContext::create_shared(and_expr);
+    ctx->_prepared = true;
+    ctx->_opened = true;
+
+    VExprContextSPtrs zone_map_filter_conjuncts {ctx};
+    std::unordered_map<int, VExprContextSPtrs> slot_id_to_filter_conjuncts;
+    slot_id_to_filter_conjuncts[2] = {ctx};
+    p_reader->_zone_map_filter_conjuncts = &zone_map_filter_conjuncts;
+    p_reader->_slot_id_to_filter_conjuncts = &slot_id_to_filter_conjuncts;
+
+    bool filter_group = false;
+    ASSERT_TRUE(
+            p_reader->_process_vexpr_zone_map_filter(doris_metadata.row_groups[0], &filter_group)
+                    .ok());
+    EXPECT_TRUE(filter_group);
+
+    filter_group = false;
+    ASSERT_TRUE(
+            p_reader->_process_vexpr_zone_map_filter(doris_metadata.row_groups[1], &filter_group)
+                    .ok());
+    EXPECT_FALSE(filter_group);
+}
+
+TEST_F(ParquetExprTest, test_vexpr_zone_map_filter_is_not_null_all_null) {
+    RowDescriptor row_desc(desc_tbl->get_tuple_descriptor(0));
+    p_reader->_row_descriptor = &row_desc;
+
+    auto slot_ref = std::make_shared<MockSlotRef>(1, std::make_shared<DataTypeInt32>());
+    slot_ref->_slot_id = 1;
+    slot_ref->_column_id = 1;
+    slot_ref->set_expr_name("int32_all_null_col");
+
+    auto fn_is_not_null = MockFnCall::create("is_not_null_pred");
+    fn_is_not_null->add_child(slot_ref);
+    fn_is_not_null->_node_type = TExprNodeType::FUNCTION_CALL;
+
+    auto ctx = VExprContext::create_shared(fn_is_not_null);
+    ctx->_prepared = true;
+    ctx->_opened = true;
+
+    VExprContextSPtrs zone_map_filter_conjuncts {ctx};
+    std::unordered_map<int, VExprContextSPtrs> slot_id_to_filter_conjuncts;
+    slot_id_to_filter_conjuncts[1] = {ctx};
+    p_reader->_zone_map_filter_conjuncts = &zone_map_filter_conjuncts;
+    p_reader->_slot_id_to_filter_conjuncts = &slot_id_to_filter_conjuncts;
+
+    bool filter_group = false;
+    ASSERT_TRUE(
+            p_reader->_process_vexpr_zone_map_filter(doris_metadata.row_groups[0], &filter_group)
+                    .ok());
+    EXPECT_TRUE(filter_group);
+
+    filter_group = false;
+    ASSERT_TRUE(
+            p_reader->_process_vexpr_zone_map_filter(doris_metadata.row_groups[1], &filter_group)
+                    .ok());
+    EXPECT_TRUE(filter_group);
+}
+
+TEST_F(ParquetExprTest, test_vexpr_zone_map_filter_type_mismatch_keeps_row_group) {
+    RowDescriptor row_desc(desc_tbl->get_tuple_descriptor(0));
+    p_reader->_row_descriptor = &row_desc;
+
+    auto slot_ref = std::make_shared<MockSlotRef>(2, std::make_shared<DataTypeInt64>());
+    slot_ref->_slot_id = 2;
+    slot_ref->_column_id = 2;
+    slot_ref->set_expr_name("int64_col");
+
+    auto fn_gt = MockFnCall::create("gt");
+    fn_gt->add_child(slot_ref);
+    fn_gt->add_child(std::make_shared<MockLiteral>(
+            ColumnHelper::create_column_with_name<DataTypeString>({"10000000002"})));
+    fn_gt->_node_type = TExprNodeType::BINARY_PRED;
+    fn_gt->_opcode = TExprOpcode::GT;
+
+    auto ctx = VExprContext::create_shared(fn_gt);
+    ctx->_prepared = true;
+    ctx->_opened = true;
+
+    VExprContextSPtrs zone_map_filter_conjuncts {ctx};
+    std::unordered_map<int, VExprContextSPtrs> slot_id_to_filter_conjuncts;
+    slot_id_to_filter_conjuncts[2] = {ctx};
+    p_reader->_zone_map_filter_conjuncts = &zone_map_filter_conjuncts;
+    p_reader->_slot_id_to_filter_conjuncts = &slot_id_to_filter_conjuncts;
+
+    bool filter_group = false;
+    ASSERT_TRUE(
+            p_reader->_process_vexpr_zone_map_filter(doris_metadata.row_groups[0], &filter_group)
+                    .ok());
+    EXPECT_FALSE(filter_group);
+}
+
+TEST_F(ParquetExprTest, test_vexpr_zone_map_filter_compound_or) {
+    RowDescriptor row_desc(desc_tbl->get_tuple_descriptor(0));
+    p_reader->_row_descriptor = &row_desc;
+
+    auto make_binary_pred = [](TExprOpcode::type opcode, int64_t value) {
+        auto slot_ref = std::make_shared<MockSlotRef>(2, std::make_shared<DataTypeInt64>());
+        slot_ref->_slot_id = 2;
+        slot_ref->_column_id = 2;
+        slot_ref->set_expr_name("int64_col");
+
+        auto fn = MockFnCall::create(opcode == TExprOpcode::GT ? "gt" : "lt");
+        fn->add_child(slot_ref);
+        fn->add_child(std::make_shared<MockLiteral>(
+                ColumnHelper::create_column_with_name<DataTypeInt64>({value})));
+        fn->_node_type = TExprNodeType::BINARY_PRED;
+        fn->_opcode = opcode;
+        return fn;
+    };
+
+    auto or_expr = std::make_shared<VCompoundPred>();
+    or_expr->_op = TExprOpcode::COMPOUND_OR;
+    or_expr->_opcode = TExprOpcode::COMPOUND_OR;
+    or_expr->_node_type = TExprNodeType::COMPOUND_PRED;
+    or_expr->add_child(make_binary_pred(TExprOpcode::GT, 10000000005));
+    or_expr->add_child(make_binary_pred(TExprOpcode::LT, 10000000000));
+
+    auto ctx = VExprContext::create_shared(or_expr);
+    ctx->_prepared = true;
+    ctx->_opened = true;
+
+    VExprContextSPtrs zone_map_filter_conjuncts {ctx};
+    std::unordered_map<int, VExprContextSPtrs> slot_id_to_filter_conjuncts;
+    slot_id_to_filter_conjuncts[2] = {ctx};
+    p_reader->_zone_map_filter_conjuncts = &zone_map_filter_conjuncts;
+    p_reader->_slot_id_to_filter_conjuncts = &slot_id_to_filter_conjuncts;
+
+    bool filter_group = false;
+    ASSERT_TRUE(
+            p_reader->_process_vexpr_zone_map_filter(doris_metadata.row_groups[0], &filter_group)
+                    .ok());
+    EXPECT_TRUE(filter_group);
+
+    filter_group = false;
+    ASSERT_TRUE(
+            p_reader->_process_vexpr_zone_map_filter(doris_metadata.row_groups[1], &filter_group)
+                    .ok());
+    EXPECT_TRUE(filter_group);
+}
+
+TEST_F(ParquetExprTest, test_vexpr_zone_map_filter_literal_on_left_flips_opcode) {
+    RowDescriptor row_desc(desc_tbl->get_tuple_descriptor(0));
+    p_reader->_row_descriptor = &row_desc;
+
+    auto fn_lt = create_binary_pred(
+            TExprOpcode::LT, ColumnHelper::create_column_with_name<DataTypeInt64>({10000000002}), 2,
+            std::make_shared<DataTypeInt64>(), false, "int64_col");
+
+    auto ctx = VExprContext::create_shared(fn_lt);
+    ctx->_prepared = true;
+    ctx->_opened = true;
+
+    VExprContextSPtrs zone_map_filter_conjuncts {ctx};
+    std::unordered_map<int, VExprContextSPtrs> slot_id_to_filter_conjuncts;
+    slot_id_to_filter_conjuncts[2] = {ctx};
+    p_reader->_zone_map_filter_conjuncts = &zone_map_filter_conjuncts;
+    p_reader->_slot_id_to_filter_conjuncts = &slot_id_to_filter_conjuncts;
+
+    bool filter_group = false;
+    ASSERT_TRUE(
+            p_reader->_process_vexpr_zone_map_filter(doris_metadata.row_groups[0], &filter_group)
+                    .ok());
+    EXPECT_TRUE(filter_group);
+
+    filter_group = false;
+    ASSERT_TRUE(
+            p_reader->_process_vexpr_zone_map_filter(doris_metadata.row_groups[1], &filter_group)
+                    .ok());
+    EXPECT_FALSE(filter_group);
+}
+
+TEST_F(ParquetExprTest, test_vexpr_zone_map_eval_not_equal_single_value_no_null) {
+    auto fn_ne = create_binary_pred(TExprOpcode::NE,
+                                    ColumnHelper::create_column_with_name<DataTypeInt64>({7}));
+    auto zone_map = create_zone_map(Field::create_field<TYPE_BIGINT>(7),
+                                    Field::create_field<TYPE_BIGINT>(7), false, true);
+    auto eval_ctx = create_eval_ctx(2, &zone_map, std::make_shared<DataTypeInt64>());
+
+    EXPECT_EQ(ZoneMapEvalResult::kNoMatch, fn_ne->evaluate_zone_map(eval_ctx));
+    EXPECT_TRUE(can_skip(fn_ne->evaluate_zone_map(eval_ctx)));
+}
+
+TEST_F(ParquetExprTest, test_vexpr_zone_map_eval_not_equal_single_value_with_null_keeps_zone) {
+    auto fn_ne = create_binary_pred(TExprOpcode::NE,
+                                    ColumnHelper::create_column_with_name<DataTypeInt64>({7}));
+    auto zone_map = create_zone_map(Field::create_field<TYPE_BIGINT>(7),
+                                    Field::create_field<TYPE_BIGINT>(7), true, true);
+    auto eval_ctx = create_eval_ctx(2, &zone_map, std::make_shared<DataTypeInt64>());
+
+    EXPECT_EQ(ZoneMapEvalResult::kMayMatch, fn_ne->evaluate_zone_map(eval_ctx));
+}
+
+TEST_F(ParquetExprTest, test_vexpr_zone_map_eval_comparison_on_all_null_zone) {
+    auto fn_gt = create_binary_pred(TExprOpcode::GT,
+                                    ColumnHelper::create_column_with_name<DataTypeInt64>({7}));
+    auto zone_map = create_zone_map(Field::create_field<TYPE_BIGINT>(0),
+                                    Field::create_field<TYPE_BIGINT>(0), true, false);
+    auto eval_ctx = create_eval_ctx(2, &zone_map, std::make_shared<DataTypeInt64>());
+
+    EXPECT_EQ(ZoneMapEvalResult::kNoMatch, fn_gt->evaluate_zone_map(eval_ctx));
+}
+
+TEST_F(ParquetExprTest, test_vexpr_zone_map_eval_null_literal_is_may_match) {
+    auto fn_gt = create_binary_pred(
+            TExprOpcode::GT,
+            ColumnWithTypeAndName(
+                    ColumnNullable::create(ColumnInt64::create(1, 0), ColumnUInt8::create(1, 1)),
+                    make_nullable(std::make_shared<DataTypeInt64>()), "null_literal"));
+    auto zone_map = create_zone_map(Field::create_field<TYPE_BIGINT>(1),
+                                    Field::create_field<TYPE_BIGINT>(3), false, true);
+    auto eval_ctx = create_eval_ctx(2, &zone_map, std::make_shared<DataTypeInt64>());
+
+    EXPECT_EQ(ZoneMapEvalResult::kMayMatch, fn_gt->evaluate_zone_map(eval_ctx));
+}
+
+TEST_F(ParquetExprTest, test_vexpr_context_evaluate_zone_map_stops_on_no_match) {
+    auto unsupported_ctx =
+            VExprContext::create_shared(create_slot_ref(2, std::make_shared<DataTypeInt64>()));
+    auto no_match_ctx = VExprContext::create_shared(create_binary_pred(
+            TExprOpcode::GT, ColumnHelper::create_column_with_name<DataTypeInt64>({9})));
+
+    auto zone_map = create_zone_map(Field::create_field<TYPE_BIGINT>(1),
+                                    Field::create_field<TYPE_BIGINT>(3), false, true);
+    auto eval_ctx = create_eval_ctx(2, &zone_map, std::make_shared<DataTypeInt64>());
+    VExprContextSPtrs conjuncts {nullptr, unsupported_ctx, no_match_ctx};
+
+    EXPECT_EQ(ZoneMapEvalResult::kNoMatch, VExprContext::evaluate_zone_map(conjuncts, eval_ctx));
+}
+
+TEST_F(ParquetExprTest, test_vexpr_context_evaluate_zone_map_only_unsupported_is_may_match) {
+    auto unsupported_ctx =
+            VExprContext::create_shared(create_slot_ref(2, std::make_shared<DataTypeInt64>()));
+    auto zone_map = create_zone_map(Field::create_field<TYPE_BIGINT>(1),
+                                    Field::create_field<TYPE_BIGINT>(3), false, true);
+    auto eval_ctx = create_eval_ctx(2, &zone_map, std::make_shared<DataTypeInt64>());
+    VExprContextSPtrs conjuncts {nullptr, unsupported_ctx};
+
+    EXPECT_EQ(ZoneMapEvalResult::kMayMatch, VExprContext::evaluate_zone_map(conjuncts, eval_ctx));
+}
+
+TEST_F(ParquetExprTest, test_vdirect_in_zone_map_empty_set_is_unsupported) {
+    auto direct_in_expr = std::make_shared<VDirectInPredicate>();
+    direct_in_expr->add_child(create_slot_ref(2, std::make_shared<DataTypeInt64>(), "int64_col"));
+
+    auto zone_map = create_zone_map(Field::create_field<TYPE_BIGINT>(1),
+                                    Field::create_field<TYPE_BIGINT>(3), false, true);
+    auto eval_ctx = create_eval_ctx(2, &zone_map, std::make_shared<DataTypeInt64>());
+
+    EXPECT_EQ(ZoneMapEvalResult::kUnsupported, direct_in_expr->evaluate_zone_map(eval_ctx));
+}
+
+TEST_F(ParquetExprTest, test_vdirect_in_zone_map_type_mismatch_increments_counter) {
+    auto direct_in_expr = std::make_shared<VDirectInPredicate>();
+    direct_in_expr->add_child(create_slot_ref(2, std::make_shared<DataTypeInt64>(), "int64_col"));
+    std::shared_ptr<HybridSetBase> set(create_set(PrimitiveType::TYPE_BIGINT, false));
+    int64_t value = 2;
+    set->insert(&value);
+    direct_in_expr->_filter = set;
+
+    auto zone_map = create_zone_map(Field::create_field<TYPE_BIGINT>(1),
+                                    Field::create_field<TYPE_BIGINT>(3), false, true);
+    auto eval_ctx = create_eval_ctx(2, &zone_map, std::make_shared<DataTypeString>());
+
+    EXPECT_EQ(ZoneMapEvalResult::kUnsupported, direct_in_expr->evaluate_zone_map(eval_ctx));
+    EXPECT_EQ(1, eval_ctx.type_mismatch_count);
+}
+
+TEST_F(ParquetExprTest, test_vcompound_not_zone_map_is_unsupported) {
+    auto not_expr = std::make_shared<VCompoundPred>();
+    not_expr->_op = TExprOpcode::COMPOUND_NOT;
+    not_expr->_opcode = TExprOpcode::COMPOUND_NOT;
+    not_expr->_node_type = TExprNodeType::COMPOUND_PRED;
+    not_expr->add_child(create_binary_pred(
+            TExprOpcode::GT, ColumnHelper::create_column_with_name<DataTypeInt64>({10000000002})));
+
+    auto zone_map = create_zone_map(Field::create_field<TYPE_BIGINT>(10000000000),
+                                    Field::create_field<TYPE_BIGINT>(10000000002), false, true);
+    auto eval_ctx = create_eval_ctx(2, &zone_map, std::make_shared<DataTypeInt64>());
+
+    EXPECT_EQ(ZoneMapEvalResult::kUnsupported, not_expr->evaluate_zone_map(eval_ctx));
 }
 
 } // namespace doris

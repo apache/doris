@@ -43,6 +43,41 @@ public:
     virtual ~VGenericIteratorsTest() {}
 };
 
+class RefreshAwareIterator : public RowwiseIterator {
+public:
+    explicit RefreshAwareIterator(const Schema& schema) : _schema(schema) {}
+
+    Status init(const StorageReadOptions& opts) override {
+        _inited = true;
+        return Status::OK();
+    }
+
+    Status next_batch(Block* block) override {
+        if (_returned) {
+            return Status::EndOfFile("done");
+        }
+        for (size_t i = 0; i < _schema.num_columns(); ++i) {
+            block->get_by_position(i).column->assume_mutable()->insert_default();
+        }
+        _returned = true;
+        return Status::OK();
+    }
+
+    Status refresh_for_late_arrival_runtime_filter() override {
+        ++refresh_count;
+        return Status::OK();
+    }
+
+    const Schema& schema() const override { return _schema; }
+
+    bool _inited = false;
+    int refresh_count = 0;
+
+private:
+    const Schema& _schema;
+    bool _returned = false;
+};
+
 static Schema create_schema() {
     std::vector<TabletColumnPtr> col_schemas;
     col_schemas.emplace_back(
@@ -351,6 +386,40 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
     auto seq_col = block.get_by_position(seq_column_id).column;
     size_t actual_value = (*seq_col)[0].get<TYPE_BIGINT>();
     EXPECT_EQ(seg_iter_num - 1, actual_value);
+}
+
+TEST(VGenericIteratorsTest, UnionRefreshOnlyTouchesCurrentIterator) {
+    auto schema = create_schema();
+    auto output_schema = std::make_shared<Schema>(schema);
+    std::vector<RowwiseIteratorUPtr> inputs;
+    auto* first = new RefreshAwareIterator(schema);
+    auto* second = new RefreshAwareIterator(schema);
+    inputs.emplace_back(first);
+    inputs.emplace_back(second);
+
+    auto iter = new_union_iterator(std::move(inputs), output_schema);
+    StorageReadOptions opts;
+    ASSERT_TRUE(iter->init(opts).ok());
+    ASSERT_TRUE(iter->refresh_for_late_arrival_runtime_filter().ok());
+    EXPECT_EQ(1, first->refresh_count);
+    EXPECT_EQ(0, second->refresh_count);
+}
+
+TEST(VGenericIteratorsTest, MergeRefreshTouchesAllInitializedChildren) {
+    auto schema = create_schema();
+    auto output_schema = std::make_shared<Schema>(schema);
+    std::vector<RowwiseIteratorUPtr> inputs;
+    auto* first = new RefreshAwareIterator(schema);
+    auto* second = new RefreshAwareIterator(schema);
+    inputs.emplace_back(first);
+    inputs.emplace_back(second);
+
+    auto iter = new_merge_iterator(std::move(inputs), -1, false, false, nullptr, output_schema);
+    StorageReadOptions opts;
+    ASSERT_TRUE(iter->init(opts).ok());
+    ASSERT_TRUE(iter->refresh_for_late_arrival_runtime_filter().ok());
+    EXPECT_EQ(1, first->refresh_count);
+    EXPECT_EQ(1, second->refresh_count);
 }
 
 } // namespace doris

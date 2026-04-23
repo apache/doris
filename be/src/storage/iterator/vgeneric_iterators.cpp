@@ -299,6 +299,10 @@ Status VMergeIteratorContext::init(const StorageReadOptions& opts) {
     return Status::OK();
 }
 
+Status VMergeIteratorContext::refresh_for_late_arrival_runtime_filter() {
+    return _iter->refresh_for_late_arrival_runtime_filter();
+}
+
 Status VMergeIteratorContext::advance() {
     _skip = false;
     _same = false;
@@ -364,6 +368,7 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
         if (!ctx->valid()) {
             continue;
         }
+        _all_contexts.push_back(ctx);
         _merge_heap.push(ctx);
     }
 
@@ -371,6 +376,13 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
 
     _block_row_max = opts.block_row_max;
 
+    return Status::OK();
+}
+
+Status VMergeIterator::refresh_for_late_arrival_runtime_filter() {
+    for (const auto& ctx : _all_contexts) {
+        RETURN_IF_ERROR(ctx->refresh_for_late_arrival_runtime_filter());
+    }
     return Status::OK();
 }
 
@@ -397,6 +409,7 @@ public:
     const Schema& schema() const override { return *_output_schema; }
 
     Status current_block_row_locations(std::vector<RowLocation>* locations) override;
+    Status refresh_for_late_arrival_runtime_filter() override;
 
     void update_profile(RuntimeProfile* profile) override {
         if (_cur_iter != nullptr) {
@@ -450,6 +463,13 @@ Status VUnionIterator::current_block_row_locations(std::vector<RowLocation>* loc
         return Status::EndOfFile("End of VUnionIterator");
     }
     return _cur_iter->current_block_row_locations(locations);
+}
+
+Status VUnionIterator::refresh_for_late_arrival_runtime_filter() {
+    if (_cur_iter == nullptr) {
+        return Status::OK();
+    }
+    return _cur_iter->refresh_for_late_arrival_runtime_filter();
 }
 
 RowwiseIteratorUPtr new_merge_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,

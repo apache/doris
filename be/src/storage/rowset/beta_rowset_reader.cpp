@@ -235,6 +235,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         }
         _read_options.condition_cache_digest = _read_context->condition_cache_digest;
     }
+    _read_options.late_arrival_rf_container = _read_context->late_arrival_rf_container;
 
     _read_options.io_ctx.expiration_time = read_context->ttl_seconds;
 
@@ -348,6 +349,13 @@ Status BetaRowsetReader::_init_iterator() {
         return Status::Error<ROWSET_READER_INIT>(s.to_string());
     }
     return Status::OK();
+}
+
+Status BetaRowsetReader::refresh_for_late_arrival_runtime_filter() {
+    if (_iterator == nullptr) {
+        return Status::OK();
+    }
+    return _iterator->refresh_for_late_arrival_runtime_filter();
 }
 
 bool BetaRowsetReader::_should_push_down_value_predicates() const {

@@ -19,13 +19,19 @@
 
 #include <glog/logging.h>
 
+#include <unordered_set>
+
 #include "common/config.h"
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_nothing.h"
 #include "exec/operator/scan_operator.h"
 #include "exec/scan/scan_node.h"
+#include "exprs/vdirect_in_predicate.h"
+#include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
+#include "exprs/vruntimefilter_wrapper.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
 #include "util/concurrency_stats.h"
@@ -41,7 +47,8 @@ Scanner::Scanner(RuntimeState* state, ScanLocalStateBase* local_state, int64_t l
           _profile(profile),
           _output_tuple_desc(_local_state->output_tuple_desc()),
           _output_row_descriptor(_local_state->_parent->output_row_descriptor()),
-          _has_prepared(false) {
+          _has_prepared(false),
+          _late_rf_container(std::make_shared<LateArrivalRFContainer>()) {
     _total_rf_num = cast_set<int>(_local_state->_helper.runtime_filter_nums());
     DorisMetrics::instance()->scanner_cnt->increment(1);
 }
@@ -253,7 +260,56 @@ Status Scanner::try_append_late_arrival_runtime_filter() {
     // avoid conjunct destroy in used by storage layer
     _conjuncts.clear();
     RETURN_IF_ERROR(_local_state->clone_conjunct_ctxs(_conjuncts));
+    if (_late_rf_container != nullptr) {
+        std::lock_guard<std::mutex> lock(_late_rf_container->mutex);
+        _late_rf_container->zone_map_expr_ctxs.clear();
+        for (const auto& conjunct : _conjuncts) {
+            if (_is_zone_map_eligible_expr(conjunct->root().get())) {
+                _late_rf_container->zone_map_expr_ctxs.push_back(conjunct);
+            }
+        }
+        ++_late_rf_container->version;
+    }
+    _applied_rf_num = arrived_rf_num;
+    RETURN_IF_ERROR(_on_late_arrival_runtime_filter_appended());
     return Status::OK();
+}
+
+bool Scanner::_is_zone_map_eligible_expr(const VExpr* expr) {
+    const auto* wrapper = dynamic_cast<const VRuntimeFilterWrapper*>(expr);
+    if (wrapper == nullptr || wrapper->is_null_aware()) {
+        return false;
+    }
+
+    auto impl = wrapper->get_impl();
+    if (impl == nullptr) {
+        return false;
+    }
+    if (dynamic_cast<const VDirectInPredicate*>(impl.get()) != nullptr) {
+        return true;
+    }
+
+    const auto* fn = dynamic_cast<const VectorizedFnCall*>(impl.get());
+    if (fn == nullptr) {
+        return false;
+    }
+
+    const auto& fn_name = fn->fn().name.function_name;
+    if ((fn_name == "is_null_pred" || fn_name == "is_not_null_pred") &&
+        fn->children().size() == 1 && fn->get_child(0)->is_slot_ref()) {
+        return true;
+    }
+
+    static const std::unordered_set<TExprOpcode::type> kEligibleOpcodes = {
+            TExprOpcode::EQ, TExprOpcode::NE, TExprOpcode::LT,
+            TExprOpcode::LE, TExprOpcode::GT, TExprOpcode::GE};
+    if (fn->children().size() != 2 || !kEligibleOpcodes.contains(fn->op())) {
+        return false;
+    }
+    bool has_slot = fn->get_child(0)->is_slot_ref() || fn->get_child(1)->is_slot_ref();
+    bool has_literal = dynamic_cast<const VLiteral*>(fn->get_child(0).get()) != nullptr ||
+                       dynamic_cast<const VLiteral*>(fn->get_child(1).get()) != nullptr;
+    return has_slot && has_literal;
 }
 
 Status Scanner::close(RuntimeState* state) {

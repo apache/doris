@@ -25,6 +25,7 @@
 #include "exprs/score_runtime.h"
 #include "exprs/vexpr.h"
 #include "io/io_common.h"
+#include "runtime/late_arrival_rf_container.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/ann/ann_topn_runtime.h"
 #include "storage/olap_common.h"
@@ -152,6 +153,7 @@ public:
     std::unordered_map<int32_t, ColumnPtr> sparse_column_cache;
 
     uint64_t condition_cache_digest = 0;
+    std::shared_ptr<LateArrivalRFContainer> late_arrival_rf_container;
 };
 
 struct CompactionSampleInfo {
@@ -224,6 +226,8 @@ public:
         return Status::InternalError("should not reach here, current class: " +
                                      demangle(typeid(*this).name()));
     }
+
+    virtual Status refresh_for_late_arrival_runtime_filter() { return Status::OK(); }
 
     // return schema for this Iterator
     virtual const Schema& schema() const = 0;

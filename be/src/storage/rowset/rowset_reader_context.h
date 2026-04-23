@@ -24,6 +24,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "io/io_common.h"
+#include "runtime/late_arrival_rf_container.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/ann/ann_topn_runtime.h"
 #include "storage/olap_common.h"
@@ -100,6 +101,7 @@ struct RowsetReaderContext {
     std::shared_ptr<segment_v2::AnnTopNRuntime> ann_topn_runtime;
 
     uint64_t condition_cache_digest = 0;
+    std::shared_ptr<LateArrivalRFContainer> late_arrival_rf_container;
 
     // When true, push down value predicates for MOR tables
     bool enable_mor_value_predicate_pushdown = false;

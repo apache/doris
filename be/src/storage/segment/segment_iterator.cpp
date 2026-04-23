@@ -27,6 +27,7 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <numeric>
 #include <set>
 #include <unordered_map>
@@ -88,6 +89,7 @@
 #include "storage/index/ordinal_page_index.h"
 #include "storage/index/primary_key_index.h"
 #include "storage/index/short_key_index.h"
+#include "storage/index/zone_map/zone_map_eval_context.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/bloom_filter_predicate.h"
@@ -228,6 +230,16 @@ public:
     // read batch_size of rowids from roaring bitmap into buf array
     virtual uint32_t read_batch_rowids(rowid_t* buf, uint32_t batch_size) {
         return roaring::api::roaring_read_uint32_iterator(&_iter, buf, batch_size);
+    }
+
+    roaring::Roaring read_remaining_rowids() {
+        roaring::Roaring remaining;
+        rowid_t buf[kBatchSize];
+        uint32_t read_rows = 0;
+        while ((read_rows = read_batch_rowids(buf, kBatchSize)) > 0) {
+            remaining.addMany(read_rows, buf);
+        }
+        return remaining;
     }
 
 private:
@@ -463,10 +475,11 @@ Status SegmentIterator::_lazy_init(Block* block) {
         _segment->_tablet_schema->cluster_key_uids().empty()) {
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
     }
+    RETURN_IF_ERROR(_refresh_zone_map_exprs_from_late_arrival_runtime_filter());
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
     RETURN_IF_ERROR(_vec_init_lazy_materialization());
     // Remove rows that have been marked deleted
-    if (_opts.delete_bitmap.count(segment_id()) > 0 &&
+    if (_opts.delete_bitmap.contains(segment_id()) &&
         _opts.delete_bitmap.at(segment_id()) != nullptr) {
         size_t pre_size = _row_bitmap.cardinality();
         _row_bitmap -= *(_opts.delete_bitmap.at(segment_id()));
@@ -484,11 +497,7 @@ Status SegmentIterator::_lazy_init(Block* block) {
 
     RETURN_IF_ERROR(_apply_ann_topn_predicate());
 
-    if (_opts.read_orderby_key_reverse) {
-        _range_iter.reset(new BackwardBitmapRangeIterator(_row_bitmap));
-    } else {
-        _range_iter.reset(new BitmapRangeIterator(_row_bitmap));
-    }
+    _reset_range_iter(_row_bitmap);
 
     // If the row bitmap size is smaller than block_row_max, there's no need to reserve that many column rows.
     auto nrows_reserve_limit = std::min(_row_bitmap.cardinality(), uint64_t(_opts.block_row_max));
@@ -551,6 +560,45 @@ Status SegmentIterator::_lazy_init(Block* block) {
     _init_segment_prefetchers();
 
     return Status::OK();
+}
+
+Status SegmentIterator::_refresh_zone_map_exprs_from_late_arrival_runtime_filter() {
+    if (_opts.late_arrival_rf_container == nullptr) {
+        return Status::OK();
+    }
+    std::lock_guard<std::mutex> lock(_opts.late_arrival_rf_container->mutex);
+    if (_opts.late_arrival_rf_container->version == _applied_late_arrival_rf_version) {
+        return Status::OK();
+    }
+
+    _zone_map_expr_ctxs.clear();
+    _zone_map_expr_cids.clear();
+    _storage_cid_to_slot_index.clear();
+    for (const auto& late_rf_expr : _opts.late_arrival_rf_container->zone_map_expr_ctxs) {
+        VExprContextSPtr cloned_expr;
+        RETURN_IF_ERROR(late_rf_expr->clone(_opts.runtime_state, cloned_expr));
+        _zone_map_expr_ctxs.push_back(std::move(cloned_expr));
+    }
+    for (const auto& zone_map_expr : _zone_map_expr_ctxs) {
+        _collect_slot_column_ids(zone_map_expr->root().get(), &_zone_map_expr_cids);
+    }
+    if (_zone_map_expr_cids.empty()) {
+        _zone_map_expr_ctxs.clear();
+    } else {
+        _opts.condition_cache_digest = 0;
+        _find_condition_cache = false;
+        _condition_cache.reset();
+    }
+    _applied_late_arrival_rf_version = _opts.late_arrival_rf_container->version;
+    return Status::OK();
+}
+
+void SegmentIterator::_reset_range_iter(const roaring::Roaring& row_bitmap) {
+    if (_opts.read_orderby_key_reverse) {
+        _range_iter.reset(new BackwardBitmapRangeIterator(row_bitmap));
+    } else {
+        _range_iter.reset(new BitmapRangeIterator(row_bitmap));
+    }
 }
 
 void SegmentIterator::_init_segment_prefetchers() {
@@ -689,7 +737,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
     }
     if (key_range.upper_key != nullptr) {
         for (auto cid : key_range.upper_key->schema()->column_ids()) {
-            if (column_set.count(cid) == 0) {
+            if (!column_set.contains(cid)) {
                 key_fields.emplace_back(key_range.upper_key->column_schema(cid));
                 column_set.emplace(cid);
             }
@@ -816,6 +864,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
 
     if (!_row_bitmap.isEmpty() &&
         (!_opts.topn_filter_source_node_ids.empty() || !_opts.col_id_to_predicates.empty() ||
+         !_zone_map_expr_ctxs.empty() ||
          _opts.delete_condition_predicates->num_of_column_predicate() > 0)) {
         RowRanges condition_row_ranges = RowRanges::create_single(_segment->num_rows());
         RETURN_IF_ERROR(_get_row_ranges_from_conditions(&condition_row_ranges));
@@ -869,7 +918,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
 
     // Process asc & desc according to the type of metric
     auto index_reader = ann_index_iterator->get_reader(AnnIndexReaderType::ANN);
-    auto ann_index_reader = dynamic_cast<AnnIndexReader*>(index_reader.get());
+    auto* ann_index_reader = dynamic_cast<AnnIndexReader*>(index_reader.get());
     DCHECK(ann_index_reader != nullptr);
     if (ann_index_reader->get_metric_type() == AnnIndexMetric::IP) {
         if (_ann_topn_runtime->is_asc()) {
@@ -920,7 +969,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     segment_v2::AnnIndexStats ann_index_stats;
 
     // Try to load ANN index before search
-    auto ann_index_iterator_casted =
+    auto* ann_index_iterator_casted =
             dynamic_cast<segment_v2::AnnIndexIterator*>(ann_index_iterator);
     if (ann_index_iterator_casted == nullptr) {
         VLOG_DEBUG << "Failed to cast index iterator to AnnIndexIterator, fallback to brute force";
@@ -968,7 +1017,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     const size_t dst_col_idx = _ann_topn_runtime->get_dest_column_idx();
     ColumnIterator* column_iter = _column_iterators[_schema->column_id(dst_col_idx)].get();
     DCHECK(column_iter != nullptr);
-    VirtualColumnIterator* virtual_column_iter = dynamic_cast<VirtualColumnIterator*>(column_iter);
+    auto* virtual_column_iter = dynamic_cast<VirtualColumnIterator*>(column_iter);
     DCHECK(virtual_column_iter != nullptr);
     VLOG_DEBUG << fmt::format(
             "Virtual column iterator, column_idx {}, is materialized with {} rows", dst_col_idx,
@@ -1002,7 +1051,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                             cid, *_schema, _opts.target_cast_type_for_variants, _opts)) {
                     continue;
                 }
-                DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
+                DCHECK(_opts.col_id_to_predicates.contains(cid));
                 RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_dict(
                         _opts.col_id_to_predicates.at(cid).get(), &dict_row_ranges));
 
@@ -1028,7 +1077,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         // bloom filter index only use CondColumn
         RowRanges bf_row_ranges = RowRanges::create_single(num_rows());
         for (auto& cid : cids) {
-            DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
+            DCHECK(_opts.col_id_to_predicates.contains(cid));
             if (!_segment->can_apply_predicate_safely(cid, *_schema,
                                                       _opts.target_cast_type_for_variants, _opts)) {
                 continue;
@@ -1050,7 +1099,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         RowRanges zone_map_row_ranges = RowRanges::create_single(num_rows());
         // second filter data by zone map
         for (const auto& cid : cids) {
-            DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
+            DCHECK(_opts.col_id_to_predicates.contains(cid));
             if (!_segment->can_apply_predicate_safely(cid, *_schema,
                                                       _opts.target_cast_type_for_variants, _opts)) {
                 continue;
@@ -1064,7 +1113,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
             RowRanges column_row_ranges = RowRanges::create_single(num_rows());
             RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_zone_map(
                     _opts.col_id_to_predicates.at(cid).get(),
-                    _opts.del_predicates_for_zone_map.count(cid) > 0
+                    _opts.del_predicates_for_zone_map.contains(cid)
                             ? &(_opts.del_predicates_for_zone_map.at(cid))
                             : nullptr,
                     &column_row_ranges));
@@ -1084,7 +1133,117 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         _opts.stats->rows_stats_filtered += (pre_size - condition_row_ranges->count());
     }
 
+    RETURN_IF_ERROR(_get_row_ranges_by_zone_map_expr(condition_row_ranges));
+
     return Status::OK();
+}
+
+Status SegmentIterator::_get_row_ranges_by_zone_map_expr(RowRanges* condition_row_ranges) {
+    if (_zone_map_expr_ctxs.empty()) {
+        return Status::OK();
+    }
+
+    SCOPED_RAW_TIMER(&_opts.stats->generate_row_ranges_by_zonemap_expr_ns);
+    RowRanges expr_zone_map_row_ranges = RowRanges::create_single(num_rows());
+    for (const auto& storage_cid : _zone_map_expr_cids) {
+        if (!_segment->can_apply_predicate_safely(storage_cid, *_schema,
+                                                  _opts.target_cast_type_for_variants, _opts)) {
+            _opts.stats->zone_map_expr_unsupported++;
+            continue;
+        }
+
+        auto slot_it = _storage_cid_to_slot_index.find(storage_cid);
+        if (slot_it == _storage_cid_to_slot_index.end()) {
+            _opts.stats->zone_map_expr_unsupported++;
+            continue;
+        }
+        int slot_index = slot_it->second;
+
+        DataTypePtr storage_data_type;
+        if (auto* col_field = _schema->column(storage_cid); col_field != nullptr) {
+            storage_data_type = _segment->get_data_type_of(col_field->get_desc(), _opts);
+        }
+
+        RowRanges column_row_ranges = RowRanges::create_single(num_rows());
+        auto match_func = [&](const ZoneMap& zone_map) -> bool {
+            ZoneMapEvalContext eval_ctx;
+            eval_ctx.slot_index_to_zone_map[slot_index] = &zone_map;
+            if (storage_data_type != nullptr) {
+                eval_ctx.slot_index_to_data_type[slot_index] = storage_data_type;
+            }
+            auto result = VExprContext::evaluate_zone_map(_zone_map_expr_ctxs, eval_ctx);
+            ++_opts.stats->zone_map_expr_evaluated;
+            _opts.stats->zone_map_expr_type_mismatch += eval_ctx.type_mismatch_count;
+            if (can_skip(result)) {
+                ++_opts.stats->zone_map_expr_skipped_pages;
+                return false;
+            }
+            if (result == ZoneMapEvalResult::kUnsupported) {
+                ++_opts.stats->zone_map_expr_unsupported;
+            }
+            return true;
+        };
+
+        int64_t pass_all_count = 0;
+        int64_t missing_index_count = 0;
+        RETURN_IF_ERROR(_column_iterators[storage_cid]->get_row_ranges_by_zone_map_expr(
+                match_func, &column_row_ranges, &pass_all_count, &missing_index_count));
+        _opts.stats->zone_map_expr_missing_stats += pass_all_count;
+        _opts.stats->zone_map_expr_missing_index += missing_index_count;
+        RowRanges::ranges_intersection(expr_zone_map_row_ranges, column_row_ranges,
+                                       &expr_zone_map_row_ranges);
+    }
+
+    RowRanges::ranges_intersection(*condition_row_ranges, expr_zone_map_row_ranges,
+                                   condition_row_ranges);
+    return Status::OK();
+}
+
+Status SegmentIterator::refresh_for_late_arrival_runtime_filter() {
+    RETURN_IF_ERROR(_refresh_zone_map_exprs_from_late_arrival_runtime_filter());
+    if (!_lazy_inited || _zone_map_expr_ctxs.empty() || _range_iter == nullptr) {
+        return Status::OK();
+    }
+
+    roaring::Roaring unread_row_bitmap = _range_iter->read_remaining_rowids();
+    if (unread_row_bitmap.isEmpty()) {
+        _row_bitmap = unread_row_bitmap;
+        _reset_range_iter(_row_bitmap);
+        return Status::OK();
+    }
+
+    RowRanges expr_zone_map_row_ranges = RowRanges::create_single(num_rows());
+    RETURN_IF_ERROR(_get_row_ranges_by_zone_map_expr(&expr_zone_map_row_ranges));
+    unread_row_bitmap &= RowRanges::ranges_to_roaring(expr_zone_map_row_ranges);
+    _row_bitmap = unread_row_bitmap;
+    _reset_range_iter(_row_bitmap);
+    return Status::OK();
+}
+
+void SegmentIterator::_collect_slot_column_ids(const VExpr* expr, std::set<ColumnId>* cids) {
+    if (expr == nullptr) {
+        return;
+    }
+    if (expr->is_slot_ref()) {
+        if (expr->is_virtual_slot_ref()) {
+            return;
+        }
+        int slot_index = static_cast<const VSlotRef*>(expr)->column_id();
+        if (slot_index < 0 || slot_index >= static_cast<int>(_schema->num_column_ids())) {
+            return;
+        }
+        ColumnId storage_cid = _schema->column_id(slot_index);
+        if (!_segment->can_apply_predicate_safely(storage_cid, *_schema,
+                                                  _opts.target_cast_type_for_variants, _opts)) {
+            return;
+        }
+        cids->insert(storage_cid);
+        _storage_cid_to_slot_index[storage_cid] = slot_index;
+        return;
+    }
+    for (const auto& child : expr->children()) {
+        _collect_slot_column_ids(child.get(), cids);
+    }
 }
 
 bool SegmentIterator::_is_literal_node(const TExprNodeType::type& node_type) {
@@ -1345,7 +1504,7 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
     if (_has_delete_predicate(cid)) {
         return true;
     }
-    if (_output_columns.count(-1)) {
+    if (_output_columns.contains(-1)) {
         // if _output_columns contains -1, it means that the light
         // weight schema change may not be enabled or other reasons
         // caused the column unique_id not be set, to prevent errors
@@ -1353,7 +1512,7 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
         return true;
     }
     // Check the following conditions:
-    // 1. If the column represented by the unique ID is an inverted index column (indicated by '_need_read_data_indices.count(unique_id) > 0 && !_need_read_data_indices[unique_id]')
+    // 1. If the column represented by the unique ID is an inverted index column (indicated by '_need_read_data_indices.contains(unique_id) && !_need_read_data_indices[unique_id]')
     //    and it's not marked for projection in '_output_columns'.
     // 2. Or, if the column is an inverted index column and it's marked for projection in '_output_columns',
     //    and the operation is a push down of the 'COUNT_ON_INDEX' aggregation function.
@@ -1372,7 +1531,7 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
     if ((_need_read_data_indices.contains(cid) && !_need_read_data_indices[cid] &&
          !_output_columns.contains(unique_id)) ||
         (_need_read_data_indices.contains(cid) && !_need_read_data_indices[cid] &&
-         _output_columns.count(unique_id) == 1 &&
+         _output_columns.contains(unique_id) &&
          _opts.push_down_agg_type_opt == TPushAggOp::COUNT_ON_INDEX)) {
         VLOG_DEBUG << "SegmentIterator no need read data for column: "
                    << _opts.tablet_schema->column_by_uid(unique_id).name();
@@ -1386,7 +1545,7 @@ Status SegmentIterator::_apply_inverted_index() {
     std::set<std::shared_ptr<ColumnPredicate>> no_need_to_pass_column_predicate_set;
 
     for (auto pred : _col_predicates) {
-        if (no_need_to_pass_column_predicate_set.count(pred) > 0) {
+        if (no_need_to_pass_column_predicate_set.contains(pred)) {
             continue;
         } else {
             bool continue_apply = true;

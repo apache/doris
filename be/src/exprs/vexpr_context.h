@@ -38,11 +38,13 @@
 #include "storage/index/ann/ann_range_search_runtime.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/zone_map/zone_map_eval_result.h"
 #include "storage/segment/column_reader.h"
 
 namespace doris {
 class RowDescriptor;
 class RuntimeState;
+struct ZoneMapEvalContext;
 } // namespace doris
 
 namespace doris::segment_v2 {
@@ -305,6 +307,9 @@ public:
     [[nodiscard]] static Status execute_conjuncts(const VExprContextSPtrs& conjuncts,
                                                   const Block* block, ColumnUInt8& null_map,
                                                   IColumn::Filter& result_filter);
+
+    static ZoneMapEvalResult evaluate_zone_map(const VExprContextSPtrs& conjuncts,
+                                               const ZoneMapEvalContext& ctx);
 
     static Status execute_conjuncts(const VExprContextSPtrs& ctxs,
                                     const std::vector<IColumn::Filter*>* filters, Block* block,

@@ -185,6 +185,19 @@ Status VExprContext::evaluate_inverted_index(uint32_t segment_num_rows) {
     return st;
 }
 
+ZoneMapEvalResult VExprContext::evaluate_zone_map(const VExprContextSPtrs& conjuncts,
+                                                  const ZoneMapEvalContext& ctx) {
+    for (const auto& conjunct : conjuncts) {
+        if (conjunct == nullptr || conjunct->root() == nullptr) {
+            continue;
+        }
+        if (conjunct->root()->evaluate_zone_map(ctx) == ZoneMapEvalResult::kNoMatch) {
+            return ZoneMapEvalResult::kNoMatch;
+        }
+    }
+    return ZoneMapEvalResult::kMayMatch;
+}
+
 bool VExprContext::all_expr_inverted_index_evaluated() {
     return _index_context->has_index_result_for_expr(_root.get());
 }
