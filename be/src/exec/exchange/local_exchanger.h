@@ -40,6 +40,7 @@ struct SinkInfo {
     PartitionerBase* partitioner;
     LocalExchangeSinkLocalState* local_state;
     std::map<int, int>* shuffle_idx_to_instance_idx;
+    int ins_idx;
 };
 
 struct SourceInfo {
@@ -351,12 +352,12 @@ public:
 
 //The code in AdaptivePassthroughExchanger is essentially
 // a copy of ShuffleExchanger and PassthroughExchanger.
-class AdaptivePassthroughExchanger : public Exchanger<BlockWrapperSPtr> {
+class AdaptivePassthroughExchanger : public Exchanger<PartitionedBlock> {
 public:
     ENABLE_FACTORY_CREATOR(AdaptivePassthroughExchanger);
     AdaptivePassthroughExchanger(int running_sink_operators, int num_partitions,
                                  int free_block_limit)
-            : Exchanger<BlockWrapperSPtr>(running_sink_operators, num_partitions,
+            : Exchanger<PartitionedBlock>(running_sink_operators, num_partitions,
                                           free_block_limit) {
         _partition_rows_histogram.resize(running_sink_operators);
     }
