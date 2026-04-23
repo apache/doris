@@ -16,7 +16,6 @@
 // under the License.
 
 #include <algorithm>
-#include <cstring>
 #include <vector>
 
 #include "common/status.h"
@@ -98,20 +97,6 @@ private:
                 .trim_tail_padding_zero();
     }
 
-    static void utf8_char_offsets(const StringRef& ref, std::vector<size_t>& offsets) {
-        offsets.clear();
-        offsets.reserve(ref.size);
-        simd::VStringFunctions::get_char_len(ref.data, ref.size, offsets);
-    }
-
-    static bool utf8_char_equal(const StringRef& left, size_t left_off, size_t left_next,
-                                const StringRef& right, size_t right_off, size_t right_next) {
-        const size_t left_len = left_next - left_off;
-        const size_t right_len = right_next - right_off;
-        return left_len == right_len &&
-               std::memcmp(left.data + left_off, right.data + right_off, left_len) == 0;
-    }
-
     static Int32 levenshtein_distance_utf8(const StringRef& left,
                                            const std::vector<size_t>& left_offsets,
                                            const StringRef& right,
@@ -143,10 +128,11 @@ private:
                 const size_t right_off = (*right_offsets_ref)[j - 1];
                 const size_t right_next = j < n ? (*right_offsets_ref)[j] : right_ref->size;
 
-                const Int32 cost = utf8_char_equal(*left_ref, left_off, left_next, *right_ref,
-                                                   right_off, right_next)
-                                           ? 0
-                                           : 1;
+                const Int32 cost =
+                        simd::VStringFunctions::utf8_char_equal(*left_ref, left_off, left_next,
+                                                                *right_ref, right_off, right_next)
+                                ? 0
+                                : 1;
 
                 const Int32 insert_cost = curr[j - 1] + 1;
                 const Int32 delete_cost = prev[j] + 1;
@@ -209,8 +195,8 @@ private:
             return static_cast<Int32>(simd::VStringFunctions::get_char_len(left.data, left.size));
         }
 
-        utf8_char_offsets(left, left_offsets);
-        utf8_char_offsets(right, right_offsets);
+        simd::VStringFunctions::get_utf8_char_offsets(left, left_offsets);
+        simd::VStringFunctions::get_utf8_char_offsets(right, right_offsets);
         return levenshtein_distance_utf8(left, left_offsets, right, right_offsets);
     }
 
@@ -233,7 +219,7 @@ private:
                                         simd::VStringFunctions::get_char_len(left.data, left.size));
         }
 
-        utf8_char_offsets(left, left_offsets);
+        simd::VStringFunctions::get_utf8_char_offsets(left, left_offsets);
         return levenshtein_distance_utf8(left, left_offsets, right, right_offsets);
     }
 
@@ -255,7 +241,7 @@ private:
             return static_cast<Int32>(left_offsets.size());
         }
 
-        utf8_char_offsets(right, right_offsets);
+        simd::VStringFunctions::get_utf8_char_offsets(right, right_offsets);
         return levenshtein_distance_utf8(left, left_offsets, right, right_offsets);
     }
 

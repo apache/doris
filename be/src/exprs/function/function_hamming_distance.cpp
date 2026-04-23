@@ -16,7 +16,6 @@
 // under the License.
 
 #include <algorithm>
-#include <cstring>
 #include <vector>
 
 #include "common/status.h"
@@ -151,9 +150,11 @@ private:
         std::vector<size_t> left_offsets;
         std::vector<size_t> right_offsets;
         for (size_t i = 0; i < size; ++i) {
-            RETURN_IF_ERROR(hamming_distance(lcol.get_data_at(i).trim_tail_padding_zero(),
-                                             rcol.get_data_at(i).trim_tail_padding_zero(),
-                                             left_offsets, right_offsets, res[i], i));
+            const auto left = lcol.get_data_at(i).trim_tail_padding_zero();
+            const auto right = rcol.get_data_at(i).trim_tail_padding_zero();
+            RETURN_IF_ERROR(hamming_distance_with_offsets(
+                    left, left_offsets, false, simd::VStringFunctions::is_ascii(left), right,
+                    right_offsets, false, simd::VStringFunctions::is_ascii(right), res[i], i));
         }
         return Status::OK();
     }
@@ -164,7 +165,7 @@ private:
         res.resize(size);
         const bool right_ascii = simd::VStringFunctions::is_ascii(rdata);
         std::vector<size_t> right_offsets;
-        utf8_char_offsets(rdata, right_offsets);
+        simd::VStringFunctions::get_utf8_char_offsets(rdata, right_offsets);
         std::vector<size_t> left_offsets;
         for (size_t i = 0; i < size; ++i) {
             const auto left = lcol.get_data_at(i).trim_tail_padding_zero();
@@ -181,7 +182,7 @@ private:
         res.resize(size);
         const bool left_ascii = simd::VStringFunctions::is_ascii(ldata);
         std::vector<size_t> left_offsets;
-        utf8_char_offsets(ldata, left_offsets);
+        simd::VStringFunctions::get_utf8_char_offsets(ldata, left_offsets);
         std::vector<size_t> right_offsets;
         for (size_t i = 0; i < size; ++i) {
             const auto right = rcol.get_data_at(i).trim_tail_padding_zero();
@@ -199,7 +200,7 @@ private:
         res.resize(size);
         const bool right_ascii = simd::VStringFunctions::is_ascii(rdata);
         std::vector<size_t> right_offsets;
-        utf8_char_offsets(rdata, right_offsets);
+        simd::VStringFunctions::get_utf8_char_offsets(rdata, right_offsets);
         std::vector<size_t> left_offsets;
         for (size_t i = 0; i < size; ++i) {
             if (left_null_map && (*left_null_map)[i]) {
@@ -223,7 +224,7 @@ private:
         res.resize(size);
         const bool left_ascii = simd::VStringFunctions::is_ascii(ldata);
         std::vector<size_t> left_offsets;
-        utf8_char_offsets(ldata, left_offsets);
+        simd::VStringFunctions::get_utf8_char_offsets(ldata, left_offsets);
         std::vector<size_t> right_offsets;
         for (size_t i = 0; i < size; ++i) {
             if (right_null_map && (*right_null_map)[i]) {
@@ -238,20 +239,6 @@ private:
                     simd::VStringFunctions::is_ascii(right), res[i], i));
         }
         return Status::OK();
-    }
-
-    static void utf8_char_offsets(const StringRef& ref, std::vector<size_t>& offsets) {
-        offsets.clear();
-        offsets.reserve(ref.size);
-        simd::VStringFunctions::get_char_len(ref.data, ref.size, offsets);
-    }
-
-    static bool utf8_char_equal(const StringRef& left, size_t left_off, size_t left_next,
-                                const StringRef& right, size_t right_off, size_t right_next) {
-        const size_t left_len = left_next - left_off;
-        const size_t right_len = right_next - right_off;
-        return left_len == right_len &&
-               std::memcmp(left.data + left_off, right.data + right_off, left_len) == 0;
     }
 
     static Status hamming_distance_ascii(const StringRef& left, const StringRef& right,
@@ -286,27 +273,18 @@ private:
             const size_t left_next = left_offsets[i + 1];
             const size_t right_off = right_offsets[i];
             const size_t right_next = right_offsets[i + 1];
-            distance += static_cast<Int64>(
-                    !utf8_char_equal(left, left_off, left_next, right, right_off, right_next));
+            distance += static_cast<Int64>(!simd::VStringFunctions::utf8_char_equal(
+                    left, left_off, left_next, right, right_off, right_next));
         }
         if (len > 0) {
             const size_t left_off = left_offsets[len - 1];
             const size_t right_off = right_offsets[len - 1];
-            distance += static_cast<Int64>(
-                    !utf8_char_equal(left, left_off, left.size, right, right_off, right.size));
+            distance += static_cast<Int64>(!simd::VStringFunctions::utf8_char_equal(
+                    left, left_off, left.size, right, right_off, right.size));
         }
 
         result = distance;
         return Status::OK();
-    }
-
-    static Status hamming_distance(const StringRef& left, const StringRef& right,
-                                   std::vector<size_t>& left_offsets,
-                                   std::vector<size_t>& right_offsets, Int64& result, size_t row) {
-        const bool left_ascii = simd::VStringFunctions::is_ascii(left);
-        const bool right_ascii = simd::VStringFunctions::is_ascii(right);
-        return hamming_distance_with_offsets(left, left_offsets, false, left_ascii, right,
-                                             right_offsets, false, right_ascii, result, row);
     }
 
     static Status hamming_distance_with_offsets(
@@ -318,10 +296,10 @@ private:
         }
 
         if (!left_offsets_ready) {
-            utf8_char_offsets(left, left_offsets);
+            simd::VStringFunctions::get_utf8_char_offsets(left, left_offsets);
         }
         if (!right_offsets_ready) {
-            utf8_char_offsets(right, right_offsets);
+            simd::VStringFunctions::get_utf8_char_offsets(right, right_offsets);
         }
         return hamming_distance_utf8(left, left_offsets, right, right_offsets, result, row);
     }
@@ -330,7 +308,9 @@ private:
                                    size_t row) {
         std::vector<size_t> left_offsets;
         std::vector<size_t> right_offsets;
-        return hamming_distance(left, right, left_offsets, right_offsets, result, row);
+        return hamming_distance_with_offsets(
+                left, left_offsets, false, simd::VStringFunctions::is_ascii(left), right,
+                right_offsets, false, simd::VStringFunctions::is_ascii(right), result, row);
     }
 };
 
