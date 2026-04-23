@@ -89,6 +89,12 @@ public interface SourceOffsetProvider {
     void updateOffset(Offset offset);
 
     /**
+     * Bind the compute group that should route FE-initiated RPCs.
+     * Default: no-op for providers that do not make BE RPCs.
+     */
+    default void setCloudCluster(String cloudCluster) {}
+
+    /**
      * Fetch remote meta information, such as listing files in S3 or getting latest offsets in Kafka.
      */
     void fetchRemoteMeta(Map<String, String> properties) throws Exception;
