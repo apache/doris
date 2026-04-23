@@ -536,6 +536,7 @@ set(DORIS_LINK_LIBS
     Storage
     Runtime
     Service
+    Udf
     Util
     DorisGen
     Load
@@ -766,10 +767,16 @@ if (ENABLE_CLANG_COVERAGE AND ENABLE_CLANG_COVERAGE STREQUAL ON AND COMPILER_CLA
 endif ()
 
 if (MAKE_TEST)
-    add_compile_options(-fprofile-arcs -ftest-coverage -DGTEST_USE_OWN_TR1_TUPLE=0)
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage")
-    if (NOT OS_MACOSX)
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lgcov")
+    add_compile_options(-DGTEST_USE_OWN_TR1_TUPLE=0)
+    # Only add GCC-style coverage when NOT using Clang coverage
+    # to avoid duplicate symbol errors (e.g., __gcov_fork, __gcov_reset)
+    # between libgcov.a and libclang_rt.profile-x86_64.a
+    if (NOT (ENABLE_CLANG_COVERAGE STREQUAL "ON" AND COMPILER_CLANG))
+        add_compile_options(-fprofile-arcs -ftest-coverage)
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage")
+        if (NOT OS_MACOSX)
+            set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lgcov")
+        endif()
     endif()
     add_definitions(-DBE_TEST)
     if (ARCH_ARM)
@@ -880,6 +887,7 @@ add_subdirectory(${SRC_DIR}/storage/index/ann)
 add_subdirectory(${SRC_DIR}/storage)
 add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/service) # this include doris_be
+add_subdirectory(${SRC_DIR}/udf)
 add_subdirectory(${SRC_DIR}/cloud)
 add_subdirectory(${SRC_DIR}/load)
 add_subdirectory(${SRC_DIR}/information_schema)

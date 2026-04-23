@@ -56,6 +56,7 @@ LEFT_BRACKET: '[';
 RIGHT_BRACKET: ']';
 LEFT_BRACE: '{';
 RIGHT_BRACE: '}';
+DOLLAR_QUOTED_STRING: '$$' ( ~'$' | '$' ~'$' )* '$$';
 
 // TODO: add a doc to list reserved words
 

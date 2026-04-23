@@ -601,6 +601,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
+import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdf;
 
 /**
  * ScalarFunctionVisitor.
@@ -2788,6 +2789,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitJavaUdf(JavaUdf javaUdf, C context) {
         return visitScalarFunction(javaUdf, context);
+    }
+
+    default R visitPythonUdf(PythonUdf pythonUdf, C context) {
+        return visitScalarFunction(pythonUdf, context);
     }
 
     default R visitAliasUdf(AliasUdf aliasUdf, C context) {
