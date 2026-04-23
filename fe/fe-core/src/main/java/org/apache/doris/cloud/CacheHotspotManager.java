@@ -52,6 +52,7 @@ import org.apache.doris.thrift.THotTableMessage;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -111,7 +112,8 @@ public class CacheHotspotManager extends MasterDaemon {
 
     private ConcurrentMap<Long, CloudWarmUpJob> runnableCloudWarmUpJobs = Maps.newConcurrentMap();
 
-    private final ConcurrentMap<OncePendingJobKey, ReentrantLock> oncePendingCreateLocks = Maps.newConcurrentMap();
+    private final ConcurrentMap<OncePendingJobKey, RefCountedPendingCreateLock> oncePendingCreateLocks
+            = Maps.newConcurrentMap();
 
     private final ThreadPoolExecutor cloudWarmUpThreadPool = ThreadPoolManager.newDaemonCacheThreadPool(
             Config.max_active_cloud_warm_up_job, "cloud-warm-up-pool", true);
@@ -203,6 +205,30 @@ public class CacheHotspotManager extends MasterDaemon {
         }
     }
 
+    private static class RefCountedPendingCreateLock {
+        private final ReentrantLock lock = new ReentrantLock();
+
+        // Tracks holders and waiters that retained the entry before locking.
+        private volatile int refCount = 1;
+
+        void retain() {
+            ++refCount;
+        }
+
+        int release() {
+            Preconditions.checkState(refCount > 0, "once pending create lock ref count underflow");
+            return --refCount;
+        }
+
+        void lock() {
+            lock.lock();
+        }
+
+        void unlock() {
+            lock.unlock();
+        }
+    }
+
     // Tracks long-running jobs (event-driven and periodic).
     // Ensures only one active job exists per <source, destination, sync_mode> tuple.
     private Set<JobKey> repeatJobDetectionSet = ConcurrentHashMap.newKeySet();
@@ -290,14 +316,21 @@ public class CacheHotspotManager extends MasterDaemon {
         return selectedJob;
     }
 
-    private ReentrantLock getOncePendingCreateLock(OncePendingJobKey key) {
-        ReentrantLock lock = oncePendingCreateLocks.get(key);
-        if (lock != null) {
-            return lock;
-        }
-        ReentrantLock newLock = new ReentrantLock();
-        ReentrantLock existingLock = oncePendingCreateLocks.putIfAbsent(key, newLock);
-        return existingLock == null ? newLock : existingLock;
+    private RefCountedPendingCreateLock retainOncePendingCreateLock(OncePendingJobKey key) {
+        return oncePendingCreateLocks.compute(key, (ignored, existingLock) -> {
+            if (existingLock == null) {
+                return new RefCountedPendingCreateLock();
+            }
+            existingLock.retain();
+            return existingLock;
+        });
+    }
+
+    private void releaseOncePendingCreateLock(OncePendingJobKey key, RefCountedPendingCreateLock lock) {
+        oncePendingCreateLocks.compute(key, (ignored, existingLock) -> {
+            Preconditions.checkState(existingLock == lock, "unexpected once pending create lock entry");
+            return existingLock.release() == 0 ? null : existingLock;
+        });
     }
 
     private void registerJobForRepeatDetection(CloudWarmUpJob job, boolean replay) throws AnalysisException {
@@ -931,7 +964,7 @@ public class CacheHotspotManager extends MasterDaemon {
     public long createJob(WarmUpClusterStmt stmt) throws AnalysisException {
         OncePendingJobKey oncePendingJobKey = buildOncePendingJobKey(stmt);
         if (oncePendingJobKey != null) {
-            ReentrantLock createLock = getOncePendingCreateLock(oncePendingJobKey);
+            RefCountedPendingCreateLock createLock = retainOncePendingCreateLock(oncePendingJobKey);
             createLock.lock();
             try {
                 CloudWarmUpJob existingPendingJob = findExistingPendingOnceJob(oncePendingJobKey);
@@ -943,6 +976,7 @@ public class CacheHotspotManager extends MasterDaemon {
                 return createJobInternal(stmt);
             } finally {
                 createLock.unlock();
+                releaseOncePendingCreateLock(oncePendingJobKey, createLock);
             }
         }
         return createJobInternal(stmt);

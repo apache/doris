@@ -44,12 +44,19 @@ import org.junit.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class CacheHotspotManagerTest {
@@ -246,6 +253,67 @@ public class CacheHotspotManagerTest {
     }
 
     @Test
+    public void testCreateTableOnceJobRemovesLockEntryWhenCreateFails() throws Exception {
+        boolean previousRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = false;
+        cacheHotspotManager = new CacheHotspotManager(cloudSystemInfoService) {
+            @Override
+            public Map<Long, List<Tablet>> warmUpNewClusterByTable(long jobId, String dstClusterName,
+                    List<Triple<String, String, String>> tables, boolean isForce) {
+                throw new RuntimeException("mock create failure");
+            }
+        };
+
+        try {
+            RuntimeException exception = Assert.assertThrows(RuntimeException.class, () ->
+                    cacheHotspotManager.createJob(newTableStmt("dst", false, Triple.of("db1", "tbl1", ""))));
+
+            Assert.assertEquals("mock create failure", exception.getMessage());
+            Assert.assertEquals(0, getOncePendingCreateLockCount());
+            Assert.assertEquals(0, cacheHotspotManager.getCloudWarmUpJobs().size());
+        } finally {
+            FeConstants.runningUnitTest = previousRunningUnitTest;
+        }
+    }
+
+    @Test
+    public void testConcurrentCreateClusterOnceJobReleasesRefCountedLockAfterWaiterCompletes() throws Exception {
+        CountDownLatch firstCreateEntered = new CountDownLatch(1);
+        CountDownLatch allowFirstCreateToContinue = new CountDownLatch(1);
+        AtomicInteger getNextIdCalls = new AtomicInteger();
+        Mockito.when(env.getNextId()).thenAnswer(invocation -> {
+            if (getNextIdCalls.incrementAndGet() == 1) {
+                firstCreateEntered.countDown();
+                Assert.assertTrue(allowFirstCreateToContinue.await(5, TimeUnit.SECONDS));
+            }
+            return nextJobId.getAndIncrement();
+        });
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Long> firstCreate = executor.submit(() -> cacheHotspotManager.createJob(
+                    newClusterStmt("dst", "src", false)));
+            Assert.assertTrue(firstCreateEntered.await(5, TimeUnit.SECONDS));
+
+            Future<Long> secondCreate = executor.submit(() -> cacheHotspotManager.createJob(
+                    newClusterStmt("dst", "src", false)));
+            waitForOncePendingCreateLockRefCount(2, 5000L);
+
+            allowFirstCreateToContinue.countDown();
+
+            long firstJobId = firstCreate.get(5, TimeUnit.SECONDS);
+            long secondJobId = secondCreate.get(5, TimeUnit.SECONDS);
+            Assert.assertEquals(firstJobId, secondJobId);
+            Assert.assertEquals(1, getNextIdCalls.get());
+            Assert.assertEquals(1, cacheHotspotManager.getCloudWarmUpJobs().size());
+            Assert.assertEquals(0, getOncePendingCreateLockCount());
+        } finally {
+            allowFirstCreateToContinue.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testCreatePeriodicJobUnaffected() throws AnalysisException {
         WarmUpClusterStmt periodicStmt = newClusterStmt("dst", "src", false, periodicProperties(60));
         long firstJobId = cacheHotspotManager.createJob(periodicStmt);
@@ -329,5 +397,36 @@ public class CacheHotspotManagerTest {
         job.setJobState(jobState);
         job.setCreateTimeMs(createTimeMs);
         return job;
+    }
+
+    private int getOncePendingCreateLockCount() throws Exception {
+        return getOncePendingCreateLocks().size();
+    }
+
+    private int getOnlyOncePendingCreateLockRefCount() throws Exception {
+        Map<?, ?> locks = getOncePendingCreateLocks();
+        Assert.assertEquals(1, locks.size());
+        Object lockEntry = locks.values().iterator().next();
+        Field refCountField = lockEntry.getClass().getDeclaredField("refCount");
+        refCountField.setAccessible(true);
+        return refCountField.getInt(lockEntry);
+    }
+
+    private Map<?, ?> getOncePendingCreateLocks() throws Exception {
+        Field locksField = CacheHotspotManager.class.getDeclaredField("oncePendingCreateLocks");
+        locksField.setAccessible(true);
+        return (Map<?, ?>) locksField.get(cacheHotspotManager);
+    }
+
+    private void waitForOncePendingCreateLockRefCount(int expectedRefCount, long timeoutMs) throws Exception {
+        long deadlineMs = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadlineMs) {
+            if (getOncePendingCreateLockCount() == 1
+                    && getOnlyOncePendingCreateLockRefCount() == expectedRefCount) {
+                return;
+            }
+            Thread.sleep(10L);
+        }
+        Assert.fail("Timed out waiting for once pending create lock ref count " + expectedRefCount);
     }
 }
