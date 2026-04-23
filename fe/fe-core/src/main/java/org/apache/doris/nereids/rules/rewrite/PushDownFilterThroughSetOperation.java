@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
@@ -44,6 +45,7 @@ import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -61,11 +63,47 @@ public class PushDownFilterThroughSetOperation extends OneRewriteRuleFactory {
             .when(s -> s.arity() > 0
                     || (s instanceof LogicalUnion && !((LogicalUnion) s).getConstantExprsList().isEmpty())))
             .thenApply(ctx -> {
-                LogicalFilter<LogicalSetOperation> filter = ctx.root;
-                LogicalSetOperation setOperation = filter.child();
+                LogicalFilter<LogicalSetOperation> origFilter = ctx.root;
+                LogicalSetOperation setOperation = origFilter.child();
+
+                // Pushing a conjunct that contains a UniqueFunction (rand/uuid/random_bytes/...)
+                // into each branch changes semantics for every set-op except UNION ALL.
+                // - UNION ALL: each branch row = exactly one output row (1:1), so evaluating
+                //   rand() once per branch row still matches the per-output-row semantic.
+                // - UNION DISTINCT / INTERSECT / EXCEPT: the set-op semantics depend on the
+                //   full branch row sets before dedup/intersect/except. Sampling rows in each
+                //   branch independently changes which rows participate (e.g. INTERSECT becomes
+                //   "half of A intersect half of B" instead of "half of (A intersect B)").
+                boolean canPushUniqueFn = setOperation instanceof LogicalUnion
+                        && setOperation.getQualifier() == Qualifier.ALL;
+                Set<Expression> pushableConjuncts;
+                Set<Expression> keptAboveConjuncts;
+                if (canPushUniqueFn) {
+                    pushableConjuncts = origFilter.getConjuncts();
+                    keptAboveConjuncts = ImmutableSet.of();
+                } else {
+                    pushableConjuncts = new LinkedHashSet<>();
+                    Set<Expression> kept = new LinkedHashSet<>();
+                    for (Expression c : origFilter.getConjuncts()) {
+                        if (c.containsUniqueFunction()) {
+                            kept.add(c);
+                        } else {
+                            pushableConjuncts.add(c);
+                        }
+                    }
+                    keptAboveConjuncts = kept;
+                    if (pushableConjuncts.isEmpty()) {
+                        return null;
+                    }
+                }
+                LogicalFilter<LogicalSetOperation> filter = pushableConjuncts == origFilter.getConjuncts()
+                        ? origFilter
+                        : new LogicalFilter<>(ImmutableSet.copyOf(pushableConjuncts), setOperation);
+
                 List<Plan> newChildren = new ArrayList<>();
                 List<List<SlotReference>> newRegularChildrenOutputs = Lists.newArrayList();
                 CascadesContext cascadesContext = ctx.cascadesContext;
+                Plan rewritten;
                 if (setOperation instanceof LogicalUnion) {
                     List<List<NamedExpression>> constantExprs = ((LogicalUnion) setOperation).getConstantExprsList();
                     StatementContext statementContext = ctx.statementContext;
@@ -85,7 +123,7 @@ public class PushDownFilterThroughSetOperation extends OneRewriteRuleFactory {
 
                     List<NamedExpression> setOutputs = setOperation.getOutputs();
                     if (newChildren.isEmpty() && newConstantExprs.isEmpty()) {
-                        return new LogicalEmptyRelation(
+                        rewritten = new LogicalEmptyRelation(
                                 statementContext.getNextRelationId(), setOutputs
                         );
                     } else if (newChildren.isEmpty() && newConstantExprs.size() == 1) {
@@ -104,27 +142,32 @@ public class PushDownFilterThroughSetOperation extends OneRewriteRuleFactory {
                             }
                             newOneRowRelationOutput.add(oneRowRelationOutput);
                         }
-                        return new LogicalOneRowRelation(
+                        rewritten = new LogicalOneRowRelation(
                                 ctx.statementContext.getNextRelationId(), newOneRowRelationOutput.build()
                         );
-                    }
+                    } else {
+                        Builder<List<SlotReference>> newChildrenOutput
+                                = ImmutableList.builderWithExpectedSize(newChildren.size());
+                        for (Plan newChild : newChildren) {
+                            newChildrenOutput.add((List) newChild.getOutput());
+                        }
 
-                    Builder<List<SlotReference>> newChildrenOutput
-                            = ImmutableList.builderWithExpectedSize(newChildren.size());
-                    for (Plan newChild : newChildren) {
-                        newChildrenOutput.add((List) newChild.getOutput());
+                        rewritten = ((LogicalUnion) setOperation).withChildrenAndConstExprsList(
+                                newChildren, newRegularChildrenOutputs, newConstantExprs);
                     }
-
-                    return ((LogicalUnion) setOperation).withChildrenAndConstExprsList(
-                            newChildren, newRegularChildrenOutputs, newConstantExprs);
+                } else {
+                    addFiltersToNewChildren(setOperation, filter, setOperation.children(),
+                            setOperation.getRegularChildrenOutputs(),
+                            cascadesContext, newChildren, newRegularChildrenOutputs, null,
+                            (rowIndex, columnIndex) -> setOperation.getRegularChildOutput(rowIndex).get(columnIndex),
+                            Function.identity());
+                    rewritten = setOperation.withChildren(newChildren);
                 }
 
-                addFiltersToNewChildren(setOperation, filter, setOperation.children(),
-                        setOperation.getRegularChildrenOutputs(),
-                        cascadesContext, newChildren, newRegularChildrenOutputs, null,
-                        (rowIndex, columnIndex) -> setOperation.getRegularChildOutput(rowIndex).get(columnIndex),
-                        Function.identity());
-                return setOperation.withChildren(newChildren);
+                if (keptAboveConjuncts.isEmpty()) {
+                    return rewritten;
+                }
+                return new LogicalFilter<>(ImmutableSet.copyOf(keptAboveConjuncts), rewritten);
             }).toRule(RuleType.PUSH_DOWN_FILTER_THROUGH_SET_OPERATION);
     }
 
