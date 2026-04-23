@@ -46,6 +46,13 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
                         + ")\n"
                         + "DUPLICATE KEY(id2)\n"
                         + "DISTRIBUTED BY HASH(id2) BUCKETS 10\n"
+                        + "PROPERTIES (\"replication_num\" = \"1\")\n",
+                "CREATE TABLE IF NOT EXISTS t3 (\n"
+                        + "    id3 int not null,\n"
+                        + "    name varchar(20)\n"
+                        + ")\n"
+                        + "DUPLICATE KEY(id3)\n"
+                        + "DISTRIBUTED BY HASH(id3) BUCKETS 10\n"
                         + "PROPERTIES (\"replication_num\" = \"1\")\n"
         );
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
@@ -150,10 +157,10 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
             PlanChecker.from(connectContext)
                     .analyze(sql)
                     .rewrite()
-                    .matches(logicalProject(logicalAggregate(logicalProject(logicalJoin(any(),
-                            logicalAggregate()))))
-                            .when(project -> project.getProjects().stream().anyMatch(
-                                    expr -> expr.toString().contains("ifnull")
+                    .matches(logicalAggregate(logicalProject(logicalJoin(any(),
+                            logicalAggregate())))
+                            .when(agg -> agg.getOutputExpressions().stream().anyMatch(
+                                    expr -> expr.toString().contains("sum0")
                             )))
                     .printlnTree();
         } finally {
@@ -364,6 +371,78 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
                     .analyze(sql)
                     .rewrite()
                     .matches(logicalAggregate(logicalProject(logicalJoin(logicalAggregate(), any()))))
+                    .printlnTree();
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
+    /**
+     * Bilateral push-down scenario 1: min/max on both sides of an inner join.
+     * Expected: both sides get pre-aggregated (no multiplier needed for min/max).
+     */
+    @Test
+    void testBilateralPushMinMax() {
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            String sql = "select min(t1.name), max(t2.name) from t1 join t2 on t1.id1 = t2.id2"
+                    + " group by t1.id1";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .matches(logicalJoin(logicalProject(logicalAggregate()), logicalProject(logicalAggregate())))
+                    .printlnTree();
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
+    /**
+     * Bilateral push-down scenario 2: sum on one side, count on the other.
+     * Expected: both sides pre-aggregate; each side's count(*) becomes a multiplier
+     * for the opposite side's sum/count at the top-level rollup.
+     */
+    @Test
+    void testBilateralPushSumCount() {
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            String sql = "select sum(t1.id1), count(t2.id2) from t1 join t2 on t1.name = t2.name"
+                    + " group by t1.name";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .matches(logicalJoin(logicalAggregate(), logicalAggregate()))
+                    .printlnTree();
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
+    /**
+     * Bilateral push-down scenario 3: three-way inner join. Each leaf is pre-aggregated
+     * and supplies a count(*) multiplier to the other branches through the shared countList.
+     */
+    @Test
+    void testBilateralPushMultiLevelJoin() {
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            String sql = "select sum(t1.id1), sum(t2.id2), sum(t3.id3)"
+                    + " from t1 join t2 on t1.name = t2.name"
+                    + " join t3 on t2.name = t3.name"
+                    + " group by t1.name";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    // 3-way inner join: t1 and t2 are first joined with bilateral pre-aggs,
+                    // then the result is joined with t3's pre-agg.
+                    .matches(logicalJoin(logicalProject(logicalJoin(logicalAggregate(), logicalAggregate())),
+                            logicalAggregate()))
                     .printlnTree();
         } finally {
             connectContext.getSessionVariable().setEagerAggregationMode(0);

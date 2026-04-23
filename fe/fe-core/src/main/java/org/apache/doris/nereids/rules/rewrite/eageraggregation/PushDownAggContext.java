@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints.Action;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -29,6 +31,8 @@ import com.google.common.collect.ImmutableSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -54,12 +58,17 @@ public class PushDownAggContext {
 
     private final boolean passThroughBigJoin;
 
+    // Bilateral push-down plumbing.
+    //   - bilateralState: global, shared by every context in the rewrite invocation.
+    private final BilateralState bilateralState;
+
     /**
-     * constructor
+     * full constructor used by the bilateral push-down path.
      */
     public PushDownAggContext(List<AggregateFunction> aggFunctions,
             List<SlotReference> groupKeys, Map<AggregateFunction, Alias> aliasMap, CascadesContext cascadesContext,
-            boolean passThroughBigJoin, boolean hasDecomposedAggIf, boolean hasCaseWhen) {
+            boolean passThroughBigJoin, boolean hasDecomposedAggIf, boolean hasCaseWhen,
+            BilateralState bilateralState) {
         this.groupKeys = groupKeys.stream().distinct().collect(Collectors.toList());
         this.aggFunctions = ImmutableList.copyOf(aggFunctions);
         this.cascadesContext = cascadesContext;
@@ -87,6 +96,14 @@ public class PushDownAggContext {
         this.passThroughBigJoin = passThroughBigJoin;
         this.hasDecomposedAggIf = hasDecomposedAggIf;
         this.hasCaseWhen = hasCaseWhen;
+        this.bilateralState = Objects.requireNonNull(bilateralState);
+        for (Map.Entry<AggregateFunction, Alias> entry : this.aliasMap.entrySet()) {
+            AggregateFunction aggFunction = entry.getKey();
+            ExprId id = entry.getValue().getExprId();
+            Optional<Action> hintAction = EagerAggHints.decide(aggFunction);
+            hintAction.ifPresent(action -> bilateralState.putAction(id, action));
+        }
+
     }
 
     /**
@@ -94,13 +111,7 @@ public class PushDownAggContext {
      * @return true, if groupKeys is not empty and no group by key is in aggFunctionsInputSlots
      */
     public boolean isValid() {
-        return !groupKeys.isEmpty()
-                && !groupKeys.stream().anyMatch(s -> aggFunctionsInputSlots.contains(s));
-    }
-
-    public PushDownAggContext passThroughBigJoin() {
-        return new PushDownAggContext(aggFunctions, groupKeys, aliasMap, cascadesContext,
-                true, hasDecomposedAggIf, hasCaseWhen);
+        return !groupKeys.isEmpty();
     }
 
     public HashMap<AggregateFunction, Alias> getAliasMap() {
@@ -117,7 +128,22 @@ public class PushDownAggContext {
 
     public PushDownAggContext withGroupKeys(List<SlotReference> groupKeys) {
         return new PushDownAggContext(aggFunctions, groupKeys, aliasMap,
-                cascadesContext, passThroughBigJoin, hasDecomposedAggIf, hasCaseWhen);
+                cascadesContext, passThroughBigJoin, hasDecomposedAggIf, hasCaseWhen,
+                bilateralState);
+    }
+
+    /**
+     * Derive a child context for one branch of a join during bilateral push-down.
+     */
+    public PushDownAggContext forBilateralBranch(List<AggregateFunction> branchAggFunctions,
+            Map<AggregateFunction, Alias> branchAliasMap, List<SlotReference> groupKeys, boolean passThroughBigJoin) {
+        return new PushDownAggContext(branchAggFunctions, groupKeys, branchAliasMap,
+                cascadesContext, passThroughBigJoin, hasDecomposedAggIf, hasCaseWhen,
+                bilateralState);
+    }
+
+    public BilateralState getBilateralState() {
+        return bilateralState;
     }
 
     public Set<Slot> getAggFunctionsInputSlots() {
