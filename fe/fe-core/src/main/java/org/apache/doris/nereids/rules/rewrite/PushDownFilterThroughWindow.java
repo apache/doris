@@ -86,7 +86,18 @@ public class PushDownFilterThroughWindow extends OneRewriteRuleFactory {
         }).toRule(RuleType.PUSH_DOWN_FILTER_THROUGH_WINDOW);
     }
 
+    /**
+     * Returns whether {@code conjunct} can be pushed below a window operator with the given
+     * common partition keys.
+     */
     public static boolean canPushDown(Expression conjunct, Set<SlotReference> commonPartitionKeys) {
-        return commonPartitionKeys.containsAll(conjunct.getInputSlots());
+        // A conjunct that contains a unique (non-idempotent) function such as rand()/uuid()
+        // must NOT be pushed below the window node. Pushing it down filters base rows before
+        // window evaluation, which changes which rows belong to each partition and therefore
+        // changes the value of every window function (row_number, rank, sum, ...). In addition,
+        // a predicate like `rand() > 0.5` has empty input slots, so `containsAll(emptySet)`
+        // would otherwise wrongly return true.
+        return !conjunct.containsUniqueFunction()
+                && commonPartitionKeys.containsAll(conjunct.getInputSlots());
     }
 }

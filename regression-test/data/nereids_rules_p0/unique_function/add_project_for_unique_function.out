@@ -180,9 +180,9 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalProject[t1.id, t1.msg, t2.id, t2.msg]
 ----NestedLoopJoin[INNER_JOIN](((cast(id as BIGINT) + cast(id as BIGINT)) + $_random_9_$) >= 10)(((cast(id as BIGINT) + cast(id as BIGINT)) + $_random_9_$) <= 20)
-------PhysicalProject[cast(id as BIGINT) AS `cast(id as BIGINT)`, random(1, 100) AS `$_random_9_$`, t1.id, t1.msg]
+------PhysicalProject[$_random_9_$, cast(id as BIGINT), t1.id, t1.msg]
 --------filter(($_random_10_$ <= 10) and ($_random_10_$ >= 1))
-----------PhysicalProject[random(1, 100) AS `$_random_10_$`, t1.id, t1.msg]
+----------PhysicalProject[cast(id as BIGINT) AS `cast(id as BIGINT)`, random(1, 100) AS `$_random_10_$`, random(1, 100) AS `$_random_9_$`, t1.id, t1.msg]
 ------------PhysicalOlapScan[t1]
 ------PhysicalProject[cast(id as BIGINT) AS `cast(id as BIGINT)`, t2.id, t2.msg]
 --------filter(((cast(id as BIGINT) * $_random_11_$) <= 200) and ((cast(id as BIGINT) * $_random_11_$) >= 100))

@@ -21,12 +21,12 @@ PhysicalResultSink
 
 -- !push_down_filter_through_join_3 --
 PhysicalResultSink
---filter(((cast(id as BIGINT) + random(1, 100)) > 100))
-----NestedLoopJoin[CROSS_JOIN]
-------PhysicalProject[t1.id]
+--NestedLoopJoin[CROSS_JOIN]
+----PhysicalProject[t1.id]
+------filter(((cast(id as BIGINT) + random(1, 100)) > 100))
 --------PhysicalOlapScan[t1]
-------PhysicalProject[t2.id]
---------PhysicalOlapScan[t2]
+----PhysicalProject[t2.id]
+------PhysicalOlapScan[t2]
 
 -- !reorder_join_1 --
 PhysicalResultSink
@@ -64,4 +64,14 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t2]
 --------PhysicalProject[(cast(id as BIGINT) * 5) AS `expr_(cast(id as BIGINT) * 5)`, t3.id]
 ----------PhysicalOlapScan[t2(t3)]
+
+-- !push_down_filter_through_join_4 --
+PhysicalResultSink
+--filter((random() > 0.1))
+----NestedLoopJoin[CROSS_JOIN]
+------PhysicalProject[t1.id]
+--------PhysicalOlapScan[t1]
+------PhysicalProject[t2.id]
+--------filter(((cast(id as DOUBLE) + random()) > 0.2))
+----------PhysicalOlapScan[t2]
 

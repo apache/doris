@@ -71,7 +71,13 @@ public class PushDownFilterThroughPartitionTopN extends OneRewriteRuleFactory {
             }
             for (Expression expr : filter.getConjuncts()) {
                 Set<Slot> exprInputSlots = expr.getInputSlots();
-                if (partitionKeySlots.containsAll(exprInputSlots)) {
+                // A conjunct containing a unique (non-idempotent) function such as rand()/uuid()
+                // must NOT be pushed below the partition top-N. It would filter base rows before
+                // top-N selection, replacing "top-N then random filter" with "random filter then
+                // top-N", and the surviving rows of every partition would no longer be the true
+                // top-N. Empty-input-slot predicates like `rand() > 0.5` would also bypass the
+                // `containsAll` check otherwise.
+                if (!expr.containsUniqueFunction() && partitionKeySlots.containsAll(exprInputSlots)) {
                     bottomConjunctsBuilder.add(expr);
                 } else {
                     upperConjunctsBuilder.add(expr);
