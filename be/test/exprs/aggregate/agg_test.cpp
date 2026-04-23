@@ -141,28 +141,30 @@ TEST(AggTest, window_function_test) {
 TEST(AggTest, percentile_query_option_routes_default_names_to_v2) {
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_percentile(factory);
+    int be_version = BeExecVersionManager::get_newest_version();
 
     DataTypes percentile_types = {std::make_shared<DataTypeInt64>(),
                                   std::make_shared<DataTypeFloat64>()};
     auto percentile_result_type = std::make_shared<DataTypeFloat64>();
     auto percentile_v1 =
-            factory.get("percentile", percentile_types, percentile_result_type, false, -1);
+            factory.get("percentile", percentile_types, percentile_result_type, false, be_version);
     ASSERT_NE(percentile_v1, nullptr);
     EXPECT_EQ(percentile_v1->get_name(), "percentile");
 
-    auto percentile_v2 = factory.get("percentile", percentile_types, percentile_result_type, false,
-                                     -1, {.new_version_percentile = true, .column_names = {}});
+    auto percentile_v2 =
+            factory.get("percentile", percentile_types, percentile_result_type, false, be_version,
+                        {.new_version_percentile = true, .column_names = {}});
     ASSERT_NE(percentile_v2, nullptr);
     EXPECT_EQ(percentile_v2->get_name(), "percentile_v2");
 
-    auto percentile_cont_v1 =
-            factory.get("percentile_cont", percentile_types, percentile_result_type, false, -1);
+    auto percentile_cont_v1 = factory.get("percentile_cont", percentile_types,
+                                          percentile_result_type, false, be_version);
     ASSERT_NE(percentile_cont_v1, nullptr);
     EXPECT_EQ(percentile_cont_v1->get_name(), "percentile");
 
     auto percentile_cont_v2 =
-            factory.get("percentile_cont", percentile_types, percentile_result_type, false, -1,
-                        {.new_version_percentile = true, .column_names = {}});
+            factory.get("percentile_cont", percentile_types, percentile_result_type, false,
+                        be_version, {.new_version_percentile = true, .column_names = {}});
     ASSERT_NE(percentile_cont_v2, nullptr);
     EXPECT_EQ(percentile_cont_v2->get_name(), "percentile_v2");
 
@@ -172,13 +174,13 @@ TEST(AggTest, percentile_query_option_routes_default_names_to_v2) {
     auto percentile_array_result_type =
             std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat64>()));
     auto percentile_array_v1 = factory.get("percentile_array", percentile_array_types,
-                                           percentile_array_result_type, false, -1);
+                                           percentile_array_result_type, false, be_version);
     ASSERT_NE(percentile_array_v1, nullptr);
     EXPECT_EQ(percentile_array_v1->get_name(), "percentile_array");
 
     auto percentile_array_v2 =
             factory.get("percentile_array", percentile_array_types, percentile_array_result_type,
-                        false, -1, {.new_version_percentile = true, .column_names = {}});
+                        false, be_version, {.new_version_percentile = true, .column_names = {}});
     ASSERT_NE(percentile_array_v2, nullptr);
     EXPECT_EQ(percentile_array_v2->get_name(), "percentile_array_v2");
 }
