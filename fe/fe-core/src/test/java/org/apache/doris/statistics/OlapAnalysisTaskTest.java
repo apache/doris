@@ -605,4 +605,126 @@ public class OlapAnalysisTaskTest {
                 + "WHERE `catalog_id` = 0  AND `db_id` = 1  AND `tbl_id` = 2  AND `idx_id` = 3  AND `col_id` = 'col1'",
                 sql);
     }
+
+    @Test
+    public void testAddLengthAssertParamForStringColumn() throws Exception {
+        // String column with positive config -> emits per-row assert_true guard
+        Column strCol = new Column("s", PrimitiveType.VARCHAR);
+        long savedLen = org.apache.doris.common.Config.statistics_max_string_column_length;
+        org.apache.doris.common.Config.statistics_max_string_column_length = 1024;
+        try {
+            OlapAnalysisTask task = new OlapAnalysisTask();
+            AnalysisInfo info = new AnalysisInfoBuilder()
+                    .setJobId(1L)
+                    .setTaskId(2L)
+                    .setColName("s")
+
+                    .build();
+            task.info = info;
+            task.col = strCol;
+            Map<String, String> params = Maps.newHashMap();
+            task.addLengthAssertParam(params);
+            String lengthAssert = params.get("lengthAssert");
+            Assertions.assertNotNull(lengthAssert);
+            Assertions.assertTrue(lengthAssert.contains("assert_true"),
+                    "expected assert_true in placeholder, got: " + lengthAssert);
+            Assertions.assertTrue(lengthAssert.contains("IS NULL OR LENGTH"),
+                    "expected NULL guard, got: " + lengthAssert);
+            Assertions.assertTrue(lengthAssert.contains("1024"),
+                    "expected max length value, got: " + lengthAssert);
+            Assertions.assertTrue(
+                    lengthAssert.contains(BaseAnalysisTask.ANALYZE_SKIP_LONG_STRING_COLUMN_MARKER),
+                    "expected marker in placeholder, got: " + lengthAssert);
+        } finally {
+            org.apache.doris.common.Config.statistics_max_string_column_length = savedLen;
+        }
+    }
+
+    @Test
+    public void testAddLengthAssertParamForNonStringColumn() {
+        // Non-string columns must emit an empty placeholder so SQL stays unchanged
+        Column intCol = new Column("id", PrimitiveType.INT);
+        OlapAnalysisTask task = new OlapAnalysisTask();
+        AnalysisInfo info = new AnalysisInfoBuilder()
+                .setJobId(1L).setTaskId(2L).setColName("id")
+                .build();
+        task.info = info;
+        task.col = intCol;
+        Map<String, String> params = Maps.newHashMap();
+        task.addLengthAssertParam(params);
+        Assertions.assertEquals("", params.get("lengthAssert"));
+    }
+
+    @Test
+    public void testAddLengthAssertParamConfigDisabled() {
+        Column strCol = new Column("s", PrimitiveType.VARCHAR);
+        long savedLen = org.apache.doris.common.Config.statistics_max_string_column_length;
+        org.apache.doris.common.Config.statistics_max_string_column_length = 0;
+        try {
+            OlapAnalysisTask task = new OlapAnalysisTask();
+            AnalysisInfo info = new AnalysisInfoBuilder()
+                    .setJobId(1L).setTaskId(2L).setColName("s")
+                    .build();
+            task.info = info;
+            task.col = strCol;
+            Map<String, String> params = Maps.newHashMap();
+            task.addLengthAssertParam(params);
+            Assertions.assertEquals("", params.get("lengthAssert"));
+        } finally {
+            org.apache.doris.common.Config.statistics_max_string_column_length = savedLen;
+        }
+    }
+
+    @Test
+    public void testFullAnalyzeTemplateRendersLengthAssert() {
+        // Confirm the rendered FULL_ANALYZE_TEMPLATE wraps the base table in a subquery
+        // and carries the assert_true clause for a string column.
+        Map<String, String> params = new HashMap<>();
+        params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
+        params.put("columnStatTbl", StatisticConstants.TABLE_STATISTIC_TBL_NAME);
+        params.put("catalogId", "0");
+        params.put("dbId", "1");
+        params.put("tblId", "2");
+        params.put("idxId", "3");
+        params.put("colId", "s");
+        params.put("dataSizeFunction", "100");
+        params.put("catalogName", "internal");
+        params.put("dbName", "db1");
+        params.put("colName", "s");
+        params.put("tblName", "tbl1");
+        params.put("index", "");
+        params.put("lengthAssert",
+                ", assert_true(`s` IS NULL OR LENGTH(`s`) <= 1024, '"
+                        + BaseAnalysisTask.ANALYZE_SKIP_LONG_STRING_COLUMN_MARKER + "') AS `__lc`");
+        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+        String sql = stringSubstitutor.replace(BaseAnalysisTask.FULL_ANALYZE_TEMPLATE);
+        Assertions.assertTrue(sql.contains("FROM (SELECT `s`, assert_true("), sql);
+        Assertions.assertTrue(sql.contains("IS NULL OR LENGTH(`s`) <= 1024"), sql);
+        Assertions.assertTrue(sql.endsWith(") __lc_t"), sql);
+    }
+
+    @Test
+    public void testFullAnalyzeTemplateRendersWithoutLengthAssert() {
+        // Non-string columns yield a plain inline view that Nereids can collapse.
+        Map<String, String> params = new HashMap<>();
+        params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
+        params.put("columnStatTbl", StatisticConstants.TABLE_STATISTIC_TBL_NAME);
+        params.put("catalogId", "0");
+        params.put("dbId", "1");
+        params.put("tblId", "2");
+        params.put("idxId", "3");
+        params.put("colId", "id");
+        params.put("dataSizeFunction", "100");
+        params.put("catalogName", "internal");
+        params.put("dbName", "db1");
+        params.put("colName", "id");
+        params.put("tblName", "tbl1");
+        params.put("index", "");
+        params.put("lengthAssert", "");
+        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+        String sql = stringSubstitutor.replace(BaseAnalysisTask.FULL_ANALYZE_TEMPLATE);
+        Assertions.assertFalse(sql.contains("assert_true"), sql);
+        Assertions.assertTrue(sql.contains("FROM (SELECT `id` FROM `internal`.`db1`.`tbl1`"), sql);
+        Assertions.assertTrue(sql.endsWith(") __lc_t"), sql);
+    }
 }

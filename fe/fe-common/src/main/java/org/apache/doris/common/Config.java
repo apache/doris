@@ -2520,6 +2520,23 @@ public class Config extends ConfigBase {
     @ConfField
     public static int auto_analyze_simultaneously_running_task_num = 1;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "统计信息收集时 string 列允许的最大字节长度。若列中存在长度超过该值的行，"
+                    + "该列的统计信息将被跳过收集（task 仍标记为 FINISHED，在 SHOW ANALYZE 中显示跳过原因）。"
+                    + "≤ 0 表示关闭此保护。默认 1024 (1KB)。"
+                    + "注意：此保护只覆盖 FULL / LINEAR / DUJ1 统计收集路径（即 analyze 全表和 sample 的主 SQL）。"
+                    + "当 enable_partition_analyze=true 时的 per-partition 路径（PARTITION_ANALYZE_TEMPLATE）"
+                    + "出于正确性考虑不启用该保护，详见 BaseAnalysisTask 中的 NOTE。",
+            "Max byte length allowed for a string column when collecting statistics. "
+                    + "If any row in a string column is longer than this value, the column's stats "
+                    + "collection is skipped (the task is still marked FINISHED, with the skip reason "
+                    + "shown in SHOW ANALYZE). A value <= 0 disables this protection. Default: 1024 (1KB). "
+                    + "Note: this protection applies to the FULL / LINEAR / DUJ1 collection paths "
+                    + "(i.e. the main SQL used by full-table and sample analyze). The per-partition path "
+                    + "(PARTITION_ANALYZE_TEMPLATE, used when enable_partition_analyze=true) is intentionally "
+                    + "not guarded for correctness reasons; see the NOTE in BaseAnalysisTask."})
+    public static long statistics_max_string_column_length = 1024;
+
     @Deprecated
     @ConfField
     public static final int period_analyze_simultaneously_running_task_num = 1;

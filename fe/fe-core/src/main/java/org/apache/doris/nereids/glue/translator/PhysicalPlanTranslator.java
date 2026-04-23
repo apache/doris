@@ -48,11 +48,9 @@ import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 import org.apache.doris.connector.api.write.ConnectorWriteConfig;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileQueryScanNode;
-import org.apache.doris.datasource.PluginDrivenEsScanNode;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.PluginDrivenScanNode;
@@ -78,7 +76,6 @@ import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.fs.FileSystemDirectoryLister;
 import org.apache.doris.fs.TransactionScopeCachingDirectoryListerFactory;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterV2;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecAllSingleton;
 import org.apache.doris.nereids.properties.DistributionSpecAny;
@@ -800,17 +797,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } else if (table instanceof PluginDrivenExternalTable) {
             PluginDrivenExternalCatalog pluginCatalog =
                     (PluginDrivenExternalCatalog) table.getCatalog();
-            ConnectorScanRangeType scanType = pluginCatalog.getConnector()
-                    .getScanPlanProvider().getScanRangeType();
-            if (scanType == ConnectorScanRangeType.ES_SCAN) {
-                scanNode = PluginDrivenEsScanNode.create(context.nextPlanNodeId(),
-                        tupleDescriptor, context.getScanContext(), pluginCatalog,
-                        (PluginDrivenExternalTable) table);
-            } else {
-                scanNode = PluginDrivenScanNode.create(context.nextPlanNodeId(), tupleDescriptor,
-                        false, sv, context.getScanContext(), pluginCatalog,
-                        ((PluginDrivenExternalTable) table));
-            }
+            scanNode = PluginDrivenScanNode.create(context.nextPlanNodeId(), tupleDescriptor,
+                    false, sv, context.getScanContext(), pluginCatalog,
+                    ((PluginDrivenExternalTable) table));
         } else {
             throw new RuntimeException("do not support table type " + table.getType());
         }
@@ -1020,14 +1009,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
 
-        // translate rf v2 target
-        List<RuntimeFilterV2> rfV2s = context.getRuntimeFilterV2Context()
-                .getRuntimeFilterV2ByTargetPlan(physicalRelation);
-        for (RuntimeFilterV2 rfV2 : rfV2s) {
-            Expr targetExpr = rfV2.getTargetExpression().accept(ExpressionTranslator.INSTANCE, context);
-            rfV2.setLegacyTargetNode(scanNode);
-            rfV2.setLegacyTargetExpr(targetExpr);
-        }
         context.getTopnFilterContext().translateTarget(physicalRelation, scanNode, context);
     }
 
@@ -1811,8 +1792,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .collect(Collectors.toMap(Slot::getExprId, s -> s, (existing, replacement) -> existing));
 
         // translate runtime filter
-        context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> physicalHashJoin.getRuntimeFilters()
-                .forEach(filter -> runtimeFilterTranslator.createLegacyRuntimeFilter(filter, hashJoinNode, context)));
+        context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator ->
+                runtimeFilterTranslator.createLegacyRuntimeFilters(
+                        physicalHashJoin.getRuntimeFilters(), hashJoinNode, context));
 
         // make intermediate tuple
         List<SlotDescriptor> leftIntermediateSlotDescriptor = Lists.newArrayList();
@@ -1990,8 +1972,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // translate runtime filter
         context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> {
             List<RuntimeFilter> filters = nestedLoopJoin.getRuntimeFilters();
-            filters.forEach(filter -> runtimeFilterTranslator
-                    .createLegacyRuntimeFilter(filter, nestedLoopJoinNode, context));
+            runtimeFilterTranslator.createLegacyRuntimeFilters(filters, nestedLoopJoinNode, context);
             if (filters.stream().anyMatch(filter -> filter.getType() == TRuntimeFilterType.BITMAP)) {
                 nestedLoopJoinNode.setOutputLeftSideOnly(true);
             }
@@ -2526,22 +2507,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalIntersect(PhysicalIntersect intersect, PlanTranslatorContext context) {
         PlanFragment fragment = visitPhysicalSetOperation(intersect, context);
-        RunTimeFilterTranslatorV2.INSTANCE.createLegacyRuntimeFilters(
-                fragment.getPlanRoot(),
-                intersect.getRuntimeFiltersV2(),
-                context);
-
+        context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator ->
+                runtimeFilterTranslator.createLegacyRuntimeFilters(
+                        intersect.getRuntimeFilters(), fragment.getPlanRoot(), context));
         return fragment;
     }
 
     @Override
     public PlanFragment visitPhysicalExcept(PhysicalExcept except, PlanTranslatorContext context) {
         PlanFragment fragment = visitPhysicalSetOperation(except, context);
-        RunTimeFilterTranslatorV2.INSTANCE.createLegacyRuntimeFilters(
-                fragment.getPlanRoot(),
-                except.getRuntimeFiltersV2(),
-                context);
-
+        context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator ->
+                runtimeFilterTranslator.createLegacyRuntimeFilters(
+                        except.getRuntimeFilters(), fragment.getPlanRoot(), context));
         return fragment;
     }
 

@@ -116,66 +116,30 @@ class EsScanPlanProviderTest {
     }
 
     @Test
-    void testMetadataFetchedOnceWithinCacheTtl() {
+    void testPlanScanAndScanNodePropertiesFetchIndependently() {
         CountingRestClient client = new CountingRestClient();
         EsScanPlanProvider provider = new EsScanPlanProvider(client, minimalProps());
         EsTableHandle handle = new EsTableHandle("test_index");
 
-        // First call fetches from REST
         provider.planScan(EMPTY_SESSION, handle, Collections.emptyList(), java.util.Optional.empty());
-        Assertions.assertEquals(1, client.getMappingCount.get(),
-                "First planScan should fetch mapping once");
-
-        // Second call should use cache — no additional REST call
         provider.getScanNodeProperties(EMPTY_SESSION, handle, Collections.emptyList(),
                 java.util.Optional.empty());
-        Assertions.assertEquals(1, client.getMappingCount.get(),
-                "getScanNodeProperties should use cached metadata");
-        Assertions.assertEquals(1, client.searchShardsCount.get(),
-                "searchShards should only be called once total");
+        Assertions.assertEquals(2, client.getMappingCount.get(),
+                "Each provider call should fetch mapping for the current request");
+        Assertions.assertEquals(2, client.searchShardsCount.get(),
+                "Each provider call should fetch shard routing for the current request");
     }
 
     @Test
-    void testCacheExpiredRefetches() throws Exception {
+    void testDifferentIndexesFetchSeparately() {
         CountingRestClient client = new CountingRestClient();
         EsScanPlanProvider provider = new EsScanPlanProvider(client, minimalProps());
-        EsTableHandle handle = new EsTableHandle("test_index");
-
-        // First fetch
-        provider.planScan(EMPTY_SESSION, handle, Collections.emptyList(), java.util.Optional.empty());
-        Assertions.assertEquals(1, client.getMappingCount.get());
-
-        // Clear cache to simulate expiry
-        provider.clearMetadataCache();
-
-        // After expiry, should refetch
-        provider.planScan(EMPTY_SESSION, handle, Collections.emptyList(), java.util.Optional.empty());
+        provider.planScan(EMPTY_SESSION, new EsTableHandle("index_a"),
+                Collections.emptyList(), java.util.Optional.empty());
+        provider.planScan(EMPTY_SESSION, new EsTableHandle("index_b"),
+                Collections.emptyList(), java.util.Optional.empty());
         Assertions.assertEquals(2, client.getMappingCount.get(),
-                "After cache clear, should refetch metadata");
-    }
-
-    @Test
-    void testDifferentIndexesCachedSeparately() {
-        CountingRestClient client = new CountingRestClient();
-        EsScanPlanProvider provider = new EsScanPlanProvider(client, minimalProps());
-
-        EsTableHandle handle1 = new EsTableHandle("index_a");
-        EsTableHandle handle2 = new EsTableHandle("index_b");
-
-        provider.planScan(EMPTY_SESSION, handle1, Collections.emptyList(), java.util.Optional.empty());
-        provider.planScan(EMPTY_SESSION, handle2, Collections.emptyList(), java.util.Optional.empty());
-
-        // Each index should trigger one fetch
-        Assertions.assertEquals(2, client.getMappingCount.get(),
-                "Different indexes should each trigger a fetch");
-        Assertions.assertEquals(2, provider.metadataCacheSize(),
-                "Cache should have entries for both indexes");
-
-        // Fetching same indexes again should be cached
-        provider.planScan(EMPTY_SESSION, handle1, Collections.emptyList(), java.util.Optional.empty());
-        provider.planScan(EMPTY_SESSION, handle2, Collections.emptyList(), java.util.Optional.empty());
-        Assertions.assertEquals(2, client.getMappingCount.get(),
-                "Cached indexes should not trigger refetch");
+                "Different indexes should each fetch their own metadata");
     }
 
     @Test
@@ -188,5 +152,29 @@ class EsScanPlanProviderTest {
                 "ES connector metadata should not support DELETE");
         Assertions.assertFalse(metadata.supportsMerge(),
                 "ES connector metadata should not support MERGE");
+    }
+
+    @Test
+    void testAppendExplainInfoShowsEsIndex() {
+        CountingRestClient client = new CountingRestClient();
+        EsScanPlanProvider provider = new EsScanPlanProvider(client, minimalProps());
+        EsTableHandle handle = new EsTableHandle("my_test_index");
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                EMPTY_SESSION, handle, Collections.emptyList(), java.util.Optional.empty());
+        StringBuilder output = new StringBuilder();
+        provider.appendExplainInfo(output, "", props);
+
+        Assertions.assertTrue(output.toString().contains("ES index: my_test_index"));
+    }
+
+    @Test
+    void testAppendExplainInfoMissingIndex() {
+        EsScanPlanProvider provider = new EsScanPlanProvider(new CountingRestClient(), minimalProps());
+        StringBuilder output = new StringBuilder();
+
+        provider.appendExplainInfo(output, "", Collections.emptyMap());
+
+        Assertions.assertFalse(output.toString().contains("ES index:"));
     }
 }

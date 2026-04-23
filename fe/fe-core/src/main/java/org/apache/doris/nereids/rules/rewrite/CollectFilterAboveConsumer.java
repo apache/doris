@@ -38,6 +38,9 @@ public class CollectFilterAboveConsumer extends OneRewriteRuleFactory {
             LogicalCTEConsumer cteConsumer = filter.child();
             Set<Expression> exprs = filter.getConjuncts();
             for (Expression expr : exprs) {
+                if (expr.containsUniqueFunction()) {
+                    continue;
+                }
                 Expression rewrittenExpr = expr.rewriteUp(e -> {
                     if (e instanceof Slot) {
                         return cteConsumer.getProducerSlot((Slot) e);

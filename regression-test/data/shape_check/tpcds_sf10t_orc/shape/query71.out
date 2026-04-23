@@ -9,21 +9,21 @@ PhysicalResultSink
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN broadcast] hashCondition=((tmp.time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF2 t_time_sk->[cs_sold_time_sk,ss_sold_time_sk,ws_sold_time_sk]
+------------------hashJoin[INNER_JOIN broadcast] hashCondition=((tmp.time_sk = time_dim.t_time_sk)) otherCondition=() build RFs:RF6 t_time_sk->ws_sold_time_sk;RF7 t_time_sk->cs_sold_time_sk;RF8 t_time_sk->ss_sold_time_sk
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((tmp.sold_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF1 i_item_sk->[cs_item_sk,ss_item_sk,ws_item_sk]
+----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((tmp.sold_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF3 i_item_sk->ws_item_sk;RF4 i_item_sk->cs_item_sk;RF5 i_item_sk->ss_item_sk
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[cs_sold_date_sk,ss_sold_date_sk,ws_sold_date_sk]
+--------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->ws_sold_date_sk;RF1 d_date_sk->cs_sold_date_sk;RF2 d_date_sk->ss_sold_date_sk
 ----------------------------PhysicalUnion
 ------------------------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF2
+----------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF3 RF6
 ------------------------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF2
+----------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF1 RF4 RF7
 ------------------------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
+----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2 RF5 RF8
 ----------------------------PhysicalProject
 ------------------------------filter((date_dim.d_moy = 12) and (date_dim.d_year = 2000))
 --------------------------------PhysicalOlapScan[date_dim]

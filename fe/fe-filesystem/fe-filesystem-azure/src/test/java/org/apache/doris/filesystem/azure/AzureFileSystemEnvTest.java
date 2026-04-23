@@ -159,6 +159,31 @@ class AzureFileSystemEnvTest {
         Assertions.assertTrue(entries.size() >= 2);
     }
 
+    /**
+     * Regression test: prefix-based listing must not pull in objects under
+     * sibling directories that share a string prefix.
+     */
+    @Test
+    @Order(5)
+    void listMustNotIncludeSiblingPrefixDirectories() throws IOException {
+        writeContent("sibling-prefix/store/data.orc", "store-data".getBytes());
+        writeContent("sibling-prefix/store_sales/poison.orc", "should-not-appear".getBytes());
+
+        List<FileEntry> entries = new ArrayList<>();
+        try (FileIterator iter = fs.list(loc("sibling-prefix/store"))) {
+            while (iter.hasNext()) {
+                entries.add(iter.next());
+            }
+        }
+
+        for (FileEntry e : entries) {
+            Assertions.assertFalse(e.location().uri().contains("/store_sales/"),
+                    "list of 'store' must not contain sibling 'store_sales' object: " + e.location());
+        }
+        Assertions.assertEquals(1, entries.size(),
+                "Expected exactly one object under 'store/', got: " + entries);
+    }
+
     @Test
     @Order(6)
     void inputOutputRoundTrip() throws IOException {

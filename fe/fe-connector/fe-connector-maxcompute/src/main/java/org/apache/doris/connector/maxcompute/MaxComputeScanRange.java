@@ -19,6 +19,9 @@ package org.apache.doris.connector.maxcompute;
 
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TMaxComputeFileDesc;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -95,6 +98,28 @@ public class MaxComputeScanRange implements ConnectorScanRange {
     @Override
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    @Override
+    public void populateRangeParams(TTableFormatFileDesc formatDesc,
+            TFileRangeDesc rangeDesc) {
+        Map<String, String> props = getProperties();
+        TMaxComputeFileDesc fileDesc = new TMaxComputeFileDesc();
+        fileDesc.setPartitionSpec("deprecated");
+        fileDesc.setTableBatchReadSession(
+                props.getOrDefault("table_batch_read_session", ""));
+        fileDesc.setSessionId(props.getOrDefault("session_id", ""));
+        fileDesc.setReadTimeout(
+                Integer.parseInt(props.getOrDefault("read_timeout", "120")));
+        fileDesc.setConnectTimeout(
+                Integer.parseInt(props.getOrDefault("connect_timeout", "10")));
+        fileDesc.setRetryTimes(
+                Integer.parseInt(props.getOrDefault("retry_times", "4")));
+        formatDesc.setMaxComputeParams(fileDesc);
+
+        rangeDesc.setPath("[ " + getStart() + " , " + getLength() + " ]");
+        rangeDesc.setStartOffset(getStart());
+        rangeDesc.setSize(getLength());
     }
 
     public static Builder builder() {

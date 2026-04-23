@@ -422,6 +422,8 @@ suite("eager_agg") {
         drop table if exists eager_agg_t1;
         drop table if exists eager_agg_t2;
         drop table if exists eager_agg_t3;
+        drop table if exists eager_agg_filter_t1;
+        drop table if exists eager_agg_filter_t2;
 
         CREATE TABLE eager_agg_t1 (
             id INT NOT NULL,
@@ -441,9 +443,23 @@ suite("eager_agg") {
         ) DISTRIBUTED BY HASH(id2) BUCKETS 1
         PROPERTIES ('replication_num' = '1');
 
+        CREATE TABLE eager_agg_filter_t1 (
+            id INT NOT NULL,
+            flag INT NOT NULL,
+            v INT NOT NULL
+        ) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ('replication_num' = '1');
+
+        CREATE TABLE eager_agg_filter_t2 (
+            id INT NOT NULL
+        ) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ('replication_num' = '1');
+
         INSERT INTO eager_agg_t1 VALUES (1, 10);
         INSERT INTO eager_agg_t2 VALUES (1, 100), (2, 200);
         INSERT INTO eager_agg_t3 VALUES (100, 10), (200, 20), (300, 30);
+        INSERT INTO eager_agg_filter_t1 VALUES (1, 0, 10), (2, 1, 20);
+        INSERT INTO eager_agg_filter_t2 VALUES (1);
     """
 
     // sum(literal) should NOT be pushed below RIGHT JOIN to the nullable left side
@@ -527,5 +543,24 @@ suite("eager_agg") {
     right join eager_agg_t3 as c on b.id2 = c.id2 and a.val = c.val
     group by a.val
     order by a.val;
+    """
+
+    qt_check_filter_slots_preserved_pushdown """
+    explain shape plan
+    select /*+SET_VAR(eager_aggregation_mode=1, disable_join_reorder = true)*/
+        a.id, sum(a.v) as s
+    from eager_agg_filter_t1 as a
+    left join[broadcast] eager_agg_filter_t2 as b on a.id = b.id
+    where b.id <> 1 or b.id is null
+    group by a.id;
+    """
+
+    order_qt_filter_slots_preserved_eager_on """
+    select /*+SET_VAR(eager_aggregation_mode=1, disable_join_reorder = true)*/
+        a.id, sum(a.v) as s
+    from eager_agg_filter_t1 as a
+    left join[broadcast] eager_agg_filter_t2 as b on a.id = b.id
+    where b.id <> 1 or b.id is null
+    group by a.id;
     """
 }

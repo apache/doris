@@ -93,6 +93,7 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
     public void handleQuery(String query) throws ConnectionException {
         MysqlCommand command = MysqlCommand.COM_QUERY;
         prepare(command);
+        resolveWorkloadGroupName();
 
         ctx.setRunningQuery(query);
         super.handleQuery(query);
