@@ -55,6 +55,17 @@ public class AlterProcDirFilterExpressionTest {
                 "CreateTime", "2026-04-17 10:44:23.070", filter));
     }
 
+    @Test
+    public void testBuildIndexFilterResultExpressionWithAnd() throws AnalysisException {
+        BuildIndexProcDir buildIndexProcDir = new BuildIndexProcDir(null, null);
+        HashMap<String, Expression> filter = buildCreateTimeRangeFilter();
+
+        Assert.assertTrue(buildIndexProcDir.filterResultExpression(
+                "CreateTime", "2026-04-17 10:44:34.380", filter));
+        Assert.assertFalse(buildIndexProcDir.filterResultExpression(
+                "CreateTime", "2026-04-17 10:44:23.070", filter));
+    }
+
     private HashMap<String, Expression> buildCreateTimeRangeFilter() {
         Expression rangeFilter = new And(
                 new GreaterThanEqual(new UnboundSlot("CreateTime"),
