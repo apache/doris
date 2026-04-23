@@ -71,9 +71,6 @@ Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBat
     }
 
     _arrays.resize(num_fields);
-    // Track whether any field type was changed (e.g. utf8 -> large_utf8)
-    bool schema_changed = false;
-    std::vector<std::shared_ptr<arrow::Field>> fields(num_fields);
 
     for (int idx = 0; idx < num_fields; ++idx) {
         _cur_field_idx = idx;
@@ -85,9 +82,7 @@ Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBat
         auto arrow_type = _schema->field(idx)->type();
         if (arrow_type->name() == "utf8" && column->byte_size() >= MAX_ARROW_UTF8) {
             arrow_type = arrow::large_utf8();
-            schema_changed = true;
         }
-        fields[idx] = _schema->field(idx)->WithType(arrow_type);
         std::unique_ptr<arrow::ArrayBuilder> builder;
         auto arrow_st = arrow::MakeBuilder(_pool, arrow_type, &builder);
         if (!arrow_st.ok()) {
@@ -108,8 +103,7 @@ Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBat
             return to_doris_status(arrow_st);
         }
     }
-    auto schema = schema_changed ? arrow::schema(std::move(fields)) : _schema;
-    *out = arrow::RecordBatch::Make(std::move(schema), actual_rows, std::move(_arrays));
+    *out = arrow::RecordBatch::Make(_schema, actual_rows, std::move(_arrays));
     return Status::OK();
 }
 
