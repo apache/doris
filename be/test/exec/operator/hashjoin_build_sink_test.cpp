@@ -504,12 +504,11 @@ TEST_F(SharedHashTableSignalTest, BuilderTerminatedDoesNotSignal) {
     auto* builder_local_state =
             assert_cast<HashJoinBuildSinkLocalState*>(setup.builder_state->get_sink_local_state());
 
-    // Verify initial state: _signaled should be false, hash table should be monostate
+    // Verify initial state: _signaled should be false, hash table should be nullptr
     ASSERT_FALSE(setup.sink_op->_signaled);
-    ASSERT_TRUE(
-            std::holds_alternative<std::monostate>(setup.shared_state->cast<HashJoinSharedState>()
-                                                           ->hash_table_variant_vector.front()
-                                                           ->method_variant));
+    ASSERT_TRUE(setup.shared_state->cast<HashJoinSharedState>()
+                        .hash_table_variant_vector.front()
+                        ->method == nullptr);
 
     // Step 1-2: Simulate the builder being terminated (wake_up_early path).
     // In the real code path, pipeline_task.cpp's execute() Defer calls terminate()
@@ -563,11 +562,10 @@ TEST_F(SharedHashTableSignalTest, BuilderNormalCompletionSignals) {
     st = setup.sink_op->sink(setup.builder_state, &empty_block, true);
     ASSERT_TRUE(st.ok()) << st.to_string();
 
-    // Hash table should have been built (no longer monostate)
-    ASSERT_FALSE(
-            std::holds_alternative<std::monostate>(setup.shared_state->cast<HashJoinSharedState>()
-                                                           ->hash_table_variant_vector.front()
-                                                           ->method_variant));
+    // Hash table should have been built (no longer nullptr)
+    ASSERT_TRUE(setup.shared_state->cast<HashJoinSharedState>()
+                        .hash_table_variant_vector.front()
+                        ->method != nullptr);
 
     // Builder closes normally (not terminated)
     ASSERT_FALSE(builder_local_state->_terminated);

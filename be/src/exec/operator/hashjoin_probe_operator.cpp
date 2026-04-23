@@ -31,8 +31,7 @@
 
 namespace doris {
 HashJoinProbeLocalState::HashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
-        : JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState>(state, parent),
-          _process_hashtable_ctx_variants(std::make_unique<HashTableCtxVariants>()) {}
+        : JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState>(state, parent) {}
 
 Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(JoinProbeLocalState::init(state, info));
@@ -85,23 +84,24 @@ Status HashJoinProbeLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(JoinProbeLocalState::open(state));
+    // init_probe_ctx() is deferred to pull() because method is only initialized
+    // after build's _hash_table_init() runs, which happens during sink() — potentially
+    // after this open() call. See _ensure_probe_ctx_inited().
+    return Status::OK();
+}
 
-    auto& p = _parent->cast<HashJoinProbeOperatorX>();
-
-    Status res;
-    std::visit(
-            [&](auto&& join_op_variants, auto have_other_join_conjunct) {
-                using JoinOpType = std::decay_t<decltype(join_op_variants)>;
-                if constexpr (JoinOpType::value == TJoinOp::CROSS_JOIN) {
-                    res = Status::InternalError("hash join do not support cross join");
-                } else {
-                    _process_hashtable_ctx_variants
-                            ->emplace<ProcessHashTableProbe<JoinOpType::value>>(
-                                    this, state->batch_size());
-                }
-            },
-            _shared_state->join_op_variants, make_bool_variant(p._have_other_join_conjunct));
-    return res;
+void HashJoinProbeLocalState::_ensure_probe_ctx_inited(RuntimeState* state) {
+    if (_probe_ctx_inited) {
+        return;
+    }
+    auto& vec = _shared_state->hash_table_variant_vector;
+    auto* method = (vec.size() == 1 ? vec[0] : vec[_task_idx])->method.get();
+    // By the time pull() is called, the build dependency has been released, which
+    // means _hash_table_init() has already set method. A null method here indicates
+    // a bug in the build/probe dependency protocol.
+    DORIS_CHECK(method);
+    method->init_probe_ctx(this, state->batch_size(), _shared_state->join_op_variants);
+    _probe_ctx_inited = true;
 }
 
 void HashJoinProbeLocalState::prepare_for_next() {
@@ -119,16 +119,13 @@ Status HashJoinProbeLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-    if (_process_hashtable_ctx_variants) {
-        std::visit(Overload {[&](std::monostate&) {},
-                             [&](auto&& process_hashtable_ctx) {
-                                 if (process_hashtable_ctx._arena) {
-                                     process_hashtable_ctx._arena.reset();
-                                 }
-                             }},
-                   *_process_hashtable_ctx_variants);
+    {
+        auto& vec = _shared_state->hash_table_variant_vector;
+        auto* variant_ptr = (vec.size() == 1 ? vec[0] : vec[_task_idx]).get();
+        if (variant_ptr && variant_ptr->method) {
+            variant_ptr->method->close_probe_ctx();
+        }
     }
-    _process_hashtable_ctx_variants = nullptr;
     _null_map_column = nullptr;
     _probe_block.clear();
     return JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState>::close(state);
@@ -230,6 +227,10 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, Block* output_bl
         return Status::OK();
     }
 
+    // Ensure probe context is initialized. This is deferred from open() because
+    // the hash table method is only valid after build is complete.
+    local_state._ensure_probe_ctx_inited(state);
+
     local_state._join_block.clear_column_data();
 
     MutableBlock mutable_join_block(&local_state._join_block);
@@ -238,63 +239,26 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, Block* output_bl
     Status st;
     if (local_state._probe_index < local_state._probe_block.rows()) {
         DCHECK(local_state._has_set_need_null_map_for_probe);
-        std::visit(
-                [&](auto&& arg, auto&& process_hashtable_ctx) {
-                    using HashTableProbeType = std::decay_t<decltype(process_hashtable_ctx)>;
-                    if constexpr (!std::is_same_v<HashTableProbeType, std::monostate>) {
-                        using HashTableCtxType = std::decay_t<decltype(arg)>;
-                        if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                            if (local_state._shared_state->left_semi_direct_return) {
-                                process_hashtable_ctx.process_direct_return(
-                                        arg, mutable_join_block, &temp_block,
-                                        cast_set<uint32_t>(local_state._probe_block.rows()));
-                                return;
-                            }
-                            st = process_hashtable_ctx.process(
-                                    arg,
-                                    local_state._null_map_column
-                                            ? local_state._null_map_column->get_data().data()
-                                            : nullptr,
-                                    mutable_join_block, &temp_block,
-                                    cast_set<uint32_t>(local_state._probe_block.rows()),
-                                    _is_mark_join);
-                        } else {
-                            st = Status::InternalError("uninited hash table");
-                        }
-                    } else {
-                        st = Status::InternalError("uninited hash table probe");
-                    }
-                },
-                local_state._shared_state->hash_table_variant_vector.size() == 1
-                        ? local_state._shared_state->hash_table_variant_vector[0]->method_variant
-                        : local_state._shared_state
-                                  ->hash_table_variant_vector[local_state._task_idx]
-                                  ->method_variant,
-                *local_state._process_hashtable_ctx_variants);
+        auto& vec = local_state._shared_state->hash_table_variant_vector;
+        auto* method =
+                (vec.size() == 1 ? vec[0] : vec[local_state._task_idx])->method.get();
+        if (local_state._shared_state->left_semi_direct_return) {
+            method->process_direct_return(mutable_join_block, &temp_block,
+                                          cast_set<uint32_t>(local_state._probe_block.rows()));
+        } else {
+            st = method->process_probe(
+                    local_state._null_map_column
+                            ? local_state._null_map_column->get_data().data()
+                            : nullptr,
+                    mutable_join_block, &temp_block,
+                    cast_set<uint32_t>(local_state._probe_block.rows()), _is_mark_join);
+        }
     } else if (local_state._probe_eos) {
         if (_is_right_semi_anti || (_is_outer_join && _join_op != TJoinOp::LEFT_OUTER_JOIN)) {
-            std::visit(
-                    [&](auto&& arg, auto&& process_hashtable_ctx) {
-                        using HashTableProbeType = std::decay_t<decltype(process_hashtable_ctx)>;
-                        if constexpr (!std::is_same_v<HashTableProbeType, std::monostate>) {
-                            using HashTableCtxType = std::decay_t<decltype(arg)>;
-                            if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                                st = process_hashtable_ctx.finish_probing(
-                                        arg, mutable_join_block, &temp_block, eos, _is_mark_join);
-                            } else {
-                                st = Status::InternalError("uninited hash table");
-                            }
-                        } else {
-                            st = Status::InternalError("uninited hash table probe");
-                        }
-                    },
-                    local_state._shared_state->hash_table_variant_vector.size() == 1
-                            ? local_state._shared_state->hash_table_variant_vector[0]
-                                      ->method_variant
-                            : local_state._shared_state
-                                      ->hash_table_variant_vector[local_state._task_idx]
-                                      ->method_variant,
-                    *local_state._process_hashtable_ctx_variants);
+            auto& vec2 = local_state._shared_state->hash_table_variant_vector;
+            auto* method2 =
+                    (vec2.size() == 1 ? vec2[0] : vec2[local_state._task_idx])->method.get();
+            st = method2->finish_probing(mutable_join_block, &temp_block, eos, _is_mark_join);
         } else {
             *eos = true;
             return Status::OK();

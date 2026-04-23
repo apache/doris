@@ -28,20 +28,6 @@ class RuntimeState;
 
 class HashJoinProbeLocalState;
 
-using HashTableCtxVariants =
-        std::variant<std::monostate, ProcessHashTableProbe<TJoinOp::INNER_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::LEFT_SEMI_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::LEFT_ANTI_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::LEFT_OUTER_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::FULL_OUTER_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::RIGHT_OUTER_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::RIGHT_SEMI_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::RIGHT_ANTI_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::ASOF_LEFT_INNER_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::ASOF_LEFT_OUTER_JOIN>>;
-
 class HashJoinProbeOperatorX;
 class HashJoinProbeLocalState MOCK_REMOVE(final)
         : public JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState> {
@@ -71,6 +57,8 @@ private:
     bool _need_probe_null_map(Block& block, const std::vector<int>& res_col_ids);
     std::vector<uint16_t> _convert_block_to_null(Block& block);
     Status _extract_join_column(Block& block, const std::vector<int>& res_col_ids);
+    // Called lazily in pull() after build dependency is satisfied, ensuring method is valid.
+    void _ensure_probe_ctx_inited(RuntimeState* state);
     friend class HashJoinProbeOperatorX;
     template <int JoinOpType>
     friend struct ProcessHashTableProbe;
@@ -102,8 +90,10 @@ private:
     bool _need_null_map_for_probe = false;
     bool _has_set_need_null_map_for_probe = false;
     ColumnUInt8::MutablePtr _null_map_column;
-    std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants =
-            std::make_unique<HashTableCtxVariants>();
+
+    // Set to true once init_probe_ctx() has been called on the hash table method.
+    // This is deferred to pull() because method is only valid after build completes.
+    bool _probe_ctx_inited = false;
 
     int _task_idx;
 
