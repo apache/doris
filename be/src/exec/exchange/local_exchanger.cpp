@@ -533,6 +533,12 @@ Status AdaptivePassthroughExchanger::sink(RuntimeState* state, Block* in_block, 
 
 Status AdaptivePassthroughExchanger::get_block(RuntimeState* state, Block* block, bool* eos,
                                                Profile&& profile, SourceInfo&& source_info) {
+    if (!_tmp_block[source_info.channel_id].empty()) {
+        *block = std::move(_tmp_block[source_info.channel_id]);
+        *eos = _tmp_eos[source_info.channel_id];
+        _tmp_block[source_info.channel_id] = {};
+        return Status::OK();
+    }
     PartitionedBlock partitioned_block;
     MutableBlock mutable_block;
 
@@ -541,9 +547,10 @@ Status AdaptivePassthroughExchanger::get_block(RuntimeState* state, Block* block
             if (partitioned_block.second.row_idxs == nullptr) {
                 // The passthrough path which means the block is not partitioned, we can directly move the block without copying.
                 if (mutable_block.rows() > 0) {
-                    RETURN_IF_ERROR(
-                            mutable_block.add_rows(&partitioned_block.first->_data_block, 0,
-                                                   partitioned_block.first->_data_block.rows()));
+                    _tmp_block[source_info.channel_id] =
+                            std::move(partitioned_block.first->_data_block);
+                    _tmp_eos[source_info.channel_id] = *eos;
+                    *eos = false;
                 } else {
                     *block = std::move(partitioned_block.first->_data_block);
                 }
