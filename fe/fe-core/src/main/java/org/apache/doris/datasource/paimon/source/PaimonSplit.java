@@ -27,6 +27,7 @@ import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.Split;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -47,7 +48,7 @@ public class PaimonSplit extends FileSplit {
      * Handles both DataSplit (regular data tables) and other Split types (system tables).
      */
     public PaimonSplit(Split paimonSplit) {
-        super(DUMMY_PATH, 0, 0, 0, 0, null, null);
+        super(DUMMY_PATH, 0, 0, 0, 0, null, Collections.emptyList());
         this.paimonSplit = paimonSplit;
         this.tableFormatType = TableFormatType.PAIMON;
 
@@ -65,7 +66,8 @@ public class PaimonSplit extends FileSplit {
 
     private PaimonSplit(LocationPath file, long start, long length, long fileLength, long modificationTime,
             String[] hosts, List<String> partitionList) {
-        super(file, start, length, fileLength, modificationTime, hosts, partitionList);
+        super(file, start, length, fileLength, modificationTime, hosts,
+                partitionList == null ? Collections.emptyList() : partitionList);
         this.tableFormatType = TableFormatType.PAIMON;
         this.selfSplitWeight = length;
     }

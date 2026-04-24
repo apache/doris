@@ -29,9 +29,17 @@ namespace doris {
 Status TableFormatReader::_extract_partition_values(
         const TFileRangeDesc& range, const TupleDescriptor* tuple_descriptor,
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
-                partition_values) {
+                partition_values,
+        std::unordered_map<std::string, bool>* partition_value_is_null) {
     partition_values.clear();
+    if (partition_value_is_null != nullptr) {
+        partition_value_is_null->clear();
+    }
     if (range.__isset.columns_from_path_keys && tuple_descriptor != nullptr) {
+        DORIS_CHECK(range.__isset.columns_from_path);
+        DORIS_CHECK(range.__isset.columns_from_path_is_null);
+        DORIS_CHECK(range.columns_from_path.size() == range.columns_from_path_keys.size());
+        DORIS_CHECK(range.columns_from_path_is_null.size() == range.columns_from_path_keys.size());
         std::unordered_map<std::string, const SlotDescriptor*> name_to_slot;
         for (auto* slot : tuple_descriptor->slots()) {
             name_to_slot[slot->col_name()] = slot;
@@ -42,6 +50,9 @@ Status TableFormatReader::_extract_partition_values(
             auto slot_it = name_to_slot.find(key);
             if (slot_it != name_to_slot.end()) {
                 partition_values.emplace(key, std::make_tuple(value, slot_it->second));
+                if (partition_value_is_null != nullptr) {
+                    partition_value_is_null->emplace(key, range.columns_from_path_is_null[i]);
+                }
             }
         }
     }
@@ -51,10 +62,11 @@ Status TableFormatReader::_extract_partition_values(
 Status TableFormatReader::on_before_init_reader(ReaderInitContext* ctx) {
     _column_descs = ctx->column_descs;
     _fill_col_name_to_block_idx = ctx->col_name_to_block_idx;
-    RETURN_IF_ERROR(
-            _extract_partition_values(*ctx->range, ctx->tuple_descriptor, _fill_partition_values));
+    RETURN_IF_ERROR(_extract_partition_values(*ctx->range, ctx->tuple_descriptor,
+                                              _fill_partition_values,
+                                              &_fill_partition_value_is_null));
 
-    for (auto& desc : *ctx->column_descs) {
+    for (const auto& desc : *ctx->column_descs) {
         if (desc.category == ColumnCategory::REGULAR ||
             desc.category == ColumnCategory::GENERATED) {
             ctx->column_names.push_back(desc.name);

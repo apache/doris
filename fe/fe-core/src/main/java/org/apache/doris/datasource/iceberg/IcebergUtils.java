@@ -135,6 +135,7 @@ import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -704,6 +705,57 @@ public class IcebergUtils {
         return partitionInfoMap;
     }
 
+    public static List<String> getIdentityPartitionColumns(Table table) {
+        LinkedHashSet<String> partitionColumns = new LinkedHashSet<>();
+        for (PartitionSpec spec : table.specs().values()) {
+            for (PartitionField partitionField : spec.fields()) {
+                if (!partitionField.transform().isIdentity()) {
+                    continue;
+                }
+                String columnName = table.schema().findColumnName(partitionField.sourceId());
+                if (columnName != null) {
+                    partitionColumns.add(columnName.toLowerCase(Locale.ROOT));
+                }
+            }
+        }
+        return new ArrayList<>(partitionColumns);
+    }
+
+    public static Map<String, String> getIdentityPartitionInfoMap(PartitionData partitionData,
+            PartitionSpec partitionSpec, Table table, String timeZone) {
+        Map<String, String> partitionInfoMap = Maps.newLinkedHashMap();
+        List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
+        List<PartitionField> partitionFields = partitionSpec.fields();
+        Preconditions.checkArgument(fields.size() == partitionFields.size(),
+                "PartitionData fields size does not match PartitionSpec fields size");
+
+        for (int i = 0; i < fields.size(); i++) {
+            NestedField field = fields.get(i);
+            PartitionField partitionField = partitionFields.get(i);
+            if (!partitionField.transform().isIdentity()) {
+                continue;
+            }
+            TypeID partitionTypeId = field.type().typeId();
+            if (partitionTypeId == TypeID.BINARY || partitionTypeId == TypeID.FIXED) {
+                continue;
+            }
+
+            String columnName = table.schema().findColumnName(partitionField.sourceId());
+            if (columnName == null) {
+                continue;
+            }
+            Object value = partitionData.get(i);
+            try {
+                partitionInfoMap.put(columnName.toLowerCase(Locale.ROOT),
+                        serializePartitionValue(field.type(), value, timeZone));
+            } catch (UnsupportedOperationException e) {
+                LOG.warn("Failed to serialize Iceberg table partition value for field {}: {}", field.name(),
+                        e.getMessage());
+            }
+        }
+        return partitionInfoMap;
+    }
+
     public static List<String> getPartitionValues(PartitionData partitionData, PartitionSpec partitionSpec,
             String timeZone) {
         List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
@@ -749,8 +801,6 @@ public class IcebergUtils {
             case BOOLEAN:
             case INTEGER:
             case LONG:
-            case FLOAT:
-            case DOUBLE:
             case STRING:
             case UUID:
             case DECIMAL:
@@ -758,6 +808,16 @@ public class IcebergUtils {
                     return null;
                 }
                 return value.toString();
+            case FLOAT:
+                if (value == null) {
+                    return null;
+                }
+                return Float.toString((Float) value);
+            case DOUBLE:
+                if (value == null) {
+                    return null;
+                }
+                return Double.toString((Double) value);
             // case binary, fixed should not supported, because if return string with utf8,
             // the data maybe be corrupted
             case DATE:

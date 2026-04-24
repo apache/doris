@@ -33,6 +33,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/consts.h"
@@ -76,6 +77,7 @@
 #include "format/table/paimon_jni_reader.h"
 #include "format/table/paimon_predicate_converter.h"
 #include "format/table/paimon_reader.h"
+#include "format/table/partition_column_filler.h"
 #include "format/table/remote_doris_reader.h"
 #include "format/table/transactional_hive_reader.h"
 #include "format/table/trino_connector_jni_reader.h"
@@ -342,6 +344,11 @@ bool FileScanner::_check_partition_prune_expr(const VExprSPtr& expr) {
     });
 }
 
+bool FileScanner::_contains_runtime_filter(const VExprContextSPtrs& conjuncts) const {
+    return std::ranges::any_of(
+            conjuncts, [](const auto& conjunct) { return conjunct->root()->is_rf_wrapper(); });
+}
+
 void FileScanner::_init_runtime_filter_partition_prune_ctxs() {
     _runtime_filter_partition_prune_ctxs.clear();
     for (auto& conjunct : _conjuncts) {
@@ -375,33 +382,12 @@ Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_al
     for (auto const& partition_col_desc : _partition_col_descs) {
         const auto& [partition_value, partition_slot_desc] = partition_col_desc.second;
         auto data_type = partition_slot_desc->get_data_type_ptr();
-        auto test_serde = data_type->get_serde();
         auto partition_value_column = data_type->create_column();
-        auto* col_ptr = static_cast<IColumn*>(partition_value_column.get());
-        Slice slice(partition_value.data(), partition_value.size());
-        uint64_t num_deserialized = 0;
-        DataTypeSerDe::FormatOptions options {};
-        if (_partition_value_is_null.contains(partition_slot_desc->col_name())) {
-            // for iceberg/paimon table
-            // NOTICE: column is always be nullable for iceberg/paimon table now
-            DCHECK(data_type->is_nullable());
-            test_serde = test_serde->get_nested_serdes()[0];
-            auto* null_column = assert_cast<ColumnNullable*>(col_ptr);
-            if (_partition_value_is_null[partition_slot_desc->col_name()]) {
-                null_column->insert_many_defaults(partition_value_column_size);
-            } else {
-                // If the partition value is not null, we set null map to 0 and deserialize it normally.
-                null_column->get_null_map_column().insert_many_vals(0, partition_value_column_size);
-                RETURN_IF_ERROR(test_serde->deserialize_column_from_fixed_json(
-                        null_column->get_nested_column(), slice, partition_value_column_size,
-                        &num_deserialized, options));
-            }
-        } else {
-            // for hive/hudi table, the null value is set as "\\N"
-            // TODO: this will be unified as iceberg/paimon table in the future
-            RETURN_IF_ERROR(test_serde->deserialize_column_from_fixed_json(
-                    *col_ptr, slice, partition_value_column_size, &num_deserialized, options));
-        }
+        auto null_it = _partition_value_is_null.find(partition_slot_desc->col_name());
+        DORIS_CHECK(null_it != _partition_value_is_null.end());
+        RETURN_IF_ERROR(fill_partition_column_from_path_value(
+                *partition_value_column, *partition_slot_desc, partition_value,
+                partition_value_column_size, null_it->second));
 
         partition_slot_id_to_column[partition_slot_desc->id()] = std::move(partition_value_column);
     }
@@ -413,20 +399,9 @@ Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_al
     for (auto const* slot_desc : _real_tuple_desc->slots()) {
         if (partition_slot_id_to_column.find(slot_desc->id()) !=
             partition_slot_id_to_column.end()) {
-            auto data_type = slot_desc->get_data_type_ptr();
             auto partition_value_column = std::move(partition_slot_id_to_column[slot_desc->id()]);
-            if (data_type->is_nullable()) {
-                _runtime_filter_partition_prune_block.insert(
-                        index, ColumnWithTypeAndName(
-                                       ColumnNullable::create(
-                                               std::move(partition_value_column),
-                                               ColumnUInt8::create(partition_value_column_size, 0)),
-                                       data_type, slot_desc->col_name()));
-            } else {
-                _runtime_filter_partition_prune_block.insert(
-                        index, ColumnWithTypeAndName(std::move(partition_value_column), data_type,
-                                                     slot_desc->col_name()));
-            }
+            _runtime_filter_partition_prune_block.replace_by_position(
+                    index, std::move(partition_value_column));
             if (index == 0) {
                 first_column_filled = true;
             }
@@ -1689,6 +1664,10 @@ Status FileScanner::_generate_partition_columns() {
     if (!range.__isset.columns_from_path_keys) {
         return Status::OK();
     }
+    DORIS_CHECK(range.__isset.columns_from_path);
+    DORIS_CHECK(range.__isset.columns_from_path_is_null);
+    DORIS_CHECK(range.columns_from_path.size() == range.columns_from_path_keys.size());
+    DORIS_CHECK(range.columns_from_path_is_null.size() == range.columns_from_path_keys.size());
 
     std::unordered_map<std::string, int> partition_name_to_key_index;
     int index = 0;
@@ -1703,16 +1682,12 @@ Status FileScanner::_generate_partition_columns() {
         }
         auto pit = partition_name_to_key_index.find(col_desc.name);
         if (pit != partition_name_to_key_index.end()) {
-            int values_index = pit->second;
-            if (range.__isset.columns_from_path && values_index < range.columns_from_path.size()) {
-                _partition_col_descs.emplace(
-                        col_desc.name,
-                        std::make_tuple(range.columns_from_path[values_index], col_desc.slot_desc));
-                if (range.__isset.columns_from_path_is_null) {
-                    _partition_value_is_null.emplace(col_desc.name,
-                                                     range.columns_from_path_is_null[values_index]);
-                }
-            }
+            auto values_index = cast_set<size_t>(pit->second);
+            _partition_col_descs.emplace(
+                    col_desc.name,
+                    std::make_tuple(range.columns_from_path[values_index], col_desc.slot_desc));
+            _partition_value_is_null.emplace(col_desc.name,
+                                             range.columns_from_path_is_null[values_index]);
         }
     }
     return Status::OK();
@@ -1898,8 +1873,42 @@ Status FileScanner::_init_expr_ctxes() {
 
 bool FileScanner::_should_enable_condition_cache() {
     DCHECK(_should_enable_condition_cache_handler != nullptr);
-    return _condition_cache_digest != 0 && (this->*_should_enable_condition_cache_handler)() &&
-           (!_conjuncts.empty() || !_push_down_conjuncts.empty());
+    if (_condition_cache_digest == 0 || !(this->*_should_enable_condition_cache_handler)()) {
+        return false;
+    }
+
+    // Condition cache starts as all-false and is turned true only by native readers when a
+    // row-level predicate leaves at least one row in the granule. COUNT pushdown may replace the
+    // native reader with CountReader, which only emits row counts and never runs that marking path.
+    if (_get_push_down_agg_type() == TPushAggOp::type::COUNT) {
+        return false;
+    }
+
+    // The cache is populated by native readers while evaluating pushed-down predicates.
+    // Scanner-only predicates cannot mark reader granules, so there is nothing useful to cache.
+    if (_push_down_conjuncts.empty()) {
+        return false;
+    }
+
+    // Runtime filters are query-local dynamic predicates. Some ready RF implementations can hash
+    // their payload into get_digest(), but FileScanner cannot rely on that for all RFs reaching the
+    // native reader. In particular, ScanLocalState computes _condition_cache_digest during open(),
+    // while FileScanner may append late-arrival RFs in _process_late_arrival_conjuncts()
+    // immediately before initializing Parquet/ORC readers.
+    //
+    // Reading a weaker cache entry would be safe by itself: if a cached bitmap only represented
+    // static predicate P, false granules for P are also false for P AND RF. The unsafe part is
+    // writing. On cache miss, native readers mark survivor granules using all pushed-down
+    // predicates, including late RFs. Without a read-only cache mode, this would insert a bitmap for
+    // P AND RF under a digest that only represents P.
+    //
+    // Example:
+    //   Q1 static predicate: k = 1, late RF payload: partition_key IN ('2024-02-01')
+    //   Q2 static predicate: k = 1, late RF payload: partition_key IN ('2024-03-01')
+    // If both scans share the same file/range/digest, reusing Q1's bitmap for Q2 can skip row
+    // ranges according to the wrong RF payload. Keep RF predicate pushdown enabled for reader-side
+    // filtering, but do not persist its result in condition cache.
+    return !_contains_runtime_filter(_conjuncts) && !_contains_runtime_filter(_push_down_conjuncts);
 }
 
 bool FileScanner::_should_enable_condition_cache_for_load() const {

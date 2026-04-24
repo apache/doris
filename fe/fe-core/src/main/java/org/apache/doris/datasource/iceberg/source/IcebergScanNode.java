@@ -367,19 +367,29 @@ public class IcebergScanNode extends FileQueryScanNode {
             deleteFilesDescByReferencedDataFile.put(icebergSplit.getOriginalPath(), nonEqualityDeleteFileDesc);
         }
         tableFormatFileDesc.setIcebergParams(fileDesc);
+        rangeDesc.unsetColumnsFromPath();
+        rangeDesc.unsetColumnsFromPathKeys();
+        rangeDesc.unsetColumnsFromPathIsNull();
         Map<String, String> partitionValues = icebergSplit.getIcebergPartitionValues();
-        if (partitionValues != null) {
+        List<String> orderedPartitionKeys = getOrderedPathPartitionKeys();
+        if (partitionValues != null && !orderedPartitionKeys.isEmpty()) {
             List<String> fromPathKeys = new ArrayList<>();
             List<String> fromPathValues = new ArrayList<>();
             List<Boolean> fromPathIsNull = new ArrayList<>();
-            for (Map.Entry<String, String> entry : partitionValues.entrySet()) {
-                fromPathKeys.add(entry.getKey());
-                fromPathValues.add(entry.getValue() != null ? entry.getValue() : "");
-                fromPathIsNull.add(entry.getValue() == null);
+            for (String partitionKey : orderedPartitionKeys) {
+                if (!partitionValues.containsKey(partitionKey)) {
+                    continue;
+                }
+                String partitionValue = partitionValues.get(partitionKey);
+                fromPathKeys.add(partitionKey);
+                fromPathValues.add(partitionValue != null ? partitionValue : "");
+                fromPathIsNull.add(partitionValue == null);
             }
-            rangeDesc.setColumnsFromPathKeys(fromPathKeys);
-            rangeDesc.setColumnsFromPath(fromPathValues);
-            rangeDesc.setColumnsFromPathIsNull(fromPathIsNull);
+            if (!fromPathKeys.isEmpty()) {
+                rangeDesc.setColumnsFromPathKeys(fromPathKeys);
+                rangeDesc.setColumnsFromPath(fromPathValues);
+                rangeDesc.setColumnsFromPathIsNull(fromPathIsNull);
+            }
         }
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
@@ -430,6 +440,13 @@ public class IcebergScanNode extends FileQueryScanNode {
             default:
                 return "unknown";
         }
+    }
+
+    private List<String> getOrderedPathPartitionKeys() {
+        if (icebergTable == null) {
+            return Collections.emptyList();
+        }
+        return IcebergUtils.getIdentityPartitionColumns(icebergTable);
     }
 
     public void createScanRangeLocations() throws UserException {
@@ -866,20 +883,14 @@ public class IcebergScanNode extends FileQueryScanNode {
                 split.setPartitionSpecId(specId);
                 split.setPartitionDataJson(IcebergUtils.getPartitionDataJson(
                         partitionData, partitionSpec, sessionVariable.getTimeZone()));
-            }
-            if (sessionVariable.isEnableRuntimeFilterPartitionPrune()) {
                 Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(
-                        partitionData, k -> {
-                            return IcebergUtils.getPartitionInfoMap(partitionData, partitionSpec,
-                                    sessionVariable.getTimeZone());
-                        });
-                // Only set partition values if all partitions are identity transform
-                // For non-identity partitions, getPartitionInfoMap returns null to skip dynamic partition pruning
-                if (partitionInfoMap != null) {
+                        partitionData, k -> IcebergUtils.getIdentityPartitionInfoMap(
+                                partitionData, partitionSpec, icebergTable, sessionVariable.getTimeZone()));
+                if (!partitionInfoMap.isEmpty()) {
                     split.setIcebergPartitionValues(partitionInfoMap);
                 }
             } else {
-                partitionMapInfos.put(partitionData, null);
+                partitionMapInfos.put(null, Collections.emptyMap());
             }
         }
         return split;
@@ -1093,20 +1104,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     public List<String> getPathPartitionKeys() throws UserException {
-        // return icebergTable.spec().fields().stream().map(PartitionField::name).map(String::toLowerCase)
-        //         .collect(Collectors.toList());
-        /**First, iceberg partition columns are based on existing fields, which will be stored in the actual data file.
-         * Second, iceberg partition columns support Partition transforms. In this case, the path partition key is not
-         * equal to the column name of the partition column, so remove this code and get all the columns you want to
-         * read from the file.
-         * Related code:
-         *  be/src/vec/exec/scan/vfile_scanner.cpp:
-         *      VFileScanner::_init_expr_ctxes()
-         *          if (slot_info.is_file_slot) {
-         *              xxxx
-         *          }
-         */
-        return new ArrayList<>();
+        return getOrderedPathPartitionKeys();
     }
 
     private void recordManifestCacheAccess(boolean cacheHit) {

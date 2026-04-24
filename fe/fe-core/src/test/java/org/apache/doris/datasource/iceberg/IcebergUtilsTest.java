@@ -57,9 +57,11 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -171,6 +173,84 @@ public class IcebergUtilsTest {
 
         Map<String, String> partitionInfoMap = IcebergUtils.getPartitionInfoMap(partitionData, partitionSpec, "UTC");
         Assert.assertNull(partitionInfoMap);
+    }
+
+    @Test
+    public void testGetIdentityPartitionColumnsIgnoresTransformPartitions() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "dt", Types.StringType.get()),
+                Types.NestedField.required(3, "ts", Types.TimestampType.withoutZone()));
+        PartitionSpec specWithTransform = PartitionSpec.builderFor(schema)
+                .withSpecId(1)
+                .identity("dt")
+                .day("ts")
+                .build();
+        PartitionSpec identityOnlySpec = PartitionSpec.builderFor(schema)
+                .withSpecId(2)
+                .identity("id")
+                .build();
+        Map<Integer, PartitionSpec> specs = new LinkedHashMap<>();
+        specs.put(specWithTransform.specId(), specWithTransform);
+        specs.put(identityOnlySpec.specId(), identityOnlySpec);
+
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.specs()).thenReturn(specs);
+
+        Assert.assertEquals(Arrays.asList("dt", "id"), IcebergUtils.getIdentityPartitionColumns(table));
+    }
+
+    @Test
+    public void testGetIdentityPartitionInfoMapReturnsIdentityColumnsOnly() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "dt", Types.StringType.get()),
+                Types.NestedField.required(2, "ts", Types.TimestampType.withoutZone()));
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(schema)
+                .identity("dt")
+                .day("ts")
+                .build();
+        PartitionData partitionData = new PartitionData(partitionSpec.partitionType());
+        partitionData.set(0, "2025-01-01");
+        partitionData.set(1, 20000);
+
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+
+        Map<String, String> partitionInfoMap = IcebergUtils.getIdentityPartitionInfoMap(
+                partitionData, partitionSpec, table, "UTC");
+        Assert.assertEquals(Collections.singletonMap("dt", "2025-01-01"), partitionInfoMap);
+    }
+
+    @Test
+    public void testGetIdentityPartitionInfoMapSupportsFloatingPointPartitions() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "float_partition", Types.FloatType.get()),
+                Types.NestedField.required(2, "double_partition", Types.DoubleType.get()));
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(schema)
+                .identity("float_partition")
+                .identity("double_partition")
+                .build();
+        float floatValue = Math.nextUp(0.1F);
+        double doubleValue = Math.nextUp(0.1D);
+        PartitionData partitionData = new PartitionData(partitionSpec.partitionType());
+        partitionData.set(0, floatValue);
+        partitionData.set(1, doubleValue);
+
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+
+        Map<String, String> partitionInfoMap = IcebergUtils.getIdentityPartitionInfoMap(
+                partitionData, partitionSpec, table, "UTC");
+
+        String serializedFloat = partitionInfoMap.get("float_partition");
+        String serializedDouble = partitionInfoMap.get("double_partition");
+        Assert.assertEquals(Float.toString(floatValue), serializedFloat);
+        Assert.assertEquals(Double.toString(doubleValue), serializedDouble);
+        Assert.assertEquals(Float.floatToIntBits(floatValue),
+                Float.floatToIntBits(Float.parseFloat(serializedFloat)));
+        Assert.assertEquals(Double.doubleToLongBits(doubleValue),
+                Double.doubleToLongBits(Double.parseDouble(serializedDouble)));
     }
 
     @Test
