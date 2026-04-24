@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("set_operation") {
+suite("test_nereids_set_operation") {
 
     sql "SET enable_nereids_planner=true"
 

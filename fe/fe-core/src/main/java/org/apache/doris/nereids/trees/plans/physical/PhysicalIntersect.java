@@ -38,7 +38,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * Physical Intersect.
@@ -79,16 +78,13 @@ public class PhysicalIntersect extends PhysicalSetOperation implements Intersect
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder();
-        if (!runtimeFilters.isEmpty()) {
-            sb.append(runtimeFilters.stream().map(rf -> rf.toString() + " ").collect(Collectors.joining(" ")));
-        }
         return Utils.toSqlString("PhysicalIntersect",
                 "qualifier", qualifier,
                 "outputs", outputs,
                 "regularChildrenOutputs", regularChildrenOutputs,
                 "stats", statistics,
-                "RFs", sb.toString());
+                "RFV2", runtimeFiltersV2
+        );
     }
 
     @Override

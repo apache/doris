@@ -25,7 +25,6 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.foundation.util.BitUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
@@ -54,35 +53,6 @@ import java.util.stream.Collectors;
  */
 public final class RuntimeFilter {
     private static final Logger LOG = LogManager.getLogger(RuntimeFilter.class);
-
-    /**
-     * Internal class that encapsulates the max, min and default sizes used for creating
-     * bloom filter objects.
-     */
-    public static class FilterSizeLimits {
-        // Maximum filter size, in bytes, rounded up to a power of two.
-        public final long maxVal;
-
-        // Minimum filter size, in bytes, rounded up to a power of two.
-        public final long minVal;
-
-        // Pre-computed default filter size, in bytes, rounded up to a power of two.
-        public final long defaultVal;
-
-        public FilterSizeLimits(SessionVariable sessionVariable) {
-            // Round up all limits to a power of two
-            long maxLimit = sessionVariable.getRuntimeBloomFilterMaxSize();
-            maxVal = BitUtil.roundUpToPowerOf2(maxLimit);
-
-            long minLimit = sessionVariable.getRuntimeBloomFilterMinSize();
-            // Make sure minVal <= defaultVal <= maxVal
-            minVal = BitUtil.roundUpToPowerOf2(Math.min(minLimit, maxVal));
-
-            long defaultValue = sessionVariable.getRuntimeBloomFilterSize();
-            defaultValue = Math.max(defaultValue, minVal);
-            defaultVal = BitUtil.roundUpToPowerOf2(Math.min(defaultValue, maxVal));
-        }
-    }
 
     // Identifier of the filter (unique within a query)
     private final RuntimeFilterId id;
@@ -170,7 +140,7 @@ public final class RuntimeFilter {
     private RuntimeFilter(RuntimeFilterId filterId, PlanNode filterSrcNode, Expr srcExpr, int exprOrder,
                           List<Expr> origTargetExprs, List<Map<TupleId, List<SlotId>>> targetSlots,
                           TRuntimeFilterType type,
-                          FilterSizeLimits filterSizeLimits, long buildSizeNdv,
+                          RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits, long buildSizeNdv,
                           TMinMaxRuntimeFilterType tMinMaxRuntimeFilterType) {
         this.id = filterId;
         this.builderNode = filterSrcNode;
@@ -206,7 +176,7 @@ public final class RuntimeFilter {
 
     private RuntimeFilter(RuntimeFilterId filterId, PlanNode filterSrcNode, Expr srcExpr, int exprOrder,
             List<Expr> origTargetExprs, List<Map<TupleId, List<SlotId>>> targetSlots, TRuntimeFilterType type,
-            FilterSizeLimits filterSizeLimits, long buildSizeNdv) {
+            RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits, long buildSizeNdv) {
         this(filterId, filterSrcNode, srcExpr, exprOrder, origTargetExprs,
                 targetSlots, type, filterSizeLimits, buildSizeNdv, TMinMaxRuntimeFilterType.MIN_MAX);
     }
@@ -214,9 +184,9 @@ public final class RuntimeFilter {
     // only for nereids planner
     public static RuntimeFilter fromNereidsRuntimeFilter(
             org.apache.doris.nereids.trees.plans.physical.RuntimeFilter nereidsFilter,
-            PlanNode node, Expr srcExpr, List<Expr> origTargetExprs,
+            JoinNodeBase node, Expr srcExpr, List<Expr> origTargetExprs,
             List<Map<TupleId, List<SlotId>>> targetSlots,
-            FilterSizeLimits filterSizeLimits) {
+            RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits) {
         return new RuntimeFilter(nereidsFilter.getId(), node, srcExpr, nereidsFilter.getExprOrder(), origTargetExprs,
                 targetSlots, nereidsFilter.getType(), filterSizeLimits, nereidsFilter.getBuildSideNdv(),
                 nereidsFilter.gettMinMaxType());
@@ -421,7 +391,7 @@ public final class RuntimeFilter {
      * Considering that the `IN` filter may be converted to the `Bloom FIlter` when crossing fragments,
      * the bloom filter size is always calculated.
      */
-    public void calculateFilterSize(FilterSizeLimits filterSizeLimits) {
+    public void calculateFilterSize(RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits) {
         if (ndvEstimate == -1) {
             filterSizeBytes = filterSizeLimits.defaultVal;
             return;

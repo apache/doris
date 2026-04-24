@@ -76,6 +76,7 @@ import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.fs.FileSystemDirectoryLister;
 import org.apache.doris.fs.TransactionScopeCachingDirectoryListerFactory;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterV2;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecAllSingleton;
 import org.apache.doris.nereids.properties.DistributionSpecAny;
@@ -1007,6 +1008,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
 
+        // translate rf v2 target
+        List<RuntimeFilterV2> rfV2s = context.getRuntimeFilterV2Context()
+                .getRuntimeFilterV2ByTargetPlan(physicalRelation);
+        for (RuntimeFilterV2 rfV2 : rfV2s) {
+            Expr targetExpr = rfV2.getTargetExpression().accept(ExpressionTranslator.INSTANCE, context);
+            rfV2.setLegacyTargetNode(scanNode);
+            rfV2.setLegacyTargetExpr(targetExpr);
+        }
         context.getTopnFilterContext().translateTarget(physicalRelation, scanNode, context);
     }
 
@@ -1774,9 +1783,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .collect(Collectors.toMap(Slot::getExprId, s -> s, (existing, replacement) -> existing));
 
         // translate runtime filter
-        context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator ->
-                runtimeFilterTranslator.createLegacyRuntimeFilters(
-                        physicalHashJoin.getRuntimeFilters(), hashJoinNode, context));
+        context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> physicalHashJoin.getRuntimeFilters()
+                .forEach(filter -> runtimeFilterTranslator.createLegacyRuntimeFilter(filter, hashJoinNode, context)));
 
         // make intermediate tuple
         List<SlotDescriptor> leftIntermediateSlotDescriptor = Lists.newArrayList();
@@ -1954,7 +1962,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // translate runtime filter
         context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> {
             List<RuntimeFilter> filters = nestedLoopJoin.getRuntimeFilters();
-            runtimeFilterTranslator.createLegacyRuntimeFilters(filters, nestedLoopJoinNode, context);
+            filters.forEach(filter -> runtimeFilterTranslator
+                    .createLegacyRuntimeFilter(filter, nestedLoopJoinNode, context));
             if (filters.stream().anyMatch(filter -> filter.getType() == TRuntimeFilterType.BITMAP)) {
                 nestedLoopJoinNode.setOutputLeftSideOnly(true);
             }
@@ -2489,18 +2498,22 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalIntersect(PhysicalIntersect intersect, PlanTranslatorContext context) {
         PlanFragment fragment = visitPhysicalSetOperation(intersect, context);
-        context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator ->
-                runtimeFilterTranslator.createLegacyRuntimeFilters(
-                        intersect.getRuntimeFilters(), fragment.getPlanRoot(), context));
+        RunTimeFilterTranslatorV2.INSTANCE.createLegacyRuntimeFilters(
+                fragment.getPlanRoot(),
+                intersect.getRuntimeFiltersV2(),
+                context);
+
         return fragment;
     }
 
     @Override
     public PlanFragment visitPhysicalExcept(PhysicalExcept except, PlanTranslatorContext context) {
         PlanFragment fragment = visitPhysicalSetOperation(except, context);
-        context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator ->
-                runtimeFilterTranslator.createLegacyRuntimeFilters(
-                        except.getRuntimeFilters(), fragment.getPlanRoot(), context));
+        RunTimeFilterTranslatorV2.INSTANCE.createLegacyRuntimeFilters(
+                fragment.getPlanRoot(),
+                except.getRuntimeFiltersV2(),
+                context);
+
         return fragment;
     }
 

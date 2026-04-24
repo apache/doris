@@ -38,7 +38,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * Physical Except.
@@ -80,16 +79,11 @@ public class PhysicalExcept extends PhysicalSetOperation implements Except {
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder();
-        if (!runtimeFilters.isEmpty()) {
-            sb.append(runtimeFilters.stream().map(rf -> rf.toString() + " ").collect(Collectors.joining(" ")));
-        }
         return Utils.toSqlString("PhysicalExcept",
                 "qualifier", qualifier,
                 "outputs", outputs,
                 "regularChildrenOutputs", regularChildrenOutputs,
-                "stats", statistics,
-                "RFs", sb.toString());
+                "stats", statistics);
     }
 
     @Override
