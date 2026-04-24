@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <cctz/time_zone.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
@@ -26,7 +25,6 @@
 
 #include <memory>
 #include <string>
-#include <tuple>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -42,14 +40,11 @@
 #include "exprs/vexpr_context.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
-#include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
-#include "orc/sargs/SearchArgument.hh"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "storage/segment/column_reader.h"
-#include "util/timezone_utils.h"
 
 namespace doris {
 class VExprContext;
@@ -120,8 +115,6 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
                                 "parquet_scanner/type-decoder.parquet",
                                 &reader));
 
-    cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
     std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
@@ -136,8 +129,9 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
         scan_range.start_offset = 0;
         scan_range.size = 100000;
     }
-    auto p_reader =
-            new ParquetReader(nullptr, scan_params, scan_range, 992, &ctz, nullptr, nullptr);
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
+    runtime_state.set_desc_tbl(desc_tbl);
+    auto p_reader = new ParquetReader(nullptr, scan_params, scan_range, nullptr, &runtime_state);
 
     auto iter = std::make_shared<RowIdColumnIteratorV2>(IdManager::ID_VERSION,
                                                         BackendOptions::get_backend_id(), 10);
@@ -147,9 +141,6 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
             });
     p_reader->set_file_reader(reader);
     static_cast<void>(p_reader->read_by_rows(read_lines));
-
-    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
-    runtime_state.set_desc_tbl(desc_tbl);
 
     std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
     ParquetInitContext pq_ctx;

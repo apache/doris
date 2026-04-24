@@ -92,7 +92,6 @@ TEST(IcebergDeleteFileReaderHelperTest, ReadMixedEncodingParquetPositionDeleteFi
     options.scan_params = &scan_params;
     options.io_ctx = &io_context.io_ctx;
     options.meta_cache = &meta_cache;
-    options.batch_size = 1024;
 
     CollectPositionDeleteVisitor visitor;
     auto st = read_iceberg_position_delete_file(delete_file, options, &visitor);

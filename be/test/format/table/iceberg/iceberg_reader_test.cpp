@@ -17,7 +17,6 @@
 
 #include "format/table/iceberg_reader.h"
 
-#include <cctz/time_zone.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
@@ -37,12 +36,9 @@
 #include "core/column/column_array.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_struct.h"
-#include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
-#include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "format/column_descriptor.h"
@@ -51,12 +47,9 @@
 #include "format/parquet/vparquet_reader.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/file_reader_writer_fwd.h"
-#include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
-#include "storage/olap_scan_common.h"
-#include "util/timezone_utils.h"
 
 namespace doris {
 
@@ -67,13 +60,7 @@ public:
 
 class IcebergReaderTest : public ::testing::Test {
 protected:
-    void SetUp() override {
-        cache = std::make_unique<doris::FileMetaCache>(1024);
-
-        // Setup timezone
-        doris::TimezoneUtils::find_cctz_time_zone(doris::TimezoneUtils::default_time_zone,
-                                                  timezone_obj);
-    }
+    void SetUp() override { cache = std::make_unique<doris::FileMetaCache>(1024); }
 
     void TearDown() override { cache.reset(); }
 
@@ -100,8 +87,8 @@ protected:
         scan_range->path = mixed_position_delete_file();
 
         auto parquet_reader =
-                ParquetReader::create_unique(profile, *scan_params, *scan_range, 1024,
-                                             &timezone_obj, nullptr, runtime_state, cache.get());
+                ParquetReader::create_unique(profile, *scan_params, *scan_range,
+                                             nullptr /* io_ctx */, runtime_state, cache.get());
         EXPECT_NE(parquet_reader, nullptr);
         if (parquet_reader == nullptr) {
             return nullptr;
@@ -519,7 +506,6 @@ protected:
     }
 
     std::unique_ptr<doris::FileMetaCache> cache;
-    cctz::time_zone timezone_obj;
     std::vector<std::string> delete_file_column_names = {"file_path", "pos"};
     std::unordered_map<std::string, uint32_t> delete_file_col_name_to_block_idx = {{"file_path", 0},
                                                                                    {"pos", 1}};
@@ -703,12 +689,9 @@ TEST_F(IcebergReaderTest, read_iceberg_parquet_file) {
     RuntimeProfile profile("test_profile");
 
     // Create IcebergParquetReader (IS-A ParquetReader via CRTP mixin)
-    cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
-
     auto iceberg_reader = std::make_unique<IcebergParquetReader>(
-            nullptr /* kv_cache */, &profile, scan_params, scan_range, 1024, &ctz,
-            nullptr /* io_ctx */, &runtime_state, cache.get());
+            nullptr /* kv_cache */, &profile, scan_params, scan_range, nullptr /* io_ctx */,
+            &runtime_state, cache.get());
     ASSERT_NE(iceberg_reader, nullptr);
 
     // Set file reader for the iceberg reader (it IS the ParquetReader)
@@ -824,8 +807,10 @@ TEST_F(IcebergReaderTest, read_iceberg_orc_file) {
         return;
     }
 
-    // Setup runtime state
-    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
+    // Setup runtime state (use UTC to avoid ORC timezone lookup failures)
+    TQueryGlobals query_globals;
+    query_globals.__set_time_zone("UTC");
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), query_globals);
 
     // Setup scan parameters
     TFileScanRangeParams scan_params;
@@ -841,7 +826,7 @@ TEST_F(IcebergReaderTest, read_iceberg_orc_file) {
 
     // Create IcebergOrcReader (IS-A OrcReader via CRTP mixin)
     auto iceberg_reader = std::make_unique<IcebergOrcReader>(
-            nullptr /* kv_cache */, &profile, &runtime_state, scan_params, scan_range, 1024, "CST",
+            nullptr /* kv_cache */, &profile, &runtime_state, scan_params, scan_range,
             nullptr /* io_ctx */, cache.get());
     ASSERT_NE(iceberg_reader, nullptr);
 

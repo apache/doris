@@ -38,13 +38,10 @@
 #include <sys/types.h>
 
 #include <algorithm>
-#include <cmath>
 #include <cstdint>
 #include <memory>
-#include <new>
 #include <ostream>
 #include <string>
-#include <tuple>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -53,7 +50,6 @@
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/data_type/define_primitive_type.h"
-#include "core/value/decimalv2_value.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
@@ -66,13 +62,11 @@
 #include "format/parquet/vparquet_file_metadata.h"
 #include "format/parquet/vparquet_page_index.h"
 #include "format/parquet/vparquet_reader.h"
-#include "gtest/gtest_pred_impl.h"
 #include "information_schema/schema_scanner.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/descriptors.h"
 #include "storage/predicate/comparison_predicate.h"
 #include "storage/predicate/in_list_predicate.h"
-#include "storage/predicate/null_predicate.h"
 #include "testutil/mock/mock_fn_call.h"
 #include "testutil/mock/mock_literal_expr.h"
 #include "testutil/mock/mock_slot_ref.h"
@@ -275,8 +269,8 @@ public:
             scan_range.size = local_file_reader->size();
         }
 
-        p_reader = ParquetReader::create_unique(nullptr, scan_params, scan_range, scan_range.size,
-                                                &ctz, nullptr, nullptr);
+        p_reader = ParquetReader::create_unique(nullptr, scan_params, scan_range, nullptr, &state,
+                                                nullptr);
         p_reader->set_file_reader(local_file_reader);
         colname_to_slot_id.emplace("int64_col", 2);
         ParquetInitContext pq_ctx;
@@ -327,8 +321,9 @@ public:
         scan_range.start_offset = 0;
         scan_range.size = local_file_reader->size();
 
-        auto local_reader = ParquetReader::create_unique(
-                nullptr, scan_params, scan_range, scan_range.size, &local_ctz, nullptr, nullptr);
+        RuntimeState local_state;
+        auto local_reader = ParquetReader::create_unique(nullptr, scan_params, scan_range, nullptr,
+                                                         &local_state, nullptr);
         local_reader->set_file_reader(local_file_reader);
         ParquetInitContext pq_ctx2;
         pq_ctx2.column_names = column_names;
@@ -428,6 +423,7 @@ public:
     std::unique_ptr<FileMetaData> doris_file_metadata;
     tparquet::FileMetaData doris_metadata;
     cctz::time_zone ctz = cctz::utc_time_zone();
+    RuntimeState state;
     std::unordered_map<std::string, int> colname_to_slot_id;
 };
 

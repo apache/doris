@@ -17,7 +17,6 @@
 
 #include "format/table/hive_reader.h"
 
-#include <cctz/time_zone.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
@@ -39,33 +38,22 @@
 #include "core/column/column_struct.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
-#include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/file_reader_writer_fwd.h"
-#include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
-#include "storage/olap_scan_common.h"
-#include "util/timezone_utils.h"
 
 namespace doris::table {
 
 class HiveReaderTest : public ::testing::Test {
 protected:
-    void SetUp() override {
-        cache = std::make_unique<doris::FileMetaCache>(1024);
-
-        // Setup timezone
-        doris::TimezoneUtils::find_cctz_time_zone(doris::TimezoneUtils::default_time_zone,
-                                                  timezone_obj);
-    }
+    void SetUp() override { cache = std::make_unique<doris::FileMetaCache>(1024); }
 
     void TearDown() override { cache.reset(); }
 
@@ -459,7 +447,6 @@ protected:
     }
 
     std::unique_ptr<doris::FileMetaCache> cache;
-    cctz::time_zone timezone_obj;
 };
 
 // Test reading real Hive Parquet file using HiveTableReader
@@ -527,11 +514,9 @@ TEST_F(HiveReaderTest, read_hive_parquet_file) {
     RuntimeProfile profile("test_profile");
 
     // Create HiveParquetReader (directly inherits ParquetReader)
-    cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
-    auto hive_reader =
-            std::make_unique<HiveParquetReader>(&profile, scan_params, scan_range, 1024, &ctz,
-                                                nullptr, &runtime_state, nullptr, cache.get());
+    auto hive_reader = std::make_unique<HiveParquetReader>(&profile, scan_params, scan_range,
+                                                           nullptr /* io_ctx */, &runtime_state,
+                                                           nullptr /* is_file_slot */, cache.get());
 
     // Set file reader for the hive reader (inherited from ParquetReader)
     hive_reader->set_file_reader(file_reader);
@@ -643,8 +628,10 @@ TEST_F(HiveReaderTest, read_hive_rrc_file) {
         return;
     }
 
-    // Setup runtime state
-    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
+    // Setup runtime state (use UTC to avoid ORC timezone lookup failures)
+    TQueryGlobals query_globals;
+    query_globals.__set_time_zone("UTC");
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), query_globals);
 
     // Setup scan parameters
     TFileScanRangeParams scan_params;
@@ -659,9 +646,9 @@ TEST_F(HiveReaderTest, read_hive_rrc_file) {
     RuntimeProfile profile("test_profile");
 
     // Create HiveOrcReader (directly inherits OrcReader)
-    auto hive_reader =
-            std::make_unique<HiveOrcReader>(&profile, &runtime_state, scan_params, scan_range, 1024,
-                                            "CST", nullptr, nullptr, cache.get());
+    auto hive_reader = std::make_unique<HiveOrcReader>(&profile, &runtime_state, scan_params,
+                                                       scan_range, nullptr /* io_ctx */,
+                                                       nullptr /* is_file_slot */, cache.get());
 
     // Create complex struct types using helper function
     DataTypePtr coordinates_struct_type, address_struct_type, phone_struct_type;

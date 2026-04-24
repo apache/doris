@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <cctz/time_zone.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
@@ -26,7 +25,6 @@
 
 #include <memory>
 #include <string>
-#include <tuple>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -36,19 +34,14 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
-#include "core/data_type/data_type_factory.hpp"
 #include "core/string_view.h"
 #include "format/column_descriptor.h"
 #include "format/parquet/vparquet_reader.h"
-#include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/file_reader_writer_fwd.h"
-#include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
-#include "storage/olap_scan_common.h"
-#include "util/timezone_utils.h"
 
 namespace doris {
 class VExprContext;
@@ -94,8 +87,6 @@ public:
                 "./be/test/exec/test_data/parquet_scanner/test_string_null.zst.parquet", &reader);
         EXPECT_TRUE(st.ok()) << st;
 
-        cctz::time_zone ctz;
-        TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
         auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
         std::vector<std::string> column_names;
         std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
@@ -112,9 +103,8 @@ public:
         auto q_options = TQueryOptions();
         q_options.__set_enable_adjust_conjunct_order_by_cost(true);
         RuntimeState runtime_state = RuntimeState(q_options, TQueryGlobals());
-        auto p_reader =
-                std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, 992, &ctz,
-                                                nullptr, &runtime_state, &cache, enable_lazy);
+        auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, nullptr,
+                                                        &runtime_state, &cache, enable_lazy);
         p_reader->set_file_reader(reader);
         runtime_state.set_desc_tbl(desc_tbl);
         auto conjuncts = create_predicates(desc_tbl, &runtime_state);
@@ -196,8 +186,6 @@ public:
                 "./be/test/exec/test_data/parquet_scanner/test_string_null.zst.parquet", &reader);
         EXPECT_TRUE(st.ok()) << st;
 
-        cctz::time_zone ctz;
-        TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
         auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
         std::vector<std::string> column_names;
         std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
@@ -215,9 +203,8 @@ public:
         auto q_options = TQueryOptions();
         q_options.__set_enable_adjust_conjunct_order_by_cost(true);
         RuntimeState runtime_state = RuntimeState(q_options, TQueryGlobals());
-        auto p_reader =
-                std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, 992, &ctz,
-                                                nullptr, &runtime_state, &cache, enable_lazy);
+        auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, nullptr,
+                                                        &runtime_state, &cache, enable_lazy);
         p_reader->set_file_reader(reader);
         runtime_state.set_desc_tbl(desc_tbl);
 
@@ -347,8 +334,6 @@ TEST_F(ParquetReaderTest, normal) {
     static_cast<void>(local_fs->open_file(
             "./be/test/exec/test_data/parquet_scanner/type-decoder.parquet", &reader));
 
-    cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
     std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
@@ -362,11 +347,11 @@ TEST_F(ParquetReaderTest, normal) {
         scan_range.start_offset = 0;
         scan_range.size = 1000;
     }
-    auto p_reader = new ParquetReader(nullptr, scan_params, scan_range, 992, &ctz, nullptr, nullptr,
-                                      &cache);
-    p_reader->set_file_reader(reader);
     RuntimeState runtime_state((TQueryOptions()), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
+    auto p_reader =
+            new ParquetReader(nullptr, scan_params, scan_range, nullptr, &runtime_state, &cache);
+    p_reader->set_file_reader(reader);
 
     ParquetInitContext pq_ctx;
     pq_ctx.column_names = column_names;
@@ -412,8 +397,6 @@ TEST_F(ParquetReaderTest, uuid_varbinary) {
     st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/test_uuid.parquet", &reader);
     EXPECT_TRUE(st.ok()) << st;
 
-    cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
     std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
@@ -428,11 +411,11 @@ TEST_F(ParquetReaderTest, uuid_varbinary) {
         scan_range.start_offset = 0;
         scan_range.size = 1000;
     }
-    auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, 992, &ctz,
-                                                    nullptr, nullptr, &cache);
-    p_reader->set_file_reader(reader);
     RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
+    auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, nullptr,
+                                                    &runtime_state, &cache);
+    p_reader->set_file_reader(reader);
 
     ParquetInitContext pq_ctx;
     pq_ctx.column_names = column_names;
@@ -486,8 +469,6 @@ TEST_F(ParquetReaderTest, varbinary_varbinary) {
     st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/test_uuid.parquet", &reader);
     EXPECT_TRUE(st.ok()) << st;
 
-    cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
     std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
@@ -502,11 +483,11 @@ TEST_F(ParquetReaderTest, varbinary_varbinary) {
         scan_range.start_offset = 0;
         scan_range.size = 1000;
     }
-    auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, 992, &ctz,
-                                                    nullptr, nullptr, &cache);
-    p_reader->set_file_reader(reader);
     RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
+    auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, nullptr,
+                                                    &runtime_state, &cache);
+    p_reader->set_file_reader(reader);
 
     ParquetInitContext pq_ctx;
     pq_ctx.column_names = column_names;
@@ -560,8 +541,6 @@ TEST_F(ParquetReaderTest, varbinary_string) {
     st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/test_uuid.parquet", &reader);
     EXPECT_TRUE(st.ok()) << st;
 
-    cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
     std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
@@ -578,11 +557,11 @@ TEST_F(ParquetReaderTest, varbinary_string) {
         scan_range.start_offset = 0;
         scan_range.size = 1000;
     }
-    auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, 992, &ctz,
-                                                    nullptr, nullptr, &cache);
-    p_reader->set_file_reader(reader);
     RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
+    auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, nullptr,
+                                                    &runtime_state, &cache);
+    p_reader->set_file_reader(reader);
 
     ParquetInitContext pq_ctx;
     pq_ctx.column_names = column_names;
@@ -636,8 +615,6 @@ TEST_F(ParquetReaderTest, varbinary_string2) {
     st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/test_uuid.parquet", &reader);
     EXPECT_TRUE(st.ok()) << st;
 
-    cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
     std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
@@ -654,11 +631,11 @@ TEST_F(ParquetReaderTest, varbinary_string2) {
         scan_range.start_offset = 0;
         scan_range.size = 1000;
     }
-    auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, 992, &ctz,
-                                                    nullptr, nullptr, &cache);
-    p_reader->set_file_reader(reader);
     RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
+    auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, nullptr,
+                                                    &runtime_state, &cache);
+    p_reader->set_file_reader(reader);
 
     ParquetInitContext pq_ctx;
     pq_ctx.column_names = column_names;
@@ -968,8 +945,6 @@ TEST_F(ParquetReaderTest, only_partition_column) {
             "./be/test/exec/test_data/parquet_scanner/test_string_null.zst.parquet", &reader);
     EXPECT_TRUE(st.ok()) << st;
 
-    cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
     std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
@@ -987,8 +962,8 @@ TEST_F(ParquetReaderTest, only_partition_column) {
     auto q_options = TQueryOptions();
     q_options.__set_enable_adjust_conjunct_order_by_cost(true);
     RuntimeState runtime_state = RuntimeState(q_options, TQueryGlobals());
-    auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, 992, &ctz,
-                                                    nullptr, &runtime_state, &cache);
+    auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, nullptr,
+                                                    &runtime_state, &cache);
     p_reader->set_file_reader(reader);
     runtime_state.set_desc_tbl(desc_tbl);
 

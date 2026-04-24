@@ -28,7 +28,6 @@
 #include <string>
 #include <tuple>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 
 #include "common/object_pool.h"
@@ -120,8 +119,9 @@ static void read_orc_line(int64_t line, std::string block_dump,
     io::IOContext io_ctx;
     io::FileReaderStats file_reader_stats;
     io_ctx.file_reader_stats = &file_reader_stats;
-    auto reader = OrcReader::create_unique(nullptr, runtime_state.get(), params, range, 100,
-                                           time_zone, &io_ctx, nullptr, true);
+    runtime_state->set_timezone(time_zone);
+    auto reader = OrcReader::create_unique(nullptr, runtime_state.get(), params, range, &io_ctx,
+                                           nullptr, true);
     auto local_fs = io::global_local_filesystem();
     io::FileReaderSPtr file_reader;
     static_cast<void>(reader->read_by_rows({line}));

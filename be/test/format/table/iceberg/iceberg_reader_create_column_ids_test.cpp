@@ -15,14 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <cctz/time_zone.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gtest/gtest.h>
 
-#include <iostream>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -30,28 +28,13 @@
 
 #include "common/object_pool.h"
 #include "core/block/block.h"
-#include "core/block/column_with_type_and_name.h"
-#include "core/column/column.h"
-#include "core/column/column_array.h"
-#include "core/column/column_nullable.h"
-#include "core/column/column_struct.h"
-#include "core/data_type/data_type.h"
-#include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_factory.hpp"
-#include "core/data_type/data_type_nullable.h"
-#include "core/data_type/data_type_number.h"
-#include "core/data_type/data_type_string.h"
-#include "core/data_type/data_type_struct.h"
 #include "format/parquet/vparquet_reader.h"
 #include "format/table/iceberg_reader.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/file_reader_writer_fwd.h"
-#include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
-#include "storage/olap_scan_common.h"
-#include "util/timezone_utils.h"
 
 namespace doris {
 
@@ -158,13 +141,7 @@ struct ColumnAccessPathConfig {
 
 class IcebergReaderCreateColumnIdsTest : public ::testing::Test {
 protected:
-    void SetUp() override {
-        cache = std::make_unique<doris::FileMetaCache>(1024);
-
-        // Setup timezone
-        doris::TimezoneUtils::find_cctz_time_zone(doris::TimezoneUtils::default_time_zone,
-                                                  timezone_obj);
-    }
+    void SetUp() override { cache = std::make_unique<doris::FileMetaCache>(1024); }
 
     void TearDown() override { cache.reset(); }
 
@@ -658,7 +635,6 @@ protected:
     }
 
     std::unique_ptr<doris::FileMetaCache> cache;
-    cctz::time_zone timezone_obj;
 
     // Helper function: create and setup ParquetReader
     std::tuple<std::unique_ptr<IcebergParquetReader>, const FieldDescriptor*> create_parquet_reader(
@@ -687,12 +663,10 @@ protected:
         RuntimeProfile profile("test_profile");
 
         // Create IcebergParquetReader (IS-A ParquetReader via CRTP mixin)
-        cctz::time_zone ctz;
-        TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
 
         auto iceberg_reader = std::make_unique<IcebergParquetReader>(
-                nullptr /* kv_cache */, &profile, scan_params, scan_range, 1024, &ctz,
-                nullptr /* io_ctx */, &runtime_state, cache.get());
+                nullptr /* kv_cache */, &profile, scan_params, scan_range, nullptr /* io_ctx */,
+                &runtime_state, cache.get());
         if (!iceberg_reader) {
             return {nullptr, nullptr};
         }
@@ -737,8 +711,8 @@ protected:
 
         // Create IcebergOrcReader (IS-A OrcReader via CRTP mixin)
         auto iceberg_reader = std::make_unique<IcebergOrcReader>(
-                nullptr /* kv_cache */, &profile, &runtime_state, scan_params, scan_range, 1024,
-                "CST", nullptr /* io_ctx */, cache.get());
+                nullptr /* kv_cache */, &profile, &runtime_state, scan_params, scan_range,
+                nullptr /* io_ctx */, cache.get());
         if (!iceberg_reader) {
             return {nullptr, nullptr};
         }
