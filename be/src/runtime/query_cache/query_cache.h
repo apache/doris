@@ -197,20 +197,17 @@ public:
 
     // Ensure Block memory freed during eviction is tracked under query cache, not Orphan.
     int64_t adjust_capacity_weighted(double adjust_weighted) override {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
-                ExecEnv::GetInstance()->query_cache_mem_tracker());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->query_cache_mem_tracker());
         return LRUCachePolicy::adjust_capacity_weighted(adjust_weighted);
     }
 
     int64_t reset_initial_capacity(double adjust_weighted) override {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
-                ExecEnv::GetInstance()->query_cache_mem_tracker());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->query_cache_mem_tracker());
         return LRUCachePolicy::reset_initial_capacity(adjust_weighted);
     }
 
     void prune_stale() override {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
-                ExecEnv::GetInstance()->query_cache_mem_tracker());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->query_cache_mem_tracker());
         LRUCachePolicy::prune_stale();
     }
 
