@@ -1247,9 +1247,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                                 transactionId,
                                 retryTime, mowTableList.stream().map(Table::getId).collect(Collectors.toList()), e);
                     }
-                    retryMsg = response.toString();
+                    if (response != null) {
+                        retryMsg = response.toString();
+                    }
                     if (DebugPointUtil.isEnable("FE.mow.check.lock.release")
-                            && response.getStatus().getCode() == MetaServiceCode.LOCK_CONFLICT) {
+                            && response != null && response.getStatus().getCode() == MetaServiceCode.LOCK_CONFLICT) {
                         throw new UserException(InternalErrorCode.INTERNAL_ERR,
                                 "check delete bitmap lock release fail,response is " + response
                                         + ", tableList=(" + StringUtils.join(mowTableList, ",") + ")");
