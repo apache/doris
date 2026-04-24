@@ -45,7 +45,9 @@ Status CloudTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& reques
     // FIXME(plat1ko): Too many duplicate code with `TabletsChannel`
     SCOPED_TIMER(_add_batch_timer);
     int64_t cur_seq = 0;
-    _add_batch_number_counter->update(1);
+    if (_add_batch_number_counter != nullptr) {
+        _add_batch_number_counter->update(1);
+    }
 
     auto status = _get_current_seq(cur_seq, request);
     if (UNLIKELY(!status.ok())) {

@@ -5597,6 +5597,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableStrictCast(enableStrictCast());
         tResult.setEnableInsertStrict(enableInsertStrict);
         tResult.setNewVersionUnixTimestamp(true); // once FE upgraded, always use new version
+        tResult.setNewVersionPercentile(true);
 
         tResult.setHnswEfSearch(hnswEFSearch);
         tResult.setHnswCheckRelativeDistance(hnswCheckRelativeDistance);

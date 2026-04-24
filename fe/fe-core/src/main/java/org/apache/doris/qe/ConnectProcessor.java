@@ -384,7 +384,7 @@ public abstract class ConnectProcessor {
                             true);
                     // execute failed, skip remaining stmts
                     if (ctx.getState().getStateType() == MysqlStateType.ERR || (!Env.getCurrentEnv().isMaster()
-                            && ctx.executor != null && ctx.executor.isForwardToMaster()
+                            && ctx.executor != null && ctx.executor.hasForwardedToMaster()
                             && ctx.executor.getProxyStatusCode() != 0)) {
                         break;
                     }
@@ -632,7 +632,7 @@ public abstract class ConnectProcessor {
         LOG.debug("Finalize command for query {}", DebugUtil.printId(ctx.queryId));
         Preconditions.checkState(connectType.equals(ConnectType.MYSQL));
         ByteBuffer packet;
-        if (executor != null && executor.isForwardToMaster()
+        if (executor != null && executor.hasForwardedToMaster()
                 && ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             ShowResultSet resultSet = executor.getShowResultSet();
             if (resultSet == null) {
@@ -862,4 +862,3 @@ public abstract class ConnectProcessor {
         throw new NotSupportedException("Just MysqlConnectProcessor support execute");
     }
 }
-

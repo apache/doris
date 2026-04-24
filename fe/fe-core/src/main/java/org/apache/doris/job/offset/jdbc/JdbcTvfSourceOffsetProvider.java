@@ -96,8 +96,16 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
      */
     @Override
     public void ensureInitialized(Long jobId, Map<String, String> originTvfProps) throws JobException {
+        String type = originTvfProps.get(DataSourceConfigKeys.TYPE);
+        Preconditions.checkArgument(type != null, "type is required");
+        DataSourceType resolvedType = DataSourceType.valueOf(type.toUpperCase());
+
+        // Populate default slot/pub into sourceProperties so cleanMeta -> /api/close
+        // carries the resolved names for cdcclient ownership-based cleanup.
+        Map<String, String> effective = new HashMap<>(originTvfProps);
+        StreamingJobUtils.populateDefaultSourceProperties(resolvedType, effective, String.valueOf(jobId));
         // Always refresh fields that may be updated via ALTER JOB (e.g. credentials, parallelism).
-        this.sourceProperties = originTvfProps;
+        this.sourceProperties = effective;
         this.snapshotParallelism = Integer.parseInt(
                 originTvfProps.getOrDefault(DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
                         DataSourceConfigKeys.SNAPSHOT_PARALLELISM_DEFAULT));
@@ -109,9 +117,7 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
         // is reconstructed fresh (getPersistInfo returns null), so jobId is null then too.
         this.jobId = jobId;
         this.chunkHighWatermarkMap = new HashMap<>();
-        String type = originTvfProps.get(DataSourceConfigKeys.TYPE);
-        Preconditions.checkArgument(type != null, "type is required");
-        this.sourceType = DataSourceType.valueOf(type.toUpperCase());
+        this.sourceType = resolvedType;
         String table = originTvfProps.get(DataSourceConfigKeys.TABLE);
         Preconditions.checkArgument(table != null, "table is required for cdc_stream TVF");
     }

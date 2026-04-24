@@ -17,6 +17,8 @@
 
 #include "runtime/workload_management/query_task_controller.h"
 
+#include <algorithm>
+
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "runtime/query_context.h"
 #include "runtime/workload_management/task_controller.h"
@@ -149,7 +151,19 @@ Status QueryTaskController::revoke_memory() {
         fragments.emplace_back(std::move(fragment_ctx));
     }
 
-    std::sort(tasks.begin(), tasks.end(), [](auto&& l, auto&& r) { return l.first > r.first; });
+    if (tasks.empty()) {
+        LOG(INFO) << fmt::format(
+                "Query {} try to revoke memory, but there is no revocable task, maybe because the "
+                "query was spilled already. Query memory usage: {}, wg info: {}. {}",
+                print_id(query_ctx->query_id()),
+                PrettyPrinter::print_bytes(query_ctx->query_mem_tracker()->consumption()),
+                query_ctx->workload_group()->memory_debug_string(),
+                doris::ProcessProfile::instance()->memory_profile()->process_memory_detail_str());
+        query_ctx->set_memory_sufficient(true);
+        return Status::OK();
+    }
+
+    std::ranges::sort(tasks, [](auto&& l, auto&& r) { return l.first > r.first; });
 
     // Do not use memlimit, use current memory usage.
     // For example, if current limit is 1.6G, but current used is 1G, if reserve failed

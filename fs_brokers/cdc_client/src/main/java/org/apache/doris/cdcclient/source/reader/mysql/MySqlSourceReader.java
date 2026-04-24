@@ -272,7 +272,19 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
             activePollFutures = null;
         }
 
-        // Clear previous contexts
+        // Close previous readers before clearing to avoid JDBC connection leak
+        if (!this.snapshotReaderContexts.isEmpty()) {
+            LOG.info(
+                    "Closing {} previous snapshot readers before preparing new splits",
+                    snapshotReaderContexts.size());
+            for (SnapshotReaderContext<
+                            MySqlSnapshotSplit, SnapshotSplitReader, MySqlSnapshotSplitState>
+                    context : snapshotReaderContexts) {
+                if (context.getReader() != null) {
+                    context.getReader().close();
+                }
+            }
+        }
         this.snapshotReaderContexts.clear();
         this.completedSplitIds.clear();
 
