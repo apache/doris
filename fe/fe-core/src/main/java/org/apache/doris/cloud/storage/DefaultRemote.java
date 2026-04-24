@@ -17,10 +17,13 @@
 
 package org.apache.doris.cloud.storage;
 
+import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.datasource.property.common.AwsCredentialsProviderFactory;
+import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
@@ -28,7 +31,7 @@ import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.AwsCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.exception.SdkException;
@@ -58,6 +61,8 @@ import software.amazon.awssdk.services.s3.model.S3Error;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
+import software.amazon.awssdk.services.sts.StsClient;
+import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -151,22 +156,71 @@ public class DefaultRemote extends RemoteBase {
              * https://github.com/aws/aws-sdk-java-v2/blob/master/docs/LaunchChangelog.md#133-client-override-configuration
              * There are several timeout configuration, please config if needed.
              */
-            AwsCredentials credentials;
-            if (obj.getToken() != null) {
-                credentials = AwsSessionCredentials.create(obj.getAk(), obj.getSk(), obj.getToken());
-            } else {
-                credentials = AwsBasicCredentials.create(obj.getAk(), obj.getSk());
-            }
-            StaticCredentialsProvider scp = StaticCredentialsProvider.create(credentials);
             String endpointStr = obj.getEndpoint();
             if (!endpointStr.contains("://")) {
                 endpointStr = "http://" + endpointStr;
             }
             URI endpointUri = URI.create(endpointStr);
-            s3Client = S3Client.builder().endpointOverride(endpointUri).credentialsProvider(scp)
+            s3Client = S3Client.builder().endpointOverride(endpointUri).credentialsProvider(getS3CredentialsProvider())
                     .region(Region.of(obj.getRegion()))
                     .serviceConfiguration(S3Configuration.builder().chunkedEncodingEnabled(false).build())
                     .build();
+        }
+    }
+
+    protected AwsCredentialsProvider getS3CredentialsProvider() {
+        AwsCredentialsProvider staticCredentialsProvider = getStaticCredentialsProvider();
+        if (staticCredentialsProvider != null) {
+            return staticCredentialsProvider;
+        }
+        return StsAssumeRoleCredentialsProvider.builder()
+                .stsClient(createStsClient(getAssumeRoleBaseCredentialsProvider()))
+                .refreshRequest(builder -> {
+                    builder.roleArn(obj.getArn()).roleSessionName(getNewRoleSessionName());
+                    if (StringUtils.isNotBlank(obj.getExternalId())) {
+                        builder.externalId(obj.getExternalId());
+                    }
+                }).build();
+    }
+
+    protected StsClient createStsClient(AwsCredentialsProvider credentialsProvider) {
+        return StsClient.builder().region(Region.of(obj.getRegion())).credentialsProvider(credentialsProvider).build();
+    }
+
+    protected AwsCredentialsProvider getAssumeRoleBaseCredentialsProvider() {
+        AwsCredentialsProvider staticCredentialsProvider = getStaticCredentialsProvider();
+        if (staticCredentialsProvider != null) {
+            return staticCredentialsProvider;
+        }
+        if (StringUtils.isBlank(obj.getArn())) {
+            throw new IllegalArgumentException("Object storage credentials are missing");
+        }
+        return getRoleBaseCredentialsProvider();
+    }
+
+    private AwsCredentialsProvider getStaticCredentialsProvider() {
+        if (StringUtils.isBlank(obj.getAk()) || StringUtils.isBlank(obj.getSk())) {
+            return null;
+        }
+        if (StringUtils.isNotBlank(obj.getToken())) {
+            return StaticCredentialsProvider.create(
+                    AwsSessionCredentials.create(obj.getAk(), obj.getSk(), obj.getToken()));
+        }
+        return StaticCredentialsProvider.create(AwsBasicCredentials.create(obj.getAk(), obj.getSk()));
+    }
+
+    private AwsCredentialsProvider getRoleBaseCredentialsProvider() {
+        Cloud.CredProviderTypePB credProviderType = obj.getCredProviderType() == null
+                ? Cloud.CredProviderTypePB.INSTANCE_PROFILE : obj.getCredProviderType();
+        switch (credProviderType) {
+            case DEFAULT:
+                return AwsCredentialsProviderFactory.createV2(AwsCredentialsProviderMode.DEFAULT, false);
+            case INSTANCE_PROFILE:
+                return AwsCredentialsProviderFactory.createV2(AwsCredentialsProviderMode.INSTANCE_PROFILE, false);
+            case SIMPLE:
+                throw new IllegalArgumentException("cred_provider_type SIMPLE requires ak/sk credentials");
+            default:
+                throw new IllegalArgumentException("Unsupported cred_provider_type: " + credProviderType);
         }
     }
 
