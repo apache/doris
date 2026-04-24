@@ -419,6 +419,7 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     // link data to new rowset
     auto seg_id = 0;
     bool segments_key_bounds_truncated {false};
+    bool any_input_aggregated {false};
     std::vector<KeyBoundsPB> segment_key_bounds;
     std::vector<uint32_t> num_segment_rows;
     for (auto rowset : _input_rowsets) {
@@ -426,6 +427,7 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
                                               _output_rs_writer->rowset_id(), seg_id));
         seg_id += rowset->num_segments();
         segments_key_bounds_truncated |= rowset->is_segments_key_bounds_truncated();
+        any_input_aggregated |= rowset->rowset_meta()->is_segments_key_bounds_aggregated();
         std::vector<KeyBoundsPB> key_bounds;
         RETURN_IF_ERROR(rowset->get_segments_key_bounds(&key_bounds));
         segment_key_bounds.insert(segment_key_bounds.end(), key_bounds.begin(), key_bounds.end());
@@ -445,7 +447,13 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     rowset_meta->set_segments_overlap(NONOVERLAPPING);
     rowset_meta->set_rowset_state(VISIBLE);
     rowset_meta->set_segments_key_bounds_truncated(segments_key_bounds_truncated);
-    rowset_meta->set_segments_key_bounds(segment_key_bounds);
+    // If any input was already aggregated we have no way to recover per-segment
+    // bounds, so force aggregation on the output to keep the layout consistent
+    // with `num_segments` / the aggregated flag, even if the config is off now.
+    bool aggregate_key_bounds =
+            any_input_aggregated || (config::enable_aggregate_non_mow_key_bounds &&
+                                     !_tablet->enable_unique_key_merge_on_write());
+    rowset_meta->set_segments_key_bounds(segment_key_bounds, aggregate_key_bounds);
     rowset_meta->set_num_segment_rows(num_segment_rows);
 
     _output_rowset = _output_rs_writer->manual_build(rowset_meta);
