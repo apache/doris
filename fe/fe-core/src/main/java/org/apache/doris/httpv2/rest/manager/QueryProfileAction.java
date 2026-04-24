@@ -23,7 +23,7 @@ import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
-import org.apache.doris.common.proc.CurrentQueryStatisticsProcDir;
+import org.apache.doris.common.proc.CurrentQueryStatementsProcNode;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.common.profile.ProfileManager.ProfileElement;
@@ -450,7 +450,7 @@ public class QueryProfileAction extends RestBaseController {
     }
 
     /**
-    * return the result of CurrentQueryStatisticsProcDir.
+     * return the result of CurrentQueryStatementsProcNode.
      *
      * @param request
      * @param response
@@ -480,15 +480,15 @@ public class QueryProfileAction extends RestBaseController {
                     LOG.warn("parse query info error: {}", data, e);
                 }
             }
-            List<String> titles = Lists.newArrayList(CurrentQueryStatisticsProcDir.TITLE_NAMES);
+            List<String> titles = Lists.newArrayList(CurrentQueryStatementsProcNode.TITLE_NAMES);
             titles.add(0, FRONTEND);
             return ResponseEntityBuilder.ok(new NodeAction.NodeInfo(titles, queries));
         } else {
             try {
-                CurrentQueryStatisticsProcDir node = new CurrentQueryStatisticsProcDir();
+                CurrentQueryStatementsProcNode node = new CurrentQueryStatementsProcNode();
                 ProcResult result = node.fetchResult();
                 // add frontend info at first column.
-                List<String> titles = Lists.newArrayList(CurrentQueryStatisticsProcDir.TITLE_NAMES);
+                List<String> titles = Lists.newArrayList(CurrentQueryStatementsProcNode.TITLE_NAMES);
                 titles.add(0, FRONTEND);
                 List<List<String>> rows = result.getRows();
                 String feIp = FrontendOptions.getLocalHostAddress();

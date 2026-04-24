@@ -23,6 +23,7 @@ import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryStatisticsItem;
 import org.apache.doris.thrift.TQueryStatistics;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.commons.codec.digest.DigestUtils;
@@ -56,7 +57,15 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
 
     @Override
     public ProcNodeInterface lookup(String name) throws AnalysisException {
-        throw new AnalysisException("operation doesn't support.");
+        if (Strings.isNullOrEmpty(name)) {
+            return null;
+        }
+        final Map<String, QueryStatisticsItem> statistic = QeProcessorImpl.INSTANCE.getQueryStatistics();
+        final QueryStatisticsItem item = statistic.get(name);
+        if (item == null) {
+            throw new AnalysisException(name + " doesn't exist.");
+        }
+        return new CurrentQuerySqlProcDir(item);
     }
 
     @Override
