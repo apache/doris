@@ -186,6 +186,13 @@ int decrypt_instance_info(InstanceInfoPB& instance, const std::string& instance_
 
 static int decrypt_and_update_ak_sk(ObjectStoreInfoPB& obj_info, MetaServiceCode& code,
                                     std::string& msg) {
+    // Skip decryption if credentials are empty
+    // This handles INSTANCE_PROFILE vaults (ECS metadata) and broken legacy vaults
+    // Empty credentials = nothing to decrypt = safe to skip
+    if (obj_info.ak().empty() || obj_info.sk().empty()) {
+        return 0;
+    }
+
     if (obj_info.has_encryption_info()) {
         AkSkPair plain_ak_sk_pair;
         if (int ret = decrypt_ak_sk_helper(obj_info.ak(), obj_info.sk(), obj_info.encryption_info(),
@@ -681,32 +688,52 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
     if (obj->has_role_arn()) {
         if (obj->role_arn().empty() || !obj->has_cred_provider_type() ||
             obj->cred_provider_type() != CredProviderTypePB::INSTANCE_PROFILE ||
-            !obj->has_provider() || obj->provider() != ObjectStoreInfoPB::S3 || bucket.empty() ||
-            endpoint.empty() || region.empty()) {
+            !obj->has_provider() ||
+            (obj->provider() != ObjectStoreInfoPB::S3 &&
+             obj->provider() != ObjectStoreInfoPB::OSS) ||
+            bucket.empty() || endpoint.empty() || region.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "s3 conf info err with role_arn, please check it";
+            msg = "object storage conf info err with role_arn, please check it";
             return;
         }
     } else {
-        // ATTN: prefix may be empty
-        if (plain_ak.empty() || plain_sk.empty() || bucket.empty() || endpoint.empty() ||
-            region.empty() || !obj->has_provider() || external_endpoint.empty()) {
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "s3 conf info err, please check it";
-            return;
-        }
+        // Check if this is INSTANCE_PROFILE without role_arn (ECS instance metadata mode)
+        bool is_instance_profile =
+                obj->has_cred_provider_type() &&
+                obj->cred_provider_type() == CredProviderTypePB::INSTANCE_PROFILE;
 
-        EncryptionInfoPB encryption_info;
-        AkSkPair cipher_ak_sk_pair;
-        auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair,
-                                        code, msg);
-        TEST_SYNC_POINT_CALLBACK("create_object_info_with_encrypt", &ret, &code, &msg);
-        if (ret != 0) {
-            return;
+        if (!is_instance_profile) {
+            // external_endpoint is required for S3 but not for OSS.
+            bool needs_external_endpoint =
+                    obj->has_provider() && obj->provider() != ObjectStoreInfoPB::OSS;
+            if (plain_ak.empty() || plain_sk.empty() || bucket.empty() || endpoint.empty() ||
+                region.empty() || !obj->has_provider() ||
+                (needs_external_endpoint && external_endpoint.empty())) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = "s3 conf info err, please check it";
+                return;
+            }
+
+            EncryptionInfoPB encryption_info;
+            AkSkPair cipher_ak_sk_pair;
+            auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info,
+                                            &cipher_ak_sk_pair, code, msg);
+            TEST_SYNC_POINT_CALLBACK("create_object_info_with_encrypt", &ret, &code, &msg);
+            if (ret != 0) {
+                return;
+            }
+            obj->set_ak(std::move(cipher_ak_sk_pair.first));
+            obj->set_sk(std::move(cipher_ak_sk_pair.second));
+            obj->mutable_encryption_info()->CopyFrom(encryption_info);
+        } else {
+            // INSTANCE_PROFILE without role_arn - validate basic requirements
+            if (bucket.empty() || endpoint.empty() || region.empty() || !obj->has_provider()) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = "s3 conf info err, please check it";
+                return;
+            }
+            // Don't set ak/sk/encryption_info for INSTANCE_PROFILE without credentials
         }
-        obj->set_ak(std::move(cipher_ak_sk_pair.first));
-        obj->set_sk(std::move(cipher_ak_sk_pair.second));
-        obj->mutable_encryption_info()->CopyFrom(encryption_info);
     }
 
     obj->set_bucket(bucket);
@@ -1107,24 +1134,34 @@ static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
     auto& [ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style, role_arn,
            external_id] = obj_desc;
 
+    // Check credential configuration
+    bool is_instance_profile =
+            obj.has_cred_provider_type() &&
+            obj.cred_provider_type() == cloud::CredProviderTypePB::INSTANCE_PROFILE;
+
     if (!obj.has_role_arn()) {
-        if (!obj.has_ak() || !obj.has_sk()) {
+        // For INSTANCE_PROFILE, ak/sk are optional (obtained from instance metadata)
+        // For other modes, ak/sk are required
+        if (!is_instance_profile && (!obj.has_ak() || !obj.has_sk())) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 obj info err " + proto_to_json(*request);
             LOG(INFO) << msg;
             return -1;
         }
 
-        std::string plain_ak = obj.has_ak() ? obj.ak() : "";
-        std::string plain_sk = obj.has_sk() ? obj.sk() : "";
-        auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair,
-                                        code, msg);
-        if (ret != 0) {
-            return -1;
-        }
+        // Only encrypt ak/sk if they are provided
+        if (obj.has_ak() && obj.has_sk()) {
+            std::string plain_ak = obj.ak();
+            std::string plain_sk = obj.sk();
+            auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info,
+                                            &cipher_ak_sk_pair, code, msg);
+            if (ret != 0) {
+                return -1;
+            }
 
-        ak = cipher_ak_sk_pair.first;
-        sk = cipher_ak_sk_pair.second;
+            ak = cipher_ak_sk_pair.first;
+            sk = cipher_ak_sk_pair.second;
+        }
     } else {
         if (obj.has_ak() || obj.has_sk()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
@@ -1164,9 +1201,18 @@ static ObjectStoreInfoPB object_info_pb_factory(ObjectStorageDesc& obj_desc,
     }
 
     if (!obj.has_role_arn()) {
-        last_item.set_ak(std::move(cipher_ak_sk_pair.first));
-        last_item.set_sk(std::move(cipher_ak_sk_pair.second));
-        last_item.mutable_encryption_info()->CopyFrom(encryption_info);
+        // Only set ak/sk and encryption_info if they are actually provided
+        // For INSTANCE_PROFILE without credentials, skip ak/sk/encryption_info entirely
+        if (!cipher_ak_sk_pair.first.empty() || !cipher_ak_sk_pair.second.empty()) {
+            last_item.set_ak(std::move(cipher_ak_sk_pair.first));
+            last_item.set_sk(std::move(cipher_ak_sk_pair.second));
+            last_item.mutable_encryption_info()->CopyFrom(encryption_info);
+        }
+        // Set INSTANCE_PROFILE if neither role_arn nor ak/sk are provided
+        if (obj.has_cred_provider_type() &&
+            obj.cred_provider_type() == CredProviderTypePB::INSTANCE_PROFILE) {
+            last_item.set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
+        }
     } else {
         last_item.set_role_arn(role_arn);
         last_item.set_external_id(external_id);
@@ -1322,8 +1368,16 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
             return;
         }
         // ATTN: prefix may be empty
-        if (((ak.empty() || sk.empty()) && role_arn.empty()) || bucket.empty() ||
-            endpoint.empty() || region.empty()) {
+        // Check credential configuration
+        bool is_instance_profile = obj.has_cred_provider_type() &&
+                                   obj.cred_provider_type() == CredProviderTypePB::INSTANCE_PROFILE;
+
+        // For INSTANCE_PROFILE, credentials are obtained from instance metadata service
+        // For other modes, either ak/sk or role_arn is required
+        bool has_valid_credentials =
+                is_instance_profile || (!ak.empty() && !sk.empty()) || !role_arn.empty();
+
+        if (!has_valid_credentials || bucket.empty() || endpoint.empty() || region.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 conf info err, please check it";
             return;
@@ -1332,9 +1386,11 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         if (!role_arn.empty()) {
             if (!obj.has_cred_provider_type() ||
                 obj.cred_provider_type() != CredProviderTypePB::INSTANCE_PROFILE ||
-                !obj.has_provider() || obj.provider() != ObjectStoreInfoPB::S3) {
+                !obj.has_provider() ||
+                (obj.provider() != ObjectStoreInfoPB::S3 &&
+                 obj.provider() != ObjectStoreInfoPB::OSS)) {
                 code = MetaServiceCode::INVALID_ARGUMENT;
-                msg = "s3 conf info err with role_arn, please check it";
+                msg = "object storage conf info err with role_arn, please check it";
                 return;
             }
         }
@@ -1620,9 +1676,10 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
                         return;
                     }
 
-                    if (it.provider() != ObjectStoreInfoPB::S3) {
+                    if (it.provider() != ObjectStoreInfoPB::S3 &&
+                        it.provider() != ObjectStoreInfoPB::OSS) {
                         code = MetaServiceCode::INVALID_ARGUMENT;
-                        msg = "role_arn is only supported for s3 provider";
+                        msg = "role_arn is only supported for S3 and OSS providers";
                         LOG(INFO) << msg << " provider=" << it.provider();
                         return;
                     }

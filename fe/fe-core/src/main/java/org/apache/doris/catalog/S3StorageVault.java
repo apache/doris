@@ -111,7 +111,6 @@ public class S3StorageVault extends StorageVault {
         Preconditions.checkArgument(
                 !properties.get(PropertyKey.ROOT_PATH).isEmpty(),
                 "Property " + PropertyKey.ROOT_PATH + " cannot be empty");
-
     }
 
 }

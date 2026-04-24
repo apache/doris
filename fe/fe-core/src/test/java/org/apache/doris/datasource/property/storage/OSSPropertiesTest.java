@@ -19,6 +19,9 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
+import org.apache.doris.thrift.TCredProviderType;
+import org.apache.doris.thrift.TObjStorageType;
+import org.apache.doris.thrift.TS3StorageParam;
 
 import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
@@ -44,7 +47,8 @@ public class OSSPropertiesTest {
         origProps.put(StorageProperties.FS_OSS_SUPPORT, "true");
         Map<String, String> finalOrigProps = origProps;
         ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
-                "Region is not set. If you are using a standard endpoint, the region will be detected automatically. Otherwise, please specify it explicitly.", () -> StorageProperties.createPrimary(finalOrigProps));
+                "Region is not set. Either set a standard endpoint or specify oss.region explicitly.",
+                () -> StorageProperties.createPrimary(finalOrigProps));
         origProps.put("oss.endpoint", "oss-cn-shenzhen-finance-1-internal.aliyuncs.com");
         Map<String, String> finalOrigProps1 = origProps;
         OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(finalOrigProps1);
@@ -293,5 +297,130 @@ public class OSSPropertiesTest {
         Assertions.assertEquals("oss://my-bucket/path/to/dir/file.txt", OSSProperties.rewriteOssBucketIfNecessary("oss://my-bucket.oss-cn-hangzhou.aliyuncs.com/path/to/dir/file.txt"));
         Assertions.assertEquals("s3://my-bucket/path/to/dir/file.txt", OSSProperties.rewriteOssBucketIfNecessary("s3://my-bucket.oss-cn-hangzhou.aliyuncs.com/path/to/dir/file.txt"));
         Assertions.assertEquals("https://bucket-name.oss-cn-hangzhou.aliyuncs.com/path/to/dir/file.txt", OSSProperties.rewriteOssBucketIfNecessary("https://bucket-name.oss-cn-hangzhou.aliyuncs.com/path/to/dir/file.txt"));
+    }
+
+    @Test
+    public void testRoleArnBackendConfigProperties() {
+        Map<String, String> props = new HashMap<>();
+        props.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        props.put("oss.access_key", "myAccessKey");
+        props.put("oss.secret_key", "mySecretKey");
+        props.put("oss.role_arn", "acs:ram::12345:role/my-role");
+        OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(props);
+        Map<String, String> backendProps = ossProperties.getBackendConfigProperties();
+        Assertions.assertEquals("acs:ram::12345:role/my-role", backendProps.get("AWS_ROLE_ARN"));
+        Assertions.assertEquals("INSTANCE_PROFILE", backendProps.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
+        Assertions.assertNull(backendProps.get("AWS_EXTERNAL_ID"));
+    }
+
+    @Test
+    public void testRoleArnWithExternalIdBackendConfigProperties() {
+        Map<String, String> props = new HashMap<>();
+        props.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        props.put("oss.access_key", "myAccessKey");
+        props.put("oss.secret_key", "mySecretKey");
+        props.put("oss.role_arn", "acs:ram::12345:role/my-role");
+        props.put("oss.external_id", "my-external-id");
+        OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(props);
+        Map<String, String> backendProps = ossProperties.getBackendConfigProperties();
+        Assertions.assertEquals("acs:ram::12345:role/my-role", backendProps.get("AWS_ROLE_ARN"));
+        Assertions.assertEquals("INSTANCE_PROFILE", backendProps.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
+        Assertions.assertEquals("my-external-id", backendProps.get("AWS_EXTERNAL_ID"));
+    }
+
+    @Test
+    public void testExternalIdWithoutRoleArnThrows() {
+        Map<String, String> props = new HashMap<>();
+        props.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        props.put("oss.access_key", "myAccessKey");
+        props.put("oss.secret_key", "mySecretKey");
+        props.put("oss.external_id", "my-external-id");
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
+                "oss.external_id must be used with oss.role_arn",
+                () -> StorageProperties.createPrimary(props));
+    }
+
+    @Test
+    public void testRoleArnReturnsNullCredentialsProvider() {
+        Map<String, String> props = new HashMap<>();
+        props.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        props.put("oss.role_arn", "acs:ram::12345:role/my-role");
+        OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(props);
+        // FE cannot assume Alibaba Cloud RAM role via AWS SDK; BE handles this via OSSSTSCredentialProvider
+        Assertions.assertNull(ossProperties.getAwsCredentialsProvider());
+    }
+
+    @Test
+    public void testRoleArnWithStaticCredsCredentialsProviderIsNull() {
+        Map<String, String> props = new HashMap<>();
+        props.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        props.put("oss.access_key", "myAccessKey");
+        props.put("oss.secret_key", "mySecretKey");
+        props.put("oss.role_arn", "acs:ram::12345:role/my-role");
+        OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(props);
+        // FE cannot assume Alibaba Cloud RAM role via AWS SDK regardless of static credentials
+        Assertions.assertNull(ossProperties.getAwsCredentialsProvider());
+    }
+
+    // -----------------------------------------------------------------
+    // OSSProperties.getS3TStorageParam() — Thrift serialisation for the
+    // storage-policy path (PushStoragePolicyTask → BE).
+    // Properties must be pre-normalised to s3.* keys, as OSSResource does
+    // via normalizeOssToS3Keys() before calling getCopiedProperties().
+    // -----------------------------------------------------------------
+
+    @Test
+    public void testGetS3TStorageParamSetsProviderOss() {
+        // Simulate what OSSResource.getCopiedProperties() returns after
+        // normalizeOssToS3Keys(): both oss.* originals and s3.* copies present.
+        Map<String, String> props = new HashMap<>();
+        props.put("s3.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        props.put("s3.region",   "cn-hangzhou");
+        props.put("s3.access_key", "myAccessKey");
+        props.put("s3.secret_key", "mySecretKey");
+        props.put("s3.bucket",   "my-bucket");
+        props.put("s3.root.path", "/data/root");
+        props.put("s3.connection.maximum", "80");
+        props.put("s3.connection.request.timeout", "5000");
+        props.put("s3.connection.timeout", "2000");
+        props.put("use_path_style", "true");
+
+        TS3StorageParam param = OSSProperties.getS3TStorageParam(props);
+
+        // Provider must always be OSS — this is the key correctness guarantee.
+        Assertions.assertEquals(TObjStorageType.OSS, param.getProvider());
+
+        Assertions.assertEquals("oss-cn-hangzhou.aliyuncs.com", param.getEndpoint());
+        Assertions.assertEquals("cn-hangzhou",   param.getRegion());
+        Assertions.assertEquals("myAccessKey",   param.getAk());
+        Assertions.assertEquals("mySecretKey",   param.getSk());
+        Assertions.assertEquals("my-bucket",     param.getBucket());
+        Assertions.assertEquals("/data/root",    param.getRootPath());
+        Assertions.assertEquals(80,              param.getMaxConn());
+        Assertions.assertEquals(5000,            param.getRequestTimeoutMs());
+        Assertions.assertEquals(2000,            param.getConnTimeoutMs());
+        Assertions.assertTrue(param.isUsePathStyle());
+    }
+
+    @Test
+    public void testGetS3TStorageParamWithRoleArn() {
+        Map<String, String> props = new HashMap<>();
+        props.put("s3.endpoint",   "oss-cn-beijing.aliyuncs.com");
+        props.put("s3.region",     "cn-beijing");
+        props.put("s3.bucket",     "my-bucket");
+        props.put("s3.root.path",  "/data/root");
+        props.put("s3.role_arn",   "acs:ram::12345:role/my-role");
+        props.put("s3.external_id", "my-external-id");
+
+        TS3StorageParam param = OSSProperties.getS3TStorageParam(props);
+
+        Assertions.assertEquals(TObjStorageType.OSS, param.getProvider());
+        Assertions.assertEquals("acs:ram::12345:role/my-role", param.getRoleArn());
+        Assertions.assertEquals("my-external-id", param.getExternalId());
+        // role_arn without ak/sk → INSTANCE_PROFILE so BE uses Alibaba STS v2
+        Assertions.assertEquals(TCredProviderType.INSTANCE_PROFILE, param.getCredProviderType());
+        // No ak/sk in the map → fields should be null/empty
+        Assertions.assertNull(param.getAk());
+        Assertions.assertNull(param.getSk());
     }
 }

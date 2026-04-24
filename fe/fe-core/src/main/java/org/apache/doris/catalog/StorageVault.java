@@ -156,7 +156,7 @@ public abstract class StorageVault {
             default:
                 throw new DdlException("Unknown StorageVault type: " + type);
         }
-        vault.checkCreationProperties(command.getProperties());
+        vault.checkCreationProperties(vault.getCopiedProperties());
         vault.pathVersion = command.getPathVersion();
         vault.numShard = command.getNumShard();
         return vault;

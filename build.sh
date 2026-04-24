@@ -79,6 +79,7 @@ Usage: $0 <options>
     DISABLE_BUILD_AZURE         If set DISABLE_BUILD_AZURE=ON, it will not build azure into BE.
     DISABLE_BUILD_JUICEFS       If set DISABLE_BUILD_JUICEFS=OFF, it will package juicefs-hadoop jar into FE/BE output. Default is ON (skip).
     DISABLE_BUILD_JINDOFS       If set DISABLE_BUILD_JINDOFS=OFF, it will package jindofs jars into FE/BE output. Default is ON (skip).
+    DISABLE_BUILD_OSS           If set DISABLE_BUILD_OSS=ON, it will not build OSS SDK and STS SDK V2 into BE.
 
   Eg.
     $0                                      build all
@@ -188,6 +189,7 @@ PARAMETER_COUNT="$#"
 PARAMETER_FLAG=0
 DENABLE_CLANG_COVERAGE='OFF'
 BUILD_AZURE='ON'
+BUILD_OSS='ON'
 BUILD_UI=1
 if [[ "$#" == 1 ]]; then
     # default
@@ -499,6 +501,10 @@ else
 fi
 export DISABLE_BUILD_JUICEFS
 
+if [[ "$(echo "${DISABLE_BUILD_OSS}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
+    BUILD_OSS='OFF'
+fi
+
 if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
     ENABLE_INJECTION_POINT='OFF'
 fi
@@ -691,6 +697,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
         -DDORIS_JAVA_HOME="${JAVA_HOME}" \
         -DBUILD_AZURE="${BUILD_AZURE}" \
+        -DBUILD_OSS="${BUILD_OSS}" \
         -DWITH_TDE_DIR="${WITH_TDE_DIR}" \
         "${DORIS_HOME}/be"
 

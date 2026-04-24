@@ -41,6 +41,10 @@
 #include <azure/core/http/curl_transport.hpp>
 #include <azure/storage/blobs/blob_container_client.hpp>
 #endif
+#ifdef USE_OSS
+#include "io/fs/oss_v2_obj_storage_client.h"
+#include "util/oss_util.h"
+#endif
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -142,6 +146,7 @@ std::string build_azure_tls_debug_context(const std::string& selected_ca_file) {
 constexpr char USE_PATH_STYLE[] = "use_path_style";
 
 constexpr char AZURE_PROVIDER_STRING[] = "AZURE";
+constexpr char OSS_PROVIDER_STRING[] = "OSS";
 constexpr char S3_PROVIDER[] = "provider";
 constexpr char S3_AK[] = "AWS_ACCESS_KEY";
 constexpr char S3_SK[] = "AWS_SECRET_KEY";
@@ -156,6 +161,26 @@ constexpr char S3_NEED_OVERRIDE_ENDPOINT[] = "AWS_NEED_OVERRIDE_ENDPOINT";
 constexpr char S3_ROLE_ARN[] = "AWS_ROLE_ARN";
 constexpr char S3_EXTERNAL_ID[] = "AWS_EXTERNAL_ID";
 constexpr char S3_CREDENTIALS_PROVIDER_TYPE[] = "AWS_CREDENTIALS_PROVIDER_TYPE";
+
+#ifdef USE_OSS
+// Map S3/AWS CredProviderType to OSSCredProviderType
+OSSCredProviderType s3_cred_to_oss_cred(CredProviderType type) {
+    switch (type) {
+    case CredProviderType::InstanceProfile:
+        return OSSCredProviderType::INSTANCE_PROFILE;
+    case CredProviderType::Simple:
+        return OSSCredProviderType::SIMPLE;
+    case CredProviderType::Default:
+        return OSSCredProviderType::DEFAULT;
+    default:
+        LOG(WARNING) << "Credential provider type " << static_cast<int>(type)
+                     << " is not directly supported for OSS; falling back to DEFAULT "
+                        "(OSSDefaultCredentialsProvider chain).";
+        return OSSCredProviderType::DEFAULT;
+    }
+}
+#endif
+
 } // namespace
 
 bvar::Adder<int64_t> get_rate_limit_ns("get_rate_limit_ns");
@@ -311,9 +336,16 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::create(const S3ClientConf
         }
     }
 
-    auto obj_client = (s3_conf.provider == io::ObjStorageType::AZURE)
-                              ? _create_azure_client(s3_conf)
-                              : _create_s3_client(s3_conf);
+    std::shared_ptr<io::ObjStorageClient> obj_client;
+    if (s3_conf.provider == io::ObjStorageType::AZURE) {
+        obj_client = _create_azure_client(s3_conf);
+#ifdef USE_OSS
+    } else if (s3_conf.provider == io::ObjStorageType::OSS && config::enable_oss_native_sdk) {
+        obj_client = _create_oss_client(s3_conf);
+#endif
+    } else {
+        obj_client = _create_s3_client(s3_conf);
+    }
 
     {
         uint64_t hash = s3_conf.get_hash();
@@ -580,6 +612,8 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
         // S3 Provider properties should be case insensitive.
         if (0 == strcasecmp(it->second.c_str(), AZURE_PROVIDER_STRING)) {
             s3_conf->client_conf.provider = io::ObjStorageType::AZURE;
+        } else if (0 == strcasecmp(it->second.c_str(), OSS_PROVIDER_STRING)) {
+            s3_conf->client_conf.provider = io::ObjStorageType::OSS;
         }
     }
 
@@ -784,5 +818,40 @@ std::string hide_access_key(const std::string& ak) {
     }
     return key;
 }
+
+#ifdef USE_OSS
+std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_oss_client(
+        const S3ClientConf& s3_conf) {
+    // Convert S3ClientConf → OSSClientConf, mapping fields 1:1
+    OSSClientConf oss_conf;
+    oss_conf.endpoint = normalize_oss_endpoint(s3_conf.endpoint);
+    oss_conf.region = s3_conf.region;
+    oss_conf.ak = s3_conf.ak;
+    oss_conf.sk = s3_conf.sk;
+    oss_conf.token = s3_conf.token;
+    oss_conf.bucket = s3_conf.bucket;
+    oss_conf.role_arn = s3_conf.role_arn;
+    oss_conf.external_id = s3_conf.external_id;
+    oss_conf.max_connections = s3_conf.max_connections > 0 ? s3_conf.max_connections : 100;
+    oss_conf.request_timeout_ms =
+            s3_conf.request_timeout_ms > 0 ? s3_conf.request_timeout_ms : 30000;
+    oss_conf.connect_timeout_ms =
+            s3_conf.connect_timeout_ms > 0 ? s3_conf.connect_timeout_ms : 10000;
+    oss_conf.cred_provider_type = s3_cred_to_oss_cred(s3_conf.cred_provider_type);
+    // Mirror AWS SDK v2 behavior: role_arn alone is sufficient to trigger STS AssumeRole.
+    if (!oss_conf.role_arn.empty() && oss_conf.cred_provider_type == OSSCredProviderType::DEFAULT) {
+        oss_conf.cred_provider_type = OSSCredProviderType::INSTANCE_PROFILE;
+    }
+
+    auto native_client = OSSClientFactory::instance().create(oss_conf);
+    if (!native_client) {
+        LOG(WARNING) << "failed to create native oss client with conf " << s3_conf.to_string();
+        return nullptr;
+    }
+
+    LOG_INFO("create one oss client (native SDK) with {}", s3_conf.to_string());
+    return std::make_shared<io::OSSv2ObjStorageClient>(std::move(native_client), s3_conf.bucket);
+}
+#endif
 
 } // end namespace doris

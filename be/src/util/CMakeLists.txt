@@ -31,6 +31,10 @@ endif()
 
 list(REMOVE_ITEM UTIL_FILES ${CMAKE_CURRENT_SOURCE_DIR}/libjvm_loader.cpp)
 
+if(BUILD_OSS STREQUAL "OFF")
+    list(REMOVE_ITEM UTIL_FILES ${CMAKE_CURRENT_SOURCE_DIR}/oss_util.cpp)
+endif()
+
 add_library(Util STATIC
     ${UTIL_FILES}
 )

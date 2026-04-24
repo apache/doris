@@ -38,6 +38,7 @@ enum class AccessorType : uint8_t {
     MOCK,
     S3,
     HDFS,
+    OSS,
 };
 
 class ListIterator {

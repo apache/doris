@@ -25,6 +25,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
+import org.apache.doris.datasource.property.storage.OSSProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.trees.plans.commands.CreateStorageVaultCommand;
@@ -71,7 +72,7 @@ public class StorageVaultMgr {
                 break;
             case UNKNOWN:
             default:
-                throw new DdlException("Only support S3, HDFS storage vault.");
+                throw new DdlException("Only support S3 and HDFS storage vault.");
         }
         // Make BE eagerly fetch the storage vault info from Meta Service
         ALTER_BE_SYNC_THREAD_POOL.execute(() -> alterSyncVaultTask());
@@ -146,9 +147,18 @@ public class StorageVaultMgr {
         }
     }
 
+    private static Cloud.ObjectStoreInfoPB.Builder buildObjStoreInfoPB(
+            Map<String, String> properties) {
+        // OSS vaults do not carry "provider=OSS" in their stored property map; detect by endpoint.
+        if (OSSProperties.guessIsMe(properties)) {
+            return OSSProperties.getObjStoreInfoPB(properties);
+        }
+        return S3Properties.getObjStoreInfoPB(properties);
+    }
+
     private Cloud.StorageVaultPB.Builder buildAlterS3VaultRequest(Map<String, String> properties, String name)
             throws Exception {
-        Cloud.ObjectStoreInfoPB.Builder objBuilder = S3Properties.getObjStoreInfoPB(properties);
+        Cloud.ObjectStoreInfoPB.Builder objBuilder = buildObjStoreInfoPB(properties);
         Cloud.StorageVaultPB.Builder alterObjVaultBuilder = Cloud.StorageVaultPB.newBuilder();
         alterObjVaultBuilder.setName(name);
         alterObjVaultBuilder.setObjInfo(objBuilder.build());

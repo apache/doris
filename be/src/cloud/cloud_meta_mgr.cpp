@@ -64,6 +64,9 @@
 #include "storage/tablet/tablet_meta.h"
 #include "util/client_cache.h"
 #include "util/network_util.h"
+#ifdef USE_OSS
+#include "util/oss_util.h"
+#endif
 #include "util/s3_util.h"
 #include "util/thrift_rpc_helper.h"
 
@@ -1581,8 +1584,18 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool
     *is_vault_mode = resp.enable_storage_vault();
 
     auto add_obj_store = [&vault_infos](const auto& obj_store) {
-        vault_infos->emplace_back(obj_store.id(), S3Conf::get_s3_conf(obj_store),
-                                  StorageVaultPB_PathFormat {});
+#ifdef USE_OSS
+        if (obj_store.provider() == cloud::ObjectStoreInfoPB::OSS &&
+            config::enable_oss_native_sdk) {
+            vault_infos->emplace_back(obj_store.id(), OSSConf::get_oss_conf(obj_store),
+                                      StorageVaultPB_PathFormat {});
+        } else {
+#endif
+            vault_infos->emplace_back(obj_store.id(), S3Conf::get_s3_conf(obj_store),
+                                      StorageVaultPB_PathFormat {});
+#ifdef USE_OSS
+        }
+#endif
     };
 
     std::ranges::for_each(resp.obj_info(), add_obj_store);

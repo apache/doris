@@ -30,6 +30,7 @@ import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.BrokerFileSystem;
+import org.apache.doris.fs.remote.OSSFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
@@ -38,7 +39,7 @@ import java.util.Arrays;
 import java.util.function.Function;
 
 public enum StorageTypeMapper {
-    OSS(OSSProperties.class, S3FileSystem::new),
+    OSS(OSSProperties.class, OSSFileSystem::new),
     OBS(OBSProperties.class, S3FileSystem::new),
     COS(COSProperties.class, S3FileSystem::new),
     MINIO(MinioProperties.class, S3FileSystem::new),

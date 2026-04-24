@@ -17,16 +17,22 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.thrift.TObjStorageType;
+import org.apache.doris.thrift.TS3StorageParam;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 
@@ -42,6 +48,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 public class OSSProperties extends AbstractS3CompatibleProperties {
+    private static final Logger LOG = LogManager.getLogger(OSSProperties.class);
 
     @Setter
     @Getter
@@ -90,37 +97,33 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
             description = "The session token of OSS.")
     protected String sessionToken = "";
 
-    /**
-     * The maximum number of concurrent connections that can be made to the object storage system.
-     * This value is optional and can be configured by the user.
-     */
+    @Getter
+    @ConnectorProperty(names = {"oss.role_arn", "s3.role_arn", "AWS_ROLE_ARN"},
+            required = false,
+            description = "Alibaba Cloud RAM role ARN for STS AssumeRole.")
+    protected String ossRoleArn = "";
+
+    @Getter
+    @ConnectorProperty(names = {"oss.external_id", "s3.external_id", "AWS_EXTERNAL_ID"},
+            required = false,
+            description = "External ID for cross-account STS AssumeRole.")
+    protected String ossExternalId = "";
+
     @Getter
     @ConnectorProperty(names = {"oss.connection.maximum", "s3.connection.maximum"}, required = false,
             description = "Maximum number of connections.")
     protected String maxConnections = "100";
 
-    /**
-     * The timeout (in milliseconds) for requests made to the object storage system.
-     * This value is optional and can be configured by the user.
-     */
     @Getter
     @ConnectorProperty(names = {"oss.connection.request.timeout", "s3.connection.request.timeout"}, required = false,
-            description = "Request timeout in seconds.")
+            description = "Request timeout in milliseconds.")
     protected String requestTimeoutS = "10000";
 
-    /**
-     * The timeout (in milliseconds) for establishing a connection to the object storage system.
-     * This value is optional and can be configured by the user.
-     */
     @Getter
     @ConnectorProperty(names = {"oss.connection.timeout", "s3.connection.timeout"}, required = false,
-            description = "Connection timeout in seconds.")
+            description = "Connection timeout in milliseconds.")
     protected String connectionTimeoutS = "10000";
 
-    /**
-     * Flag indicating whether to use path-style URLs for the object storage system.
-     * This value is optional and can be configured by the user.
-     */
     @Setter
     @Getter
     @ConnectorProperty(names = {"oss.use_path_style", "use_path_style", "s3.path-style-access"}, required = false,
@@ -160,13 +163,24 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
 
     private static final List<String> URI_KEYWORDS = Arrays.asList("uri", "warehouse");
 
-    private static List<String> DLF_TYPE_KEYWORDS = Arrays.asList("hive.metastore.type",
+    private static final List<String> DLF_TYPE_KEYWORDS = Arrays.asList("hive.metastore.type",
             "iceberg.catalog.type", "paimon.catalog.type");
 
     static final String JINDO_OSS_FILE_SYSTEM_IMPL = "com.aliyun.jindodata.oss.JindoOssFileSystem";
     static final String JINDO_OSS_ABSTRACT_FILE_SYSTEM_IMPL = "com.aliyun.jindodata.oss.JindoOSS";
 
     private static final String DLS_URI_KEYWORDS = "oss-dls.aliyuncs";
+
+    public static final String OSS_PREFIX = "oss.";
+    public static final String ENDPOINT_KEY = "oss.endpoint";
+    public static final String REGION_KEY = "oss.region";
+    public static final String ACCESS_KEY_KEY = "oss.access_key";
+    public static final String SECRET_KEY_KEY = "oss.secret_key";
+    public static final String SESSION_TOKEN_KEY = "oss.session_token";
+    public static final String ROOT_PATH_KEY = "oss.root.path";
+    public static final String BUCKET_KEY = "oss.bucket";
+    public static final String ROLE_ARN_KEY = "oss.role_arn";
+    public static final String EXTERNAL_ID_KEY = "oss.external_id";
 
     protected OSSProperties(Map<String, String> origProps) {
         super(Type.OSS, origProps);
@@ -180,7 +194,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
         return propertiesObj;
     }
 
-    protected static boolean guessIsMe(Map<String, String> origProps) {
+    public static boolean guessIsMe(Map<String, String> origProps) {
         String value = Stream.of("oss.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT",
                         "dlf.endpoint", "dlf.catalog.endpoint", "fs.oss.endpoint", "fs.oss.accessKeyId")
                 .map(origProps::get)
@@ -212,7 +226,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
                 .filter(Objects::nonNull)
                 .filter(OSSProperties::isKnownObjectStorage)
                 .findFirst();
-        return uriValue.filter(OSSProperties::isKnownObjectStorage).isPresent();
+        return uriValue.isPresent();
     }
 
     private static boolean isKnownObjectStorage(String value) {
@@ -255,8 +269,6 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
                         .findFirst();
                 if (uriValueOpt.isPresent()) {
                     String uri = uriValueOpt.get();
-                    // If the URI does not start with http(s), derive endpoint from region
-                    // (http(s) URIs are handled by separate logic elsewhere)
                     if (!uri.startsWith("http://") && !uri.startsWith("https://")) {
                         this.endpoint = getOssEndpoint(region, BooleanUtils.toBoolean(dlfAccessPublic));
                     }
@@ -274,7 +286,13 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
+        if (StringUtils.isNotBlank(ossExternalId) && StringUtils.isBlank(ossRoleArn)) {
+            throw new IllegalArgumentException("oss.external_id must be used with oss.role_arn");
+        }
         if (StringUtils.isBlank(endpoint) || !STANDARD_ENDPOINT_PATTERN.matcher(endpoint).matches()) {
+            Preconditions.checkArgument(StringUtils.isNotBlank(region),
+                    "OSS region is not set. Either provide a standard endpoint "
+                    + "(e.g. oss-cn-hangzhou.aliyuncs.com) or specify oss.region explicitly.");
             this.endpoint = getOssEndpoint(region, BooleanUtils.toBoolean(dlfAccessPublic));
         }
     }
@@ -295,6 +313,14 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
 
     @Override
     public AwsCredentialsProvider getAwsCredentialsProvider() {
+        // When role_arn is set, the FE cannot assume an Alibaba Cloud RAM role via
+        // the AWS SDK (which calls AWS STS endpoints, not Alibaba STS). Credential
+        // resolution is delegated to the BE via OSSSTSCredentialProvider (Alibaba
+        // STS v2 SDK). Return null here; role_arn/external_id are forwarded to the
+        // BE through getBackendConfigProperties().
+        if (StringUtils.isNotBlank(ossRoleArn)) {
+            return null;
+        }
         AwsCredentialsProvider credentialsProvider = super.getAwsCredentialsProvider();
         if (credentialsProvider != null) {
             return credentialsProvider;
@@ -304,6 +330,21 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
             return AnonymousCredentialsProvider.create();
         }
         return null;
+    }
+
+    @Override
+    public Map<String, String> getBackendConfigProperties() {
+        Map<String, String> backendProperties = super.getBackendConfigProperties();
+        backendProperties.put("provider", "OSS");
+        if (StringUtils.isNotBlank(ossRoleArn)) {
+            backendProperties.put("AWS_ROLE_ARN", ossRoleArn);
+            // OSS native SDK requires INSTANCE_PROFILE to activate STS AssumeRole.
+            backendProperties.put("AWS_CREDENTIALS_PROVIDER_TYPE", "INSTANCE_PROFILE");
+        }
+        if (StringUtils.isNotBlank(ossExternalId)) {
+            backendProperties.put("AWS_EXTERNAL_ID", ossExternalId);
+        }
+        return backendProperties;
     }
 
     @Override
@@ -355,7 +396,6 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
         try {
             parsed = URI.create(uri);
         } catch (IllegalArgumentException e) {
-            // Invalid URI, do not rewrite
             return uri;
         }
 
@@ -370,7 +410,6 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
             return uri;
         }
 
-        // Handle bucket.endpoint format
         int dotIndex = authority.indexOf('.');
         if (dotIndex <= 0) {
             return uri;
@@ -388,8 +427,130 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
             );
             return rewritten.toString();
         } catch (URISyntaxException e) {
-            // Be conservative: fallback to original URI
             return uri;
         }
+    }
+
+    /**
+     * Builds an {@link Cloud.ObjectStoreInfoPB} from the bound (normalized) field values of
+     * this instance. Unlike the static overload which re-reads {@code origProps}, this method
+     * uses the fields already resolved by {@link #initNormalizeAndCheckProps()} — notably
+     * the endpoint that may have been derived from the region when not explicitly provided.
+     */
+    public Cloud.ObjectStoreInfoPB.Builder getObjStoreInfoPB() {
+        Cloud.ObjectStoreInfoPB.Builder builder = Cloud.ObjectStoreInfoPB.newBuilder();
+        builder.setProvider(Cloud.ObjectStoreInfoPB.Provider.OSS);
+        if (StringUtils.isNotBlank(endpoint)) {
+            // Endpoint is forwarded without scheme; BE normalises it in OSSConf::get_oss_conf.
+            builder.setEndpoint(endpoint);
+        }
+        if (StringUtils.isNotBlank(region)) {
+            builder.setRegion(region);
+        }
+        if (StringUtils.isNotBlank(accessKey)) {
+            builder.setAk(accessKey);
+        }
+        if (StringUtils.isNotBlank(secretKey)) {
+            builder.setSk(secretKey);
+        }
+        // bucket and rootPath are not bound fields; re-read from origProps.
+        String rootPath = Stream.of(ROOT_PATH_KEY, "s3.root.path", "root.path")
+                .map(origProps::get).filter(StringUtils::isNotBlank).findFirst().orElse(null);
+        if (rootPath != null) {
+            builder.setPrefix(rootPath);
+        }
+        String bucket = Stream.of(BUCKET_KEY, "s3.bucket", "bucket")
+                .map(origProps::get).filter(StringUtils::isNotBlank).findFirst().orElse(null);
+        if (bucket != null) {
+            builder.setBucket(bucket);
+        }
+        if (StringUtils.isNotBlank(ossRoleArn)) {
+            builder.setRoleArn(ossRoleArn);
+            if (StringUtils.isNotBlank(ossExternalId)) {
+                builder.setExternalId(ossExternalId);
+            }
+            builder.setCredProviderType(Cloud.CredProviderTypePB.INSTANCE_PROFILE);
+        } else {
+            builder.setCredProviderType(
+                    (StringUtils.isBlank(accessKey) || StringUtils.isBlank(secretKey))
+                            ? Cloud.CredProviderTypePB.DEFAULT
+                            : Cloud.CredProviderTypePB.SIMPLE);
+        }
+        return builder;
+    }
+
+    /**
+     * Builds an {@link Cloud.ObjectStoreInfoPB} builder from an OSS property map.
+     * Always sets {@code provider=OSS} and handles role_arn / external_id for AssumeRole.
+     */
+    public static Cloud.ObjectStoreInfoPB.Builder getObjStoreInfoPB(Map<String, String> properties) {
+        Cloud.ObjectStoreInfoPB.Builder builder = Cloud.ObjectStoreInfoPB.newBuilder();
+        builder.setProvider(Cloud.ObjectStoreInfoPB.Provider.OSS);
+
+        String endpoint = Stream.of(ENDPOINT_KEY, "s3.endpoint", "endpoint")
+                .map(properties::get).filter(StringUtils::isNotBlank).findFirst().orElse(null);
+        if (endpoint != null) {
+            builder.setEndpoint(endpoint);
+        }
+
+        String region = Stream.of(REGION_KEY, "s3.region", "region")
+                .map(properties::get).filter(StringUtils::isNotBlank).findFirst().orElse(null);
+        if (region != null) {
+            builder.setRegion(region);
+        }
+
+        String accessKey = Stream.of(ACCESS_KEY_KEY, "s3.access_key", "access_key")
+                .map(properties::get).filter(StringUtils::isNotBlank).findFirst().orElse(null);
+        if (accessKey != null) {
+            builder.setAk(accessKey);
+        }
+
+        String secretKey = Stream.of(SECRET_KEY_KEY, "s3.secret_key", "secret_key")
+                .map(properties::get).filter(StringUtils::isNotBlank).findFirst().orElse(null);
+        if (secretKey != null) {
+            builder.setSk(secretKey);
+        }
+
+        String rootPath = Stream.of(ROOT_PATH_KEY, "s3.root.path", "root.path")
+                .map(properties::get).filter(StringUtils::isNotBlank).findFirst().orElse(null);
+        if (rootPath != null) {
+            builder.setPrefix(rootPath);
+        }
+
+        String bucket = Stream.of(BUCKET_KEY, "s3.bucket", "bucket")
+                .map(properties::get).filter(StringUtils::isNotBlank).findFirst().orElse(null);
+        if (bucket != null) {
+            builder.setBucket(bucket);
+        }
+
+        String roleArn = Stream.of(ROLE_ARN_KEY, "s3.role_arn")
+                .map(properties::get).filter(StringUtils::isNotBlank).findFirst().orElse(null);
+        if (roleArn != null) {
+            builder.setRoleArn(roleArn);
+            String externalId = Stream.of(EXTERNAL_ID_KEY, "s3.external_id")
+                    .map(properties::get).filter(StringUtils::isNotBlank).findFirst().orElse(null);
+            if (externalId != null) {
+                builder.setExternalId(externalId);
+            }
+            builder.setCredProviderType(Cloud.CredProviderTypePB.INSTANCE_PROFILE);
+        } else {
+            builder.setCredProviderType(
+                    (StringUtils.isBlank(accessKey) || StringUtils.isBlank(secretKey))
+                            ? Cloud.CredProviderTypePB.DEFAULT
+                            : Cloud.CredProviderTypePB.SIMPLE);
+        }
+
+        return builder;
+    }
+
+    /**
+     * Builds a {@link TS3StorageParam} from an OSS property map for the Thrift/storage-policy path.
+     * Always sets {@code provider=OSS} so the BE routes to the correct SDK.
+     * Properties must already be normalized to s3.* keys (e.g. via OSSResource.getCopiedProperties()).
+     */
+    public static TS3StorageParam getS3TStorageParam(Map<String, String> properties) {
+        TS3StorageParam param = S3Properties.getS3TStorageParam(properties);
+        param.setProvider(TObjStorageType.OSS);
+        return param;
     }
 }
