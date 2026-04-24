@@ -35,6 +35,9 @@
 namespace doris {
 class RuntimeState;
 
+UnionSourceLocalState::UnionSourceLocalState(RuntimeState* state, OperatorXBase* parent)
+        : Base(state, parent) {}
+
 Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
@@ -152,7 +155,8 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, Block* block) {
     MutableBlock mblock = VectorizedUtils::build_mutable_mem_reuse_block(block, row_descriptor());
 
     ColumnsWithTypeAndName tmp_block_columns;
-    for (; _const_expr_list_idx < _const_expr_lists.size() && mblock.rows() < state->batch_size();
+    for (; _const_expr_list_idx < _const_expr_lists.size() &&
+           local_state.block_budget().within_budget(mblock.rows(), mblock.bytes());
          ++_const_expr_list_idx) {
         int const_expr_lists_size = cast_set<int>(_const_expr_lists[_const_expr_list_idx].size());
         if (_const_expr_list_idx && const_expr_lists_size != _const_expr_lists[0].size()) {

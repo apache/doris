@@ -230,6 +230,20 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
     _init_file_description();
 }
 
+void OrcReader::set_batch_size(size_t batch_size) {
+    DCHECK_GT(batch_size, 0);
+    if (_batch_size == batch_size) {
+        return;
+    }
+
+    _batch_size = batch_size;
+    if (_row_reader != nullptr) {
+        // ORC stores the batch capacity inside the row batch object returned by createRowBatch().
+        // Rebuild it when the requested batch size changes so the next call uses the new limit.
+        _batch = _row_reader->createRowBatch(_batch_size);
+    }
+}
+
 OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
                      const std::string& ctz, io::IOContext* io_ctx, FileMetaCache* meta_cache,
                      bool enable_lazy_mat)

@@ -97,7 +97,8 @@ Status HeapSorter::prepare_for_read(bool is_spill) {
 }
 
 Status HeapSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
-    return _state->merge_sort_read(block, state->batch_size(), eos);
+    return _state->merge_sort_read(block, state->batch_size(), state->preferred_block_size_bytes(),
+                                   eos);
 }
 
 Field HeapSorter::get_top_value() {

@@ -67,7 +67,6 @@ private:
     size_t _input_num_rows = 0;
     bool _should_expand_hash_table = true;
     bool _stop_emplace_flag = false;
-    const int batch_size;
     std::unique_ptr<DistinctDataVariants> _agg_data = nullptr;
     // group by k1,k2
     VExprContextSPtrs _probe_expr_ctxs;

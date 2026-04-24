@@ -34,7 +34,7 @@ public:
     ENABLE_FACTORY_CREATOR(SetSourceLocalState);
     using Base = PipelineXLocalState<SetSharedState>;
     using Parent = SetSourceOperatorX<is_intersect>;
-    SetSourceLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {};
+    SetSourceLocalState(RuntimeState* state, OperatorXBase* parent);
     Status init(RuntimeState* state, LocalStateInfo& infos) override;
     Status open(RuntimeState* state) override;
 
@@ -51,6 +51,7 @@ private:
     RuntimeProfile::Counter* _get_data_from_hashtable_rows = nullptr;
     IColumn::Selector _result_indexs;
     bool _null_key_output = false;
+    size_t _estimated_row_bytes = 0;
 };
 
 template <bool is_intersect>

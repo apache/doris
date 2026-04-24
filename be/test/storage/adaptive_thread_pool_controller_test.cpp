@@ -31,15 +31,20 @@ protected:
     void SetUp() override {
         _original_enable_adaptive = config::enable_adaptive_flush_threads;
 
+        // Pool max must be >= num_cpus * max_threads_per_cpu used in tests (up to 4x).
+        int num_cpus = std::thread::hardware_concurrency();
+        if (num_cpus <= 0) num_cpus = 1;
+        int pool_max = std::max(64, num_cpus * 8);
+
         ASSERT_TRUE(ThreadPoolBuilder("TestPool")
                             .set_min_threads(2)
-                            .set_max_threads(64)
+                            .set_max_threads(pool_max)
                             .build(&_pool)
                             .ok());
 
         ASSERT_TRUE(ThreadPoolBuilder("TestPool2")
                             .set_min_threads(2)
-                            .set_max_threads(64)
+                            .set_max_threads(pool_max)
                             .build(&_pool2)
                             .ok());
     }

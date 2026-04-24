@@ -200,6 +200,11 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
 
     // Propagate general read limit for DUP_KEYS and UNIQUE_KEYS with MOW
     _reader_context.general_read_limit = read_params.general_read_limit;
+
+    // Preserve the original requested output layout so BlockReader can map expanded storage
+    // columns (for non-direct AGG/UNIQUE paths) back to the final output block.
+    _reader_context.origin_return_columns = read_params.origin_return_columns;
+
     return Status::OK();
 }
 

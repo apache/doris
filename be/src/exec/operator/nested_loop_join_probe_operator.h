@@ -81,7 +81,7 @@ private:
     friend class NestedLoopJoinProbeOperatorX;
     void _update_additional_flags(Block* block);
     template <bool BuildSide, bool IsSemi>
-    void _finalize_current_phase(Block& block, size_t batch_size);
+    void _finalize_current_phase(Block& block);
     void _reset_with_next_probe_row();
     void _append_probe_data_with_null(Block& block) const;
     template <typename Filter, bool SetBuildSideFlag, bool SetProbeSideFlag>

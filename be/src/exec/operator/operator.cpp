@@ -403,10 +403,7 @@ Status OperatorXBase::get_block_after_projects(RuntimeState* state, Block* block
     auto* local_state = state->get_local_state(operator_id());
     Defer defer([&]() {
         if (status.ok()) {
-            if (auto rows = block->rows()) {
-                COUNTER_UPDATE(local_state->_rows_returned_counter, rows);
-                COUNTER_UPDATE(local_state->_blocks_returned_counter, 1);
-            }
+            local_state->update_output_block_counters(*block);
         }
     });
     if (_output_row_descriptor) {
@@ -523,7 +520,11 @@ PipelineXSinkLocalStateBase::PipelineXSinkLocalStateBase(DataSinkOperatorXBase* 
         : _parent(parent), _state(state) {}
 
 PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXBase* parent)
-        : _num_rows_returned(0), _rows_returned_counter(nullptr), _parent(parent), _state(state) {}
+        : _num_rows_returned(0),
+          _rows_returned_counter(nullptr),
+          _parent(parent),
+          _state(state),
+          _budget(state->batch_size(), state->preferred_block_size_bytes()) {}
 
 template <typename SharedStateArg>
 Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalStateInfo& info) {
@@ -572,6 +573,12 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
             ADD_COUNTER_WITH_LEVEL(_common_profile, profile::ROWS_PRODUCED, TUnit::UNIT, 1);
     _blocks_returned_counter =
             ADD_COUNTER_WITH_LEVEL(_common_profile, profile::BLOCKS_PRODUCED, TUnit::UNIT, 1);
+    _output_block_bytes_counter =
+            ADD_COUNTER_WITH_LEVEL(_common_profile, profile::OUTPUT_BLOCK_BYTES, TUnit::BYTES, 1);
+    _max_output_block_bytes_counter = ADD_COUNTER_WITH_LEVEL(
+            _common_profile, profile::MAX_OUTPUT_BLOCK_BYTES, TUnit::BYTES, 1);
+    _min_output_block_bytes_counter = ADD_COUNTER_WITH_LEVEL(
+            _common_profile, profile::MIN_OUTPUT_BLOCK_BYTES, TUnit::BYTES, 1);
     _projection_timer = ADD_TIMER_WITH_LEVEL(_common_profile, profile::PROJECTION_TIME, 2);
     _init_timer = ADD_TIMER_WITH_LEVEL(_common_profile, profile::INIT_TIME, 2);
     _open_timer = ADD_TIMER_WITH_LEVEL(_common_profile, profile::OPEN_TIME, 2);

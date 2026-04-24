@@ -367,6 +367,36 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     // Read options will not change, so that just resize here
     _block_rowids.resize(_opts.block_row_max);
 
+    // Adaptive batch size: snapshot the initial row limit and create predictor if enabled.
+    _initial_block_row_max = _opts.block_row_max;
+    if (config::enable_adaptive_batch_size && _opts.preferred_block_size_bytes > 0) {
+        // Collect per-column raw byte metadata from the segment footer.
+        std::vector<AdaptiveBlockSizePredictor::ColumnMetadata> col_metadata;
+        uint32_t seg_rows = _segment->num_rows();
+        if (seg_rows > 0) {
+            const auto& ts = _segment->tablet_schema();
+            if (ts) {
+                for (ColumnId cid : _opts.adaptive_batch_output_columns) {
+                    if (static_cast<size_t>(cid) < ts->num_columns()) {
+                        int32_t uid = ts->column(cid).unique_id();
+                        uint64_t raw_bytes = _segment->column_raw_data_bytes(uid);
+                        if (uid >= 0 && raw_bytes > 0) {
+                            col_metadata.push_back({cid, raw_bytes});
+                        }
+                    }
+                }
+            }
+        }
+
+        auto [metadata_hint_bytes_per_row, col_bpr] =
+                AdaptiveBlockSizePredictor::compute_metadata_hints(seg_rows, col_metadata);
+
+        _block_size_predictor = std::make_unique<AdaptiveBlockSizePredictor>(
+                _opts.preferred_block_size_bytes, _opts.preferred_max_col_bytes,
+                metadata_hint_bytes_per_row, std::move(col_bpr),
+                AdaptiveBlockSizePredictor::kDefaultProbeRows, _opts.block_row_max);
+    }
+
     _remaining_conjunct_roots = opts.remaining_conjunct_roots;
 
     if (_schema->rowid_col_idx() > 0) {
@@ -490,10 +520,14 @@ Status SegmentIterator::_lazy_init(Block* block) {
         _range_iter.reset(new BitmapRangeIterator(_row_bitmap));
     }
 
-    // If the row bitmap size is smaller than block_row_max, there's no need to reserve that many column rows.
-    auto nrows_reserve_limit = std::min(_row_bitmap.cardinality(), uint64_t(_opts.block_row_max));
+    // Reserve columns for _initial_block_row_max (the original max before any adaptive
+    // prediction) because the predictor may increase block_row_max on subsequent batches
+    // up to this ceiling. Using the current (possibly reduced) _opts.block_row_max would
+    // cause heap-buffer-overflow if a later prediction is larger.
+    auto nrows_reserve_limit =
+            std::min(_row_bitmap.cardinality(), uint64_t(_initial_block_row_max));
     if (_lazy_materialization_read || _opts.record_rowids || _is_need_expr_eval) {
-        _block_rowids.resize(_opts.block_row_max);
+        _block_rowids.resize(_initial_block_row_max);
     }
     _current_return_columns.resize(_schema->columns().size());
 
@@ -2509,6 +2543,28 @@ Status SegmentIterator::next_batch(Block* block) {
     _init_virtual_columns(block);
     auto status = [&]() {
         RETURN_IF_CATCH_EXCEPTION({
+            // Adaptive batch size: predict how many rows this batch should read.
+            if (_block_size_predictor) {
+                auto predicted = static_cast<uint32_t>(_block_size_predictor->predict_next_rows());
+                _opts.block_row_max = std::min(predicted, _initial_block_row_max);
+                _opts.stats->adaptive_batch_size_predict_min_rows =
+                        std::min(_opts.stats->adaptive_batch_size_predict_min_rows,
+                                 static_cast<int64_t>(predicted));
+                _opts.stats->adaptive_batch_size_predict_max_rows =
+                        std::max(_opts.stats->adaptive_batch_size_predict_max_rows,
+                                 static_cast<int64_t>(predicted));
+            } else {
+                // No predictor — record the fixed batch size using min/max so we don't
+                // clobber values already accumulated by other segment iterators that
+                // share the same OlapReaderStatistics.
+                _opts.stats->adaptive_batch_size_predict_min_rows =
+                        std::min(_opts.stats->adaptive_batch_size_predict_min_rows,
+                                 static_cast<int64_t>(_opts.block_row_max));
+                _opts.stats->adaptive_batch_size_predict_max_rows =
+                        std::max(_opts.stats->adaptive_batch_size_predict_max_rows,
+                                 static_cast<int64_t>(_opts.block_row_max));
+            }
+
             auto res = _next_batch_internal(block);
 
             if (res.is<END_OF_FILE>()) {
@@ -2553,6 +2609,13 @@ Status SegmentIterator::next_batch(Block* block) {
             }
 
             RETURN_IF_ERROR(block->check_type_and_column());
+
+            // Adaptive batch size: update EWMA estimate from the completed batch.
+            // block->bytes() is accurate here: predicates have been applied and non-predicate
+            // columns have been filled for surviving rows by _next_batch_internal.
+            if (_block_size_predictor && block->rows() > 0) {
+                _block_size_predictor->update(*block, _opts.adaptive_batch_output_columns);
+            }
 
             return Status::OK();
         });

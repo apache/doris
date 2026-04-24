@@ -183,6 +183,21 @@ Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
     _runtime_filter_partition_pruned_range_counter =
             ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
                                    "RuntimeFilterPartitionPrunedRangeNum", TUnit::UNIT, 1);
+    // Keep the current file's adaptive state while also preserving the peak value across all
+    // files handled by this scanner instance.
+    _adaptive_batch_predicted_rows_counter =
+            _local_state->scanner_profile()->AddHighWaterMarkCounter(
+                    "AdaptiveBatchPredictedRows", TUnit::UNIT, RuntimeProfile::ROOT_COUNTER, 1);
+    _adaptive_batch_actual_bytes_before_truncate_counter =
+            _local_state->scanner_profile()->AddHighWaterMarkCounter(
+                    "AdaptiveBatchActualBytesBeforeTruncate", TUnit::BYTES,
+                    RuntimeProfile::ROOT_COUNTER, 1);
+    _adaptive_batch_actual_bytes_after_truncate_counter =
+            _local_state->scanner_profile()->AddHighWaterMarkCounter(
+                    "AdaptiveBatchActualBytesAfterTruncate", TUnit::BYTES,
+                    RuntimeProfile::ROOT_COUNTER, 1);
+    _adaptive_batch_probe_count_counter = ADD_COUNTER_WITH_LEVEL(
+            _local_state->scanner_profile(), "AdaptiveBatchProbeCount", TUnit::UNIT, 1);
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
     _file_reader_stats.reset(new io::FileReaderStats());
@@ -218,6 +233,111 @@ Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
             new RowDescriptor(_state->desc_tbl(), std::vector<TupleId>({_real_tuple_desc->id()})));
 
     return Status::OK();
+}
+
+bool FileScanner::_should_enable_adaptive_batch_size(TFileFormatType::type format_type) const {
+    // Only enable for readers that support set_batch_size().
+    // Table-format wrappers are covered because they delegate to native readers.
+    if (_state->preferred_block_size_bytes() == 0) {
+        return false;
+    }
+    switch (format_type) {
+    case TFileFormatType::FORMAT_PARQUET:
+    case TFileFormatType::FORMAT_ORC:
+    case TFileFormatType::FORMAT_CSV_PLAIN:
+    case TFileFormatType::FORMAT_CSV_GZ:
+    case TFileFormatType::FORMAT_CSV_BZ2:
+    case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+    case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
+    case TFileFormatType::FORMAT_CSV_LZOP:
+    case TFileFormatType::FORMAT_CSV_DEFLATE:
+    case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
+    case TFileFormatType::FORMAT_PROTO:
+    case TFileFormatType::FORMAT_TEXT:
+    case TFileFormatType::FORMAT_JSON:
+    case TFileFormatType::FORMAT_JNI:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool FileScanner::_should_run_adaptive_batch_size() const {
+    return _block_size_predictor != nullptr && _get_push_down_agg_type() != TPushAggOp::type::COUNT;
+}
+
+void FileScanner::_reset_adaptive_batch_size_state() {
+    _block_size_predictor.reset();
+    _adaptive_batch_output_column_ids.clear();
+    COUNTER_SET(_adaptive_batch_predicted_rows_counter, int64_t(0));
+    COUNTER_SET(_adaptive_batch_actual_bytes_before_truncate_counter, int64_t(0));
+    COUNTER_SET(_adaptive_batch_actual_bytes_after_truncate_counter, int64_t(0));
+}
+
+void FileScanner::_init_adaptive_batch_size_state(TFileFormatType::type format_type) {
+    _reset_adaptive_batch_size_state();
+    if (!_should_enable_adaptive_batch_size(format_type)) {
+        return;
+    }
+
+    // External file readers do not provide reliable memory-size metadata hints. Use a small probe
+    // batch so the predictor can learn from real FileScanner output quickly.
+    _block_size_predictor = std::make_unique<AdaptiveBlockSizePredictor>(
+            _state->preferred_block_size_bytes(),
+            _state->preferred_max_column_in_block_size_bytes(), 0.0,
+            std::unordered_map<ColumnId, double> {}, ADAPTIVE_BATCH_INITIAL_PROBE_ROWS,
+            _state->batch_size());
+}
+
+size_t FileScanner::_predict_reader_batch_rows() {
+    DCHECK(_block_size_predictor != nullptr);
+    size_t predicted_rows = _block_size_predictor->predict_next_rows();
+    COUNTER_SET(_adaptive_batch_predicted_rows_counter, static_cast<int64_t>(predicted_rows));
+    return predicted_rows;
+}
+
+void FileScanner::_ensure_adaptive_batch_output_column_ids(const Block& block) {
+    if (!_adaptive_batch_output_column_ids.empty()) {
+        DCHECK_EQ(_adaptive_batch_output_column_ids.size(), block.columns());
+        return;
+    }
+
+    _adaptive_batch_output_column_ids.reserve(block.columns());
+    for (size_t i = 0; i < block.columns(); ++i) {
+        _adaptive_batch_output_column_ids.push_back(static_cast<ColumnId>(i));
+    }
+}
+
+void FileScanner::_update_adaptive_batch_size_before_truncate(const Block& block) {
+    if (!_should_run_adaptive_batch_size()) {
+        return;
+    }
+
+    // Learn from the logical bytes before CHAR/VARCHAR truncation. The truncated block can be
+    // much smaller than the data the reader and FileScanner have already materialized.
+    COUNTER_SET(_adaptive_batch_actual_bytes_before_truncate_counter,
+                static_cast<int64_t>(block.bytes()));
+    if (block.rows() == 0) {
+        return;
+    }
+
+    _ensure_adaptive_batch_output_column_ids(block);
+    // Count a probe only when we actually obtain the first non-empty sample that seeds history.
+    if (!_block_size_predictor->has_history()) {
+        COUNTER_UPDATE(_adaptive_batch_probe_count_counter, 1);
+    }
+    _block_size_predictor->update(block, _adaptive_batch_output_column_ids);
+}
+
+void FileScanner::_update_adaptive_batch_size_after_truncate(const Block& block) {
+    if (!_should_run_adaptive_batch_size()) {
+        return;
+    }
+
+    // Keep the post-truncate size only for observability. It should not affect the next batch
+    // because truncation happens after the upstream memory cost has already been paid.
+    COUNTER_SET(_adaptive_batch_actual_bytes_after_truncate_counter,
+                static_cast<int64_t>(block.bytes()));
 }
 
 // check if the expr is a partition pruning expr
@@ -483,6 +603,10 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
         // For query job, simply set _src_block_ptr to block.
         size_t read_rows = 0;
         RETURN_IF_ERROR(_init_src_block(block));
+
+        if (_should_run_adaptive_batch_size()) {
+            _cur_reader->set_batch_size(_predict_reader_batch_rows());
+        }
         {
             SCOPED_TIMER(_get_block_timer);
 
@@ -774,9 +898,13 @@ Status FileScanner::_process_src_block_after_read(Block* block) {
 }
 
 Status FileScanner::_process_src_block_after_read_for_query(Block* block) {
+    _update_adaptive_batch_size_before_truncate(*block);
+
     // Truncate CHAR/VARCHAR columns when target size is smaller than file schema.
     // This is needed for external table queries with truncate_char_or_varchar_columns=true.
     RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
+
+    _update_adaptive_batch_size_after_truncate(*block);
     return Status::OK();
 }
 
@@ -801,8 +929,13 @@ Status FileScanner::_process_src_block_after_read_for_load(Block* block) {
 
     // Convert src block to output block (dest block), then apply filters.
     RETURN_IF_ERROR(_convert_to_output_block(block));
+
+    _update_adaptive_batch_size_before_truncate(*block);
+
     // Truncate CHAR/VARCHAR columns when target size is smaller than file schema.
     RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
+
+    _update_adaptive_batch_size_after_truncate(*block);
     return Status::OK();
 }
 
@@ -900,6 +1033,7 @@ Status FileScanner::_get_next_reader() {
             _state->update_num_finished_scan_range(1);
         }
         _cur_reader.reset(nullptr);
+        _reset_adaptive_batch_size_state();
         _src_block_init = false;
         bool has_next = _first_scan_range;
         if (!_first_scan_range) {
@@ -1224,6 +1358,7 @@ Status FileScanner::_get_next_reader() {
             }
         }
         _cur_reader_eof = false;
+        _init_adaptive_batch_size_state(format_type);
         break;
     }
     return Status::OK();

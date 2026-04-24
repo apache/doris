@@ -80,6 +80,7 @@ protected:
     RuntimeProfile::Counter* _deserialize_data_timer = nullptr;
     RuntimeProfile::Counter* _memory_usage_container = nullptr;
     RuntimeProfile::Counter* _memory_usage_arena = nullptr;
+    size_t _estimated_row_bytes = 0;
 
     using vectorized_get_result =
             std::function<Status(RuntimeState* state, Block* block, bool* eos)>;

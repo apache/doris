@@ -22,7 +22,6 @@
 #include "exec/exchange/local_exchange_sink_operator.h"
 #include "exec/exchange/local_exchange_source_operator.h"
 #include "exec/partitioner/partitioner.h"
-
 namespace doris {
 template <typename BlockType>
 void Exchanger<BlockType>::_enqueue_data_and_set_ready(int channel_id,
@@ -155,7 +154,11 @@ Status ShuffleExchanger::get_block(RuntimeState* state, Block* block, bool* eos,
             auto block_wrapper = partitioned_block.first;
             RETURN_IF_ERROR(mutable_block.add_rows(&block_wrapper->_data_block, offset_start,
                                                    offset_start + partitioned_block.second.length));
-        } while (mutable_block.rows() < state->batch_size() && !*eos &&
+            if (source_info.local_state->block_budget().exceeded(mutable_block.rows(),
+                                                                 mutable_block.bytes())) {
+                break;
+            }
+        } while (mutable_block.rows() < source_info.local_state->block_budget().max_rows && !*eos &&
                  _dequeue_data(source_info.local_state, partitioned_block, eos, block,
                                source_info.channel_id));
         return Status::OK();
