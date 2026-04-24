@@ -334,8 +334,6 @@ Status NestedLoopJoinProbeLocalState::generate_inner_join_block_data(RuntimeStat
     RETURN_IF_ERROR(
             (_do_filtering_and_update_visited_flags<false, false, false>(&_join_block, true)));
     _update_additional_flags(&_join_block);
-
-    COUNTER_UPDATE(_probe_rows_counter, _join_block.rows());
     return Status::OK();
 }
 
@@ -392,7 +390,6 @@ Status NestedLoopJoinProbeLocalState::generate_other_join_block_data(RuntimeStat
                     _join_block, state->batch_size());
         }
     }
-    COUNTER_UPDATE(_probe_rows_counter, _join_block.rows());
     return Status::OK();
 }
 

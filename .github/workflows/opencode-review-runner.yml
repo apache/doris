@@ -12,6 +12,10 @@ on:
       base_sha:
         required: true
         type: string
+      review_focus:
+        required: false
+        type: string
+        default: ''
 
 permissions:
   pull-requests: write
@@ -66,6 +70,76 @@ jobs:
         run: |
           echo '{"permission":"allow"}' > opencode.json
 
+      - name: Fetch existing PR review threads
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          MAX_THREADS=30
+          MAX_BODY_CHARS=1200
+
+          if gh api --paginate --slurp repos/${REPO}/pulls/${PR_NUMBER}/comments > /tmp/pr_review_comments_pages.json 2>/tmp/pr_review_comments_error.log \
+            && jq 'add | sort_by((.in_reply_to_id // .id), .id)' /tmp/pr_review_comments_pages.json > /tmp/pr_review_comments.json 2>>/tmp/pr_review_comments_error.log \
+            && jq -r '
+              def shorten($limit):
+                if (. // "" | length) > $limit then
+                  .[0:$limit] + "...(truncated)"
+                else
+                  . // ""
+                end;
+              if length == 0 then
+                "No existing inline review comments or replies were found for this PR."
+              else
+                group_by(.in_reply_to_id // .id)
+                | sort_by(.[0].created_at // "")
+                | reverse
+                | .[:$max_threads]
+                | map(
+                    . as $thread
+                    | $thread[0] as $root
+                    | "### " + ($root.path // "(unknown path)") + ":" + (($root.line // $root.original_line // "n/a") | tostring)
+                    + "\nURL: " + ($root.html_url // "")
+                    + "\nComments:\n"
+                    + (
+                        $thread
+                        | map(
+                            "- " + (.user.login // "unknown")
+                            + " at " + (.created_at // "")
+                            + (if .in_reply_to_id then " (reply):" else " (original comment):" end)
+                            + "\n"
+                            + ((.body | shorten($max_body_chars)) | split("\n") | map("    " + .) | join("\n"))
+                          )
+                        | join("\n")
+                      )
+                )
+                | join("\n\n")
+              end
+            ' --argjson max_threads "$MAX_THREADS" --argjson max_body_chars "$MAX_BODY_CHARS" /tmp/pr_review_comments.json > /tmp/pr_review_threads.md 2>>/tmp/pr_review_comments_error.log; then
+            echo "Fetched existing PR review threads successfully."
+          else
+            printf '%s\n\n' \
+              'Existing PR review threads could not be fetched or formatted for this run.' \
+              'Proceed with the automated review without this auxiliary context.' \
+              > /tmp/pr_review_threads.md
+            if [ -s /tmp/pr_review_comments_error.log ]; then
+              {
+                printf '\n%s\n' 'Fetch/format error details:'
+                sed 's/^/    /' /tmp/pr_review_comments_error.log
+              } >> /tmp/pr_review_threads.md
+            fi
+          fi
+
+      - name: Prepare user review focus
+        env:
+          REVIEW_FOCUS: ${{ inputs.review_focus }}
+        run: |
+          if [ -n "$(printf '%s' "$REVIEW_FOCUS" | tr -d '[:space:]')" ]; then
+            printf '%s\n' "$REVIEW_FOCUS" > /tmp/review_focus.txt
+          else
+            printf 'No additional user-provided review focus.\n' > /tmp/review_focus.txt
+          fi
+
       - name: Prepare review prompt
         run: |
           cat > /tmp/review_prompt.txt <<'PROMPT'
@@ -79,8 +153,16 @@ jobs:
           - PR number: PLACEHOLDER_PR_NUMBER
           - PR Head SHA: PLACEHOLDER_HEAD_SHA
           - PR Base SHA: PLACEHOLDER_BASE_SHA
+          - Existing inline review threads: /tmp/pr_review_threads.md
+          - Raw inline review comments JSON: /tmp/pr_review_comments.json
+          - User review focus: /tmp/review_focus.txt
 
           Before reviewing any code, you MUST read and follow the code review skill in this repository. During review, you must strictly follow those instructions.
+          Before proposing any new issue, you MUST read /tmp/pr_review_threads.md and treat every existing inline comment thread and reply as already-known review context.
+          Do NOT submit the same or substantially similar issue again if it has already been raised in the existing review threads, even if you would phrase it differently.
+          Only raise a similar concern when the PR introduces a genuinely different instance in another location that is not already covered by the existing thread, and explain why it is distinct.
+          You MUST also read /tmp/review_focus.txt. Perform a complete review of the whole PR as usual, and additionally pay special attention to the user-provided focus points from that file.
+          In the final summary, include a short response to the user focus points, including when no additional issue was found for them.
           In addition, you can perform any desired review operations to observe suspicious code and details in order to identify issues as much as possible.
 
           ## Final response format

@@ -135,7 +135,7 @@ public class FEOpExecutor {
             forwardMsg.append(" : failed");
             Exception exception = new ForwardToMasterException(forwardMsg.toString(), e);
 
-            boolean ok = ClientPool.frontendPool.reopen(client, thriftTimeoutMs);
+            boolean ok = ClientPool.frontendPool.reopenOrClear(feAddr, client, thriftTimeoutMs);
             if (!ok) {
                 throw exception;
             }

@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterV2;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -168,10 +167,10 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
             sb.append("[").append(shuffleType).append("]");
         }
 
-        if (!runtimeFiltersV2.isEmpty()) {
-            sb.append(" RFV2:");
-            for (RuntimeFilterV2 rf : runtimeFiltersV2) {
-                sb.append(rf.shapeInfo());
+        if (!runtimeFilters.isEmpty()) {
+            sb.append(" build RFs:");
+            for (RuntimeFilter rf : runtimeFilters) {
+                sb.append(rf.shapeInfo()).append(" ");
             }
         }
         return sb.toString();

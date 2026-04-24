@@ -165,6 +165,27 @@ if (DEFINED ENV{PAIMON_HOME} AND NOT PAIMON_HOME)
     set(PAIMON_HOME "$ENV{PAIMON_HOME}" CACHE PATH "" FORCE)
 endif()
 
+option(BUILD_RUST_READERS "Build Rust-based format readers (Lance, etc.)" OFF)
+if (DEFINED ENV{BUILD_RUST_READERS})
+    set(BUILD_RUST_READERS "$ENV{BUILD_RUST_READERS}" CACHE BOOL "" FORCE)
+endif()
+# Auto-enable if pre-built Rust library exists (from zigbuild or manylinux2014)
+if (NOT BUILD_RUST_READERS)
+    if (EXISTS "${SRC_DIR}/rust/doris-native/target/x86_64-unknown-linux-gnu/release/libdoris_ffi.a"
+        OR EXISTS "${SRC_DIR}/rust/doris-native/target/release/libdoris_ffi.a")
+        set(BUILD_RUST_READERS ON)
+        message(STATUS "Auto-enabling BUILD_RUST_READERS: pre-built library found")
+    endif()
+endif()
+if (BUILD_RUST_READERS)
+    # rust.cmake detects pre-built .a or builds via Corrosion.
+    # If neither exists, it sets BUILD_RUST_READERS=OFF and returns.
+    include(cmake/rust.cmake)
+endif()
+if (BUILD_RUST_READERS)
+    add_definitions(-DBUILD_RUST_READERS)
+endif()
+
 set(CMAKE_SKIP_RPATH TRUE)
 set(Boost_USE_STATIC_LIBS ON)
 set(Boost_USE_STATIC_RUNTIME ON)
@@ -684,6 +705,10 @@ if (ENABLE_PAIMON_CPP)
     set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} xxhash_paimon)
     set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} fmt_paimon)
     set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} tbb_paimon)
+endif()
+
+if (BUILD_RUST_READERS)
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} doris_ffi_lib)
 endif()
 
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})

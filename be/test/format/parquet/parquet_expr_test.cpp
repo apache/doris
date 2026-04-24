@@ -279,10 +279,14 @@ public:
                                                 &ctz, nullptr, nullptr);
         p_reader->set_file_reader(local_file_reader);
         colname_to_slot_id.emplace("int64_col", 2);
-        phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-        static_cast<void>(p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp,
-                                                tuple_desc, nullptr, &colname_to_slot_id, nullptr,
-                                                nullptr));
+        ParquetInitContext pq_ctx;
+        pq_ctx.column_names = column_names;
+        pq_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+        pq_ctx.tuple_descriptor = tuple_desc;
+        pq_ctx.colname_to_slot_id = &colname_to_slot_id;
+        pq_ctx.params = &scan_params;
+        pq_ctx.range = &scan_range;
+        static_cast<void>(p_reader->init_reader(&pq_ctx));
 
         size_t meta_size;
         static_cast<void>(parse_thrift_footer(p_reader->_file_reader, &doris_file_metadata,
@@ -326,15 +330,16 @@ public:
         auto local_reader = ParquetReader::create_unique(
                 nullptr, scan_params, scan_range, scan_range.size, &local_ctz, nullptr, nullptr);
         local_reader->set_file_reader(local_file_reader);
-        phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-        static_cast<void>(local_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp,
-                                                    tuple_desc, nullptr, nullptr, nullptr,
-                                                    nullptr));
+        ParquetInitContext pq_ctx2;
+        pq_ctx2.column_names = column_names;
+        pq_ctx2.col_name_to_block_idx = &col_name_to_block_idx;
+        pq_ctx2.tuple_descriptor = tuple_desc;
+        pq_ctx2.params = &scan_params;
+        pq_ctx2.range = &scan_range;
+        static_cast<void>(local_reader->init_reader(&pq_ctx2));
 
-        std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-                partition_columns;
-        std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-        static_cast<void>(local_reader->set_fill_columns(partition_columns, missing_columns));
+        // set_fill_columns logic is now inlined in _do_init_reader,
+        // so no separate call is needed.
 
         bool eof = false;
         std::string dump;

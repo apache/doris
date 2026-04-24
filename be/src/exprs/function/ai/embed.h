@@ -70,21 +70,57 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionEmbed>(); }
 
 private:
+    static int32_t _get_embed_max_batch_size(FunctionContext* context) {
+        QueryContext* query_ctx = context->state()->get_query_ctx();
+        DORIS_CHECK(query_ctx != nullptr);
+
+        return query_ctx->query_options().embed_max_batch_size;
+    }
+
     Status _execute_text_embed(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count, const TAIResource& config,
                                std::shared_ptr<AIAdapter>& adapter) const {
         auto col_result = ColumnArray::create(
                 ColumnNullable::create(ColumnFloat32::create(), ColumnUInt8::create()));
+        std::vector<std::string> batch_prompts;
+        size_t current_batch_size = 0;
+        const int32_t max_batch_size = _get_embed_max_batch_size(context);
+        const size_t max_context_window_size =
+                static_cast<size_t>(get_ai_context_window_size(context));
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             std::string prompt;
             RETURN_IF_ERROR(build_prompt(block, arguments, i, prompt));
 
-            std::vector<float> float_result;
-            RETURN_IF_ERROR(execute_single_request(prompt, float_result, config, adapter, context));
-            _insert_embedding_result(*col_result, float_result);
+            const size_t prompt_size = prompt.size();
+
+            if (prompt_size > max_context_window_size) {
+                // flush history batch
+                RETURN_IF_ERROR(_flush_text_embedding_batch(batch_prompts, *col_result, config,
+                                                            adapter, context));
+                current_batch_size = 0;
+
+                batch_prompts.emplace_back(std::move(prompt));
+                RETURN_IF_ERROR(_flush_text_embedding_batch(batch_prompts, *col_result, config,
+                                                            adapter, context));
+                continue;
+            }
+
+            if (!batch_prompts.empty() &&
+                (current_batch_size + prompt_size > max_context_window_size ||
+                 batch_prompts.size() >= static_cast<size_t>(max_batch_size))) {
+                RETURN_IF_ERROR(_flush_text_embedding_batch(batch_prompts, *col_result, config,
+                                                            adapter, context));
+                current_batch_size = 0;
+            }
+
+            batch_prompts.emplace_back(std::move(prompt));
+            current_batch_size += prompt_size;
         }
+
+        RETURN_IF_ERROR(
+                _flush_text_embedding_batch(batch_prompts, *col_result, config, adapter, context));
 
         block.replace_by_position(result, std::move(col_result));
         return Status::OK();
@@ -96,6 +132,9 @@ private:
                                      std::shared_ptr<AIAdapter>& adapter) const {
         auto col_result = ColumnArray::create(
                 ColumnNullable::create(ColumnFloat32::create(), ColumnUInt8::create()));
+        std::vector<MultimodalType> batch_media_types;
+        std::vector<std::string> batch_media_content_types;
+        std::vector<std::string> batch_media_urls;
 
         int64_t ttl_seconds = 3600;
         QueryContext* query_ctx = context->state()->get_query_ctx();
@@ -106,28 +145,121 @@ private:
             }
         }
 
+        const int32_t max_batch_size = _get_embed_max_batch_size(context);
+
         const ColumnWithTypeAndName& file_column = block.get_by_position(arguments[1]);
         for (size_t i = 0; i < input_rows_count; ++i) {
             rapidjson::Document file_input;
             RETURN_IF_ERROR(_parse_file_input(file_column, i, file_input));
 
+            std::string content_type;
             MultimodalType media_type;
-            RETURN_IF_ERROR(_infer_media_type(file_input, media_type));
+            RETURN_IF_ERROR(_infer_media_type(file_input, content_type, media_type));
 
             std::string media_url;
             RETURN_IF_ERROR(_resolve_media_url(file_input, ttl_seconds, media_url));
 
-            std::string request_body;
-            RETURN_IF_ERROR(adapter->build_multimodal_embedding_request(media_type, media_url,
-                                                                        request_body));
+            if (!batch_media_urls.empty() &&
+                batch_media_urls.size() >= static_cast<size_t>(max_batch_size)) {
+                RETURN_IF_ERROR(_flush_multimodal_embedding_batch(
+                        batch_media_types, batch_media_content_types, batch_media_urls, *col_result,
+                        config, adapter, context));
+            }
 
-            std::vector<float> float_result;
-            RETURN_IF_ERROR(execute_embedding_request(request_body, float_result, config, adapter,
-                                                      context));
-            _insert_embedding_result(*col_result, float_result);
+            batch_media_types.emplace_back(media_type);
+            batch_media_content_types.emplace_back(std::move(content_type));
+            batch_media_urls.emplace_back(std::move(media_url));
         }
 
+        RETURN_IF_ERROR(_flush_multimodal_embedding_batch(
+                batch_media_types, batch_media_content_types, batch_media_urls, *col_result, config,
+                adapter, context));
+
         block.replace_by_position(result, std::move(col_result));
+        return Status::OK();
+    }
+
+    // EMBED-private helper.
+    // Sends one embedding request with a prebuilt request body and validates returned row count.
+    Status _execute_prebuilt_embedding_request(const std::string& request_body,
+                                               std::vector<std::vector<float>>& results,
+                                               size_t expected_size, const TAIResource& config,
+                                               std::shared_ptr<AIAdapter>& adapter,
+                                               FunctionContext* context) const {
+        std::string response;
+#ifdef BE_TEST
+        if (config.provider_type == "MOCK") {
+            results.clear();
+            results.reserve(expected_size);
+            for (size_t i = 0; i < expected_size; ++i) {
+                results.emplace_back(std::initializer_list<float> {0, 1, 2, 3, 4});
+            }
+            return Status::OK();
+        }
+#endif
+
+        RETURN_IF_ERROR(
+                this->send_request_to_llm(request_body, response, config, adapter, context));
+
+        RETURN_IF_ERROR(adapter->parse_embedding_response(response, results));
+        if (results.empty()) {
+            return Status::InternalError("AI returned empty result");
+        }
+        if (results.size() != expected_size) [[unlikely]] {
+            return Status::InternalError(
+                    "AI embedding returned {} results, but {} inputs were sent", results.size(),
+                    expected_size);
+        }
+        return Status::OK();
+    }
+
+    // EMBED-private helper.
+    // Flushes one accumulated text embedding batch into the output array column.
+    Status _flush_text_embedding_batch(std::vector<std::string>& batch_prompts,
+                                       ColumnArray& col_result, const TAIResource& config,
+                                       std::shared_ptr<AIAdapter>& adapter,
+                                       FunctionContext* context) const {
+        if (batch_prompts.empty()) {
+            return Status::OK();
+        }
+
+        std::string request_body;
+        RETURN_IF_ERROR(adapter->build_embedding_request(batch_prompts, request_body));
+        std::vector<std::vector<float>> batch_results;
+        RETURN_IF_ERROR(_execute_prebuilt_embedding_request(
+                request_body, batch_results, batch_prompts.size(), config, adapter, context));
+        for (const auto& batch_result : batch_results) {
+            _insert_embedding_result(col_result, batch_result);
+        }
+        batch_prompts.clear();
+        return Status::OK();
+    }
+
+    // EMBED-private helper.
+    // Flushes one accumulated multimodal embedding batch into the output array column.
+    Status _flush_multimodal_embedding_batch(std::vector<MultimodalType>& batch_media_types,
+                                             std::vector<std::string>& batch_media_content_types,
+                                             std::vector<std::string>& batch_media_urls,
+                                             ColumnArray& col_result, const TAIResource& config,
+                                             std::shared_ptr<AIAdapter>& adapter,
+                                             FunctionContext* context) const {
+        if (batch_media_urls.empty()) {
+            return Status::OK();
+        }
+
+        std::string request_body;
+        RETURN_IF_ERROR(adapter->build_multimodal_embedding_request(
+                batch_media_types, batch_media_urls, batch_media_content_types, request_body));
+
+        std::vector<std::vector<float>> batch_results;
+        RETURN_IF_ERROR(_execute_prebuilt_embedding_request(
+                request_body, batch_results, batch_media_urls.size(), config, adapter, context));
+        for (const auto& batch_result : batch_results) {
+            _insert_embedding_result(col_result, batch_result);
+        }
+        batch_media_types.clear();
+        batch_media_content_types.clear();
+        batch_media_urls.clear();
         return Status::OK();
     }
 
@@ -157,9 +289,8 @@ private:
         });
     }
 
-    static Status _infer_media_type(const rapidjson::Value& file_input,
+    static Status _infer_media_type(const rapidjson::Value& file_input, std::string& content_type,
                                     MultimodalType& media_type) {
-        std::string content_type;
         RETURN_IF_ERROR(_get_required_string_field(file_input, "content_type", content_type));
 
         if (_starts_with_ignore_case(content_type, "image/")) {

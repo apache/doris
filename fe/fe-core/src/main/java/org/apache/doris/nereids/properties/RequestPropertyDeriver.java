@@ -39,7 +39,9 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalConnectorTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
@@ -50,7 +52,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergDeleteSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
@@ -210,10 +211,19 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     }
 
     @Override
-    public Void visitPhysicalJdbcTableSink(
-            PhysicalJdbcTableSink<? extends Plan> jdbcTableSink, PlanContext context) {
-        // Always use gather properties for jdbcTableSink
-        addRequestPropertyToChildren(PhysicalProperties.GATHER);
+    public Void visitPhysicalConnectorTableSink(
+            PhysicalConnectorTableSink<? extends Plan> connectorTableSink, PlanContext context) {
+        PhysicalProperties requiredProps = connectorTableSink.getRequirePhysicalProperties();
+        if (PhysicalProperties.GATHER.equals(requiredProps)) {
+            // Connector does not support parallel write (e.g., JDBC, ES).
+            // Always gather to a single writer for transactional safety.
+            addRequestPropertyToChildren(PhysicalProperties.GATHER);
+        } else if (connectContext != null
+                && !connectContext.getSessionVariable().isEnableStrictConsistencyDml()) {
+            addRequestPropertyToChildren(PhysicalProperties.ANY);
+        } else {
+            addRequestPropertyToChildren(requiredProps);
+        }
         return null;
     }
 
@@ -535,6 +545,14 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             }
             addRequestPropertyToChildren(PhysicalProperties.createHash(groupByExprIds, ShuffleType.REQUIRE));
         }
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalBucketedHashAggregate(
+            PhysicalBucketedHashAggregate<? extends Plan> agg, PlanContext context) {
+        // Bucketed agg runs entirely on a single BE — no exchange needed.
+        addRequestPropertyToChildren(PhysicalProperties.ANY);
         return null;
     }
 

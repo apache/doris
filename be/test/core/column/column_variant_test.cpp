@@ -3082,30 +3082,6 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
     }
 }
 
-TEST_F(ColumnVariantTest, field_visitor) {
-    // Test replacing scalar values in a flat array
-    {
-        Array array;
-        array.push_back(Field::create_field<TYPE_BIGINT>(Int64(1)));
-        array.push_back(Field::create_field<TYPE_BIGINT>(Int64(2)));
-        array.push_back(Field::create_field<TYPE_BIGINT>(Int64(3)));
-
-        Field field = Field::create_field<TYPE_ARRAY>(std::move(array));
-        Field replacement = Field::create_field<TYPE_BIGINT>(Int64(42));
-        Field result = apply_visitor(FieldVisitorReplaceScalars(replacement, 0), field);
-
-        EXPECT_EQ(result.get<TYPE_BIGINT>(), 42);
-
-        Field replacement1 = Field::create_field<TYPE_BIGINT>(Int64(42));
-        Field result1 = apply_visitor(FieldVisitorReplaceScalars(replacement, 1), field);
-
-        EXPECT_EQ(result1.get<TYPE_ARRAY>().size(), 3);
-        EXPECT_EQ(result1.get<TYPE_ARRAY>()[0].get<TYPE_BIGINT>(), 42);
-        EXPECT_EQ(result1.get<TYPE_ARRAY>()[1].get<TYPE_BIGINT>(), 42);
-        EXPECT_EQ(result1.get<TYPE_ARRAY>()[2].get<TYPE_BIGINT>(), 42);
-    }
-}
-
 TEST_F(ColumnVariantTest, subcolumn_operations_coverage) {
     // Test insert_range_from
     {

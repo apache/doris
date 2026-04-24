@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalConnectorTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
@@ -43,7 +44,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
@@ -284,9 +284,15 @@ public class ShuffleKeyPruner extends PlanPostProcessor {
         }
 
         @Override
-        public Plan visitPhysicalJdbcTableSink(
-                PhysicalJdbcTableSink<? extends Plan> jdbcTableSink, PruneCtx ctx) {
-            return rewriteUnary(jdbcTableSink, ctx.withAllowShuffleKeyPrune(false));
+        public Plan visitPhysicalConnectorTableSink(
+                PhysicalConnectorTableSink<? extends Plan> connectorSink, PruneCtx ctx) {
+            boolean childAllowShuffleKeyPrune;
+            if (connectorSink.getRequirePhysicalProperties().equals(PhysicalProperties.ANY)) {
+                childAllowShuffleKeyPrune = true;
+            } else {
+                childAllowShuffleKeyPrune = false;
+            }
+            return rewriteUnary(connectorSink, ctx.withAllowShuffleKeyPrune(childAllowShuffleKeyPrune));
         }
 
         @Override

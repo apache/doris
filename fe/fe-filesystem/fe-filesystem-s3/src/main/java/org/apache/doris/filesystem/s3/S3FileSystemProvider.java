@@ -40,9 +40,13 @@ public class S3FileSystemProvider implements FileSystemProvider {
         String accessKey = normalized.get(S3ObjStorage.PROP_ACCESS_KEY);
         String endpoint = normalized.get(S3ObjStorage.PROP_ENDPOINT);
         String region = normalized.get(S3ObjStorage.PROP_REGION);
-        // Require access key + (endpoint or region)
-        return accessKey != null && !accessKey.isEmpty()
-                && (endpoint != null || region != null);
+        String roleArn = normalized.get(S3ObjStorage.PROP_ROLE_ARN);
+        boolean hasCredential = accessKey != null && !accessKey.isEmpty()
+                || roleArn != null && !roleArn.isEmpty();
+        boolean hasLocation = endpoint != null && !endpoint.isEmpty()
+                || region != null && !region.isEmpty();
+        // Support both AK/SK and IAM role based access for cloud snapshot and stage flows.
+        return hasCredential && hasLocation;
     }
 
     @Override

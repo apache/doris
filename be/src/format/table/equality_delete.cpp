@@ -51,8 +51,10 @@ Status SimpleEqualityDelete::filter_data_block(
     DCHECK(_delete_col_ids.size() == 1);
     auto column_field_id = _delete_col_ids[0];
 
-    auto column_and_type = data_block->get_by_position(
-            col_name_to_block_idx->at(id_to_block_column_name.at(column_field_id)));
+    const auto& block_col_name = id_to_block_column_name.at(column_field_id);
+    auto block_idx = col_name_to_block_idx->at(block_col_name);
+
+    auto column_and_type = data_block->get_by_position(block_idx);
 
     size_t rows = data_block->rows();
     //     _filter: 1 => in _hybrid_set; 0 => not in _hybrid_set

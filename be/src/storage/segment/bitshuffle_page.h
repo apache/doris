@@ -159,10 +159,6 @@ public:
     }
 
     Status finish(OwnedSlice* slice) override {
-        if (_count > 0) {
-            _first_value = cell(0);
-            _last_value = cell(_count - 1);
-        }
         RETURN_IF_CATCH_EXCEPTION({ *slice = _finish(SIZE_OF_TYPE); });
         return Status::OK();
     }
@@ -189,23 +185,6 @@ public:
     uint64_t size() const override { return _buffer.size(); }
 
     uint64_t get_raw_data_size() const override { return _raw_data_size; }
-
-    Status get_first_value(void* value) const override {
-        DCHECK(_finished);
-        if (_count == 0) {
-            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
-        }
-        memcpy(value, &_first_value, SIZE_OF_TYPE);
-        return Status::OK();
-    }
-    Status get_last_value(void* value) const override {
-        DCHECK(_finished);
-        if (_count == 0) {
-            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
-        }
-        memcpy(value, &_last_value, SIZE_OF_TYPE);
-        return Status::OK();
-    }
 
 private:
     BitshufflePageBuilder(const PageBuilderOptions& options)
@@ -265,8 +244,6 @@ private:
     bool _finished;
     faststring _data;
     faststring _buffer;
-    CppType _first_value;
-    CppType _last_value;
     uint64_t _raw_data_size = 0;
 };
 
