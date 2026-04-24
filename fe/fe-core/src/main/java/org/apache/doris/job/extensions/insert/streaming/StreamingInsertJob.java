@@ -370,6 +370,17 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     /**
+     * Validate the offset format for ALTER JOB, delegating to the provider.
+     */
+    public void validateAlterOffset(String offset) throws AnalysisException {
+        try {
+            offsetProvider.validateAlterOffset(offset);
+        } catch (Exception ex) {
+            throw new AnalysisException(ex.getMessage());
+        }
+    }
+
+    /**
      * Check whether Offset can be serialized into the corresponding data source
      * */
     public Offset validateOffset(String offsetStr) throws AnalysisException {
@@ -793,11 +804,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      */
     private void modifyPropertiesInternal(Map<String, String> inputProperties) throws AnalysisException, JobException {
         StreamingJobProperties inputStreamProps = new StreamingJobProperties(inputProperties);
-        if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty())
-                && S3TableValuedFunction.NAME.equalsIgnoreCase(this.tvfType)) {
+        if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty())) {
             Offset offset = validateOffset(inputStreamProps.getOffsetProperty());
             this.offsetProvider.updateOffset(offset);
             this.offsetProviderPersist = offsetProvider.getPersistInfo();
+            log.info("modifyPropertiesInternal: offset updated to {}, job {}",
+                    inputStreamProps.getOffsetProperty(), getJobId());
             if (Config.isCloudMode()) {
                 resetCloudProgress(offset);
             }

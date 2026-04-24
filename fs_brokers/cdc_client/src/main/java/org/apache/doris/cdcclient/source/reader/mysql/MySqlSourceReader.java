@@ -48,6 +48,7 @@ import org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlSnapshotSplit
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfig;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfigFactory;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffset;
+import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffsetKind;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffsetUtils;
 import org.apache.flink.cdc.connectors.mysql.source.split.FinishedSnapshotSplitInfo;
 import org.apache.flink.cdc.connectors.mysql.source.split.MySqlBinlogSplit;
@@ -650,18 +651,30 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         }
 
         BinlogOffset startOffset;
-        BinlogOffset lastOffset =
-                new BinlogOffset(
-                        binlogSplit.getStartingOffset() == null
-                                ? new HashMap<>()
-                                : binlogSplit.getStartingOffset());
+        Map<String, String> lastOffsetMap =
+                binlogSplit.getStartingOffset() == null
+                        ? new HashMap<>()
+                        : new HashMap<>(binlogSplit.getStartingOffset());
+        // ALTER offset may not contain "kind", supplement it for Flink CDC
+        if (lastOffsetMap.containsKey(BinlogOffset.BINLOG_FILENAME_OFFSET_KEY)
+                && !lastOffsetMap.containsKey(BinlogOffset.OFFSET_KIND_KEY)) {
+            lastOffsetMap.put(BinlogOffset.OFFSET_KIND_KEY, BinlogOffsetKind.SPECIFIC.name());
+        }
+        BinlogOffset lastOffset = new BinlogOffset(lastOffsetMap);
         if (minOffsetFinishSplits != null && lastOffset.getOffsetKind() == null) {
             startOffset = minOffsetFinishSplits;
         } else if (lastOffset.getOffsetKind() != null && lastOffset.getFilename() != null) {
             startOffset = lastOffset;
         } else if (offsetConfig != null) {
+            LOG.warn(
+                    "Falling back to startup config offset {}, meta offset was: {}",
+                    offsetConfig,
+                    lastOffsetMap);
             startOffset = offsetConfig;
         } else {
+            LOG.warn(
+                    "No valid offset found, falling back to earliest. meta offset was: {}",
+                    lastOffsetMap);
             startOffset = BinlogOffset.ofEarliest();
         }
 

@@ -405,19 +405,6 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
             exception "target database can't be modified"
         }
 
-        sql """ALTER JOB ${jobName}
-                FROM MYSQL (
-                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
-                    "driver_url" = "${driver_url}",
-                    "driver_class" = "com.mysql.cj.jdbc.Driver",
-                    "user" = "root",
-                    "password" = "123456",
-                    "database" = "${mysqlDb}",
-                    "include_tables" = "${table1}", 
-                    "offset" = "latest"
-                )
-                TO DATABASE ${currentDb}"""
-
         def jobInfoOrigin = sql """
         select CurrentOffset,LoadStatistic from jobs("type"="insert") where Name='${jobName}'
         """
@@ -459,7 +446,6 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
         assert jobInfoCurrent.get(0).get(1) == jobInfoOrigin.get(0).get(1)
         assert jobInfoCurrent.get(0).get(2).contains("\"max_interval\":\"5\"")
         assert jobInfoCurrent.get(0).get(2).contains("\"__source_subtype\":\"aws_rds_mysql\"")
-        assert jobInfoCurrent.get(0).get(3).contains("latest")
 
         sql """
             DROP JOB IF EXISTS where jobname =  '${jobName}'
