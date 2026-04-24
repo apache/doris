@@ -150,6 +150,10 @@ Status PythonUDTFFunction::process_init(Block* block, RuntimeState* state) {
     // Python returns a ListArray where each element contains outputs for one input row
     std::shared_ptr<arrow::ListArray> list_array;
     RETURN_IF_ERROR(_udtf_client->evaluate(*input_batch, &list_array));
+    if (list_array->length() != input_rows) [[unlikely]] {
+        return Status::InternalError("Python UDTF output rows {} not equal to input rows {}",
+                                     list_array->length(), input_rows);
+    }
 
     // Step 4: Convert Python server output (ListArray) to Doris array column
     RETURN_IF_ERROR(_convert_list_array_to_array_column(list_array));
