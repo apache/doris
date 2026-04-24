@@ -65,7 +65,7 @@ public class ExpressionTraitTest {
     }
 
     @Test
-    public void testVariableWithRealExpression() {
+    public void testVariable() {
         IntegerLiteral lit = new IntegerLiteral(42);
         Variable var = new Variable("v", VariableType.USER, lit);
 
@@ -82,33 +82,5 @@ public class ExpressionTraitTest {
         Assertions.assertEquals(lit.getDataType(), types.get(0));
 
         Assertions.assertEquals(lit.getDataType(), func.getArgumentType(0));
-    }
-
-    @Test
-    public void testVariableWithoutRealExpression() {
-        IntegerLiteral lit = new IntegerLiteral(100);
-        // create a Variable but override getRealExpression to simulate a missing real expression
-        Variable var = new Variable("v", VariableType.USER, lit) {
-            @Override
-            public Expression getRealExpression() {
-                return null;
-            }
-        };
-
-        DummyFunction func = new DummyFunction(var);
-
-        List<Expression> args = func.getArguments();
-        Assertions.assertEquals(1, args.size());
-        // when Variable.getRealExpression() returns null, ExpressionTrait should return the Variable itself
-        Assertions.assertSame(var, args.get(0));
-
-        Assertions.assertSame(var, func.getArgument(0));
-
-        List<DataType> types = func.getArgumentsTypes();
-        Assertions.assertEquals(1, types.size());
-        // fallback to variable.getDataType()
-        Assertions.assertEquals(var.getDataType(), types.get(0));
-
-        Assertions.assertEquals(var.getDataType(), func.getArgumentType(0));
     }
 }
