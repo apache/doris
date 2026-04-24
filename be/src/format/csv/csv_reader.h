@@ -196,7 +196,9 @@ protected:
     virtual Status _init_options();
     virtual Status _create_line_reader();
     virtual Status _deserialize_one_cell(DataTypeSerDeSPtr serde, IColumn& column, Slice& slice);
-    virtual Status _deserialize_nullable_string(IColumn& column, Slice& slice);
+    virtual Status _deserialize_nullable_string(IColumn& column, Slice& slice, bool was_enclosed);
+    static bool is_enclosed_csv_field(const Slice& line, size_t value_start_offset,
+                                      size_t value_len, char enclose, bool trim_tailing_spaces);
     // check the utf8 encoding of a line.
     // return error status to stop processing.
     // If return Status::OK but "success" is false, which means this is load request
@@ -227,6 +229,7 @@ private:
     Status _fill_empty_line(Block* block, std::vector<MutableColumnPtr>& columns, size_t* rows);
     Status _line_split_to_values(const Slice& line, bool* success);
     void _split_line(const Slice& line);
+    void _record_split_value_enclosed_flags(const Slice& line);
     void _init_system_properties();
     void _init_file_description();
 
@@ -282,6 +285,7 @@ private:
     std::shared_ptr<EncloseCsvLineReaderCtx> _enclose_reader_ctx;
     // save source text which have been splitted.
     std::vector<Slice> _split_values;
+    std::vector<uint8_t> _split_values_were_enclosed;
     std::vector<int> _use_nullable_string_opt;
 };
 } // namespace doris

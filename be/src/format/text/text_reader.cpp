@@ -162,7 +162,8 @@ Status TextReader::_validate_line(const Slice& line, bool* success) {
     return Status::OK();
 }
 
-Status TextReader::_deserialize_nullable_string(IColumn& column, Slice& slice) {
+Status TextReader::_deserialize_nullable_string(IColumn& column, Slice& slice, bool was_enclosed) {
+    static_cast<void>(was_enclosed);
     auto& null_column = assert_cast<ColumnNullable&>(column);
     if (slice.compare(Slice(_options.null_format, _options.null_len)) == 0) {
         null_column.insert_data(nullptr, 0);

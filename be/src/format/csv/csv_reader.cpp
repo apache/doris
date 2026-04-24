@@ -200,6 +200,7 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
     _size = _range.size;
 
     _split_values.reserve(_file_slot_descs.size());
+    _split_values_were_enclosed.reserve(_file_slot_descs.size());
     _init_system_properties();
     _init_file_description();
     _serdes = create_data_type_serdes(_file_slot_descs);
@@ -473,15 +474,33 @@ Status CsvReader::get_parsed_schema(std::vector<std::string>* col_names,
     return Status::OK();
 }
 
-Status CsvReader::_deserialize_nullable_string(IColumn& column, Slice& slice) {
-    auto& null_column = assert_cast<ColumnNullable&>(column);
-    if (_empty_field_as_null) {
-        if (slice.size == 0) {
-            null_column.insert_data(nullptr, 0);
-            return Status::OK();
+bool CsvReader::is_enclosed_csv_field(const Slice& line, size_t value_start_offset,
+                                      size_t value_len, char enclose, bool trim_tailing_spaces) {
+    if (trim_tailing_spaces) {
+        while (value_len > 0 && line.data[value_start_offset + value_len - 1] == ' ') {
+            --value_len;
         }
     }
-    if (_options.null_len > 0 && !(_options.converted_from_string && slice.trim_double_quotes())) {
+    return value_len > 1 && line.data[value_start_offset] == enclose &&
+           line.data[value_start_offset + value_len - 1] == enclose;
+}
+
+Status CsvReader::_deserialize_nullable_string(IColumn& column, Slice& slice, bool was_enclosed) {
+    auto& null_column = assert_cast<ColumnNullable&>(column);
+
+    bool is_quoted_string = was_enclosed;
+    if (_options.converted_from_string) {
+        bool trimmed = slice.trim_double_quotes();
+        if (!was_enclosed) {
+            is_quoted_string = trimmed;
+        }
+    }
+
+    if (_empty_field_as_null && slice.size == 0 && !is_quoted_string) {
+        null_column.insert_data(nullptr, 0);
+        return Status::OK();
+    }
+    if (_options.null_len > 0 && !is_quoted_string) {
         if (slice.compare(Slice(_options.null_format, _options.null_len)) == 0) {
             null_column.insert_data(nullptr, 0);
             return Status::OK();
@@ -677,7 +696,9 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
             // For load task, we always read "string" from file.
             // So serdes[i] here must be DataTypeNullableSerDe, and DataTypeNullableSerDe -> nested_serde must be DataTypeStringSerDe.
             // So we use deserialize_nullable_string and stringSerDe to reduce virtual function calls.
-            RETURN_IF_ERROR(_deserialize_nullable_string(*col_ptr, value));
+            bool was_enclosed = col_idx < _split_values_were_enclosed.size() &&
+                                _split_values_were_enclosed[col_idx];
+            RETURN_IF_ERROR(_deserialize_nullable_string(*col_ptr, value, was_enclosed));
         } else {
             RETURN_IF_ERROR(_deserialize_one_cell(_serdes[i], *col_ptr, value));
         }
@@ -772,6 +793,30 @@ Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
 void CsvReader::_split_line(const Slice& line) {
     _split_values.clear();
     _fields_splitter->split_line(line, &_split_values);
+    _record_split_value_enclosed_flags(line);
+}
+
+void CsvReader::_record_split_value_enclosed_flags(const Slice& line) {
+    _split_values_were_enclosed.clear();
+    _split_values_were_enclosed.reserve(_split_values.size());
+    if (_enclose_reader_ctx == nullptr) {
+        _split_values_were_enclosed.resize(_split_values.size(), 0);
+        return;
+    }
+
+    size_t value_start_offset = 0;
+    for (auto idx : _enclose_reader_ctx->column_sep_positions()) {
+        _split_values_were_enclosed.push_back(
+                is_enclosed_csv_field(line, value_start_offset, idx - value_start_offset, _enclose,
+                                      _trim_tailing_spaces));
+        value_start_offset = idx + _value_separator_length;
+    }
+    if (line.size >= value_start_offset) {
+        _split_values_were_enclosed.push_back(
+                is_enclosed_csv_field(line, value_start_offset, line.size - value_start_offset,
+                                      _enclose, _trim_tailing_spaces));
+    }
+    DCHECK_EQ(_split_values_were_enclosed.size(), _split_values.size());
 }
 
 Status CsvReader::_parse_col_nums(size_t* col_nums) {

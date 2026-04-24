@@ -64,7 +64,7 @@ private:
     Status _create_line_reader() override;
     Status _deserialize_one_cell(DataTypeSerDeSPtr serde, IColumn& column, Slice& slice) override;
     Status _validate_line(const Slice& line, bool* success) override;
-    Status _deserialize_nullable_string(IColumn& column, Slice& slice) override;
+    Status _deserialize_nullable_string(IColumn& column, Slice& slice, bool was_enclosed) override;
 };
 
 } // namespace doris
