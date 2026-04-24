@@ -569,12 +569,15 @@ public class QueryProfileAction extends RestBaseController {
     public static class QueryStatistics {
         public long scanRows;
         public long scanBytes;
+        public long processRows;
         public long returnedRows;
         public long cpuMs;
         public long maxPeakMemoryBytes;
         public long currentUsedMemoryBytes;
         public long shuffleSendBytes;
         public long shuffleSendRows;
+        public long finishedTasksNum;
+        public long totalTasksNum;
         public long scanBytesFromLocalStorage;
         public long scanBytesFromRemoteStorage;
         public long spillWriteBytesToLocalStorage;
@@ -583,12 +586,15 @@ public class QueryProfileAction extends RestBaseController {
         public QueryStatistics(TQueryStatistics queryStatistics) {
             this.scanRows = queryStatistics.getScanRows();
             this.scanBytes = queryStatistics.getScanBytes();
+            this.processRows = queryStatistics.getProcessRows();
             this.returnedRows = queryStatistics.getReturnedRows();
             this.cpuMs = queryStatistics.getCpuMs();
             this.maxPeakMemoryBytes = queryStatistics.getMaxPeakMemoryBytes();
             this.currentUsedMemoryBytes = queryStatistics.getCurrentUsedMemoryBytes();
             this.shuffleSendBytes = queryStatistics.getShuffleSendBytes();
             this.shuffleSendRows = queryStatistics.getShuffleSendRows();
+            this.finishedTasksNum = queryStatistics.getFinishedTasksNum();
+            this.totalTasksNum = queryStatistics.getTotalTasksNum();
             this.scanBytesFromLocalStorage = queryStatistics.getScanBytesFromLocalStorage();
             this.scanBytesFromRemoteStorage = queryStatistics.getScanBytesFromRemoteStorage();
             this.spillWriteBytesToLocalStorage = queryStatistics.getSpillWriteBytesToLocalStorage();

@@ -25,7 +25,6 @@ import org.apache.doris.qe.QueryStatisticsItem;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -95,10 +94,11 @@ public class CurrentQueryInfoProvider {
             final String legacyInstanceId = parseLegacyInstanceId(profile.getName());
             if (legacyInstanceId != null) {
                 List<RuntimeProfile> profiles = instanceProfiles.get(legacyInstanceId);
-                Preconditions.checkState(profiles == null);
-                profiles = Lists.newArrayList();
+                if (profiles == null) {
+                    profiles = Lists.newArrayList();
+                    instanceProfiles.put(legacyInstanceId, profiles);
+                }
                 profiles.add(profile);
-                instanceProfiles.put(legacyInstanceId, profiles);
             }
         }
 
