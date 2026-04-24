@@ -25,6 +25,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.exceptions.SyntaxParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -1350,6 +1351,17 @@ public class NereidsParserTest extends ParserTestBase {
         Assertions.assertInstanceOf(CreateTableCommand.class, logicalPlan);
         CreateTableCommand createTableCommand = (CreateTableCommand) logicalPlan;
         Assertions.assertTrue(createTableCommand.getCtasQuery().isPresent());
+    }
+
+    @Test
+    public void testCreateTableVariantNestedGroupPropertyIsRejected() {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE TABLE t_variant_ng (k1 INT, v VARIANT<PROPERTIES("
+                + "\"variant_enable_nested_group\" = \"true\")>) "
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1";
+        NotSupportedException exception =
+                Assertions.assertThrowsExactly(NotSupportedException.class, () -> parser.parseSingle(sql));
+        Assertions.assertTrue(exception.getMessage().contains("variant_enable_nested_group is not supported now"));
     }
 
     @Test

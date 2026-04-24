@@ -212,6 +212,25 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                .orElse(null);
     }
 
+    private Index getInvertedIndexFromTranslatedSlot(Expr translatedSlot) {
+        if (!(translatedSlot instanceof SlotRef)) {
+            return null;
+        }
+        SlotRef slotRef = (SlotRef) translatedSlot;
+        if (!slotRef.isAnalyzed() || slotRef.getDesc() == null || slotRef.getDesc().getParent() == null) {
+            return null;
+        }
+        if (!(slotRef.getDesc().getParent().getTable() instanceof OlapTable)) {
+            return null;
+        }
+        Column column = slotRef.getColumn();
+        if (column == null) {
+            return null;
+        }
+        OlapTable olapTbl = (OlapTable) slotRef.getDesc().getParent().getTable();
+        return olapTbl.getInvertedIndex(column, slotRef.getDesc().getSubColLables());
+    }
+
     @Override
     public Expr visitElementAt(ElementAt elementAt, PlanTranslatorContext context) {
         return visitScalarFunction(elementAt, context);
@@ -669,6 +688,9 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                         invertedIndex = olapTbl.getInvertedIndex(column, slot.getSubPath());
                     }
                 }
+            }
+            if (invertedIndex == null) {
+                invertedIndex = getInvertedIndexFromTranslatedSlot(translatedSlot);
             }
             fieldIndexes.add(invertedIndex);
         }

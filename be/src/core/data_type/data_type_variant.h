@@ -55,6 +55,7 @@ public:
     static constexpr PrimitiveType PType = TYPE_VARIANT;
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_VARIANT; }
     DataTypeVariant() = default;
+    DataTypeVariant(int32_t max_subcolumns_count);
     DataTypeVariant(int32_t max_subcolumns_count, bool enable_doc_mode);
     String do_get_name() const override { return name; }
     const std::string get_family_name() const override { return "Variant"; }
