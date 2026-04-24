@@ -307,8 +307,78 @@ Status CsvReader::init_reader(bool is_load) {
     return Status::OK();
 }
 
+// ---- Unified init_reader(ReaderInitContext*) overrides ----
+
+Status CsvReader::_open_file_reader(ReaderInitContext* base_ctx) {
+    _start_offset = _range.start_offset;
+    if (_start_offset == 0) {
+        if (_params.__isset.file_attributes && _params.file_attributes.__isset.header_type &&
+            !_params.file_attributes.header_type.empty()) {
+            std::string header_type = to_lower(_params.file_attributes.header_type);
+            if (header_type == BeConsts::CSV_WITH_NAMES) {
+                _skip_lines = 1;
+            } else if (header_type == BeConsts::CSV_WITH_NAMES_AND_TYPES) {
+                _skip_lines = 2;
+            }
+        } else if (_params.file_attributes.__isset.skip_lines) {
+            _skip_lines = _params.file_attributes.skip_lines;
+        }
+    } else if (_start_offset != 0) {
+        if ((_file_compress_type != TFileCompressType::PLAIN) ||
+            (_file_compress_type == TFileCompressType::UNKNOWN &&
+             _file_format_type != TFileFormatType::FORMAT_CSV_PLAIN)) {
+            return Status::InternalError<false>("For now we do not support split compressed file");
+        }
+        int64_t pre_read_len = std::min(
+                static_cast<int64_t>(_params.file_attributes.text_params.line_delimiter.size()),
+                _start_offset);
+        _start_offset -= pre_read_len;
+        _size += pre_read_len;
+        _skip_lines = 1;
+    }
+
+    RETURN_IF_ERROR(_init_options());
+    RETURN_IF_ERROR(_create_file_reader(false));
+    return Status::OK();
+}
+
+Status CsvReader::_do_init_reader(ReaderInitContext* base_ctx) {
+    auto* ctx = checked_context_cast<CsvInitContext>(base_ctx);
+    _is_load = ctx->is_load;
+
+    _use_nullable_string_opt.resize(_file_slot_descs.size());
+    for (int i = 0; i < _file_slot_descs.size(); ++i) {
+        auto data_type_ptr = _file_slot_descs[i]->get_data_type_ptr();
+        if (data_type_ptr->is_nullable() && is_string_type(data_type_ptr->get_primitive_type())) {
+            _use_nullable_string_opt[i] = 1;
+        }
+    }
+
+    RETURN_IF_ERROR(_create_decompressor());
+    RETURN_IF_ERROR(_create_line_reader());
+
+    if (!_is_load) {
+        DCHECK(_params.__isset.column_idxs);
+        _col_idxs = _params.column_idxs;
+        int idx = 0;
+        for (const auto& slot_info : _params.required_slots) {
+            if (slot_info.is_file_slot) {
+                _file_slot_idx_map.push_back(idx);
+            }
+            idx++;
+        }
+    } else {
+        int i = 0;
+        for (const auto& desc [[maybe_unused]] : _file_slot_descs) {
+            _col_idxs.push_back(i++);
+        }
+    }
+    _line_reader_eof = false;
+    return Status::OK();
+}
+
 // !FIXME: Here we should use MutableBlock
-Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status CsvReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_line_reader_eof) {
         *eof = true;
         return Status::OK();
@@ -406,8 +476,7 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     return Status::OK();
 }
 
-Status CsvReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                              std::unordered_set<std::string>* missing_cols) {
+Status CsvReader::_get_columns_impl(std::unordered_map<std::string, DataTypePtr>* name_to_type) {
     for (const auto& slot : _file_slot_descs) {
         name_to_type->emplace(slot->col_name(), slot->type());
     }

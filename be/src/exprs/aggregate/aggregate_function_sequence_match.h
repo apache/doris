@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <bitset>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cctype>
 #include <cstdint>
 #include <functional>
 #include <iterator>
@@ -45,7 +46,7 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
-#include "util/io_helper.h"
+#include "util/string_parser.hpp"
 
 namespace doris {
 class Arena;
@@ -213,15 +214,24 @@ private:
         dfa_states.emplace_back(true);
 
         pattern_has_time = false;
+        conditions_in_pattern.reset();
 
         const char* pos = pattern.data();
         const char* begin = pos;
         const char* end = pos + pattern.size();
 
         // Pattern is checked in fe, so pattern should be valid here, we check it and if pattern is invalid, we return.
+        auto fail_parse = [&]() {
+            actions.clear();
+            dfa_states.clear();
+            conditions_in_pattern.reset();
+            pattern_has_time = false;
+        };
+
         auto throw_exception = [&](const std::string& msg) {
             LOG(WARNING) << msg + " '" + std::string(pos, end) + "' at position " +
                                     std::to_string(pos - begin);
+            fail_parse();
         };
 
         auto match = [&pos, end](const char* str) mutable {
@@ -231,6 +241,22 @@ private:
                 return true;
             }
             return false;
+        };
+
+        auto parse_uint = [&pos, end](auto& value) {
+            const auto* start = pos;
+            while (pos < end && std::isdigit(static_cast<unsigned char>(*pos))) {
+                ++pos;
+            }
+
+            if (pos == start) {
+                return false;
+            }
+
+            StringParser::ParseResult result;
+            value = StringParser::string_to_int<std::decay_t<decltype(value)>, false>(
+                    start, pos - start, &result);
+            return result == StringParser::PARSE_SUCCESS;
         };
 
         while (pos < end) {
@@ -254,9 +280,7 @@ private:
                     }
 
                     NativeType duration = 0;
-                    const auto* prev_pos = pos;
-                    pos = try_read_first_int_text(duration, pos, end);
-                    if (pos == prev_pos) {
+                    if (!parse_uint(duration)) {
                         throw_exception("Could not parse number");
                         return;
                     }
@@ -273,9 +297,10 @@ private:
                     actions.emplace_back(type, duration);
                 } else {
                     UInt64 event_number = 0;
-                    const auto* prev_pos = pos;
-                    pos = try_read_first_int_text(event_number, pos, end);
-                    if (pos == prev_pos) throw_exception("Could not parse number");
+                    if (!parse_uint(event_number)) {
+                        throw_exception("Could not parse number");
+                        return;
+                    }
 
                     if (event_number > arg_count - 1) {
                         throw_exception("Event number " + std::to_string(event_number) +

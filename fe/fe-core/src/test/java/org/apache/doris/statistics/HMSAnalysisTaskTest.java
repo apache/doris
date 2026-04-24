@@ -167,7 +167,7 @@ public class HMSAnalysisTaskTest {
                     + "SUBSTRING(CAST(MIN(`hour`) AS STRING), 1, 1024) AS `min`, "
                     + "SUBSTRING(CAST(MAX(`hour`) AS STRING), 1, 1024) AS `max`, "
                     + "COUNT(1) * 4 AS `data_size`, NOW() AS `update_time`, "
-                    + "null as `hot_value` FROM `hms`.`default`.`test` ", sql);
+                    + "null as `hot_value` FROM (SELECT `hour` FROM `hms`.`default`.`test` ) __lc_t", sql);
             return null;
         }).when(task).runQuery(Mockito.anyString());
 

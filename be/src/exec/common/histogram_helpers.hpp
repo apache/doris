@@ -25,7 +25,6 @@
 
 #include "common/cast_set.h"
 #include "core/data_type/data_type_decimal.h"
-#include "util/io_helper.h"
 
 namespace doris {
 template <typename T>

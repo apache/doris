@@ -17,14 +17,20 @@
 
 #pragma once
 
-#include <gen_cpp/BackendService.h>
-
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
+#include <deque>
 #include <memory>
+#include <mutex>
+#include <thread>
+#include <unordered_map>
+#include <vector>
 
-#include "storage/tablet/tablet.h"
+#include "gen_cpp/BackendService.h"
+#include "storage/tablet/tablet_fwd.h"
 
 namespace doris {
 
@@ -66,14 +72,33 @@ struct MapKeyHash {
 
 class TabletHotspot {
 public:
-    TabletHotspot();
+    struct MaintenanceStats {
+        uint64_t total_counters_before_gc = 0;
+        uint64_t total_counters_after_gc = 0;
+        uint64_t non_empty_slots_before_gc = 0;
+        uint64_t non_empty_slots_after_gc = 0;
+        uint64_t max_slot_size_before_gc = 0;
+        uint64_t max_slot_size_after_gc = 0;
+        uint64_t sum_bucket_count_before_gc = 0;
+        uint64_t sum_bucket_count_after_gc = 0;
+        uint64_t copied_counters = 0;
+        uint64_t evicted_counters = 0;
+        uint64_t compacted_slots = 0;
+        uint64_t gc_elapsed_ms = 0;
+    };
+
+    explicit TabletHotspot(bool start_counter_thread = true);
     ~TabletHotspot();
     // When query the tablet, count it
     void count(const BaseTablet& tablet);
     void get_top_n_hot_partition(std::vector<THotTableMessage>* hot_tables);
 
 private:
+    void count(int64_t tablet_id, int64_t table_id, int64_t index_id, int64_t partition_id);
     void make_dot_point();
+    MaintenanceStats run_maintenance_once(std::chrono::system_clock::time_point now);
+    static bool is_gc_eligible(const HotspotCounter& counter,
+                               std::chrono::system_clock::time_point now);
 
     struct HotspotMap {
         std::mutex mtx;
@@ -93,6 +118,12 @@ private:
     std::unordered_map<TabletHotspotMapKey, std::unordered_map<int64_t, TabletHotspotMapValue>,
                        MapKeyHash>
             _last_week_hot_partitions;
+    std::atomic_uint64_t _count_calls_total {0};
+    std::atomic_uint64_t _existing_hit_total {0};
+    std::atomic_uint64_t _new_counter_total {0};
+    std::atomic_uint64_t _last_round_new_counter_total {0};
+    std::atomic_uint64_t _get_top_n_hot_partition_call_total {0};
+    std::atomic_uint64_t _make_dot_point_round_total {0};
 };
 
 } // namespace doris

@@ -1817,6 +1817,7 @@ DECLARE_mInt32(concurrency_stats_dump_interval_ms);
 DECLARE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin);
 
 DECLARE_mBool(enable_cloud_make_rs_visible_on_be);
+DECLARE_mInt32(file_handles_deplenish_frequency_times);
 
 #ifdef BE_TEST
 // test s3

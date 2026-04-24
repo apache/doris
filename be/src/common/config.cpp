@@ -1773,6 +1773,7 @@ DEFINE_Validator(concurrency_stats_dump_interval_ms,
 DEFINE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin, "true");
 
 DEFINE_mBool(enable_cloud_make_rs_visible_on_be, "false");
+DEFINE_mInt32(file_handles_deplenish_frequency_times, "3");
 
 // clang-format off
 #ifdef BE_TEST

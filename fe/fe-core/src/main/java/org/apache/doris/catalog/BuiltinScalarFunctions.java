@@ -89,6 +89,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraysOverlap
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ascii;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Asinh;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atanh;
@@ -278,6 +279,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsNan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsUuid;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsValidUtf8;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
@@ -657,6 +659,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Ascii.class, "ascii"),
             scalar(Asin.class, "asin"),
             scalar(Asinh.class, "asinh"),
+            scalar(AssertTrue.class, "assert_true"),
             scalar(Atan.class, "atan"),
             scalar(Atanh.class, "atanh"),
             scalar(Atan2.class, "atan2"),
@@ -727,7 +730,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(CurrentUser.class, "current_user"),
             scalar(CutIpv6.class, "cut_ipv6"),
             scalar(CutToFirstSignificantSubdomain.class, "cut_to_first_significant_subdomain"),
-            scalar(Database.class, "database", "schema"),
+            scalar(Database.class, "database", "schema", "current_database"),
             scalar(Date.class, "date"),
             scalar(DateDiff.class, "datediff"),
             scalar(DateFormat.class, "date_format"),
@@ -837,6 +840,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(IsIpAddressInRange.class, "is_ip_address_in_range"),
             scalar(IsNan.class, "isnan"),
             scalar(IsUuid.class, "is_uuid"),
+            scalar(IsValidUtf8.class, "is_valid_utf8", "isValidUTF8"),
             scalar(IsInf.class, "isinf"),
             scalar(Ipv4CIDRToRange.class, "ipv4_cidr_to_range"),
             scalar(Ipv6CIDRToRange.class, "ipv6_cidr_to_range"),

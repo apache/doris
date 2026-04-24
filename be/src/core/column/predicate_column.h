@@ -325,7 +325,7 @@ public:
             for (size_t i = 0; i < n; i++) {
                 memcpy(dst, str.data(), str.size());
                 insert_string_value(dst, str.size());
-                dst += i * str.size();
+                dst += str.size();
             }
         } else if constexpr (Type == TYPE_LARGEINT) {
             const auto& v = x.get<TYPE_LARGEINT>();

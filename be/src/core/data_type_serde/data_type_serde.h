@@ -208,7 +208,7 @@ public:
          *          E.g., DecimalV2 value 123.456 is stored as "123.456000000";
          *          parsing with scale=9 correctly restores the original value.
          *
-         * Note: for DecimalV2, read_decimal_text_impl() currently hardcodes
+         * Note: for DecimalV2, CastToDecimal::from_string() currently hardcodes
          * DecimalV2Value::SCALE=9 regardless of the passed-in scale, so the flag
          * does not actually affect DecimalV2 parsing today. However, callers should
          * still set it correctly for semantic clarity and future-proofing.

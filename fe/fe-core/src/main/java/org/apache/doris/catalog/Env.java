@@ -90,6 +90,8 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.ConnectorFactory;
+import org.apache.doris.connector.ConnectorPluginManager;
 import org.apache.doris.consistency.ConsistencyChecker;
 import org.apache.doris.cooldown.CooldownConfHandler;
 import org.apache.doris.datasource.CatalogIf;
@@ -99,12 +101,10 @@ import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalMetaIdMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SplitSourceManager;
-import org.apache.doris.datasource.es.EsExternalCatalog;
 import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
-import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.deploy.DeployManager;
@@ -1215,6 +1215,9 @@ public class Env {
         // init filesystem plugin manager (before any storage backend access)
         initFileSystemPluginManager();
 
+        // init connector plugin manager (before any catalog access)
+        initConnectorPluginManager();
+
         cloneClusterSnapshot();
 
         // 2. get cluster id and role (Observer or Follower)
@@ -2117,6 +2120,19 @@ public class Env {
         }
         FileSystemFactory.initPluginManager(fsPluginManager);
         LOG.info("FileSystemPluginManager initialized with plugin root: {}", pluginRoot);
+    }
+
+    private void initConnectorPluginManager() {
+        ConnectorPluginManager connectorPluginManager = new ConnectorPluginManager();
+        connectorPluginManager.loadBuiltins();
+        String pluginRoot = Config.connector_plugin_root;
+        if (pluginRoot != null && !pluginRoot.isEmpty()) {
+            Path rootPath = Paths.get(pluginRoot);
+            connectorPluginManager.loadPlugins(Collections.singletonList(rootPath));
+        }
+        ConnectorFactory.initPluginManager(connectorPluginManager);
+        LOG.info("ConnectorPluginManager initialized, plugin root: {}, registered types: {}",
+                pluginRoot, connectorPluginManager.getRegisteredTypes());
     }
 
     // Set global variable 'lower_case_table_names' only when the cluster is initialized.
@@ -4196,7 +4212,7 @@ public class Env {
             }
         }
         sb.append("\n) ENGINE=");
-        sb.append(table.getType().name());
+        sb.append(table.getEngineTableTypeName());
 
         if (table instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) table;
@@ -4413,8 +4429,9 @@ public class Env {
                 }
             }
             sb.append("\n)");
+        } else if (table.getType() == TableType.PLUGIN_EXTERNAL_TABLE) {
+            addTableComment(table, sb);
         }
-
         createTableStmt.add(sb + ";");
 
         // 2. add partition
@@ -4584,7 +4601,7 @@ public class Env {
             }
         }
         sb.append("\n) ENGINE=");
-        sb.append(table.getType().name());
+        sb.append(table.getEngineTableTypeName());
 
         if (table instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) table;
@@ -4741,9 +4758,6 @@ public class Env {
             sb.append("\"database\" = \"").append(mysqlTable.getMysqlDatabaseName()).append("\",\n");
             sb.append("\"table\" = \"").append(mysqlTable.getMysqlTableName()).append("\"\n");
             sb.append(")");
-        } else if (table.getType() == TableType.JDBC_EXTERNAL_TABLE) {
-            JdbcExternalTable jdbcTable = (JdbcExternalTable) table;
-            addTableComment(jdbcTable, sb);
         } else if (table.getType() == TableType.ODBC) {
             addTableComment(table, sb);
             sb.append("\n-- Internal ODBC tables are deprecated. Please use JDBC Catalog instead.");
@@ -4829,6 +4843,8 @@ public class Env {
                 }
             }
             sb.append("\n)");
+        } else if (table.getType() == TableType.PLUGIN_EXTERNAL_TABLE) {
+            addTableComment(table, sb);
         }
 
         createTableStmt.add(sb + ";");
@@ -6450,8 +6466,9 @@ public class Env {
         if (StringUtils.isNotEmpty(lastDb)) {
             ctx.setDatabase(lastDb);
         }
-        if (catalogIf instanceof EsExternalCatalog) {
-            ctx.setDatabase(EsExternalCatalog.DEFAULT_DB);
+        if ("es".equalsIgnoreCase(
+                        (String) catalogIf.getProperties().get(CatalogMgr.CATALOG_TYPE_PROP))) {
+            ctx.setDatabase("default_db");
         }
     }
 

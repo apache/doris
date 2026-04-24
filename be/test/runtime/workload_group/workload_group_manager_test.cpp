@@ -155,6 +155,15 @@ TEST_F(WorkloadGroupManagerTest, get_or_create_workload_group) {
     ASSERT_EQ(wg->id(), 0);
 }
 
+TEST_F(WorkloadGroupManagerTest, handle_paused_queries_ignores_empty_workload_group) {
+    auto wg = _wg_manager->get_or_create_workload_group({});
+
+    _wg_manager->handle_paused_queries();
+
+    std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
+    ASSERT_FALSE(_wg_manager->_paused_queries_list.contains(wg));
+}
+
 // Query is paused due to query memlimit exceed, after waiting in queue for  spill_in_paused_queue_timeout_ms
 // it should be resumed
 TEST_F(WorkloadGroupManagerTest, query_exceed) {

@@ -41,10 +41,10 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.collect.BoundType;
 import com.google.common.collect.ImmutableRangeSet;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
 import com.google.common.collect.RangeSet;
 import com.google.common.collect.TreeRangeSet;
-import org.apache.hadoop.util.Lists;
 
 import java.util.List;
 import java.util.Objects;

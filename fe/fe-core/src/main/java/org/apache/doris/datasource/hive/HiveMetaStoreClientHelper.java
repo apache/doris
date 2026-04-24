@@ -40,6 +40,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.nereids.types.VarBinaryType;
 
 import com.google.common.base.Strings;
@@ -868,7 +869,7 @@ public class HiveMetaStoreClientHelper {
     }
 
     public static Configuration getConfiguration(HMSExternalTable table) {
-        return table.getCatalog().getConfiguration();
+        return ExternalCatalog.buildHadoopConfiguration(table.getCatalog().getHadoopProperties());
     }
 
     public static Optional<String> getSerdeProperty(Table table, String key) {

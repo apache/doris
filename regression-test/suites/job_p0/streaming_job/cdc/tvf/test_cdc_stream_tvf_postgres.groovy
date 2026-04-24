@@ -61,6 +61,11 @@ suite("test_cdc_stream_tvf_postgres", "p0,external,pg,external_docker,external_d
             exception "Unsupported offset: initial"
         }
 
+        // Standalone cdc_stream TVF does not validate PG slot/publication ownership
+        // (that check runs only when cdc_stream is nested inside a streaming INSERT job
+        //  — see test_cdc_stream_tvf_publication). The TVF path just forwards whatever
+        // slot_name / publication_name the user supplies to cdcclient.
+
         // Here, because PG consumption requires creating a slot first,
         // we only verify whether the execution can be successful.
         def result = sql """

@@ -89,6 +89,101 @@ public class AnalysisManagerTest {
     }
 
     @Test
+    public void testUpdateTaskStatusPreservesSkipMessage() {
+        // Verify that a subsequent updateTaskStatus(FINISHED, "") call (e.g. from
+        // flushBuffer) does NOT wipe a previously-set skip message on info.message,
+        // and that job.message only accumulates the skip reason once.
+        BaseAnalysisTask task1 = Mockito.mock(BaseAnalysisTask.class);
+
+        AnalysisManager manager = Mockito.spy(new AnalysisManager());
+        Mockito.doNothing().when(manager).logCreateAnalysisTask(Mockito.any());
+        Mockito.doNothing().when(manager).logCreateAnalysisJob(Mockito.any());
+        Mockito.doNothing().when(manager).updateTableStats(Mockito.any());
+
+        AnalysisInfo job = new AnalysisInfoBuilder().setJobId(10)
+                .setState(AnalysisState.PENDING).setAnalysisType(AnalysisType.FUNDAMENTALS)
+                .setJobType(AnalysisInfo.JobType.MANUAL).build();
+        AnalysisInfo taskInfo = new AnalysisInfoBuilder().setJobId(10)
+                .setTaskId(11).setJobType(JobType.MANUAL).setAnalysisType(AnalysisType.FUNDAMENTALS)
+                .setColName("big_str").setState(AnalysisState.PENDING).build();
+        manager.replayCreateAnalysisJob(job);
+        manager.replayCreateAnalysisTask(taskInfo);
+
+        task1.info = taskInfo;
+        Map<Long, BaseAnalysisTask> tasks = new HashMap<>();
+        tasks.put(11L, task1);
+        manager.addToJobIdTasksMap(10, tasks);
+
+        String skipMsg = "Column [big_str] has row(s) whose byte length exceeds 1024"
+                + " (Config.statistics_max_string_column_length), skip collecting statistics for this column.";
+        manager.updateTaskStatus(taskInfo, AnalysisState.FINISHED, skipMsg, 0);
+        Assertions.assertEquals(skipMsg, taskInfo.message);
+        Assertions.assertTrue(job.message != null && job.message.contains(skipMsg),
+                "expected skip msg in job.message, got: " + job.message);
+        String firstJobMessage = job.message;
+
+        // Simulate flushBuffer replay: subsequent FINISHED with empty message should
+        // NOT wipe info.message NOR re-append skip reason.
+        manager.updateTaskStatus(taskInfo, AnalysisState.FINISHED, "", 0);
+        Assertions.assertEquals(skipMsg, taskInfo.message);
+        Assertions.assertEquals(firstJobMessage, job.message,
+                "job.message should not accumulate again on empty-message update");
+    }
+
+    @Test
+    public void testUpdateTaskStatusAccumulatesMultipleSkipMessages() {
+        // Two string columns get skipped -> job.message must contain both entries keyed
+        // by their respective colName, and repeated flushBuffer (FINISHED,"") replays
+        // must NOT duplicate them.
+        BaseAnalysisTask task1 = Mockito.mock(BaseAnalysisTask.class);
+        BaseAnalysisTask task2 = Mockito.mock(BaseAnalysisTask.class);
+
+        AnalysisManager manager = Mockito.spy(new AnalysisManager());
+        Mockito.doNothing().when(manager).logCreateAnalysisTask(Mockito.any());
+        Mockito.doNothing().when(manager).logCreateAnalysisJob(Mockito.any());
+        Mockito.doNothing().when(manager).updateTableStats(Mockito.any());
+
+        AnalysisInfo job = new AnalysisInfoBuilder().setJobId(20)
+                .setState(AnalysisState.PENDING).setAnalysisType(AnalysisType.FUNDAMENTALS)
+                .setJobType(AnalysisInfo.JobType.MANUAL).build();
+        AnalysisInfo ti1 = new AnalysisInfoBuilder().setJobId(20).setTaskId(21)
+                .setColName("s1").setJobType(JobType.MANUAL)
+                .setAnalysisType(AnalysisType.FUNDAMENTALS).setState(AnalysisState.PENDING).build();
+        AnalysisInfo ti2 = new AnalysisInfoBuilder().setJobId(20).setTaskId(22)
+                .setColName("s2").setJobType(JobType.MANUAL)
+                .setAnalysisType(AnalysisType.FUNDAMENTALS).setState(AnalysisState.PENDING).build();
+        manager.replayCreateAnalysisJob(job);
+        manager.replayCreateAnalysisTask(ti1);
+        manager.replayCreateAnalysisTask(ti2);
+        task1.info = ti1;
+        task2.info = ti2;
+        Map<Long, BaseAnalysisTask> tasks = new HashMap<>();
+        tasks.put(21L, task1);
+        tasks.put(22L, task2);
+        manager.addToJobIdTasksMap(20, tasks);
+
+        String skip1 = "Column [s1] has row(s) whose byte length exceeds 1024 ...";
+        String skip2 = "Column [s2] has row(s) whose byte length exceeds 1024 ...";
+        manager.updateTaskStatus(ti1, AnalysisState.FINISHED, skip1, 0);
+        manager.updateTaskStatus(ti2, AnalysisState.FINISHED, skip2, 0);
+        Assertions.assertNotNull(job.message);
+        Assertions.assertTrue(job.message.contains("s1:[" + skip1 + "]"),
+                "expected s1 skip in job.message, got: " + job.message);
+        Assertions.assertTrue(job.message.contains("s2:[" + skip2 + "]"),
+                "expected s2 skip in job.message, got: " + job.message);
+        String afterFirstRound = job.message;
+
+        // Simulate flushBuffer replay with empty message for both tasks. Neither entry
+        // should be duplicated.
+        manager.updateTaskStatus(ti1, AnalysisState.FINISHED, "", 0);
+        manager.updateTaskStatus(ti2, AnalysisState.FINISHED, "", 0);
+        Assertions.assertEquals(afterFirstRound, job.message,
+                "job.message must remain stable across flushBuffer replays");
+        Assertions.assertEquals(skip1, ti1.message);
+        Assertions.assertEquals(skip2, ti2.message);
+    }
+
+    @Test
     public void testRecordLimit1() {
         Config.analyze_record_limit = 2;
         AnalysisManager analysisManager = new AnalysisManager();

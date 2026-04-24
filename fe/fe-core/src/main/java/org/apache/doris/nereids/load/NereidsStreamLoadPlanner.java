@@ -318,6 +318,7 @@ public class NereidsStreamLoadPlanner {
                 : false;
         queryOptions.setEnableMemtableOnSinkNode(enableMemtableOnSinkNode);
         queryOptions.setNewVersionUnixTimestamp(true);
+        queryOptions.setNewVersionPercentile(true);
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));

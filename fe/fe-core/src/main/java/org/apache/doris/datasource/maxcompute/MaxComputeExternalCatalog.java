@@ -25,7 +25,6 @@ import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
-import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
 import com.aliyun.odps.Odps;
@@ -233,7 +232,7 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         mcStructureHelper = McStructureHelper.getHelper(enableNamespaceSchema, defaultProject);
 
         initPreExecutionAuthenticator();
-        metadataOps = ExternalMetadataOperations.newMaxComputeMetadataOps(this, odps);
+        metadataOps = new MaxComputeMetadataOps(this, odps);
         transactionManager = TransactionManagerFactory.createMCTransactionManager(this);
     }
 

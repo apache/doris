@@ -52,18 +52,9 @@ class Dependency;
 class PipelineFragmentContext : public TaskExecutionContext {
 public:
     ENABLE_FACTORY_CREATOR(PipelineFragmentContext);
-    // Callback to report execution status of plan fragment.
-    // 'profile' is the cumulative profile, 'done' indicates whether the execution
-    // is done or still continuing.
-    // Note: this does not take a const RuntimeProfile&, because it might need to call
-    // functions like PrettyPrint() or to_thrift(), neither of which is const
-    // because they take locks.
-    using report_status_callback = std::function<Status(
-            const ReportStatusRequest, std::shared_ptr<PipelineFragmentContext>&&)>;
     PipelineFragmentContext(TUniqueId query_id, const TPipelineFragmentParams& request,
                             std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
-                            const std::function<void(RuntimeState*, Status*)>& call_back,
-                            report_status_callback report_status_cb);
+                            const std::function<void(RuntimeState*, Status*)>& call_back);
 
     ~PipelineFragmentContext() override;
 
@@ -157,6 +148,9 @@ public:
     }
 
 private:
+    void _coordinator_callback(const ReportStatusRequest& req);
+    std::string _to_http_path(const std::string& file_name) const;
+
     void _release_resource();
 
     Status _build_and_prepare_full_pipeline(ThreadPool* thread_pool);
@@ -256,14 +250,6 @@ private:
     // 0 indicates reporting is in progress or not required
     std::atomic_bool _disable_period_report = true;
     std::atomic_uint64_t _previous_report_time = 0;
-
-    // This callback is used to notify the FE of the status of the fragment.
-    // For example:
-    // 1. when the fragment is cancelled, it will be called.
-    // 2. when the fragment is finished, it will be called. especially, when the fragment is
-    // a insert into select statement, it should notfiy FE every fragment's status.
-    // And also, this callback is called periodly to notify FE the load process.
-    report_status_callback _report_status_cb;
 
     DescriptorTbl* _desc_tbl = nullptr;
     int _num_instances = 1;

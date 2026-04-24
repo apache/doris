@@ -116,7 +116,7 @@ suite("test_leading") {
     qt_select5_2 """select /*+ leading(t2 t1) */ count(*) from t1 join t2 on c1 > c2;"""
 
     qt_select6_1 """select count(*) from t1 join t2 on c1 > c2 join t3 on c2 > c3 where c1 < 100;"""
-    qt_select6_2 """select /*+ leading(t1 {t2 t3}) */ count(*) from t1 join t2 on c1 > c2 join t3 on c2 > c3 where c1 < 100;"""
+    qt_select6_2 """select /*+ leading(t1 {t2 t3}) */ count(*) from t1 join t2 on c1 > c2 join t3 on c2 > c3 where c1 < 10;"""
 
    // (A leftjoin B on (Pab)) leftjoin C on (Pac) = (A leftjoin C on (Pac)) leftjoin B on (Pab)
     qt_select7_1 """select count(*) from t1 left join t2 on c1 = c2 left join t3 on c1 = c3;"""

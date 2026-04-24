@@ -80,7 +80,7 @@ suite("test_streaming_insert_job_fetch_meta_error", "nonConcurrent") {
 
         def jobStatus = sql """select Status, ErrorMsg from jobs("type"="insert") where Name='${jobName}'"""
         assert jobStatus.get(0).get(0) == "PAUSED"
-        assert jobStatus.get(0).get(1).contains("Failed to list S3 files")
+        assert jobStatus.get(0).get(1).contains("simulated S3 auth error")
 
         sql """
             DROP JOB IF EXISTS where jobname = '${jobName}'

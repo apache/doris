@@ -27,9 +27,14 @@ import com.google.common.collect.Sets;
 
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 public class DataSourceConfigValidator {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
+    // PostgreSQL unquoted identifier: lowercase letters, digits, underscores, not starting with a digit.
+    private static final Pattern PG_IDENTIFIER_PATTERN = Pattern.compile("^[a-z_][a-z0-9_]*$");
+    private static final int PG_MAX_IDENTIFIER_LENGTH = 63;
 
     private static final Set<String> ALLOW_SOURCE_KEYS = Sets.newHashSet(
             DataSourceConfigKeys.JDBC_URL,
@@ -45,7 +50,9 @@ public class DataSourceConfigValidator {
             DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE,
             DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
             DataSourceConfigKeys.SSL_MODE,
-            DataSourceConfigKeys.SSL_ROOTCERT
+            DataSourceConfigKeys.SSL_ROOTCERT,
+            DataSourceConfigKeys.SLOT_NAME,
+            DataSourceConfigKeys.PUBLICATION_NAME
     );
 
     // Known suffixes for per-table config keys (format: "table.<tableName>.<suffix>")
@@ -116,6 +123,14 @@ public class DataSourceConfigValidator {
 
         if (key.equals(DataSourceConfigKeys.OFFSET)) {
             return isValidOffset(value, dataSourceType);
+        }
+
+        // slot_name / publication_name are interpolated into PG DDL without quoting,
+        // so enforce unquoted-identifier grammar to prevent injection and runtime errors.
+        if (key.equals(DataSourceConfigKeys.SLOT_NAME)
+                || key.equals(DataSourceConfigKeys.PUBLICATION_NAME)) {
+            return value.length() <= PG_MAX_IDENTIFIER_LENGTH
+                    && PG_IDENTIFIER_PATTERN.matcher(value).matches();
         }
         return true;
     }

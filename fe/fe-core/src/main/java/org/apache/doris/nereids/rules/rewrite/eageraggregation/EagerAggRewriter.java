@@ -53,6 +53,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * eager aggregation
@@ -502,6 +503,28 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
 
     @Override
     public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, PushDownAggContext context) {
+        if (filter.child() instanceof LogicalRelation) {
+            return genAggregate(filter, context);
+        }
+        if (filter.getConjuncts().stream().anyMatch(Expression::containsUniqueFunction)) {
+            return genAggregate(filter, context);
+        }
+        List<SlotReference> filterInputSlots = filter.getInputSlots().stream()
+                .map(slot -> (SlotReference) slot)
+                .collect(Collectors.toList());
+        List<SlotReference> childGroupKeys = Stream.concat(
+                        context.getGroupKeys().stream(),
+                        filterInputSlots.stream())
+                .distinct()
+                .collect(Collectors.toList());
+        PushDownAggContext childContext = context.withGroupKeys(childGroupKeys);
+        if (!childContext.isValid()) {
+            return genAggregate(filter, context);
+        }
+        Plan newChild = filter.child().accept(this, childContext);
+        if (newChild != filter.child()) {
+            return filter.withChildren(newChild);
+        }
         return genAggregate(filter, context);
     }
 

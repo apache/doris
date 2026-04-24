@@ -866,6 +866,34 @@ public class VariableMgr {
         return changedRows;
     }
 
+    /**
+     * Returns all visible session variables for the given {@link SessionVariable} as a flat
+     * {@code Map<String, String>}. Invisible and removed variables are excluded.
+     *
+     * <p>This is used by the connector SPI to pass the full session state to plugins
+     * without a hard-coded whitelist.</p>
+     */
+    public static Map<String, String> toMap(SessionVariable sessionVar) {
+        Map<String, String> result = Maps.newHashMap();
+        rlock.lock();
+        try {
+            for (Map.Entry<String, VarContext> entry : ctxByVarName.entrySet()) {
+                VarContext ctx = entry.getValue();
+                VarAttrDef.VarAttr varAttr = ctx.getField().getAnnotation(VarAttrDef.VarAttr.class);
+                if (VariableAnnotation.REMOVED.equals(varAttr.varType())) {
+                    continue;
+                }
+                if ((VarAttrDef.INVISIBLE & varAttr.flag()) != 0) {
+                    continue;
+                }
+                result.put(entry.getKey(), getValue(sessionVar, ctx.getField()));
+            }
+        } finally {
+            rlock.unlock();
+        }
+        return result;
+    }
+
     public static class VarContext {
         private Field field;
         private Object obj;

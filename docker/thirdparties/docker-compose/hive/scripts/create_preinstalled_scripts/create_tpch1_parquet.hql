@@ -1,7 +1,9 @@
-create database tpch1_parquet;
+create database if not exists tpch1_parquet;
 use tpch1_parquet;
 
-CREATE TABLE `customer`(
+drop table if exists `customer`;
+
+create table `customer`(
   `c_custkey` int,
   `c_name` string,
   `c_address` string,
@@ -21,7 +23,9 @@ LOCATION
 TBLPROPERTIES (
   'transient_lastDdlTime'='1661955829');
 
-CREATE TABLE `lineitem`(
+drop table if exists `lineitem`;
+
+create table `lineitem`(
   `l_orderkey` int,
   `l_partkey` int,
   `l_suppkey` int,
@@ -49,7 +53,9 @@ LOCATION
 TBLPROPERTIES (
   'transient_lastDdlTime'='1661955829');
 
-CREATE TABLE `nation`(
+drop table if exists `nation`;
+
+create table `nation`(
   `n_nationkey` int,
   `n_name` string,
   `n_regionkey` int,
@@ -65,7 +71,9 @@ LOCATION
 TBLPROPERTIES (
   'transient_lastDdlTime'='1661955829');
 
-CREATE TABLE `orders`(
+drop table if exists `orders`;
+
+create table `orders`(
   `o_orderkey` int,
   `o_custkey` int,
   `o_orderstatus` string,
@@ -86,7 +94,9 @@ LOCATION
 TBLPROPERTIES (
   'transient_lastDdlTime'='1661955829');
 
-CREATE TABLE `part`(
+drop table if exists `part`;
+
+create table `part`(
   `p_partkey` int,
   `p_name` string,
   `p_mfgr` string,
@@ -107,7 +117,9 @@ LOCATION
 TBLPROPERTIES (
   'transient_lastDdlTime'='1661955829');
 
-CREATE TABLE `partsupp`(
+drop table if exists `partsupp`;
+
+create table `partsupp`(
   `ps_partkey` int,
   `ps_suppkey` int,
   `ps_availqty` int,
@@ -124,7 +136,9 @@ LOCATION
 TBLPROPERTIES (
   'transient_lastDdlTime'='1661955829');
 
-CREATE TABLE `region`(
+drop table if exists `region`;
+
+create table `region`(
   `r_regionkey` int,
   `r_name` string,
   `r_comment` string)
@@ -139,7 +153,9 @@ LOCATION
 TBLPROPERTIES (
   'transient_lastDdlTime'='1661955829');
 
-CREATE TABLE `supplier`(
+drop table if exists `supplier`;
+
+create table `supplier`(
   `s_suppkey` int,
   `s_name` string,
   `s_address` string,
