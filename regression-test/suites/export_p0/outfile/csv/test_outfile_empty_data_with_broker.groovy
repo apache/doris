@@ -15,13 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
-
-import java.nio.charset.StandardCharsets
-import java.nio.file.Files
-import java.nio.file.Paths
-
-suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
+suite("test_outfile_empty_data_with_broker", "external,hive,tvf,external_docker") {
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -41,14 +35,9 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
     def format = "csv"
     def defaultFS = "hdfs://${externalEnvIp}:${hdfs_port}"
 
-    // use to outfile to s3
-    String ak = getS3AK()
-    String sk = getS3SK()
-    String s3_endpoint = getS3Endpoint()
-    String region = getS3Region()
-    String bucket = context.config.otherConfigs.get("s3BucketName");
+    String broker_name = "hdfs"
 
-    def export_table_name = "outfile_empty_data_test"
+    def export_table_name = "outfile_empty_data_with_broker_test"
 
     def create_table = {table_name, column_define ->
         sql """ DROP TABLE IF EXISTS ${table_name} """
@@ -60,7 +49,7 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
         """
     }
 
-    def outfile_to_HDFS_directly = {
+    def outfile_to_HDFS_with_broker = {
         // select ... into outfile ...
         def uuid = UUID.randomUUID().toString()
 
@@ -72,62 +61,30 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
             INTO OUTFILE "${uri}"
             FORMAT AS ${format}
             PROPERTIES (
-                "fs.defaultFS"="${defaultFS}",
-                "hadoop.username" = "${hdfsUserName}"
+                "broker.fs.defaultFS"="${defaultFS}",
+                "broker.name"="${broker_name}",
+                "broker.username" = "${hdfsUserName}"
             );
         """
-        logger.info("outfile to hdfs direct success path: " + res[0][3]);
-        return res[0][3]
-    }
-
-    def outfile_to_S3_directly = {
-        // select ... into outfile ...
-        def s3_outfile_path = "${bucket}/outfile/csv/test-outfile-empty/"
-        def uri = "s3://${s3_outfile_path}/exp_"
-
-        def res = sql """
-            SELECT * FROM ${export_table_name} t ORDER BY user_id
-            INTO OUTFILE "${uri}"
-            FORMAT AS csv
-            PROPERTIES (
-                "s3.endpoint" = "${s3_endpoint}",
-                "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
-            );
-        """
-        logger.info("outfile to s3 success path: " + res[0][3]);
+        logger.info("outfile to hdfs with broker success path: " + res[0][3]);
         return res[0][3]
     }
 
     try {
         def doris_column_define = """
-                                    `user_id` INT NOT NULL COMMENT "用户id",
+                                    `user_id` INT NOT NULL COMMENT "user id",
                                     `name` STRING NULL,
                                     `age` INT NULL"""
         // create table
         create_table(export_table_name, doris_column_define);
-        // test outfile empty data to hdfs directly
-        def outfile_to_hdfs_directly_url = outfile_to_HDFS_directly()
-        // test outfile empty data to s3 directly
-        def outfile_to_s3_directly_url = outfile_to_S3_directly()
-        qt_select_base1 """ SELECT * FROM ${export_table_name} ORDER BY user_id; """ 
+        // test outfile empty data to hdfs with broker
+        def outfile_to_hdfs_with_broker_url = outfile_to_HDFS_with_broker()
 
-        qt_select_tvf1 """ select * from HDFS(
-                    "uri" = "${outfile_to_hdfs_directly_url}0.csv",
+        qt_select_tvf """ select * from HDFS(
+                    "uri" = "${outfile_to_hdfs_with_broker_url}0.csv",
                     "hadoop.username" = "${hdfsUserName}",
                     "format" = "${format}");
                     """
-        
-        qt_select_tvf3 """ SELECT * FROM S3 (
-                "uri" = "http://${bucket}.${s3_endpoint}${outfile_to_s3_directly_url.substring(5 + bucket.length(), outfile_to_s3_directly_url.length())}0.csv",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
-                "format" = "${format}",
-                "region" = "${region}",
-                "use_path_style" = "false" -- aliyun does not support path_style
-            );
-            """
 
     } finally {
     }
