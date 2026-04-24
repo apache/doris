@@ -230,6 +230,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 String includeTables = String.join(",", createTbls);
                 sourceProperties.put(DataSourceConfigKeys.INCLUDE_TABLES, includeTables);
             }
+            StreamingJobUtils.resolveAndValidateSource(
+                    dataSourceType, sourceProperties, String.valueOf(getJobId()), createTbls);
             this.offsetProvider = new JdbcSourceOffsetProvider(getJobId(), dataSourceType,
                     StreamingJobUtils.convertCertFile(getDbId(), sourceProperties));
             JdbcSourceOffsetProvider rdsOffsetProvider = (JdbcSourceOffsetProvider) this.offsetProvider;
@@ -305,6 +307,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.originTvfProps = currentTvf.getProperties().getMap();
             this.offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(currentTvf.getFunctionName());
             this.offsetProvider.ensureInitialized(getJobId(), originTvfProps);
+            // Validate source-side resources (e.g. PG slot/publication ownership) once at job
+            // creation so conflicts fail fast. No-op for standalone cdc_stream TVF (no job).
+            StreamingJobUtils.validateTvfSource(tvfType, originTvfProps, String.valueOf(getJobId()));
             this.offsetProvider.initOnCreate();
             // validate offset props, only for s3 cause s3 tvf no offset prop
             if (jobProperties.getOffsetProperty() != null

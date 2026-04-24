@@ -63,6 +63,8 @@ import java.util.Properties;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
+import io.debezium.connector.postgresql.PostgresConnectorConfig;
+import io.debezium.connector.postgresql.PostgresConnectorConfig.AutoCreateMode;
 import io.debezium.connector.postgresql.PostgresOffsetContext;
 import io.debezium.connector.postgresql.SourceInfo;
 import io.debezium.connector.postgresql.connection.PostgresConnection;
@@ -93,9 +95,13 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     public void initialize(String jobId, DataSource dataSource, Map<String, String> config) {
         PostgresSourceConfig sourceConfig = generatePostgresConfig(config, jobId, 0);
         PostgresDialect dialect = new PostgresDialect(sourceConfig);
-        synchronized (SLOT_CREATION_LOCK) {
-            LOG.info("Creating slot for job {}, user {}", jobId, sourceConfig.getUsername());
-            createSlotForGlobalStreamSplit(dialect);
+        // Only create the slot when Doris owns it (name == default); user-provided slots must
+        // pre-exist, validated at CREATE JOB.
+        if (isSlotDorisOwned(config, jobId)) {
+            synchronized (SLOT_CREATION_LOCK) {
+                LOG.info("Creating slot for job {}, user {}", jobId, sourceConfig.getUsername());
+                createSlotForGlobalStreamSplit(dialect);
+            }
         }
         super.initialize(jobId, dataSource, config);
         // Inject PG schema refresher so the deserializer can fetch accurate column types on DDL
@@ -227,6 +233,20 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
 
         Properties dbzProps = ConfigUtil.getDefaultDebeziumProps();
         dbzProps.put("interval.handling.mode", "string");
+
+        // Doris-owned = FILTERED (auto-create per-table publication); otherwise DISABLED
+        // (user-provided or legacy dbz_publication already present on PG).
+        String publicationName = resolvePublicationName(cdcConfig, jobId);
+        String slotName = resolveSlotName(cdcConfig, jobId);
+        AutoCreateMode autocreateMode =
+                isPublicationDorisOwned(cdcConfig, jobId)
+                        ? AutoCreateMode.FILTERED
+                        : AutoCreateMode.DISABLED;
+        dbzProps.put(PostgresConnectorConfig.PUBLICATION_NAME.name(), publicationName);
+        dbzProps.put(
+                PostgresConnectorConfig.PUBLICATION_AUTOCREATE_MODE.name(),
+                autocreateMode.getValue());
+
         configFactory.debeziumProperties(dbzProps);
 
         // setting ssl
@@ -243,7 +263,7 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
 
         configFactory.serverTimeZone(
                 ConfigUtil.getPostgresServerTimeZoneFromProps(props).toString());
-        configFactory.slotName(getSlotName(jobId));
+        configFactory.slotName(slotName);
         configFactory.decodingPluginName("pgoutput");
         configFactory.heartbeatInterval(
                 Duration.ofMillis(Constants.DEBEZIUM_HEARTBEAT_INTERVAL_MS));
@@ -255,8 +275,29 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         return configFactory.create(subtaskId);
     }
 
-    private String getSlotName(String jobId) {
-        return "doris_cdc_" + jobId;
+    private String resolveSlotName(Map<String, String> config, String jobId) {
+        String name = config.get(DataSourceConfigKeys.SLOT_NAME);
+        return StringUtils.isNotBlank(name) ? name : DataSourceConfigKeys.defaultSlotName(jobId);
+    }
+
+    // Legacy jobs (created before slot/pub names were persisted) keep no publication_name in
+    // sourceProperties; fall back to the pre-PR Debezium default so they continue to use the
+    // existing publication on PG.
+    private String resolvePublicationName(Map<String, String> config, String jobId) {
+        String name = config.get(DataSourceConfigKeys.PUBLICATION_NAME);
+        return StringUtils.isNotBlank(name) ? name : DataSourceConfigKeys.LEGACY_PUBLICATION_NAME;
+    }
+
+    // Per-resource ownership: Doris owns the resource iff the resolved name equals
+    // doris_{cdc|pub}_{jobId}. Users cannot specify this name (jobId is unknown pre-CREATE);
+    // legacy publication resolves to dbz_publication and stays user-owned (not dropped).
+    private boolean isSlotDorisOwned(Map<String, String> config, String jobId) {
+        return DataSourceConfigKeys.defaultSlotName(jobId).equals(resolveSlotName(config, jobId));
+    }
+
+    private boolean isPublicationDorisOwned(Map<String, String> config, String jobId) {
+        return DataSourceConfigKeys.defaultPublicationName(jobId)
+                .equals(resolvePublicationName(config, jobId));
     }
 
     @Override
@@ -453,21 +494,41 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     @Override
     public void close(JobBaseConfig jobConfig) {
         super.close(jobConfig);
-        // drop pg slot
+        Map<String, String> config = jobConfig.getConfig();
+        String jobId = jobConfig.getJobId();
+        String slotName = resolveSlotName(config, jobId);
+        String pubName = resolvePublicationName(config, jobId);
+        boolean dropSlot = isSlotDorisOwned(config, jobId);
+        boolean dropPub = isPublicationDorisOwned(config, jobId);
+        if (!dropSlot && !dropPub) {
+            LOG.info(
+                    "Skipping drop of user-provided slot {} / publication {} for job {}",
+                    slotName,
+                    pubName,
+                    jobId);
+            return;
+        }
         try {
             PostgresSourceConfig sourceConfig = getSourceConfig(jobConfig);
             PostgresDialect dialect = new PostgresDialect(sourceConfig);
-            String slotName = getSlotName(jobConfig.getJobId());
-            LOG.info(
-                    "Dropping postgres replication slot {} for job {}",
-                    slotName,
-                    jobConfig.getJobId());
-            dialect.removeSlot(slotName);
+            if (dropSlot) {
+                LOG.info("Dropping auto-created replication slot {} for job {}", slotName, jobId);
+                dialect.removeSlot(slotName);
+            } else {
+                LOG.info("Skipping drop of user-provided slot {} for job {}", slotName, jobId);
+            }
+            if (dropPub) {
+                LOG.info("Dropping auto-created publication {} for job {}", pubName, jobId);
+                try (PostgresConnection connection = dialect.openJdbcConnection()) {
+                    connection.execute("DROP PUBLICATION IF EXISTS " + pubName);
+                }
+            } else {
+                LOG.info(
+                        "Skipping drop of user-provided publication {} for job {}", pubName, jobId);
+            }
         } catch (Exception ex) {
             LOG.warn(
-                    "Failed to drop postgres replication slot for job {}: {}",
-                    jobConfig.getJobId(),
-                    ex.getMessage());
+                    "Failed to clean up postgres resources for job {}: {}", jobId, ex.getMessage());
         }
     }
 }
