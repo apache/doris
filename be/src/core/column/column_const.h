@@ -124,7 +124,10 @@ public:
     void resize(size_t new_size) override { s = new_size; }
 
     MutableColumnPtr clone_resized(size_t new_size) const override {
-        return ColumnConst::create(data, new_size, false, false);
+        const bool create_with_empty = data->empty();
+        const size_t nested_size = create_with_empty ? 0 : 1;
+        return ColumnConst::create(data->clone_resized(nested_size), new_size, create_with_empty,
+                                   false);
     }
 
     size_t size() const override { return s; }

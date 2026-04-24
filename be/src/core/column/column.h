@@ -167,7 +167,7 @@ public:
 
     /// Removes all elements outside of specified range.
     /// Is used in LIMIT operation, for example.
-    virtual Ptr cut(size_t start, size_t length) const final {
+    Ptr cut(size_t start, size_t length) const {
         MutablePtr res = clone_empty();
         res->insert_range_from(*this, start, length);
         return res;
