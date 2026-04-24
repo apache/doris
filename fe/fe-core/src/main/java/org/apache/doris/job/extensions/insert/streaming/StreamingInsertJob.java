@@ -1045,8 +1045,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             LoadJob loadJob = loadJobs.get(0);
             LoadStatistic loadStatistic = loadJob.getLoadStatistic();
 
+            Offset runningOffset = runningStreamTask.getRunningOffset();
             String offsetJson = offsetProvider.getCommitOffsetJson(
-                    runningStreamTask.getRunningOffset(),
+                    runningOffset,
                     runningStreamTask.getTaskId(),
                     runningStreamTask.getScanBackendIds());
 
@@ -1054,12 +1055,15 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 throw new TransactionException("Cannot find offset for attachment, load job id is "
                         + runningStreamTask.getTaskId());
             }
+            // loadStatistic.fileNumber is BE split count, not physical file count; prefer offset's value.
+            int physicalFileNum = runningOffset != null ? runningOffset.getPhysicalFileNum() : -1;
+            long numFiles = physicalFileNum >= 0 ? physicalFileNum : loadStatistic.getFileNumber();
             txnState.setTxnCommitAttachment(new StreamingTaskTxnCommitAttachment(
                         getJobId(),
                         runningStreamTask.getTaskId(),
                         loadStatistic.getScannedRows(),
                         loadStatistic.getLoadBytes(),
-                        loadStatistic.getFileNumber(),
+                        numFiles,
                         loadStatistic.getTotalFileSizeB(),
                         offsetJson));
             passCheck = true;
