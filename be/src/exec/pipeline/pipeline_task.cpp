@@ -418,14 +418,7 @@ bool PipelineTask::_should_trigger_revoking(const size_t reserve_size) const {
     }
 
     if (is_high_memory_pressure) {
-        const auto revocable_size = [&]() {
-            size_t total = _sink->revocable_mem_size(_state);
-            for (const auto& op : _operators) {
-                total += op->revocable_mem_size(_state);
-            }
-            return total;
-        }();
-
+        const auto revocable_size = _get_revocable_size();
         const auto total_estimated_revocable = revocable_size * parallelism;
         return total_estimated_revocable >= int64_t(double(query_limit) * 0.2);
     }
@@ -1007,18 +1000,29 @@ std::string PipelineTask::debug_string() {
     return fmt::to_string(debug_string_buffer);
 }
 
+size_t PipelineTask::_get_revocable_size() const {
+    // Sum revocable memory from every operator in the pipeline + the sink.
+    // Each operator reports only its own revocable memory (no child recursion).
+    size_t total = 0;
+    size_t sink_revocable_size = _sink->revocable_mem_size(_state);
+    if (sink_revocable_size >= SpillFile::MIN_SPILL_WRITE_BATCH_MEM) {
+        total += sink_revocable_size;
+    }
+    for (const auto& op : _operators) {
+        size_t ops_revocable_size = op->revocable_mem_size(_state);
+        if (ops_revocable_size >= SpillFile::MIN_SPILL_WRITE_BATCH_MEM) {
+            total += ops_revocable_size;
+        }
+    }
+    return total;
+}
+
 size_t PipelineTask::get_revocable_size() const {
     if (!_opened || is_finalized() || _running || (_eos && !_spilling)) {
         return 0;
     }
 
-    // Sum revocable memory from every operator in the pipeline + the sink.
-    // Each operator reports only its own revocable memory (no child recursion).
-    size_t total = _sink->revocable_mem_size(_state);
-    for (const auto& op : _operators) {
-        total += op->revocable_mem_size(_state);
-    }
-    return total;
+    return _get_revocable_size();
 }
 
 Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_context) {

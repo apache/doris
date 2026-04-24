@@ -321,6 +321,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             tQueryOptions.setBeExecVersion(Config.be_exec_version);
             tQueryOptions.setEnableDecimal256(context.getSessionVariable().isEnableDecimal256());
             tQueryOptions.setNewVersionUnixTimestamp(true);
+            tQueryOptions.setNewVersionPercentile(true);
             tQueryOptions.setEnableStrictCast(SessionVariable.enableStrictCast());
 
             TFoldConstantParams tParams = new TFoldConstantParams(paramMap, queryGlobals);
