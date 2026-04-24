@@ -300,4 +300,47 @@ class TimestampTzLiteralTest {
         Assertions.assertEquals(58, result.second);
         Assertions.assertEquals(900000, result.microSecond);
     }
+
+    /**
+     * Regression test for DST spring-forward gap handling.
+     *
+     * 2024-03-10 02:30:00 does not exist in America/New_York (clocks spring forward
+     * from 02:00 EST to 03:00 EDT). Java's ZonedDateTime snaps this to 03:30 EDT
+     * = 07:30 UTC. Both the named-timezone path and the implicit-session-timezone path
+     * must resolve to the same UTC instant.
+     *
+     * Bug: the named-timezone path applied the *post-gap* UTC offset (-04:00 EDT) to
+     * the *pre-snap* local time (02:30), producing 06:30 UTC instead of 07:30 UTC.
+     */
+    @Test
+    void testSpringForwardGapConsistency() {
+        // Path 1: named timezone suffix in the literal
+        // 2024-03-10 02:30:00 America/New_York is inside the spring-forward gap.
+        // Java ZonedDateTime snaps it to 03:30 EDT = 07:30 UTC.
+        TimestampTzLiteral namedTz = new TimestampTzLiteral("2024-03-10 02:30:00 America/New_York");
+        // UTC fields stored in the literal must reflect 07:30 UTC
+        Assertions.assertEquals(2024, namedTz.year, "year mismatch for named-tz path");
+        Assertions.assertEquals(3, namedTz.month, "month mismatch for named-tz path");
+        Assertions.assertEquals(10, namedTz.day, "day mismatch for named-tz path");
+        Assertions.assertEquals(7, namedTz.hour, "hour mismatch for named-tz path (expected 07:30 UTC after snap)");
+        Assertions.assertEquals(30, namedTz.minute, "minute mismatch for named-tz path");
+        Assertions.assertEquals(0, namedTz.second, "second mismatch for named-tz path");
+
+        // Times just before/after the gap should be unaffected.
+        // 01:30 EST (-05:00) = 06:30 UTC
+        TimestampTzLiteral beforeGap = new TimestampTzLiteral("2024-03-10 01:30:00 America/New_York");
+        Assertions.assertEquals(6, beforeGap.hour, "before-gap hour should be 06 UTC");
+        Assertions.assertEquals(30, beforeGap.minute, "before-gap minute should be 30");
+
+        // 03:30 EDT (-04:00) = 07:30 UTC
+        TimestampTzLiteral afterGap = new TimestampTzLiteral("2024-03-10 03:30:00 America/New_York");
+        Assertions.assertEquals(7, afterGap.hour, "after-gap hour should be 07 UTC");
+        Assertions.assertEquals(30, afterGap.minute, "after-gap minute should be 30");
+
+        // The gap-time result must equal the after-gap result (both snap to 07:30 UTC).
+        Assertions.assertEquals(afterGap.hour, namedTz.hour,
+                "gap time and post-gap time must resolve to same UTC hour");
+        Assertions.assertEquals(afterGap.minute, namedTz.minute,
+                "gap time and post-gap time must resolve to same UTC minute");
+    }
 }

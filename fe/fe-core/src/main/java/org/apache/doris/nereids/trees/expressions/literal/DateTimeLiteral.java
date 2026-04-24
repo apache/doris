@@ -154,23 +154,22 @@ public class DateTimeLiteral extends DateLiteral {
 
         ZoneId zoneId = temporal.query(TemporalQueries.zone());
         if (zoneId != null) {
-            // get correct DST of that time.
+            // Convert the parsed civil time to an absolute instant first; this correctly
+            // handles DST spring-forward gaps (Java snaps forward) and fall-back folds.
+            // Then convert that instant to the session timezone so the local fields are
+            // consistent.  The old approach computed an offset from `thatTime` and applied
+            // it to the *pre-snap* local fields, which was wrong for gap times.
             Instant thatTime = ZonedDateTime
                     .of((int) year, (int) month, (int) day, (int) hour, (int) minute, (int) second, 0, zoneId)
                     .toInstant();
 
-            int offset = DateUtils.getTimeZone().getRules().getOffset(thatTime).getTotalSeconds()
-                    - zoneId.getRules().getOffset(thatTime).getTotalSeconds();
-            if (offset != 0) {
-                DateTimeLiteral tempLiteral = new DateTimeLiteral(year, month, day, hour, minute, second);
-                DateTimeLiteral result = (DateTimeLiteral) tempLiteral.plusSeconds(offset);
-                second = result.second;
-                minute = result.minute;
-                hour = result.hour;
-                day = result.day;
-                month = result.month;
-                year = result.year;
-            }
+            ZonedDateTime inSessionTz = thatTime.atZone(DateUtils.getTimeZone());
+            year = inSessionTz.getYear();
+            month = inSessionTz.getMonthValue();
+            day = inSessionTz.getDayOfMonth();
+            hour = inSessionTz.getHour();
+            minute = inSessionTz.getMinute();
+            second = inSessionTz.getSecond();
         }
 
         long microSecond = DateUtils.getOrDefault(temporal, ChronoField.NANO_OF_SECOND) / 100L;
@@ -237,28 +236,28 @@ public class DateTimeLiteral extends DateLiteral {
 
         ZoneId zoneId = temporal.query(TemporalQueries.zone());
         if (zoneId != null) {
-            // get correct DST of that time.
+            // Convert the parsed civil time to an absolute instant first; this correctly
+            // handles DST spring-forward gaps (Java snaps forward) and fall-back folds.
+            // Then project that instant into the target timezone so the stored fields are
+            // always consistent.  The old approach computed an offset at `thatTime` and
+            // applied it to the *pre-snap* local fields, which was wrong for gap times.
             Instant thatTime = ZonedDateTime
                     .of((int) year, (int) month, (int) day, (int) hour, (int) minute, (int) second, 0, zoneId)
                     .toInstant();
 
-            int offset = 0;
+            ZoneId targetZone;
             if (this.dataType instanceof TimeStampTzType) {
-                offset = ZoneId.of("UTC").getRules().getOffset(thatTime).getTotalSeconds()
-                        - zoneId.getRules().getOffset(thatTime).getTotalSeconds();
+                targetZone = ZoneId.of("UTC");
             } else {
-                offset = DateUtils.getTimeZone().getRules().getOffset(thatTime).getTotalSeconds()
-                        - zoneId.getRules().getOffset(thatTime).getTotalSeconds();
+                targetZone = DateUtils.getTimeZone();
             }
-            if (offset != 0) {
-                DateTimeLiteral result = (DateTimeLiteral) this.plusSeconds(offset);
-                this.second = result.second;
-                this.minute = result.minute;
-                this.hour = result.hour;
-                this.day = result.day;
-                this.month = result.month;
-                this.year = result.year;
-            }
+            ZonedDateTime inTarget = thatTime.atZone(targetZone);
+            this.year = inTarget.getYear();
+            this.month = inTarget.getMonthValue();
+            this.day = inTarget.getDayOfMonth();
+            this.hour = inTarget.getHour();
+            this.minute = inTarget.getMinute();
+            this.second = inTarget.getSecond();
         }
 
         microSecond = DateUtils.getOrDefault(temporal, ChronoField.NANO_OF_SECOND) / 100L;
