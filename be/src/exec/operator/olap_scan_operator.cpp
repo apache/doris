@@ -317,11 +317,13 @@ Status OlapScanLocalState::_init_profile() {
             ADD_CHILD_TIMER(_scanner_profile, "SegmentIteratorInitSegmentPrefetchersTimer",
                             "SegmentIteratorInitTimer");
 
-    _segment_create_column_readers_timer =
-            ADD_CHILD_TIMER(_scanner_profile, "SegmentCreateColumnReadersTimer",
-                            "SegmentIteratorInitReturnColumnIteratorsTimer");
-    _segment_load_index_timer = ADD_CHILD_TIMER(_scanner_profile, "SegmentLoadIndexTimer",
-                                                "SegmentIteratorInitReturnColumnIteratorsTimer");
+    // These two timers span both iterator init and later lazy segment init paths,
+    // so their nearest stable ancestor is ScannerGetBlockTime instead of any
+    // narrower SegmentIterator/BlockFetch subphase.
+    _segment_create_column_readers_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "SegmentCreateColumnReadersTimer", "ScannerGetBlockTime");
+    _segment_load_index_timer =
+            ADD_CHILD_TIMER(_scanner_profile, "SegmentLoadIndexTimer", "ScannerGetBlockTime");
 
     _index_filter_profile = std::make_unique<RuntimeProfile>("IndexFilter");
     _scanner_profile->add_child(_index_filter_profile.get(), true, nullptr);
