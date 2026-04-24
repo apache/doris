@@ -36,7 +36,8 @@ suite("test_authentication_integration_auth", "p0,auth") {
                 'type'='ldap',
                 'ldap.server'='ldap://127.0.0.1:389',
                 'ldap.admin_password'='123456',
-                'secret.endpoint'='secret_create_value'
+                'secret.endpoint'='secret_create_value',
+                'check_validation'='false'
             )
             COMMENT 'for regression test'
         """
@@ -63,7 +64,8 @@ suite("test_authentication_integration_auth", "p0,auth") {
             SET PROPERTIES (
                 'ldap.server'='ldap://127.0.0.1:1389',
                 'ldap.admin_password'='abcdef',
-                'secret.endpoint'='secret_alter_value'
+                'secret.endpoint'='secret_alter_value',
+                'check_validation'='false'
             )
         """
 

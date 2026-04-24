@@ -106,6 +106,8 @@ class AuthenticationIntegrationMgrTest {
         mgr.dropAuthenticationIntegration("corp_ldap", false);
         Assertions.assertTrue(mgr.getAuthenticationIntegrations().isEmpty());
 
+        Mockito.verify(runtime, Mockito.times(3)).validateAuthenticationIntegration(
+                Mockito.any(AuthenticationIntegrationMeta.class));
         Mockito.verify(runtime, Mockito.times(2)).markAuthenticationIntegrationDirty("corp_ldap");
         Mockito.verify(runtime).removeAuthenticationIntegration("corp_ldap");
         Mockito.verifyNoMoreInteractions(runtime);
@@ -155,6 +157,49 @@ class AuthenticationIntegrationMgrTest {
         Mockito.verifyNoInteractions(runtime);
         Mockito.verifyNoInteractions(roleMappingMgr);
         Mockito.verifyNoInteractions(editLog);
+    }
+
+    @Test
+    void testSkipValidationPropertyIsTransient() throws Exception {
+        AuthenticationIntegrationMgr mgr = new AuthenticationIntegrationMgr();
+        mgr.createAuthenticationIntegration("corp_ldap", false, map(
+                "type", "ldap",
+                "ldap.server", "ldap://127.0.0.1:389",
+                "check_validation", "false"), null, CREATE_USER);
+
+        AuthenticationIntegrationMeta created = mgr.getAuthenticationIntegration("corp_ldap");
+        Assertions.assertNotNull(created);
+        Assertions.assertFalse(created.toSqlPropertiesView().containsKey("check_validation"));
+        Mockito.verify(runtime, Mockito.never()).validateAuthenticationIntegration(
+                Mockito.any(AuthenticationIntegrationMeta.class));
+
+        Mockito.clearInvocations(runtime, editLog, roleMappingMgr);
+
+        mgr.alterAuthenticationIntegrationProperties("corp_ldap", map(
+                "ldap.server", "ldap://127.0.0.1:1389",
+                "check_validation", "false"), ALTER_USER);
+        AuthenticationIntegrationMeta altered = mgr.getAuthenticationIntegration("corp_ldap");
+        Assertions.assertEquals("ldap://127.0.0.1:1389", altered.getProperties().get("ldap.server"));
+        Assertions.assertFalse(altered.toSqlPropertiesView().containsKey("check_validation"));
+        Mockito.verify(runtime, Mockito.never()).validateAuthenticationIntegration(
+                Mockito.any(AuthenticationIntegrationMeta.class));
+        Mockito.verify(runtime).markAuthenticationIntegrationDirty("corp_ldap");
+        Mockito.verifyNoMoreInteractions(runtime);
+        Mockito.verifyNoInteractions(roleMappingMgr);
+    }
+
+    @Test
+    void testInvalidCheckValidationPropertyThrows() {
+        AuthenticationIntegrationMgr mgr = new AuthenticationIntegrationMgr();
+
+        Assertions.assertThrows(DdlException.class,
+                () -> mgr.createAuthenticationIntegration("corp_ldap", false, map(
+                        "type", "ldap",
+                        "check_validation", "not_bool"), null, CREATE_USER));
+        Assertions.assertThrows(DdlException.class,
+                () -> mgr.alterAuthenticationIntegrationProperties("corp_ldap", map(
+                        "ldap.server", "ldap://127.0.0.1:1389",
+                        "check_validation", "not_bool"), ALTER_USER));
     }
 
     @Test

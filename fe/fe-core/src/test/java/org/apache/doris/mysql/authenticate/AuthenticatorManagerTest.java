@@ -18,6 +18,7 @@
 package org.apache.doris.mysql.authenticate;
 
 import org.apache.doris.authentication.AuthenticationFailureType;
+import org.apache.doris.authentication.AuthenticationIntegrationRuntime;
 import org.apache.doris.authentication.BasicPrincipal;
 import org.apache.doris.authentication.CredentialType;
 import org.apache.doris.catalog.Env;
@@ -289,6 +290,56 @@ class AuthenticatorManagerTest {
         Assertions.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
         Assertions.assertEquals(ErrorCode.ERR_UNKNOWN_ERROR, state.getErrorCode());
         Assertions.assertEquals("OIDC token has expired", state.getErrorMessage());
+    }
+
+    @Test
+    void testAuthenticateExposesOidcIdTokenRejectedMessageFromAuthenticationChain() throws Exception {
+        Config.authentication_chain = "corp_oidc";
+
+        Authenticator primaryAuthenticator = Mockito.mock(Authenticator.class);
+        PasswordResolver primaryResolver = Mockito.mock(PasswordResolver.class);
+        Mockito.when(primaryAuthenticator.canDeal(USER_NAME)).thenReturn(true);
+        Mockito.when(primaryAuthenticator.getPasswordResolver()).thenReturn(primaryResolver);
+        Mockito.when(primaryResolver.resolveAuthenticateRequest(Mockito.eq(USER_NAME), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(Optional.of(AuthenticateRequest.builder()
+                        .userName(USER_NAME)
+                        .password(new ClearPassword(OIDC_ID_TOKEN))
+                        .remoteHost(REMOTE_IP)
+                        .clientType("mysql")
+                        .credentialType(CredentialType.OIDC_ID_TOKEN)
+                        .credential(OIDC_ID_TOKEN.getBytes(StandardCharsets.UTF_8))
+                        .build()));
+        Mockito.when(primaryAuthenticator.authenticate(Mockito.any()))
+                .thenReturn(AuthenticateResponse.failedResponse);
+
+        Authenticator chainAuthenticator = Mockito.mock(Authenticator.class);
+        Mockito.when(chainAuthenticator.canDeal(USER_NAME)).thenReturn(true);
+        Mockito.when(chainAuthenticator.authenticate(Mockito.any()))
+                .thenReturn(AuthenticateResponse.failed(AuthenticationFailureSummary.forClientVisibleFailure(
+                        AuthenticationFailureType.BAD_CREDENTIAL,
+                        AuthenticationIntegrationRuntime.OIDC_ID_TOKEN_REJECTED_MESSAGE,
+                        AuthenticationIntegrationRuntime.OIDC_ID_TOKEN_REJECTED_MESSAGE)));
+
+        AuthenticatorManager manager = Mockito.spy(new AuthenticatorManager(AuthenticateType.DEFAULT.name()));
+        setStaticField("authTypeAuthenticator", primaryAuthenticator);
+        setStaticField("authTypeIdentifier", AuthenticateType.DEFAULT.name());
+        Mockito.doReturn(chainAuthenticator).when(manager).getAuthenticationChainAuthenticator();
+
+        QueryState state = new QueryState();
+        ConnectContext context = mockContext(state);
+        MysqlAuthPacket authPacket = Mockito.mock(MysqlAuthPacket.class);
+        Mockito.when(authPacket.getPluginName()).thenReturn(MysqlHandshakePacket.AUTH_PLUGIN_NAME);
+        Mockito.when(authPacket.getCapability()).thenReturn(org.apache.doris.mysql.MysqlCapability.SSL_CAPABILITY);
+
+        boolean result = manager.authenticate(context, USER_NAME, context.getMysqlChannel(),
+                Mockito.mock(MysqlSerializer.class), authPacket, Mockito.mock(MysqlHandshakePacket.class));
+
+        Assertions.assertFalse(result);
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
+        Assertions.assertEquals(ErrorCode.ERR_UNKNOWN_ERROR, state.getErrorCode());
+        Assertions.assertEquals(AuthenticationIntegrationRuntime.OIDC_ID_TOKEN_REJECTED_MESSAGE,
+                state.getErrorMessage());
     }
 
     @Test

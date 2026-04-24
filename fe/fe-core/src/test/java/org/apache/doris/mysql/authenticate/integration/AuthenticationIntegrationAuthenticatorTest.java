@@ -18,14 +18,19 @@
 package org.apache.doris.mysql.authenticate.integration;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authentication.AuthenticationException;
+import org.apache.doris.authentication.AuthenticationFailureType;
 import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.AuthenticationIntegrationMeta;
 import org.apache.doris.authentication.AuthenticationIntegrationMgr;
 import org.apache.doris.authentication.AuthenticationIntegrationRuntime;
+import org.apache.doris.authentication.AuthenticationResult;
+import org.apache.doris.authentication.CredentialType;
 import org.apache.doris.authentication.handler.AuthenticationOutcome;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.mysql.authenticate.AuthenticateResponse;
+import org.apache.doris.mysql.authenticate.AuthenticationFailureSummary;
 import org.apache.doris.mysql.authenticate.password.ClearPassword;
 import org.apache.doris.mysql.privilege.Auth;
 
@@ -47,6 +52,8 @@ import java.util.Map;
 class AuthenticationIntegrationAuthenticatorTest {
     private static final String CHAIN_CONFIG = "corp_ldap,backup_ldap";
     private static final String CREATE_USER = "creator";
+    private static final String OIDC_JIT_DISABLED_MESSAGE =
+            "OIDC authentication succeeded but no matching Doris user exists and JIT user is disabled";
 
     private Env env;
     private Auth auth;
@@ -134,6 +141,61 @@ class AuthenticationIntegrationAuthenticatorTest {
                 new AuthenticateRequest("alice", new ClearPassword("secret"), "127.0.0.1"));
 
         Assertions.assertFalse(response.isSuccess());
+        Assertions.assertNull(response.getFailureSummary());
+    }
+
+    @Test
+    void testAuthenticateExposesOidcJitDisabledFailure() throws Exception {
+        mgr.replayCreateAuthenticationIntegration(meta("corp_oidc", "oidc", false));
+        Mockito.when(runtime.authenticate(Mockito.anyList(), Mockito.any()))
+                .thenReturn(AuthenticationOutcome.of(integration("corp_oidc", "oidc", false), success()));
+        Mockito.when(auth.getUserIdentityForExternalAuth("alice", "127.0.0.1"))
+                .thenReturn(Collections.emptyList());
+
+        AuthenticationIntegrationAuthenticator authenticator =
+                new AuthenticationIntegrationAuthenticator("corp_oidc", "authentication_chain");
+        AuthenticateResponse response = authenticator.authenticate(
+                new AuthenticateRequest("alice", new ClearPassword("secret"), "127.0.0.1"));
+
+        Assertions.assertFalse(response.isSuccess());
+        AuthenticationFailureSummary failureSummary = response.getFailureSummary();
+        Assertions.assertNotNull(failureSummary);
+        Assertions.assertEquals(AuthenticationFailureType.ACCESS_DENIED, failureSummary.getFailureType());
+        Assertions.assertEquals(OIDC_JIT_DISABLED_MESSAGE, failureSummary.getDetailMessage());
+        Assertions.assertTrue(failureSummary.hasClientVisibleMessage());
+        Assertions.assertEquals(OIDC_JIT_DISABLED_MESSAGE, failureSummary.getClientVisibleMessage());
+    }
+
+    @Test
+    void testAuthenticateExposesOidcIdTokenRejectedFailure() throws Exception {
+        mgr.replayCreateAuthenticationIntegration(meta("corp_oidc", "oidc", true));
+        AuthenticationException exception = new AuthenticationException(
+                AuthenticationIntegrationRuntime.OIDC_ID_TOKEN_REJECTED_MESSAGE,
+                AuthenticationFailureType.BAD_CREDENTIAL);
+        Mockito.when(runtime.authenticate(Mockito.anyList(), Mockito.any()))
+                .thenReturn(AuthenticationOutcome.of(
+                        integration("corp_oidc", "oidc", true),
+                        AuthenticationResult.failure(exception)));
+
+        AuthenticationIntegrationAuthenticator authenticator =
+                new AuthenticationIntegrationAuthenticator("corp_oidc", "authentication_chain");
+        AuthenticateResponse response = authenticator.authenticate(AuthenticateRequest.builder()
+                .userName("alice")
+                .password(new ClearPassword("id-token"))
+                .remoteHost("127.0.0.1")
+                .credentialType(CredentialType.OIDC_ID_TOKEN)
+                .credential("id-token".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                .build());
+
+        Assertions.assertFalse(response.isSuccess());
+        AuthenticationFailureSummary failureSummary = response.getFailureSummary();
+        Assertions.assertNotNull(failureSummary);
+        Assertions.assertEquals(AuthenticationFailureType.BAD_CREDENTIAL, failureSummary.getFailureType());
+        Assertions.assertEquals(AuthenticationIntegrationRuntime.OIDC_ID_TOKEN_REJECTED_MESSAGE,
+                failureSummary.getDetailMessage());
+        Assertions.assertTrue(failureSummary.hasClientVisibleMessage());
+        Assertions.assertEquals(AuthenticationIntegrationRuntime.OIDC_ID_TOKEN_REJECTED_MESSAGE,
+                failureSummary.getClientVisibleMessage());
     }
 
     @Test
@@ -154,18 +216,26 @@ class AuthenticationIntegrationAuthenticatorTest {
     }
 
     private static AuthenticationIntegrationMeta meta(String name, boolean jitEnabled) throws Exception {
+        return meta(name, "ldap", jitEnabled);
+    }
+
+    private static AuthenticationIntegrationMeta meta(String name, String type, boolean jitEnabled) throws Exception {
         Map<String, String> properties = new LinkedHashMap<>();
-        properties.put("type", "ldap");
+        properties.put("type", type);
         properties.put("enable_jit_user", String.valueOf(jitEnabled));
         return AuthenticationIntegrationMeta.fromCreateSql(name, properties, null, CREATE_USER);
     }
 
     private static AuthenticationIntegration integration(String name, boolean jitEnabled) {
+        return integration(name, "ldap", jitEnabled);
+    }
+
+    private static AuthenticationIntegration integration(String name, String type, boolean jitEnabled) {
         Map<String, String> properties = new LinkedHashMap<>();
         properties.put("enable_jit_user", String.valueOf(jitEnabled));
         return AuthenticationIntegration.builder()
                 .name(name)
-                .type("ldap")
+                .type(type)
                 .properties(properties)
                 .build();
     }

@@ -52,6 +52,11 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class AuthenticationIntegrationRuntime {
     private static final Logger LOG = LogManager.getLogger(AuthenticationIntegrationRuntime.class);
+    private static final String OIDC_INTEGRATION_TYPE = "oidc";
+    public static final String OIDC_ID_TOKEN_REJECTED_MESSAGE =
+            "OIDC ID token is not accepted; use an OAuth access token or JWT bearer access token";
+    public static final String OIDC_JIT_DISABLED_MESSAGE =
+            "OIDC authentication succeeded but no matching Doris user exists and JIT user is disabled";
 
     private static final class ResolvedAuthenticationPlugin {
         private final AuthenticationIntegration integration;
@@ -117,6 +122,18 @@ public class AuthenticationIntegrationRuntime {
         ensurePluginFactoryLoaded(integration.getType());
         AuthenticationPlugin plugin = pluginManager.createPlugin(integration);
         return new PreparedAuthenticationIntegration(integration, plugin);
+    }
+
+    public void validateAuthenticationIntegration(AuthenticationIntegrationMeta meta)
+            throws AuthenticationException {
+        validateAuthenticationIntegration(toIntegration(meta));
+    }
+
+    public void validateAuthenticationIntegration(AuthenticationIntegration integration)
+            throws AuthenticationException {
+        Objects.requireNonNull(integration, "integration");
+        ensurePluginFactoryLoaded(integration.getType());
+        pluginManager.validatePlugin(integration);
     }
 
     public void activatePreparedAuthenticationIntegration(PreparedAuthenticationIntegration prepared) {
@@ -194,6 +211,10 @@ public class AuthenticationIntegrationRuntime {
             }
             AuthenticationIntegration integration = resolved.integration;
             AuthenticationPlugin plugin = resolved.plugin;
+            if (isRejectedOidcIdTokenRequest(integration, request)) {
+                return AuthenticationOutcome.of(integration, AuthenticationResult.failure(
+                        AuthenticationFailureType.BAD_CREDENTIAL, OIDC_ID_TOKEN_REJECTED_MESSAGE));
+            }
             if (!plugin.supports(request)) {
                 continue;
             }
@@ -320,6 +341,12 @@ public class AuthenticationIntegrationRuntime {
         }
         AuthenticationException exception = result.getException();
         return exception != null && exception.getFailureType().shouldContinueInChain();
+    }
+
+    private static boolean isRejectedOidcIdTokenRequest(AuthenticationIntegration integration,
+            AuthenticationRequest request) {
+        return OIDC_INTEGRATION_TYPE.equalsIgnoreCase(integration.getType())
+                && CredentialType.OIDC_ID_TOKEN.equalsIgnoreCase(Strings.nullToEmpty(request.getCredentialType()));
     }
 
     private static RoleMappingEvaluator createDefaultRoleMappingEvaluator() {

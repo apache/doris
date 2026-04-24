@@ -48,7 +48,8 @@ suite("test_role_mapping_system_table", "p0,auth") {
             CREATE AUTHENTICATION INTEGRATION ${integrationName}
             PROPERTIES (
                 'type'='ldap',
-                'ldap.server'='ldap://127.0.0.1:389'
+                'ldap.server'='ldap://127.0.0.1:389',
+                'check_validation'='false'
             )
             COMMENT 'role mapping auth'
         """

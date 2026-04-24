@@ -297,6 +297,70 @@ class AuthenticationIntegrationRuntimeTest {
                 pluginRootsCaptor.getValue());
     }
 
+    @Test
+    void testValidateAuthenticationIntegrationOnlyRunsValidate() throws Exception {
+        List<String> lifecycle = new ArrayList<>();
+        AuthenticationPluginManager pluginManager = new AuthenticationPluginManager();
+        pluginManager.registerFactory(new ValidationOnlyPluginFactory(lifecycle));
+        AuthenticationIntegrationRuntime runtime = new AuthenticationIntegrationRuntime(pluginManager);
+
+        runtime.validateAuthenticationIntegration(meta("corp", "validation_only", map("marker", "checked")));
+
+        Assertions.assertEquals(Collections.singletonList("validate:checked"), lifecycle);
+    }
+
+    @Test
+    void testAuthenticateRejectsOidcIdTokenAsBadCredential() throws Exception {
+        AuthenticationPluginManager pluginManager = new AuthenticationPluginManager();
+        pluginManager.registerFactory(new OidcLikePluginFactory());
+        AuthenticationIntegrationRuntime runtime = new AuthenticationIntegrationRuntime(pluginManager);
+        AuthenticationIntegrationMeta integration = meta("corp_oidc", "oidc", Collections.emptyMap());
+        runtime.activatePreparedAuthenticationIntegration(runtime.prepareAuthenticationIntegration(integration));
+
+        AuthenticationRequest request = AuthenticationRequest.builder()
+                .username("alice")
+                .credentialType(CredentialType.OIDC_ID_TOKEN)
+                .credential("id-token".getBytes(StandardCharsets.UTF_8))
+                .remoteHost("127.0.0.1")
+                .clientType("mysql")
+                .build();
+
+        AuthenticationOutcome outcome = runtime.authenticate(Collections.singletonList(integration), request);
+
+        Assertions.assertTrue(outcome.isFailure());
+        Assertions.assertEquals("corp_oidc", outcome.getIntegration().getName());
+        Assertions.assertEquals(AuthenticationFailureType.BAD_CREDENTIAL,
+                outcome.getAuthResult().getException().getFailureType());
+        Assertions.assertEquals(AuthenticationIntegrationRuntime.OIDC_ID_TOKEN_REJECTED_MESSAGE,
+                outcome.getAuthResult().getException().getMessage());
+    }
+
+    @Test
+    void testAuthenticateRejectsOidcIdTokenEvenWhenPluginSupportsIt() throws Exception {
+        AuthenticationPluginManager pluginManager = new AuthenticationPluginManager();
+        pluginManager.registerFactory(new OidcLikePluginFactory(true));
+        AuthenticationIntegrationRuntime runtime = new AuthenticationIntegrationRuntime(pluginManager);
+        AuthenticationIntegrationMeta integration = meta("corp_oidc", "oidc", Collections.emptyMap());
+        runtime.activatePreparedAuthenticationIntegration(runtime.prepareAuthenticationIntegration(integration));
+
+        AuthenticationRequest request = AuthenticationRequest.builder()
+                .username("alice")
+                .credentialType(CredentialType.OIDC_ID_TOKEN)
+                .credential("id-token".getBytes(StandardCharsets.UTF_8))
+                .remoteHost("127.0.0.1")
+                .clientType("mysql")
+                .build();
+
+        AuthenticationOutcome outcome = runtime.authenticate(Collections.singletonList(integration), request);
+
+        Assertions.assertTrue(outcome.isFailure());
+        Assertions.assertEquals("corp_oidc", outcome.getIntegration().getName());
+        Assertions.assertEquals(AuthenticationFailureType.BAD_CREDENTIAL,
+                outcome.getAuthResult().getException().getFailureType());
+        Assertions.assertEquals(AuthenticationIntegrationRuntime.OIDC_ID_TOKEN_REJECTED_MESSAGE,
+                outcome.getAuthResult().getException().getMessage());
+    }
+
     private static AuthenticationIntegrationMeta meta(String name, String type, Map<String, String> properties)
             throws Exception {
         Map<String, String> createProperties = new LinkedHashMap<>();
@@ -378,6 +442,54 @@ class AuthenticationIntegrationRuntimeTest {
         }
     }
 
+    private static class OidcLikePluginFactory implements AuthenticationPluginFactory {
+        private final boolean supportsOidcIdToken;
+
+        private OidcLikePluginFactory() {
+            this(false);
+        }
+
+        private OidcLikePluginFactory(boolean supportsOidcIdToken) {
+            this.supportsOidcIdToken = supportsOidcIdToken;
+        }
+
+        @Override
+        public String name() {
+            return "oidc";
+        }
+
+        @Override
+        public AuthenticationPlugin create() {
+            return new OidcLikePlugin(supportsOidcIdToken);
+        }
+    }
+
+    private static class OidcLikePlugin implements AuthenticationPlugin {
+        private final boolean supportsOidcIdToken;
+
+        private OidcLikePlugin(boolean supportsOidcIdToken) {
+            this.supportsOidcIdToken = supportsOidcIdToken;
+        }
+
+        @Override
+        public String name() {
+            return "oidc";
+        }
+
+        @Override
+        public boolean supports(AuthenticationRequest request) {
+            return CredentialType.OAUTH_TOKEN.equals(request.getCredentialType())
+                    || CredentialType.JWT_TOKEN.equals(request.getCredentialType())
+                    || supportsOidcIdToken && CredentialType.OIDC_ID_TOKEN.equals(request.getCredentialType());
+        }
+
+        @Override
+        public AuthenticationResult authenticate(AuthenticationRequest request, AuthenticationIntegration integration) {
+            return AuthenticationResult.failure(
+                    AuthenticationFailureType.BAD_CREDENTIAL, "unexpected authentication call");
+        }
+    }
+
     private static class RecordingPluginFactory implements AuthenticationPluginFactory {
         private final List<String> initializedMarkers;
 
@@ -426,6 +538,60 @@ class AuthenticationIntegrationRuntimeTest {
             return AuthenticationResult.success(BasicPrincipal.builder()
                     .name(request.getUsername())
                     .authenticator(marker)
+                    .build());
+        }
+    }
+
+    private static class ValidationOnlyPluginFactory implements AuthenticationPluginFactory {
+        private final List<String> lifecycle;
+
+        private ValidationOnlyPluginFactory(List<String> lifecycle) {
+            this.lifecycle = lifecycle;
+        }
+
+        @Override
+        public String name() {
+            return "validation_only";
+        }
+
+        @Override
+        public AuthenticationPlugin create() {
+            return new ValidationOnlyPlugin(lifecycle);
+        }
+    }
+
+    private static class ValidationOnlyPlugin implements AuthenticationPlugin {
+        private final List<String> lifecycle;
+
+        private ValidationOnlyPlugin(List<String> lifecycle) {
+            this.lifecycle = lifecycle;
+        }
+
+        @Override
+        public String name() {
+            return "validation_only";
+        }
+
+        @Override
+        public boolean supports(AuthenticationRequest request) {
+            return true;
+        }
+
+        @Override
+        public void validate(AuthenticationIntegration integration) {
+            lifecycle.add("validate:" + integration.getProperty("marker", "missing"));
+        }
+
+        @Override
+        public void initialize(AuthenticationIntegration integration) {
+            lifecycle.add("initialize:" + integration.getProperty("marker", "missing"));
+        }
+
+        @Override
+        public AuthenticationResult authenticate(AuthenticationRequest request, AuthenticationIntegration integration) {
+            return AuthenticationResult.success(BasicPrincipal.builder()
+                    .name(request.getUsername())
+                    .authenticator(integration.getName())
                     .build());
         }
     }
