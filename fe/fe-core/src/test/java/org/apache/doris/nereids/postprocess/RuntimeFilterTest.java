@@ -45,20 +45,21 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 public class RuntimeFilterTest extends SSBTestBase {
@@ -229,14 +230,9 @@ public class RuntimeFilterTest extends SSBTestBase {
 
         connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = true;
         filters = getRuntimeFilters(sql).get();
-        Assertions.assertEquals(5, filters.size());
-        Set<Pair<String, Set<String>>> srcTargets = Sets.newHashSet();
-        srcTargets.add(Pair.of("lo_custkey", Sets.newHashSet("c_custkey")));
-        srcTargets.add(Pair.of("lo_custkey", Sets.newHashSet("c_custkey", "s_suppkey", "lo_custkey")));
-        srcTargets.add(Pair.of("s_suppkey", Sets.newHashSet("c_custkey")));
-        srcTargets.add(Pair.of("d_datekey", Sets.newHashSet("lo_orderdate")));
-        srcTargets.add(Pair.of("c_custkey", Sets.newHashSet("lo_custkey")));
-        checkRuntimeFilterExprs(filters, srcTargets);
+        // V2-style: expanded multi-target RFs become separate single-target RFs
+        // Original 5 RFs, one multi-target RF (3 targets) becomes 3 separate RFs → 5 + 2 = 7
+        Assertions.assertEquals(7, filters.size());
         connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
 
     }
@@ -250,22 +246,11 @@ public class RuntimeFilterTest extends SSBTestBase {
                 + " on c_custkey = lo_custkey) d on c.c_custkey = d.lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
         Assertions.assertEquals(4, filters.size());
-        Set<Pair<String, Set<String>>> srcTargets = Sets.newHashSet();
-        srcTargets.add(Pair.of("lo_custkey", Sets.newHashSet("c_custkey")));
-        srcTargets.add(Pair.of("lo_custkey", Sets.newHashSet("c_custkey", "lo_custkey")));
-        srcTargets.add(Pair.of("d_datekey", Sets.newHashSet("lo_orderdate")));
-        srcTargets.add(Pair.of("c_custkey", Sets.newHashSet("lo_custkey")));
-        checkRuntimeFilterExprs(filters, srcTargets);
 
         connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = true;
         filters = getRuntimeFilters(sql).get();
-        Assertions.assertEquals(4, filters.size());
-        srcTargets = Sets.newHashSet();
-        srcTargets.add(Pair.of("lo_custkey", Sets.newHashSet("c_custkey")));
-        srcTargets.add(Pair.of("lo_custkey", Sets.newHashSet("c_custkey", "lo_custkey")));
-        srcTargets.add(Pair.of("d_datekey", Sets.newHashSet("lo_orderdate")));
-        srcTargets.add(Pair.of("c_custkey", Sets.newHashSet("lo_custkey")));
-        checkRuntimeFilterExprs(filters, srcTargets);
+        // Expansion through inner joins creates additional RFs
+        Assertions.assertEquals(5, filters.size());
         connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
 
     }
@@ -302,30 +287,42 @@ public class RuntimeFilterTest extends SSBTestBase {
         connectContext.getSessionVariable().enableRuntimeFilterPrune = false;
         connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = true;
         filters = getRuntimeFilters(sql).get();
-        Assertions.assertEquals(2, filters.size());
-        Set<Pair<String, Set<String>>> srcTargets = Sets.newHashSet();
-        Set<String> target1 = Sets.newHashSet("lo_partkey");
-        srcTargets.add(Pair.of("p_partkey", target1));
-        Set<String> target2 = Sets.newHashSet("p_partkey", "lo_partkey");
-        srcTargets.add(Pair.of("s_suppkey", target2));
-        checkRuntimeFilterExprs(filters, srcTargets);
+        // V2-style: expansion creates separate RFs instead of multi-target RF
+        // s_suppkey→lo_partkey (original), s_suppkey→p_partkey (expanded), p_partkey→lo_partkey
+        Assertions.assertEquals(3, filters.size());
+        checkRuntimeFilterExprs(filters, ImmutableList.of(
+                Pair.of("s_suppkey", "lo_partkey"),
+                Pair.of("s_suppkey", "p_partkey"),
+                Pair.of("p_partkey", "lo_partkey")));
         connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
 
     }
 
-    private Optional<List<RuntimeFilter>> getRuntimeFilters(String sql) {
+    private RuntimeFilterContext getRuntimeFilterContext(String sql) {
+        return getRuntimeFilterContext(sql, context -> {
+        });
+    }
+
+    private RuntimeFilterContext getRuntimeFilterContext(String sql, Consumer<RuntimeFilterContext> beforeTranslate) {
         PlanChecker checker = PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
                 .optimize();
         PhysicalPlan plan = checker.getBestPlanTree();
         plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
-        System.out.println(plan.treeString());
-        new PhysicalPlanTranslator(new PlanTranslatorContext(checker.getCascadesContext())).translatePlan(plan);
         RuntimeFilterContext context = checker.getCascadesContext().getRuntimeFilterContext();
+        beforeTranslate.accept(context);
+        new PhysicalPlanTranslator(new PlanTranslatorContext(checker.getCascadesContext())).translatePlan(plan);
         List<RuntimeFilter> filters = context.getNereidsRuntimeFilter();
-        Assertions.assertEquals(filters.size(), context.getLegacyFilters().size() + context.getTargetNullCount());
-        return Optional.of(filters);
+        Assertions.assertTrue(filters.size() >= context.getLegacyFilters().size() + context.getTargetNullCount(),
+                "nereidsRF count (" + filters.size() + ") should be >= legacyRF count ("
+                        + context.getLegacyFilters().size() + ") + nullTargets ("
+                        + context.getTargetNullCount() + ")");
+        return context;
+    }
+
+    private Optional<List<RuntimeFilter>> getRuntimeFilters(String sql) {
+        return Optional.of(getRuntimeFilterContext(sql).getNereidsRuntimeFilter());
     }
 
     private void checkRuntimeFilterExprs(List<RuntimeFilter> filters, List<Pair<String, String>> colNames) {
@@ -333,17 +330,7 @@ public class RuntimeFilterTest extends SSBTestBase {
         for (RuntimeFilter filter : filters) {
             Assertions.assertTrue(colNames.contains(Pair.of(
                     filter.getSrcExpr().toSql(),
-                    filter.getTargetSlots().get(0).getName())));
-        }
-    }
-
-    private void checkRuntimeFilterExprs(List<RuntimeFilter> filters, Set<Pair<String, Set<String>>> srcTargets) {
-        Assertions.assertEquals(filters.size(), srcTargets.size());
-        for (RuntimeFilter filter : filters) {
-            srcTargets.contains(Pair.of(
-                    filter.getSrcExpr().toSql(),
-                    filter.getTargetSlots().stream().collect(Collectors.toSet())
-            ));
+                    filter.getTargetSlot().getName())));
         }
     }
 
@@ -366,6 +353,91 @@ public class RuntimeFilterTest extends SSBTestBase {
         String sql = "SELECT * FROM (select lo_custkey from lineorder order by lo_custkey limit 10) t JOIN customer on lo_custkey = c_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
         Assertions.assertEquals(0, filters.size());
+    }
+
+    @Test
+    public void testRuntimeFilterShapeInfoWithoutBrackets() {
+        String sql = "SELECT * FROM lineorder JOIN customer ON lo_custkey = c_custkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(1, filters.size());
+        Assertions.assertFalse(filters.get(0).shapeInfo().contains("->["));
+        Assertions.assertTrue(filters.get(0).shapeInfo().contains("c_custkey->lo_custkey"));
+    }
+
+    @Test
+    public void testRuntimeFilterBlockByGroupingSetsPartialColumn() {
+        // RF on lo_custkey should be blocked because lo_custkey is NOT in all grouping sets.
+        // grouping sets ((lo_partkey), (lo_custkey, lo_partkey)) — first set lacks lo_custkey.
+        // Subquery must be on LEFT (probe) side so the RF pushes through Repeat.
+        String sql = "SELECT lo_custkey FROM ("
+                + "  SELECT lo_custkey, lo_partkey FROM lineorder"
+                + "  GROUP BY GROUPING SETS ((lo_partkey), (lo_custkey, lo_partkey))"
+                + ") t INNER JOIN customer ON t.lo_custkey = c_custkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        // No RF should push to lineorder scan because lo_custkey is not in all grouping sets
+        Assertions.assertEquals(0, filters.size(),
+                "RF should be blocked when probe slot is not in all grouping sets");
+    }
+
+    @Test
+    public void testRuntimeFilterPushThroughGroupingSetsCommonColumn() {
+        // RF on lo_partkey should push through because lo_partkey IS in all grouping sets.
+        // grouping sets ((lo_partkey), (lo_custkey, lo_partkey)) — lo_partkey is common.
+        // Subquery on LEFT (probe) side so RF pushes through Repeat.
+        String sql = "SELECT lo_partkey FROM ("
+                + "  SELECT lo_custkey, lo_partkey FROM lineorder"
+                + "  GROUP BY GROUPING SETS ((lo_partkey), (lo_custkey, lo_partkey))"
+                + ") t INNER JOIN part ON t.lo_partkey = p_partkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(1, filters.size(),
+                "RF should push through when probe slot is in all grouping sets");
+    }
+
+    @Test
+    public void testSetOperationRuntimeFilterBlockByGroupingSetsPartialColumn() {
+        // SetOp RF should also block pushdown through Repeat when the target slot
+        // is not present in all grouping sets.
+        String sql = "SELECT c_custkey FROM customer INTERSECT SELECT lo_custkey FROM ("
+                + "  SELECT lo_custkey, lo_partkey FROM lineorder"
+                + "  GROUP BY GROUPING SETS ((lo_partkey), (lo_custkey, lo_partkey))"
+                + ") t";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(0, filters.size(),
+                "SetOp RF should be blocked when probe slot is not in all grouping sets");
+    }
+
+    @Test
+    public void testSetOperationRuntimeFilterPushThroughGroupingSetsCommonColumn() {
+        // SetOp RF should still push through Repeat for a slot that is common to all grouping sets.
+        String sql = "SELECT p_partkey FROM part INTERSECT SELECT lo_partkey FROM ("
+                + "  SELECT lo_custkey, lo_partkey FROM lineorder"
+                + "  GROUP BY GROUPING SETS ((lo_partkey), (lo_custkey, lo_partkey))"
+                + ") t";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(1, filters.size(),
+                "SetOp RF should push through when probe slot is in all grouping sets");
+    }
+
+    @Test
+    public void testSetOperationRuntimeFilterExpandThroughInnerJoin() {
+        String sql = "SELECT s_suppkey FROM supplier INTERSECT "
+                + "SELECT lo_suppkey FROM lineorder INNER JOIN supplier s2 ON lo_suppkey = s2.s_suppkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get().stream()
+                .filter(rf -> rf.getBuilderNode() instanceof PhysicalSetOperation)
+                .collect(Collectors.toList());
+        Assertions.assertEquals(1, filters.size());
+        checkRuntimeFilterExprs(filters, ImmutableList.of(
+                Pair.of("s_suppkey", "lo_suppkey")));
+
+        connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = true;
+        filters = getRuntimeFilters(sql).get().stream()
+                .filter(rf -> rf.getBuilderNode() instanceof PhysicalSetOperation)
+                .collect(Collectors.toList());
+        Assertions.assertEquals(2, filters.size());
+        checkRuntimeFilterExprs(filters, ImmutableList.of(
+                Pair.of("s_suppkey", "lo_suppkey"),
+                Pair.of("s_suppkey", "s_suppkey")));
+        connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
     }
 
     @Test
@@ -428,6 +500,101 @@ public class RuntimeFilterTest extends SSBTestBase {
         System.out.println(plan.treeString());
         Assertions.assertEquals(0, ((AbstractPhysicalPlan) plan.child(0).child(1).child(0))
                 .getAppliedRuntimeFilters().size());
+    }
+
+    @Test
+    public void testFunctionExprRejectedOnNonNumericType() {
+        // substring() on varchar columns should NOT generate RF pushed to scan
+        String sql = "SELECT * FROM supplier JOIN customer"
+                + " on substring(s_name, 1, 2) = substring(c_name, 1, 2)";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(0, filters.size(),
+                "substring() on varchar should not generate scan-level RF");
+    }
+
+    @Test
+    public void testFunctionExprAllowedOnNumericType() {
+        // abs() on numeric columns should still generate RF
+        String sql = "SELECT * FROM lineorder JOIN customer"
+                + " on abs(lo_custkey) = c_custkey";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(1, filters.size(),
+                "abs() on numeric type should generate scan-level RF");
+    }
+
+    @Test
+    public void testExpandRfCreatesSeparateRfsPerTarget() {
+        // V2-style: expansion creates separate RF objects per target.
+        // Query: supplier join (lineorder join part on lo_partkey=p_partkey) on s_suppkey=lo_partkey
+        // Without expand: RF(s_suppkey → lo_partkey), RF(p_partkey → lo_partkey) = 2 RFs
+        // With expand:    RF(s_suppkey → lo_partkey), RF(s_suppkey → p_partkey), RF(p_partkey → lo_partkey) = 3 RFs
+        String sql = "select * "
+                + "from lineorder join part on lo_partkey=p_partkey "
+                + "join supplier on s_suppkey=lo_partkey";
+
+        // Without expand: 2 RFs, each with 1 target
+        connectContext.getSessionVariable().enableRuntimeFilterPrune = false;
+        connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(2, filters.size(), "without expand: should have 2 RFs");
+
+        // With expand: 3 separate RFs, each with 1 target
+        connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = true;
+        filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(3, filters.size(),
+                "with expand: should have 3 separate RFs (V2-style, one per target)");
+        // Verify the specific RF (src, target) pairs
+        checkRuntimeFilterExprs(filters, ImmutableList.of(
+                Pair.of("s_suppkey", "lo_partkey"),
+                Pair.of("s_suppkey", "p_partkey"),
+                Pair.of("p_partkey", "lo_partkey")));
+
+        connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
+    }
+
+    @Test
+    public void testLegacyRuntimeFilterKeepsSeparateMinAndMaxForSameSource() {
+        int oldType = connectContext.getSessionVariable().getRuntimeFilterType();
+        connectContext.getSessionVariable().setRuntimeFilterType(TRuntimeFilterType.MIN_MAX.getValue());
+        try {
+            String sql = "select * from lineorder a join supplier b"
+                    + " on a.lo_partkey < b.s_suppkey and a.lo_suppkey > b.s_suppkey";
+            RuntimeFilterContext context = getRuntimeFilterContext(sql);
+            List<String> legacyTypes = context.getLegacyFilters().stream()
+                    .map(org.apache.doris.planner.RuntimeFilter::getTypeDesc)
+                    .sorted()
+                    .collect(Collectors.toList());
+            Assertions.assertEquals(2, legacyTypes.size());
+            Assertions.assertEquals(ImmutableList.of("max", "min"), legacyTypes);
+        } finally {
+            connectContext.getSessionVariable().setRuntimeFilterType(oldType);
+        }
+    }
+
+    @Test
+    public void testIgnoredRuntimeFilterIdDoesNotDropGroupedLegacyFilter() {
+        String oldIgnoredIds = connectContext.getSessionVariable().ignoreRuntimeFilterIds;
+        connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = true;
+        try {
+            String sql = "select * "
+                    + "from lineorder join part on lo_partkey=p_partkey "
+                    + "join supplier on s_suppkey=lo_partkey";
+            RuntimeFilterContext context = getRuntimeFilterContext(sql, rfContext -> {
+                List<RuntimeFilter> groupedFilters = rfContext.getNereidsRuntimeFilter().stream()
+                        .filter(rf -> rf.getSrcExpr().toSql().equals("s_suppkey"))
+                        .collect(Collectors.toList());
+                Assertions.assertEquals(2, groupedFilters.size());
+                connectContext.getSessionVariable().setIgnoreRuntimeFilterIds(
+                        String.valueOf(groupedFilters.get(0).getId().asInt()));
+            });
+            Assertions.assertEquals(2, context.getLegacyFilters().size());
+            Assertions.assertTrue(context.getLegacyFilters().stream()
+                    .map(rf -> rf.getSrcExpr().toString())
+                    .anyMatch("s_suppkey"::equals));
+        } finally {
+            connectContext.getSessionVariable().setIgnoreRuntimeFilterIds(oldIgnoredIds);
+            connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
+        }
     }
 
     @Test

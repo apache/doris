@@ -47,6 +47,19 @@ under the License.
                 <include glob="{*.sh,*.py,Makefile}" recursive="true">../../gensrc/script</include>
             </includes>
         </global>
+        <plugins>
+            <plugin groupId="org.codehaus.mojo" artifactId="exec-maven-plugin">
+                <dirScan>
+                    <excludes>
+                        <!-- DORIS_HOME points at the repository root in fe-core. Treating it as an
+                             input directory pulls unrelated top-level files (for example local large
+                             tarballs) into the checksum. Keep tracking env.sh and gensrc/script via
+                             their dedicated tags/global includes, but skip this broad directory tag. -->
+                        <exclude tagName="DORIS_HOME" />
+                    </excludes>
+                </dirScan>
+            </plugin>
+        </plugins>
     </input>
     <executionControl>
         <runAlways>

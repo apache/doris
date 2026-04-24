@@ -53,8 +53,10 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 
 /**
  * Azure Blob Storage implementation of {@link ObjStorage}.
@@ -187,7 +189,15 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             ListBlobsOptions options = new ListBlobsOptions().setPrefix(uri.key());
             BlobContainerClient containerClient = getClient().getBlobContainerClient(uri.container());
             PagedIterable<BlobItem> pagedBlobs = containerClient.listBlobs(options, continuationToken, null);
-            PagedResponse<BlobItem> page = pagedBlobs.iterableByPage().iterator().next();
+            // The Azure SDK returns an empty PagedIterable (rather than throwing) when no
+            // blobs match the prefix. Calling .next() on its page iterator without a hasNext()
+            // guard would surface a NoSuchElementException to callers; treat empty pages as
+            // an empty result instead.
+            Iterator<PagedResponse<BlobItem>> pageIter = pagedBlobs.iterableByPage().iterator();
+            if (!pageIter.hasNext()) {
+                return new RemoteObjects(Collections.emptyList(), false, null);
+            }
+            PagedResponse<BlobItem> page = pageIter.next();
 
             List<RemoteObject> objects = new ArrayList<>();
             for (BlobItem item : page.getElements()) {
@@ -202,6 +212,9 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             }
             String nextToken = page.getContinuationToken();
             return new RemoteObjects(objects, nextToken != null && !nextToken.isEmpty(), nextToken);
+        } catch (NoSuchElementException e) {
+            throw new IOException("Failed to list Azure objects at " + remotePath
+                    + ": empty paged response", e);
         } catch (BlobStorageException e) {
             throw new IOException("Failed to list Azure objects at " + remotePath + ": " + e.getMessage(), e);
         }
@@ -312,9 +325,41 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
 
     @Override
     public void abortMultipartUpload(String remotePath, String uploadId) throws IOException {
-        // Azure automatically discards uncommitted blocks; no explicit abort is needed.
-        LOG.warn("abortMultipartUpload called for {}; uncommitted blocks will expire automatically.",
-                remotePath);
+        // Azure has no native "abort multipart upload" API; the closest equivalent is to
+        // commit an empty block list (which atomically discards any uncommitted blocks
+        // for that blob) and then delete the resulting empty blob so no trace remains.
+        //
+        // SAFETY: commitBlockList(empty) overwrites whatever is at the target blob, so we
+        // MUST refuse to run when a committed blob already exists at this path — otherwise
+        // an abort call could destroy real user data. In that case the staged blocks are
+        // left to expire on their own (Azure GCs them after the service-side timeout).
+        try {
+            AzureUri uri = AzureUri.parse(remotePath);
+            BlockBlobClient blockBlobClient = getClient().getBlobContainerClient(uri.container())
+                    .getBlobClient(uri.key()).getBlockBlobClient();
+            boolean committedBlobExists;
+            try {
+                blockBlobClient.getProperties();
+                committedBlobExists = true;
+            } catch (BlobStorageException e) {
+                if (e.getStatusCode() != HTTP_NOT_FOUND) {
+                    throw e;
+                }
+                committedBlobExists = false;
+            }
+            if (committedBlobExists) {
+                LOG.warn("abortMultipartUpload skipped for {}: a committed blob already exists; "
+                        + "uncommitted blocks will expire automatically.", remotePath);
+                return;
+            }
+            blockBlobClient.commitBlockList(Collections.emptyList());
+            blockBlobClient.delete();
+        } catch (BlobStorageException e) {
+            // Best-effort: log and swallow rather than mask the original failure that
+            // triggered the abort path. Uncommitted blocks will be GC'd by the service.
+            LOG.warn("abortMultipartUpload best-effort cleanup failed for {}: {}",
+                    remotePath, e.getMessage());
+        }
     }
 
     /**
@@ -499,25 +544,39 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     public void deleteObjectsByKeys(String container, List<String> keys) throws IOException {
         BlobContainerClient containerClient = getClient().getBlobContainerClient(container);
         List<String> failures = new ArrayList<>();
+        List<Throwable> causes = new ArrayList<>();
         for (String key : keys) {
             try {
                 containerClient.getBlobClient(key).delete();
             } catch (BlobStorageException e) {
                 if (e.getStatusCode() != HTTP_NOT_FOUND) {
                     failures.add(key + ": " + e.getMessage());
+                    causes.add(e);
                 }
             } catch (Exception e) {
                 failures.add(key + ": " + e.getMessage());
+                causes.add(e);
             }
         }
         if (!failures.isEmpty()) {
-            throw new IOException("deleteObjectsByKeys failed for: " + String.join(", ", failures));
+            IOException composed = new IOException(
+                    "deleteObjectsByKeys failed for: " + String.join(", ", failures));
+            // Attach the original per-key exceptions as suppressed so the full cause
+            // chain (status codes, request IDs, stack traces) survives in debug logs.
+            for (Throwable cause : causes) {
+                composed.addSuppressed(cause);
+            }
+            throw composed;
         }
     }
 
     @Override
     public void close() throws IOException {
-        // BlobServiceClient is not Closeable and does not require explicit closing.
+        // BlobServiceClient is not Closeable. It internally shares the JVM-wide HTTP
+        // client (Netty / OkHttp connection pool) configured by the Azure SDK, which is
+        // intentionally process-scoped: tearing it down here would also disrupt every
+        // other AzureObjStorage instance that happens to share the pool. The Azure SDK
+        // releases the pool on JVM shutdown.
     }
 
     /**

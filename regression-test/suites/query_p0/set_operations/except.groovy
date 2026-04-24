@@ -81,7 +81,7 @@ suite("except", "query") {
     qt_except_left_deep_shape """
         explain shape plan select * from (select * from t1 except select * from t2) t except select * from t3;
     """
-
+    
     // a except (b except c)
     order_qt_except_right_deep """
         select * from t1 except select * from (select * from t2 except select * from t3) t;

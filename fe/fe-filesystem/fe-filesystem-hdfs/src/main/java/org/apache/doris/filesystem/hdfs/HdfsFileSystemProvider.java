@@ -30,7 +30,7 @@ import java.util.Set;
  */
 public class HdfsFileSystemProvider implements FileSystemProvider {
 
-    private static final Set<String> SUPPORTED_SCHEMES = Set.of("hdfs", "viewfs", "ofs", "jfs", "oss");
+    public static final Set<String> SUPPORTED_SCHEMES = Set.of("hdfs", "viewfs", "ofs", "jfs", "oss");
 
     @Override
     public boolean supports(Map<String, String> properties) {
