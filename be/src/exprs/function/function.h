@@ -199,22 +199,25 @@ public:
         }
         // mock function exec
         // only test function const process logic
-        try {
-            Block const_block;
-            for (size_t col = 0; col < block.columns(); ++col) {
-                auto& col_data = block.get_by_position(col);
-                if (col_data.column) {
-                    auto one_row = col_data.column->cut(0, 1);
-                    auto const_col = ColumnConst::create(std::move(one_row), input_rows_count);
-                    const_block.insert({std::move(const_col), col_data.type, col_data.name});
-                } else {
-                    const_block.insert(col_data);
+        if (!is_python_udf_function()) {
+            try {
+                Block const_block;
+                for (size_t col = 0; col < block.columns(); ++col) {
+                    auto& col_data = block.get_by_position(col);
+                    if (col_data.column) {
+                        auto one_row = col_data.column->cut(0, 1);
+                        auto const_col = ColumnConst::create(std::move(one_row),
+                                                             input_rows_count);
+                        const_block.insert({std::move(const_col), col_data.type, col_data.name});
+                    } else {
+                        const_block.insert(col_data);
+                    }
                 }
+                static_cast<void>(prepare(context, const_block, arguments, result)
+                                          ->execute(context, const_block, arguments, result,
+                                                    input_rows_count));
+            } catch (const Exception&) {
             }
-            static_cast<void>(
-                    prepare(context, const_block, arguments, result)
-                            ->execute(context, const_block, arguments, result, input_rows_count));
-        } catch (const Exception&) {
         }
         try {
             return prepare(context, block, arguments, result)
@@ -242,6 +245,8 @@ public:
     virtual bool is_use_default_implementation_for_constants() const = 0;
 
     virtual bool is_udf_function() const { return false; }
+
+    virtual bool is_python_udf_function() const { return false; }
 
     virtual bool can_push_down_to_index() const { return false; }
 
