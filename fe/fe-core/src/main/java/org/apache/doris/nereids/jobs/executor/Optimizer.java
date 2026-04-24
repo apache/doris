@@ -66,6 +66,7 @@ public class Optimizer {
      */
     public void execute() {
         MoreFieldsThread.keepFunctionSignature(() -> {
+            cascadesContext.setRewritePlan(normalizeCtePlan(cascadesContext.getRewritePlan()));
             // generate inlined CTE alternative for CBO comparison
             Plan cboInlinedPlan = generateCTEInlineAlternative();
             // init memo
@@ -197,7 +198,7 @@ public class Optimizer {
         CTEInliner cteInliner = new CTEInliner(cascadesContext.getStatementContext());
         Plan inlinedPlan = cteInliner.generateInlinedPlan(rewritePlan);
         if (inlinedPlan != null) {
-            return rewriteInlinedPlan(inlinedPlan);
+            return normalizeCtePlan(rewriteInlinedPlan(inlinedPlan));
         }
         return null;
     }
@@ -212,12 +213,35 @@ public class Optimizer {
         if (inlinedPlan != null) {
             inlinedPlan = rewriteInlinedPlan(inlinedPlan);
             if (inlinedPlan.anyMatch(p -> p instanceof LogicalEmptyRelation)) {
-                inlinedPlan = eliminateEmptyRelation(inlinedPlan);
+                inlinedPlan = normalizeCtePlan(inlinedPlan);
                 cascadesContext.setRewritePlan(inlinedPlan);
                 return null;
             }
         }
         return null;
+    }
+
+    private Plan normalizeCtePlan(Plan plan) {
+        Plan currentPlan = plan;
+        while (true) {
+            CTEInliner cteInliner = new CTEInliner(cascadesContext.getStatementContext());
+            CTEInliner.InlineResult inlineResult = cteInliner.inlineByCurrentConsumerCount(currentPlan);
+            Plan normalizedPlan = inlineResult.getPlan();
+            boolean changed = inlineResult.isChanged();
+            if (normalizedPlan.anyMatch(p -> p instanceof LogicalEmptyRelation)) {
+                String beforeEliminate = normalizedPlan.treeString();
+                normalizedPlan = eliminateEmptyRelation(normalizedPlan);
+                changed = changed || !beforeEliminate.equals(normalizedPlan.treeString());
+            }
+            // Do not use Plan.equals() as a fixpoint check here. Some logical nodes,
+            // e.g. LogicalCTEAnchor and LogicalSubQueryAlias, intentionally ignore
+            // children in equals(), so a child CTE rewrite under a kept parent may be
+            // missed and block cascading consumer-count-based inlining.
+            if (!changed) {
+                return normalizedPlan;
+            }
+            currentPlan = normalizedPlan;
+        }
     }
 
     private Plan eliminateEmptyRelation(Plan plan) {
