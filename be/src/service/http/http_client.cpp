@@ -18,21 +18,92 @@
 #include "service/http/http_client.h"
 
 #include <absl/strings/str_split.h>
+#include <curl/urlapi.h>
 #include <glog/logging.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
+#include <cctype>
+#include <charconv>
+#include <cstdio>
 #include <memory>
 #include <ostream>
+#include <string_view>
+#include <utility>
 
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "runtime/exec_env.h"
 #include "service/http/http_headers.h"
+#include "util/http_url_security.h"
 #include "util/security.h"
 #include "util/stack_util.h"
 
 namespace doris {
+namespace {
+
+struct CurlUrlDeleter {
+    void operator()(CURLU* url) const { curl_url_cleanup(url); }
+};
+
+struct CurlStringDeleter {
+    void operator()(char* value) const { curl_free(value); }
+};
+
+std::string trim_header_value(std::string_view value) {
+    size_t begin = 0;
+    while (begin < value.size() && std::isspace(static_cast<unsigned char>(value[begin]))) {
+        ++begin;
+    }
+    size_t end = value.size();
+    while (end > begin && std::isspace(static_cast<unsigned char>(value[end - 1]))) {
+        --end;
+    }
+    return std::string(value.substr(begin, end - begin));
+}
+
+bool starts_with_ignore_case(std::string_view value, std::string_view prefix) {
+    if (value.size() < prefix.size()) {
+        return false;
+    }
+    for (size_t i = 0; i < prefix.size(); ++i) {
+        auto left = static_cast<unsigned char>(value[i]);
+        auto right = static_cast<unsigned char>(prefix[i]);
+        if (std::tolower(left) != std::tolower(right)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool is_redirect_response(long code) {
+    return code == 301 || code == 302 || code == 303 || code == 307 || code == 308;
+}
+
+long parse_http_status(std::string_view line) {
+    if (!line.starts_with("HTTP/")) {
+        return 0;
+    }
+    size_t status_begin = line.find(' ');
+    if (status_begin == std::string_view::npos) {
+        return 0;
+    }
+    ++status_begin;
+    size_t status_end = line.find(' ', status_begin);
+    if (status_end == std::string_view::npos) {
+        status_end = line.size();
+    }
+    long status = 0;
+    auto result = std::from_chars(line.data() + status_begin, line.data() + status_end, status);
+    if (result.ec != std::errc()) {
+        return 0;
+    }
+    return status;
+}
+
+} // namespace
+
 class MultiFileSplitter {
 public:
     MultiFileSplitter(std::string local_dir, std::unordered_set<std::string> expected_files)
@@ -293,6 +364,11 @@ Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
         curl_slist_free_all(_header_list);
         _header_list = nullptr;
     }
+    _http_url_security_enabled = false;
+    _http_url_security_response_code = 0;
+    _http_url_security_current_url.clear();
+    _http_url_security_host.clear();
+    _http_url_security_allowlist.clear();
     // set error_buf
     _error_buf[0] = 0;
     auto code = curl_easy_setopt(_curl, CURLOPT_ERRORBUFFER, _error_buf);
@@ -358,6 +434,111 @@ Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
     set_auth_token(ExecEnv::GetInstance()->cluster_info()->curr_auth_token);
 #endif
     return Status::OK();
+}
+
+Status HttpClient::enable_http_url_security(std::string url, std::string host,
+                                            std::vector<std::string> allowlist) {
+    DCHECK(_curl != nullptr);
+    _http_url_security_enabled = true;
+    _http_url_security_response_code = 0;
+    _http_url_security_current_url = std::move(url);
+    _http_url_security_host = std::move(host);
+    _http_url_security_allowlist = std::move(allowlist);
+
+    auto code = curl_easy_setopt(_curl, CURLOPT_PROTOCOLS_STR, "http,https");
+    if (code != CURLE_OK) {
+        LOG(WARNING) << "fail to set CURLOPT_PROTOCOLS_STR, msg=" << _to_errmsg(code);
+        return Status::InternalError("fail to set CURLOPT_PROTOCOLS_STR");
+    }
+    code = curl_easy_setopt(_curl, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
+    if (code != CURLE_OK) {
+        LOG(WARNING) << "fail to set CURLOPT_REDIR_PROTOCOLS_STR, msg=" << _to_errmsg(code);
+        return Status::InternalError("fail to set CURLOPT_REDIR_PROTOCOLS_STR");
+    }
+    code = curl_easy_setopt(_curl, CURLOPT_NOPROXY, "*");
+    if (code != CURLE_OK) {
+        LOG(WARNING) << "fail to set CURLOPT_NOPROXY, msg=" << _to_errmsg(code);
+        return Status::InternalError("fail to set CURLOPT_NOPROXY");
+    }
+    code = curl_easy_setopt(_curl, CURLOPT_OPENSOCKETFUNCTION, &HttpClient::open_socket_callback);
+    if (code != CURLE_OK) {
+        LOG(WARNING) << "fail to set CURLOPT_OPENSOCKETFUNCTION, msg=" << _to_errmsg(code);
+        return Status::InternalError("fail to set CURLOPT_OPENSOCKETFUNCTION");
+    }
+    code = curl_easy_setopt(_curl, CURLOPT_OPENSOCKETDATA, this);
+    if (code != CURLE_OK) {
+        LOG(WARNING) << "fail to set CURLOPT_OPENSOCKETDATA, msg=" << _to_errmsg(code);
+        return Status::InternalError("fail to set CURLOPT_OPENSOCKETDATA");
+    }
+    code = curl_easy_setopt(_curl, CURLOPT_HEADERFUNCTION, &HttpClient::header_callback);
+    if (code != CURLE_OK) {
+        LOG(WARNING) << "fail to set CURLOPT_HEADERFUNCTION, msg=" << _to_errmsg(code);
+        return Status::InternalError("fail to set CURLOPT_HEADERFUNCTION");
+    }
+    code = curl_easy_setopt(_curl, CURLOPT_HEADERDATA, this);
+    if (code != CURLE_OK) {
+        LOG(WARNING) << "fail to set CURLOPT_HEADERDATA, msg=" << _to_errmsg(code);
+        return Status::InternalError("fail to set CURLOPT_HEADERDATA");
+    }
+    return Status::OK();
+}
+
+curl_socket_t HttpClient::open_socket_callback(void* clientp, curlsocktype purpose,
+                                               curl_sockaddr* address) {
+    auto* client = static_cast<HttpClient*>(clientp);
+    if (purpose != CURLSOCKTYPE_IPCXN) {
+        std::snprintf(client->_error_buf, sizeof(client->_error_buf),
+                      "unsupported curl socket purpose: %d", static_cast<int>(purpose));
+        return CURL_SOCKET_BAD;
+    }
+
+    Status status = HttpUrlSecurity::validate_resolved_address(
+            client->_http_url_security_host, reinterpret_cast<const sockaddr*>(&address->addr),
+            address->addrlen, client->_http_url_security_allowlist);
+    if (!status.ok()) {
+        std::string message = status.to_string();
+        std::snprintf(client->_error_buf, sizeof(client->_error_buf),
+                      "blocked by HTTP URL security checker: %s", message.c_str());
+        LOG(WARNING) << client->_error_buf;
+        return CURL_SOCKET_BAD;
+    }
+
+    return socket(address->family, address->socktype, address->protocol);
+}
+
+size_t HttpClient::header_callback(char* buffer, size_t size, size_t nitems, void* userdata) {
+    size_t length = size * nitems;
+    auto* client = static_cast<HttpClient*>(userdata);
+    if (client == nullptr || !client->_http_url_security_enabled) {
+        return length;
+    }
+
+    std::string_view line(buffer, length);
+    while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) {
+        line.remove_suffix(1);
+    }
+
+    long status_code = parse_http_status(line);
+    if (status_code != 0) {
+        client->_http_url_security_response_code = status_code;
+        return length;
+    }
+
+    constexpr std::string_view location_header = "location:";
+    if (is_redirect_response(client->_http_url_security_response_code) &&
+        starts_with_ignore_case(line, location_header)) {
+        Status status =
+                client->update_http_url_security_redirect(line.substr(location_header.size()));
+        if (!status.ok()) {
+            std::string message = status.to_string();
+            std::snprintf(client->_error_buf, sizeof(client->_error_buf),
+                          "blocked by HTTP URL security checker: %s", message.c_str());
+            LOG(WARNING) << client->_error_buf;
+            return 0;
+        }
+    }
+
+    return length;
 }
 
 void HttpClient::set_method(HttpMethod method) {
@@ -532,6 +713,47 @@ const char* HttpClient::_get_url() const {
         url = "<unknown>";
     }
     return url;
+}
+
+Status HttpClient::update_http_url_security_redirect(std::string_view location) {
+    std::string redirect_location = trim_header_value(location);
+    if (redirect_location.empty()) {
+        return Status::InvalidArgument("HTTP TVF redirect location is empty: {}",
+                                       _http_url_security_current_url);
+    }
+
+    std::unique_ptr<CURLU, CurlUrlDeleter> url(curl_url());
+    if (url == nullptr) {
+        return Status::InternalError("failed to initialize curl URL parser");
+    }
+
+    CURLUcode code = curl_url_set(url.get(), CURLUPART_URL, _http_url_security_current_url.c_str(),
+                                  CURLU_DISALLOW_USER);
+    if (code != CURLUE_OK) {
+        return Status::InvalidArgument(
+                "Invalid HTTP TVF current URL during redirect: {}, error: {}",
+                _http_url_security_current_url, curl_url_strerror(code));
+    }
+    code = curl_url_set(url.get(), CURLUPART_URL, redirect_location.c_str(), CURLU_DISALLOW_USER);
+    if (code != CURLUE_OK) {
+        return Status::InvalidArgument("Invalid HTTP TVF redirect URL: {}, error: {}",
+                                       redirect_location, curl_url_strerror(code));
+    }
+
+    char* redirect_url = nullptr;
+    code = curl_url_get(url.get(), CURLUPART_URL, &redirect_url, 0);
+    if (code != CURLUE_OK) {
+        return Status::InvalidArgument("Failed to resolve HTTP TVF redirect URL: {}, error: {}",
+                                       redirect_location, curl_url_strerror(code));
+    }
+    std::unique_ptr<char, CurlStringDeleter> redirect_url_guard(redirect_url);
+
+    std::string host;
+    RETURN_IF_ERROR(
+            HttpUrlSecurity::validate_url(redirect_url, _http_url_security_allowlist, &host));
+    _http_url_security_current_url = redirect_url;
+    _http_url_security_host = std::move(host);
+    return Status::OK();
 }
 
 // execute remote call action with retry

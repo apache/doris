@@ -21,6 +21,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "common/status.h"
 #include "core/pod_array.h"
@@ -66,6 +67,9 @@ private:
     // Start the CDC client process
     // Called at the start of open() when enable_cdc_client=true.
     Status setup_cdc_client();
+
+    std::vector<std::string> http_url_security_allowlist() const;
+    bool is_trusted_cdc_client_url() const;
 
     PODArray<char> _read_buffer;
     static constexpr size_t READ_BUFFER_SIZE = 1 << 20; // 1MB

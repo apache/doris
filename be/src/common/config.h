@@ -122,6 +122,10 @@ DECLARE_Int32(arrow_flight_sql_port);
 // port for cdc client scan oltp cdc data
 DECLARE_Int32(cdc_client_port);
 
+// Private endpoint allowlist for HTTP table valued function URLs.
+// Entries are comma-separated exact hosts, exact IPs, or IP CIDR ranges.
+DECLARE_mString(http_tvf_allowed_private_endpoint_list);
+
 // If the external client cannot directly access priority_networks, set public_host to be accessible
 // to external client.
 // There are usually two usage scenarios:

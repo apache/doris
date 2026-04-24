@@ -73,6 +73,10 @@ DEFINE_Int32(arrow_flight_sql_port, "8050");
 
 DEFINE_Int32(cdc_client_port, "9096");
 
+// Private, loopback, link-local, multicast, and reserved HTTP TVF endpoints are denied by default.
+// Use comma-separated exact hosts, exact IPs, or IP CIDR ranges to allow known private endpoints.
+DEFINE_mString(http_tvf_allowed_private_endpoint_list, "");
+
 // If the external client cannot directly access priority_networks, set public_host to be accessible
 // to external client.
 // There are usually two usage scenarios:

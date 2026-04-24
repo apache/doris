@@ -3214,6 +3214,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";
 
+    @ConfField(mutable = true, description = {
+            "The private endpoint allowlist for HTTP table valued function URLs. "
+                    + "Entries can be exact hosts, exact IPs, or IP CIDR ranges. "
+                    + "Private, loopback, link-local, multicast, and reserved addresses are denied by default. "
+                    + "For example: http_tvf_allowed_private_endpoint_list=10.0.0.0/8,internal.example.com"})
+    public static String[] http_tvf_allowed_private_endpoint_list = {};
+
     @ConfField(mutable = true)
     public static int mow_calculate_delete_bitmap_retry_times = 10;
 

@@ -27,6 +27,7 @@
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/cdc_client_mgr.h"
 #include "runtime/exec_env.h"
+#include "util/http_url_security.h"
 
 namespace doris::io {
 
@@ -463,8 +464,13 @@ Status HttpFileReader::prepare_client(bool set_fail_on_error) {
         return Status::InternalError("HttpClient is not initialized");
     }
 
+    auto allowlist = http_url_security_allowlist();
+    std::string host;
+    RETURN_IF_ERROR(HttpUrlSecurity::validate_url(_url, allowlist, &host));
+
     // Initialize the HTTP client with URL
     RETURN_IF_ERROR(_client->init(_url, set_fail_on_error));
+    RETURN_IF_ERROR(_client->enable_http_url_security(_url, std::move(host), std::move(allowlist)));
 
     // Set custom headers from extend_kv
     for (const auto& kv : _extend_kv) {
@@ -474,6 +480,24 @@ Status HttpFileReader::prepare_client(bool set_fail_on_error) {
     }
 
     return Status::OK();
+}
+
+std::vector<std::string> HttpFileReader::http_url_security_allowlist() const {
+    auto allowlist =
+            HttpUrlSecurity::parse_allowlist(config::http_tvf_allowed_private_endpoint_list);
+    if (is_trusted_cdc_client_url()) {
+        allowlist.emplace_back("127.0.0.1/32");
+    }
+    return allowlist;
+}
+
+bool HttpFileReader::is_trusted_cdc_client_url() const {
+    auto enable_cdc_iter = _extend_kv.find("enable_cdc_client");
+    if (enable_cdc_iter == _extend_kv.end() || enable_cdc_iter->second != "true") {
+        return false;
+    }
+    return _url ==
+           "http://127.0.0.1:" + std::to_string(config::cdc_client_port) + "/api/fetchRecordStream";
 }
 
 Status HttpFileReader::detect_range_support() {

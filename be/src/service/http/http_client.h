@@ -24,7 +24,9 @@
 #include <cstdio>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <unordered_set>
+#include <vector>
 
 #include "common/status.h"
 #include "service/http/http_headers.h"
@@ -48,6 +50,9 @@ public:
     // this function must call before other function,
     // you can call this multiple times to reuse this object
     Status init(const std::string& url, bool set_fail_on_error = true);
+
+    Status enable_http_url_security(std::string url, std::string host,
+                                    std::vector<std::string> allowlist);
 
     void set_method(HttpMethod method);
 
@@ -191,8 +196,13 @@ public:
     }
 
 private:
+    static curl_socket_t open_socket_callback(void* clientp, curlsocktype purpose,
+                                              curl_sockaddr* address);
+    static size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata);
+
     const char* _to_errmsg(CURLcode code) const;
     const char* _get_url() const;
+    Status update_http_url_security_redirect(std::string_view location);
 
 private:
     CURL* _curl = nullptr;
@@ -201,6 +211,11 @@ private:
     char _error_buf[CURL_ERROR_SIZE];
     curl_slist* _header_list = nullptr;
     HttpMethod _method = GET;
+    bool _http_url_security_enabled = false;
+    long _http_url_security_response_code = 0;
+    std::string _http_url_security_current_url;
+    std::string _http_url_security_host;
+    std::vector<std::string> _http_url_security_allowlist;
 };
 
 } // namespace doris
