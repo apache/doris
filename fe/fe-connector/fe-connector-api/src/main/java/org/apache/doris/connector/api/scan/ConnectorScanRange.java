@@ -17,8 +17,12 @@
 
 package org.apache.doris.connector.api.scan;
 
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TTableFormatFileDesc;
+
 import java.io.Serializable;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -107,5 +111,31 @@ public interface ConnectorScanRange extends Serializable {
      */
     default List<ConnectorDeleteFile> getDeleteFiles() {
         return Collections.emptyList();
+    }
+
+    /**
+     * Populates per-range Thrift params from this scan range's data.
+     *
+     * <p>Connectors that need typed Thrift structs (e.g., Hudi, Paimon)
+     * override this to construct their format-specific Thrift descriptor.
+     * The default implementation puts all properties into the generic
+     * {@code jdbc_params} map, which is suitable for JNI-based readers
+     * and simple formats.</p>
+     *
+     * @param formatDesc the TTableFormatFileDesc to populate with format-specific data
+     * @param rangeDesc  the TFileRangeDesc, may be mutated for format downgrade
+     */
+    default void populateRangeParams(TTableFormatFileDesc formatDesc,
+            TFileRangeDesc rangeDesc) {
+        Map<String, String> props = new HashMap<>(getProperties());
+        props.put("connector_scan_range_type", getRangeType().name());
+        props.put("connector_file_format", getFileFormat());
+        Map<String, String> partValues = getPartitionValues();
+        if (partValues != null && !partValues.isEmpty()) {
+            for (Map.Entry<String, String> entry : partValues.entrySet()) {
+                props.put("partition." + entry.getKey(), entry.getValue());
+            }
+        }
+        formatDesc.setJdbcParams(props);
     }
 }

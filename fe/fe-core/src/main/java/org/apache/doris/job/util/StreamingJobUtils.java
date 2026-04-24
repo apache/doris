@@ -36,6 +36,7 @@ import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.extensions.insert.streaming.PostgresResourceValidator;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
@@ -448,6 +449,73 @@ public class StreamingJobUtils {
      * The remoteDB implementation differs for each data source;
      * refer to the hierarchical mapping in the JDBC catalog.
      */
+    /**
+     * Populate default resource names into properties, then validate. No-op for sources that
+     * don't need it. Mutates properties: callers should expect default values to be inserted.
+     */
+    public static void resolveAndValidateSource(DataSourceType sourceType,
+                                                Map<String, String> properties,
+                                                String jobId,
+                                                List<String> tables) throws JobException {
+        if (sourceType == DataSourceType.POSTGRES) {
+            // PG slot/pub: values equal to default = Doris-owned; any other value = user-owned.
+            // (users cannot specify default names since jobId is unknown pre-CREATE)
+            properties.putIfAbsent(DataSourceConfigKeys.SLOT_NAME,
+                    DataSourceConfigKeys.defaultSlotName(jobId));
+            properties.putIfAbsent(DataSourceConfigKeys.PUBLICATION_NAME,
+                    DataSourceConfigKeys.defaultPublicationName(jobId));
+            validateSource(sourceType, properties, jobId, tables);
+        }
+    }
+
+    public static void validateSource(DataSourceType sourceType,
+            Map<String, String> properties,
+            String jobId,
+            List<String> tables) throws JobException {
+        if (sourceType == DataSourceType.POSTGRES) {
+            PostgresResourceValidator.validate(properties, jobId, tables);
+        }
+    }
+
+    /**
+     * Validate source-side resources for a streaming job backed by a TVF. Only cdc_stream
+     * TVF is subject to source validation (e.g. PG slot/publication ownership); other TVFs
+     * (s3, ...) are no-ops.
+     *
+     * <p>originTvfProps is treated as read-only (Nereids may hand back an immutable map).
+     * Defaults are populated into a temporary copy so ownership checks see the effective
+     * slot/pub names without mutating the caller's map.
+     */
+    public static void validateTvfSource(String tvfType,
+                                         Map<String, String> originTvfProps,
+                                         String jobId) throws JobException {
+        if (!"cdc_stream".equalsIgnoreCase(tvfType)) {
+            return;
+        }
+        DataSourceType sourceType = DataSourceType.valueOf(
+                originTvfProps.get(DataSourceConfigKeys.TYPE).toUpperCase());
+        List<String> tables = Collections.singletonList(
+                originTvfProps.get(DataSourceConfigKeys.TABLE));
+        Map<String, String> effective = new HashMap<>(originTvfProps);
+        populateDefaultSourceProperties(sourceType, effective, jobId);
+        validateSource(sourceType, effective, jobId, tables);
+    }
+
+
+    /** Persist resolved resource names so ownership is self-describing after restart. */
+    public static void populateDefaultSourceProperties(DataSourceType sourceType,
+                                                       Map<String, String> properties,
+                                                       String jobId) {
+        if (sourceType == DataSourceType.POSTGRES) {
+            // PG slot/pub: values equal to default = Doris-owned; any other value = user-owned.
+            // (users cannot specify default names since jobId is unknown pre-CREATE)
+            properties.putIfAbsent(DataSourceConfigKeys.SLOT_NAME,
+                    DataSourceConfigKeys.defaultSlotName(jobId));
+            properties.putIfAbsent(DataSourceConfigKeys.PUBLICATION_NAME,
+                    DataSourceConfigKeys.defaultPublicationName(jobId));
+        }
+    }
+
     public static String getRemoteDbName(DataSourceType sourceType, Map<String, String> properties) {
         String remoteDb = null;
         switch (sourceType) {

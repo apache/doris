@@ -18,8 +18,8 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import java.util.Map;
@@ -203,17 +203,17 @@ public class ColumnStatisticBuilder {
         return colStats;
     }
 
-    public void normalizeAvgSizeByte(SlotReference slot) {
+    public void normalizeAvgSizeByte(DataType dataType) {
         if (isUnknown) {
             return;
         }
         if (avgSizeByte > 0) {
             return;
         }
-        avgSizeByte = slot.getDataType().toCatalogDataType().getSlotSize();
+        avgSizeByte = dataType.toCatalogDataType().getSlotSize();
         // When defining SQL schemas, users often tend to set the length of string \
         // fields much longer than actually needed for storage.
-        if (slot.getDataType() instanceof CharacterType) {
+        if (dataType instanceof CharacterType) {
             avgSizeByte = Math.min(avgSizeByte, CharacterType.DEFAULT_WIDTH);
         }
     }

@@ -48,11 +48,25 @@ class HdfsOutputFile implements DorisOutputFile {
         return location;
     }
 
+    /**
+     * Creates a new HDFS file using the underlying {@link org.apache.hadoop.fs.FileSystem}
+     * defaults: the default file permission (subject to {@code fs.permissions.umask-mode}),
+     * default replication factor, and default block size. Missing parent directories are
+     * created implicitly under the same default umask. Callers needing explicit control over
+     * permissions, replication or block size must use a lower-level Hadoop API directly.
+     */
     @Override
     public OutputStream create() throws IOException {
         return authenticator.doAs(() -> dfs.requireFs(path).create(path, false));
     }
 
+    /**
+     * Creates or overwrites an HDFS file using the underlying {@link org.apache.hadoop.fs.FileSystem}
+     * defaults: the default file permission (subject to {@code fs.permissions.umask-mode}),
+     * default replication factor, and default block size. Missing parent directories are
+     * created implicitly under the same default umask. Callers needing explicit control over
+     * permissions, replication or block size must use a lower-level Hadoop API directly.
+     */
     @Override
     public OutputStream createOrOverwrite() throws IOException {
         return authenticator.doAs(() -> dfs.requireFs(path).create(path, true));

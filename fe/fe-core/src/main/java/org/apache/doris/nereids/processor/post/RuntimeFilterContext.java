@@ -19,84 +19,39 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.IdGenerator;
-import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.RuntimeFilterGenerator.FilterSizeLimits;
+import org.apache.doris.planner.RuntimeFilter.FilterSizeLimits;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
  * runtime filter context used at post process and translation.
  */
 public class RuntimeFilterContext {
-
-    /**
-     * the combination of src expr, filter type and source join node, use to identify the filter
-      */
-    public class RuntimeFilterIdentity {
-        final Expression expr;
-        final TRuntimeFilterType type;
-        final AbstractPhysicalJoin join;
-
-        public RuntimeFilterIdentity(Expression expr, TRuntimeFilterType type, AbstractPhysicalJoin join) {
-            this.expr = expr;
-            this.type = type;
-            this.join = join;
-        }
-
-        @Override
-        public int hashCode() {
-            return 0;
-        }
-
-        @Override
-        public boolean equals(Object other) {
-            if (this == other) {
-                return true;
-            }
-            if (other == null) {
-                return false;
-            }
-            if (other instanceof RuntimeFilterIdentity) {
-                RuntimeFilterIdentity otherId = (RuntimeFilterIdentity) other;
-                return expr.equals(otherId.expr) && type.equals(otherId.type) && join.equals(otherId.join);
-            }
-            return false;
-        }
-    }
-
     public List<RuntimeFilter> prunedRF = Lists.newArrayList();
 
     // exprId of target to runtime filter.
     private final Map<ExprId, List<RuntimeFilter>> targetExprIdToFilter = Maps.newHashMap();
-
-    private final Map<RuntimeFilterIdentity, RuntimeFilter> runtimeFilterIdentityToFilter = Maps.newHashMap();
 
     private final Map<PlanNodeId, DataStreamSink> planNodeIdToCTEDataSinkMap = Maps.newHashMap();
     private final Map<Plan, List<ExprId>> joinToTargetExprId = Maps.newHashMap();
@@ -109,11 +64,6 @@ public class RuntimeFilterContext {
     // exprId to olap scan node slotRef because the slotRef will be changed when translating.
     private final Map<ExprId, SlotRef> exprIdToOlapScanNodeSlotRef = Maps.newHashMap();
 
-    // alias -> alias's child, if there's a key that is alias's child, the key-value will change by this way
-    // Alias(A) = B, now B -> A in map, and encounter Alias(B) -> C, the kv will be C -> A.
-    // you can see disjoint set data structure to learn the processing detailed.
-    private final Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap = Maps.newHashMap();
-
     private final Map<Slot, ScanNode> scanNodeOfLegacyRuntimeFilterTarget = Maps.newLinkedHashMap();
 
     private final Map<Plan, EffectiveSrcType> effectiveSrcNodes = Maps.newHashMap();
@@ -124,51 +74,12 @@ public class RuntimeFilterContext {
 
     private int targetNullCount = 0;
 
-    private final List<ExpandRF> expandedRF = Lists.newArrayList();
-
-    private final Map<Plan, Set<PhysicalRelation>> relationsUsedByPlan = Maps.newHashMap();
     private final IdGenerator<RuntimeFilterId> runtimeFilterIdGen;
-
-    /**
-     * info about expand rf by inner join
-     */
-    public static class ExpandRF {
-        public AbstractPhysicalJoin buildNode;
-
-        public PhysicalRelation srcNode;
-        public PhysicalRelation target1;
-
-        public PhysicalRelation target2;
-
-        public EqualPredicate equal;
-
-        public ExpandRF(AbstractPhysicalJoin buildNode, PhysicalRelation srcNode,
-                        PhysicalRelation target1, PhysicalRelation target2, EqualPredicate equal) {
-            this.buildNode = buildNode;
-            this.srcNode = srcNode;
-            this.target1 = target1;
-            this.target2 = target2;
-            this.equal = equal;
-        }
-    }
 
     public RuntimeFilterContext(SessionVariable sessionVariable, IdGenerator<RuntimeFilterId> runtimeFilterIdGen) {
         this.sessionVariable = sessionVariable;
         this.limits = new FilterSizeLimits(sessionVariable);
         this.runtimeFilterIdGen = runtimeFilterIdGen;
-    }
-
-    /**
-     * return true, if the relation is in the subtree
-     */
-    public boolean isRelationUseByPlan(Plan plan, PhysicalRelation relation) {
-        Set<PhysicalRelation> relations = relationsUsedByPlan.get(plan);
-        if (relations == null) {
-            relations = Sets.newHashSet();
-            RuntimeFilterGenerator.getAllScanInfo(plan, relations);
-            relationsUsedByPlan.put(plan, relations);
-        }
-        return relations.contains(relation);
     }
 
     public SessionVariable getSessionVariable() {
@@ -180,7 +91,7 @@ public class RuntimeFilterContext {
     }
 
     public void setTargetExprIdToFilter(ExprId id, RuntimeFilter filter) {
-        Preconditions.checkArgument(filter.getTargetSlots().stream().anyMatch(expr -> expr.getExprId() == id));
+        Preconditions.checkArgument(filter.getTargetSlot().getExprId() == id);
         this.targetExprIdToFilter.computeIfAbsent(id, k -> Lists.newArrayList()).add(filter);
     }
 
@@ -196,28 +107,11 @@ public class RuntimeFilterContext {
             Iterator<RuntimeFilter> filterIter = filters.iterator();
             while (filterIter.hasNext()) {
                 RuntimeFilter rf = filterIter.next();
-                if (rf.getBuilderNode().equals(builderNode)) {
-                    Iterator<Slot> targetSlotIter = rf.getTargetSlots().listIterator();
-                    Iterator<PhysicalRelation> targetScanIter = rf.getTargetScans().iterator();
-                    Iterator<Expression> targetExpressionIter = rf.getTargetExpressions().iterator();
-                    Slot targetSlot;
-                    PhysicalRelation targetScan;
-                    while (targetScanIter.hasNext() && targetSlotIter.hasNext() && targetExpressionIter.hasNext()) {
-                        targetExpressionIter.next();
-                        targetScan = targetScanIter.next();
-                        targetSlot = targetSlotIter.next();
-                        if (targetSlot.getExprId().equals(targetId)) {
-                            targetScan.removeAppliedRuntimeFilter(rf);
-                            targetExpressionIter.remove();
-                            targetScanIter.remove();
-                            targetSlotIter.remove();
-                        }
-                    }
-                    if (rf.getTargetSlots().isEmpty()) {
-                        builderNode.getRuntimeFilters().remove(rf);
-                        filterIter.remove();
-                        prunedRF.add(rf);
-                    }
+                if (rf.getBuilderNode().equals(builderNode) && rf.getTargetSlot().getExprId().equals(targetId)) {
+                    rf.getTargetScan().removeAppliedRuntimeFilter(rf);
+                    builderNode.getRuntimeFilters().remove(rf);
+                    filterIter.remove();
+                    prunedRF.add(rf);
                 }
             }
         }
@@ -227,41 +121,20 @@ public class RuntimeFilterContext {
      * remove one target from rf, and if there is no target, remove the rf
      */
     public void removeFilter(RuntimeFilter rf, ExprId targetId) {
-        Iterator<Slot> targetSlotIter = rf.getTargetSlots().listIterator();
-        Iterator<PhysicalRelation> targetScanIter = rf.getTargetScans().iterator();
-        Iterator<Expression> targetExpressionIter = rf.getTargetExpressions().iterator();
-        Slot targetSlot;
-        PhysicalRelation targetScan;
-        while (targetScanIter.hasNext() && targetSlotIter.hasNext() && targetExpressionIter.hasNext()) {
-            targetExpressionIter.next();
-            targetScan = targetScanIter.next();
-            targetSlot = targetSlotIter.next();
-            if (targetSlot.getExprId().equals(targetId)) {
-                targetScan.removeAppliedRuntimeFilter(rf);
-                targetExpressionIter.remove();
-                targetScanIter.remove();
-                targetSlotIter.remove();
-            }
+        if (!rf.getTargetSlot().getExprId().equals(targetId)) {
+            return;
         }
-        if (rf.getTargetSlots().isEmpty()) {
-            rf.getBuilderNode().getRuntimeFilters().remove(rf);
+        rf.getTargetScan().removeAppliedRuntimeFilter(rf);
+        rf.getBuilderNode().getRuntimeFilters().remove(rf);
+        List<RuntimeFilter> filters = targetExprIdToFilter.get(targetId);
+        if (filters != null) {
             targetExprIdToFilter.get(targetId).remove(rf);
-            prunedRF.add(rf);
         }
+        prunedRF.add(rf);
     }
 
     public void setTargetsOnScanNode(PhysicalRelation relation, Slot slot) {
         this.targetOnOlapScanNodeMap.computeIfAbsent(relation, k -> Lists.newArrayList()).add(slot);
-    }
-
-    public RuntimeFilter getRuntimeFilterBySrcAndType(Expression src,
-                                                      TRuntimeFilterType type, AbstractPhysicalJoin join) {
-        return runtimeFilterIdentityToFilter.get(new RuntimeFilterIdentity(src, type, join));
-    }
-
-    public void setRuntimeFilterIdentityToFilter(Expression src, TRuntimeFilterType type,
-                                                 AbstractPhysicalJoin join, RuntimeFilter rf) {
-        runtimeFilterIdentityToFilter.put(new RuntimeFilterIdentity(src, type, join), rf);
     }
 
     public Map<ExprId, SlotRef> getExprIdToOlapScanNodeSlotRef() {
@@ -270,22 +143,6 @@ public class RuntimeFilterContext {
 
     public Map<PlanNodeId, DataStreamSink> getPlanNodeIdToCTEDataSinkMap() {
         return planNodeIdToCTEDataSinkMap;
-    }
-
-    public Map<NamedExpression, Pair<PhysicalRelation, Slot>> getAliasTransferMap() {
-        return aliasTransferMap;
-    }
-
-    public Pair<PhysicalRelation, Slot> getAliasTransferPair(NamedExpression slot) {
-        return aliasTransferMap.get(slot);
-    }
-
-    public Pair<PhysicalRelation, Slot> aliasTransferMapPut(NamedExpression slot, Pair<PhysicalRelation, Slot> pair) {
-        return aliasTransferMap.put(slot, pair);
-    }
-
-    public boolean aliasTransferMapContains(NamedExpression slot) {
-        return aliasTransferMap.containsKey(slot);
     }
 
     public Map<Slot, ScanNode> getScanNodeOfLegacyRuntimeFilterTarget() {
@@ -348,30 +205,12 @@ public class RuntimeFilterContext {
         return targetNullCount;
     }
 
-    public void addJoinToTargetMap(AbstractPhysicalJoin join, ExprId exprId) {
+    public void addJoinToTargetMap(AbstractPhysicalPlan join, ExprId exprId) {
         joinToTargetExprId.computeIfAbsent(join, k -> Lists.newArrayList()).add(exprId);
     }
 
-    public List<ExprId> getTargetExprIdByFilterJoin(AbstractPhysicalJoin join) {
+    public List<ExprId> getTargetExprIdByFilterJoin(AbstractPhysicalPlan join) {
         return joinToTargetExprId.getOrDefault(join, Lists.newArrayList());
-    }
-
-    /**
-     * return the info about expand_runtime_filter_by_inner_join
-     */
-    public ExpandRF getExpandRfByJoin(AbstractPhysicalJoin join) {
-        if (join instanceof PhysicalHashJoin) {
-            for (ExpandRF expand : expandedRF) {
-                if (expand.buildNode.equals(join)) {
-                    return expand;
-                }
-            }
-        }
-        return null;
-    }
-
-    public List<ExpandRF> getExpandedRF() {
-        return expandedRF;
     }
 
     public IdGenerator<RuntimeFilterId> getRuntimeFilterIdGen() {

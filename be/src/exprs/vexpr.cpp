@@ -34,6 +34,7 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "core/column/column_nothing.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_decimal.h"
@@ -995,7 +996,39 @@ size_t VExpr::estimate_memory(const size_t rows) {
     return estimate_size;
 }
 
-bool VExpr::fast_execute(VExprContext* context, Selector* selector, size_t count,
+Status VExpr::execute_column(VExprContext* context, const Block* block, const Selector* selector,
+                             size_t count, ColumnPtr& result_column) const {
+    RETURN_IF_ERROR(execute_column_impl(context, block, selector, count, result_column));
+    if (result_column->size() != count) {
+        return Status::InternalError("Expr {} return column size {} not equal to expected size {}",
+                                     expr_name(), result_column->size(), count);
+    }
+    DCHECK(selector == nullptr || selector->size() == count);
+    // Validate type match. ColumnNothing is exempt (used as a placeholder in tests/stubs).
+    if (!check_and_get_column<ColumnNothing>(result_column.get())) {
+        auto result_type = execute_type(block);
+        if (result_type != nullptr) {
+            Status st = result_type->check_column(*result_column);
+            if (!st.ok()) {
+                // Nullable(T) may legitimately produce a non-nullable T column when all rows are
+                // non-null (use_default_implementation_for_nulls optimization). Allow this.
+                const auto* nullable_type =
+                        check_and_get_data_type<DataTypeNullable>(result_type.get());
+                if (nullable_type && !check_and_get_column<ColumnNullable>(result_column.get())) {
+                    st = nullable_type->get_nested_type()->check_column(*result_column);
+                }
+            }
+            if (!st.ok()) {
+                return Status::InternalError(
+                        "Expr {} return column type mismatch: declared={}, actual={}", expr_name(),
+                        result_type->get_name(), result_column->get_name());
+            }
+        }
+    }
+    return Status::OK();
+}
+
+bool VExpr::fast_execute(VExprContext* context, const Selector* selector, size_t count,
                          ColumnPtr& result_column) const {
     if (context->get_index_context() &&
         context->get_index_context()->get_index_result_column().contains(this)) {

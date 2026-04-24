@@ -47,6 +47,21 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
+        <!-- connector-api provides SPI interfaces -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Thrift types for constructing TTableFormatFileDesc in populateRangeParams -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-thrift</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- Paimon SDK -->
         <dependency>
             <groupId>org.apache.paimon</groupId>

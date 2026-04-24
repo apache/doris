@@ -35,12 +35,18 @@ public class HdfsConfigBuilder {
 
     /**
      * Builds a Hadoop Configuration from the given properties map.
-     * FS caching is disabled so that DFSFileSystem manages the lifecycle manually.
+     * FS caching is disabled for every scheme the provider claims to support so that
+     * {@link DFSFileSystem#close()} only closes the FileSystem instances owned by this
+     * provider — never a globally-cached instance that another catalog is still using.
      */
     public static Configuration build(Map<String, String> properties) {
         Configuration conf = new HdfsConfiguration();
         conf.setBoolean("fs.hdfs.impl.disable.cache", true);
         conf.setBoolean("fs.AbstractFileSystem.hdfs.impl.disable.cache", true);
+        for (String scheme : HdfsFileSystemProvider.SUPPORTED_SCHEMES) {
+            conf.setBoolean("fs." + scheme + ".impl.disable.cache", true);
+            conf.setBoolean("fs.AbstractFileSystem." + scheme + ".impl.disable.cache", true);
+        }
         properties.forEach((k, v) -> {
             if (v != null && !v.isEmpty()) {
                 conf.set(k, v);

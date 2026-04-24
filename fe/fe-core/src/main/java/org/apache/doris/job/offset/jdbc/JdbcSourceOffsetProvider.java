@@ -114,7 +114,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     // Refresh fields that may be changed via ALTER JOB; called before each use.
     @Override
-    public void ensureInitialized(Long jobId, Map<String, String> newProps) {
+    public void ensureInitialized(Long jobId, Map<String, String> newProps) throws JobException {
         this.sourceProperties = newProps;
         this.snapshotParallelism = Integer.parseInt(
                 newProps.getOrDefault(DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
@@ -290,7 +290,8 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                     // snapshot to binlog phase
                     return true;
                 }
-                return compareOffset(endBinlogOffset, new HashMap<>(binlogSplit.getStartingOffset()));
+                hasMoreData = compareOffset(endBinlogOffset, new HashMap<>(binlogSplit.getStartingOffset()));
+                return hasMoreData;
             } else {
                 // snapshot means has data to consume
                 return true;
@@ -574,6 +575,48 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     protected boolean isSnapshotOnlyMode() {
         String offset = sourceProperties.get(DataSourceConfigKeys.OFFSET);
         return DataSourceConfigKeys.OFFSET_SNAPSHOT.equalsIgnoreCase(offset);
+    }
+
+    @Override
+    public String getLag() {
+        if (currentOffset == null || currentOffset.snapshotSplit()) {
+            return "";
+        }
+        // Source is idle (last task consumed no data), report zero lag
+        if (!hasMoreData) {
+            return "0";
+        }
+        BinlogSplit binlogSplit = (BinlogSplit) currentOffset.getSplits().get(0);
+        Map<String, String> offsetMap = binlogSplit.getStartingOffset();
+        if (MapUtils.isEmpty(offsetMap)) {
+            return "";
+        }
+        long eventTimeMs = extractEventTimeMs(offsetMap);
+        if (eventTimeMs <= 0) {
+            return "0";
+        }
+        long lagSec = (System.currentTimeMillis() - eventTimeMs) / 1000;
+        return String.valueOf(Math.max(lagSec, 0));
+    }
+
+    /**
+     * Extract event timestamp in milliseconds from binlog offset map.
+     * MySQL: ts_sec (seconds), PostgreSQL: ts_usec (microseconds).
+     */
+    protected long extractEventTimeMs(Map<String, String> offsetMap) {
+        try {
+            String tsSec = offsetMap.get("ts_sec");
+            if (tsSec != null) {
+                return Long.parseLong(tsSec) * 1000;
+            }
+            String tsUsec = offsetMap.get("ts_usec");
+            if (tsUsec != null) {
+                return Long.parseLong(tsUsec) / 1000;
+            }
+        } catch (NumberFormatException e) {
+            log.warn("Failed to parse event timestamp from offset: {}", offsetMap, e);
+        }
+        return -1;
     }
 
     @Override

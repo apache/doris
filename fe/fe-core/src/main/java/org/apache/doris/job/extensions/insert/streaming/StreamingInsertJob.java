@@ -108,6 +108,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private long dbId;
     // Streaming job statistics, all persisted in txn attachment
     // when checkpoint image replay need Serialized
+    @Getter
     @SerializedName("jstc")
     private StreamingJobStatistic jobStatistic = new StreamingJobStatistic();
     // Non-txn persisted statistics, used for streaming multi task
@@ -174,6 +175,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private long sampleWindowScannedRows;
     private long sampleWindowFilteredRows;
 
+    protected StreamingInsertJob() {
+        // for testing and gson deserialization
+    }
+
     public StreamingInsertJob(String jobName,
             JobStatus jobStatus,
             String dbName,
@@ -231,6 +236,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 String includeTables = String.join(",", createTbls);
                 sourceProperties.put(DataSourceConfigKeys.INCLUDE_TABLES, includeTables);
             }
+            StreamingJobUtils.resolveAndValidateSource(
+                    dataSourceType, sourceProperties, String.valueOf(getJobId()), createTbls);
             this.offsetProvider = new JdbcSourceOffsetProvider(getJobId(), dataSourceType,
                     getConvertedSourceProperties());
             JdbcSourceOffsetProvider rdsOffsetProvider = (JdbcSourceOffsetProvider) this.offsetProvider;
@@ -306,6 +313,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.originTvfProps = currentTvf.getProperties().getMap();
             this.offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(currentTvf.getFunctionName());
             this.offsetProvider.ensureInitialized(getJobId(), originTvfProps);
+            // Validate source-side resources (e.g. PG slot/publication ownership) once at job
+            // creation so conflicts fail fast. No-op for standalone cdc_stream TVF (no job).
+            StreamingJobUtils.validateTvfSource(tvfType, originTvfProps, String.valueOf(getJobId()));
             this.offsetProvider.initOnCreate();
             // validate offset props, only for s3 cause s3 tvf no offset prop
             if (jobProperties.getOffsetProperty() != null
@@ -900,6 +910,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 ? "" : failureReason.getMsg()));
         trow.addToColumnValue(new TCell().setStringVal(jobRuntimeMsg == null
                 ? "" : jobRuntimeMsg));
+        trow.addToColumnValue(new TCell().setStringVal(
+                offsetProvider != null ? offsetProvider.getLag() : ""));
         return trow;
     }
 
@@ -1285,6 +1297,16 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             return;
         }
 
+        // Roll the window before accumulating, otherwise a boundary batch is merged into the expired window.
+        long now = System.currentTimeMillis();
+        if ((now - sampleStartTime) > sampleWindowMs) {
+            this.sampleStartTime = now;
+            this.sampleWindowScannedRows = 0L;
+            this.sampleWindowFilteredRows = 0L;
+            log.info("streaming multi table job {} enter next sample window, startTime={}",
+                    getJobId(), TimeUtils.longToTimeString(sampleStartTime));
+        }
+
         this.sampleWindowScannedRows += offsetRequest.getScannedRows();
         this.sampleWindowFilteredRows += offsetRequest.getFilteredRows();
 
@@ -1306,16 +1328,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.setFailureReason(failureReason);
             this.updateJobStatus(JobStatus.PAUSED);
             throw new JobException(failureReason.getMsg());
-        }
-
-        long now = System.currentTimeMillis();
-
-        if ((now - sampleStartTime) > sampleWindowMs) {
-            this.sampleStartTime = now;
-            this.sampleWindowScannedRows = 0L;
-            this.sampleWindowFilteredRows = 0L;
-            log.info("streaming multi table job {} enter next sample window, startTime={}",
-                    getJobId(), TimeUtils.longToTimeString(sampleStartTime));
         }
     }
 

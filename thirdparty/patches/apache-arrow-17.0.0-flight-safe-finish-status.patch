@@ -1,0 +1,216 @@
+--- arrow-apache-arrow-17.0.0-before-flight-finish-fix/cpp/src/arrow/flight/transport/grpc/grpc_client.cc
++++ arrow-apache-arrow-17.0.0/cpp/src/arrow/flight/transport/grpc/grpc_client.cc
+@@ -71,108 +71,146 @@
+ struct ClientRpc {
+   ::grpc::ClientContext context;
+ 
+   explicit ClientRpc(const FlightCallOptions& options) {
+     if (options.timeout.count() >= 0) {
+       std::chrono::system_clock::time_point deadline =
+           std::chrono::time_point_cast<std::chrono::system_clock::time_point::duration>(
+               std::chrono::system_clock::now() + options.timeout);
+       context.set_deadline(deadline);
+     }
+     for (auto header : options.headers) {
+       context.AddMetadata(header.first, header.second);
+     }
+   }
+ 
+   /// \brief Add an auth token via an auth handler
+   Status SetToken(ClientAuthHandler* auth_handler) {
+     if (auth_handler) {
+       std::string token;
+       RETURN_NOT_OK(auth_handler->GetToken(&token));
+       context.AddMetadata(kGrpcAuthHeader, token);
+     }
+     return Status::OK();
+   }
+ };
+ 
+ class GrpcAddClientHeaders : public AddCallHeaders {
+  public:
+   explicit GrpcAddClientHeaders(std::multimap<::grpc::string, ::grpc::string>* metadata)
+       : metadata_(metadata) {}
+   ~GrpcAddClientHeaders() override = default;
+ 
+   void AddHeader(const std::string& key, const std::string& value) override {
+     metadata_->insert(std::make_pair(key, value));
+   }
+ 
+  private:
+   std::multimap<::grpc::string, ::grpc::string>* metadata_;
+ };
+ 
++// Terminal RPC status is observed while gRPC is already completing the call.
++// Keep conversion minimal here instead of rebuilding rich Flight details.
++Status MakeSafeTerminalStatus(const ::grpc::Status& grpc_status) {
++  if (grpc_status.ok()) {
++    return Status::OK();
++  }
++
++  const auto error_code = grpc_status.error_code();
++  const std::string error_message = grpc_status.error_message();
++  switch (error_code) {
++    case ::grpc::StatusCode::CANCELLED:
++      return Status::Cancelled("Flight stream finish failed with message: ",
++                               error_message);
++    case ::grpc::StatusCode::UNKNOWN:
++      return Status::UnknownError("Flight stream finish failed with message: ",
++                                  error_message);
++    case ::grpc::StatusCode::INVALID_ARGUMENT:
++    case ::grpc::StatusCode::FAILED_PRECONDITION:
++    case ::grpc::StatusCode::OUT_OF_RANGE:
++    case ::grpc::StatusCode::RESOURCE_EXHAUSTED:
++      return Status::Invalid("Flight stream finish failed with message: ",
++                             error_message);
++    case ::grpc::StatusCode::NOT_FOUND:
++      return Status::KeyError("Flight stream finish failed with message: ",
++                              error_message);
++    case ::grpc::StatusCode::ALREADY_EXISTS:
++      return Status::AlreadyExists("Flight stream finish failed with message: ",
++                                   error_message);
++    case ::grpc::StatusCode::UNIMPLEMENTED:
++      return Status::NotImplemented("Flight stream finish failed with message: ",
++                                    error_message);
++    default:
++      return Status::IOError("Flight stream finish failed with gRPC code ",
++                             static_cast<int>(error_code), ", message: ",
++                             error_message);
++  }
++}
++
+ class GrpcClientInterceptorAdapter : public ::grpc::experimental::Interceptor {
+  public:
+   explicit GrpcClientInterceptorAdapter(
+       std::vector<std::unique_ptr<ClientMiddleware>> middleware)
+       : middleware_(std::move(middleware)) {}
+ 
+   void Intercept(::grpc::experimental::InterceptorBatchMethods* methods) override {
+     using InterceptionHookPoints = ::grpc::experimental::InterceptionHookPoints;
+     if (methods->QueryInterceptionHookPoint(
+             InterceptionHookPoints::PRE_SEND_INITIAL_METADATA)) {
+       GrpcAddClientHeaders add_headers(methods->GetSendInitialMetadata());
+       for (const auto& middleware : middleware_) {
+         middleware->SendingHeaders(&add_headers);
+       }
+     }
+ 
+     if (methods->QueryInterceptionHookPoint(
+             InterceptionHookPoints::POST_RECV_INITIAL_METADATA)) {
+       if (!methods->GetRecvInitialMetadata()->empty()) {
+         ReceivedHeaders(*methods->GetRecvInitialMetadata());
+       }
+     }
+ 
+     if (methods->QueryInterceptionHookPoint(InterceptionHookPoints::POST_RECV_STATUS)) {
+       DCHECK_NE(nullptr, methods->GetRecvStatus());
+       DCHECK_NE(nullptr, methods->GetRecvTrailingMetadata());
+       ReceivedHeaders(*methods->GetRecvTrailingMetadata());
+-      const Status status = FromGrpcStatus(*methods->GetRecvStatus());
++      const Status status = MakeSafeTerminalStatus(*methods->GetRecvStatus());
+       for (const auto& middleware : middleware_) {
+         middleware->CallCompleted(status);
+       }
+     }
+ 
+     methods->Proceed();
+   }
+ 
+  private:
+   void ReceivedHeaders(
+       const std::multimap<::grpc::string_ref, ::grpc::string_ref>& metadata) {
+     CallHeaders headers;
+     for (const auto& entry : metadata) {
+       headers.insert({std::string_view(entry.first.data(), entry.first.length()),
+                       std::string_view(entry.second.data(), entry.second.length())});
+     }
+     for (const auto& middleware : middleware_) {
+       middleware->ReceivedHeaders(headers);
+     }
+   }
+ 
+   std::vector<std::unique_ptr<ClientMiddleware>> middleware_;
+ };
+ 
+ class GrpcClientInterceptorAdapterFactory
+     : public ::grpc::experimental::ClientInterceptorFactoryInterface {
+  public:
+   explicit GrpcClientInterceptorAdapterFactory(
+       std::vector<std::shared_ptr<ClientMiddlewareFactory>> middleware)
+       : middleware_(std::move(middleware)) {}
+ 
+   ::grpc::experimental::Interceptor* CreateClientInterceptor(
+       ::grpc::experimental::ClientRpcInfo* info) override {
+     std::vector<std::unique_ptr<ClientMiddleware>> middleware;
+ 
+     FlightMethod flight_method = FlightMethod::Invalid;
+     std::string_view method(info->method());
+     if (EndsWith(method, "/Handshake")) {
+       flight_method = FlightMethod::Handshake;
+     } else if (EndsWith(method, "/ListFlights")) {
+@@ -283,20 +321,10 @@
+       // Drain the read side to avoid gRPC hanging in Finish()
+     }
+ 
+-    server_status_ = FromGrpcStatus(stream_->Finish(), &rpc_->context);
+-    if (!server_status_.ok()) {
+-      server_status_ = Status::FromDetailAndArgs(
+-          server_status_.code(), server_status_.detail(), server_status_.message(),
+-          ". gRPC client debug context: ", rpc_->context.debug_error_string());
+-    }
++    server_status_ = MakeSafeTerminalStatus(stream_->Finish());
+     if (!transport_status_.ok()) {
+       if (server_status_.ok()) {
+         server_status_ = transport_status_;
+-      } else {
+-        server_status_ = Status::FromDetailAndArgs(
+-            server_status_.code(), server_status_.detail(), server_status_.message(),
+-            ". gRPC client debug context: ", rpc_->context.debug_error_string(),
+-            ". Additional context: ", transport_status_.ToString());
+       }
+     }
+     finished_ = true;
+@@ -349,10 +377,8 @@
+     done_writing_ = true;
+ 
+     Status st = Base::DoFinish();
+-    if (!finished_writes) {
+-      return Status::FromDetailAndArgs(
+-          st.code(), st.detail(), st.message(),
+-          ". Additionally, could not finish writing record batches before closing");
++    if (!finished_writes && st.ok()) {
++      return Status::IOError("Could not finish writing record batches before closing");
+     }
+     return st;
+   }
+@@ -502,7 +528,7 @@
+   ~GrpcResultStream() override {
+     if (stream_) {
+       rpc_.context.TryCancel();
+-      auto status = FromGrpcStatus(stream_->Finish(), &rpc_.context);
++      auto status = MakeSafeTerminalStatus(stream_->Finish());
+       if (!status.ok() && !status.IsCancelled()) {
+         ARROW_LOG(DEBUG)
+             << "DoAction result was not fully consumed, server returned error: "
+@@ -542,7 +568,7 @@
+       }
+       RETURN_NOT_OK(stop_token_.Poll());
+ 
+-      status_ = FromGrpcStatus(stream_->Finish(), &rpc_.context);
++      status_ = MakeSafeTerminalStatus(stream_->Finish());
+       stream_.reset();
+     }
+     RETURN_NOT_OK(status_);
+--- arrow-apache-arrow-17.0.0-before-flight-finish-fix/cpp/src/arrow/flight/transport.cc
++++ arrow-apache-arrow-17.0.0/cpp/src/arrow/flight/transport.cc
+@@ -47,9 +47,7 @@
+   auto server_status = DoFinish();
+   if (server_status.ok()) return st;
+ 
+-  return Status::FromDetailAndArgs(server_status.code(), server_status.detail(),
+-                                   server_status.message(),
+-                                   ". Client context: ", st.ToString());
++  return server_status;
+ }
+ 
+ Status ClientTransport::Authenticate(const FlightCallOptions& options,

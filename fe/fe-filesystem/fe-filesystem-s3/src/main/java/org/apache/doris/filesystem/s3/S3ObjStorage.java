@@ -69,6 +69,7 @@ import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider
 import software.amazon.awssdk.services.sts.model.AssumeRoleRequest;
 import software.amazon.awssdk.services.sts.model.AssumeRoleResponse;
 import software.amazon.awssdk.services.sts.model.Credentials;
+import software.amazon.awssdk.utils.http.SdkHttpUtils;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -163,6 +164,15 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         this.bucket = normalized.get(PROP_BUCKET);
     }
 
+    /**
+     * Returns whether path-style (vs virtual-hosted-style) bucket access is enabled.
+     * Used by {@link S3FileSystem} when parsing URIs that may be path-style
+     * ({@code https://endpoint/bucket/key}) instead of virtual-hosted ({@code s3://bucket/key}).
+     */
+    public boolean isUsePathStyle() {
+        return usePathStyle;
+    }
+
     @Override
     public S3Client getClient() throws IOException {
         if (closed.get()) {
@@ -180,7 +190,22 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     protected S3Client buildClient() throws IOException {
         String endpointStr = properties.get(PROP_ENDPOINT);
-        String region = properties.getOrDefault(PROP_REGION, "us-east-1");
+        // #23: Region is required for SigV4 signing. Historically we silently fell back to
+        // "us-east-1" when none was configured, which can mis-route requests to the wrong AWS
+        // region for standard S3 (no endpoint override). Soft-deprecate by logging a WARN
+        // rather than throwing, to avoid breaking clusters that rely on the implicit default.
+        String region = properties.get(PROP_REGION);
+        if (region == null || region.isEmpty()) {
+            region = "us-east-1";
+            if (endpointStr == null || endpointStr.isEmpty()) {
+                LOG.warn("S3 region is not configured (set s3.region / region / AWS_REGION); "
+                        + "falling back to '{}'. This is deprecated and may mis-route requests "
+                        + "for non-us-east-1 buckets — configure the region explicitly.", region);
+            } else {
+                LOG.warn("S3 region is not configured but endpoint '{}' is set; using '{}' as a "
+                        + "placeholder solely for SigV4 signing.", endpointStr, region);
+            }
+        }
         AwsCredentialsProvider credentialsProvider = buildCredentialsProvider();
 
         S3ClientBuilder builder = S3Client.builder()
@@ -309,8 +334,89 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         }
     }
 
+    /**
+     * Strips {@code prefix} (with implicit trailing-slash normalisation) from {@code key}
+     * to produce the per-listing relative path. Identical normalisation to
+     * {@link #getRelativePathSafe(String, String)} so callers see the same relative-path
+     * shape regardless of which list entry point ({@link #listObjects},
+     * {@link #listObjectsNonRecursive}, {@link #listObjectsWithPrefix}) was used.
+     * If {@code prefix} does not end in {@code "/"} (e.g. user passed
+     * {@code s3://bucket/foo} expecting "directory" semantics), {@code "/"} is appended
+     * before stripping; if it already ends in {@code "/"} no double-slash is introduced.
+     * Bucket-root prefixes (empty key) leave {@code key} unchanged.
+     */
     private static String getRelativePath(String prefix, String key) {
-        return key.startsWith(prefix) ? key.substring(prefix.length()) : key;
+        return getRelativePathSafe(prefix, key);
+    }
+
+    /**
+     * Bounded variant of {@link #listObjects(String, String)}: caps the number of keys
+     * returned in this single call via {@code maxKeys}. Useful for "is this prefix
+     * non-empty?" probes that should not pull a full page of 1000 keys.
+     *
+     * @param maxKeys upper bound of keys to fetch; values {@code <= 0} are treated as no cap
+     */
+    public RemoteObjects listObjects(String remotePath, String continuationToken, int maxKeys)
+            throws IOException {
+        S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
+        ListObjectsV2Request.Builder builder = ListObjectsV2Request.builder()
+                .bucket(uri.bucket())
+                .prefix(uri.key());
+        if (maxKeys > 0) {
+            builder.maxKeys(maxKeys);
+        }
+        if (continuationToken != null && !continuationToken.isEmpty()) {
+            builder.continuationToken(continuationToken);
+        }
+        try {
+            ListObjectsV2Response response = getClient().listObjectsV2(builder.build());
+            List<org.apache.doris.filesystem.spi.RemoteObject> objects = response.contents().stream()
+                    .map(s3Obj -> new org.apache.doris.filesystem.spi.RemoteObject(
+                            s3Obj.key(),
+                            getRelativePath(uri.key(), s3Obj.key()),
+                            s3Obj.eTag(),
+                            s3Obj.size(),
+                            s3Obj.lastModified() != null ? s3Obj.lastModified().toEpochMilli() : 0L))
+                    .collect(Collectors.toList());
+            return new RemoteObjects(objects, response.isTruncated(),
+                    response.nextContinuationToken());
+        } catch (SdkException e) {
+            throw new IOException("Failed to list objects at " + remotePath + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Lists objects using S3 delimiter mode (delimiter {@code "/"}) so only the direct
+     * children under {@code remotePath} are returned in {@code Contents}. Sub-directories
+     * (which appear as {@code CommonPrefixes}) are intentionally NOT exposed here; callers
+     * that need them should issue a separate request. Used to give the FileSystem
+     * abstraction true POSIX-like "list one directory level" semantics on object stores.
+     */
+    public RemoteObjects listObjectsNonRecursive(String remotePath, String continuationToken)
+            throws IOException {
+        S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
+        ListObjectsV2Request.Builder builder = ListObjectsV2Request.builder()
+                .bucket(uri.bucket())
+                .prefix(uri.key())
+                .delimiter("/");
+        if (continuationToken != null && !continuationToken.isEmpty()) {
+            builder.continuationToken(continuationToken);
+        }
+        try {
+            ListObjectsV2Response response = getClient().listObjectsV2(builder.build());
+            List<org.apache.doris.filesystem.spi.RemoteObject> objects = response.contents().stream()
+                    .map(s3Obj -> new org.apache.doris.filesystem.spi.RemoteObject(
+                            s3Obj.key(),
+                            getRelativePath(uri.key(), s3Obj.key()),
+                            s3Obj.eTag(),
+                            s3Obj.size(),
+                            s3Obj.lastModified() != null ? s3Obj.lastModified().toEpochMilli() : 0L))
+                    .collect(Collectors.toList());
+            return new RemoteObjects(objects, response.isTruncated(),
+                    response.nextContinuationToken());
+        } catch (SdkException e) {
+            throw new IOException("Failed to list objects at " + remotePath + ": " + e.getMessage(), e);
+        }
     }
 
     @Override
@@ -370,7 +476,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         S3Uri dstUri = S3Uri.parse(dstPath, usePathStyle);
         try {
             getClient().copyObject(CopyObjectRequest.builder()
-                    .copySource(srcUri.bucket() + "/" + srcUri.key())
+                    .copySource(SdkHttpUtils.urlEncodeIgnoreSlashes(
+                            srcUri.bucket() + "/" + srcUri.key()))
                     .destinationBucket(dstUri.bucket())
                     .destinationKey(dstUri.key())
                     .build());
@@ -437,8 +544,15 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         try {
             getClient().abortMultipartUpload(AbortMultipartUploadRequest.builder()
                     .bucket(uri.bucket()).key(uri.key()).uploadId(uploadId).build());
+        } catch (S3Exception e) {
+            // Re-throw so callers know the abort failed; orphaned parts may still exist
+            // and require manual cleanup or a lifecycle rule.
+            throw new IOException("abortMultipartUpload failed for " + remotePath
+                    + " (uploadId=" + uploadId + "): HTTP " + e.statusCode()
+                    + " " + e.awsErrorDetails().errorCode() + ": " + e.getMessage(), e);
         } catch (SdkException e) {
-            LOG.warn("abortMultipartUpload failed for {}: {}", remotePath, e.getMessage());
+            throw new IOException("abortMultipartUpload failed for " + remotePath
+                    + " (uploadId=" + uploadId + "): " + e.getMessage(), e);
         }
     }
 
@@ -633,8 +747,18 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             throw new IOException("Failed to batch delete objects from bucket=" + bucket + ": " + e.getMessage(), e);
         }
         if (!failedKeys.isEmpty()) {
-            throw new IOException("Failed to delete " + failedKeys.size() + " object(s), first key: "
-                    + failedKeys.get(0));
+            // Surface the full failure count and a bounded sample of failing keys in
+            // the message so operators can correlate logs with the truncated list
+            // without flooding the exception when DeleteObjects rejects many keys
+            // at once (S3 batch up to 1000). The complete list is already at WARN
+            // in the loop above; do not repeat it here.
+            int sampleSize = Math.min(10, failedKeys.size());
+            String sample = String.join(", ", failedKeys.subList(0, sampleSize));
+            String suffix = failedKeys.size() > sampleSize
+                    ? " (and " + (failedKeys.size() - sampleSize) + " more, see WARN log for full list)"
+                    : "";
+            throw new IOException("Failed to delete " + failedKeys.size() + " object(s) from bucket="
+                    + bucket + "; failing keys [" + sample + "]" + suffix);
         }
     }
 

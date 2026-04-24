@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
@@ -118,6 +119,15 @@ public class NereidsParserTest extends ParserTestBase {
         parsePlan("select * from t1 where a = 1 illegal_symbol")
                 .assertThrowsExactly(SyntaxParseException.class)
                 .assertMessageEquals("\nextraneous input 'illegal_symbol' expecting {<EOF>, ';'}(line 1, pos 29)\n");
+    }
+
+    @Test
+    public void testCancelAlterTableWithoutJobIdsBuildsEmptyJobIdList() {
+        NereidsParser nereidsParser = new NereidsParser();
+        Plan plan = nereidsParser.parseSingle("CANCEL ALTER TABLE ROLLUP FROM db1.tbl1");
+        Assertions.assertInstanceOf(CancelAlterTableCommand.class, plan);
+        CancelAlterTableCommand command = (CancelAlterTableCommand) plan;
+        Assertions.assertTrue(command.getAlterJobIdList().isEmpty());
     }
 
     @Test
