@@ -19,12 +19,15 @@ package org.apache.doris.cloud.alter;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -80,28 +83,7 @@ public class CloudSchemaChangeHandlerTest {
     @Test
     public void testUpdateTablePropertiesNotifiesAllAliveBackendsInBatches() throws Exception {
         CloudSchemaChangeHandler handler = new CloudSchemaChangeHandler();
-        Database db = Mockito.mock(Database.class);
-        OlapTable table = Mockito.mock(OlapTable.class);
-        Partition partition = Mockito.mock(Partition.class);
-        MaterializedIndex index = Mockito.mock(MaterializedIndex.class);
-        org.apache.doris.catalog.Tablet tablet1 = Mockito.mock(org.apache.doris.catalog.Tablet.class);
-        org.apache.doris.catalog.Tablet tablet2 = Mockito.mock(org.apache.doris.catalog.Tablet.class);
-        org.apache.doris.catalog.Tablet tablet3 = Mockito.mock(org.apache.doris.catalog.Tablet.class);
-
-        Mockito.when(db.getTableOrMetaException("tbl", org.apache.doris.catalog.Table.TableType.OLAP))
-                .thenReturn(table);
-        Mockito.when(table.getName()).thenReturn("tbl");
-        Mockito.when(table.getCompactionPolicy()).thenReturn("size_based");
-        Mockito.when(table.getKeysType()).thenReturn(org.apache.doris.catalog.KeysType.DUP_KEYS);
-        Mockito.when(table.getPartitions()).thenReturn(Arrays.asList(partition));
-        Mockito.when(table.getPartition("p1")).thenReturn(partition);
-        Mockito.when(partition.getName()).thenReturn("p1");
-        Mockito.when(partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE))
-                .thenReturn(Arrays.asList(index));
-        Mockito.when(index.getTablets()).thenReturn(Arrays.asList(tablet1, tablet2, tablet3));
-        Mockito.when(tablet1.getId()).thenReturn(101L);
-        Mockito.when(tablet2.getId()).thenReturn(102L);
-        Mockito.when(tablet3.getId()).thenReturn(103L);
+        Database db = createMockDatabaseWithThreeTablets();
 
         Backend aliveBackend1 = new Backend(1L, "be-1", 9050);
         aliveBackend1.setAlive(true);
@@ -168,6 +150,50 @@ public class CloudSchemaChangeHandlerTest {
         Assert.assertEquals(Arrays.asList(101L, 102L), syncRequests.get(1).getTabletIdsList());
         Assert.assertEquals(Arrays.asList(103L), syncRequests.get(2).getTabletIdsList());
         Assert.assertEquals(Arrays.asList(103L), syncRequests.get(3).getTabletIdsList());
+    }
+
+    @Test
+    public void testUpdateTablePropertiesThrowsWhenUpdateTabletFails() throws Exception {
+        CloudSchemaChangeHandler handler = new CloudSchemaChangeHandler();
+        Database db = createMockDatabaseWithThreeTablets();
+
+        MetaServiceProxy metaServiceProxy = Mockito.mock(MetaServiceProxy.class);
+        Mockito.when(metaServiceProxy.updateTablet(Mockito.any()))
+                .thenThrow(new RuntimeException("update failed"));
+
+        try (MockedStatic<MetaServiceProxy> metaProxyMock = Mockito.mockStatic(MetaServiceProxy.class)) {
+            metaProxyMock.when(MetaServiceProxy::getInstance).thenReturn(metaServiceProxy);
+
+            Map<String, String> properties = new HashMap<>();
+            properties.put("compaction_policy", "time_series");
+            UserException exception = Assert.assertThrows(UserException.class,
+                    () -> handler.updateTableProperties(db, "tbl", properties));
+            Assert.assertTrue(exception.getMessage().contains("update failed"));
+        }
+    }
+
+    @Test
+    public void testUpdateTablePropertiesThrowsWhenUpdateTabletResponseNotOk() throws Exception {
+        CloudSchemaChangeHandler handler = new CloudSchemaChangeHandler();
+        Database db = createMockDatabaseWithThreeTablets();
+
+        MetaServiceProxy metaServiceProxy = Mockito.mock(MetaServiceProxy.class);
+        Mockito.when(metaServiceProxy.updateTablet(Mockito.any()))
+                .thenReturn(Cloud.UpdateTabletResponse.newBuilder()
+                        .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                                .setCode(Cloud.MetaServiceCode.INVALID_ARGUMENT)
+                                .setMsg("meta service rejected"))
+                        .build());
+
+        try (MockedStatic<MetaServiceProxy> metaProxyMock = Mockito.mockStatic(MetaServiceProxy.class)) {
+            metaProxyMock.when(MetaServiceProxy::getInstance).thenReturn(metaServiceProxy);
+
+            Map<String, String> properties = new HashMap<>();
+            properties.put("compaction_policy", "time_series");
+            UserException exception = Assert.assertThrows(UserException.class,
+                    () -> handler.updateTableProperties(db, "tbl", properties));
+            Assert.assertTrue(exception.getMessage().contains("meta service rejected"));
+        }
     }
 
     @Test
@@ -301,6 +327,62 @@ public class CloudSchemaChangeHandlerTest {
     }
 
     @Test
+    public void testNotifyBackendsToSyncTabletMetaSwallowsNullResponse() throws Exception {
+        CloudSchemaChangeHandler handler = new CloudSchemaChangeHandler();
+        Backend aliveBackend = new Backend(1L, "be-1", 9050);
+        aliveBackend.setAlive(true);
+        aliveBackend.setBrpcPort(8060);
+
+        SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
+        Mockito.when(systemInfoService.getAllBackendsByAllCluster()).thenReturn(ImmutableMap.of(
+                aliveBackend.getId(), aliveBackend));
+
+        BackendServiceProxy backendServiceProxy = Mockito.mock(BackendServiceProxy.class);
+        Mockito.when(backendServiceProxy.syncTabletMeta(Mockito.any(), Mockito.any()))
+                .thenReturn(Futures.immediateFuture(null));
+
+        try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class);
+                MockedStatic<BackendServiceProxy> backendProxyMock = Mockito.mockStatic(BackendServiceProxy.class)) {
+            envMock.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+            backendProxyMock.when(BackendServiceProxy::getInstance).thenReturn(backendServiceProxy);
+
+            handler.notifyBackendsToSyncTabletMeta("test_table", Arrays.asList(101L, 102L));
+        }
+
+        Mockito.verify(backendServiceProxy, Mockito.times(1))
+                .syncTabletMeta(Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void testNotifyBackendsToSyncTabletMetaSwallowsResponseWithoutStatus() throws Exception {
+        CloudSchemaChangeHandler handler = new CloudSchemaChangeHandler();
+        Backend aliveBackend = new Backend(1L, "be-1", 9050);
+        aliveBackend.setAlive(true);
+        aliveBackend.setBrpcPort(8060);
+
+        SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
+        Mockito.when(systemInfoService.getAllBackendsByAllCluster()).thenReturn(ImmutableMap.of(
+                aliveBackend.getId(), aliveBackend));
+
+        BackendServiceProxy backendServiceProxy = Mockito.mock(BackendServiceProxy.class);
+        Mockito.when(backendServiceProxy.syncTabletMeta(Mockito.any(), Mockito.any()))
+                .thenReturn(Futures.immediateFuture(InternalService.PSyncTabletMetaResponse.newBuilder()
+                        .setSyncedTablets(2)
+                        .build()));
+
+        try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class);
+                MockedStatic<BackendServiceProxy> backendProxyMock = Mockito.mockStatic(BackendServiceProxy.class)) {
+            envMock.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+            backendProxyMock.when(BackendServiceProxy::getInstance).thenReturn(backendServiceProxy);
+
+            handler.notifyBackendsToSyncTabletMeta("test_table", Arrays.asList(101L, 102L));
+        }
+
+        Mockito.verify(backendServiceProxy, Mockito.times(1))
+                .syncTabletMeta(Mockito.any(), Mockito.any());
+    }
+
+    @Test
     public void testNotifyBackendsToSyncTabletMetaSwallowsNonOkResponse() throws Exception {
         CloudSchemaChangeHandler handler = new CloudSchemaChangeHandler();
         Backend aliveBackend1 = new Backend(1L, "be-1", 9050);
@@ -359,6 +441,31 @@ public class CloudSchemaChangeHandlerTest {
         return Cloud.UpdateTabletResponse.newBuilder()
                 .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(Cloud.MetaServiceCode.OK))
                 .build();
+    }
+
+    private Database createMockDatabaseWithThreeTablets() throws Exception {
+        Database db = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Partition partition = Mockito.mock(Partition.class);
+        MaterializedIndex index = Mockito.mock(MaterializedIndex.class);
+        org.apache.doris.catalog.Tablet tablet1 = Mockito.mock(org.apache.doris.catalog.Tablet.class);
+        org.apache.doris.catalog.Tablet tablet2 = Mockito.mock(org.apache.doris.catalog.Tablet.class);
+        org.apache.doris.catalog.Tablet tablet3 = Mockito.mock(org.apache.doris.catalog.Tablet.class);
+
+        Mockito.when(db.getTableOrMetaException("tbl", Table.TableType.OLAP)).thenReturn(table);
+        Mockito.when(table.getName()).thenReturn("tbl");
+        Mockito.when(table.getCompactionPolicy()).thenReturn("size_based");
+        Mockito.when(table.getKeysType()).thenReturn(KeysType.DUP_KEYS);
+        Mockito.when(table.getPartitions()).thenReturn(Arrays.asList(partition));
+        Mockito.when(table.getPartition("p1")).thenReturn(partition);
+        Mockito.when(partition.getName()).thenReturn("p1");
+        Mockito.when(partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE))
+                .thenReturn(Arrays.asList(index));
+        Mockito.when(index.getTablets()).thenReturn(Arrays.asList(tablet1, tablet2, tablet3));
+        Mockito.when(tablet1.getId()).thenReturn(101L);
+        Mockito.when(tablet2.getId()).thenReturn(102L);
+        Mockito.when(tablet3.getId()).thenReturn(103L);
+        return db;
     }
 
     private InternalService.PSyncTabletMetaResponse okSyncTabletMetaResponse() {
