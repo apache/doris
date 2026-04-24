@@ -15,11 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_outfile_empty_data_with_broker", "tvf") {
+suite("test_outfile_empty_data_with_broker", "p0,tvf") {
 
-    String enabled = context.config.otherConfigs.get("enableHiveTest")
-    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
-        logger.info("diable Hive test.")
+    if (!enableHdfs()) {
+        logger.info("disable HDFS test.")
         return;
     }
 
@@ -27,15 +26,12 @@ suite("test_outfile_empty_data_with_broker", "tvf") {
     sql """ set enable_nereids_planner=true """
     sql """ set enable_fallback_to_original_planner=false """
 
-    // use to outfile to hdfs
-    String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
-    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-    // It's okay to use random `hdfsUser`, but can not be empty.
-    def hdfsUserName = "doris"
+    def hdfsUserName = getHdfsUser()
+    def hdfsPasswd = getHdfsPasswd()
     def format = "csv"
-    def defaultFS = "hdfs://${externalEnvIp}:${hdfs_port}"
+    def defaultFS = getHdfsFs()
 
-    String broker_name = "hdfs"
+    String broker_name = getBrokerName()
 
     def export_table_name = "outfile_empty_data_with_broker_test"
 
@@ -53,8 +49,7 @@ suite("test_outfile_empty_data_with_broker", "tvf") {
         // select ... into outfile ...
         def uuid = UUID.randomUUID().toString()
 
-        def hdfs_outfile_path = "/user/doris/tmp_data/${uuid}"
-        def uri = "${defaultFS}" + "${hdfs_outfile_path}/exp_"
+        def uri = "${getHdfsDataDir()}/${uuid}_exp_"
 
         def res = sql """
             SELECT * FROM ${export_table_name} t ORDER BY user_id
@@ -63,7 +58,8 @@ suite("test_outfile_empty_data_with_broker", "tvf") {
             PROPERTIES (
                 "broker.fs.defaultFS"="${defaultFS}",
                 "broker.name"="${broker_name}",
-                "broker.username" = "${hdfsUserName}"
+                "broker.username" = "${hdfsUserName}",
+                "broker.password" = "${hdfsPasswd}"
             );
         """
         logger.info("outfile to hdfs with broker success path: " + res[0][3]);
