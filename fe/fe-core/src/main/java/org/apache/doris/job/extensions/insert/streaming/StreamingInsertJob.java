@@ -1055,8 +1055,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 throw new TransactionException("Cannot find offset for attachment, load job id is "
                         + runningStreamTask.getTaskId());
             }
-            // loadStatistic.fileNumber is BE split count, not physical file count; prefer offset's value.
-            int physicalFileNum = runningOffset != null ? runningOffset.getPhysicalFileNum() : -1;
+            int physicalFileNum = runningOffset.getPhysicalFileNum();
             long numFiles = physicalFileNum >= 0 ? physicalFileNum : loadStatistic.getFileNumber();
             txnState.setTxnCommitAttachment(new StreamingTaskTxnCommitAttachment(
                         getJobId(),
