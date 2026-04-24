@@ -54,7 +54,6 @@
 #include "runtime/memory/memory_reclamation.h"
 #include "runtime/process_profile.h"
 #include "runtime/runtime_query_statistics_mgr.h"
-#include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
@@ -508,12 +507,6 @@ void Daemon::je_reset_dirty_decay_thread() const {
 }
 
 void Daemon::cache_adjust_capacity_thread() {
-    // Attach a tracker so Block/Column destructors triggered by LRU eviction
-    // do not hit the memory_orphan_check DCHECK.
-    auto mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL,
-                                                        "CacheAdjustCapacityThread");
-    SCOPED_ATTACH_TASK(mem_tracker);
-
     do {
         std::unique_lock<std::mutex> l(doris::GlobalMemoryArbitrator::cache_adjust_capacity_lock);
         while (_stop_background_threads_latch.count() != 0 &&
@@ -557,11 +550,6 @@ void Daemon::cache_adjust_capacity_thread() {
 }
 
 void Daemon::cache_prune_stale_thread() {
-    // Same as cache_adjust_capacity_thread: attach tracker to avoid orphan check.
-    auto mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL,
-                                                        "CachePruneStaleThread");
-    SCOPED_ATTACH_TASK(mem_tracker);
-
     int32_t interval = config::cache_periodic_prune_stale_sweep_sec;
     while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
         if (config::cache_periodic_prune_stale_sweep_sec <= 0) {
