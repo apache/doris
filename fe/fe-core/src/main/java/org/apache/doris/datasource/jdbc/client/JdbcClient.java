@@ -402,7 +402,7 @@ public abstract class JdbcClient {
         for (JdbcFieldSchema field : jdbcTableSchema) {
             dorisTableSchema.add(new Column(field.getColumnName(),
                     jdbcTypeToDoris(field), true, null,
-                    field.isAllowNull(), field.getRemarks(),
+                    field.isAllowNull(), field.getColumnDefaultValue().orElse(null), field.getRemarks(),
                     true, -1));
         }
         return dorisTableSchema;

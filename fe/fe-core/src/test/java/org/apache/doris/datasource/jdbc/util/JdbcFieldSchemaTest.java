@@ -21,8 +21,10 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
 
+import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.Types;
+import java.util.Optional;
 
 public class JdbcFieldSchemaTest {
 
@@ -53,5 +55,26 @@ public class JdbcFieldSchemaTest {
         JdbcFieldSchema schema = new JdbcFieldSchema(metaData, 1);
 
         Assert.assertEquals("username", schema.getColumnName());
+    }
+
+    @Test
+    public void testReadsColumnDefaultFromResultSet() throws Exception {
+        ResultSet resultSet = Mockito.mock(ResultSet.class);
+        Mockito.when(resultSet.getString("COLUMN_NAME")).thenReturn("pname");
+        Mockito.when(resultSet.getInt("DATA_TYPE")).thenReturn(Types.VARCHAR);
+        Mockito.when(resultSet.wasNull()).thenReturn(false);
+        Mockito.when(resultSet.getString("TYPE_NAME")).thenReturn("VARCHAR");
+        Mockito.when(resultSet.getInt("COLUMN_SIZE")).thenReturn(255);
+        Mockito.when(resultSet.getInt("DECIMAL_DIGITS")).thenReturn(0);
+        Mockito.when(resultSet.getInt("NUM_PREC_RADIX")).thenReturn(10);
+        Mockito.when(resultSet.getInt("NULLABLE")).thenReturn(ResultSetMetaData.columnNoNulls);
+        Mockito.when(resultSet.getString("COLUMN_DEF")).thenReturn("其他");
+        Mockito.when(resultSet.getString("REMARKS")).thenReturn("名字");
+        Mockito.when(resultSet.getInt("CHAR_OCTET_LENGTH")).thenReturn(255);
+
+        JdbcFieldSchema schema = new JdbcFieldSchema(resultSet);
+
+        Assert.assertEquals(Optional.of("其他"), schema.getColumnDefaultValue());
+        Assert.assertEquals("名字", schema.getRemarks());
     }
 }
