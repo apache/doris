@@ -1064,6 +1064,22 @@ public class StmtExecutor {
                         } catch (InterruptedException e) {
                             LOG.info("stmt executor sleep wait InterruptedException: ", e);
                         }
+                    } else {
+                        // For non-cloud mode, also add a backoff delay before retry.
+                        // During K8s rolling restarts, BE pods may be temporarily unreachable
+                        // (NoRouteToHostException / gRPC UNAVAILABLE) even after heartbeat
+                        // reports them alive. Without backoff, retries fire immediately and
+                        // hit the same broken gRPC channel. The backoff gives K8s network
+                        // (conntrack/iptables) time to settle and the gRPC channel time
+                        // to reconnect.
+                        int backoffMs = Math.min(1000 * i, 3000);
+                        LOG.info("retry {} with backoff {}ms due to RPC error, query id: {}",
+                                i, backoffMs, DebugUtil.printId(queryId));
+                        try {
+                            Thread.sleep(backoffMs);
+                        } catch (InterruptedException e) {
+                            LOG.info("stmt executor retry sleep interrupted: ", e);
+                        }
                     }
                 }
                 if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {

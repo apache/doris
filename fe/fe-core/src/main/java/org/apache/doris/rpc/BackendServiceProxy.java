@@ -113,8 +113,39 @@ public class BackendServiceProxy {
         }
 
         if (serviceClientExtIp != null) {
+            LOG.info("remove gRPC proxy on shard, address={}, cachedRealIp={}, channelState={}",
+                    address, serviceClientExtIp.realIp, serviceClientExtIp.client.getConnectivityState());
             serviceClientExtIp.client.shutdown();
+        } else {
+            LOG.info("remove gRPC proxy on shard, address={}, no cached channel", address);
         }
+    }
+
+    // Remove the cached gRPC channel for this address on ALL proxy shards.
+    // Used when a BE restart is detected, to make sure no stale channel survives on any shard.
+    public static void removeProxyForAll(TNetworkAddress address) {
+        int shardCount = Holder.proxies.length;
+        LOG.info("removeProxyForAll begin, address={}, shardCount={}", address, shardCount);
+        int removed = 0;
+        for (int i = 0; i < shardCount; i++) {
+            BackendServiceProxy proxy = Holder.proxies[i];
+            BackendServiceClientExtIp serviceClientExtIp;
+            proxy.lock.lock();
+            try {
+                serviceClientExtIp = proxy.serviceMap.remove(address);
+            } finally {
+                proxy.lock.unlock();
+            }
+            if (serviceClientExtIp != null) {
+                LOG.info("removeProxyForAll shard={}, address={}, cachedRealIp={}, channelState={}",
+                        i, address, serviceClientExtIp.realIp,
+                        serviceClientExtIp.client.getConnectivityState());
+                serviceClientExtIp.client.shutdown();
+                removed++;
+            }
+        }
+        LOG.info("removeProxyForAll done, address={}, removedShardCount={}, totalShardCount={}",
+                address, removed, shardCount);
     }
 
     private BackendServiceClient getProxy(TNetworkAddress address) throws UnknownHostException {
@@ -137,17 +168,25 @@ public class BackendServiceProxy {
 
         // not exist, create one and return.
         BackendServiceClient removedClient = null;
+        String removedCause = null;
+        String removedPrevIp = null;
         lock.lock();
         try {
             serviceClientExtIp = serviceMap.get(address);
             if (serviceClientExtIp != null && !serviceClientExtIp.realIp.equals(realIp)) {
-                LOG.warn("Cached ip changed, before ip: {}, curIp: {}", serviceClientExtIp.realIp, realIp);
+                LOG.info("getProxy: cached ip changed, address={}, beforeIp={}, curIp={}, channelState={}",
+                        address, serviceClientExtIp.realIp, realIp,
+                        serviceClientExtIp.client.getConnectivityState());
+                removedPrevIp = serviceClientExtIp.realIp;
+                removedCause = "ip-changed";
                 serviceMap.remove(address);
                 removedClient = serviceClientExtIp.client;
                 serviceClientExtIp = null;
             }
             if (serviceClientExtIp != null && !serviceClientExtIp.client.isUsingLatestChannelConfig()) {
                 LOG.info("BackendServiceClient channel config changed, recreate client for {}", address);
+                removedPrevIp = serviceClientExtIp.realIp;
+                removedCause = "config-changed";
                 serviceMap.remove(address);
                 removedClient = serviceClientExtIp.client;
                 serviceClientExtIp = null;
@@ -156,12 +195,19 @@ public class BackendServiceProxy {
                 // At this point we cannot judge the progress of reconnecting the underlying channel.
                 // In the worst case, it may take two minutes. But we can't stand the connection refused
                 // for two minutes, so rebuild the channel directly.
+                LOG.info("getProxy: cached channel not in normal state, address={}, cachedRealIp={}, "
+                        + "channelState={}", address, serviceClientExtIp.realIp,
+                        serviceClientExtIp.client.getConnectivityState());
+                removedPrevIp = serviceClientExtIp.realIp;
+                removedCause = "abnormal-state";
                 serviceMap.remove(address);
                 removedClient = serviceClientExtIp.client;
                 serviceClientExtIp = null;
             }
             if (serviceClientExtIp == null) {
-                // Pass resolved IP to BackendServiceClient to avoid DNS resolution at gRPC layer
+                LOG.info("getProxy: creating new channel, address={}, realIpFromDnsCache={}, "
+                        + "prevIp={}, cause={}", address, realIp, removedPrevIp,
+                        removedCause == null ? "no-cached-client" : removedCause);
                 BackendServiceClient client = new BackendServiceClient(address, realIp, grpcThreadPool);
                 serviceMap.put(address, new BackendServiceClientExtIp(realIp, client));
             }

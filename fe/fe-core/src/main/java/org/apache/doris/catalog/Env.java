@@ -1733,7 +1733,17 @@ public class Env {
 
             // set this after replay thread stopped. to avoid replay thread modify them.
             isReady.set(false);
-            canRead.set(false);
+            // Do NOT set canRead to false here.
+            // At this point, the replayer thread has been stopped (see above), so the metadata
+            // is frozen at the last successfully replayed state. This metadata is consistent and
+            // safe for read queries — similar to the normal follower read delay.
+            // By keeping canRead=true, read queries can still be served locally during the
+            // transferToMaster() window (which can take several seconds due to editLog.open(),
+            // fencing, etc.), instead of failing with "Node catalog is not ready".
+            // This is consistent with the design in transferToNonMaster() which also preserves
+            // canRead when transitioning from FOLLOWER to UNKNOWN.
+            // canRead will be explicitly set to true at the end of this method (along with isReady)
+            // once the full master transition is complete.
 
             toMasterProgress = "open editlog";
             editLog.open();
