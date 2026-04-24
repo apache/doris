@@ -51,15 +51,17 @@ public interface ExpressionTrait extends TreeNode<Expression> {
      * getArguments.
      */
     default List<Expression> getArguments() {
+        boolean hasVariableArg = false;
         ImmutableList.Builder<Expression> arguments = ImmutableList.builder();
         for (Expression arg : children()) {
-            if (arg instanceof Variable && ((Variable) arg).getRealExpression() != null) {
+            if (arg instanceof Variable) {
                 arguments.add(((Variable) arg).getRealExpression());
+                hasVariableArg = true;
             } else {
                 arguments.add(arg);
             }
         }
-        return arguments.build();
+        return hasVariableArg ? arguments.build() : children();
     }
 
     /**
@@ -67,38 +69,22 @@ public interface ExpressionTrait extends TreeNode<Expression> {
      */
     default Expression getArgument(int index) {
         Expression arg = child(index);
-        if (arg instanceof Variable && ((Variable) arg).getRealExpression() != null) {
+        if (arg instanceof Variable) {
             return ((Variable) arg).getRealExpression();
         } else {
             return arg;
         }
     }
 
-    /**
-     * getArgumentsTypes.
-     */
     default List<DataType> getArgumentsTypes() {
-        ImmutableList.Builder<DataType> dataTypes = ImmutableList.builder();
-        for (Expression arg : children()) {
-            if (arg instanceof Variable && ((Variable) arg).getRealExpression() != null) {
-                dataTypes.add(((Variable) arg).getRealExpression().getDataType());
-            } else {
-                dataTypes.add(arg.getDataType());
-            }
-        }
-        return dataTypes.build();
+        return getArguments()
+                .stream()
+                .map(Expression::getDataType)
+                .collect(ImmutableList.toImmutableList());
     }
 
-    /**
-     * getArgumentType.
-     */
     default DataType getArgumentType(int index) {
-        Expression arg = child(index);
-        if (arg instanceof Variable && ((Variable) arg).getRealExpression() != null) {
-            return ((Variable) arg).getRealExpression().getDataType();
-        } else {
-            return arg.getDataType();
-        }
+        return child(index).getDataType();
     }
 
     default DataType getDataType() throws UnboundException {
