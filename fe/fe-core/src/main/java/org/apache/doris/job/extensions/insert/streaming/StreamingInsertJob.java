@@ -109,6 +109,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private long dbId;
     // Streaming job statistics, all persisted in txn attachment
     // when checkpoint image replay need Serialized
+    @Getter
     @SerializedName("jstc")
     private StreamingJobStatistic jobStatistic = new StreamingJobStatistic();
     // Non-txn persisted statistics, used for streaming multi task
