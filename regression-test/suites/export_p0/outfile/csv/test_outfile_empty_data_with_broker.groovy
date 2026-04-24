@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_outfile_empty_data_with_broker", "external,hive,tvf,external_docker") {
+suite("test_outfile_empty_data_with_broker", "tvf") {
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
