@@ -310,19 +310,21 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.cloudCluster = requested;
             return;
         }
-        // fall back to session-resolved cluster in cloud mode
-        if (!Config.isCloudMode() || ConnectContext.get() == null) {
+        if (!Config.isCloudMode()) {
             return;
+        }
+        if (ConnectContext.get() == null) {
+            throw new AnalysisException("compute_group must be specified when no active session is available");
         }
         String sessionCluster;
         try {
             sessionCluster = ConnectContext.get().getCloudCluster();
         } catch (ComputeGroupException e) {
-            log.warn("jobId={} failed to resolve cloud cluster", getJobId(), e);
-            return;
+            throw new AnalysisException("failed to resolve compute_group: " + e.getMessage());
         }
         if (StringUtils.isBlank(sessionCluster)) {
-            return;
+            throw new AnalysisException("compute_group is required in cloud mode; "
+                    + "specify compute_group explicitly or bind a default cluster with USAGE");
         }
         try {
             ((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(sessionCluster);

@@ -94,7 +94,6 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         // apply after session merge so compute_group wins over session.cloud_cluster
         if (Config.isCloudMode() && StringUtils.isNotEmpty(cloudCluster)) {
             ctx.setCloudCluster(cloudCluster);
-            ctx.getSessionVariable().setCloudCluster(cloudCluster);
         }
         StatementContext statementContext = new StatementContext();
         ctx.setStatementContext(statementContext);

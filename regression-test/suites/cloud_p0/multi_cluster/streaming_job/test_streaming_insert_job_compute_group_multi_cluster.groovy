@@ -46,13 +46,13 @@ suite("test_streaming_insert_job_compute_group_multi_cluster") {
             }
         }
     }
-    sleep(20000)
+    wait_cluster_change()
 
     def cgA = "sij_cg_a"
     def cgB = "sij_cg_b"
     add_cluster.call(beUniqueIdList[0], ipList[0], hbPortList[0], cgA, "sij_cg_a_id")
     add_cluster.call(beUniqueIdList[1], ipList[1], hbPortList[1], cgB, "sij_cg_b_id")
-    sleep(20000)
+    wait_cluster_change()
 
     def result = sql "show clusters"
     assert result.size() == 2
