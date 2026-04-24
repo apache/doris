@@ -872,6 +872,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 ? "" : failureReason.getMsg()));
         trow.addToColumnValue(new TCell().setStringVal(jobRuntimeMsg == null
                 ? "" : jobRuntimeMsg));
+        trow.addToColumnValue(new TCell().setStringVal(
+                offsetProvider != null ? offsetProvider.getLag() : ""));
         return trow;
     }
 
