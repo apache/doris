@@ -1715,6 +1715,10 @@ DEFINE_mBool(enable_fetch_rowsets_from_peer_replicas, "false");
 DEFINE_mInt32(segments_key_bounds_truncation_threshold, "36");
 // ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DEFINE_mBool(random_segments_key_bounds_truncation, "false");
+
+// If true, non-MOW rowsets store a single aggregated [rowset_min, rowset_max]
+// key-bounds entry instead of per-segment bounds, to reduce meta size on cloud FDB.
+DEFINE_mBool(enable_aggregate_non_mow_key_bounds, "true");
 // p0, daily, rqg, external
 DEFINE_String(fuzzy_test_type, "");
 

@@ -371,6 +371,17 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     /**
+     * Validate the offset format for ALTER JOB, delegating to the provider.
+     */
+    public void validateAlterOffset(String offset) throws AnalysisException {
+        try {
+            offsetProvider.validateAlterOffset(offset);
+        } catch (Exception ex) {
+            throw new AnalysisException(ex.getMessage());
+        }
+    }
+
+    /**
      * Check whether Offset can be serialized into the corresponding data source
      * */
     public Offset validateOffset(String offsetStr) throws AnalysisException {
@@ -448,6 +459,18 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         this.setFailureReason(reason);
         // Currently, only delayMsg is present here, which needs to be cleared when the status changes.
         this.setJobRuntimeMsg("");
+        // Clearing the failure (reason == null) means either a task just succeeded
+        // or the user is RESUME-ing the job — in both cases, the retry budget should
+        // be restored so exponential backoff starts fresh, aligning with the
+        // semantics of a fresh job's first failure.
+        if (reason == null) {
+            this.setAutoResumeCount(0);
+            this.setLatestAutoResumeTimestamp(0);
+        }
+    }
+
+    public long getMaxAutoResumeCount() {
+        return Config.streaming_job_max_auto_resume_count;
     }
 
     @Override
@@ -665,6 +688,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         try {
             resetFailureInfo(null);
             succeedTaskCount.incrementAndGet();
+            lastTaskSuccessTime = System.currentTimeMillis();
             //update metric
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_STREAMING_JOB_TASK_EXECUTE_COUNT.increase(1L);
@@ -814,6 +838,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         setSucceedTaskCount(replayJob.getSucceedTaskCount());
         setFailedTaskCount(replayJob.getFailedTaskCount());
         setCanceledTaskCount(replayJob.getCanceledTaskCount());
+        setLastTaskSuccessTime(replayJob.getLastTaskSuccessTime());
     }
 
     /**
@@ -821,11 +846,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      */
     private void modifyPropertiesInternal(Map<String, String> inputProperties) throws AnalysisException, JobException {
         StreamingJobProperties inputStreamProps = new StreamingJobProperties(inputProperties);
-        if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty())
-                && S3TableValuedFunction.NAME.equalsIgnoreCase(this.tvfType)) {
+        if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty())) {
             Offset offset = validateOffset(inputStreamProps.getOffsetProperty());
             this.offsetProvider.updateOffset(offset);
             this.offsetProviderPersist = offsetProvider.getPersistInfo();
+            log.info("modifyPropertiesInternal: offset updated to {}, job {}",
+                    inputStreamProps.getOffsetProperty(), getJobId());
             if (Config.isCloudMode()) {
                 resetCloudProgress(offset);
             }
@@ -906,12 +932,19 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             trow.addToColumnValue(new TCell().setStringVal(
                     nonTxnJobStatistic == null ? "" : nonTxnJobStatistic.toJson()));
         }
+        // ErrorMsg column returns the full FailureReason as JSON ({"code":"...","msg":"..."})
+        // for streaming insert jobs only, so the frontend can switch on the structured code
+        // instead of grepping the message. One-time insert jobs (InsertJob.getTvfInfo) keep
+        // returning the plain FailMsg.msg string — they use a different error taxonomy
+        // (FailMsg/CancelType) that is out of scope for this PR.
         trow.addToColumnValue(new TCell().setStringVal(failureReason == null
-                ? "" : failureReason.getMsg()));
+                ? "" : GsonUtils.GSON.toJson(failureReason)));
         trow.addToColumnValue(new TCell().setStringVal(jobRuntimeMsg == null
                 ? "" : jobRuntimeMsg));
         trow.addToColumnValue(new TCell().setStringVal(
                 offsetProvider != null ? offsetProvider.getLag() : ""));
+        trow.addToColumnValue(new TCell().setStringVal(lastTaskSuccessTime > 0
+                ? TimeUtils.longToTimeString(lastTaskSuccessTime) : ""));
         return trow;
     }
 
