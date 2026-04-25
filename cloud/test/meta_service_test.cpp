@@ -50,6 +50,7 @@
 #include "rate-limiter/rate_limiter.h"
 #include "recycler/recycler.h"
 #include "resource-manager/resource_manager.h"
+#include "snapshot/doris_snapshot_manager.h"
 
 doris::cloud::RecyclerThreadPoolGroup thread_group;
 
@@ -116,7 +117,7 @@ std::unique_ptr<MetaServiceProxy> get_meta_service(bool mock_resource_mgr) {
     auto rs = mock_resource_mgr ? std::make_shared<MockResourceManager>(txn_kv)
                                 : std::make_shared<ResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto snapshot = std::make_shared<DorisSnapshotManager>(txn_kv);
     auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot);
     return std::make_unique<MetaServiceProxy>(std::move(meta_service));
 }
@@ -139,7 +140,7 @@ std::unique_ptr<MetaServiceProxy> get_fdb_meta_service() {
     }
     auto rs = std::make_shared<MockResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto snapshot = std::make_shared<DorisSnapshotManager>(txn_kv);
     auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot);
     return std::make_unique<MetaServiceProxy>(std::move(meta_service));
 }
@@ -3048,7 +3049,7 @@ TEST(MetaServiceTest, CheckTxnConflictWithAbortLabelTest) {
 
     auto rs = std::make_shared<MockResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto snapshot = std::make_shared<DorisSnapshotManager>(txn_kv);
     auto meta_service = std::make_unique<MetaServiceProxy>(
             std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot));
 
@@ -3145,7 +3146,7 @@ TEST(MetaServiceTest, CleanTxnLabelTest) {
 
     auto rs = std::make_shared<MockResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto snapshot = std::make_shared<DorisSnapshotManager>(txn_kv);
     auto meta_service = std::make_unique<MetaServiceProxy>(
             std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot));
 
@@ -3605,7 +3606,7 @@ TEST(MetaServiceTest, GetTxnTest) {
 
     auto rs = std::make_shared<MockResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto snapshot = std::make_shared<DorisSnapshotManager>(txn_kv);
     auto meta_service = std::make_unique<MetaServiceProxy>(
             std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot));
 

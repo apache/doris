@@ -114,6 +114,7 @@ private:
     SnapshotManager(const SnapshotManager&) = delete;
     SnapshotManager& operator=(const SnapshotManager&) = delete;
 
+protected:
     std::shared_ptr<TxnKv> txn_kv_;
 };
 

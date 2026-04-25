@@ -40,6 +40,14 @@ public class SnapshotState implements Writable {
         this.snapshotUrl = snapshotUrl;
     }
 
+    public String getSnapshotId() {
+        return snapshotId;
+    }
+
+    public String getSnapshotUrl() {
+        return snapshotUrl;
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
