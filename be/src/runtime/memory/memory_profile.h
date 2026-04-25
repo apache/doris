@@ -85,9 +85,15 @@ private:
     RuntimeProfile::HighWaterMarkCounter* _tracked_memory_usage_counter;
 
     // Jemalloc memory counter
+    RuntimeProfile::HighWaterMarkCounter* _jemalloc_resident_usage_counter;
+    RuntimeProfile::HighWaterMarkCounter* _jemalloc_allocated_usage_counter;
+    RuntimeProfile::HighWaterMarkCounter* _jemalloc_active_usage_counter;
+    RuntimeProfile::HighWaterMarkCounter* _jemalloc_tcache_usage_counter;
+    RuntimeProfile::HighWaterMarkCounter* _jemalloc_metadata_usage_counter;
+    RuntimeProfile::HighWaterMarkCounter* _jemalloc_dirty_usage_counter;
+    RuntimeProfile::HighWaterMarkCounter* _jemalloc_muzzy_usage_counter;
     RuntimeProfile::HighWaterMarkCounter* _jemalloc_memory_usage_counter;
     RuntimeProfile::HighWaterMarkCounter* _jemalloc_cache_usage_counter;
-    RuntimeProfile::HighWaterMarkCounter* _jemalloc_metadata_usage_counter;
 
     // JVM memory counter
     RuntimeProfile::HighWaterMarkCounter* _jvm_heap_memory_usage_counter;
