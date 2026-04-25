@@ -414,7 +414,6 @@ public class ProfileManager extends MasterDaemon {
             // sum all the statistics
             summary.setScanRows(summary.getScanRows() + queryStats.getScanRows());
             summary.setScanBytes(summary.getScanBytes() + queryStats.getScanBytes());
-            summary.setProcessRows(summary.getProcessRows() + queryStats.getProcessRows());
             summary.setReturnedRows(summary.getReturnedRows() + queryStats.getReturnedRows());
             summary.setCpuMs(summary.getCpuMs() + queryStats.getCpuMs());
             summary.setMaxPeakMemoryBytes(Math.max(summary.getMaxPeakMemoryBytes(),
@@ -431,12 +430,6 @@ public class ProfileManager extends MasterDaemon {
                     summary.getSpillWriteBytesToLocalStorage() + queryStats.getSpillWriteBytesToLocalStorage());
             summary.setSpillReadBytesFromLocalStorage(
                     summary.getSpillReadBytesFromLocalStorage() + queryStats.getSpillReadBytesFromLocalStorage());
-            if (queryStats.isSetFinishedTasksNum()) {
-                summary.setFinishedTasksNum(summary.getFinishedTasksNum() + queryStats.getFinishedTasksNum());
-            }
-            if (queryStats.isSetTotalTasksNum()) {
-                summary.setTotalTasksNum(summary.getTotalTasksNum() + queryStats.getTotalTasksNum());
-            }
         }
         return summary;
     }
@@ -1242,3 +1235,4 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 }
+
