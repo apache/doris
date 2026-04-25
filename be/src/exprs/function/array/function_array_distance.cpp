@@ -23,6 +23,12 @@ namespace doris {
 
 FAISS_PRAGMA_IMPRECISE_FUNCTION_BEGIN
 float CosineDistance::distance(const float* x, const float* y, size_t d) {
+    if (d == 0) {
+        return 2.0f;
+    }
+
+    DCHECK(x != nullptr && y != nullptr);
+
     float dot_prod = 0;
     float squared_x = 0;
     float squared_y = 0;
@@ -31,15 +37,24 @@ float CosineDistance::distance(const float* x, const float* y, size_t d) {
         squared_x += x[i] * x[i];
         squared_y += y[i] * y[i];
     }
-    if (squared_x == 0 or squared_y == 0) {
+
+    if (squared_x == 0 || squared_y == 0) {
         return 2.0f;
     }
-    return 1 - dot_prod / sqrt(squared_x * squared_y);
+
+    const float norm = std::sqrt(squared_x * squared_y);
+    return 1 - dot_prod / norm;
 }
 FAISS_PRAGMA_IMPRECISE_FUNCTION_END
 
 FAISS_PRAGMA_IMPRECISE_FUNCTION_BEGIN
 float CosineSimilarity::distance(const float* x, const float* y, size_t d) {
+    if (d == 0) {
+        return 0.0f;
+    }
+
+    DCHECK(x != nullptr && y != nullptr);
+
     float dot_prod = 0;
     float squared_x = 0;
     float squared_y = 0;
@@ -48,10 +63,13 @@ float CosineSimilarity::distance(const float* x, const float* y, size_t d) {
         squared_x += x[i] * x[i];
         squared_y += y[i] * y[i];
     }
-    if (squared_x == 0 or squared_y == 0) {
+
+    if (squared_x == 0 || squared_y == 0) {
         return 0.0f;
     }
-    return dot_prod / sqrt(squared_x * squared_y);
+
+    const float norm = std::sqrt(squared_x * squared_y);
+    return dot_prod / norm;
 }
 FAISS_PRAGMA_IMPRECISE_FUNCTION_END
 
