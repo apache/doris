@@ -23,8 +23,11 @@
 #include "common/status.h"
 #include "exec/operator/operator.h"
 #include "runtime/runtime_profile.h"
-
 namespace doris {
+template <bool is_intersect>
+SetSourceLocalState<is_intersect>::SetSourceLocalState(RuntimeState* state, OperatorXBase* parent)
+        : Base(state, parent) {}
+
 template <bool is_intersect>
 Status SetSourceLocalState<is_intersect>::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -80,6 +83,10 @@ Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, Block* b
     SCOPED_TIMER(local_state.exec_time_counter());
     SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
 
+    // Compute effective batch size based on estimated bytes per row.
+    const size_t effective_batch_size =
+            local_state.block_budget().effective_max_rows(local_state._estimated_row_bytes);
+
     _create_mutable_cols(local_state, block);
     {
         SCOPED_TIMER(local_state._get_data_timer);
@@ -87,8 +94,9 @@ Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, Block* b
                 [&](auto&& arg) -> Status {
                     using HashTableCtxType = std::decay_t<decltype(arg)>;
                     if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                        return _get_data_in_hashtable<HashTableCtxType>(local_state, arg, block,
-                                                                        state->batch_size(), eos);
+                        return _get_data_in_hashtable<HashTableCtxType>(
+                                local_state, arg, block, static_cast<int>(effective_batch_size),
+                                eos);
                     } else {
                         LOG(FATAL) << "FATAL: uninited hash table";
                         __builtin_unreachable();
@@ -100,6 +108,9 @@ Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, Block* b
         SCOPED_TIMER(local_state._filter_timer);
         RETURN_IF_ERROR(
                 VExprContext::filter_block(local_state._conjuncts, block, block->columns()));
+    }
+    if (block->rows() > 0) {
+        local_state._estimated_row_bytes = block->bytes() / block->rows();
     }
     local_state.reached_limit(block, eos);
     return Status::OK();

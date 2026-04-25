@@ -339,7 +339,8 @@ Status VIcebergSortWriter::_create_merger(bool is_final_merge, size_t batch_size
     // Create a multi-way merge sorter that reads from multiple sorted spill streams
     std::vector<BlockSupplier> child_block_suppliers;
     _merger = std::make_unique<VSortedRunMerger>(_sorter->get_sort_description(), batch_size, -1, 0,
-                                                 _profile);
+                                                 _profile,
+                                                 _runtime_state->preferred_block_size_bytes());
     _current_merging_spill_files.clear();
 
     // For final merge: merge all remaining streams

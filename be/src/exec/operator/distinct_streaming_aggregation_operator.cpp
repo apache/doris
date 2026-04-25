@@ -36,7 +36,6 @@ namespace doris {
 DistinctStreamingAggLocalState::DistinctStreamingAggLocalState(RuntimeState* state,
                                                                OperatorXBase* parent)
         : PipelineXLocalState<FakeSharedState>(state, parent),
-          batch_size(state->batch_size()),
           _agg_data(std::make_unique<DistinctDataVariants>()),
           _child_block(Block::create_unique()),
           _aggregated_block(Block::create_unique()),
@@ -189,7 +188,8 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
     SCOPED_TIMER(_insert_keys_to_column_timer);
     if (mem_reuse) {
         if (_stop_emplace_flag && !out_block->empty()) {
-            // when out_block row >= batch_size, push it to data_queue, so when _stop_emplace_flag = true, maybe have some data in block
+            // when out_block reaches the row/byte budget, push it to data_queue. so when
+            // _stop_emplace_flag = true, maybe have some data in block
             // need output those data firstly
             DCHECK(_distinct_row.empty());
             _distinct_row.resize(rows);
@@ -206,16 +206,16 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
             }
         } else {
             DCHECK_EQ(_cache_block.rows(), 0);
-            // is output row > batch_size, split some to cache_block
-            if (out_block->rows() + _distinct_row.size() > batch_size) {
-                size_t split_size = batch_size - out_block->rows();
+            const size_t max_rows_to_add =
+                    _budget.remaining_rows(out_block->rows(), out_block->bytes());
+            if (_distinct_row.size() > max_rows_to_add) {
                 for (int i = 0; i < key_size; ++i) {
                     auto output_dst = out_block->get_by_position(i).column->assume_mutable();
                     key_columns[i]->append_data_by_selector(output_dst, _distinct_row, 0,
-                                                            split_size);
+                                                            max_rows_to_add);
                     auto cache_dst = _cache_block.get_by_position(i).column->assume_mutable();
-                    key_columns[i]->append_data_by_selector(cache_dst, _distinct_row, split_size,
-                                                            _distinct_row.size());
+                    key_columns[i]->append_data_by_selector(cache_dst, _distinct_row,
+                                                            max_rows_to_add, _distinct_row.size());
                 }
             } else {
                 for (int i = 0; i < key_size; ++i) {
@@ -393,7 +393,9 @@ bool DistinctStreamingAggOperatorX::need_more_input_data(RuntimeState* state) co
     auto& local_state = get_local_state(state);
     const bool need_batch = local_state._stop_emplace_flag
                                     ? local_state._aggregated_block->empty()
-                                    : local_state._aggregated_block->rows() < state->batch_size();
+                                    : local_state.block_budget().within_budget(
+                                              local_state._aggregated_block->rows(),
+                                              local_state._aggregated_block->bytes());
     return need_batch && !(local_state._child_eos || local_state._reach_limit);
 }
 

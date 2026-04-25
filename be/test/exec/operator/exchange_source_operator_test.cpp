@@ -44,7 +44,7 @@ struct MOCKVDataStreamRecvr : public VDataStreamRecvr {
     Status create_merger(const VExprContextSPtrs& ordering_expr,
                          const std::vector<bool>& is_asc_order,
                          const std::vector<bool>& nulls_first, size_t batch_size, int64_t limit,
-                         size_t offset) override {
+                         size_t offset, size_t block_max_bytes = 0) override {
         return Status::OK();
     }
     void set_block(std::vector<int64_t> dates) {

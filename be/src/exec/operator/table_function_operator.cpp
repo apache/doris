@@ -256,10 +256,29 @@ Status TableFunctionLocalState::_get_expanded_block_block_fast_path(
     DCHECK(_block_fast_path_prepared);
     DCHECK(_block_fast_path_enabled);
 
-    const auto remaining_capacity =
+    auto remaining_capacity =
             state->batch_size() - cast_set<int>(columns[p._child_slots.size()]->size());
     if (remaining_capacity <= 0) {
         return Status::OK();
+    }
+
+    // Reduce capacity based on block_max_bytes using estimated bytes per output row.
+    const auto block_max_bytes = state->preferred_block_size_bytes();
+    if (_child_block->rows() > 0) {
+        size_t estimated_bytes_per_row = _child_block->bytes() / _child_block->rows();
+        if (estimated_bytes_per_row > 0) {
+            size_t current_bytes = 0;
+            for (const auto& col : columns) {
+                current_bytes += col->byte_size();
+            }
+            if (current_bytes >= block_max_bytes) {
+                return Status::OK();
+            }
+            int bytes_capacity = static_cast<int>(
+                    std::min((block_max_bytes - current_bytes) / estimated_bytes_per_row,
+                             static_cast<size_t>(INT_MAX)));
+            remaining_capacity = std::min(remaining_capacity, std::max(1, bytes_capacity));
+        }
     }
 
     const auto& offsets = *_block_fast_path_ctx.offsets_ptr;
@@ -511,7 +530,7 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state, Block* o
 
     if (use_slow_path) {
         bool skip_child_row = false;
-        while (columns[p._child_slots.size()]->size() < state->batch_size()) {
+        while (_budget.within_budget(columns[p._child_slots.size()]->size(), m_block.bytes())) {
             RETURN_IF_CANCELLED(state);
 
             if (_child_block->rows() == 0) {
@@ -594,9 +613,11 @@ Status TableFunctionLocalState::_get_expanded_block_for_outer_conjuncts(RuntimeS
         child_row_to_output_rows_indices.push_back(0);
     }
 
-    auto batch_size = state->batch_size();
     auto output_row_count = columns[child_slot_count]->size();
-    while (output_row_count < batch_size) {
+    auto within_block_limit = [&]() -> bool {
+        return _budget.within_budget(output_row_count, m_block.bytes());
+    };
+    while (within_block_limit()) {
         RETURN_IF_CANCELLED(state);
 
         // finished handling current child block
@@ -605,7 +626,7 @@ Status TableFunctionLocalState::_get_expanded_block_for_outer_conjuncts(RuntimeS
         }
 
         bool skip_child_row = false;
-        while (output_row_count < batch_size) {
+        while (within_block_limit()) {
             // if table function is not outer and has empty result, go to next child row
             if (_fns[0]->eos() || skip_child_row) {
                 _copy_output_slots(columns, p);
@@ -625,8 +646,9 @@ Status TableFunctionLocalState::_get_expanded_block_for_outer_conjuncts(RuntimeS
 
             // It may take multiple iterations of this while loop to process a child row if
             // the table function produces a large number of rows.
-            auto repeat_times = _fns[0]->get_value(columns[child_slot_count],
-                                                   batch_size - (int)output_row_count);
+            auto repeat_times =
+                    _fns[0]->get_value(columns[child_slot_count],
+                                       static_cast<int>(_budget.max_rows - output_row_count));
             _current_row_insert_times += repeat_times;
             output_row_count = columns[child_slot_count]->size();
         }
@@ -636,7 +658,7 @@ Status TableFunctionLocalState::_get_expanded_block_for_outer_conjuncts(RuntimeS
     //    _cur_child_offset == -1
     // 2. output_block reaches batch size
     //    fn maybe or maybe not eos
-    if (output_row_count >= batch_size) {
+    if (_budget.exceeded(output_row_count, m_block.bytes())) {
         _copy_output_slots(columns, p);
         handled_row_indices.push_back(_cur_child_offset);
         child_row_to_output_rows_indices.push_back(output_row_count);

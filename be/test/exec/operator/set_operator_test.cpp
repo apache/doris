@@ -688,4 +688,43 @@ TEST_F(ExceptOperatorTest, test_refresh_hash_table) {
         EXPECT_TRUE(block.empty());
     }
 }
+
+// Verify set source respects byte budget via BlockBudget::effective_max_rows.
+TEST_F(ExceptOperatorTest, ByteBudgetLimitsOutputRows) {
+    auto saved = config::enable_adaptive_batch_size;
+    config::enable_adaptive_batch_size = true;
+    state->_batch_size = 4096;
+    state->_query_options.__set_preferred_block_size_bytes(1);
+    state->_query_options.__set_batch_size(65535);
+
+    init_op(2, {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>())});
+    sink_op->_child_exprs = MockSlotRef::create_mock_contexts(
+            DataTypes {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>())});
+    probe_sink_ops[0]->_child_exprs = MockSlotRef::create_mock_contexts(
+            DataTypes {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>())});
+    init_local_state();
+
+    {
+        Block block = ColumnHelper::create_nullable_block<DataTypeInt64>(
+                {1, 2, 3, 4, 5}, {false, false, false, false, false});
+        EXPECT_TRUE(sink_op->sink(state.get(), &block, true));
+    }
+    {
+        Block block = ColumnHelper::create_nullable_block<DataTypeInt64>({}, {});
+        EXPECT_TRUE(probe_sink_ops[0]->sink(states[0].get(), &block, true));
+    }
+
+    // Collect all output — byte budget is tiny so blocks may be split.
+    size_t total_rows = 0;
+    bool eos = false;
+    while (!eos) {
+        Block block;
+        EXPECT_TRUE(source_op->get_block(state.get(), &block, &eos));
+        total_rows += block.rows();
+    }
+    // All 5 rows must be returned (no probe-side matches ⇒ EXCEPT returns all).
+    EXPECT_EQ(total_rows, 5);
+
+    config::enable_adaptive_batch_size = saved;
+}
 } // namespace doris

@@ -26,6 +26,7 @@
 #include <random>
 #include <utility>
 
+#include "common/config.h"
 #include "common/object_pool.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -111,6 +112,87 @@ TEST_F(FullSorterTest, test_full_sorter3) {
     }
     EXPECT_EQ(sorter->_state->get_sorted_block()[0]->rows(), 6);
     EXPECT_EQ(sorter->_state->get_sorted_block()[1]->rows(), 4);
+}
+
+TEST_F(FullSorterTest, test_get_next_block_max_bytes) {
+    // Test that FullSorter::get_next respects block_max_bytes via RuntimeState.
+    // Must create multiple sorted blocks (via explicit do_sort) so the merge tree
+    // has multiple cursors and the bytes check fires between iterations.
+    auto saved_adaptive = config::enable_adaptive_batch_size;
+    config::enable_adaptive_batch_size = true;
+    _state._query_options.__set_batch_size(1000);
+    _state._query_options.__set_preferred_block_size_bytes(50);
+
+    sorter = FullSorter::create_unique(ordering_expr_ctxs, -1, 0, &pool, is_asc_order, nulls_first,
+                                       *row_desc, &_state, nullptr);
+    sorter->init_profile(&_profile);
+    {
+        Block block = ColumnHelper::create_block<DataTypeInt64>({10, 9, 8, 7, 6, 5, 4, 3, 2, 1});
+        EXPECT_TRUE(sorter->append_block(&block).ok());
+        EXPECT_TRUE(sorter->do_sort());
+    }
+    {
+        Block block = ColumnHelper::create_block<DataTypeInt64>({15, 14, 13, 12, 11});
+        EXPECT_TRUE(sorter->append_block(&block).ok());
+        EXPECT_TRUE(sorter->do_sort());
+    }
+    EXPECT_TRUE(sorter->prepare_for_read(false).ok());
+
+    size_t total_rows = 0;
+    int num_blocks = 0;
+    bool eos = false;
+    while (!eos) {
+        Block block;
+        EXPECT_TRUE(sorter->get_next(&_state, &block, &eos).ok());
+        if (block.rows() > 0) {
+            total_rows += block.rows();
+            num_blocks++;
+        }
+    }
+    EXPECT_EQ(total_rows, 15);
+    EXPECT_GT(num_blocks, 1) << "block_max_bytes should cause multiple output blocks";
+
+    config::enable_adaptive_batch_size = saved_adaptive;
+}
+
+TEST_F(FullSorterTest, test_merge_sort_read_for_spill_block_max_bytes) {
+    // Test that merge_sort_read_for_spill passes block_max_bytes from RuntimeState.
+    auto saved_adaptive = config::enable_adaptive_batch_size;
+    config::enable_adaptive_batch_size = true;
+    _state._query_options.__set_batch_size(1000);
+    _state._query_options.__set_preferred_block_size_bytes(50);
+
+    sorter = FullSorter::create_unique(ordering_expr_ctxs, -1, 0, &pool, is_asc_order, nulls_first,
+                                       *row_desc, &_state, nullptr);
+    sorter->init_profile(&_profile);
+    {
+        Block block = ColumnHelper::create_block<DataTypeInt64>({10, 9, 8, 7, 6, 5, 4, 3, 2, 1});
+        EXPECT_TRUE(sorter->append_block(&block).ok());
+        EXPECT_TRUE(sorter->do_sort());
+    }
+    {
+        Block block = ColumnHelper::create_block<DataTypeInt64>({15, 14, 13, 12, 11});
+        EXPECT_TRUE(sorter->append_block(&block).ok());
+        EXPECT_TRUE(sorter->do_sort());
+    }
+    EXPECT_TRUE(sorter->prepare_for_read(false).ok());
+
+    size_t total_rows = 0;
+    int num_blocks = 0;
+    bool eos = false;
+    while (!eos) {
+        Block block;
+        EXPECT_TRUE(sorter->merge_sort_read_for_spill(&_state, &block, 1000, &eos).ok());
+        if (block.rows() > 0) {
+            total_rows += block.rows();
+            num_blocks++;
+        }
+    }
+    EXPECT_EQ(total_rows, 15);
+    EXPECT_GT(num_blocks, 1)
+            << "merge_sort_read_for_spill should respect block_max_bytes from state";
+
+    config::enable_adaptive_batch_size = saved_adaptive;
 }
 
 } // namespace doris

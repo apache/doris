@@ -95,8 +95,8 @@ public:
     void set_prepared_finish() { _prepared_finish = true; }
 
 private:
-    Status _read_row_num(Block* block, bool* eos, int batch_size);
-    Status _read_row_rank(Block* block, bool* eos, int batch_size);
+    Status _read_row_num(Block* block, bool* eos, int batch_size, size_t block_max_bytes);
+    Status _read_row_rank(Block* block, bool* eos, int batch_size, size_t block_max_bytes);
     bool _get_enough_data() const {
         if (_top_n_algorithm == TopNAlgorithm::DENSE_RANK) {
             // dense_rank(): 1,1,1,2,2,2,2,.......,2,3,3,3, if SQL: where rk < 3, need output all 1 and 2

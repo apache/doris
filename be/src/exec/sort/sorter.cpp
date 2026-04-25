@@ -86,14 +86,16 @@ Status MergeSorterState::build_merge_tree(const SortDescription& sort_descriptio
     return Status::OK();
 }
 
-Status MergeSorterState::merge_sort_read(doris::Block* block, int batch_size, bool* eos) {
+Status MergeSorterState::merge_sort_read(doris::Block* block, int batch_size,
+                                         size_t block_max_bytes, bool* eos) {
     DCHECK(_sorted_blocks.empty());
     DCHECK(unsorted_block()->empty());
-    _merge_sort_read_impl(batch_size, block, eos);
+    _merge_sort_read_impl(batch_size, block_max_bytes, block, eos);
     return Status::OK();
 }
 
-void MergeSorterState::_merge_sort_read_impl(int batch_size, doris::Block* block, bool* eos) {
+void MergeSorterState::_merge_sort_read_impl(int batch_size, size_t block_max_bytes,
+                                             doris::Block* block, bool* eos) {
     size_t num_columns = unsorted_block()->columns();
 
     MutableBlock m_block = VectorizedUtils::build_mutable_mem_reuse_block(block, *unsorted_block());
@@ -122,6 +124,11 @@ void MergeSorterState::_merge_sort_read_impl(int batch_size, doris::Block* block
             _queue.next(current_rows + step);
         } else {
             _queue.remove_top();
+        }
+
+        // block_max_bytes == 0 means no byte budget.
+        if (block_max_bytes > 0 && merged_rows > 0 && m_block.bytes() >= block_max_bytes) {
+            break;
         }
     }
 
@@ -258,12 +265,13 @@ Status FullSorter::prepare_for_read(bool is_spill) {
 }
 
 Status FullSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
-    return _state->merge_sort_read(block, state->batch_size(), eos);
+    return _state->merge_sort_read(block, state->batch_size(), state->preferred_block_size_bytes(),
+                                   eos);
 }
 
 Status FullSorter::merge_sort_read_for_spill(RuntimeState* state, doris::Block* block,
                                              int batch_size, bool* eos) {
-    return _state->merge_sort_read(block, batch_size, eos);
+    return _state->merge_sort_read(block, batch_size, state->preferred_block_size_bytes(), eos);
 }
 
 Status FullSorter::do_sort() {
