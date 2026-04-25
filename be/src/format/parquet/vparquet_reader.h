@@ -146,12 +146,8 @@ public:
     // so this override only applies to plain ParquetReader (TVF, load).
     Status on_before_init_reader(ReaderInitContext* ctx) override;
 
-protected:
-    // ---- Unified init_reader(ReaderInitContext*) overrides ----
-    Status _open_file_reader(ReaderInitContext* ctx) override;
-    Status _do_init_reader(ReaderInitContext* ctx) override;
+    void set_batch_size(size_t batch_size) override;
 
-public:
     Status close() override;
 
     // set the delete rows in current parquet file
@@ -216,6 +212,10 @@ public:
     void set_filter_groups(bool v) { _filter_groups = v; }
 
 protected:
+    // ---- Unified init_reader(ReaderInitContext*) overrides ----
+    Status _open_file_reader(ReaderInitContext* ctx) override;
+    Status _do_init_reader(ReaderInitContext* ctx) override;
+
     void _collect_profile_before_close() override;
 
     // Core block reading implementation
@@ -425,13 +425,13 @@ private:
     const VExprContextSPtrs* _not_single_slot_filter_conjuncts = nullptr;
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts = nullptr;
     std::unordered_map<tparquet::Type::type, bool> _ignored_stats;
+    size_t get_batch_size() const override { return _batch_size; }
 
 protected:
     // Used for column lazy read. Protected so Iceberg/Paimon subclasses can
     // register synthesized columns in on_before_init_reader.
     RowGroupReader::LazyReadContext _lazy_read_ctx;
     bool _filter_groups = true;
-    size_t get_batch_size() const { return _batch_size; }
 
     std::function<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>()>
             _create_topn_row_id_column_iterator;

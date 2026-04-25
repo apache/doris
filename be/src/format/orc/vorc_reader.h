@@ -181,6 +181,8 @@ protected:
     Status _open_file_reader(ReaderInitContext* ctx) override;
     Status _do_init_reader(ReaderInitContext* ctx) override;
 
+    void set_batch_size(size_t batch_size) override;
+
 public:
     int64_t size() const;
 
@@ -737,8 +739,7 @@ private:
     size_t _load_bytes_per_row = 0;
     int64_t _range_start_offset;
 
-protected:
-    size_t get_batch_size() const { return _batch_size; }
+    size_t get_batch_size() const override { return _batch_size; }
 
 private:
     int64_t _range_size;

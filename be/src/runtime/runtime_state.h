@@ -138,7 +138,52 @@ public:
 
     const DescriptorTbl& desc_tbl() const { return *_desc_tbl; }
     void set_desc_tbl(const DescriptorTbl* desc_tbl) { _desc_tbl = desc_tbl; }
-    MOCK_FUNCTION int batch_size() const { return _query_options.batch_size; }
+
+    // Row-count limit for output blocks. Clamp to [1, 65535].
+    // Adaptive byte budgeting still uses this as the hard row ceiling.
+    MOCK_FUNCTION int batch_size() const {
+        static constexpr int kMax = 65535;
+        auto v = _query_options.batch_size;
+        return std::min(std::max(1, v), kMax);
+    }
+
+    // Target byte budget per output block (default 8MB when adaptive is enabled).
+    // The public FE/session contract is [1MB, 512MB]; this accessor still clamps any direct
+    // thrift or mixed-version out-of-range value into that range. Returns `kMax` only when adaptive
+    // is disabled by BE config.
+    MOCK_FUNCTION size_t preferred_block_size_bytes() const {
+        static constexpr int64_t kDefault = 8388608L; // 8MB
+        static constexpr int64_t kMax = 536870912L;   // 512MB
+        static constexpr int64_t kMin = 1048576L;     // 1MB
+        if (!config::enable_adaptive_batch_size) [[unlikely]] {
+            return kMax;
+        }
+        if (_query_options.__isset.preferred_block_size_bytes) [[likely]] {
+            return std::max<int64_t>(
+                    kMin, std::min<int64_t>(_query_options.preferred_block_size_bytes, kMax));
+        }
+        return kDefault;
+    }
+
+    // Per-column byte limit for adaptive chunk rows (default 1MB when adaptive is enabled).
+    // The public FE/session contract is [256KB, 128MB]; this accessor still clamps any direct
+    // thrift or mixed-version out-of-range value into that range. Returns `kMax` only when adaptive
+    // is disabled by BE config.
+    MOCK_FUNCTION size_t preferred_max_column_in_block_size_bytes() const {
+        static constexpr int64_t kDefault = 1048576L; // 1MB
+        static constexpr int64_t kMax = 134217728L;   // 128MB
+        static constexpr int64_t kMin = 262144L;      // 256KB
+        if (!config::enable_adaptive_batch_size) [[unlikely]] {
+            return kMax;
+        }
+        if (_query_options.__isset.preferred_max_column_in_block_size_bytes) [[likely]] {
+            return std::max<int64_t>(
+                    kMin, std::min<int64_t>(_query_options.preferred_max_column_in_block_size_bytes,
+                                            kMax));
+        }
+        return kDefault;
+    }
+
     int query_parallel_instance_num() const { return _query_options.parallel_instance; }
     int max_errors() const { return _query_options.max_errors; }
     int execution_timeout() const {

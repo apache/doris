@@ -106,6 +106,13 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
     _init_file_description();
 }
 
+void ParquetReader::set_batch_size(size_t batch_size) {
+    if (_batch_size == batch_size) {
+        return;
+    }
+    _batch_size = batch_size;
+}
+
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                              const TFileRangeDesc& range, size_t batch_size,
                              const cctz::time_zone* ctz,

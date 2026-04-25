@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <ostream>
 #include <set>
@@ -29,6 +30,7 @@
 
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
@@ -300,6 +302,11 @@ Status VCollectIterator::_topn_next(Block* block) {
         return Status::Error<END_OF_FILE>("");
     }
 
+    // If we already computed the full topN result, return the next chunk.
+    if (_topn_result_block.rows() > 0) {
+        return _topn_next_chunk(block);
+    }
+
     auto clone_block = block->clone_empty();
     /*
     select id, "${tR2}",
@@ -488,8 +495,54 @@ Status VCollectIterator::_topn_next(Block* block) {
                << " mutable_block.rows()=" << mutable_block.rows();
     *block = mutable_block.to_block();
 
+    // If byte budget is active and the result exceeds it, split into chunks.
+    size_t preferred_bytes = _reader->preferred_block_size_bytes();
+    if (preferred_bytes > 0 && block->rows() > 1 && block->bytes() > preferred_bytes) {
+        _topn_result_block = std::move(*block);
+        _topn_result_offset = 0;
+        return _topn_next_chunk(block);
+    }
+
     _topn_eof = true;
     return block->rows() > 0 ? Status::OK() : Status::Error<END_OF_FILE>("");
+}
+
+Status VCollectIterator::_topn_next_chunk(Block* block) {
+    size_t total_rows = _topn_result_block.rows();
+    if (_topn_result_offset >= total_rows) {
+        _topn_result_block.clear();
+        _topn_eof = true;
+        return Status::Error<END_OF_FILE>("");
+    }
+
+    size_t remaining = total_rows - _topn_result_offset;
+    size_t chunk_rows = remaining;
+
+    // Cap by batch_max_rows.
+    chunk_rows = std::min(chunk_rows, (size_t)_reader->batch_max_rows());
+
+    // Cap by byte budget.
+    size_t preferred_bytes = _reader->preferred_block_size_bytes();
+    if (preferred_bytes > 0 && total_rows > 0) {
+        size_t avg_row_bytes = std::max<size_t>(1, _topn_result_block.bytes() / total_rows);
+        chunk_rows = std::min(chunk_rows, std::max<size_t>(1, preferred_bytes / avg_row_bytes));
+    }
+
+    *block = _topn_result_block.clone_empty();
+    auto cols = block->mutate_columns();
+    for (size_t i = 0; i < cols.size(); ++i) {
+        cols[i]->insert_range_from(*_topn_result_block.get_by_position(i).column,
+                                   _topn_result_offset, chunk_rows);
+    }
+    block->set_columns(std::move(cols));
+
+    _topn_result_offset += chunk_rows;
+    if (_topn_result_offset >= total_rows) {
+        _topn_result_block.clear();
+        _topn_eof = true;
+    }
+
+    return Status::OK();
 }
 
 bool VCollectIterator::BlockRowPosComparator::operator()(const size_t& lpos,
@@ -834,6 +887,46 @@ Status VCollectIterator::Level1Iterator::_normal_next(IteratorRowRef* ref) {
     }
 }
 
+// Estimate whether the output block has collected enough data to meet the byte budget.
+bool estimate_collected_enough(size_t present_bytes, size_t present_rows, int rows_to_merge,
+                               size_t preferred_block_size_bytes) {
+    DCHECK_GE(rows_to_merge, 0);
+
+    if (preferred_block_size_bytes == 0 || present_rows == 0) {
+        return false;
+    }
+
+    if (present_bytes >= preferred_block_size_bytes) {
+        return true;
+    }
+
+    // Predict total bytes after flushing the pending rows_to_merge.
+    const size_t total_rows = static_cast<size_t>(rows_to_merge) + present_rows;
+    // Guard against overflow: if multiplication would wrap, the budget is surely exceeded.
+    if (present_bytes > std::numeric_limits<size_t>::max() / total_rows) {
+        return true;
+    }
+    return present_bytes * total_rows / present_rows >= preferred_block_size_bytes;
+}
+
+bool VCollectIterator::Level1Iterator::collected_enough_rows(const MutableColumns& columns,
+                                                             int rows_to_merge) const {
+    if (!config::enable_adaptive_batch_size) {
+        return false;
+    }
+
+    const auto preferred_block_size_bytes = _reader->preferred_block_size_bytes();
+    if (preferred_block_size_bytes == 0) {
+        return false;
+    }
+
+    const auto present_bytes = Block::columns_byte_size(columns);
+    const auto present_rows = columns.empty() ? 0 : columns[0]->size();
+
+    return estimate_collected_enough(present_bytes, present_rows, rows_to_merge,
+                                     preferred_block_size_bytes);
+}
+
 Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
     SCOPED_RAW_TIMER(&_reader->_stats.collect_iterator_merge_next_timer);
     int target_block_row = 0;
@@ -847,7 +940,7 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
         block->insert(cur_row.block->get_by_position(i).clone_empty());
     }
 
-    auto batch_size = _reader->batch_size();
+    auto batch_size = _reader->batch_max_rows();
     if (UNLIKELY(_reader->_reader_context.record_rowids)) {
         _block_row_locations.resize(batch_size);
     }
@@ -910,6 +1003,24 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
             }
             continuous_row_in_block = 0;
             pre_row_ref = cur_row;
+        }
+
+        // Byte-budget check: _merge_next() has already advanced _ref to the next unread row,
+        // so it is safe to stop here without duplicating any data.
+        if (collected_enough_rows(target_columns, continuous_row_in_block)) {
+            if (continuous_row_in_block > 0) {
+                const auto& src_block = pre_row_ref.block;
+                for (size_t i = 0; i < column_count; ++i) {
+                    target_columns[i]->insert_range_from(*(src_block->get_by_position(i).column),
+                                                         pre_row_ref.row_pos,
+                                                         continuous_row_in_block);
+                }
+            }
+            if (UNLIKELY(_reader->_reader_context.record_rowids)) {
+                _block_row_locations.resize(target_block_row);
+            }
+            block->set_columns(std::move(target_columns));
+            return Status::OK();
         }
     } while (true);
 

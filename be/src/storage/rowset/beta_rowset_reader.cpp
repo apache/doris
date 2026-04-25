@@ -96,6 +96,16 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
 
     // convert RowsetReaderContext to StorageReadOptions
     _read_options.block_row_max = read_context->batch_size;
+    _read_options.preferred_block_size_bytes = read_context->preferred_block_size_bytes;
+    _read_options.preferred_max_col_bytes = read_context->preferred_max_col_bytes;
+    if (read_context->return_columns != nullptr) {
+        // The predictor samples the rowset-reader block before BlockReader projects it back to
+        // origin_return_columns, so the column-id vector must match the expanded return_columns
+        // layout produced by SegmentIterator::next_batch().
+        _read_options.adaptive_batch_output_columns = *read_context->return_columns;
+    } else if (read_context->origin_return_columns != nullptr) {
+        _read_options.adaptive_batch_output_columns = *read_context->origin_return_columns;
+    }
     _read_options.stats = _stats;
     _read_options.push_down_agg_type_opt = _read_context->push_down_agg_type_opt;
     _read_options.remaining_conjunct_roots = _read_context->remaining_conjunct_roots;

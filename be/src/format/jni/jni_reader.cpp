@@ -94,6 +94,7 @@ Status JniReader::open(RuntimeState* state, RuntimeProfile* profile) {
     if (!_is_table_schema && _state) {
         batch_size = _state->batch_size();
     }
+    _batch_size = batch_size;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
     SCOPED_RAW_TIMER(&_jni_scanner_open_watcher);
     if (_state) {
@@ -208,6 +209,32 @@ Status JniReader::close() {
 }
 
 // =========================================================================
+// JniReader::set_batch_size
+// =========================================================================
+
+void JniReader::set_batch_size(size_t batch_size) {
+    DCHECK_GT(batch_size, 0);
+    if (_batch_size == batch_size) {
+        return;
+    }
+    _batch_size = batch_size;
+    if (_scanner_opened) {
+        JNIEnv* env = nullptr;
+        Status st = Jni::Env::Get(&env);
+        if (!st) {
+            LOG(WARNING) << "failed to get jni env when set_batch_size: " << st;
+            return;
+        }
+        st = _jni_scanner_obj.call_void_method(env, _jni_scanner_set_batch_size)
+                     .with_arg(static_cast<int>(_batch_size))
+                     .call();
+        if (!st) {
+            LOG(WARNING) << "failed to call setBatchSize: " << st;
+        }
+    }
+}
+
+// =========================================================================
 // JniReader::_init_jni_scanner  (merged from JniConnector::_init_jni_scanner)
 // =========================================================================
 
@@ -243,6 +270,8 @@ Status JniReader::_init_jni_scanner(JNIEnv* env, int batch_size) {
             _jni_scanner_cls.get_method(env, "releaseTable", "()V", &_jni_scanner_release_table));
     RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "getStatistics", "()Ljava/util/Map;",
                                                 &_jni_scanner_get_statistics));
+    RETURN_IF_ERROR(
+            _jni_scanner_cls.get_method(env, "setBatchSize", "(I)V", &_jni_scanner_set_batch_size));
     return Status::OK();
 }
 
