@@ -69,20 +69,24 @@ public:
 private:
     void execute_straight(const ColumnBitmap* date_column, ColumnInt64* result_column,
                           NullMap& result_null_map, size_t input_rows_count) const {
+        const auto& data = date_column->get_data();
+        auto& result_data = result_column->get_data();
+        result_data.resize(input_rows_count);
+
         for (size_t i = 0; i < input_rows_count; i++) {
             if (result_null_map[i]) {
-                result_column->insert_default();
+                result_data[i] = 0;
                 continue;
             }
 
-            BitmapValue value = date_column->get_element(i);
-            if (!value.cardinality()) {
+            const BitmapValue& value = data[i];
+            if (value.empty()) {
                 result_null_map[i] = true;
-                result_column->insert_default();
+                result_data[i] = 0;
                 continue;
             }
 
-            result_column->insert(Field::create_field<TYPE_BIGINT>(Impl::calculate(value)));
+            result_data[i] = Impl::calculate(value);
         }
     }
 };

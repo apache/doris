@@ -31,6 +31,7 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/column/column_complex.h"
+#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
@@ -156,6 +157,87 @@ BITMAP_FUNCTION_COUNT_VARIADIC(BitmapOrCount, bitmap_or_count, |=);
 BITMAP_FUNCTION_COUNT_VARIADIC(BitmapAndCount, bitmap_and_count, &=);
 BITMAP_FUNCTION_COUNT_VARIADIC(BitmapXorCount, bitmap_xor_count, ^=);
 
+template <typename Impl>
+Status execute_binary_bitmap_count(const ColumnPtr& lhs_column, const ColumnPtr& rhs_column,
+                                   size_t input_rows_count, ColumnInt64::Container& res) {
+    static_assert(std::is_same_v<Impl, BitmapOrCount> || std::is_same_v<Impl, BitmapAndCount> ||
+                  std::is_same_v<Impl, BitmapXorCount>);
+
+    struct BitmapColumnAccessor {
+        const std::vector<BitmapValue>* values = nullptr;
+        const BitmapValue* const_value = nullptr;
+        const ColumnUInt8::value_type* null_map_data = nullptr;
+        bool is_const = false;
+        bool is_const_null = false;
+
+        bool is_null_at(size_t row) const {
+            return is_const ? is_const_null : (null_map_data && null_map_data[row]);
+        }
+
+        const BitmapValue& get_value(size_t row) const {
+            return is_const ? *const_value : (*values)[row];
+        }
+    };
+
+    auto make_accessor = [](const ColumnPtr& column) {
+        BitmapColumnAccessor accessor;
+        const auto& [data_column_ptr, is_const] = unpack_if_const(column);
+        accessor.is_const = is_const;
+        const IColumn* data_column = data_column_ptr.get();
+
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(*data_column)) {
+            if (accessor.is_const) {
+                accessor.is_const_null = nullable->is_null_at(0);
+            } else {
+                accessor.null_map_data = nullable->get_null_map_data().data();
+            }
+            data_column = nullable->get_nested_column_ptr().get();
+        }
+
+        const auto* bitmap_column = assert_cast<const ColumnBitmap*>(data_column);
+        if (accessor.is_const) {
+            accessor.const_value = &bitmap_column->get_data()[0];
+        } else {
+            accessor.values = &bitmap_column->get_data();
+        }
+
+        return accessor;
+    };
+
+    const auto lhs = make_accessor(lhs_column);
+    const auto rhs = make_accessor(rhs_column);
+
+    for (size_t row = 0; row < input_rows_count; ++row) {
+        const bool lhs_is_null = lhs.is_null_at(row);
+        const bool rhs_is_null = rhs.is_null_at(row);
+
+        if constexpr (std::is_same_v<Impl, BitmapOrCount>) {
+            if (lhs_is_null) {
+                res[row] = rhs_is_null ? 0 : rhs.get_value(row).cardinality();
+            } else if (rhs_is_null) {
+                res[row] = lhs.get_value(row).cardinality();
+            } else {
+                res[row] = lhs.get_value(row).or_cardinality(rhs.get_value(row));
+            }
+        } else if constexpr (std::is_same_v<Impl, BitmapAndCount>) {
+            res[row] = (lhs_is_null || rhs_is_null)
+                               ? 0
+                               : lhs.get_value(row).and_cardinality(rhs.get_value(row));
+        } else { // BitmapXorCount
+            if (lhs_is_null || rhs_is_null) {
+                res[row] = 0;
+            } else {
+                const auto& lhs_value = lhs.get_value(row);
+                const auto& rhs_value = rhs.get_value(row);
+                uint64_t inter = lhs_value.and_cardinality(rhs_value);
+                res[row] = lhs_value.cardinality() + rhs_value.cardinality() - 2 * inter;
+            }
+        }
+    }
+
+    return Status::OK();
+}
+
 Status execute_bitmap_op_count_null_to_zero(
         FunctionContext* context, Block& block, const ColumnNumbers& arguments, uint32_t result,
         size_t input_rows_count,
@@ -177,9 +259,9 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         using ResultDataType = typename Impl::ResultDataType;
-        if (std::is_same_v<Impl, BitmapOr> || is_count()) {
+        if (std::is_same_v<Impl, BitmapOr>) {
             bool return_nullable = false;
-            // result is nullable only when any columns is nullable for bitmap_or and bitmap_or_count
+            // result is nullable only when any columns is nullable for bitmap_or
             for (size_t i = 0; i < arguments.size(); ++i) {
                 if (arguments[i]->is_nullable()) {
                     return_nullable = true;
@@ -219,12 +301,6 @@ public:
                                  const ColumnNumbers& arguments, uint32_t result,
                                  size_t input_rows_count) const {
         size_t argument_size = arguments.size();
-        std::vector<ColumnPtr> argument_columns(argument_size);
-
-        for (size_t i = 0; i < argument_size; ++i) {
-            argument_columns[i] =
-                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-        }
 
         using ResultDataType = typename Impl::ResultDataType; //DataTypeBitMap or DataTypeInt64
         using ColVecResult = std::conditional_t<is_complex_v<ResultDataType::PType>,
@@ -234,7 +310,7 @@ public:
 
         typename ColumnUInt8::MutablePtr col_res_nulls;
         auto& result_info = block.get_by_position(result);
-        // special case for bitmap_or and bitmap_or_count
+        // special case for bitmap_or
         if (!use_default_implementation_for_nulls() && result_info.type->is_nullable()) {
             col_res_nulls = ColumnUInt8::create(input_rows_count, 0);
         }
@@ -244,8 +320,31 @@ public:
         auto& vec_res = col_res->get_data();
         vec_res.resize(input_rows_count);
 
-        RETURN_IF_ERROR(Impl::vector_vector(argument_columns.data(), argument_size,
-                                            input_rows_count, vec_res, col_res_nulls.get()));
+        if constexpr (std::is_same_v<Impl, BitmapOrCount> || std::is_same_v<Impl, BitmapAndCount> ||
+                      std::is_same_v<Impl, BitmapXorCount>) {
+            if (argument_size == 2) {
+                RETURN_IF_ERROR(execute_binary_bitmap_count<Impl>(
+                        block.get_by_position(arguments[0]).column,
+                        block.get_by_position(arguments[1]).column, input_rows_count, vec_res));
+            } else {
+                std::vector<ColumnPtr> argument_columns(argument_size);
+                for (size_t i = 0; i < argument_size; ++i) {
+                    argument_columns[i] = block.get_by_position(arguments[i])
+                                                  .column->convert_to_full_column_if_const();
+                }
+                RETURN_IF_ERROR(Impl::vector_vector(argument_columns.data(), argument_size,
+                                                    input_rows_count, vec_res,
+                                                    col_res_nulls.get()));
+            }
+        } else {
+            std::vector<ColumnPtr> argument_columns(argument_size);
+            for (size_t i = 0; i < argument_size; ++i) {
+                argument_columns[i] = block.get_by_position(arguments[i])
+                                              .column->convert_to_full_column_if_const();
+            }
+            RETURN_IF_ERROR(Impl::vector_vector(argument_columns.data(), argument_size,
+                                                input_rows_count, vec_res, col_res_nulls.get()));
+        }
         if (!use_default_implementation_for_nulls() && result_info.type->is_nullable()) {
             block.replace_by_position(
                     result, ColumnNullable::create(std::move(col_res), std::move(col_res_nulls)));

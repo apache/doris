@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression;
 import org.apache.doris.nereids.rules.expression.rules.AddMinMax;
 import org.apache.doris.nereids.rules.expression.rules.ArrayContainToArrayOverlap;
 import org.apache.doris.nereids.rules.expression.rules.BetweenToEqual;
+import org.apache.doris.nereids.rules.expression.rules.BitmapCountToBitmapOpCount;
 import org.apache.doris.nereids.rules.expression.rules.CaseWhenToCompoundPredicate;
 import org.apache.doris.nereids.rules.expression.rules.CaseWhenToIf;
 import org.apache.doris.nereids.rules.expression.rules.CondReplaceNullWithFalse;
@@ -62,6 +63,7 @@ public class ExpressionOptimization extends ExpressionRewrite {
                     DistinctPredicatesRule.INSTANCE,
                     ExtractCommonFactorRule.INSTANCE,
 
+                    BitmapCountToBitmapOpCount.INSTANCE,
                     DateFunctionRewrite.INSTANCE,
                     ArrayContainToArrayOverlap.INSTANCE,
                     CondReplaceNullWithFalse.INSTANCE,

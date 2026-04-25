@@ -637,32 +637,20 @@ struct BitmapAndNotCount {
 
     static void vector_vector(const TData& lvec, const TData& rvec, ResTData* res) {
         size_t size = lvec.size();
-        BitmapValue mid_data;
         for (size_t i = 0; i < size; ++i) {
-            mid_data = lvec[i];
-            mid_data &= rvec[i];
-            res[i] = lvec[i].andnot_cardinality(mid_data);
-            mid_data.reset();
+            res[i] = lvec[i].andnot_cardinality(rvec[i]);
         }
     }
     static void scalar_vector(const BitmapValue& lval, const TData& rvec, ResTData* res) {
         size_t size = rvec.size();
-        BitmapValue mid_data;
         for (size_t i = 0; i < size; ++i) {
-            mid_data = lval;
-            mid_data &= rvec[i];
-            res[i] = lval.andnot_cardinality(mid_data);
-            mid_data.reset();
+            res[i] = lval.andnot_cardinality(rvec[i]);
         }
     }
     static void vector_scalar(const TData& lvec, const BitmapValue& rval, ResTData* res) {
         size_t size = lvec.size();
-        BitmapValue mid_data;
         for (size_t i = 0; i < size; ++i) {
-            mid_data = lvec[i];
-            mid_data &= rval;
-            res[i] = lvec[i].andnot_cardinality(mid_data);
-            mid_data.reset();
+            res[i] = lvec[i].andnot_cardinality(rval);
         }
     }
 };
@@ -681,11 +669,8 @@ void update_bitmap_op_count(int64_t* __restrict count, const NullMap& null_map) 
 ColumnPtr handle_bitmap_op_count_null_value(ColumnPtr& src, const Block& block,
                                             const ColumnNumbers& args, uint32_t result,
                                             size_t input_rows_count) {
-    auto* nullable = assert_cast<const ColumnNullable*>(src.get());
-    ColumnPtr src_not_nullable = nullable->get_nested_column_ptr();
-    MutableColumnPtr src_not_nullable_mutable = (*std::move(src_not_nullable)).assume_mutable();
-    auto* __restrict count_data =
-            assert_cast<ColumnInt64*>(src_not_nullable_mutable.get())->get_data().data();
+    MutableColumnPtr src_mutable = src->assume_mutable();
+    auto* __restrict count_data = assert_cast<ColumnInt64*>(src_mutable.get())->get_data().data();
 
     for (const auto& arg : args) {
         const ColumnWithTypeAndName& elem = block.get_by_position(arg);
@@ -746,16 +731,7 @@ public:
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        bool return_nullable = false;
-        // result is nullable only when any columns is nullable for bitmap_and_not_count
-        for (size_t i = 0; i < arguments.size(); ++i) {
-            if (arguments[i]->is_nullable()) {
-                return_nullable = true;
-                break;
-            }
-        }
-        auto result_type = std::make_shared<ResultDataType>();
-        return return_nullable ? make_nullable(result_type) : result_type;
+        return std::make_shared<ResultDataType>();
     }
 
     bool use_default_implementation_for_nulls() const override {
@@ -904,25 +880,19 @@ struct BitmapHasAny {
     static void vector_vector(const TData& lvec, const TData& rvec, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
-            auto bitmap = lvec[i];
-            bitmap &= rvec[i];
-            res[i] = bitmap.cardinality() != 0;
+            res[i] = lvec[i].intersects(rvec[i]);
         }
     }
     static void vector_scalar(const TData& lvec, const BitmapValue& rval, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
-            auto bitmap = lvec[i];
-            bitmap &= rval;
-            res[i] = bitmap.cardinality() != 0;
+            res[i] = lvec[i].intersects(rval);
         }
     }
     static void scalar_vector(const BitmapValue& lval, const TData& rvec, ResTData& res) {
         size_t size = rvec.size();
         for (size_t i = 0; i < size; ++i) {
-            auto bitmap = lval;
-            bitmap &= rvec[i];
-            res[i] = bitmap.cardinality() != 0;
+            res[i] = lval.intersects(rvec[i]);
         }
     }
 };
@@ -942,28 +912,19 @@ struct BitmapHasAll {
     static void vector_vector(const TData& lvec, const TData& rvec, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
-            uint64_t lhs_cardinality = lvec[i].cardinality();
-            auto bitmap = lvec[i];
-            bitmap |= rvec[i];
-            res[i] = bitmap.cardinality() == lhs_cardinality;
+            res[i] = lvec[i].contains_all(rvec[i]);
         }
     }
     static void vector_scalar(const TData& lvec, const BitmapValue& rval, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
-            uint64_t lhs_cardinality = lvec[i].cardinality();
-            auto bitmap = lvec[i];
-            bitmap |= rval;
-            res[i] = bitmap.cardinality() == lhs_cardinality;
+            res[i] = lvec[i].contains_all(rval);
         }
     }
     static void scalar_vector(const BitmapValue& lval, const TData& rvec, ResTData& res) {
         size_t size = rvec.size();
-        uint64_t lhs_cardinality = lval.cardinality();
         for (size_t i = 0; i < size; ++i) {
-            auto bitmap = lval;
-            bitmap |= rvec[i];
-            res[i] = bitmap.cardinality() == lhs_cardinality;
+            res[i] = lval.contains_all(rvec[i]);
         }
     }
 };
