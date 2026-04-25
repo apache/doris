@@ -18,6 +18,7 @@
 package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.common.DataSourceType;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -36,7 +37,7 @@ public class DataSourceConfigValidatorTest {
         props.put(DataSourceConfigKeys.SLOT_NAME, "my_custom_slot");
         props.put(DataSourceConfigKeys.PUBLICATION_NAME, "my_custom_pub");
         // Should not throw
-        DataSourceConfigValidator.validateSource(props);
+        DataSourceConfigValidator.validateSource(props, DataSourceType.POSTGRES.name());
     }
 
     @Test
@@ -44,7 +45,7 @@ public class DataSourceConfigValidatorTest {
         Map<String, String> props = new HashMap<>();
         props.put(DataSourceConfigKeys.JDBC_URL, "jdbc:postgresql://localhost:5432/db");
         // Should not throw without slot_name and publication_name
-        DataSourceConfigValidator.validateSource(props);
+        DataSourceConfigValidator.validateSource(props, DataSourceType.POSTGRES.name());
     }
 
     @Test
@@ -90,7 +91,7 @@ public class DataSourceConfigValidatorTest {
             props.put(DataSourceConfigKeys.JDBC_URL, "jdbc:postgresql://localhost:5432/db");
             props.put(DataSourceConfigKeys.SLOT_NAME, invalid);
             try {
-                DataSourceConfigValidator.validateSource(props);
+                DataSourceConfigValidator.validateSource(props, DataSourceType.POSTGRES.name());
                 Assert.fail("Expected IllegalArgumentException for slot_name='" + invalid + "'");
             } catch (IllegalArgumentException expected) {
                 // ok
@@ -106,7 +107,7 @@ public class DataSourceConfigValidatorTest {
             props.put(DataSourceConfigKeys.JDBC_URL, "jdbc:postgresql://localhost:5432/db");
             props.put(DataSourceConfigKeys.PUBLICATION_NAME, invalid);
             try {
-                DataSourceConfigValidator.validateSource(props);
+                DataSourceConfigValidator.validateSource(props, DataSourceType.POSTGRES.name());
                 Assert.fail("Expected IllegalArgumentException for publication_name='" + invalid + "'");
             } catch (IllegalArgumentException expected) {
                 // ok
@@ -124,7 +125,7 @@ public class DataSourceConfigValidatorTest {
         props.put(DataSourceConfigKeys.JDBC_URL, "jdbc:postgresql://localhost:5432/db");
         props.put(DataSourceConfigKeys.SLOT_NAME, sb.toString());
         try {
-            DataSourceConfigValidator.validateSource(props);
+            DataSourceConfigValidator.validateSource(props, DataSourceType.POSTGRES.name());
             Assert.fail("Expected IllegalArgumentException for slot_name exceeding "
                     + PG_MAX_IDENTIFIER_LENGTH + " chars");
         } catch (IllegalArgumentException expected) {
@@ -139,7 +140,7 @@ public class DataSourceConfigValidatorTest {
             Map<String, String> props = new HashMap<>();
             props.put(DataSourceConfigKeys.JDBC_URL, "jdbc:postgresql://localhost:5432/db");
             props.put(DataSourceConfigKeys.SLOT_NAME, valid);
-            DataSourceConfigValidator.validateSource(props);
+            DataSourceConfigValidator.validateSource(props, DataSourceType.POSTGRES.name());
         }
     }
 }

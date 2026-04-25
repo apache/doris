@@ -18,6 +18,7 @@
 package org.apache.doris.job.offset.jdbc;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
@@ -29,6 +30,7 @@ import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.extensions.insert.streaming.DataSourceConfigValidator;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
 import org.apache.doris.job.offset.Offset;
@@ -361,8 +363,31 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public Offset deserializeOffsetProperty(String offset) {
-        // no need cause cdc_stream has offset property
+        if (offset == null || offset.trim().isEmpty()) {
+            return null;
+        }
+        // JSON format: {"file":"binlog.000003","pos":154} or {"lsn":"123456"}
+        if (DataSourceConfigValidator.isJsonOffset(offset)) {
+            try {
+                Map<String, String> offsetMap = objectMapper.readValue(offset,
+                        new TypeReference<Map<String, String>>() {});
+                return new JdbcOffset(Collections.singletonList(new BinlogSplit(offsetMap)));
+            } catch (Exception e) {
+                log.warn("Failed to parse JSON offset: {}", offset, e);
+                return null;
+            }
+        }
         return null;
+    }
+
+    @Override
+    public void validateAlterOffset(String offset) throws Exception {
+        if (!DataSourceConfigValidator.isJsonOffset(offset)) {
+            throw new AnalysisException(
+                    "ALTER JOB for CDC only supports JSON specific offset, "
+                    + "e.g. '{\"file\":\"binlog.000001\",\"pos\":\"154\"}' for MySQL "
+                    + "or '{\"lsn\":\"12345678\"}' for PostgreSQL");
+        }
     }
 
     /**

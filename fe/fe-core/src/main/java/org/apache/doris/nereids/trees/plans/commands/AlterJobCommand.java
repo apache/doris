@@ -166,7 +166,8 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                 boolean sourcePropModified =
                         isPropertiesModified(streamingJob.getSourceProperties(), this.getSourceProperties());
                 if (sourcePropModified) {
-                    DataSourceConfigValidator.validateSource(this.getSourceProperties());
+                    DataSourceConfigValidator.validateSource(this.getSourceProperties(),
+                            streamingJob.getDataSourceType().name());
                     checkUnmodifiableSourceProperties(streamingJob.getSourceProperties());
                 }
 
@@ -213,6 +214,14 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                     "The exclude_tables property cannot be modified in ALTER JOB");
         }
 
+        if (sourceProperties.containsKey(DataSourceConfigKeys.OFFSET)) {
+            Preconditions.checkArgument(Objects.equals(
+                    originSourceProperties.get(DataSourceConfigKeys.OFFSET),
+                    sourceProperties.get(DataSourceConfigKeys.OFFSET)),
+                    "The offset in source properties cannot be modified in ALTER JOB. "
+                    + "Use PROPERTIES('offset'='{...}') to alter offset");
+        }
+
         // slot_name / publication_name decide Doris-vs-user ownership at create time; flipping
         // them afterwards would orphan Doris-created resources or let Doris drop user-owned ones.
         if (sourceProperties.containsKey(DataSourceConfigKeys.SLOT_NAME)) {
@@ -233,9 +242,8 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
     private void validateProps(StreamingInsertJob streamingJob) throws AnalysisException {
         StreamingJobProperties jobProperties = new StreamingJobProperties(properties);
         jobProperties.validate();
-        // from to job no need valiate offset in job properties
-        if (streamingJob.getDataSourceType() == null
-                && jobProperties.getOffsetProperty() != null) {
+        if (jobProperties.getOffsetProperty() != null) {
+            streamingJob.validateAlterOffset(jobProperties.getOffsetProperty());
             streamingJob.validateOffset(jobProperties.getOffsetProperty());
         }
     }
