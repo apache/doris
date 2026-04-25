@@ -166,8 +166,8 @@ public class PaimonTableSinkTest {
         paimonOptions.put(CatalogOptions.WAREHOUSE.key(), "hdfs://namenode:8020/warehouse");
         Mockito.when(catalog.getPaimonOptionsMap()).thenReturn(paimonOptions);
 
-        FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
-        TableSchema schema = Mockito.mock(TableSchema.class);
+        FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class, Mockito.withSettings().serializable());
+        TableSchema schema = Mockito.mock(TableSchema.class, Mockito.withSettings().serializable());
         Mockito.when(schema.numBuckets()).thenReturn(bucketNum);
         Mockito.when(schema.bucketKeys()).thenReturn(bucketKeys);
         Mockito.when(schema.fieldNames()).thenReturn(Arrays.asList("id", "pt"));
