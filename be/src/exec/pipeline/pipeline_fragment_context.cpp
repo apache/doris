@@ -601,6 +601,8 @@ Status PipelineFragmentContext::_build_pipeline_tasks(ThreadPool* thread_pool) {
     }
     _pipeline_parent_map.clear();
     _op_id_to_shared_state.clear();
+    // Record task cardinality once when this fragment context finishes task initialization.
+    _query_ctx->add_total_task_num(_total_tasks.load(std::memory_order_relaxed));
 
     return Status::OK();
 }
@@ -1878,7 +1880,6 @@ Status PipelineFragmentContext::submit() {
         return Status::InternalError("Submit pipeline failed. err = {}, BE: {}", st.to_string(),
                                      BackendOptions::get_localhost());
     } else {
-        _query_ctx->add_total_task_num(_total_tasks.load(std::memory_order_relaxed));
         return st;
     }
 }

@@ -235,17 +235,18 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         }
     }
 
+    // NOTE: currently getQueryStatisticsMap must be called before clear beToQueryStatsMap
+    // so there is no need lock or null check when visit beToQueryStatsMap
     public Map<String, TQueryStatistics> getQueryStatisticsMap() {
         // 1 merge query stats in all be
+        Set<Long> beIdSet = beToQueryStatsMap.keySet();
         Map<String, TQueryStatistics> resultQueryMap = Maps.newHashMap();
-        List<BeReportInfo> beReportInfos = Lists.newArrayList(beToQueryStatsMap.values());
-        for (BeReportInfo beReportInfo : beReportInfos) {
-            List<Map.Entry<String, Pair<Long, TQueryStatisticsResult>>> queryStatsEntries =
-                    Lists.newArrayList(beReportInfo.queryStatsMap.entrySet());
-            for (Map.Entry<String, Pair<Long, TQueryStatisticsResult>> queryStatsEntry
-                    : queryStatsEntries) {
-                TQueryStatisticsResult curQueryStats = queryStatsEntry.getValue().second;
-                String queryId = queryStatsEntry.getKey();
+        for (Long beId : beIdSet) {
+            BeReportInfo beReportInfo = beToQueryStatsMap.get(beId);
+            Set<String> queryIdSet = beReportInfo.queryStatsMap.keySet();
+            for (String queryId : queryIdSet) {
+                TQueryStatisticsResult curQueryStats = beReportInfo.queryStatsMap.get(queryId).second;
+
                 TQueryStatistics retQuery = resultQueryMap.get(queryId);
                 if (retQuery == null) {
                     retQuery = new TQueryStatistics();

@@ -233,7 +233,6 @@ bool PipelineTask::inject_shared_state(std::shared_ptr<BasicSharedState> shared_
 
 void PipelineTask::_init_profile() {
     _task_profile = std::make_unique<RuntimeProfile>(fmt::format("PipelineTask(index={})", _index));
-    _task_profile->add_info_string("FragmentInstanceId", print_id(_state->fragment_instance_id()));
     _parent_profile->add_child(_task_profile.get(), true, nullptr);
     _task_cpu_timer = ADD_TIMER(_task_profile, profile::TASK_CPU_TIME);
 
