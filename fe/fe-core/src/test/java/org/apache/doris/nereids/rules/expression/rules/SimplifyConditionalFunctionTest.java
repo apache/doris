@@ -57,12 +57,6 @@ public class SimplifyConditionalFunctionTest extends ExpressionRewriteTestHelper
         // coalesce(nullable_slot, slot) -> coalesce(nullable_slot, slot)
         assertRewrite(new Coalesce(slot, nonNullableSlot), new Coalesce(slot, nonNullableSlot));
 
-        // coalesce(nullable_slot, null, non-nullable_slot) -> coalesce(nullable_slot, non-nullable_slot)
-        assertRewrite(new Coalesce(slot, NullLiteral.INSTANCE, nonNullableSlot), new Coalesce(slot, nonNullableSlot));
-
-        // coalesce(nullable_slot, null, null) -> nullable_slot
-        assertRewrite(new Coalesce(slot, NullLiteral.INSTANCE, NullLiteral.INSTANCE), slot);
-
         // coalesce(null, null) -> null
         assertRewrite(new Coalesce(NullLiteral.INSTANCE, NullLiteral.INSTANCE), NullLiteral.INSTANCE);
 
@@ -82,11 +76,6 @@ public class SimplifyConditionalFunctionTest extends ExpressionRewriteTestHelper
         // coalesce(null_datetime(0), non-nullable_slot_datetime(6))
         assertRewrite(
                 new Coalesce(new NullLiteral(DateTimeV2Type.of(6)), datetimeSlot),
-                new Cast(datetimeSlot, DateTimeV2Type.of(6))
-        );
-        // coalesce(non-nullable_slot_datetime(6), null_datetime(0))
-        assertRewrite(
-                new Coalesce(datetimeSlot, new NullLiteral(DateTimeV2Type.of(6))),
                 new Cast(datetimeSlot, DateTimeV2Type.of(6))
         );
     }

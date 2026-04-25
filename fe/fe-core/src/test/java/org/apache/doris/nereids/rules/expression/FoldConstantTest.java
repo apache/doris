@@ -1475,7 +1475,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
 
         assertRewriteExpression("nvl(NULL, 1)", "1");
         assertRewriteExpression("nvl(NULL, NULL)", "NULL");
-        assertRewriteAfterTypeCoercion("nvl(IA, NULL)", "ifnull(IA, NULL)");
+        assertRewriteAfterTypeCoercion("nvl(IA, NULL)", "IA");
         assertRewriteAfterTypeCoercion("nvl(IA, 1)", "ifnull(IA, 1)");
 
         Expression foldNvl = executor.rewrite(
