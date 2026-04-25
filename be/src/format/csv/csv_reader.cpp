@@ -172,8 +172,8 @@ void PlainCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* 
 
 CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                     const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx,
-                     std::shared_ptr<io::IOContext> io_ctx_holder)
+                     const std::vector<SlotDescriptor*>& file_slot_descs, size_t batch_size,
+                     io::IOContext* io_ctx, std::shared_ptr<io::IOContext> io_ctx_holder)
         : _profile(profile),
           _params(params),
           _file_reader(nullptr),
@@ -187,8 +187,7 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
           _skip_lines(0),
           _io_ctx(io_ctx),
           _io_ctx_holder(std::move(io_ctx_holder)),
-          _batch_size(state ? state->batch_size()
-                            : _MIN_BATCH_SIZE) /* `fetch_table_schema` called with null state*/ {
+          _batch_size(std::max(batch_size, 1UL)) {
     if (_io_ctx == nullptr && _io_ctx_holder) {
         _io_ctx = _io_ctx_holder.get();
     }
@@ -381,7 +380,11 @@ Status CsvReader::_do_init_reader(ReaderInitContext* base_ctx) {
 }
 
 void CsvReader::set_batch_size(size_t batch_size) {
-    _batch_size = batch_size;
+    // 0 means "not set" / "use default" for the row-based readers; we must
+    // never let _batch_size be 0 because _do_get_next_block uses it as the
+    // upper bound of a `while (rows < _batch_size)` loop and a 0 would make
+    // the reader return empty blocks and incorrectly signal EOF.
+    _batch_size = std::max(batch_size, 1UL);
 }
 
 // !FIXME: Here we should use MutableBlock
@@ -434,17 +437,7 @@ Status CsvReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof)
         block->set_columns(std::move(mutate_columns));
     } else {
         auto columns = block->mutate_columns();
-        size_t next_checking_rows = 1;
-        auto get_block_bytes = [&]() {
-            if (_is_load) {
-                return block->bytes();
-            } else {
-                return std::accumulate(
-                        columns.begin(), columns.end(), 0UL,
-                        [](size_t sum, const auto& column) { return sum + column->byte_size(); });
-            }
-        };
-        while (rows < batch_size && !_line_reader_eof) {
+        while (rows < batch_size && !_line_reader_eof && (block->bytes() < max_block_bytes)) {
             const uint8_t* ptr = nullptr;
             size_t size = 0;
             RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
@@ -467,7 +460,6 @@ Status CsvReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof)
                     RETURN_IF_ERROR(_fill_empty_line(block, columns, &rows));
                 }
                 // Read empty line, continue
-                next_checking_rows++;
                 continue;
             }
 
@@ -476,30 +468,6 @@ Status CsvReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof)
                 continue;
             }
             RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), block, columns, &rows));
-
-            // Adaptive block-size guard:
-            // Instead of checking bytes on every appended row, we probe at sampled row counts.
-            // Each probe estimates bytes-per-row and schedules the next probe closer to the
-            // expected byte limit, so we keep overhead low while still stopping near max size.
-            if (max_block_bytes > 0 && rows == next_checking_rows) {
-                // Check block size only at sampled row counts to avoid per-row byte accounting cost.
-                const auto bytes = get_block_bytes();
-                if (bytes == 0) {
-                    // Early rows may still report zero bytes (e.g. constant columns), so retry soon.
-                    next_checking_rows++;
-                    continue;
-                } else if (bytes >= max_block_bytes) {
-                    // Stop filling this block once the configured byte limit is reached.
-                    break;
-                }
-
-                // Predict how many more rows can be appended before hitting max_block_bytes.
-                const auto remaining_bytes = max_block_bytes - bytes;
-                const auto bytes_per_row = bytes / rows;
-                const auto remaining_rows = remaining_bytes / bytes_per_row;
-                // Move halfway toward the estimated limit for a stable/progressive recheck cadence.
-                next_checking_rows += std::max(1UL, remaining_rows / 2);
-            }
         }
         block->set_columns(std::move(columns));
     }

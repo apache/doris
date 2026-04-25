@@ -166,7 +166,6 @@ Status OlapScanner::prepare() {
     // Adaptive batch size: pass byte-budget settings to the storage reader.
     // The reader still uses batch_size() as the row ceiling.
     _tablet_reader->set_preferred_block_size_bytes(_state->preferred_block_size_bytes());
-    _tablet_reader->set_preferred_max_col_bytes(_state->preferred_max_column_in_block_size_bytes());
     {
         TOlapScanNode& olap_scan_node = local_state->olap_scan_node();
 

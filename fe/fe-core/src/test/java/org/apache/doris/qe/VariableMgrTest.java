@@ -201,7 +201,6 @@ public class VariableMgrTest {
         Assert.assertEquals(8160, var.batchSize);
         Assert.assertEquals(8160, options.getBatchSize());
         Assert.assertEquals(8388608L, options.getPreferredBlockSizeBytes());
-        Assert.assertEquals(1048576L, options.getPreferredMaxColumnInBlockSizeBytes());
     }
 
     @Test
@@ -212,16 +211,12 @@ public class VariableMgrTest {
                 new StringLiteral("12345")));
         VariableMgr.setVar(var, new SetVar(SetType.SESSION, SessionVariable.PREFERRED_BLOCK_SIZE_BYTES,
                 new StringLiteral("1048576")));
-        VariableMgr.setVar(var, new SetVar(SetType.SESSION,
-                SessionVariable.PREFERRED_MAX_COLUMN_IN_BLOCK_SIZE_BYTES, new StringLiteral("262144")));
 
         TQueryOptions options = var.toThrift();
         Assert.assertEquals(12345, var.batchSize);
         Assert.assertEquals(1048576L, var.preferredBlockSizeBytes);
-        Assert.assertEquals(262144L, var.preferredMaxColumnInBlockSizeBytes);
         Assert.assertEquals(12345, options.getBatchSize());
         Assert.assertEquals(1048576L, options.getPreferredBlockSizeBytes());
-        Assert.assertEquals(262144L, options.getPreferredMaxColumnInBlockSizeBytes());
     }
 
     @Test
@@ -234,15 +229,6 @@ public class VariableMgrTest {
     }
 
     @Test
-    public void testAdaptiveBatchSizeRejectsTinyNonZeroMaxColumnBytes() {
-        SessionVariable var = new SessionVariable();
-        DdlException exception = Assert.assertThrows(DdlException.class, () -> VariableMgr.setVar(var,
-                new SetVar(SetType.SESSION, SessionVariable.PREFERRED_MAX_COLUMN_IN_BLOCK_SIZE_BYTES,
-                        new StringLiteral("1"))));
-        Assert.assertTrue(exception.getMessage().contains("preferred_max_column_in_block_size_bytes"));
-    }
-
-    @Test
     public void testAdaptiveBatchSizeRejectsZeroByteValues() {
         SessionVariable var = new SessionVariable();
 
@@ -250,11 +236,5 @@ public class VariableMgrTest {
                 new SetVar(SetType.SESSION, SessionVariable.PREFERRED_BLOCK_SIZE_BYTES,
                         new StringLiteral("0"))));
         Assert.assertTrue(blockSizeException.getMessage().contains("preferred_block_size_bytes"));
-
-        DdlException maxColException = Assert.assertThrows(DdlException.class, () -> VariableMgr.setVar(var,
-                new SetVar(SetType.SESSION, SessionVariable.PREFERRED_MAX_COLUMN_IN_BLOCK_SIZE_BYTES,
-                        new StringLiteral("0"))));
-        Assert.assertTrue(
-                maxColException.getMessage().contains("preferred_max_column_in_block_size_bytes"));
     }
 }

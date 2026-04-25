@@ -409,6 +409,10 @@ private:
     StorageReadOptions _opts;
     // Adaptive batch size predictor; null when the feature is disabled.
     std::unique_ptr<AdaptiveBlockSizePredictor> _block_size_predictor;
+    // Build the AdaptiveBlockSizePredictor for this segment based on segment footer
+    // metadata for the projected output columns. Returns nullptr if the feature is
+    // disabled or the byte budget is non-positive.
+    std::unique_ptr<AdaptiveBlockSizePredictor> _make_block_size_predictor() const;
     // Snapshot of _opts.block_row_max at init time; used as the hard upper bound so that
     // dynamic adjustments never exceed the capacity of pre-allocated buffers.
     uint32_t _initial_block_row_max = 0;

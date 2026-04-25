@@ -165,8 +165,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String BATCH_SIZE = "batch_size";
     public static final String BROKER_LOAD_BATCH_SIZE = "broker_load_batch_size";
     public static final String PREFERRED_BLOCK_SIZE_BYTES = "preferred_block_size_bytes";
-    public static final String PREFERRED_MAX_COLUMN_IN_BLOCK_SIZE_BYTES =
-            "preferred_max_column_in_block_size_bytes";
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
     public static final String ENABLE_DISTINCT_STREAMING_AGGREGATION = "enable_distinct_streaming_aggregation";
     public static final String ENABLE_STREAMING_AGG_HASH_JOIN_FORCE_PASSTHROUGH =
@@ -1315,16 +1313,6 @@ public class SessionVariable implements Serializable, Writable {
                 "Target output block size in bytes for adaptive batch size. "
                     + "Range [1MB, 512MB]. Default 8MB."})
     public long preferredBlockSizeBytes = 8388608L; // 8MB
-
-    // Per-column byte limit when computing adaptive chunk rows.
-    // Valid range: [256KB, 128MB]. Default 1MB.
-    @VarAttrDef.VarAttr(name = PREFERRED_MAX_COLUMN_IN_BLOCK_SIZE_BYTES, needForward = true,
-            checker = "checkPreferredMaxColumnInBlockSizeBytes",
-            description = {"自适应 batch size 时单列字节数上限。"
-                    + "范围 [256KB, 128MB]，默认 1MB",
-                "Per-column byte limit for adaptive batch size to avoid cache misses. "
-                    + "Range [256KB, 128MB]. Default 1MB."})
-    public long preferredMaxColumnInBlockSizeBytes = 1048576L; // 1MB
 
     @VarAttrDef.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS, fuzzy = true)
     public boolean disableStreamPreaggregations = false;
@@ -5455,7 +5443,6 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setBatchSize(batchSize);
         tResult.setPreferredBlockSizeBytes(preferredBlockSizeBytes);
-        tResult.setPreferredMaxColumnInBlockSizeBytes(preferredMaxColumnInBlockSizeBytes);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
         tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
         tResult.setEnableStreamingAggHashJoinForcePassthrough(enableStreamingAggHashJoinForcePassthrough);
@@ -6153,17 +6140,6 @@ public class SessionVariable implements Serializable, Writable {
                     "preferred_block_size_bytes should be between 1MB ("
                     + PREFERRED_BLOCK_SIZE_BYTES_MIN + ") and 512MB ("
                     + PREFERRED_BLOCK_SIZE_BYTES_MAX + "), got " + v);
-        }
-    }
-
-    public void checkPreferredMaxColumnInBlockSizeBytes(String value) {
-        long v = Long.parseLong(value);
-        long min = 262144L;    // 256KB
-        long max = 134217728L; // 128MB
-        if (v < min || v > max) {
-            throw new InvalidParameterException(
-                    "preferred_max_column_in_block_size_bytes should be between 256KB ("
-                    + min + ") and 128MB (" + max + "), got " + v);
         }
     }
 

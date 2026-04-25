@@ -302,11 +302,6 @@ Status VCollectIterator::_topn_next(Block* block) {
         return Status::Error<END_OF_FILE>("");
     }
 
-    // If we already computed the full topN result, return the next chunk.
-    if (_topn_result_block.rows() > 0) {
-        return _topn_next_chunk(block);
-    }
-
     auto clone_block = block->clone_empty();
     /*
     select id, "${tR2}",
@@ -494,55 +489,8 @@ Status VCollectIterator::_topn_next(Block* block) {
                << " sorted_row_pos.size()=" << sorted_row_pos.size()
                << " mutable_block.rows()=" << mutable_block.rows();
     *block = mutable_block.to_block();
-
-    // If byte budget is active and the result exceeds it, split into chunks.
-    size_t preferred_bytes = _reader->preferred_block_size_bytes();
-    if (preferred_bytes > 0 && block->rows() > 1 && block->bytes() > preferred_bytes) {
-        _topn_result_block = std::move(*block);
-        _topn_result_offset = 0;
-        return _topn_next_chunk(block);
-    }
-
     _topn_eof = true;
     return block->rows() > 0 ? Status::OK() : Status::Error<END_OF_FILE>("");
-}
-
-Status VCollectIterator::_topn_next_chunk(Block* block) {
-    size_t total_rows = _topn_result_block.rows();
-    if (_topn_result_offset >= total_rows) {
-        _topn_result_block.clear();
-        _topn_eof = true;
-        return Status::Error<END_OF_FILE>("");
-    }
-
-    size_t remaining = total_rows - _topn_result_offset;
-    size_t chunk_rows = remaining;
-
-    // Cap by batch_max_rows.
-    chunk_rows = std::min(chunk_rows, (size_t)_reader->batch_max_rows());
-
-    // Cap by byte budget.
-    size_t preferred_bytes = _reader->preferred_block_size_bytes();
-    if (preferred_bytes > 0 && total_rows > 0) {
-        size_t avg_row_bytes = std::max<size_t>(1, _topn_result_block.bytes() / total_rows);
-        chunk_rows = std::min(chunk_rows, std::max<size_t>(1, preferred_bytes / avg_row_bytes));
-    }
-
-    *block = _topn_result_block.clone_empty();
-    auto cols = block->mutate_columns();
-    for (size_t i = 0; i < cols.size(); ++i) {
-        cols[i]->insert_range_from(*_topn_result_block.get_by_position(i).column,
-                                   _topn_result_offset, chunk_rows);
-    }
-    block->set_columns(std::move(cols));
-
-    _topn_result_offset += chunk_rows;
-    if (_topn_result_offset >= total_rows) {
-        _topn_result_block.clear();
-        _topn_eof = true;
-    }
-
-    return Status::OK();
 }
 
 bool VCollectIterator::BlockRowPosComparator::operator()(const size_t& lpos,

@@ -113,11 +113,6 @@ public:
     uint32_t block_row_max = 4096 - 32; // see https://github.com/apache/doris/pull/11816
     // Effective adaptive batch size byte budget.
     size_t preferred_block_size_bytes = 8388608UL;
-    // Effective per-column byte budget for the EWMA predictor.
-    size_t preferred_max_col_bytes = 1048576UL;
-    // True output columns of the final block. Used by AdaptiveBlockSizePredictor.
-    // Must match the order and count of columns in the block passed to next_batch().
-    std::vector<ColumnId> adaptive_batch_output_columns;
 
     TabletSchemaSPtr tablet_schema = nullptr;
     bool enable_unique_key_merge_on_write = false;

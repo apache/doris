@@ -47,10 +47,11 @@ suite("test_compact_multi_segments", "nonConcurrent") {
     // _batch_size is 8192 in vtablet_writer.cpp
 
     def backendId_to_params = get_be_param("doris_scanner_row_bytes")
+    def backendId_to_adaptive_batch_size = get_be_param("enable_adaptive_batch_size")
     onFinish {
         GetDebugPoint().disableDebugPointForAllBEs("MemTable.need_flush")
         set_original_be_param("doris_scanner_row_bytes", backendId_to_params)
-        set_be_param.call("enable_adaptive_batch_size", "true")
+        set_original_be_param("enable_adaptive_batch_size", backendId_to_adaptive_batch_size)
     }
     GetDebugPoint().enableDebugPointForAllBEs("MemTable.need_flush")
     set_be_param.call("doris_scanner_row_bytes", "1")

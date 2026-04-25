@@ -20,7 +20,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <unordered_map>
 #include <vector>
 
 #include "storage/olap_common.h"
@@ -32,9 +31,9 @@ class Block;
 // Predicts the number of rows to read in the next batch so that the resulting Block stays close
 // to |preferred_block_size_bytes|.
 //
-// The predictor maintains an EWMA estimate of bytes-per-row for the whole block and for each
-// individual output column.  After each successful batch the caller must invoke update(); before
-// each batch the caller invokes predict_next_rows() to obtain the recommended row count.
+// The predictor maintains an EWMA estimate of bytes-per-row for the whole block.  After each
+// successful batch the caller must invoke update(); before each batch the caller invokes
+// predict_next_rows() to obtain the recommended row count.
 //
 // Not thread-safe; must be used by a single thread per instance.
 class AdaptiveBlockSizePredictor {
@@ -48,29 +47,19 @@ public:
         uint64_t raw_bytes; // total raw data bytes for this column in the segment
     };
 
-    // Compute per-column bytes-per-row and total bytes-per-row from segment metadata.
-    // Returns (metadata_hint_bytes_per_row, per-column-bpr-map).
-    // Columns with raw_bytes == 0 are excluded from the computation.
-    static std::pair<double, std::unordered_map<ColumnId, double>> compute_metadata_hints(
-            uint32_t segment_rows, const std::vector<ColumnMetadata>& columns);
-
     // |preferred_block_size_bytes|: target total bytes of each output block chunk.
-    // |preferred_max_col_bytes|: per-column byte budget (0 = unlimited).
     // |metadata_hint_bytes_per_row|: pre-computed conservative estimate from metadata (e.g.
     //     segment footer or file statistics). 0.0 means no hint available.
-    // |col_bytes_per_row|: optional pre-computed per-column bytes-per-row estimates.
     // |probe_rows|: first-batch row cap before any real history is available.
     // |block_size_rows|: hard maximum rows of each output block chunk.
-    AdaptiveBlockSizePredictor(size_t preferred_block_size_bytes, size_t preferred_max_col_bytes,
+    AdaptiveBlockSizePredictor(size_t preferred_block_size_bytes,
                                double metadata_hint_bytes_per_row,
-                               std::unordered_map<ColumnId, double> col_bytes_per_row = {},
                                size_t probe_rows = kDefaultProbeRows,
                                size_t block_size_rows = kDefaultBlockSizeRows);
 
     // Update EWMA estimates from a completed batch.  Must be called only when block.rows() > 0
     // and the batch returned Status::OK().
-    // |output_columns[i]| must correspond to block column position i (caller guarantees order).
-    void update(const Block& block, const std::vector<ColumnId>& output_columns);
+    void update(const Block& block);
 
     // Predict how many rows the next batch should read.
     // Never exceeds |block_size_rows|; never returns less than 1.
@@ -87,13 +76,10 @@ private:
 
     const size_t _block_size_bytes;
     const size_t _block_size_rows;
-    const size_t _max_col_bytes;
     const size_t _initial_probe_rows;
 
     // EWMA estimate of total bytes per row across all output columns.
     double _bytes_per_row = 0.0;
-    // EWMA estimate per output column id.
-    std::unordered_map<ColumnId, double> _col_bytes_per_row;
 
     // Whether at least one update() has been called (i.e. we have real measured history).
     bool _has_history = false;
@@ -111,16 +97,11 @@ public:
     size_t block_size_rows_for_test() const { return _block_size_rows; }
     static constexpr size_t default_probe_rows_for_test() { return kDefaultProbeRows; }
     static constexpr size_t default_block_size_rows_for_test() { return kDefaultBlockSizeRows; }
-    double col_bytes_per_row_for_test(ColumnId cid) const {
-        auto it = _col_bytes_per_row.find(cid);
-        return it == _col_bytes_per_row.end() ? 0.0 : it->second;
-    }
     void set_metadata_hint_for_test(double v) { _metadata_hint_bytes_per_row = v; }
     void set_has_history_for_test(bool h, double bpr) {
         _has_history = h;
         _bytes_per_row = bpr;
     }
-    void set_col_bytes_per_row_for_test(ColumnId cid, double v) { _col_bytes_per_row[cid] = v; }
 #endif
 };
 

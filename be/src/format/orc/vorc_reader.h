@@ -161,11 +161,11 @@ public:
               std::shared_ptr<io::IOContext> io_ctx_holder, FileMetaCache* meta_cache = nullptr,
               bool enable_lazy_mat = true);
 
-    OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+    OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range, size_t batch_size,
               const std::string& ctz, io::IOContext* io_ctx, FileMetaCache* meta_cache = nullptr,
               bool enable_lazy_mat = true);
 
-    OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+    OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range, size_t batch_size,
               const std::string& ctz, std::shared_ptr<io::IOContext> io_ctx_holder,
               FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true);
 

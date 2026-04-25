@@ -134,57 +134,6 @@ TEST_F(RuntimeStateBlockSizeBytesTest, DisabledWhenConfigOff) {
 }
 
 // ---------------------------------------------------------------------------
-// RuntimeState::preferred_max_column_in_block_size_bytes()
-// ---------------------------------------------------------------------------
-
-class RuntimeStateMaxColBytesTest : public RuntimeStateAdaptiveBatchSizeTest {
-protected:
-    RuntimeState state;
-};
-
-TEST_F(RuntimeStateMaxColBytesTest, DefaultWhenUnset) {
-    // Field not set → default 1MB.
-    EXPECT_EQ(state.preferred_max_column_in_block_size_bytes(), 1048576UL);
-}
-
-TEST_F(RuntimeStateMaxColBytesTest, NormalValue) {
-    state._query_options.__set_preferred_max_column_in_block_size_bytes(2097152L); // 2MB
-    EXPECT_EQ(state.preferred_max_column_in_block_size_bytes(), 2097152UL);
-}
-
-TEST_F(RuntimeStateMaxColBytesTest, ZeroClampsToMin) {
-    // FE rejects 0, but BE still clamps direct thrift / mixed-version inputs defensively.
-    state._query_options.__set_preferred_max_column_in_block_size_bytes(0);
-    EXPECT_EQ(state.preferred_max_column_in_block_size_bytes(), 262144UL);
-}
-
-TEST_F(RuntimeStateMaxColBytesTest, ClampToMin) {
-    // Non-zero values below 256KB should be clamped to 256KB.
-    state._query_options.__set_preferred_max_column_in_block_size_bytes(100);
-    EXPECT_EQ(state.preferred_max_column_in_block_size_bytes(), 262144UL); // 256KB
-}
-
-TEST_F(RuntimeStateMaxColBytesTest, ClampToMax) {
-    // Values above 128MB should be clamped to 128MB.
-    state._query_options.__set_preferred_max_column_in_block_size_bytes(536870912L); // 512MB
-    EXPECT_EQ(state.preferred_max_column_in_block_size_bytes(), 134217728UL);        // 128MB
-}
-
-TEST_F(RuntimeStateMaxColBytesTest, ExactBoundaries) {
-    state._query_options.__set_preferred_max_column_in_block_size_bytes(262144L); // 256KB
-    EXPECT_EQ(state.preferred_max_column_in_block_size_bytes(), 262144UL);
-
-    state._query_options.__set_preferred_max_column_in_block_size_bytes(134217728L); // 128MB
-    EXPECT_EQ(state.preferred_max_column_in_block_size_bytes(), 134217728UL);
-}
-
-TEST_F(RuntimeStateMaxColBytesTest, DisabledWhenConfigOff) {
-    config::enable_adaptive_batch_size = false;
-    state._query_options.__set_preferred_max_column_in_block_size_bytes(1048576L);
-    EXPECT_EQ(state.preferred_max_column_in_block_size_bytes(), 134217728UL);
-}
-
-// ---------------------------------------------------------------------------
 // MockRuntimeState: verify the test override bypasses clamping
 // ---------------------------------------------------------------------------
 
@@ -209,22 +158,10 @@ TEST_F(MockRuntimeStateBlockBudgetTest, BatchSizeOverride) {
     EXPECT_EQ(state.batch_size(), 256);
 }
 
-TEST_F(MockRuntimeStateBlockBudgetTest, MaxColBytesBypassesClamping) {
-    state._query_options.__set_preferred_max_column_in_block_size_bytes(100);
-    EXPECT_EQ(state.preferred_max_column_in_block_size_bytes(), 100UL);
-}
-
-TEST_F(MockRuntimeStateBlockBudgetTest, MaxColBytesDefaultFallback) {
-    // When not set, falls back to base class default (1MB).
-    EXPECT_EQ(state.preferred_max_column_in_block_size_bytes(), 1048576UL);
-}
-
 TEST_F(MockRuntimeStateBlockBudgetTest, ConfigOffStillDisablesAdaptiveBytes) {
     config::enable_adaptive_batch_size = false;
     state._query_options.__set_preferred_block_size_bytes(50);
-    state._query_options.__set_preferred_max_column_in_block_size_bytes(100);
-    EXPECT_EQ(state.preferred_block_size_bytes(), 0UL);
-    EXPECT_EQ(state.preferred_max_column_in_block_size_bytes(), 0UL);
+    EXPECT_EQ(state.preferred_block_size_bytes(), 536870912UL);
 }
 
 } // namespace doris

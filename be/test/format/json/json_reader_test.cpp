@@ -23,6 +23,8 @@
 
 namespace doris {
 
+static constexpr size_t kDefaultBatchSize = 4064;
+
 // Test that set_batch_size stores the value correctly.
 TEST(NewJsonReaderSetBatchSizeTest, SetBatchSizeStoresValue) {
     TFileScanRangeParams params;
@@ -39,22 +41,24 @@ TEST(NewJsonReaderSetBatchSizeTest, SetBatchSizeStoresValue) {
     std::vector<SlotDescriptor*> file_slot_descs;
     // Use the second constructor (profile, params, range, file_slot_descs, io_ctx)
     // to avoid the first constructor's ADD_TIMER(_profile, ...) which crashes on nullptr.
-    auto reader = NewJsonReader::create_unique(nullptr, params, range, file_slot_descs, nullptr);
+    auto reader = NewJsonReader::create_unique(nullptr, params, range, file_slot_descs,
+                                               kDefaultBatchSize, nullptr);
 
-    // Default: _batch_size should be 0 (not set)
+    // Default: _batch_size is initialized to _MIN_BATCH_SIZE.
     EXPECT_EQ(reader->get_batch_size(), 4064U);
 
-    // After set_batch_size, it should store the value
-    reader->set_batch_size(128);
-    EXPECT_EQ(reader->get_batch_size(), 128U);
+    // After set_batch_size, it should store the value (clamped to >=_MIN_BATCH_SIZE).
+    reader->set_batch_size(8192);
+    EXPECT_EQ(reader->get_batch_size(), 8192U);
 
     // Calling set_batch_size multiple times should update the value.
-    reader->set_batch_size(256);
-    EXPECT_EQ(reader->get_batch_size(), 256U);
+    reader->set_batch_size(16384);
+    EXPECT_EQ(reader->get_batch_size(), 16384U);
 
-    // Setting to 0 should revert to default behavior.
+    // Setting below _MIN_BATCH_SIZE (or 0) clamps to 1 so the
+    // reader never spins on empty blocks.
     reader->set_batch_size(0);
-    EXPECT_EQ(reader->get_batch_size(), 0U);
+    EXPECT_EQ(reader->get_batch_size(), 1UL);
 }
 
 // Test that set_batch_size is callable via the GenericReader interface.
@@ -72,12 +76,13 @@ TEST(NewJsonReaderSetBatchSizeTest, SetBatchSizeViaGenericInterface) {
 
     std::vector<SlotDescriptor*> file_slot_descs;
     // Use the second constructor to avoid nullptr profile crash in ADD_TIMER.
-    auto reader = NewJsonReader::create_unique(nullptr, params, range, file_slot_descs, nullptr);
+    auto reader = NewJsonReader::create_unique(nullptr, params, range, file_slot_descs,
+                                               kDefaultBatchSize, nullptr);
 
     // Access through base class pointer — this is how FileScanner calls it.
     GenericReader* base_reader = reader.get();
-    base_reader->set_batch_size(128);
-    EXPECT_EQ(base_reader->get_batch_size(), 128U);
+    base_reader->set_batch_size(8192);
+    EXPECT_EQ(base_reader->get_batch_size(), 8192U);
     base_reader->set_batch_size(4096);
     EXPECT_EQ(base_reader->get_batch_size(), 4096U);
 }

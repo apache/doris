@@ -635,6 +635,8 @@ void BlockReader::_append_agg_data(MutableColumns& columns) {
     _last_agg_data_counter++;
 
     // execute aggregate when accumulated `batch_max_rows()` rows or some ref invalid soon
+    // `_stored_data_columns` is sized to `batch_max_rows()`,
+    // this flush keeps the number of rows in `_stored_row_ref` within `batch_max_rows()`.
     bool is_last = (_next_row.block->rows() == _next_row.row_pos + 1);
     if (is_last || _stored_row_ref.size() == batch_max_rows()) {
         _update_agg_data(columns);

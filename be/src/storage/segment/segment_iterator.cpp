@@ -345,6 +345,39 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     return status;
 }
 
+std::unique_ptr<AdaptiveBlockSizePredictor> SegmentIterator::_make_block_size_predictor() const {
+    if (!config::enable_adaptive_batch_size || _opts.preferred_block_size_bytes == 0) {
+        return nullptr;
+    }
+
+    // Collect per-column raw byte metadata from the segment footer for the columns
+    // this iterator will actually output (defined by _schema, which is built from
+    // _opts.return_columns).
+    std::vector<AdaptiveBlockSizePredictor::ColumnMetadata> col_metadata;
+    uint32_t seg_rows = _segment->num_rows();
+    uint64_t total_raw_bytes = 0;
+    double metadata_hint_bytes_per_row = 0.0;
+    if (seg_rows > 0) {
+        const auto& ts = _segment->tablet_schema();
+        if (ts) {
+            for (ColumnId cid : _schema->column_ids()) {
+                if (static_cast<size_t>(cid) < ts->num_columns()) {
+                    int32_t uid = ts->column(cid).unique_id();
+                    uint64_t raw_bytes = _segment->column_raw_data_bytes(uid);
+                    if (uid >= 0 && raw_bytes > 0) {
+                        total_raw_bytes += raw_bytes;
+                    }
+                }
+            }
+            metadata_hint_bytes_per_row = total_raw_bytes / static_cast<double>(seg_rows);
+        }
+    }
+
+    return std::make_unique<AdaptiveBlockSizePredictor>(
+            _opts.preferred_block_size_bytes, metadata_hint_bytes_per_row,
+            AdaptiveBlockSizePredictor::kDefaultProbeRows, _opts.block_row_max);
+}
+
 Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     // get file handle from file descriptor of segment
     if (_inited) {
@@ -369,33 +402,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
 
     // Adaptive batch size: snapshot the initial row limit and create predictor if enabled.
     _initial_block_row_max = _opts.block_row_max;
-    if (config::enable_adaptive_batch_size && _opts.preferred_block_size_bytes > 0) {
-        // Collect per-column raw byte metadata from the segment footer.
-        std::vector<AdaptiveBlockSizePredictor::ColumnMetadata> col_metadata;
-        uint32_t seg_rows = _segment->num_rows();
-        if (seg_rows > 0) {
-            const auto& ts = _segment->tablet_schema();
-            if (ts) {
-                for (ColumnId cid : _opts.adaptive_batch_output_columns) {
-                    if (static_cast<size_t>(cid) < ts->num_columns()) {
-                        int32_t uid = ts->column(cid).unique_id();
-                        uint64_t raw_bytes = _segment->column_raw_data_bytes(uid);
-                        if (uid >= 0 && raw_bytes > 0) {
-                            col_metadata.push_back({cid, raw_bytes});
-                        }
-                    }
-                }
-            }
-        }
-
-        auto [metadata_hint_bytes_per_row, col_bpr] =
-                AdaptiveBlockSizePredictor::compute_metadata_hints(seg_rows, col_metadata);
-
-        _block_size_predictor = std::make_unique<AdaptiveBlockSizePredictor>(
-                _opts.preferred_block_size_bytes, _opts.preferred_max_col_bytes,
-                metadata_hint_bytes_per_row, std::move(col_bpr),
-                AdaptiveBlockSizePredictor::kDefaultProbeRows, _opts.block_row_max);
-    }
+    _block_size_predictor = _make_block_size_predictor();
 
     _remaining_conjunct_roots = opts.remaining_conjunct_roots;
 
@@ -2614,7 +2621,7 @@ Status SegmentIterator::next_batch(Block* block) {
             // block->bytes() is accurate here: predicates have been applied and non-predicate
             // columns have been filled for surviving rows by _next_batch_internal.
             if (_block_size_predictor && block->rows() > 0) {
-                _block_size_predictor->update(*block, _opts.adaptive_batch_output_columns);
+                _block_size_predictor->update(*block);
             }
 
             return Status::OK();

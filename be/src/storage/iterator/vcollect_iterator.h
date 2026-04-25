@@ -94,8 +94,6 @@ public:
 private:
     // next for topn query
     Status _topn_next(Block* block);
-    // Return next chunk from precomputed topN result.
-    Status _topn_next_chunk(Block* block);
 
     class BlockRowPosComparator {
     public:

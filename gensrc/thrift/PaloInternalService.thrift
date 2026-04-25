@@ -489,9 +489,6 @@ struct TQueryOptions {
   // Default 8MB. Sent by FE session variable preferred_block_size_bytes.
   218: optional i64 preferred_block_size_bytes = 8388608
 
-  // Per-column byte limit for adaptive batch size. Valid range [256KB, 128MB]. Default 1MB.
-  219: optional i64 preferred_max_column_in_block_size_bytes = 1048576
-
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

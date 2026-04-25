@@ -83,7 +83,7 @@ private:
         range.path = "./be/test/exec/test_data/orc_scanner/orders.orc";
         range.start_offset = 0;
         range.size = 1293;
-        auto reader = OrcReader::create_unique(params, range, "UTC", nullptr, &cache, true);
+        auto reader = OrcReader::create_unique(params, range, 4064, "UTC", nullptr, &cache, true);
         OrcInitContext orc_ctx;
         orc_ctx.column_names = column_names;
         orc_ctx.col_name_to_block_idx = &col_name_to_block_idx;

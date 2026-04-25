@@ -364,7 +364,7 @@ TEST_F(BlockReaderByteBudgetTest, ReturnsZeroWhenDisabled) {
 }
 
 // Default value of preferred_block_size_bytes in reader context is 8MB.
-TEST_F(BlockReaderByteBudgetTest, DefaultIsZero) {
+TEST_F(BlockReaderByteBudgetTest, DefaultIs8MB) {
     config::enable_adaptive_batch_size = true;
     BlockReader reader;
     EXPECT_EQ(reader.preferred_block_size_bytes(), 8388608UL);

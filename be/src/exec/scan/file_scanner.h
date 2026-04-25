@@ -254,7 +254,6 @@ private:
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
     int64_t _condition_cache_hit_count = 0;
     std::unique_ptr<AdaptiveBlockSizePredictor> _block_size_predictor;
-    std::vector<ColumnId> _adaptive_batch_output_column_ids;
 
     void _configure_file_scan_handlers();
 
@@ -318,7 +317,6 @@ private:
     bool _should_enable_adaptive_batch_size(TFileFormatType::type format_type) const;
     bool _should_run_adaptive_batch_size() const;
     size_t _predict_reader_batch_rows();
-    void _ensure_adaptive_batch_output_column_ids(const Block& block);
     void _update_adaptive_batch_size_before_truncate(const Block& block);
     void _update_adaptive_batch_size_after_truncate(const Block& block);
 

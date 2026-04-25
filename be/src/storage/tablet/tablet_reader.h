@@ -31,7 +31,6 @@
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
-#include "common/config.h"
 #include "common/status.h"
 #include "exprs/function_filter.h"
 #include "io/io_common.h"
@@ -134,7 +133,7 @@ public:
         bool direct_mode = false;
         bool aggregation = false;
         // for compaction, schema_change, check_sum: we don't use page cache
-        // for query and config::disable_storage_page_cache is false, we use page cache
+        // for query, when the BE config disable_storage_page_cache is false, we use page cache
         bool use_page_cache = false;
         Version version = Version(-1, 0);
 
@@ -256,9 +255,6 @@ public:
 
     void set_preferred_block_size_bytes(size_t bytes) {
         _reader_context.preferred_block_size_bytes = bytes;
-    }
-    void set_preferred_max_col_bytes(size_t bytes) {
-        _reader_context.preferred_max_col_bytes = bytes;
     }
 
     // Returns the preferred output block byte budget. Subclasses that support adaptive batch size

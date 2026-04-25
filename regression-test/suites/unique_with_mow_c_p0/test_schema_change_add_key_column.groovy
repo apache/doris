@@ -57,10 +57,11 @@ suite("test_schema_change_add_key_column", "nonConcurrent") {
     // batch_size is 4164 in csv_reader.cpp
     // _batch_size is 8192 in vtablet_writer.cpp
     def backendId_to_params = get_be_param("doris_scanner_row_bytes")
+    def backendId_to_adaptive_batch_size = get_be_param("enable_adaptive_batch_size")
     onFinish {
         GetDebugPoint().clearDebugPointsForAllBEs()
         set_original_be_param("doris_scanner_row_bytes", backendId_to_params)
-        set_be_param.call("enable_adaptive_batch_size", "true")
+        set_original_be_param("enable_adaptive_batch_size", backendId_to_adaptive_batch_size)
     }
     GetDebugPoint().enableDebugPointForAllBEs("MemTable.need_flush")
     GetDebugPoint().enableDebugPointForAllBEs("VBaseSchemaChangeWithSorting._inner_process.create_rowset")

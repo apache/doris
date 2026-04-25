@@ -43,7 +43,7 @@ TEST(CsvReaderSetBatchSizeTest, SetBatchSizeStoresValue) {
 
     std::vector<SlotDescriptor*> file_slot_descs;
     auto reader = CsvReader::create_unique(runtime_state.get(), nullptr, nullptr, params, range,
-                                           file_slot_descs, nullptr);
+                                           file_slot_descs, runtime_state->batch_size(), nullptr);
 
     // Default: _batch_size should be 0 (not set)
     // After set_batch_size, it should store the value
@@ -77,7 +77,7 @@ TEST(CsvReaderSetBatchSizeTest, SetBatchSizeViaGenericInterface) {
 
     std::vector<SlotDescriptor*> file_slot_descs;
     auto reader = CsvReader::create_unique(runtime_state.get(), nullptr, nullptr, params, range,
-                                           file_slot_descs, nullptr);
+                                           file_slot_descs, runtime_state->batch_size(), nullptr);
 
     // Access through base class pointer — this is how FileScanner calls it.
     GenericReader* base_reader = reader.get();

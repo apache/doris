@@ -34,12 +34,10 @@ suite("adaptive_batch_size") {
             set_be_param("enable_adaptive_batch_size", "true")
             sql "set preferred_block_size_bytes = 8388608"     // 8 MB (default)
             sql "set batch_size = 4096"
-            sql "set preferred_max_column_in_block_size_bytes = 1048576" // 1 MB
         } else {
             set_be_param("enable_adaptive_batch_size", "false")
             sql "set preferred_block_size_bytes = 8388608"
             sql "set batch_size = 4096"
-            sql "set preferred_max_column_in_block_size_bytes = 1048576"
         }
     }
 
@@ -193,19 +191,18 @@ suite("adaptive_batch_size") {
         """
         sql "insert into abs_flag_table select number, number from numbers('number'='100')"
 
-        set_be_param("enable_adaptive_batch_size", "false")
+        set_adaptive(false)
         def flag_off = sql "select sum(v) from abs_flag_table"
 
         order_qt_flag "select sum(v) from abs_flag_table"
 
-        set_be_param("enable_adaptive_batch_size", "true")
+        set_adaptive(true)
         def flag_on  = sql "select sum(v) from abs_flag_table"
 
         assertEquals(flag_off.toString(), flag_on.toString())
     } finally {
-        reset_be_param("enable_adaptive_batch_size")
+        set_adaptive(true)
         sql "set preferred_block_size_bytes = 8388608"
-        sql "set preferred_max_column_in_block_size_bytes = 1048576"
         sql "set batch_size = 8160"
     }
 }
