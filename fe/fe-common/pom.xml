@@ -202,22 +202,6 @@ under the License.
                     <libDirectory>src/main/antlr4/org/apache/doris/parser</libDirectory>
                 </configuration>
             </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-source-plugin</artifactId>
-                <configuration>
-                    <attach>true</attach>
-                </configuration>
-                <executions>
-                    <execution>
-                        <id>create-source-jar</id>
-                        <goals>
-                            <goal>jar-no-fork</goal>
-                            <goal>test-jar-no-fork</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
             <!-- Build test-jar's for all projects, since some projects depend on tests from others -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
