@@ -91,6 +91,13 @@ public class IcebergJdbcMetaStoreProperties extends AbstractIcebergProperties {
     private String jdbcStrictMode;
 
     @ConnectorProperty(
+            names = {"iceberg.jdbc.catalog_name"},
+            required = true,
+            description = "The Iceberg JDBC catalog_name used to isolate metadata in JDBC catalog tables."
+    )
+    private String jdbcCatalogName;
+
+    @ConnectorProperty(
             names = {"iceberg.jdbc.driver_url"},
             required = false,
             description = "JDBC driver JAR file path or URL. "
@@ -142,7 +149,8 @@ public class IcebergJdbcMetaStoreProperties extends AbstractIcebergProperties {
             registerJdbcDriver(driverUrl, driverClass);
             LOG.info("Using dynamic JDBC driver from: {}", driverUrl);
         }
-        return buildIcebergCatalog(catalogName, catalogProps, configuration);
+        catalogProps.remove("iceberg.jdbc.catalog_name");
+        return buildIcebergCatalog(jdbcCatalogName, catalogProps, configuration);
     }
 
     /**
