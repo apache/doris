@@ -45,6 +45,7 @@ protected:
     void SetUp() override {
         _query_options.__set_batch_size(3);
         _runtime_state = std::make_unique<RuntimeState>(_query_options, _query_globals);
+        _file_slot_descs = _build_file_slot_descs(&_object_pool);
     }
 
     TFileRangeDesc _build_range_with_table_level_row_count(int64_t row_count) {
@@ -67,6 +68,7 @@ protected:
     TQueryGlobals _query_globals;
     std::unique_ptr<RuntimeState> _runtime_state;
     RuntimeProfile _profile {"paimon_cpp_reader_test"};
+    ObjectPool _object_pool;
     std::vector<SlotDescriptor*> _file_slot_descs;
 };
 
@@ -290,10 +292,8 @@ TEST_F(PaimonCppReaderTest, BuildOptionsKeepsExplicitDestinationKeys) {
 }
 
 TEST_F(PaimonCppReaderTest, BuildReadColumnsAndGetColumnsFollowFileSlots) {
-    ObjectPool object_pool;
-    auto file_slot_descs = _build_file_slot_descs(&object_pool);
     TFileRangeDesc range;
-    PaimonCppReader reader(file_slot_descs, _runtime_state.get(), &_profile, range, nullptr);
+    PaimonCppReader reader(_file_slot_descs, _runtime_state.get(), &_profile, range, nullptr);
 
     auto read_columns = reader._build_read_columns();
     EXPECT_EQ(read_columns, (std::vector<std::string> {"id", "name"}));
@@ -302,8 +302,8 @@ TEST_F(PaimonCppReaderTest, BuildReadColumnsAndGetColumnsFollowFileSlots) {
     auto status = reader._get_columns_impl(&name_to_type);
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_EQ(name_to_type.size(), 2);
-    EXPECT_EQ(name_to_type["id"]->get_name(), file_slot_descs[0]->type()->get_name());
-    EXPECT_EQ(name_to_type["name"]->get_name(), file_slot_descs[1]->type()->get_name());
+    EXPECT_EQ(name_to_type["id"]->get_name(), _file_slot_descs[0]->type()->get_name());
+    EXPECT_EQ(name_to_type["name"]->get_name(), _file_slot_descs[1]->type()->get_name());
 }
 
 } // namespace doris

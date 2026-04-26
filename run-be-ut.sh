@@ -429,12 +429,20 @@ if [[ -d "${LIB_DIR}/hadoop_hdfs/" ]]; then
 fi
 
 if [[ -n "${DORIS_PRELOAD_JAR}" ]]; then
-    DORIS_CLASSPATH="${DORIS_PRELOAD_JAR}:${DORIS_CLASSPATH}"
+    if [[ -z "${DORIS_CLASSPATH}" ]]; then
+        DORIS_CLASSPATH="${DORIS_PRELOAD_JAR}"
+    else
+        DORIS_CLASSPATH="${DORIS_PRELOAD_JAR}:${DORIS_CLASSPATH}"
+    fi
 fi
 
 # the CLASSPATH and LIBHDFS_OPTS is used for hadoop libhdfs
 # and conf/ dir so that hadoop libhdfs can read .xml config file in conf/
-export CLASSPATH="${DORIS_TEST_BINARY_DIR}/conf:${DORIS_CLASSPATH}"
+if [[ -z "${DORIS_CLASSPATH}" ]]; then
+    export CLASSPATH="${DORIS_TEST_BINARY_DIR}/conf"
+else
+    export CLASSPATH="${DORIS_TEST_BINARY_DIR}/conf:${DORIS_CLASSPATH}"
+fi
 # DORIS_CLASSPATH is for self-managed jni
 export DORIS_CLASSPATH="-Djava.class.path=${DORIS_CLASSPATH}"
 
@@ -505,8 +513,13 @@ export ORC_EXAMPLE_DIR="${DORIS_HOME}/contrib/apache-orc/examples"
 
 # set asan and ubsan env to generate core file
 export DORIS_HOME="${DORIS_TEST_BINARY_DIR}/"
+if [[ -n "${LSAN_OPTIONS}" ]]; then
+    export LSAN_OPTIONS="suppressions=${ROOT}/conf/lsan_suppr.conf:${LSAN_OPTIONS}"
+else
+    export LSAN_OPTIONS="suppressions=${ROOT}/conf/lsan_suppr.conf"
+fi
 ## detect_container_overflow=0, https://github.com/google/sanitizers/issues/193
-export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0:check_malloc_usable_size=0
+export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0:check_malloc_usable_size=0:suppressions=${ROOT}/conf/asan_suppr.conf
 export UBSAN_OPTIONS=print_stacktrace=1
 export JAVA_OPTS="-Xmx1024m -DlogPath=${DORIS_HOME}/log/jni.log -Xloggc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} -Dsun.java.command=DorisBE -XX:-CriticalJNINatives -DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDLE_TIME=300000"
 

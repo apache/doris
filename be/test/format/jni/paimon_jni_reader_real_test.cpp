@@ -25,6 +25,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include "common/status.h"
@@ -76,8 +77,58 @@ protected:
         return root;
     }
 
+    static std::filesystem::path paimon_scanner_jar() {
+        return repo_root() /
+               "output/be/lib/java_extensions/paimon-scanner/"
+               "paimon-scanner-jar-with-dependencies.jar";
+    }
+
+    static std::filesystem::path hadoop_deps_root() {
+        return repo_root() / "output/be/lib/hadoop_hdfs";
+    }
+
     static std::filesystem::path paimon_warehouse_root() {
         return repo_root() / "docker/thirdparties/docker-compose/hive/scripts/paimon1";
+    }
+
+    static bool is_regular_file(const std::filesystem::path& path) {
+        std::error_code error_code;
+        return std::filesystem::is_regular_file(path, error_code);
+    }
+
+    static bool is_directory(const std::filesystem::path& path) {
+        std::error_code error_code;
+        return std::filesystem::is_directory(path, error_code);
+    }
+
+    static std::string real_test_prerequisite_error() {
+        const char* root = std::getenv("ROOT");
+        if (root == nullptr || std::string(root).empty()) {
+            return "ROOT is not set";
+        }
+        if (!is_directory(root)) {
+            return "ROOT does not point to an existing directory: " + std::string(root);
+        }
+
+        const char* java_home = std::getenv("JAVA_HOME");
+        if (java_home == nullptr || std::string(java_home).empty()) {
+            return "JAVA_HOME is not set";
+        }
+        const auto java_bin = std::filesystem::path(java_home) / "bin/java";
+        if (!is_regular_file(java_bin)) {
+            return "JAVA_HOME does not contain bin/java: " + java_bin.string();
+        }
+
+        if (!is_regular_file(paimon_scanner_jar())) {
+            return "Paimon scanner jar not found: " + paimon_scanner_jar().string();
+        }
+        if (!is_directory(hadoop_deps_root())) {
+            return "Hadoop dependency directory not found: " + hadoop_deps_root().string();
+        }
+        if (!is_directory(paimon_warehouse_root())) {
+            return "Paimon test warehouse not found: " + paimon_warehouse_root().string();
+        }
+        return "";
     }
 
     static std::string shell_quote(const std::string& value) {
@@ -104,6 +155,17 @@ protected:
         const int exit_code = pclose(pipe);
         CHECK_EQ(exit_code, 0) << output;
         return output;
+    }
+
+    static void append_jars_from_dir(std::string& classpath, const std::filesystem::path& dir) {
+        if (!is_directory(dir)) {
+            return;
+        }
+        for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+            if (entry.is_regular_file() && entry.path().extension() == ".jar") {
+                classpath.append(":").append(entry.path().string());
+            }
+        }
     }
 
     static SerializedPaimonInputs build_serialized_inputs() {
@@ -157,24 +219,9 @@ public class PaimonSerializationHelper {
         out.close();
         DORIS_CHECK(out.good());
 
-        std::string classpath = (repo_root() /
-                                 "output/be/lib/java_extensions/paimon-scanner/"
-                                 "paimon-scanner-jar-with-dependencies.jar")
-                                        .string();
-        const auto hadoop_deps_root = repo_root() / "output/be/lib/hadoop_hdfs";
-        for (const auto& entry : std::filesystem::directory_iterator(hadoop_deps_root)) {
-            if (entry.is_regular_file() && entry.path().extension() == ".jar") {
-                classpath.append(":").append(entry.path().string());
-            }
-        }
-        if (std::filesystem::exists(hadoop_deps_root / "lib")) {
-            for (const auto& entry :
-                 std::filesystem::directory_iterator(hadoop_deps_root / "lib")) {
-                if (entry.is_regular_file() && entry.path().extension() == ".jar") {
-                    classpath.append(":").append(entry.path().string());
-                }
-            }
-        }
+        std::string classpath = paimon_scanner_jar().string();
+        append_jars_from_dir(classpath, hadoop_deps_root());
+        append_jars_from_dir(classpath, hadoop_deps_root() / "lib");
 
         const auto java_bin = std::filesystem::path(std::getenv("JAVA_HOME")) / "bin/java";
         DORIS_CHECK(std::filesystem::exists(java_bin));
@@ -237,6 +284,11 @@ public class PaimonSerializationHelper {
 };
 
 TEST_F(PaimonJniReaderRealTest, ReadsFilteredRowsFromFilesystemTable) {
+    const auto prerequisite_error = real_test_prerequisite_error();
+    if (!prerequisite_error.empty()) {
+        GTEST_SKIP() << prerequisite_error;
+    }
+
     auto init_status = init_jni_runtime_once();
     ASSERT_TRUE(init_status.ok()) << init_status;
 

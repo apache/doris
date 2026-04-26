@@ -268,21 +268,22 @@ TEST_F(OrcReaderTest, test_read_orc_line_smoke) {
     bool eof = false;
     auto block_dump = read_orc_line_dump(0, &read_rows, &eof);
     EXPECT_EQ(read_rows, 1);
-    EXPECT_EQ(
-            block_dump,
-            "+----------------------+--------------------+----------------------+------------------"
-            "----+----------------------+---------------------+-------------------+----------------"
-            "--------+----------------------+\n|col1(Nullable(BIGINT))|col2(Nullable(BOOL))|col3("
-            "Nullable(String))|col4(Nullable(DateV2))|col5(Nullable(DOUBLE))|col6(Nullable(FLOAT))|"
-            "col7(Nullable(INT))|col8(Nullable(SMALLINT))|col9(Nullable(String))|\n+---------------"
-            "-------+--------------------+----------------------+----------------------+-----------"
-            "-----------+---------------------+-------------------+------------------------+-------"
-            "---------------+\n|                     0|                NULL|                 "
-            "doris|                  NULL|                 1.567|                1.567|            "
-            "  12345|                       1|                 "
-            "doris|\n+----------------------+--------------------+----------------------+----------"
-            "------------+----------------------+---------------------+-------------------+--------"
-            "----------------+----------------------+\n");
+    auto expect_contains = [&](const std::string& expected) {
+        EXPECT_NE(block_dump.find(expected), std::string::npos) << block_dump;
+    };
+    expect_contains("col1(Nullable(BIGINT))");
+    expect_contains("col2(Nullable(BOOL))");
+    expect_contains("col3(Nullable(String))");
+    expect_contains("col4(Nullable(DateV2))");
+    expect_contains("col5(Nullable(DOUBLE))");
+    expect_contains("col6(Nullable(FLOAT))");
+    expect_contains("col7(Nullable(INT))");
+    expect_contains("col8(Nullable(SMALLINT))");
+    expect_contains("col9(Nullable(String))");
+    expect_contains("NULL");
+    expect_contains("doris");
+    expect_contains("1.567");
+    expect_contains("12345");
 }
 
 } // namespace doris

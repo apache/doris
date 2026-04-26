@@ -20,7 +20,6 @@
 #include <gtest/gtest.h>
 
 #include <functional>
-#include <iostream>
 #include <string>
 #include <vector>
 
@@ -118,13 +117,9 @@ inline void verify_nested_reader_block(Block& block, size_t read_rows,
     EXPECT_TRUE(columns_with_names[0].type->get_name().find("String") != std::string::npos);
     EXPECT_TRUE(columns_with_names[1].type->get_name().find("Struct") != std::string::npos);
 
-    std::cout << "Block rows: " << block.rows() << std::endl;
-
-    std::function<void(const ColumnPtr&, const DataTypePtr&, const std::string&, int, bool)>
+    std::function<void(const ColumnPtr&, const DataTypePtr&, const std::string&, bool)>
             print_column_rows = [&](const ColumnPtr& col, const DataTypePtr& type,
-                                    const std::string& name, int depth, bool allow_empty) {
-                std::string indent(depth * 2, ' ');
-                std::cout << indent << name << " row count: " << col->size() << std::endl;
+                                    const std::string& name, bool allow_empty) {
                 if (!allow_empty) {
                     EXPECT_GT(col->size(), 0) << name << " column/subcolumn size should be > 0";
                 }
@@ -138,17 +133,16 @@ inline void verify_nested_reader_block(Block& block, size_t read_rows,
                             typeid_cast<const DataTypeMap*>(nested_type.get()) != nullptr;
                     std::string nested_name = is_complex_type ? name + ".nested" : name;
                     print_column_rows(nullable_col->get_nested_column_ptr(), nested_type,
-                                      nested_name, depth + (is_complex_type ? 1 : 0), allow_empty);
+                                      nested_name, allow_empty);
                     return;
                 }
 
                 if (const auto* struct_col = typeid_cast<const ColumnStruct*>(col.get())) {
                     auto struct_type = assert_cast<const DataTypeStruct*>(type.get());
                     for (size_t i = 0; i < struct_col->tuple_size(); ++i) {
-                        print_column_rows(struct_col->get_column_ptr(i),
-                                          struct_type->get_element(i),
-                                          name + "." + struct_type->get_element_name(i), depth + 1,
-                                          allow_empty);
+                        print_column_rows(
+                                struct_col->get_column_ptr(i), struct_type->get_element(i),
+                                name + "." + struct_type->get_element_name(i), allow_empty);
                     }
                     return;
                 }
@@ -156,13 +150,13 @@ inline void verify_nested_reader_block(Block& block, size_t read_rows,
                 if (const auto* array_col = typeid_cast<const ColumnArray*>(col.get())) {
                     auto array_type = assert_cast<const DataTypeArray*>(type.get());
                     print_column_rows(array_col->get_data_ptr(), array_type->get_nested_type(),
-                                      name + ".data", depth + 1, true);
+                                      name + ".data", true);
                 }
             };
 
     for (size_t i = 0; i < block.columns(); ++i) {
         const auto& column_with_name = block.get_by_position(i);
-        print_column_rows(column_with_name.column, column_with_name.type, column_with_name.name, 0,
+        print_column_rows(column_with_name.column, column_with_name.type, column_with_name.name,
                           false);
         EXPECT_EQ(column_with_name.column->size(), block.rows())
                 << "Column " << column_with_name.name << " size mismatch";

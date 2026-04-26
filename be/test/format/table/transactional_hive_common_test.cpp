@@ -61,15 +61,27 @@ TEST_F(AcidRowIDTest, HashConsistency) {
     EXPECT_EQ(hasher(a), hasher(b));
 }
 
-TEST_F(AcidRowIDTest, HashDistribution) {
+TEST_F(AcidRowIDTest, HashAndEqSupportSetLookup) {
     AcidRowID::Hash hasher;
-    // Different row IDs should produce different hashes (probabilistic)
     AcidRowID a {100, 0, 1};
     AcidRowID b {100, 0, 2};
     AcidRowID c {200, 0, 1};
-    // While hash collisions are possible, these specific inputs should differ
-    EXPECT_NE(hasher(a), hasher(b));
-    EXPECT_NE(hasher(a), hasher(c));
+
+    EXPECT_EQ(hasher(a), hasher(a));
+    EXPECT_EQ(hasher(b), hasher(b));
+    EXPECT_EQ(hasher(c), hasher(c));
+
+    AcidRowIDSet set;
+    set.insert(a);
+    set.insert(b);
+    set.insert(c);
+    set.insert(a);
+
+    EXPECT_EQ(set.size(), 3);
+    EXPECT_TRUE(set.contains(a));
+    EXPECT_TRUE(set.contains(b));
+    EXPECT_TRUE(set.contains(c));
+    EXPECT_FALSE(set.contains({100, 1, 1}));
 }
 
 TEST_F(AcidRowIDTest, OperatorLessTransaction) {

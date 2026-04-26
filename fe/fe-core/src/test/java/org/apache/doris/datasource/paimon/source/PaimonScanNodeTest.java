@@ -51,6 +51,7 @@ import org.mockito.junit.MockitoJUnitRunner;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -100,12 +101,8 @@ public class PaimonScanNodeTest {
 
         // Mock PaimonScanNode to return test data splits
         PaimonScanNode spyPaimonScanNode = Mockito.spy(paimonScanNode);
-        Mockito.doReturn(new ArrayList<org.apache.paimon.table.source.Split>() {
-            {
-                add(ds1);
-                add(ds2);
-            }
-        }).when(spyPaimonScanNode).getPaimonSplitFromAPI();
+        Mockito.doReturn(new ArrayList<>(Arrays.asList(ds1, ds2)))
+                .when(spyPaimonScanNode).getPaimonSplitFromAPI();
 
         long maxInitialSplitSize = 32L * 1024L * 1024L;
         long maxSplitSize = 64L * 1024L * 1024L;
@@ -465,12 +462,8 @@ public class PaimonScanNodeTest {
 
         DataSplit nativeSplit = createDataSplit("native.parquet", true);
         DataSplit jniSplit = createDataSplit("jni.binary", false);
-        Mockito.doReturn(new ArrayList<org.apache.paimon.table.source.Split>() {
-            {
-                add(nativeSplit);
-                add(jniSplit);
-            }
-        }).when(spyPaimonScanNode).getPaimonSplitFromAPI();
+        Mockito.doReturn(new ArrayList<>(Arrays.asList(nativeSplit, jniSplit)))
+                .when(spyPaimonScanNode).getPaimonSplitFromAPI();
 
         PaimonSource source = Mockito.mock(PaimonSource.class);
         Mockito.when(source.getFileFormatFromTableProperties()).thenReturn("parquet");
