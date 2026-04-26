@@ -57,6 +57,11 @@ Status MemoryScratchSinkLocalState::close(RuntimeState* state, Status exec_statu
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_close_timer);
     if (_queue != nullptr) {
+        // Should always put a nullptr to the queue if the sink closed. Because
+        // outer element fetcher will call result_queue_mgr::fetch_result to get
+        // element from the queue. If not add null the queue. the caller will blocked.
+        // Although will add nullptr to the queue during EOS = true, also should add
+        // nullptr in case of failure.
         _queue->blocking_put(nullptr);
     }
     RETURN_IF_ERROR(Base::close(state, exec_status));
@@ -90,6 +95,11 @@ Status MemoryScratchSinkOperatorX::sink(RuntimeState* state, Block* input_block,
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     if (nullptr == input_block || 0 == input_block->rows()) {
+        // close method will also add nullptr to the queue, but close
+        // method maybe very late.
+        if (local_state._queue != nullptr && eos) {
+            local_state._queue->blocking_put(nullptr);
+        }
         return Status::OK();
     }
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
@@ -113,7 +123,13 @@ Status MemoryScratchSinkOperatorX::sink(RuntimeState* state, Block* input_block,
         RETURN_IF_ERROR(convert_to_arrow_batch(
                 block, block_arrow_schema, arrow::default_memory_pool(), &result, _timezone_obj));
     }
+
     local_state._queue->blocking_put(result);
+    if (local_state._queue != nullptr && eos) {
+        // If eos==true, then do not need blocking any more.
+        local_state._queue->blocking_put(nullptr);
+        return Status::OK();
+    }
     if (local_state._queue->size() > config::max_memory_sink_batch_count) {
         local_state._queue_dependency->block();
     }
