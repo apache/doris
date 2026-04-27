@@ -5213,6 +5213,7 @@ TEST(MetaServiceJobTest, GetStreamingTaskCommitAttachTest) {
         streaming_attach->set_job_id(1002);
         streaming_attach->set_offset("test_offset_3");
         streaming_attach->set_scanned_rows(2000);
+        streaming_attach->set_filtered_rows(150);
         streaming_attach->set_load_bytes(10000);
         streaming_attach->set_num_files(20);
         streaming_attach->set_file_bytes(15000);
@@ -5241,6 +5242,7 @@ TEST(MetaServiceJobTest, GetStreamingTaskCommitAttachTest) {
         EXPECT_TRUE(response.has_commit_attach());
         EXPECT_EQ(response.commit_attach().job_id(), 1002);
         EXPECT_EQ(response.commit_attach().scanned_rows(), 2000);
+        EXPECT_EQ(response.commit_attach().filtered_rows(), 150);
         EXPECT_EQ(response.commit_attach().load_bytes(), 10000);
         EXPECT_EQ(response.commit_attach().num_files(), 20);
         EXPECT_EQ(response.commit_attach().file_bytes(), 15000);
@@ -5363,6 +5365,7 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
         streaming_attach->set_job_id(job_id);
         streaming_attach->set_offset("original_offset");
         streaming_attach->set_scanned_rows(1000);
+        streaming_attach->set_filtered_rows(50);
         streaming_attach->set_load_bytes(5000);
         streaming_attach->set_num_files(10);
         streaming_attach->set_file_bytes(8000);
@@ -5391,6 +5394,7 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
         EXPECT_TRUE(response.has_commit_attach());
         EXPECT_EQ(response.commit_attach().offset(), "original_offset");
         EXPECT_EQ(response.commit_attach().scanned_rows(), 1000);
+        EXPECT_EQ(response.commit_attach().filtered_rows(), 50);
         EXPECT_EQ(response.commit_attach().load_bytes(), 5000);
     }
 
@@ -5427,6 +5431,7 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
         EXPECT_EQ(response.commit_attach().offset(), "reset_offset");
         // Other fields should remain unchanged
         EXPECT_EQ(response.commit_attach().scanned_rows(), 1000);
+        EXPECT_EQ(response.commit_attach().filtered_rows(), 50);
         EXPECT_EQ(response.commit_attach().load_bytes(), 5000);
         EXPECT_EQ(response.commit_attach().num_files(), 10);
         EXPECT_EQ(response.commit_attach().file_bytes(), 8000);
@@ -5463,6 +5468,116 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
         EXPECT_EQ(response.status().code(), MetaServiceCode::OK);
         EXPECT_TRUE(response.has_commit_attach());
         EXPECT_EQ(response.commit_attach().offset(), "second_reset_offset");
+    }
+}
+
+TEST(MetaServiceJobTest, UpdateStreamingJobMetaFilteredRowsAccumulateTest) {
+    auto meta_service = get_meta_service(false);
+    std::string instance_id = "test_filtered_rows_instance";
+    std::string cloud_unique_id = "1:test_filtered_rows_unique:1";
+    MOCK_GET_INSTANCE_ID(instance_id);
+    create_and_refresh_instance(meta_service.get(), instance_id);
+
+    int64_t db_id = 2100;
+    int64_t job_id = 3100;
+
+    auto commit_once = [&](const std::string& label, const std::string& offset,
+                           int64_t scanned_rows, int64_t filtered_rows, int64_t load_bytes,
+                           int64_t num_files, int64_t file_bytes) {
+        CommitTxnRequest request;
+        request.set_cloud_unique_id(cloud_unique_id);
+        {
+            brpc::Controller cntl_bt;
+            BeginTxnRequest bt_req;
+            BeginTxnResponse bt_res;
+            auto* txn_info = bt_req.mutable_txn_info();
+            txn_info->set_db_id(db_id);
+            txn_info->set_label(label);
+            txn_info->add_table_ids(1);
+            txn_info->set_load_job_source_type(
+                    LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_STREAMING_JOB);
+            txn_info->set_timeout_ms(36000);
+            meta_service->begin_txn(&cntl_bt, &bt_req, &bt_res, nullptr);
+            ASSERT_EQ(bt_res.status().code(), MetaServiceCode::OK);
+            request.set_txn_id(bt_res.txn_id());
+            request.set_db_id(db_id);
+        }
+        TxnCommitAttachmentPB* attachment = request.mutable_commit_attachment();
+        attachment->set_type(TxnCommitAttachmentPB::STREAMING_TASK_TXN_COMMIT_ATTACHMENT);
+        StreamingTaskCommitAttachmentPB* streaming_attach =
+                attachment->mutable_streaming_task_txn_commit_attachment();
+        streaming_attach->set_job_id(job_id);
+        streaming_attach->set_offset(offset);
+        streaming_attach->set_scanned_rows(scanned_rows);
+        streaming_attach->set_filtered_rows(filtered_rows);
+        streaming_attach->set_load_bytes(load_bytes);
+        streaming_attach->set_num_files(num_files);
+        streaming_attach->set_file_bytes(file_bytes);
+
+        CommitTxnResponse response;
+        brpc::Controller cntl;
+        meta_service->commit_txn(&cntl, &request, &response, nullptr);
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::OK);
+    };
+
+    auto get_attach = [&](StreamingTaskCommitAttachmentPB* out) {
+        GetStreamingTaskCommitAttachRequest request;
+        request.set_cloud_unique_id(cloud_unique_id);
+        request.set_db_id(db_id);
+        request.set_job_id(job_id);
+        GetStreamingTaskCommitAttachResponse response;
+        brpc::Controller cntl;
+        meta_service->get_streaming_task_commit_attach(&cntl, &request, &response, nullptr);
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::OK);
+        ASSERT_TRUE(response.has_commit_attach());
+        *out = response.commit_attach();
+    };
+
+    // First commit: initialize filtered_rows along with other stats.
+    commit_once("filtered_rows_ut_1", "off_1", /*scanned*/ 1000, /*filtered*/ 30,
+                /*load_bytes*/ 5000, /*num_files*/ 2, /*file_bytes*/ 8000);
+    {
+        StreamingTaskCommitAttachmentPB attach;
+        get_attach(&attach);
+        EXPECT_EQ(attach.scanned_rows(), 1000);
+        EXPECT_EQ(attach.filtered_rows(), 30);
+    }
+
+    // Second commit: verify filtered_rows accumulates the same way scanned_rows does.
+    commit_once("filtered_rows_ut_2", "off_2", /*scanned*/ 500, /*filtered*/ 20,
+                /*load_bytes*/ 2000, /*num_files*/ 1, /*file_bytes*/ 3000);
+    {
+        StreamingTaskCommitAttachmentPB attach;
+        get_attach(&attach);
+        EXPECT_EQ(attach.scanned_rows(), 1500);
+        EXPECT_EQ(attach.filtered_rows(), 50);
+        EXPECT_EQ(attach.load_bytes(), 7000);
+        EXPECT_EQ(attach.num_files(), 3);
+        EXPECT_EQ(attach.file_bytes(), 11000);
+        EXPECT_EQ(attach.offset(), "off_2");
+    }
+
+    // Reset offset must preserve filtered_rows alongside other accumulated stats.
+    {
+        ResetStreamingJobOffsetRequest request;
+        request.set_cloud_unique_id(cloud_unique_id);
+        request.set_db_id(db_id);
+        request.set_job_id(job_id);
+        request.set_offset("reset_after_accumulate");
+        ResetStreamingJobOffsetResponse response;
+        brpc::Controller cntl;
+        meta_service->reset_streaming_job_offset(&cntl, &request, &response, nullptr);
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::OK);
+    }
+    {
+        StreamingTaskCommitAttachmentPB attach;
+        get_attach(&attach);
+        EXPECT_EQ(attach.offset(), "reset_after_accumulate");
+        EXPECT_EQ(attach.filtered_rows(), 50);
+        EXPECT_EQ(attach.scanned_rows(), 1500);
     }
 }
 
