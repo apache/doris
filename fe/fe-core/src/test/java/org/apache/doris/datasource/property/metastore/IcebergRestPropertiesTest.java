@@ -357,6 +357,8 @@ public class IcebergRestPropertiesTest {
         Assertions.assertFalse(catalogProps.containsKey("rest.secret-access-key"));
         Assertions.assertFalse(catalogProps.containsKey("rest.sigv4-enabled"));
         props.put("iceberg.rest.signing-name", "custom-service");
+        props.put("iceberg.rest.access-key-id", "AKIAIOSFODNN7EXAMPLE");
+        props.put("iceberg.rest.secret-access-key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
         restProps = new IcebergRestProperties(props);
         restProps.initNormalizeAndCheckProps(); // Should not throw
         catalogProps = restProps.getIcebergRestCatalogProperties();
