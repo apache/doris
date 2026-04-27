@@ -22,9 +22,22 @@
 #include <thread>
 
 #include "common/config.h"
+#include "common/metrics/metrics.h"
+#include "common/metrics/system_metrics.h"
+#include "testutil/test_util.h"
 #include "util/threadpool.h"
 
 namespace doris {
+
+extern const char* k_ut_stat_path;
+
+namespace {
+
+std::string get_stat_test_data_path(const std::string& file_name) {
+    return GetCurrentRunningDir() + "/util/test_data/" + file_name;
+}
+
+} // namespace
 
 class AdaptiveThreadPoolControllerTest : public testing::Test {
 protected:
@@ -240,6 +253,62 @@ TEST_F(AdaptiveThreadPoolControllerTest, TestIoBusyCpuBusyWithNullMetrics) {
 
     EXPECT_FALSE(controller.is_io_busy());
     EXPECT_FALSE(controller.is_cpu_busy());
+}
+
+TEST_F(AdaptiveThreadPoolControllerTest, TestCpuBusyUsesCpuMetricsDelta) {
+    MetricRegistry registry("test");
+    const std::string before_path = get_stat_test_data_path("stat_cpu_busy_before");
+    const std::string after_path = get_stat_test_data_path("stat_cpu_busy_after");
+    k_ut_stat_path = before_path.c_str();
+    SystemMetrics metrics(&registry, {}, {});
+    metrics.update();
+
+    AdaptiveThreadPoolController controller;
+    controller.init(&metrics, nullptr);
+
+    EXPECT_FALSE(controller.is_cpu_busy());
+    k_ut_stat_path = after_path.c_str();
+    metrics.update();
+    EXPECT_TRUE(controller.is_cpu_busy());
+}
+
+TEST_F(AdaptiveThreadPoolControllerTest, TestCpuBusyTreatsIoWaitAsIdle) {
+    MetricRegistry registry("test");
+    const std::string before_path = get_stat_test_data_path("stat_cpu_busy_before");
+    const std::string after_path = get_stat_test_data_path("stat_cpu_iowait_after");
+    k_ut_stat_path = before_path.c_str();
+    SystemMetrics metrics(&registry, {}, {});
+    metrics.update();
+
+    AdaptiveThreadPoolController controller;
+    controller.init(&metrics, nullptr);
+
+    EXPECT_FALSE(controller.is_cpu_busy());
+    k_ut_stat_path = after_path.c_str();
+    metrics.update();
+    EXPECT_FALSE(controller.is_cpu_busy());
+}
+
+TEST_F(AdaptiveThreadPoolControllerTest, TestCpuBusyInvalidSampleDoesNotAdvanceBaseline) {
+    MetricRegistry registry("test");
+    const std::string before_path = get_stat_test_data_path("stat_cpu_busy_before");
+    const std::string invalid_path = get_stat_test_data_path("stat_cpu_regressed_after");
+    const std::string recovery_path = get_stat_test_data_path("stat_cpu_recovery_after");
+    k_ut_stat_path = before_path.c_str();
+    SystemMetrics metrics(&registry, {}, {});
+    metrics.update();
+
+    AdaptiveThreadPoolController controller;
+    controller.init(&metrics, nullptr);
+
+    EXPECT_FALSE(controller.is_cpu_busy());
+    k_ut_stat_path = invalid_path.c_str();
+    metrics.update();
+    EXPECT_FALSE(controller.is_cpu_busy());
+
+    k_ut_stat_path = recovery_path.c_str();
+    metrics.update();
+    EXPECT_TRUE(controller.is_cpu_busy());
 }
 
 // Test adjust function that uses controller's is_io_busy/is_cpu_busy
