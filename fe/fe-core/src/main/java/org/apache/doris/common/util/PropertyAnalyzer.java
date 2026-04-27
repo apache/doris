@@ -2156,8 +2156,8 @@ public class PropertyAnalyzer {
             String bucketNumStr = properties.get(PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT);
             try {
                 bucketNum = Integer.parseInt(bucketNumStr);
-                if (bucketNum < 1 || bucketNum > 1024) {
-                    throw new AnalysisException("variant_sparse_hash_shard_count must between 1 and 1024 ");
+                if (bucketNum < 0 || bucketNum > 1024) {
+                    throw new AnalysisException("variant_sparse_hash_shard_count must between 0 and 1024 ");
                 }
             } catch (Exception e) {
                 throw new AnalysisException("variant_sparse_hash_shard_count format error:" + e.getMessage());
