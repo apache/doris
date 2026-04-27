@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.metastore;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.doris.datasource.property.common.IcebergAwsClientCredentialsProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
@@ -45,6 +46,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     private static final String VENDED_CREDENTIALS_VALUE = "vended-credentials";
 
     private Map<String, String> icebergRestCatalogProperties;
+    private S3Properties s3Properties;
 
     @Getter
     @ConnectorProperty(names = {"iceberg.rest.uri", "uri"},
@@ -214,6 +216,9 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         icebergRestCredentialsProviderMode =
                 AwsCredentialsProviderMode.fromString(icebergRestCredentialsProviderType);
         buildRules().validate();
+        if (shouldUseS3PropertiesForRestCredentials()) {
+            s3Properties = S3Properties.of(origProps);
+        }
         initIcebergRestCatalogProperties();
     }
 
@@ -336,11 +341,21 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             icebergRestCatalogProperties.put("rest.sigv4-enabled", icebergRestSigV4Enabled);
             icebergRestCatalogProperties.put("rest.signing-region", icebergRestSigningRegion);
 
-            IcebergAwsClientCredentialsProperties.putRestCredentialProviderProperties(
-                    icebergRestCatalogProperties, icebergRestSigningRegion, icebergRestAccessKeyId,
-                    icebergRestSecretAccessKey, icebergRestSessionToken, icebergRestIamRole,
-                    icebergRestExternalId, icebergRestCredentialsProviderMode);
+            if (shouldUseS3PropertiesForRestCredentials()) {
+                IcebergAwsClientCredentialsProperties.putRestCredentialProviderProperties(
+                        icebergRestCatalogProperties, s3Properties);
+            } else {
+                IcebergAwsClientCredentialsProperties.putRestCredentialProviderProperties(
+                        icebergRestCatalogProperties, icebergRestAccessKeyId,
+                        icebergRestSecretAccessKey, icebergRestSessionToken, icebergRestCredentialsProviderMode);
+            }
         }
+    }
+
+    private boolean shouldUseS3PropertiesForRestCredentials() {
+        return "glue".equals(icebergRestSigningName)
+                || "s3tables".equals(icebergRestSigningName)
+                || Strings.isNotBlank(icebergRestIamRole);
     }
 
     public Map<String, String> getIcebergRestCatalogProperties() {

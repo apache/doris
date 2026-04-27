@@ -172,7 +172,8 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             description = "The external id of S3.")
     protected String s3ExternalId = "";
 
-    @ConnectorProperty(names = {"s3.credentials_provider_type", "glue.credentials_provider_type"},
+    @ConnectorProperty(names = {"s3.credentials_provider_type", "glue.credentials_provider_type",
+            "iceberg.rest.credentials_provider_type"},
             required = false,
             description = "The credentials provider type of S3. "
                     + "Options are: DEFAULT, ASSUME_ROLE, ENVIRONMENT, SYSTEM_PROPERTIES, "

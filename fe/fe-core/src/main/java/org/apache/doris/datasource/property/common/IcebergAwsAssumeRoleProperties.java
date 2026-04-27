@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.common;
 
 import org.apache.doris.datasource.iceberg.IcebergAwsAssumeRoleCredentialsProvider;
+import org.apache.doris.datasource.property.storage.S3Properties;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.aws.AwsClientProperties;
@@ -34,10 +35,15 @@ public final class IcebergAwsAssumeRoleProperties {
     private IcebergAwsAssumeRoleProperties() {}
 
     /**
-     * Puts assume-role related AwsProperties into the target map when roleArn is present.
+     * Puts assume-role related Iceberg client properties into the target map when roleArn is present.
      * No-op if roleArn is blank.
      */
-    public static void putAssumeRoleProperties(Map<String, String> target,
+    public static void putAssumeRoleProperties(Map<String, String> target, S3Properties s3Properties) {
+        putAssumeRoleProperties(target, s3Properties.getRegion(), s3Properties.getS3IAMRole(),
+                s3Properties.getS3ExternalId(), s3Properties.getAwsCredentialsProviderMode());
+    }
+
+    private static void putAssumeRoleProperties(Map<String, String> target,
             String region, String roleArn, String externalId, AwsCredentialsProviderMode providerMode) {
         if (StringUtils.isBlank(roleArn)) {
             return;
@@ -45,15 +51,15 @@ public final class IcebergAwsAssumeRoleProperties {
         String providerPrefix = AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER + ".";
         target.put(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER,
                 IcebergAwsAssumeRoleCredentialsProvider.class.getName());
-        target.put(providerPrefix + AwsProperties.CLIENT_ASSUME_ROLE_REGION, region);
-        target.put(providerPrefix + AwsProperties.CLIENT_ASSUME_ROLE_ARN, roleArn);
-        target.put(providerPrefix + AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER,
+        target.put(providerPrefix + IcebergAwsAssumeRoleCredentialsProvider.ASSUME_ROLE_REGION, region);
+        target.put(providerPrefix + IcebergAwsAssumeRoleCredentialsProvider.ASSUME_ROLE_ARN, roleArn);
+        target.put(providerPrefix + IcebergAwsAssumeRoleCredentialsProvider.ASSUME_ROLE_SOURCE_CREDENTIALS_PROVIDER,
                 AwsCredentialsProviderFactory.getV2ClassName(providerMode));
         target.put("aws.region", region);
         target.put(AwsProperties.CLIENT_ASSUME_ROLE_REGION, region);
         target.put(AwsProperties.CLIENT_ASSUME_ROLE_ARN, roleArn);
         if (StringUtils.isNotBlank(externalId)) {
-            target.put(providerPrefix + AwsProperties.CLIENT_ASSUME_ROLE_EXTERNAL_ID, externalId);
+            target.put(providerPrefix + IcebergAwsAssumeRoleCredentialsProvider.ASSUME_ROLE_EXTERNAL_ID, externalId);
             target.put(AwsProperties.CLIENT_ASSUME_ROLE_EXTERNAL_ID, externalId);
         }
     }

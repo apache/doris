@@ -68,8 +68,6 @@ public class IcebergS3TablesMetaStoreProperties extends AbstractIcebergPropertie
         props.put("client.region", s3Properties.getRegion());
 
         IcebergAwsClientCredentialsProperties.putS3TablesCredentialProviderProperties(
-                props, s3Properties.getRegion(), s3Properties.getAccessKey(), s3Properties.getSecretKey(),
-                s3Properties.getSessionToken(), s3Properties.getS3IAMRole(), s3Properties.getS3ExternalId(),
-                s3Properties.getAwsCredentialsProviderMode(), CustomAwsCredentialsProvider.class.getName());
+                props, s3Properties, CustomAwsCredentialsProvider.class.getName());
     }
 }

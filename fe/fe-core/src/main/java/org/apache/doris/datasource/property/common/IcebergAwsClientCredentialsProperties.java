@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.property.common;
 
+import org.apache.doris.datasource.property.storage.S3Properties;
+
 import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.aws.AwsClientProperties;
 import org.apache.iceberg.aws.AwsProperties;
@@ -28,51 +30,56 @@ public final class IcebergAwsClientCredentialsProperties {
 
     private IcebergAwsClientCredentialsProperties() {}
 
+    public static void putRestCredentialProviderProperties(Map<String, String> target, S3Properties s3Properties) {
+        switch (getCredentialType(s3Properties)) {
+            case EXPLICIT:
+                putRestExplicitCredentials(target, s3Properties.getAccessKey(), s3Properties.getSecretKey(),
+                        s3Properties.getSessionToken());
+                return;
+            case ASSUME_ROLE:
+                IcebergAwsAssumeRoleProperties.putAssumeRoleProperties(target, s3Properties);
+                return;
+            case PROVIDER_CHAIN:
+                putCredentialsProvider(target, s3Properties.getAwsCredentialsProviderMode());
+                return;
+            default:
+                throw new IllegalStateException("Unsupported Iceberg AWS credential type");
+        }
+    }
+
     public static void putRestCredentialProviderProperties(Map<String, String> target,
-            String region, String accessKey, String secretKey, String sessionToken,
-            String roleArn, String externalId, AwsCredentialsProviderMode providerMode) {
-        switch (getCredentialType(accessKey, secretKey, roleArn)) {
-            case EXPLICIT:
-                putRestExplicitCredentials(target, accessKey, secretKey, sessionToken);
-                return;
-            case ASSUME_ROLE:
-                IcebergAwsAssumeRoleProperties.putAssumeRoleProperties(target, region, roleArn,
-                        externalId, providerMode);
-                return;
-            case PROVIDER_CHAIN:
-                putCredentialsProvider(target, providerMode);
-                return;
-            default:
-                throw new IllegalStateException("Unsupported Iceberg AWS credential type");
-        }
-    }
-
-    public static void putS3TablesCredentialProviderProperties(Map<String, String> target,
-            String region, String accessKey, String secretKey, String sessionToken,
-            String roleArn, String externalId, AwsCredentialsProviderMode providerMode,
-            String explicitCredentialsProviderClassName) {
-        switch (getCredentialType(accessKey, secretKey, roleArn)) {
-            case EXPLICIT:
-                putS3TablesExplicitCredentials(target, accessKey, secretKey, sessionToken,
-                        explicitCredentialsProviderClassName);
-                return;
-            case ASSUME_ROLE:
-                IcebergAwsAssumeRoleProperties.putAssumeRoleProperties(target, region, roleArn,
-                        externalId, providerMode);
-                return;
-            case PROVIDER_CHAIN:
-                putCredentialsProvider(target, providerMode);
-                return;
-            default:
-                throw new IllegalStateException("Unsupported Iceberg AWS credential type");
-        }
-    }
-
-    private static CredentialType getCredentialType(String accessKey, String secretKey, String roleArn) {
+            String accessKey, String secretKey, String sessionToken, AwsCredentialsProviderMode providerMode) {
         if (StringUtils.isNotBlank(accessKey) && StringUtils.isNotBlank(secretKey)) {
+            putRestExplicitCredentials(target, accessKey, secretKey, sessionToken);
+            return;
+        }
+        putCredentialsProvider(target, providerMode);
+    }
+
+    public static void putS3TablesCredentialProviderProperties(Map<String, String> target, S3Properties s3Properties,
+            String explicitCredentialsProviderClassName) {
+        switch (getCredentialType(s3Properties)) {
+            case EXPLICIT:
+                putS3TablesExplicitCredentials(target, s3Properties.getAccessKey(), s3Properties.getSecretKey(),
+                        s3Properties.getSessionToken(), explicitCredentialsProviderClassName);
+                return;
+            case ASSUME_ROLE:
+                IcebergAwsAssumeRoleProperties.putAssumeRoleProperties(target, s3Properties);
+                return;
+            case PROVIDER_CHAIN:
+                putCredentialsProvider(target, s3Properties.getAwsCredentialsProviderMode());
+                return;
+            default:
+                throw new IllegalStateException("Unsupported Iceberg AWS credential type");
+        }
+    }
+
+    private static CredentialType getCredentialType(S3Properties s3Properties) {
+        if (StringUtils.isNotBlank(s3Properties.getAccessKey())
+                && StringUtils.isNotBlank(s3Properties.getSecretKey())) {
             return CredentialType.EXPLICIT;
         }
-        if (StringUtils.isNotBlank(roleArn)) {
+        if (StringUtils.isNotBlank(s3Properties.getS3IAMRole())) {
             return CredentialType.ASSUME_ROLE;
         }
         return CredentialType.PROVIDER_CHAIN;
