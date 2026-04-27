@@ -2800,8 +2800,10 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         msg = fmt::format("failed to check whether rowset exists, err={}", err);
         return;
     }
-    // write schema kv if rowset_meta has schema
-    if (config::write_schema_kv && rowset_meta.has_tablet_schema()) {
+    // Delete rowsets may only carry the columns needed to build predicates, so they must not
+    // become the shared schema source for the whole schema version.
+    if (config::write_schema_kv && rowset_meta.has_tablet_schema() &&
+        !rowset_meta.has_delete_predicate()) {
         if (!rowset_meta.has_index_id() && !is_versioned_read) {
             TabletIndexPB tablet_idx;
             get_tablet_idx(code, msg, txn.get(), instance_id, rowset_meta.tablet_id(), tablet_idx);
@@ -3362,9 +3364,11 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
         // get referenced schema
         std::unordered_map<int32_t, doris::TabletSchemaCloudPB*> version_to_schema;
         for (auto& rowset_meta : *response->mutable_rowset_meta()) {
-            if (rowset_meta.has_tablet_schema()) {
+            if (rowset_meta.has_tablet_schema() && !rowset_meta.has_delete_predicate()) {
                 version_to_schema.emplace(rowset_meta.tablet_schema().schema_version(),
                                           rowset_meta.mutable_tablet_schema());
+            }
+            if (rowset_meta.has_tablet_schema()) {
                 rowset_meta.set_schema_version(rowset_meta.tablet_schema().schema_version());
             }
             rowset_meta.set_index_id(idx.index_id());
