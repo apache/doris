@@ -28,13 +28,13 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalDatabase;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
-import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
-import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
-import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 
 import com.google.common.collect.Maps;
@@ -127,10 +127,11 @@ public class StatisticsAutoCollectorTest {
         OlapTable table1 = new OlapTable(200, "testTable", schema, null, null, null);
         Assertions.assertTrue(collector.supportAutoAnalyze(table1));
 
-        JdbcExternalDatabase jdbcExternalDatabase = new JdbcExternalDatabase(null, 1L, "jdbcdb", "jdbcdb");
-        JdbcExternalCatalog jdbcCatalog = new JdbcExternalCatalog(0, "jdbc_ctl", null, Maps.newHashMap(), "");
-        ExternalTable externalTable = new JdbcExternalTable(1, "jdbctable", "jdbctable", jdbcCatalog,
-                jdbcExternalDatabase);
+        PluginDrivenExternalDatabase pluginDatabase = new PluginDrivenExternalDatabase(null, 1L, "jdbcdb", "jdbcdb");
+        PluginDrivenExternalCatalog pluginCatalog = new PluginDrivenExternalCatalog(0, "jdbc_ctl", null,
+                Maps.newHashMap(), "", null);
+        ExternalTable externalTable = new PluginDrivenExternalTable(1, "jdbctable", "jdbctable", pluginCatalog,
+                pluginDatabase);
         Assertions.assertFalse(collector.supportAutoAnalyze(externalTable));
 
         HMSExternalDatabase hmsExternalDatabase = new HMSExternalDatabase(null, 1L, "hmsDb", "hmsDb");

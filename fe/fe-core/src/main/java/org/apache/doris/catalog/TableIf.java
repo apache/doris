@@ -105,6 +105,15 @@ public interface TableIf {
 
     TableType getType();
 
+    /**
+     * Returns the table type name used in ENGINE= clause of SHOW CREATE TABLE.
+     * By default this is the same as getType().name(), but plugin-driven tables
+     * override this to preserve the original engine name (e.g., JDBC_EXTERNAL_TABLE).
+     */
+    default String getEngineTableTypeName() {
+        return getType().name();
+    }
+
     List<Column> getFullSchema();
 
     List<Column> getBaseSchema();
@@ -210,6 +219,7 @@ public interface TableIf {
         TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE, MATERIALIZED_VIEW, JDBC_EXTERNAL_TABLE,
         ICEBERG_EXTERNAL_TABLE, TEST_EXTERNAL_TABLE, PAIMON_EXTERNAL_TABLE, MAX_COMPUTE_EXTERNAL_TABLE,
         HUDI_EXTERNAL_TABLE, TRINO_CONNECTOR_EXTERNAL_TABLE, LAKESOUl_EXTERNAL_TABLE, DICTIONARY, DORIS_EXTERNAL_TABLE,
+        PLUGIN_EXTERNAL_TABLE,
         STREAM;
 
         public String toEngineName() {
@@ -230,6 +240,8 @@ public interface TableIf {
                     return "Broker";
                 case ELASTICSEARCH:
                     return "ElasticSearch";
+                case ES_EXTERNAL_TABLE:
+                    return "es";
                 case HIVE:
                     return "Hive";
                 case HUDI:
@@ -242,8 +254,6 @@ public interface TableIf {
                     return "Table_Valued_Function";
                 case HMS_EXTERNAL_TABLE:
                     return "hms";
-                case ES_EXTERNAL_TABLE:
-                    return "es";
                 case ICEBERG:
                 case ICEBERG_EXTERNAL_TABLE:
                     return "iceberg";
@@ -253,6 +263,8 @@ public interface TableIf {
                     return "dictionary";
                 case DORIS_EXTERNAL_TABLE:
                     return "External_Doris";
+                case PLUGIN_EXTERNAL_TABLE:
+                    return "Plugin";
                 case STREAM:
                     return "Stream";
                 default:
@@ -288,12 +300,12 @@ public interface TableIf {
                 case JDBC_EXTERNAL_TABLE:
                 case TABLE_VALUED_FUNCTION:
                 case HMS_EXTERNAL_TABLE:
-                case ES_EXTERNAL_TABLE:
                 case ICEBERG_EXTERNAL_TABLE:
                 case PAIMON_EXTERNAL_TABLE:
                 case MATERIALIZED_VIEW:
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:
                 case DORIS_EXTERNAL_TABLE:
+                case PLUGIN_EXTERNAL_TABLE:
                 case STREAM:
                     return "BASE TABLE";
                 default:

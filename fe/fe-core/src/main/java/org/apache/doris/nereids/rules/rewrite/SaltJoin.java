@@ -343,11 +343,7 @@ public class SaltJoin extends OneRewriteRuleFactory {
         int factor = connectContext.getStatementContext().getConnectContext()
                 .getSessionVariable().skewRewriteJoinSaltExplodeFactor;
         if (factor == 0) {
-            int beNumber = Math.max(1, connectContext.getEnv().getClusterInfo().getBackendsNumber(true));
-            String clusterName = connectContext.getSessionVariable().resolveCloudClusterName(connectContext);
-            int parallelInstance = Math.max(1,
-                    connectContext.getSessionVariable().getParallelExecInstanceNum(clusterName));
-            factor = (int) Math.min((long) beNumber * parallelInstance * SALT_FACTOR, Integer.MAX_VALUE);
+            factor = (int) Math.min((long) connectContext.getTotalInstanceNum() * SALT_FACTOR, Integer.MAX_VALUE);
         }
         return Math.max(factor, 1);
     }

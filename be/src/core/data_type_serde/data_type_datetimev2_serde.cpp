@@ -32,7 +32,6 @@
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "exprs/function/cast/cast_to_string.h"
-#include "util/io_helper.h"
 
 enum {
     DIVISOR_FOR_SECOND = 1,
@@ -345,7 +344,9 @@ Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_json(IColumn& column, 
         slice.trim_quote();
     }
     DateV2Value<DateTimeV2ValueType> val;
-    if (StringRef str(slice.data, slice.size); !read_datetime_v2_text_impl(val, str, _scale)) {
+    StringRef str(slice.data, slice.size);
+    CastParameters params;
+    if (!CastToDatetimeV2::from_string_non_strict_mode(str, val, nullptr, _scale, params)) {
         return Status::InvalidArgument("parse date fail, string: '{}'", str.to_string());
     }
     column_data.insert_value(val);

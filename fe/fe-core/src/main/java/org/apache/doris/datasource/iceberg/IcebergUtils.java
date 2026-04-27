@@ -1138,7 +1138,7 @@ public class IcebergUtils {
 
     public static HiveCatalog createIcebergHiveCatalog(ExternalCatalog externalCatalog, String name) {
         HiveCatalog hiveCatalog = new HiveCatalog();
-        hiveCatalog.setConf(externalCatalog.getConfiguration());
+        hiveCatalog.setConf(ExternalCatalog.buildHadoopConfiguration(externalCatalog.getHadoopProperties()));
 
         Map<String, String> catalogProperties = externalCatalog.getProperties();
         if (!catalogProperties.containsKey(HiveCatalog.LIST_ALL_TABLES)) {

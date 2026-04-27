@@ -17,6 +17,7 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import org.apache.commons.pool2.BaseKeyedPooledObjectFactory;
@@ -56,16 +57,46 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
 
     public boolean reopen(VALUE object, int timeoutMs) {
         boolean ok = true;
+        // Set a short timeout BEFORE close() to protect the connect + TLS handshake phase
+        // in the subsequent open(). Must be done before close() because Thrift 0.16.0's
+        // TSocket.close() nulls the internal socket, and setSocketTimeout() would NPE after that.
+        // setTimeout() sets both connectTimeout_ and socketTimeout_ fields which survive close().
+        if (!isNonBlockingIO && Config.thrift_rpc_connect_timeout_ms > 0) {
+            TSocket socket = (TSocket) object.getOutputProtocol().getTransport();
+            socket.setTimeout(Config.thrift_rpc_connect_timeout_ms);
+        }
+        // Debug point: simulate stale connection by sleeping for the current connectTimeout.
+        // With the fix, connectTimeout_ = thrift_rpc_connect_timeout_ms (short) → short sleep.
+        // Without the fix, connectTimeout_ = inherited large value from borrowObject → long sleep.
+        if (DebugPointUtil.isEnable("GenericPool.reopen.simulate_stale")) {
+            if (!isNonBlockingIO) {
+                try {
+                    TSocket socket = (TSocket) object.getOutputProtocol().getTransport();
+                    java.lang.reflect.Field ctField = TSocket.class.getDeclaredField("connectTimeout_");
+                    ctField.setAccessible(true);
+                    int connectTimeout = (int) ctField.get(socket);
+                    LOG.info("debug point GenericPool.reopen.simulate_stale: "
+                            + "connectTimeout_={}, sleeping to simulate blocked connect", connectTimeout);
+                    Thread.sleep(connectTimeout);
+                } catch (InterruptedException ie) {
+                    // ignore
+                } catch (Exception e) {
+                    LOG.warn("debug point GenericPool.reopen.simulate_stale reflection failed", e);
+                }
+                ok = false;
+                return ok;
+            }
+        }
         object.getOutputProtocol().getTransport().close();
         try {
             object.getOutputProtocol().getTransport().open();
-            // transport.open() doesn't set timeout, Maybe the timeoutMs change.
-            // here we cannot set timeoutMs for TFramedTransport, just skip it
+            // Restore the actual RPC timeout after successful open()
             if (!isNonBlockingIO) {
                 TSocket socket = (TSocket) object.getOutputProtocol().getTransport();
                 socket.setTimeout(timeoutMs);
             }
         } catch (TTransportException e) {
+            LOG.warn("reopen failed", e);
             ok = false;
         }
         return ok;
@@ -73,12 +104,37 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
 
     public boolean reopen(VALUE object) {
         boolean ok = true;
+        if (!isNonBlockingIO && Config.thrift_rpc_connect_timeout_ms > 0) {
+            TSocket socket = (TSocket) object.getOutputProtocol().getTransport();
+            socket.setTimeout(Config.thrift_rpc_connect_timeout_ms);
+        }
         object.getOutputProtocol().getTransport().close();
         try {
             object.getOutputProtocol().getTransport().open();
+            // Restore to pool-level default timeout
+            if (!isNonBlockingIO) {
+                TSocket socket = (TSocket) object.getOutputProtocol().getTransport();
+                socket.setTimeout(this.timeoutMs);
+            }
         } catch (TTransportException e) {
             LOG.warn("reopen error", e);
             ok = false;
+        }
+        return ok;
+    }
+
+    public boolean reopenOrClear(TNetworkAddress address, VALUE object, int timeoutMs) {
+        boolean ok = reopen(object, timeoutMs);
+        if (!ok) {
+            clearPool(address);
+        }
+        return ok;
+    }
+
+    public boolean reopenOrClear(TNetworkAddress address, VALUE object) {
+        boolean ok = reopen(object);
+        if (!ok) {
+            clearPool(address);
         }
         return ok;
     }
@@ -101,6 +157,20 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
         if (!isNonBlockingIO) {
             TSocket socket = (TSocket) (value.getOutputProtocol().getTransport());
             socket.setTimeout(timeoutMs);
+        }
+        // Debug point: close the underlying socket after borrow to simulate a TCP half-open
+        // (stale) connection. The transport still thinks it's open, but the next RPC
+        // will fail with TTransportException, triggering reopen().
+        if (DebugPointUtil.isEnable("GenericPool.borrowObject.break_connection")) {
+            if (!isNonBlockingIO) {
+                try {
+                    TSocket socket = (TSocket) (value.getOutputProtocol().getTransport());
+                    socket.getSocket().close();
+                    LOG.info("debug point GenericPool.borrowObject.break_connection: closed underlying socket");
+                } catch (Exception e) {
+                    LOG.warn("debug point GenericPool.borrowObject.break_connection failed", e);
+                }
+            }
         }
         return value;
     }

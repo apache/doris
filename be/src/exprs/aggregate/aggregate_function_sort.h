@@ -114,7 +114,7 @@ struct AggregateFunctionSortData {
 };
 
 template <typename Data>
-class AggregateFunctionSort
+class AggregateFunctionSort final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionSort<Data>> {
 private:
     static constexpr auto prefix_size = sizeof(Data);

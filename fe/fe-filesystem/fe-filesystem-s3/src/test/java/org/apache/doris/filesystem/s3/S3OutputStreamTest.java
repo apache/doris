@@ -145,6 +145,7 @@ class S3OutputStreamTest {
         };
 
         S3OutputStream stream = new S3OutputStream("s3://bucket/key", storage);
+        stream.write(new byte[]{0}, 0, 1); // ensure write happened so close uploads (#22)
         stream.close(); // first close — must call putObject once
         stream.close(); // second close — must be a no-op (no second putObject call)
 
@@ -177,6 +178,53 @@ class S3OutputStreamTest {
         Assertions.assertNotNull(captured.get(), "putObject() must have been called");
         Assertions.assertEquals(new String(payload), new String(captured.get()),
                 "Buffered data must match what was written");
+    }
+
+    /**
+     * #22: {@code close()} after no {@code write(...)} call must NOT issue {@code putObject()}.
+     * This avoids creating phantom 0-byte objects on accidental empty close.
+     */
+    @Test
+    void testEmptyCloseSkipsPutObject() throws IOException {
+        AtomicBoolean putObjectCalled = new AtomicBoolean(false);
+        CapturingStorage storage = new CapturingStorage() {
+            @Override
+            public void putObject(String remotePath, RequestBody body) {
+                putObjectCalled.set(true);
+            }
+        };
+
+        S3OutputStream stream = new S3OutputStream("s3://bucket/key", storage);
+        stream.close(); // no write(...) ever called
+
+        Assertions.assertFalse(putObjectCalled.get(),
+                "putObject() must NOT be called when close() runs without any prior write");
+    }
+
+    /**
+     * #22: explicit zero-length {@code write(byte[], 0, 0)} marks the stream as written and
+     * triggers an upload of the empty buffer on {@code close()}, so callers wanting a real
+     * 0-byte object can opt in.
+     */
+    @Test
+    void testZeroLengthWriteTriggersPutObject() throws IOException {
+        AtomicBoolean putObjectCalled = new AtomicBoolean(false);
+        AtomicReference<byte[]> captured = new AtomicReference<>();
+        CapturingStorage storage = new CapturingStorage() {
+            @Override
+            public void putObject(String remotePath, RequestBody body) throws IOException {
+                putObjectCalled.set(true);
+                captured.set(body.content().readAllBytes());
+            }
+        };
+
+        S3OutputStream stream = new S3OutputStream("s3://bucket/key", storage);
+        stream.write(new byte[0], 0, 0); // explicit empty write
+        stream.close();
+
+        Assertions.assertTrue(putObjectCalled.get(),
+                "An explicit zero-length write must trigger putObject() on close");
+        Assertions.assertEquals(0, captured.get().length, "Uploaded body must be empty");
     }
 
     // ------------------------------------------------------------------

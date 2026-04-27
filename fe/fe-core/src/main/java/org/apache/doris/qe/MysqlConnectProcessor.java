@@ -248,6 +248,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         }
         ctx.setCommand(command);
         ctx.setStartTime();
+        resolveWorkloadGroupName();
 
         switch (command) {
             case COM_INIT_DB:

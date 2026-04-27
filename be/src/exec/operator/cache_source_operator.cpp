@@ -71,9 +71,11 @@ Status CacheSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     custom_profile()->add_info_string("CacheTabletId", tablet_ids_str);
 
     // 3. lookup the cache and find proper slot order
-    hit_cache = _global_cache->lookup(_cache_key, _version, &_query_cache_handle);
+    if (!cache_param.force_refresh_query_cache) {
+        hit_cache = _global_cache->lookup(_cache_key, _version, &_query_cache_handle);
+    }
     custom_profile()->add_info_string("HitCache", std::to_string(hit_cache));
-    if (hit_cache && !cache_param.force_refresh_query_cache) {
+    if (hit_cache) {
         _hit_cache_results = _query_cache_handle.get_cache_result();
         auto hit_cache_slot_orders = _query_cache_handle.get_cache_slot_orders();
 

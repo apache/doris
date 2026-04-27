@@ -121,6 +121,13 @@ public interface SourceOffsetProvider {
     Offset deserializeOffsetProperty(String offset);
 
     /**
+     * Validate the offset format for ALTER JOB.
+     * Each provider defines its own rules (e.g. CDC only allows JSON specific offset).
+     */
+    default void validateAlterOffset(String offset) throws Exception {
+    }
+
+    /**
      * Replaying OffsetProvider is currently only required by JDBC.
      *
      * @return
@@ -171,6 +178,16 @@ public interface SourceOffsetProvider {
      */
     default boolean hasReachedEnd() {
         return false;
+    }
+
+    /**
+     * Get the lag of the data source in seconds.
+     * For CDC sources, lag = (now - last consumed event timestamp) in seconds.
+     *
+     * @return lag in seconds as string, empty string if not applicable
+     */
+    default String getLag() {
+        return "";
     }
 
 }

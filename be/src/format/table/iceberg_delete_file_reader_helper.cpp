@@ -34,7 +34,6 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "exec/common/endian.h"
-#include "exprs/vexpr_context.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_column_chunk_reader.h"
 #include "format/parquet/vparquet_reader.h"
@@ -42,7 +41,6 @@
 #include "format/table/iceberg_reader.h"
 #include "format/table/table_format_reader.h"
 #include "io/hdfs_builder.h"
-#include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "storage/predicate/column_predicate.h"
 
@@ -121,16 +119,11 @@ Status init_parquet_delete_reader(ParquetReader* reader, bool* dictionary_coded)
         return Status::InvalidArgument("invalid parquet delete reader arguments");
     }
 
-    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> slot_id_to_predicates;
-    RETURN_IF_ERROR(reader->init_reader(DELETE_COL_NAMES, &DELETE_COL_NAME_TO_BLOCK_IDX, {},
-                                        slot_id_to_predicates, nullptr, nullptr, nullptr, nullptr,
-                                        nullptr, TableSchemaChangeHelper::ConstNode::get_instance(),
-                                        false));
-
-    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-            partition_columns;
-    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-    RETURN_IF_ERROR(reader->set_fill_columns(partition_columns, missing_columns));
+    ParquetInitContext ctx;
+    ctx.column_names = DELETE_COL_NAMES;
+    ctx.col_name_to_block_idx = &DELETE_COL_NAME_TO_BLOCK_IDX;
+    ctx.filter_groups = false;
+    RETURN_IF_ERROR(reader->init_reader(&ctx));
 
     const tparquet::FileMetaData* meta_data = reader->get_meta_data();
     *dictionary_coded = true;
@@ -150,14 +143,10 @@ Status init_orc_delete_reader(OrcReader* reader) {
         return Status::InvalidArgument("orc delete reader is null");
     }
 
-    RETURN_IF_ERROR(reader->init_reader(&DELETE_COL_NAMES, &DELETE_COL_NAME_TO_BLOCK_IDX, {}, false,
-                                        nullptr, nullptr, nullptr, nullptr,
-                                        TableSchemaChangeHelper::ConstNode::get_instance()));
-
-    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-            partition_columns;
-    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-    RETURN_IF_ERROR(reader->set_fill_columns(partition_columns, missing_columns));
+    OrcInitContext ctx;
+    ctx.column_names = DELETE_COL_NAMES;
+    ctx.col_name_to_block_idx = &DELETE_COL_NAME_TO_BLOCK_IDX;
+    RETURN_IF_ERROR(reader->init_reader(&ctx));
     return Status::OK();
 }
 

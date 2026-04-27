@@ -69,7 +69,7 @@ Status PaimonCppReader::init_reader() {
     return _init_paimon_reader();
 }
 
-Status PaimonCppReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status PaimonCppReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _remaining_table_level_row_count >= 0) {
         auto rows = std::min(_remaining_table_level_row_count,
                              (int64_t)_state->query_options().batch_size);
@@ -143,8 +143,8 @@ Status PaimonCppReader::get_next_block(Block* block, size_t* read_rows, bool* eo
     return Status::OK();
 }
 
-Status PaimonCppReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                                    std::unordered_set<std::string>* missing_cols) {
+Status PaimonCppReader::_get_columns_impl(
+        std::unordered_map<std::string, DataTypePtr>* name_to_type) {
     for (const auto& slot : _file_slot_descs) {
         name_to_type->emplace(slot->col_name(), slot->type());
     }

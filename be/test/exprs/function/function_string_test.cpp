@@ -994,6 +994,36 @@ TEST(function_string_test, function_ascii_test) {
     check_function_all_arg_comb<DataTypeInt32, true>(func_name, input_types, data_set);
 }
 
+TEST(function_string_test, function_is_valid_utf8_test) {
+    std::string func_name = "is_valid_utf8";
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+
+    DataSet data_set = {
+            // valid UTF-8 strings
+            {{std::string("hello")}, std::uint8_t(1)},
+            {{std::string("")}, std::uint8_t(1)},
+            {{std::string("Hello, 世界")}, std::uint8_t(1)},
+            {{std::string("こんにちは")}, std::uint8_t(1)},
+            {{std::string("123!@#")}, std::uint8_t(1)},
+            {{std::string("\xc3\xb1")}, std::uint8_t(1)},         // ñ
+            {{std::string("\xe2\x82\xac")}, std::uint8_t(1)},     // €
+            {{std::string("\xf0\x9f\x98\x80")}, std::uint8_t(1)}, // 😀
+            // invalid UTF-8 strings
+            {{std::string("\x80")}, std::uint8_t(0)},             // invalid leading byte
+            {{std::string("\xc3\x28")}, std::uint8_t(0)},         // invalid 2-byte sequence
+            {{std::string("\xe2\x28\xa1")}, std::uint8_t(0)},     // invalid 3-byte sequence
+            {{std::string("\xf0\x28\x8c\xbc")}, std::uint8_t(0)}, // invalid 4-byte sequence
+            {{std::string("\xfe")}, std::uint8_t(0)},             // invalid byte 0xFE
+            {{std::string("\xff")}, std::uint8_t(0)},             // invalid byte 0xFF
+            {{std::string("abc\xc0\xaf")}, std::uint8_t(0)},      // overlong encoding
+            // NULL
+            {{Null()}, Null()},
+    };
+
+    check_function_all_arg_comb<DataTypeUInt8, true>(func_name, input_types, data_set);
+}
+
 TEST(function_string_test, function_char_length_test) {
     std::string func_name = "char_length";
 

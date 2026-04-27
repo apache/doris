@@ -341,7 +341,7 @@ struct WindowFunnelState {
     }
 };
 
-class AggregateFunctionWindowFunnel
+class AggregateFunctionWindowFunnel final
         : public IAggregateFunctionDataHelper<WindowFunnelState, AggregateFunctionWindowFunnel>,
           MultiExpression,
           NullableAggregateFunction {

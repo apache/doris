@@ -322,6 +322,13 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
                 throw new LoadException("MEM_LIMIT_EXCEEDED");
             }
 
+            if (DebugPointUtil.isEnable("FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED.TOO_MANY_TASKS")) {
+                LOG.warn("debug point FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED.TOO_MANY_TASKS,"
+                        + "routine load task submit failed");
+                tStatus = new TStatus(TStatusCode.TOO_MANY_TASKS);
+                tStatus.addToErrorMsgs("debug point: too many tasks");
+            }
+
             if (tStatus.getStatusCode() != TStatusCode.OK) {
                 throw new LoadException("failed to submit task. error code: " + tStatus.getStatusCode()
                         + ", msg: " + (tStatus.getErrorMsgsSize() > 0 ? tStatus.getErrorMsgs().get(0) : "NaN"));

@@ -396,18 +396,18 @@ suite("test_mysql_jdbc_catalog", "p0,external") {
         explain {
             sql ("select k6, k8 from test1 where nvl(k6, 1) = k6;")
 
-            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((ifnull(`k6`, 1) = `k6`))"
+            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (ifnull(`k6`, 1) = `k6`)"
         }
         explain {
             sql ("select k6, k8 from test1 where nvl(k6, nvl(k6, 1)) = k6;")
 
-            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((ifnull(`k6`, ifnull(`k6`, 1)) = `k6`))"
+            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (ifnull(`k6`, ifnull(`k6`, 1)) = `k6`)"
         }
         sql """ set enable_ext_func_pred_pushdown = "false"; """
         explain {
             sql ("select k6, k8 from test1 where nvl(k6, 1) = k6 and k8 = 1;")
 
-            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((`k8` = 1))"
+            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (`k8` = 1)"
         }
         sql """ set enable_ext_func_pred_pushdown = "true"; """
         // test date_add
@@ -518,15 +518,15 @@ suite("test_mysql_jdbc_catalog", "p0,external") {
         order_qt_auto_default_t1 """insert into ${auto_default_t}(name) values('a'); """
         test {
             sql "insert into ${auto_default_t}(name,dt) values('a', null);"
-            exception "Column `dt` is not nullable, but the inserted value is nullable."
+            exception "Column 'dt' cannot be null"
         }
         test {
             sql "insert into ${auto_default_t}(name,dt) select '1', null;"
-            exception "Column `dt` is not nullable, but the inserted value is nullable."
+            exception "Column 'dt' cannot be null"
         }
         explain {
             sql "insert into ${auto_default_t}(name,dt) select col1,col12 from ex_tb15;"
-            contains "PreparedStatement SQL: INSERT INTO `doris_test`.`auto_default_t`(`name`,`dt`) VALUES (?, ?)"
+            contains "INSERT SQL: INSERT INTO `doris_test`.`auto_default_t`(`name`,`dt`) VALUES (?, ?)"
         }
         order_qt_auto_default_t2 """insert into ${auto_default_t}(name,dt) select col1, coalesce(col12,'2022-01-01 00:00:00') from ex_tb15 limit 1;"""
         sql """drop catalog if exists ${catalog_name} """
@@ -695,7 +695,7 @@ suite("test_mysql_jdbc_catalog", "p0,external") {
         sql """alter catalog mysql_function_rules set properties("function_rules" = '');"""
         explain {
             sql """select tinyint_u from all_types where abs(tinyint_u) > 0 and date_trunc(`datetime`, "month") = "2013-10-01 00:00:00";"""
-            contains """QUERY: SELECT `tinyint_u`, `datetime` FROM `doris_test`.`all_types` WHERE ((abs(`tinyint_u`) > 0))"""
+            contains """QUERY: SELECT `tinyint_u`, `datetime` FROM `doris_test`.`all_types` WHERE (abs(`tinyint_u`) > 0)"""
             contains """PREDICATES: ((abs(tinyint_u[#0]) > 0) AND (date_trunc(datetime[#17], 'month') = '2013-10-01 00:00:00'))"""
         }
 
@@ -718,7 +718,7 @@ suite("test_mysql_jdbc_catalog", "p0,external") {
         sql """alter catalog mysql_function_rules set properties("function_rules" = '');"""
         explain {
             sql """select tinyint_u from all_types where to_date(`datetime`) = "2013-10-01" and abs(tinyint_u) > 0 and date_trunc(`datetime`, "month") = "2013-10-01 00:00:00";"""
-            contains """QUERY: SELECT `tinyint_u`, `datetime` FROM `doris_test`.`all_types` WHERE (date(`datetime`) = '2013-10-01') AND ((abs(`tinyint_u`) > 0))"""
+            contains """QUERY: SELECT `tinyint_u`, `datetime` FROM `doris_test`.`all_types` WHERE (date(`datetime`) = '2013-10-01') AND (abs(`tinyint_u`) > 0)"""
             contains """PREDICATES: (((to_date(datetime[#17]) = '2013-10-01') AND (abs(tinyint_u[#0]) > 0)) AND (date_trunc(datetime[#17], 'month') = '2013-10-01 00:00:00'))"""
         }
 

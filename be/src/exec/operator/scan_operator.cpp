@@ -27,7 +27,6 @@
 #include "common/global_types.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
-#include "exec/operator/es_scan_operator.h"
 #include "exec/operator/file_scan_operator.h"
 #include "exec/operator/group_commit_scan_operator.h"
 #include "exec/operator/jdbc_scan_operator.h"
@@ -1365,8 +1364,6 @@ template class ScanOperatorX<JDBCScanLocalState>;
 template class ScanLocalState<JDBCScanLocalState>;
 template class ScanOperatorX<FileScanLocalState>;
 template class ScanLocalState<FileScanLocalState>;
-template class ScanOperatorX<EsScanLocalState>;
-template class ScanLocalState<EsScanLocalState>;
 template class ScanLocalState<MetaScanLocalState>;
 template class ScanOperatorX<MetaScanLocalState>;
 template class ScanOperatorX<GroupCommitLocalState>;

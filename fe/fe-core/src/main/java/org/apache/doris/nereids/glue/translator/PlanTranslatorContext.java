@@ -29,7 +29,6 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.processor.post.TopnFilterContext;
-import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterContextV2;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -42,7 +41,6 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
@@ -110,7 +108,6 @@ public class PlanTranslatorContext {
     private final Map<RelationId, TPushAggOp> tablePushAggOp = Maps.newHashMap();
 
     private final Map<ScanNode, Set<SlotId>> statsUnknownColumnsMap = Maps.newHashMap();
-    private final RuntimeFilterContextV2 runtimeFilterV2Context;
 
     private boolean isTopMaterializeNode = true;
 
@@ -127,7 +124,6 @@ public class PlanTranslatorContext {
                         .build();
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
         this.topnFilterContext = ctx.getTopnFilterContext();
-        this.runtimeFilterV2Context = ctx.getRuntimeFilterV2Context();
         this.descTable = new DescriptorTable();
     }
 
@@ -142,7 +138,6 @@ public class PlanTranslatorContext {
                         .build();
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
         this.topnFilterContext = ctx.getTopnFilterContext();
-        this.runtimeFilterV2Context = ctx.getRuntimeFilterV2Context();
         this.descTable = descTable;
     }
 
@@ -156,8 +151,6 @@ public class PlanTranslatorContext {
         this.scanContext = ScanContext.EMPTY;
         this.translator = null;
         this.topnFilterContext = new TopnFilterContext();
-        IdGenerator<RuntimeFilterId> runtimeFilterIdGen = RuntimeFilterId.createGenerator();
-        this.runtimeFilterV2Context = new RuntimeFilterContextV2(runtimeFilterIdGen);
         this.descTable = new DescriptorTable();
     }
 
@@ -375,10 +368,6 @@ public class PlanTranslatorContext {
 
     public void setTopMaterializeNode(boolean topMaterializeNode) {
         isTopMaterializeNode = topMaterializeNode;
-    }
-
-    public RuntimeFilterContextV2 getRuntimeFilterV2Context() {
-        return runtimeFilterV2Context;
     }
 
     public Set<SlotId> getVirtualColumnIds() {

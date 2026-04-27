@@ -53,6 +53,11 @@ struct MethodBaseInner {
     Arena arena;
     DorisVector<size_t> hash_values;
 
+    /// Reusable buffer for source-side output iteration to avoid per-batch
+    /// heap allocation of std::vector<Key>. Callers use resize() + direct
+    /// element assignment, so the capacity is retained across batches.
+    std::vector<Key> output_keys;
+
     // use in join case
     DorisVector<uint32_t> bucket_nums;
 

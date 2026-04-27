@@ -253,6 +253,7 @@ under the License.
         <module>fe-catalog</module>
         <module>fe-filesystem</module>
         <module>fe-extension-spi</module>
+        <module>fe-connector</module>
         <module>fe-extension-loader</module>
         <module>fe-core</module>
         <module>hive-udf</module>
@@ -1405,6 +1406,11 @@ under the License.
                         <artifactId>okio</artifactId>
                     </exclusion>
                 </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>com.aliyun.odps</groupId>
+                <artifactId>odps-sdk-table-api</artifactId>
+                <version>${maxcompute.version}</version>
             </dependency>
             <dependency>
                 <!-- This is a dependency chain: odps-sdk-core:0.53.2-public → credentials-java:0.3.12 → com.aliyun:tea:[1.1.14,2.0.0)-->

@@ -65,7 +65,7 @@ private:
                                    "o_orderstatus")
                 << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, false),
                                    "o_totalprice")
-                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_DATE, false),
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_DATEV2, false),
                                    "o_orderdate")
                 << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_STRING, false),
                                    "o_orderpriority")
@@ -83,10 +83,16 @@ private:
         range.path = "./be/test/exec/test_data/orc_scanner/orders.orc";
         range.start_offset = 0;
         range.size = 1293;
-        auto reader = OrcReader::create_unique(params, range, "", nullptr, &cache, true);
-        auto status = reader->init_reader(&column_names, &col_name_to_block_idx, {}, false,
-                                          tuple_desc, &row_desc, nullptr, nullptr);
-        EXPECT_TRUE(status.ok());
+        auto reader = OrcReader::create_unique(params, range, "UTC", nullptr, &cache, true);
+        OrcInitContext orc_ctx;
+        orc_ctx.column_names = column_names;
+        orc_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+        orc_ctx.tuple_descriptor = tuple_desc;
+        orc_ctx.row_descriptor = &row_desc;
+        orc_ctx.params = &params;
+        orc_ctx.range = &range;
+        auto status = reader->init_reader(&orc_ctx);
+        EXPECT_TRUE(status.ok()) << "init_reader failed: " << status.to_string();
 
         // deserialize expr
         auto exprx = apache::thrift::from_json_string<TExpr>(expr);
@@ -155,7 +161,7 @@ TEST_F(OrcReaderTest, test_build_search_argument) {
             "<= 1200000), leaf-3 = (o_orderkey = 1100000), expr = (and (or leaf-0 (not leaf-1)) "
             "(or leaf-0 leaf-2) (or leaf-0 (not leaf-3)))",
             "leaf-0 = (o_orderkey in [1000000, 2000000, 3000000]), leaf-1 = (o_orderdate < "
-            "17121205), leaf-2 = (o_orderdate <= 17121205), expr = (and (or leaf-0 (not leaf-1)) "
+            "8766), leaf-2 = (o_orderdate <= 9130), expr = (and (or leaf-0 (not leaf-1)) "
             "(or leaf-0 leaf-2))",
             "leaf-0 = (o_orderkey < 2), leaf-1 = (o_orderpriority = 1-URGENT), expr = (or leaf-0 "
             "leaf-1)",
