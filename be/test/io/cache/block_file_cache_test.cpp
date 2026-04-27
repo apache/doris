@@ -8058,4 +8058,82 @@ TEST_F(BlockFileCacheTest, set_downloaded_empty_block_branch) {
     ASSERT_EQ(block.get_downloader(), 0);
 }
 
+// Reproduces OPENSOURCE-325: when fs_file_cache_storage's directory scan reads
+// a file size via std::filesystem::directory_entry::file_size(ec) and the
+// underlying syscall fails (e.g. file removed concurrently by clear/GC), the
+// returned value is (uintmax_t)-1 == UINT64_MAX. Before the fix, that bogus
+// size flowed into BlockFileCache::add_cell, which only logged a WARNING and
+// then registered the cell, polluting _files, the LRU queue's cache_size, and
+// _cur_cache_size. After the fix, add_cell rejects sizes > 1GiB and returns
+// nullptr without touching any internal state.
+TEST_F(BlockFileCacheTest, add_cell_rejects_oversized_size) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 30_mb;
+    settings.query_queue_elements = 30;
+    settings.capacity = 30_mb;
+    settings.max_file_block_size = 1_mb;
+    settings.max_query_cache_size = 30;
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    for (int i = 0; i < 100; ++i) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+
+    auto hash = io::BlockFileCache::hash("opensource_325_key");
+    io::CacheContext ctx;
+    TUniqueId qid;
+    qid.hi = 1;
+    qid.lo = 1;
+    ctx.query_id = qid;
+    ctx.cache_type = io::FileCacheType::NORMAL;
+    ReadStatistics rstats;
+    ctx.stats = &rstats;
+
+    const size_t kBadSize = std::numeric_limits<size_t>::max(); // (uintmax_t)-1
+    const size_t kOffset = 1128267776;                          // matches the JIRA report
+
+    size_t cur_cache_size_before = 0;
+    size_t normal_queue_size_before = 0;
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        cur_cache_size_before = cache._cur_cache_size;
+        normal_queue_size_before = cache.get_queue(io::FileCacheType::NORMAL).get_capacity(cache_lock);
+    }
+
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        auto* cell = cache.add_cell(hash, ctx, kOffset, kBadSize,
+                                    io::FileBlock::State::DOWNLOADED, cache_lock);
+        // Defensive guard must reject oversized blocks instead of polluting state.
+        ASSERT_EQ(cell, nullptr);
+    }
+
+    {
+        std::lock_guard<std::mutex> cache_lock(cache._mutex);
+        // _files index untouched: no entry for (hash, kOffset).
+        auto it = cache._files.find(hash);
+        if (it != cache._files.end()) {
+            ASSERT_EQ(it->second.find(kOffset), it->second.end());
+        }
+        // Global and per-queue size counters untouched (no UINT64_MAX added).
+        ASSERT_EQ(cache._cur_cache_size, cur_cache_size_before);
+        ASSERT_EQ(cache.get_queue(io::FileCacheType::NORMAL).get_capacity(cache_lock),
+                  normal_queue_size_before);
+    }
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
 } // namespace doris::io
