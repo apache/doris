@@ -96,12 +96,7 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
             long finished = queryStatistics.isSetFinishedTasksNum() ? queryStatistics.getFinishedTasksNum() : 0;
             values.add(String.valueOf(total));
             values.add(String.valueOf(finished));
-            if (total > 0) {
-                double pct = (double) finished * 100 / total;
-                values.add(String.format("%.1f%%", pct));
-            } else {
-                values.add("0.0%");
-            }
+            values.add(formatProgress(total, finished));
 
             sortedRowData.add(values);
         }
@@ -113,5 +108,17 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
         });
         result.setRows(sortedRowData);
         return result;
+    }
+
+    /**
+     * Format task progress as a percentage string with one decimal place.
+     * Visible for testing.
+     */
+    static String formatProgress(long total, long finished) {
+        if (total > 0) {
+            double pct = (double) finished * 100 / total;
+            return String.format("%.1f%%", pct);
+        }
+        return "0.0%";
     }
 }
