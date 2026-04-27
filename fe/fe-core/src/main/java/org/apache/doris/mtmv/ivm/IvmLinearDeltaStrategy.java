@@ -59,7 +59,12 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Delta rewrite strategy for simple scan-only or project-scan MVs (no aggregate).
+ * Delta rewrite strategy for MVs whose delta propagates linearly through the plan,
+ * i.e. the output delta is a direct combination of input deltas without needing to
+ * look up base-table rows or replay aggregate state. Currently covers
+ * Scan / Project / Filter / Inner Join / Union All. Aggregate MVs are handled by
+ * {@link IvmAggDeltaStrategy}; outer joins (which require null-padding lookups) are
+ * intended to live in their own strategy.
  *
  * <p>Extends {@link PlanVisitor} with return type {@link RewriteResult} that carries both
  * the rewritten plan and the propagated dml_factor Slot. The visitor injects
@@ -67,13 +72,14 @@ import java.util.Optional;
  * {@code binlog_op} column ({@code IF(binlog_op = 0, 1, -1)}) when present,
  * or as the literal
  * {@code 1} (insert-only assumption) when absent — and propagates it upward through
- * Projects and Filters. Unsupported node types cause an immediate {@link AnalysisException}.
+ * Projects, Filters, Inner Joins and Union All. Unsupported node types cause an
+ * immediate {@link AnalysisException}.
  *
  * <p>Each instance is single-use: create a fresh instance per rewrite invocation.
  *
  * @see IvmAggDeltaStrategy
  */
-public class IvmSimpleScanDeltaStrategy extends PlanVisitor<IvmSimpleScanDeltaStrategy.RewriteResult, Void>
+public class IvmLinearDeltaStrategy extends PlanVisitor<IvmLinearDeltaStrategy.RewriteResult, Void>
         implements IvmDeltaStrategy {
 
     /** Result of a visitor rewrite step: the rewritten plan plus the dml_factor Slot. */
@@ -99,7 +105,7 @@ public class IvmSimpleScanDeltaStrategy extends PlanVisitor<IvmSimpleScanDeltaSt
 
     protected final IvmDeltaRewriteContext ctx;
 
-    public IvmSimpleScanDeltaStrategy(IvmDeltaRewriteContext ctx) {
+    public IvmLinearDeltaStrategy(IvmDeltaRewriteContext ctx) {
         this.ctx = Objects.requireNonNull(ctx, "ctx can not be null");
     }
 
