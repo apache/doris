@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.datasource.iceberg.IcebergAwsAssumeRoleCredentialsProvider;
+import org.apache.doris.datasource.iceberg.IcebergS3FileIOAwsClientFactory;
 import org.apache.doris.datasource.property.storage.OSSProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
@@ -492,14 +492,14 @@ public class IcebergRestPropertiesTest {
         Assertions.assertEquals("glue", catalogProps.get("rest.signing-name"));
         Assertions.assertEquals("us-east-1", catalogProps.get("rest.signing-region"));
         Assertions.assertFalse(catalogProps.containsKey("client.factory"));
-        Assertions.assertEquals(IcebergAwsAssumeRoleCredentialsProvider.class.getName(),
-                catalogProps.get("client.credentials-provider"));
+        Assertions.assertEquals(IcebergS3FileIOAwsClientFactory.class.getName(),
+                catalogProps.get(S3FileIOProperties.CLIENT_FACTORY));
         Assertions.assertEquals("arn:aws:iam::123456789012:role/MyGlueRole",
                 catalogProps.get("client.assume-role.arn"));
-        Assertions.assertEquals("arn:aws:iam::123456789012:role/MyGlueRole",
-                catalogProps.get("client.credentials-provider.s3.role_arn"));
-        Assertions.assertEquals("us-east-1", catalogProps.get("client.credentials-provider.s3.region"));
-        Assertions.assertEquals("DEFAULT", catalogProps.get("client.credentials-provider.s3.credentials_provider_type"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider.s3.role_arn"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider.s3.region"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider.s3.credentials_provider_type"));
         Assertions.assertFalse(catalogProps.containsKey(
                 "client.credentials-provider.assume-role.arn"));
         Assertions.assertFalse(catalogProps.containsKey(
@@ -524,13 +524,13 @@ public class IcebergRestPropertiesTest {
 
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
         Assertions.assertEquals("s3tables", catalogProps.get("rest.signing-name"));
-        Assertions.assertEquals(IcebergAwsAssumeRoleCredentialsProvider.class.getName(),
-                catalogProps.get("client.credentials-provider"));
+        Assertions.assertEquals(IcebergS3FileIOAwsClientFactory.class.getName(),
+                catalogProps.get(S3FileIOProperties.CLIENT_FACTORY));
         Assertions.assertEquals("arn:aws:iam::999999999999:role/S3TablesRole",
                 catalogProps.get("client.assume-role.arn"));
-        Assertions.assertEquals("arn:aws:iam::999999999999:role/S3TablesRole",
-                catalogProps.get("client.credentials-provider.s3.role_arn"));
-        Assertions.assertEquals("us-west-2", catalogProps.get("client.credentials-provider.s3.region"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider.s3.role_arn"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider.s3.region"));
         Assertions.assertFalse(catalogProps.containsKey(
                 "client.credentials-provider.assume-role.arn"));
         Assertions.assertFalse(catalogProps.containsKey(
@@ -549,9 +549,7 @@ public class IcebergRestPropertiesTest {
         Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
 
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
-        Assertions.assertEquals(
-                "software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider",
-                catalogProps.get("client.credentials-provider"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
     }
 
     @Test
@@ -567,9 +565,7 @@ public class IcebergRestPropertiesTest {
         Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
 
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
-        Assertions.assertEquals(
-                "software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider",
-                catalogProps.get("client.credentials-provider"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
     }
 
     @Test
@@ -628,8 +624,7 @@ public class IcebergRestPropertiesTest {
 
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
         Assertions.assertEquals("external-123", catalogProps.get("client.assume-role.external-id"));
-        Assertions.assertEquals("external-123",
-                catalogProps.get("client.credentials-provider.s3.external_id"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider.s3.external_id"));
         Assertions.assertFalse(catalogProps.containsKey(
                 "client.credentials-provider.assume-role.external-id"));
     }
@@ -649,9 +644,7 @@ public class IcebergRestPropertiesTest {
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
         Assertions.assertEquals("glue", catalogProps.get("rest.signing-name"));
         Assertions.assertEquals("us-east-1", catalogProps.get("rest.signing-region"));
-        Assertions.assertEquals(
-                "software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider",
-                catalogProps.get("client.credentials-provider"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
     }
 
     @Test
@@ -706,10 +699,13 @@ public class IcebergRestPropertiesTest {
         Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
 
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
-        Assertions.assertEquals("AKIAIOSFODNN7EXAMPLE", catalogProps.get("rest.access-key-id"));
+        Assertions.assertEquals("AKIAIOSFODNN7EXAMPLE",
+                catalogProps.get("rest.access-key-id"));
         Assertions.assertEquals("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
                 catalogProps.get("rest.secret-access-key"));
         Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider.s3.access-key-id"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider.s3.secret-access-key"));
     }
 
     @Test
@@ -728,10 +724,11 @@ public class IcebergRestPropertiesTest {
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
         Assertions.assertEquals("arn:aws:iam::123456789012:role/MyRole",
                 catalogProps.get("client.assume-role.arn"));
-        Assertions.assertEquals(IcebergAwsAssumeRoleCredentialsProvider.class.getName(),
+        Assertions.assertEquals("software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider",
                 catalogProps.get("client.credentials-provider"));
-        Assertions.assertEquals("INSTANCE_PROFILE",
-                catalogProps.get("client.credentials-provider.s3.credentials_provider_type"));
+        Assertions.assertFalse(catalogProps.containsKey(
+                "client.credentials-provider.s3.credentials_provider_type"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider.s3.role_arn"));
         Assertions.assertFalse(catalogProps.containsKey(
                 "client.credentials-provider.assume-role.source-credentials-provider"));
         Assertions.assertFalse(catalogProps.containsKey(
@@ -752,7 +749,7 @@ public class IcebergRestPropertiesTest {
         Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
 
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
-        Assertions.assertTrue(catalogProps.containsKey("client.credentials-provider"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
     }
 
     @Test

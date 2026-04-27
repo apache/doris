@@ -17,12 +17,12 @@
 
 package org.apache.doris.datasource.property.common;
 
-import org.apache.doris.datasource.iceberg.IcebergAwsAssumeRoleCredentialsProvider;
+import org.apache.doris.datasource.iceberg.IcebergS3FileIOAwsClientFactory;
 import org.apache.doris.datasource.property.storage.S3Properties;
 
 import org.apache.commons.lang3.StringUtils;
-import org.apache.iceberg.aws.AwsClientProperties;
 import org.apache.iceberg.aws.AwsProperties;
+import org.apache.iceberg.aws.s3.S3FileIOProperties;
 
 import java.util.Map;
 
@@ -42,18 +42,12 @@ public final class IcebergAwsAssumeRoleProperties {
         if (StringUtils.isBlank(s3Properties.getS3IAMRole())) {
             return;
         }
-        String providerPrefix = AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER + ".";
-        target.put(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER,
-                IcebergAwsAssumeRoleCredentialsProvider.class.getName());
-        target.put(providerPrefix + S3Properties.REGION, s3Properties.getRegion());
-        target.put(providerPrefix + S3Properties.ROLE_ARN, s3Properties.getS3IAMRole());
-        target.put(providerPrefix + S3Properties.CREDENTIALS_PROVIDER_TYPE,
-                s3Properties.getAwsCredentialsProviderMode().getMode());
+        target.putIfAbsent(S3FileIOProperties.CLIENT_FACTORY,
+                IcebergS3FileIOAwsClientFactory.class.getName());
         target.put("aws.region", s3Properties.getRegion());
         target.put(AwsProperties.CLIENT_ASSUME_ROLE_REGION, s3Properties.getRegion());
         target.put(AwsProperties.CLIENT_ASSUME_ROLE_ARN, s3Properties.getS3IAMRole());
         if (StringUtils.isNotBlank(s3Properties.getS3ExternalId())) {
-            target.put(providerPrefix + S3Properties.EXTERNAL_ID, s3Properties.getS3ExternalId());
             target.put(AwsProperties.CLIENT_ASSUME_ROLE_EXTERNAL_ID, s3Properties.getS3ExternalId());
         }
     }

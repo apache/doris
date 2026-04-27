@@ -18,11 +18,12 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.iceberg.IcebergAwsAssumeRoleCredentialsProvider;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergS3FileIOAwsClientFactory;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.catalog.Catalog;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -86,14 +87,14 @@ public class IcebergS3TablesMetaStorePropertiesTest {
         buildS3CatalogProperties(metaProps, catalogProps);
 
         Assertions.assertFalse(catalogProps.containsKey("client.factory"));
-        Assertions.assertEquals(IcebergAwsAssumeRoleCredentialsProvider.class.getName(),
-                catalogProps.get("client.credentials-provider"));
+        Assertions.assertEquals(IcebergS3FileIOAwsClientFactory.class.getName(),
+                catalogProps.get(S3FileIOProperties.CLIENT_FACTORY));
         Assertions.assertEquals("arn:aws:iam::123456789012:role/S3TablesRole", catalogProps.get("client.assume-role.arn"));
         Assertions.assertEquals("us-east-1", catalogProps.get("client.assume-role.region"));
-        Assertions.assertEquals("arn:aws:iam::123456789012:role/S3TablesRole",
-                catalogProps.get("client.credentials-provider.s3.role_arn"));
-        Assertions.assertEquals("us-east-1", catalogProps.get("client.credentials-provider.s3.region"));
-        Assertions.assertEquals("DEFAULT", catalogProps.get("client.credentials-provider.s3.credentials_provider_type"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider.s3.role_arn"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider.s3.region"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider.s3.credentials_provider_type"));
         Assertions.assertFalse(catalogProps.containsKey(
                 "client.credentials-provider.assume-role.arn"));
         Assertions.assertFalse(catalogProps.containsKey(
@@ -123,8 +124,7 @@ public class IcebergS3TablesMetaStorePropertiesTest {
 
         Assertions.assertEquals("arn:aws:iam::999999999999:role/MyRole", catalogProps.get("client.assume-role.arn"));
         Assertions.assertEquals("external-id-123", catalogProps.get("client.assume-role.external-id"));
-        Assertions.assertEquals("external-id-123",
-                catalogProps.get("client.credentials-provider.s3.external_id"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider.s3.external_id"));
         Assertions.assertFalse(catalogProps.containsKey(
                 "client.credentials-provider.assume-role.external-id"));
     }
@@ -147,9 +147,9 @@ public class IcebergS3TablesMetaStorePropertiesTest {
         Map<String, String> catalogProps = new HashMap<>();
         buildS3CatalogProperties(metaProps, catalogProps);
 
-        Assertions.assertTrue(catalogProps.containsKey("client.credentials-provider"));
-        Assertions.assertEquals("AKID", catalogProps.get("client.credentials-provider.s3.access-key-id"));
-        Assertions.assertEquals("SECRET", catalogProps.get("client.credentials-provider.s3.secret-access-key"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
+        Assertions.assertEquals("AKID", catalogProps.get(S3FileIOProperties.ACCESS_KEY_ID));
+        Assertions.assertEquals("SECRET", catalogProps.get(S3FileIOProperties.SECRET_ACCESS_KEY));
         Assertions.assertNull(catalogProps.get("client.assume-role.arn"));
     }
 
@@ -172,8 +172,7 @@ public class IcebergS3TablesMetaStorePropertiesTest {
         buildS3CatalogProperties(metaProps, catalogProps);
 
         Assertions.assertEquals("us-west-2", catalogProps.get("client.region"));
-        Assertions.assertEquals("software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider",
-                catalogProps.get("client.credentials-provider"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
     }
 
     @Test
@@ -194,6 +193,7 @@ public class IcebergS3TablesMetaStorePropertiesTest {
 
         Assertions.assertEquals("software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider",
                 catalogProps.get("client.credentials-provider"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider.s3.credentials_provider_type"));
     }
 
     @Test
@@ -214,6 +214,7 @@ public class IcebergS3TablesMetaStorePropertiesTest {
 
         Assertions.assertEquals("software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider",
                 catalogProps.get("client.credentials-provider"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider.s3.credentials_provider_type"));
     }
 
     @Test
@@ -235,12 +236,10 @@ public class IcebergS3TablesMetaStorePropertiesTest {
         buildS3CatalogProperties(metaProps, catalogProps);
 
         // Access key should take priority
-        Assertions.assertEquals("AKIAIOSFODNN7EXAMPLE", catalogProps.get("client.credentials-provider.s3.access-key-id"));
+        Assertions.assertEquals("AKIAIOSFODNN7EXAMPLE", catalogProps.get(S3FileIOProperties.ACCESS_KEY_ID));
         Assertions.assertEquals("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-                catalogProps.get("client.credentials-provider.s3.secret-access-key"));
-        // Should use CustomAwsCredentialsProvider, not DefaultCredentialsProvider
-        Assertions.assertTrue(catalogProps.get("client.credentials-provider")
-                .contains("CustomAwsCredentialsProvider"));
+                catalogProps.get(S3FileIOProperties.SECRET_ACCESS_KEY));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
     }
 
     @Test
@@ -264,10 +263,12 @@ public class IcebergS3TablesMetaStorePropertiesTest {
         Assertions.assertEquals("arn:aws:iam::123456789012:role/S3TablesRole",
                 catalogProps.get("client.assume-role.arn"));
         Assertions.assertFalse(catalogProps.containsKey("client.factory"));
-        Assertions.assertEquals(IcebergAwsAssumeRoleCredentialsProvider.class.getName(),
-                catalogProps.get("client.credentials-provider"));
-        Assertions.assertEquals("INSTANCE_PROFILE",
-                catalogProps.get("client.credentials-provider.s3.credentials_provider_type"));
+        Assertions.assertEquals(IcebergS3FileIOAwsClientFactory.class.getName(),
+                catalogProps.get(S3FileIOProperties.CLIENT_FACTORY));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
+        Assertions.assertFalse(catalogProps.containsKey(
+                "client.credentials-provider.s3.credentials_provider_type"));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider.s3.role_arn"));
         Assertions.assertFalse(catalogProps.containsKey(
                 "client.credentials-provider.assume-role.source-credentials-provider"));
         Assertions.assertFalse(catalogProps.containsKey(
@@ -293,8 +294,7 @@ public class IcebergS3TablesMetaStorePropertiesTest {
         Map<String, String> catalogProps = new HashMap<>();
         buildS3CatalogProperties(metaProps, catalogProps);
 
-        // Should use DEFAULT provider since no credentials are provided
-        Assertions.assertEquals("software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider",
-                catalogProps.get("client.credentials-provider"));
+        // Let AWS SDK use its default provider chain when no credentials are provided.
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
     }
 }

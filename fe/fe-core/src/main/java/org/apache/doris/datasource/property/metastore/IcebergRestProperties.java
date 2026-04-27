@@ -342,10 +342,10 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             icebergRestCatalogProperties.put("rest.signing-region", icebergRestSigningRegion);
 
             if (shouldUseS3PropertiesForRestCredentials()) {
-                IcebergAwsClientCredentialsProperties.putRestCredentialProviderProperties(
+                IcebergAwsClientCredentialsProperties.putCredentialProviderProperties(
                         icebergRestCatalogProperties, s3Properties);
             } else {
-                IcebergAwsClientCredentialsProperties.putRestCredentialProviderProperties(
+                IcebergAwsClientCredentialsProperties.putCredentialProviderProperties(
                         icebergRestCatalogProperties, icebergRestAccessKeyId,
                         icebergRestSecretAccessKey, icebergRestSessionToken, icebergRestCredentialsProviderMode);
             }

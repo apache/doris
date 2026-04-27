@@ -24,20 +24,20 @@ import org.apache.iceberg.aws.AwsClientProperties;
 import org.apache.iceberg.aws.AwsProperties;
 
 import java.util.Map;
-import java.util.Objects;
 
 public final class IcebergAwsClientCredentialsProperties {
 
     private IcebergAwsClientCredentialsProperties() {}
 
-    public static void putRestCredentialProviderProperties(Map<String, String> target, S3Properties s3Properties) {
+    public static void putCredentialProviderProperties(Map<String, String> target, S3Properties s3Properties) {
         switch (getCredentialType(s3Properties)) {
             case EXPLICIT:
-                putRestExplicitCredentials(target, s3Properties.getAccessKey(), s3Properties.getSecretKey(),
+                putExplicitRestCredentials(target, s3Properties.getAccessKey(), s3Properties.getSecretKey(),
                         s3Properties.getSessionToken());
                 return;
             case ASSUME_ROLE:
                 IcebergAwsAssumeRoleProperties.putAssumeRoleProperties(target, s3Properties);
+                putCredentialsProvider(target, s3Properties.getAwsCredentialsProviderMode());
                 return;
             case PROVIDER_CHAIN:
                 putCredentialsProvider(target, s3Properties.getAwsCredentialsProviderMode());
@@ -47,31 +47,13 @@ public final class IcebergAwsClientCredentialsProperties {
         }
     }
 
-    public static void putRestCredentialProviderProperties(Map<String, String> target,
+    public static void putCredentialProviderProperties(Map<String, String> target,
             String accessKey, String secretKey, String sessionToken, AwsCredentialsProviderMode providerMode) {
         if (StringUtils.isNotBlank(accessKey) && StringUtils.isNotBlank(secretKey)) {
-            putRestExplicitCredentials(target, accessKey, secretKey, sessionToken);
+            putExplicitRestCredentials(target, accessKey, secretKey, sessionToken);
             return;
         }
         putCredentialsProvider(target, providerMode);
-    }
-
-    public static void putS3TablesCredentialProviderProperties(Map<String, String> target, S3Properties s3Properties,
-            String explicitCredentialsProviderClassName) {
-        switch (getCredentialType(s3Properties)) {
-            case EXPLICIT:
-                putS3TablesExplicitCredentials(target, s3Properties.getAccessKey(), s3Properties.getSecretKey(),
-                        s3Properties.getSessionToken(), explicitCredentialsProviderClassName);
-                return;
-            case ASSUME_ROLE:
-                IcebergAwsAssumeRoleProperties.putAssumeRoleProperties(target, s3Properties);
-                return;
-            case PROVIDER_CHAIN:
-                putCredentialsProvider(target, s3Properties.getAwsCredentialsProviderMode());
-                return;
-            default:
-                throw new IllegalStateException("Unsupported Iceberg AWS credential type");
-        }
     }
 
     private static CredentialType getCredentialType(S3Properties s3Properties) {
@@ -85,7 +67,7 @@ public final class IcebergAwsClientCredentialsProperties {
         return CredentialType.PROVIDER_CHAIN;
     }
 
-    private static void putRestExplicitCredentials(Map<String, String> target,
+    private static void putExplicitRestCredentials(Map<String, String> target,
             String accessKey, String secretKey, String sessionToken) {
         target.put(AwsProperties.REST_ACCESS_KEY_ID, accessKey);
         target.put(AwsProperties.REST_SECRET_ACCESS_KEY, secretKey);
@@ -94,22 +76,11 @@ public final class IcebergAwsClientCredentialsProperties {
         }
     }
 
-    private static void putS3TablesExplicitCredentials(Map<String, String> target,
-            String accessKey, String secretKey, String sessionToken,
-            String explicitCredentialsProviderClassName) {
-        Objects.requireNonNull(explicitCredentialsProviderClassName,
-                "explicitCredentialsProviderClassName is required");
-        target.put(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER, explicitCredentialsProviderClassName);
-        target.put("client.credentials-provider.s3.access-key-id", accessKey);
-        target.put("client.credentials-provider.s3.secret-access-key", secretKey);
-        if (StringUtils.isNotBlank(sessionToken)) {
-            target.put("client.credentials-provider.s3.session-token", sessionToken);
-        }
-    }
-
     private static void putCredentialsProvider(Map<String, String> target,
             AwsCredentialsProviderMode providerMode) {
-        Objects.requireNonNull(providerMode, "providerMode is required");
+        if (providerMode == null || providerMode == AwsCredentialsProviderMode.DEFAULT) {
+            return;
+        }
         target.put(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER,
                 AwsCredentialsProviderFactory.getV2ClassName(providerMode));
     }
