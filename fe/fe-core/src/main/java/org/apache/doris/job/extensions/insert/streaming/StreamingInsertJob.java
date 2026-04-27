@@ -685,6 +685,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         //update metric
         if (MetricRepo.isInit && !isReplay) {
             MetricRepo.COUNTER_STREAMING_JOB_TOTAL_ROWS.increase(attachment.getScannedRows());
+            MetricRepo.COUNTER_STREAMING_JOB_FILTER_ROWS.increase(attachment.getFilteredRows());
             MetricRepo.COUNTER_STREAMING_JOB_LOAD_BYTES.increase(attachment.getLoadBytes());
         }
     }
@@ -703,6 +704,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         //update metric
         if (MetricRepo.isInit && !isReplay) {
             MetricRepo.COUNTER_STREAMING_JOB_TOTAL_ROWS.update(attachment.getScannedRows());
+            MetricRepo.COUNTER_STREAMING_JOB_FILTER_ROWS.update(attachment.getFilteredRows());
             MetricRepo.COUNTER_STREAMING_JOB_LOAD_BYTES.update(attachment.getLoadBytes());
         }
     }
