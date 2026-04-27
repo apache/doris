@@ -18,6 +18,7 @@
 #include <arrow/array/builder_base.h>
 #include <gtest/gtest.h>
 
+#include "common/exception.h"
 #include "core/column/column_complex.h"
 #include "core/data_type/common_data_type_serder_test.h"
 #include "core/data_type/data_type_bitmap.h"
@@ -55,6 +56,29 @@ TEST(BitmapSerdeTest, writeOneCellToJsonb) {
     BitmapValue data = column_bitmap->get_element(1);
     EXPECT_EQ(data.to_string(), "123");
     std::cout << "test write/read_one_cell_to_jsonb success" << std::endl;
+}
+
+TEST(BitmapSerdeTest, readOneCellFromJsonbRejectsMalformedBitmap) {
+    auto bitmap_serde = std::make_shared<DataTypeBitMapSerDe>(1);
+    auto column_bitmap = ColumnBitmap::create();
+    JsonbWriterT<JsonbOutStream> jsonb_writer;
+    jsonb_writer.writeStartObject();
+    jsonb_writer.writeKey(static_cast<JsonbKeyValue::keyid_type>(0));
+    jsonb_writer.writeStartBinary();
+    char malformed = static_cast<char>(BitmapTypeCode::SET_V2);
+    jsonb_writer.writeBinary(&malformed, 1);
+    jsonb_writer.writeEndBinary();
+    jsonb_writer.writeEndObject();
+
+    const JsonbDocument* pdoc = nullptr;
+    auto st = JsonbDocument::checkAndCreateDocument(jsonb_writer.getOutput()->getBuffer(),
+                                                    jsonb_writer.getOutput()->getSize(), &pdoc);
+    ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
+    const JsonbDocument& doc = *pdoc;
+    for (auto it = doc->begin(); it != doc->end(); ++it) {
+        EXPECT_THROW(bitmap_serde->read_one_cell_from_jsonb(*column_bitmap, it->value()),
+                     Exception);
+    }
 }
 
 TEST(BitmapSerdeTest, writeColumnToPb) {

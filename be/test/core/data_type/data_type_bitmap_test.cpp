@@ -21,9 +21,13 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include <cstring>
 #include <iostream>
+#include <string>
+#include <vector>
 
 #include "agent/be_exec_version_manager.h"
+#include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/data_type/common_data_type_serder_test.h"
@@ -156,6 +160,40 @@ TEST_P(DataTypeBitMapTest, SerializeDeserializeAsStreamTest) {
     }
     std::cout << "finish serialize deserialize as stream test" << std::endl;
 }
+
+TEST(DataTypeBitMapTest, DeserializeRejectsTrailingGarbage) {
+    DataTypeBitMap bitmap_type;
+    auto column = ColumnBitmap::create();
+    column->insert_value(BitmapValue(123));
+
+    auto size = bitmap_type.get_uncompressed_serialized_bytes(
+            *column, BeExecVersionManager::get_newest_version());
+    std::vector<char> buf(size + 1);
+    auto* result =
+            bitmap_type.serialize(*column, buf.data(), BeExecVersionManager::get_newest_version());
+    ASSERT_EQ(result, buf.data() + size);
+
+    size_t bad_bitmap_size = column->get_element(0).getSizeInBytes() + 1;
+    char* meta_ptr = buf.data() + sizeof(bool) + sizeof(size_t) + sizeof(size_t);
+    memcpy(meta_ptr, &bad_bitmap_size, sizeof(bad_bitmap_size));
+
+    auto column2 = bitmap_type.create_column();
+    EXPECT_THROW(bitmap_type.deserialize(buf.data(), &column2,
+                                         BeExecVersionManager::get_newest_version()),
+                 Exception);
+}
+
+TEST(DataTypeBitMapTest, DeserializeAsStreamRejectsMalformedBitmap) {
+    std::string data;
+    data.push_back(1);
+    data.push_back(1);
+    data.push_back(static_cast<char>(BitmapTypeCode::SET_V2));
+    StringRef ref(data.data(), data.size());
+    BufferReadable buffer_readable(ref);
+    BitmapValue bitmap;
+    EXPECT_THROW(DataTypeBitMap::deserialize_as_stream(bitmap, buffer_readable), Exception);
+}
+
 // sh run-be-ut.sh --run --filter=Params/DataTypeBitMapTest.*
 // need rows_value to cover bitmap all type: empty/single/set/bitmap
 INSTANTIATE_TEST_SUITE_P(Params, DataTypeBitMapTest, ::testing::Values(0, 1, 31, 1024));

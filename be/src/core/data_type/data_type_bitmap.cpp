@@ -20,6 +20,7 @@
 #include <utility>
 
 #include "agent/be_exec_version_manager.h"
+#include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_complex.h"
@@ -91,7 +92,10 @@ const char* DataTypeBitMap::deserialize(const char* buf, MutableColumnPtr* colum
     const char* data_ptr = buf + sizeof(size_t) * real_have_saved_num;
     for (size_t i = 0; i < real_have_saved_num; ++i) {
         size_t bitmap_size = unaligned_load<size_t>(&meta_ptr[i]);
-        data[i].deserialize(data_ptr, bitmap_size);
+        size_t consumed = 0;
+        if (!data[i].deserialize(data_ptr, bitmap_size, &consumed) || consumed != bitmap_size) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "deserialize BITMAP column failed");
+        }
         data_ptr += bitmap_size;
     }
     return data_ptr;
@@ -116,6 +120,9 @@ void DataTypeBitMap::serialize_as_stream(const BitmapValue& cvalue, BufferWritab
 void DataTypeBitMap::deserialize_as_stream(BitmapValue& value, BufferReadable& buf) {
     StringRef ref;
     buf.read_binary(ref);
-    value.deserialize(ref.data, ref.size);
+    size_t consumed = 0;
+    if (!value.deserialize(ref.data, ref.size, &consumed) || consumed != ref.size) {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "deserialize BITMAP stream failed");
+    }
 }
 } // namespace doris

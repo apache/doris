@@ -17,6 +17,9 @@
 #pragma once
 #include <parallel_hashmap/phmap.h>
 
+#include <cstring>
+#include <string>
+
 #include "common/cast_set.h"
 #include "core/string_ref.h"
 #include "core/value/bitmap_value.h"
@@ -51,6 +54,17 @@ public:
         size_t type_size = sizeof(T);
         memcpy(result, *src, type_size);
         *src += type_size;
+    }
+
+    template <typename T>
+    static bool read_from_safe(const char** src, const char* end, T* result) {
+        size_t type_size = sizeof(T);
+        if (static_cast<size_t>(end - *src) < type_size) {
+            return false;
+        }
+        memcpy(result, *src, type_size);
+        *src += type_size;
+        return true;
     }
 };
 
@@ -122,11 +136,40 @@ inline void Helper::read_from<VecDateTimeValue>(const char** src, VecDateTimeVal
 }
 
 template <>
+inline bool Helper::read_from_safe<VecDateTimeValue>(const char** src, const char* end,
+                                                     VecDateTimeValue* result) {
+    if (static_cast<size_t>(end - *src) <
+        DATETIME_PACKED_TIME_BYTE_SIZE + DATETIME_TYPE_BYTE_SIZE) {
+        return false;
+    }
+    result->from_packed_time(*(int64_t*)(*src));
+    *src += DATETIME_PACKED_TIME_BYTE_SIZE;
+    if (*(int*)(*src) == TIME_DATE) {
+        result->cast_to_date();
+    }
+    *src += DATETIME_TYPE_BYTE_SIZE;
+    return true;
+}
+
+template <>
 inline void Helper::read_from<DecimalV2Value>(const char** src, DecimalV2Value* result) {
     __int128 v = 0;
     memcpy(&v, *src, DECIMAL_BYTE_SIZE);
     *src += DECIMAL_BYTE_SIZE;
     *result = DecimalV2Value(v);
+}
+
+template <>
+inline bool Helper::read_from_safe<DecimalV2Value>(const char** src, const char* end,
+                                                   DecimalV2Value* result) {
+    if (static_cast<size_t>(end - *src) < DECIMAL_BYTE_SIZE) {
+        return false;
+    }
+    __int128 v = 0;
+    memcpy(&v, *src, DECIMAL_BYTE_SIZE);
+    *src += DECIMAL_BYTE_SIZE;
+    *result = DecimalV2Value(v);
+    return true;
 }
 
 template <>
@@ -138,11 +181,49 @@ inline void Helper::read_from<StringRef>(const char** src, StringRef* result) {
 }
 
 template <>
+inline bool Helper::read_from_safe<StringRef>(const char** src, const char* end,
+                                              StringRef* result) {
+    if (static_cast<size_t>(end - *src) < sizeof(int32_t)) {
+        return false;
+    }
+    int32_t length = *(int32_t*)(*src);
+    if (length < 0) {
+        return false;
+    }
+    *src += sizeof(int32_t);
+    if (static_cast<size_t>(end - *src) < static_cast<size_t>(length)) {
+        return false;
+    }
+    *result = StringRef((char*)*src, length);
+    *src += length;
+    return true;
+}
+
+template <>
 inline void Helper::read_from<std::string>(const char** src, std::string* result) {
     int32_t length = *(int32_t*)(*src);
     *src += 4;
     *result = std::string((char*)*src, length);
     *src += length;
+}
+
+template <>
+inline bool Helper::read_from_safe<std::string>(const char** src, const char* end,
+                                                std::string* result) {
+    if (static_cast<size_t>(end - *src) < sizeof(int32_t)) {
+        return false;
+    }
+    int32_t length = *(int32_t*)(*src);
+    if (length < 0) {
+        return false;
+    }
+    *src += sizeof(int32_t);
+    if (static_cast<size_t>(end - *src) < static_cast<size_t>(length)) {
+        return false;
+    }
+    *result = std::string((char*)*src, length);
+    *src += length;
+    return true;
 }
 // read_from end
 } // namespace detail
@@ -156,7 +237,10 @@ struct BitmapIntersect {
 public:
     BitmapIntersect() = default;
 
-    explicit BitmapIntersect(const char* src) { deserialize(src); }
+    BitmapIntersect(const char* src, size_t size) {
+        bool res = deserialize(src, size);
+        DCHECK(res);
+    }
 
     void add_key(const T key) {
         BitmapValue empty_bitmap;
@@ -224,17 +308,39 @@ public:
         }
     }
 
-    void deserialize(const char* src) {
+    bool deserialize(const char* src, size_t size) {
         const char* reader = src;
-        int32_t bitmaps_size = *(int32_t*)reader;
-        reader += 4;
+        const char* end = src + size;
+        if (static_cast<size_t>(end - reader) < sizeof(int32_t)) {
+            return false;
+        }
+        int32_t bitmaps_size = 0;
+        memcpy(&bitmaps_size, reader, sizeof(bitmaps_size));
+        reader += sizeof(bitmaps_size);
+        if (bitmaps_size < 0) {
+            return false;
+        }
+        std::map<T, BitmapValue> bitmaps;
         for (int32_t i = 0; i < bitmaps_size; i++) {
             T key;
-            detail::Helper::read_from(&reader, &key);
-            BitmapValue bitmap(reader);
-            reader += bitmap.getSizeInBytes();
-            _bitmaps[key] = bitmap;
+            if (!detail::Helper::read_from_safe(&reader, end, &key)) {
+                return false;
+            }
+            BitmapValue bitmap;
+            size_t consumed = 0;
+            if (!bitmap.deserialize(reader, end - reader, &consumed)) {
+                return false;
+            }
+            reader += consumed;
+            if (!bitmaps.try_emplace(key, std::move(bitmap)).second) {
+                return false;
+            }
         }
+        if (reader != end) {
+            return false;
+        }
+        _bitmaps.swap(bitmaps);
+        return true;
     }
 
 protected:
@@ -246,7 +352,10 @@ struct BitmapIntersect<std::string_view> {
 public:
     BitmapIntersect() = default;
 
-    explicit BitmapIntersect(const char* src) { deserialize(src); }
+    BitmapIntersect(const char* src, size_t size) {
+        bool res = deserialize(src, size);
+        DCHECK(res);
+    }
 
     void add_key(const std::string_view key) {
         BitmapValue empty_bitmap;
@@ -311,17 +420,39 @@ public:
         }
     }
 
-    void deserialize(const char* src) {
+    bool deserialize(const char* src, size_t size) {
         const char* reader = src;
-        int32_t bitmaps_size = *(int32_t*)reader;
-        reader += 4;
+        const char* end = src + size;
+        if (static_cast<size_t>(end - reader) < sizeof(int32_t)) {
+            return false;
+        }
+        int32_t bitmaps_size = 0;
+        memcpy(&bitmaps_size, reader, sizeof(bitmaps_size));
+        reader += sizeof(bitmaps_size);
+        if (bitmaps_size < 0) {
+            return false;
+        }
+        phmap::flat_hash_map<std::string, BitmapValue> bitmaps;
         for (int32_t i = 0; i < bitmaps_size; i++) {
             std::string key;
-            detail::Helper::read_from(&reader, &key);
-            BitmapValue bitmap(reader);
-            reader += bitmap.getSizeInBytes();
-            _bitmaps[key] = bitmap;
+            if (!detail::Helper::read_from_safe(&reader, end, &key)) {
+                return false;
+            }
+            BitmapValue bitmap;
+            size_t consumed = 0;
+            if (!bitmap.deserialize(reader, end - reader, &consumed)) {
+                return false;
+            }
+            reader += consumed;
+            if (!bitmaps.try_emplace(std::move(key), std::move(bitmap)).second) {
+                return false;
+            }
         }
+        if (reader != end) {
+            return false;
+        }
+        _bitmaps.swap(bitmaps);
+        return true;
     }
 
 protected:

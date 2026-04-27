@@ -616,18 +616,26 @@ public:
         return roaring::Roaring(r);
     }
 
-    static Roaring64Map readSafe(const char* buf, size_t maxbytes) {
+    static Roaring64Map readSafe(const char* buf, size_t maxbytes, size_t* consumed = nullptr) {
         if (maxbytes < 1) {
             throw std::runtime_error("ran out of bytes");
         }
 
+        size_t original_maxbytes = maxbytes;
         Roaring64Map result;
         bool is_v1 = BitmapTypeCode::BITMAP32 == *buf || BitmapTypeCode::BITMAP64 == *buf;
         bool is_bitmap32 = BitmapTypeCode::BITMAP32 == *buf || BitmapTypeCode::BITMAP32_V2 == *buf;
         bool is_bitmap64 = BitmapTypeCode::BITMAP64 == *buf || BitmapTypeCode::BITMAP64_V2 == *buf;
         if (is_bitmap32) {
             roaring::Roaring read = read_roaring_safe(buf + 1, maxbytes - 1, is_v1);
+            size_t roaring_size = read.getSizeInBytes(is_v1);
+            if (roaring_size > maxbytes - 1) {
+                throw std::runtime_error("bitmap32 roaring payload exceeds input length");
+            }
             result.emplaceOrInsert(0, std::move(read));
+            if (consumed != nullptr) {
+                *consumed = 1 + roaring_size;
+            }
             return result;
         }
 
@@ -664,6 +672,9 @@ public:
             buf += roaring_size;
             maxbytes -= roaring_size;
             result.emplaceOrInsert(key, std::move(read_var));
+        }
+        if (consumed != nullptr) {
+            *consumed = original_maxbytes - maxbytes;
         }
         return result;
     }
@@ -949,8 +960,8 @@ public:
             : _sv(value), _bitmap(nullptr), _type(SINGLE), _is_shared(false) {}
 
     // Construct a bitmap from serialized data.
-    explicit BitmapValue(const char* src) : _is_shared(false) {
-        bool res = deserialize(src);
+    explicit BitmapValue(const char* src, size_t size) : _is_shared(false) {
+        bool res = deserialize(src, size);
         DCHECK(res);
     }
 
@@ -2003,29 +2014,37 @@ public:
 
     // Deserialize a bitmap value from `src`.
     // Return false if `src` begins with unknown type code or the bounded input is truncated.
-    bool deserialize(const char* src) {
-        return _deserialize(src, std::numeric_limits<size_t>::max());
+    bool deserialize(const Slice& src, size_t* consumed = nullptr) {
+        return deserialize(src.data, src.size, consumed);
     }
 
-    bool deserialize(const Slice& src) { return deserialize(src.data, src.size); }
-
-    bool deserialize(const char* src, size_t size) { return _deserialize(src, size); }
+    bool deserialize(const char* src, size_t size, size_t* consumed = nullptr) {
+        return _deserialize(src, size, consumed);
+    }
 
 private:
-    bool _deserialize(const char* src, size_t size) {
+    bool _deserialize(const char* src, size_t size, size_t* consumed) {
+        auto fail = [this]() {
+            reset();
+            return false;
+        };
+
         if (size < 1) {
             LOG(ERROR) << "Bitmap value is empty";
-            return false;
+            return fail();
         }
 
+        reset();
+        size_t consumed_size = 0;
         switch (*src) {
         case BitmapTypeCode::EMPTY:
             _type = EMPTY;
+            consumed_size = 1;
             break;
         case BitmapTypeCode::SINGLE32:
             if (size < 1 + sizeof(uint32_t)) {
                 LOG(ERROR) << "Bitmap SINGLE32 length is invalid, length: " << size;
-                return false;
+                return fail();
             }
             _type = SINGLE;
             _sv = decode_fixed32_le(reinterpret_cast<const uint8_t*>(src + 1));
@@ -2033,11 +2052,12 @@ private:
                 _type = SET;
                 _set.insert(_sv);
             }
+            consumed_size = 1 + sizeof(uint32_t);
             break;
         case BitmapTypeCode::SINGLE64:
             if (size < 1 + sizeof(uint64_t)) {
                 LOG(ERROR) << "Bitmap SINGLE64 length is invalid, length: " << size;
-                return false;
+                return fail();
             }
             _type = SINGLE;
             _sv = decode_fixed64_le(reinterpret_cast<const uint8_t*>(src + 1));
@@ -2045,6 +2065,7 @@ private:
                 _type = SET;
                 _set.insert(_sv);
             }
+            consumed_size = 1 + sizeof(uint64_t);
             break;
         case BitmapTypeCode::BITMAP32:
         case BitmapTypeCode::BITMAP64:
@@ -2053,31 +2074,27 @@ private:
             _type = BITMAP;
             _is_shared = false;
             try {
-                if (size == std::numeric_limits<size_t>::max()) {
-                    _bitmap =
-                            std::make_shared<detail::Roaring64Map>(detail::Roaring64Map::read(src));
-                } else {
-                    _bitmap = std::make_shared<detail::Roaring64Map>(
-                            detail::Roaring64Map::readSafe(src, size));
-                }
+                _bitmap = std::make_shared<detail::Roaring64Map>(
+                        detail::Roaring64Map::readSafe(src, size, &consumed_size));
             } catch (const std::runtime_error& e) {
                 LOG(ERROR) << "Decode roaring bitmap failed, " << e.what();
-                return false;
+                return fail();
             }
             break;
         case BitmapTypeCode::SET: {
             if (size < 2) {
                 LOG(ERROR) << "Bitmap SET length is invalid, length: " << size;
-                return false;
+                return fail();
             }
             _type = SET;
             ++src;
             uint8_t count = *src;
             ++src;
+            consumed_size = 2 + static_cast<size_t>(count) * sizeof(uint64_t);
             if (size < 2 + static_cast<size_t>(count) * sizeof(uint64_t)) {
                 LOG(ERROR) << "Bitmap SET length is invalid, length: " << size
                            << ", count: " << static_cast<int>(count);
-                return false;
+                return fail();
             }
             if (count > SET_TYPE_THRESHOLD) {
                 throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -2106,7 +2123,7 @@ private:
         case BitmapTypeCode::SET_V2: {
             if (size < 1 + sizeof(uint32_t)) {
                 LOG(ERROR) << "Bitmap SET_V2 length is invalid, length: " << size;
-                return false;
+                return fail();
             }
             uint32_t count = 0;
             memcpy(&count, src + 1, sizeof(uint32_t));
@@ -2114,7 +2131,7 @@ private:
                 if ((std::numeric_limits<size_t>::max() - 1 - sizeof(uint32_t)) / sizeof(uint64_t) <
                     count) {
                     LOG(ERROR) << "Bitmap SET_V2 length is overflow, size: " << count;
-                    return false;
+                    return fail();
                 }
             }
             size_t expected_size =
@@ -2122,8 +2139,9 @@ private:
             if (expected_size > size) {
                 LOG(ERROR) << "Bitmap SET_V2 length is invalid, length: " << size
                            << ", size: " << count;
-                return false;
+                return fail();
             }
+            consumed_size = expected_size;
             src += sizeof(uint32_t) + 1;
 
             if (!config::enable_set_in_bitmap_value || count > SET_TYPE_THRESHOLD) {
@@ -2153,7 +2171,10 @@ private:
             LOG(ERROR) << "BitmapTypeCode invalid, should between: " << BitmapTypeCode::EMPTY
                        << " and " << BitmapTypeCode::BITMAP64 << " actual is "
                        << static_cast<int>(*src);
-            return false;
+            return fail();
+        }
+        if (consumed != nullptr) {
+            *consumed = consumed_size;
         }
         return true;
     }
