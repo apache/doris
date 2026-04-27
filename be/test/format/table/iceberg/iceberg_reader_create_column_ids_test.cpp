@@ -665,8 +665,8 @@ protected:
         // Create IcebergParquetReader (IS-A ParquetReader via CRTP mixin)
 
         auto iceberg_reader = std::make_unique<IcebergParquetReader>(
-                nullptr /* kv_cache */, &profile, scan_params, scan_range, nullptr /* io_ctx */,
-                &runtime_state, cache.get());
+                &profile, &runtime_state, scan_params, scan_range, nullptr /* io_ctx */,
+                cache.get(), nullptr /* kv_cache */);
         if (!iceberg_reader) {
             return {nullptr, nullptr};
         }
@@ -711,8 +711,8 @@ protected:
 
         // Create IcebergOrcReader (IS-A OrcReader via CRTP mixin)
         auto iceberg_reader = std::make_unique<IcebergOrcReader>(
-                nullptr /* kv_cache */, &profile, &runtime_state, scan_params, scan_range,
-                nullptr /* io_ctx */, cache.get());
+                &profile, &runtime_state, scan_params, scan_range, nullptr /* io_ctx */,
+                cache.get(), nullptr /* kv_cache */);
         if (!iceberg_reader) {
             return {nullptr, nullptr};
         }

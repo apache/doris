@@ -309,7 +309,7 @@ TEST_F(NativeReaderWriterTest, round_trip_native_file) {
     TFileRangeDesc scan_range;
     scan_range.__set_path(file_path);
     scan_range.__set_file_type(TFileType::FILE_LOCAL);
-    NativeReader reader_impl(nullptr, scan_params, scan_range, nullptr, &state);
+    NativeReader reader_impl(nullptr, &state, scan_params, scan_range, nullptr);
 
     Block dst_block;
     size_t read_rows = 0;
@@ -382,7 +382,7 @@ TEST_F(NativeReaderWriterTest, round_trip_empty_and_single_row) {
         TFileRangeDesc scan_range;
         scan_range.__set_path(file_path);
         scan_range.__set_file_type(TFileType::FILE_LOCAL);
-        NativeReader reader_impl(nullptr, scan_params, scan_range, nullptr, &state);
+        NativeReader reader_impl(nullptr, &state, scan_params, scan_range, nullptr);
 
         Block dst_block;
         size_t read_rows = 0;
@@ -426,7 +426,7 @@ TEST_F(NativeReaderWriterTest, round_trip_empty_and_single_row) {
         TFileRangeDesc scan_range;
         scan_range.__set_path(file_path);
         scan_range.__set_file_type(TFileType::FILE_LOCAL);
-        NativeReader reader_impl(nullptr, scan_params, scan_range, nullptr, &state);
+        NativeReader reader_impl(nullptr, &state, scan_params, scan_range, nullptr);
 
         Block dst_block;
         size_t read_rows = 0;
@@ -509,7 +509,7 @@ TEST_F(NativeReaderWriterTest, round_trip_native_file_large_rows) {
     TFileRangeDesc scan_range;
     scan_range.__set_path(file_path);
     scan_range.__set_file_type(TFileType::FILE_LOCAL);
-    NativeReader reader_impl(nullptr, scan_params, scan_range, nullptr, &state);
+    NativeReader reader_impl(nullptr, &state, scan_params, scan_range, nullptr);
 
     // Read back in multiple blocks and merge into a single result block.
     Block merged_block;
@@ -619,7 +619,7 @@ TEST_F(NativeReaderWriterTest, non_nullable_columns_forced_nullable) {
     TFileRangeDesc scan_range;
     scan_range.__set_path(file_path);
     scan_range.__set_file_type(TFileType::FILE_LOCAL);
-    NativeReader reader_impl(nullptr, scan_params, scan_range, nullptr, &state);
+    NativeReader reader_impl(nullptr, &state, scan_params, scan_range, nullptr);
 
     Block dst_block;
     size_t read_rows = 0;
@@ -707,7 +707,7 @@ TEST_F(NativeReaderWriterTest, transformer_writes_header_and_reader_handles_it) 
     TFileRangeDesc scan_range;
     scan_range.__set_path(file_path);
     scan_range.__set_file_type(TFileType::FILE_LOCAL);
-    NativeReader reader_impl(nullptr, scan_params, scan_range, nullptr, &state);
+    NativeReader reader_impl(nullptr, &state, scan_params, scan_range, nullptr);
 
     Block dst_block;
     size_t read_rows = 0;
@@ -754,7 +754,7 @@ TEST_F(NativeReaderWriterTest, get_columns_and_parsed_schema) {
     TFileRangeDesc scan_range;
     scan_range.__set_path(file_path);
     scan_range.__set_file_type(TFileType::FILE_LOCAL);
-    NativeReader reader_impl(nullptr, scan_params, scan_range, nullptr, &state);
+    NativeReader reader_impl(nullptr, &state, scan_params, scan_range, nullptr);
 
     std::unordered_map<std::string, DataTypePtr> name_to_type;
     st = reader_impl.get_columns(&name_to_type);
@@ -1226,7 +1226,7 @@ TEST_F(NativeReaderWriterTest, read_all_types_from_pregenerated_file) {
     TFileRangeDesc scan_range;
     scan_range.__set_path(file_path);
     scan_range.__set_file_type(TFileType::FILE_LOCAL);
-    NativeReader reader_impl(nullptr, scan_params, scan_range, nullptr, &state);
+    NativeReader reader_impl(nullptr, &state, scan_params, scan_range, nullptr);
 
     Block dst_block;
     size_t read_rows = 0;
@@ -1300,7 +1300,7 @@ TEST_F(NativeReaderWriterTest, round_trip_all_types_single_row) {
     TFileRangeDesc scan_range;
     scan_range.__set_path(file_path);
     scan_range.__set_file_type(TFileType::FILE_LOCAL);
-    NativeReader reader_impl(nullptr, scan_params, scan_range, nullptr, &state);
+    NativeReader reader_impl(nullptr, &state, scan_params, scan_range, nullptr);
 
     Block dst_block;
     size_t read_rows = 0;

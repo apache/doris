@@ -269,7 +269,7 @@ public:
             scan_range.size = local_file_reader->size();
         }
 
-        p_reader = ParquetReader::create_unique(nullptr, scan_params, scan_range, nullptr, &state,
+        p_reader = ParquetReader::create_unique(nullptr, &state, scan_params, scan_range, nullptr,
                                                 nullptr);
         p_reader->set_file_reader(local_file_reader);
         colname_to_slot_id.emplace("int64_col", 2);
@@ -322,8 +322,8 @@ public:
         scan_range.size = local_file_reader->size();
 
         RuntimeState local_state;
-        auto local_reader = ParquetReader::create_unique(nullptr, scan_params, scan_range, nullptr,
-                                                         &local_state, nullptr);
+        auto local_reader = ParquetReader::create_unique(nullptr, &local_state, scan_params,
+                                                         scan_range, nullptr, nullptr);
         local_reader->set_file_reader(local_file_reader);
         ParquetInitContext pq_ctx2;
         pq_ctx2.column_names = column_names;

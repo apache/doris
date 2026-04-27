@@ -155,10 +155,6 @@ public:
               const TFileRangeDesc& range, io::IOContext* io_ctx,
               FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true);
 
-    OrcReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
-              const TFileRangeDesc& range, std::shared_ptr<io::IOContext> io_ctx_holder,
-              FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true);
-
     ~OrcReader() override = default;
 
     // Override to build table_info_node from ORC file type using by_orc_name.
@@ -237,12 +233,6 @@ public:
     void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) override {
         _condition_cache_ctx = std::move(ctx);
     }
-
-private:
-    OrcReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
-              const TFileRangeDesc& range, io::IOContext* io_ctx,
-              std::shared_ptr<io::IOContext> io_ctx_holder, FileMetaCache* meta_cache,
-              bool enable_lazy_mat);
 
 protected:
     bool supports_count_pushdown() const override { return true; }
@@ -782,7 +772,6 @@ private:
     std::shared_ptr<io::FileSystem> _file_system;
 
     io::IOContext* _io_ctx = nullptr;
-    std::shared_ptr<io::IOContext> _io_ctx_holder;
     const TupleDescriptor* _tuple_descriptor = nullptr;
     const RowDescriptor* _row_descriptor = nullptr;
     bool _enable_lazy_mat = true;

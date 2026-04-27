@@ -169,7 +169,7 @@ void PlainCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* 
     }
 }
 
-CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
+CsvReader::CsvReader(RuntimeProfile* profile, RuntimeState* state, ScannerCounter* counter,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
                      const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx,
                      std::shared_ptr<io::IOContext> io_ctx_holder)

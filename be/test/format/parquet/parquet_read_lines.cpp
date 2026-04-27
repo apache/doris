@@ -131,7 +131,7 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
     }
     RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
-    auto p_reader = new ParquetReader(nullptr, scan_params, scan_range, nullptr, &runtime_state);
+    auto p_reader = new ParquetReader(nullptr, &runtime_state, scan_params, scan_range, nullptr);
 
     auto iter = std::make_shared<RowIdColumnIteratorV2>(IdManager::ID_VERSION,
                                                         BackendOptions::get_backend_id(), 10);

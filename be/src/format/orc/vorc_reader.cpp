@@ -182,19 +182,6 @@ void StripeStreamInputStream::read(void* buf, uint64_t length, uint64_t offset) 
 OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
                      io::IOContext* io_ctx, FileMetaCache* meta_cache, bool enable_lazy_mat)
-        : OrcReader(profile, state, params, range, io_ctx, nullptr, meta_cache, enable_lazy_mat) {}
-
-OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
-                     const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                     std::shared_ptr<io::IOContext> io_ctx_holder, FileMetaCache* meta_cache,
-                     bool enable_lazy_mat)
-        : OrcReader(profile, state, params, range, io_ctx_holder ? io_ctx_holder.get() : nullptr,
-                    std::move(io_ctx_holder), meta_cache, enable_lazy_mat) {}
-
-OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
-                     const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                     io::IOContext* io_ctx, std::shared_ptr<io::IOContext> io_ctx_holder,
-                     FileMetaCache* meta_cache, bool enable_lazy_mat)
         : _profile(profile),
           _state(state),
           _scan_params(params),
@@ -203,7 +190,6 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _range_size(range.size),
           _ctz(state->timezone()),
           _io_ctx(io_ctx),
-          _io_ctx_holder(std::move(io_ctx_holder)),
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(state->query_options().enable_orc_filter_by_min_max),
           _dict_cols_has_converted(false) {
@@ -282,16 +268,9 @@ Status OrcReader::_create_file_reader() {
                 _scan_range.__isset.modification_time ? _scan_range.modification_time : 0;
         io::FileReaderOptions reader_options =
                 FileFactory::get_reader_options(_state, _file_description);
-        io::FileReaderSPtr inner_reader;
-        if (_io_ctx_holder != nullptr) {
-            inner_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
-                    _profile, _system_properties, _file_description, reader_options,
-                    io::DelegateReader::AccessMode::RANDOM, _io_ctx_holder));
-        } else {
-            inner_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
-                    _profile, _system_properties, _file_description, reader_options,
-                    io::DelegateReader::AccessMode::RANDOM, _io_ctx));
-        }
+        io::FileReaderSPtr inner_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
+                _profile, _system_properties, _file_description, reader_options,
+                io::DelegateReader::AccessMode::RANDOM, _io_ctx));
         _file_input_stream = std::make_unique<ORCFileInputStream>(
                 _scan_range.path, std::move(inner_reader), _io_ctx, _profile,
                 _orc_once_max_read_bytes, _orc_max_merge_distance_bytes);

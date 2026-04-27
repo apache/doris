@@ -30,8 +30,9 @@
 
 namespace doris {
 
-NativeReader::NativeReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                           const TFileRangeDesc& range, io::IOContext* io_ctx, RuntimeState* state)
+NativeReader::NativeReader(RuntimeProfile* profile, RuntimeState* state,
+                           const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                           io::IOContext* io_ctx)
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),

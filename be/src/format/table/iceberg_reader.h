@@ -69,10 +69,10 @@ class IcebergParquetReader final : public IcebergReaderMixin<ParquetReader> {
 public:
     ENABLE_FACTORY_CREATOR(IcebergParquetReader);
 
-    IcebergParquetReader(ShardedKVCache* kv_cache, RuntimeProfile* profile,
+    IcebergParquetReader(RuntimeProfile* profile, RuntimeState* state,
                          const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                         io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache)
-            : IcebergReaderMixin<ParquetReader>(kv_cache, profile, params, range, io_ctx, state,
+                         io::IOContext* io_ctx, FileMetaCache* meta_cache, ShardedKVCache* kv_cache)
+            : IcebergReaderMixin<ParquetReader>(kv_cache, profile, state, params, range, io_ctx,
                                                 meta_cache) {}
 
     void set_delete_rows() final {
@@ -86,9 +86,9 @@ protected:
 
     std::unique_ptr<GenericReader> _create_equality_reader(
             const TFileRangeDesc& delete_desc) final {
-        auto reader = ParquetReader::create_unique(this->get_profile(), this->get_scan_params(),
-                                                   delete_desc, this->get_io_ctx(),
-                                                   this->get_state(), this->_meta_cache);
+        auto reader = ParquetReader::create_unique(this->get_profile(), this->get_state(),
+                                                   this->get_scan_params(), delete_desc,
+                                                   this->get_io_ctx(), this->_meta_cache);
         reader->use_delete_file_batch_size();
         return reader;
     }
@@ -106,9 +106,9 @@ class IcebergOrcReader final : public IcebergReaderMixin<OrcReader> {
 public:
     ENABLE_FACTORY_CREATOR(IcebergOrcReader);
 
-    IcebergOrcReader(ShardedKVCache* kv_cache, RuntimeProfile* profile, RuntimeState* state,
+    IcebergOrcReader(RuntimeProfile* profile, RuntimeState* state,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                     io::IOContext* io_ctx, FileMetaCache* meta_cache)
+                     io::IOContext* io_ctx, FileMetaCache* meta_cache, ShardedKVCache* kv_cache)
             : IcebergReaderMixin<OrcReader>(kv_cache, profile, state, params, range, io_ctx,
                                             meta_cache) {}
 

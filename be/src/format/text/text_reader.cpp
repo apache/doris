@@ -110,10 +110,10 @@ void HiveTextFieldSplitter::_split_field_multi_char(const Slice& line,
     process_value_func(data, start, size - start, _trimming_char, splitted_values);
 }
 
-TextReader::TextReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
+TextReader::TextReader(RuntimeProfile* profile, RuntimeState* state, ScannerCounter* counter,
                        const TFileScanRangeParams& params, const TFileRangeDesc& range,
                        const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx)
-        : CsvReader(state, profile, counter, params, range, file_slot_descs, io_ctx) {}
+        : CsvReader(profile, state, counter, params, range, file_slot_descs, io_ctx) {}
 
 Status TextReader::_init_options() {
     // get column_separator and line_delimiter

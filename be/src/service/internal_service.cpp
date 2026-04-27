@@ -823,8 +823,9 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         // might asynchronouslly access the profile
         std::unique_ptr<RuntimeProfile> profile =
                 std::make_unique<RuntimeProfile>("FetchTableSchema");
-        std::unique_ptr<GenericReader> reader(nullptr);
+        // io_ctx must outlive reader because reader holds a raw pointer to it.
         auto io_ctx = std::make_shared<io::IOContext>();
+        std::unique_ptr<GenericReader> reader(nullptr);
         auto file_cache_statis = std::make_shared<io::FileCacheStatistics>();
         auto file_reader_stats = std::make_shared<io::FileReaderStats>();
         io_ctx->file_cache_stats = file_cache_statis.get();
@@ -841,30 +842,31 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
         case TFileFormatType::FORMAT_CSV_LZOP:
         case TFileFormatType::FORMAT_CSV_DEFLATE: {
-            reader = CsvReader::create_unique(nullptr, profile.get(), nullptr, params, range,
+            reader = CsvReader::create_unique(profile.get(), &state, nullptr, params, range,
                                               file_slots, io_ctx.get(), io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_TEXT: {
-            reader = TextReader::create_unique(nullptr, profile.get(), nullptr, params, range,
+            reader = TextReader::create_unique(profile.get(), &state, nullptr, params, range,
                                                file_slots, io_ctx.get());
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {
-            reader = ParquetReader::create_unique(profile.get(), params, range, io_ctx, &state);
+            reader = ParquetReader::create_unique(profile.get(), &state, params, range,
+                                                  io_ctx.get());
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
-            reader = OrcReader::create_unique(profile.get(), &state, params, range, io_ctx);
+            reader = OrcReader::create_unique(profile.get(), &state, params, range, io_ctx.get());
             break;
         }
         case TFileFormatType::FORMAT_NATIVE: {
-            reader = NativeReader::create_unique(profile.get(), params, range, io_ctx.get(),
-                                                 nullptr);
+            reader =
+                    NativeReader::create_unique(profile.get(), &state, params, range, io_ctx.get());
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
-            reader = NewJsonReader::create_unique(profile.get(), params, range, file_slots,
+            reader = NewJsonReader::create_unique(profile.get(), &state, params, range, file_slots,
                                                   io_ctx.get(), io_ctx);
             break;
         }

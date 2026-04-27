@@ -34,8 +34,8 @@ public:
     ENABLE_FACTORY_CREATOR(PaimonOrcReader);
     PaimonOrcReader(RuntimeProfile* profile, RuntimeState* state,
                     const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                    ShardedKVCache* kv_cache, io::IOContext* io_ctx,
-                    FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true)
+                    io::IOContext* io_ctx, FileMetaCache* meta_cache, bool enable_lazy_mat,
+                    ShardedKVCache* kv_cache)
             : OrcReader(profile, state, params, range, io_ctx, meta_cache, enable_lazy_mat),
               _kv_cache(kv_cache) {
         _init_paimon_profile();
@@ -66,11 +66,11 @@ private:
 class PaimonParquetReader final : public ParquetReader, public TableSchemaChangeHelper {
 public:
     ENABLE_FACTORY_CREATOR(PaimonParquetReader);
-    PaimonParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                        const TFileRangeDesc& range, ShardedKVCache* kv_cache,
-                        io::IOContext* io_ctx, RuntimeState* state,
-                        FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true)
-            : ParquetReader(profile, params, range, io_ctx, state, meta_cache, enable_lazy_mat),
+    PaimonParquetReader(RuntimeProfile* profile, RuntimeState* state,
+                        const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                        io::IOContext* io_ctx, FileMetaCache* meta_cache, bool enable_lazy_mat,
+                        ShardedKVCache* kv_cache)
+            : ParquetReader(profile, state, params, range, io_ctx, meta_cache, enable_lazy_mat),
               _kv_cache(kv_cache) {
         _init_paimon_profile();
     }

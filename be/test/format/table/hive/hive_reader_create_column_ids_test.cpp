@@ -634,8 +634,8 @@ protected:
         RuntimeProfile profile("test_profile");
 
         auto hive_reader = std::make_unique<HiveParquetReader>(
-                &profile, scan_params, scan_range, nullptr /* io_ctx */, &runtime_state,
-                nullptr /* is_file_slot */, cache.get());
+                &profile, &runtime_state, scan_params, scan_range, nullptr /* io_ctx */,
+                cache.get(), true /* enable_lazy_mat */, nullptr /* is_file_slot */);
         if (!hive_reader) {
             return {nullptr, nullptr};
         }
@@ -670,9 +670,9 @@ protected:
         scan_range.path = test_file;
         RuntimeProfile profile("test_profile");
 
-        auto hive_reader = std::make_unique<HiveOrcReader>(&profile, &runtime_state, scan_params,
-                                                           scan_range, nullptr /* io_ctx */,
-                                                           nullptr /* is_file_slot */, cache.get());
+        auto hive_reader = std::make_unique<HiveOrcReader>(
+                &profile, &runtime_state, scan_params, scan_range, nullptr /* io_ctx */,
+                cache.get(), true /* enable_lazy_mat */, nullptr /* is_file_slot */);
         if (!hive_reader) {
             return {nullptr, nullptr};
         }

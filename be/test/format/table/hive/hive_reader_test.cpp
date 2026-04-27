@@ -514,9 +514,9 @@ TEST_F(HiveReaderTest, read_hive_parquet_file) {
     RuntimeProfile profile("test_profile");
 
     // Create HiveParquetReader (directly inherits ParquetReader)
-    auto hive_reader = std::make_unique<HiveParquetReader>(&profile, scan_params, scan_range,
-                                                           nullptr /* io_ctx */, &runtime_state,
-                                                           nullptr /* is_file_slot */, cache.get());
+    auto hive_reader = std::make_unique<HiveParquetReader>(
+            &profile, &runtime_state, scan_params, scan_range, nullptr /* io_ctx */, cache.get(),
+            true /* enable_lazy_mat */, nullptr /* is_file_slot */);
 
     // Set file reader for the hive reader (inherited from ParquetReader)
     hive_reader->set_file_reader(file_reader);
@@ -646,9 +646,9 @@ TEST_F(HiveReaderTest, read_hive_rrc_file) {
     RuntimeProfile profile("test_profile");
 
     // Create HiveOrcReader (directly inherits OrcReader)
-    auto hive_reader = std::make_unique<HiveOrcReader>(&profile, &runtime_state, scan_params,
-                                                       scan_range, nullptr /* io_ctx */,
-                                                       nullptr /* is_file_slot */, cache.get());
+    auto hive_reader = std::make_unique<HiveOrcReader>(
+            &profile, &runtime_state, scan_params, scan_range, nullptr /* io_ctx */, cache.get(),
+            true /* enable_lazy_mat */, nullptr /* is_file_slot */);
 
     // Create complex struct types using helper function
     DataTypePtr coordinates_struct_type, address_struct_type, phone_struct_type;

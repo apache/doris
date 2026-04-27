@@ -368,8 +368,8 @@ ColumnIdResult IcebergParquetReader::_create_column_ids(const FieldDescriptor* f
 // ============================================================================
 Status IcebergParquetReader::_read_position_delete_file(const TFileRangeDesc* delete_range,
                                                         DeleteFile* position_delete) {
-    ParquetReader parquet_delete_reader(get_profile(), get_scan_params(), *delete_range,
-                                        get_io_ctx(), get_state(), _meta_cache);
+    ParquetReader parquet_delete_reader(get_profile(), get_state(), get_scan_params(),
+                                        *delete_range, get_io_ctx(), _meta_cache);
     parquet_delete_reader.use_delete_file_batch_size();
     // The delete file range has size=-1 (read whole file). We must disable
     // row group filtering before init; otherwise _do_init_reader returns EndOfFile

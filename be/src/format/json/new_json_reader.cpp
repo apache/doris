@@ -75,7 +75,7 @@ enum class FileCachePolicy : uint8_t;
 namespace doris {
 using namespace ErrorCode;
 
-NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
+NewJsonReader::NewJsonReader(RuntimeProfile* profile, RuntimeState* state, ScannerCounter* counter,
                              const TFileScanRangeParams& params, const TFileRangeDesc& range,
                              const std::vector<SlotDescriptor*>& file_slot_descs, bool* scanner_eof,
                              io::IOContext* io_ctx, std::shared_ptr<io::IOContext> io_ctx_holder)
@@ -114,12 +114,12 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
     _init_file_description();
 }
 
-NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                             const TFileRangeDesc& range,
+NewJsonReader::NewJsonReader(RuntimeProfile* profile, RuntimeState* state,
+                             const TFileScanRangeParams& params, const TFileRangeDesc& range,
                              const std::vector<SlotDescriptor*>& file_slot_descs,
                              io::IOContext* io_ctx, std::shared_ptr<io::IOContext> io_ctx_holder)
         : _vhandle_json_callback(nullptr),
-          _state(nullptr),
+          _state(state),
           _profile(profile),
           _params(params),
           _range(range),

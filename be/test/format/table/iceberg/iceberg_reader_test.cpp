@@ -87,8 +87,8 @@ protected:
         scan_range->path = mixed_position_delete_file();
 
         auto parquet_reader =
-                ParquetReader::create_unique(profile, *scan_params, *scan_range,
-                                             nullptr /* io_ctx */, runtime_state, cache.get());
+                ParquetReader::create_unique(profile, runtime_state, *scan_params, *scan_range,
+                                             nullptr /* io_ctx */, cache.get());
         EXPECT_NE(parquet_reader, nullptr);
         if (parquet_reader == nullptr) {
             return nullptr;
@@ -690,8 +690,8 @@ TEST_F(IcebergReaderTest, read_iceberg_parquet_file) {
 
     // Create IcebergParquetReader (IS-A ParquetReader via CRTP mixin)
     auto iceberg_reader = std::make_unique<IcebergParquetReader>(
-            nullptr /* kv_cache */, &profile, scan_params, scan_range, nullptr /* io_ctx */,
-            &runtime_state, cache.get());
+            &profile, &runtime_state, scan_params, scan_range, nullptr /* io_ctx */, cache.get(),
+            nullptr /* kv_cache */);
     ASSERT_NE(iceberg_reader, nullptr);
 
     // Set file reader for the iceberg reader (it IS the ParquetReader)
@@ -825,9 +825,9 @@ TEST_F(IcebergReaderTest, read_iceberg_orc_file) {
     RuntimeProfile profile("test_profile");
 
     // Create IcebergOrcReader (IS-A OrcReader via CRTP mixin)
-    auto iceberg_reader = std::make_unique<IcebergOrcReader>(
-            nullptr /* kv_cache */, &profile, &runtime_state, scan_params, scan_range,
-            nullptr /* io_ctx */, cache.get());
+    auto iceberg_reader = std::make_unique<IcebergOrcReader>(&profile, &runtime_state, scan_params,
+                                                             scan_range, nullptr /* io_ctx */,
+                                                             cache.get(), nullptr /* kv_cache */);
     ASSERT_NE(iceberg_reader, nullptr);
 
     // Create complex struct types using helper function

@@ -28,10 +28,11 @@ namespace doris {
 class HudiParquetReader final : public ParquetReader, public TableSchemaChangeHelper {
 public:
     ENABLE_FACTORY_CREATOR(HudiParquetReader);
-    HudiParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                      const TFileRangeDesc& range, io::IOContext* io_ctx, RuntimeState* state,
-                      FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true)
-            : ParquetReader(profile, params, range, io_ctx, state, meta_cache, enable_lazy_mat) {}
+    HudiParquetReader(RuntimeProfile* profile, RuntimeState* state,
+                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                      io::IOContext* io_ctx, FileMetaCache* meta_cache = nullptr,
+                      bool enable_lazy_mat = true)
+            : ParquetReader(profile, state, params, range, io_ctx, meta_cache, enable_lazy_mat) {}
     ~HudiParquetReader() final = default;
 
 protected:

@@ -48,8 +48,8 @@ class NativeReader : public TableFormatReader {
 public:
     ENABLE_FACTORY_CREATOR(NativeReader);
 
-    NativeReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                 const TFileRangeDesc& range, io::IOContext* io_ctx, RuntimeState* state);
+    NativeReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
+                 const TFileRangeDesc& range, io::IOContext* io_ctx);
 
     ~NativeReader() override;
 

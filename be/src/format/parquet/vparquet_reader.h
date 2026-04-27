@@ -117,14 +117,9 @@ public:
         int64_t bloom_filter_read_time = 0;
     };
 
-    ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                  const TFileRangeDesc& range, io::IOContext* io_ctx, RuntimeState* state,
+    ParquetReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
+                  const TFileRangeDesc& range, io::IOContext* io_ctx,
                   FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true);
-
-    ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                  const TFileRangeDesc& range, std::shared_ptr<io::IOContext> io_ctx_holder,
-                  RuntimeState* state, FileMetaCache* meta_cache = nullptr,
-                  bool enable_lazy_mat = true);
 
     ~ParquetReader() override;
 #ifdef BE_TEST
@@ -208,12 +203,6 @@ public:
 
 protected:
     void _collect_profile_before_close() override;
-
-private:
-    ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                  const TFileRangeDesc& range, io::IOContext* io_ctx,
-                  std::shared_ptr<io::IOContext> io_ctx_holder, RuntimeState* state,
-                  FileMetaCache* meta_cache, bool enable_lazy_mat);
 
 protected:
     // Core block reading implementation
@@ -408,7 +397,6 @@ private:
     ParquetProfile _parquet_profile;
     bool _closed = false;
     io::IOContext* _io_ctx = nullptr;
-    std::shared_ptr<io::IOContext> _io_ctx_holder;
     RuntimeState* _state = nullptr;
     const TupleDescriptor* _tuple_descriptor = nullptr;
     const RowDescriptor* _row_descriptor = nullptr;

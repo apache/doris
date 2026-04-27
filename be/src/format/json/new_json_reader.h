@@ -73,12 +73,12 @@ class NewJsonReader : public TableFormatReader {
     ENABLE_FACTORY_CREATOR(NewJsonReader);
 
 public:
-    NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
+    NewJsonReader(RuntimeProfile* profile, RuntimeState* state, ScannerCounter* counter,
                   const TFileScanRangeParams& params, const TFileRangeDesc& range,
                   const std::vector<SlotDescriptor*>& file_slot_descs, bool* scanner_eof,
                   io::IOContext* io_ctx, std::shared_ptr<io::IOContext> io_ctx_holder = nullptr);
 
-    NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+    NewJsonReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
                   const TFileRangeDesc& range, const std::vector<SlotDescriptor*>& file_slot_descs,
                   io::IOContext* io_ctx, std::shared_ptr<io::IOContext> io_ctx_holder = nullptr);
     ~NewJsonReader() override = default;

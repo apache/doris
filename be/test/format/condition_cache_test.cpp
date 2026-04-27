@@ -39,8 +39,8 @@ std::unique_ptr<ParquetReader> create_test_parquet_reader(RuntimeProfile* profil
                                                           RuntimeState* state,
                                                           const TFileScanRangeParams& params,
                                                           const TFileRangeDesc& range) {
-    return ParquetReader::create_unique(profile, params, range,
-                                        static_cast<io::IOContext*>(nullptr), state);
+    return ParquetReader::create_unique(profile, state, params, range,
+                                        static_cast<io::IOContext*>(nullptr));
 }
 
 std::unique_ptr<OrcReader> create_test_orc_reader(RuntimeProfile* profile, RuntimeState* state,

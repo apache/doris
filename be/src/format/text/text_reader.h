@@ -53,7 +53,7 @@ class TextReader : public CsvReader {
     ENABLE_FACTORY_CREATOR(TextReader);
 
 public:
-    TextReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
+    TextReader(RuntimeProfile* profile, RuntimeState* state, ScannerCounter* counter,
                const TFileScanRangeParams& params, const TFileRangeDesc& range,
                const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx);
 

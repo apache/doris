@@ -103,8 +103,8 @@ public:
         auto q_options = TQueryOptions();
         q_options.__set_enable_adjust_conjunct_order_by_cost(true);
         RuntimeState runtime_state = RuntimeState(q_options, TQueryGlobals());
-        auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, nullptr,
-                                                        &runtime_state, &cache, enable_lazy);
+        auto p_reader = std::make_unique<ParquetReader>(nullptr, &runtime_state, scan_params,
+                                                        scan_range, nullptr, &cache, enable_lazy);
         p_reader->set_file_reader(reader);
         runtime_state.set_desc_tbl(desc_tbl);
         auto conjuncts = create_predicates(desc_tbl, &runtime_state);
@@ -203,8 +203,8 @@ public:
         auto q_options = TQueryOptions();
         q_options.__set_enable_adjust_conjunct_order_by_cost(true);
         RuntimeState runtime_state = RuntimeState(q_options, TQueryGlobals());
-        auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, nullptr,
-                                                        &runtime_state, &cache, enable_lazy);
+        auto p_reader = std::make_unique<ParquetReader>(nullptr, &runtime_state, scan_params,
+                                                        scan_range, nullptr, &cache, enable_lazy);
         p_reader->set_file_reader(reader);
         runtime_state.set_desc_tbl(desc_tbl);
 
@@ -350,7 +350,7 @@ TEST_F(ParquetReaderTest, normal) {
     RuntimeState runtime_state((TQueryOptions()), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
     auto p_reader =
-            new ParquetReader(nullptr, scan_params, scan_range, nullptr, &runtime_state, &cache);
+            new ParquetReader(nullptr, &runtime_state, scan_params, scan_range, nullptr, &cache);
     p_reader->set_file_reader(reader);
 
     ParquetInitContext pq_ctx;
@@ -413,8 +413,8 @@ TEST_F(ParquetReaderTest, uuid_varbinary) {
     }
     RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
-    auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, nullptr,
-                                                    &runtime_state, &cache);
+    auto p_reader = std::make_unique<ParquetReader>(nullptr, &runtime_state, scan_params,
+                                                    scan_range, nullptr, &cache);
     p_reader->set_file_reader(reader);
 
     ParquetInitContext pq_ctx;
@@ -485,8 +485,8 @@ TEST_F(ParquetReaderTest, varbinary_varbinary) {
     }
     RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
-    auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, nullptr,
-                                                    &runtime_state, &cache);
+    auto p_reader = std::make_unique<ParquetReader>(nullptr, &runtime_state, scan_params,
+                                                    scan_range, nullptr, &cache);
     p_reader->set_file_reader(reader);
 
     ParquetInitContext pq_ctx;
@@ -559,8 +559,8 @@ TEST_F(ParquetReaderTest, varbinary_string) {
     }
     RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
-    auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, nullptr,
-                                                    &runtime_state, &cache);
+    auto p_reader = std::make_unique<ParquetReader>(nullptr, &runtime_state, scan_params,
+                                                    scan_range, nullptr, &cache);
     p_reader->set_file_reader(reader);
 
     ParquetInitContext pq_ctx;
@@ -633,8 +633,8 @@ TEST_F(ParquetReaderTest, varbinary_string2) {
     }
     RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
     runtime_state.set_desc_tbl(desc_tbl);
-    auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, nullptr,
-                                                    &runtime_state, &cache);
+    auto p_reader = std::make_unique<ParquetReader>(nullptr, &runtime_state, scan_params,
+                                                    scan_range, nullptr, &cache);
     p_reader->set_file_reader(reader);
 
     ParquetInitContext pq_ctx;
@@ -962,8 +962,8 @@ TEST_F(ParquetReaderTest, only_partition_column) {
     auto q_options = TQueryOptions();
     q_options.__set_enable_adjust_conjunct_order_by_cost(true);
     RuntimeState runtime_state = RuntimeState(q_options, TQueryGlobals());
-    auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, nullptr,
-                                                    &runtime_state, &cache);
+    auto p_reader = std::make_unique<ParquetReader>(nullptr, &runtime_state, scan_params,
+                                                    scan_range, nullptr, &cache);
     p_reader->set_file_reader(reader);
     runtime_state.set_desc_tbl(desc_tbl);
 

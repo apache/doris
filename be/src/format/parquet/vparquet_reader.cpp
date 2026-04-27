@@ -80,23 +80,9 @@ class Block;
 
 namespace doris {
 
-ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                             const TFileRangeDesc& range, io::IOContext* io_ctx,
-                             RuntimeState* state, FileMetaCache* meta_cache, bool enable_lazy_mat)
-        : ParquetReader(profile, params, range, io_ctx, nullptr, state, meta_cache,
-                        enable_lazy_mat) {}
-
-ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                             const TFileRangeDesc& range,
-                             std::shared_ptr<io::IOContext> io_ctx_holder, RuntimeState* state,
-                             FileMetaCache* meta_cache, bool enable_lazy_mat)
-        : ParquetReader(profile, params, range, io_ctx_holder ? io_ctx_holder.get() : nullptr,
-                        std::move(io_ctx_holder), state, meta_cache, enable_lazy_mat) {}
-
-ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                             const TFileRangeDesc& range, io::IOContext* io_ctx,
-                             std::shared_ptr<io::IOContext> io_ctx_holder, RuntimeState* state,
-                             FileMetaCache* meta_cache, bool enable_lazy_mat)
+ParquetReader::ParquetReader(RuntimeProfile* profile, RuntimeState* state,
+                             const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                             io::IOContext* io_ctx, FileMetaCache* meta_cache, bool enable_lazy_mat)
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
@@ -104,7 +90,6 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
           _range_size(range.size),
           _ctz(&state->timezone_obj()),
           _io_ctx(io_ctx),
-          _io_ctx_holder(std::move(io_ctx_holder)),
           _state(state),
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(state->query_options().enable_parquet_filter_by_min_max),
