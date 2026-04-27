@@ -1043,6 +1043,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 TableNameInfoUtils.fromDb(db, table.getName()),
                 !isForceDrop && !isReplay);
         db.unregisterTable(table.getId());
+        // Fix DynamicPartitionScheduler.runtimeInfos leak on DROP TABLE.
+        Env.getCurrentEnv().getDynamicPartitionScheduler().removeRuntimeInfo(table.getId());
         StopWatch watch = StopWatch.createStarted();
         Env.getCurrentRecycleBin().recycleTable(db.getId(), table, isReplay, isForceDrop, recycleTime);
         watch.stop();
