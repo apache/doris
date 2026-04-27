@@ -90,8 +90,12 @@ public class IcebergS3TablesMetaStorePropertiesTest {
                 catalogProps.get("client.credentials-provider"));
         Assertions.assertEquals("arn:aws:iam::123456789012:role/S3TablesRole", catalogProps.get("client.assume-role.arn"));
         Assertions.assertEquals("us-east-1", catalogProps.get("client.assume-role.region"));
-        Assertions.assertEquals("DEFAULT",
-                catalogProps.get("client.credentials-provider.assume-role.source-provider-type"));
+        Assertions.assertEquals("arn:aws:iam::123456789012:role/S3TablesRole",
+                catalogProps.get("client.credentials-provider.client.assume-role.arn"));
+        Assertions.assertEquals("software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider",
+                catalogProps.get("client.credentials-provider.client.credentials-provider"));
+        Assertions.assertFalse(catalogProps.containsKey(
+                "client.credentials-provider.assume-role.source-provider-type"));
     }
 
     @Test
@@ -114,7 +118,7 @@ public class IcebergS3TablesMetaStorePropertiesTest {
         Assertions.assertEquals("arn:aws:iam::999999999999:role/MyRole", catalogProps.get("client.assume-role.arn"));
         Assertions.assertEquals("external-id-123", catalogProps.get("client.assume-role.external-id"));
         Assertions.assertEquals("external-id-123",
-                catalogProps.get("client.credentials-provider.assume-role.external-id"));
+                catalogProps.get("client.credentials-provider.client.assume-role.external-id"));
     }
 
     @Test
@@ -254,8 +258,10 @@ public class IcebergS3TablesMetaStorePropertiesTest {
         Assertions.assertFalse(catalogProps.containsKey("client.factory"));
         Assertions.assertEquals(IcebergAwsAssumeRoleCredentialsProvider.class.getName(),
                 catalogProps.get("client.credentials-provider"));
-        Assertions.assertEquals("INSTANCE_PROFILE",
-                catalogProps.get("client.credentials-provider.assume-role.source-provider-type"));
+        Assertions.assertEquals("software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider",
+                catalogProps.get("client.credentials-provider.client.credentials-provider"));
+        Assertions.assertFalse(catalogProps.containsKey(
+                "client.credentials-provider.assume-role.source-provider-type"));
     }
 
     @Test

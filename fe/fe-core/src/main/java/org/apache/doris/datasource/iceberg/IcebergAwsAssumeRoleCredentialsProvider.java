@@ -17,10 +17,9 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.doris.datasource.property.common.AwsCredentialsProviderFactory;
-import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
-
 import org.apache.commons.lang3.StringUtils;
+import org.apache.iceberg.aws.AwsClientProperties;
+import org.apache.iceberg.aws.AwsProperties;
 import software.amazon.awssdk.auth.credentials.AwsCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
@@ -32,10 +31,7 @@ import java.util.Objects;
 
 public class IcebergAwsAssumeRoleCredentialsProvider implements AwsCredentialsProvider {
 
-    public static final String ASSUME_ROLE_ARN = "assume-role.arn";
-    public static final String ASSUME_ROLE_REGION = "assume-role.region";
-    public static final String ASSUME_ROLE_EXTERNAL_ID = "assume-role.external-id";
-    public static final String ASSUME_ROLE_SOURCE_PROVIDER_TYPE = "assume-role.source-provider-type";
+    private static final String DEFAULT_ROLE_SESSION_NAME = "aws-sdk-java-v2-fe";
 
     private final StsAssumeRoleCredentialsProvider provider;
 
@@ -44,24 +40,31 @@ public class IcebergAwsAssumeRoleCredentialsProvider implements AwsCredentialsPr
     }
 
     public static IcebergAwsAssumeRoleCredentialsProvider create(Map<String, String> props) {
-        String roleArn = Objects.requireNonNull(props.get(ASSUME_ROLE_ARN),
-                ASSUME_ROLE_ARN + " is required");
-        String region = Objects.requireNonNull(props.get(ASSUME_ROLE_REGION),
-                ASSUME_ROLE_REGION + " is required");
-        String externalId = props.get(ASSUME_ROLE_EXTERNAL_ID);
-        AwsCredentialsProviderMode providerMode =
-                AwsCredentialsProviderMode.fromString(props.get(ASSUME_ROLE_SOURCE_PROVIDER_TYPE));
+        AwsProperties awsProperties = new AwsProperties(props);
+        AwsClientProperties awsClientProperties = new AwsClientProperties(props);
+        String roleArn = Objects.requireNonNull(awsProperties.clientAssumeRoleArn(),
+                AwsProperties.CLIENT_ASSUME_ROLE_ARN + " is required");
+        String region = Objects.requireNonNull(awsProperties.clientAssumeRoleRegion(),
+                AwsProperties.CLIENT_ASSUME_ROLE_REGION + " is required");
+        String externalId = awsProperties.clientAssumeRoleExternalId();
+        String roleSessionName = StringUtils.defaultIfBlank(awsProperties.clientAssumeRoleSessionName(),
+                DEFAULT_ROLE_SESSION_NAME);
 
         StsClient stsClient = StsClient.builder()
                 .region(Region.of(region))
-                .credentialsProvider(AwsCredentialsProviderFactory.createV2(providerMode, false))
+                .applyMutation(awsClientProperties::applyClientCredentialConfigurations)
                 .build();
         StsAssumeRoleCredentialsProvider assumeRoleProvider = StsAssumeRoleCredentialsProvider.builder()
                 .stsClient(stsClient)
                 .refreshRequest(builder -> {
-                    builder.roleArn(roleArn).roleSessionName("aws-sdk-java-v2-fe");
+                    builder.roleArn(roleArn)
+                            .roleSessionName(roleSessionName)
+                            .durationSeconds(awsProperties.clientAssumeRoleTimeoutSec());
                     if (StringUtils.isNotBlank(externalId)) {
                         builder.externalId(externalId);
+                    }
+                    if (!awsProperties.stsClientAssumeRoleTags().isEmpty()) {
+                        builder.tags(awsProperties.stsClientAssumeRoleTags());
                     }
                 })
                 .build();

@@ -42,21 +42,18 @@ public final class IcebergAwsAssumeRoleProperties {
         if (StringUtils.isBlank(roleArn)) {
             return;
         }
+        String providerPrefix = AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER + ".";
         target.put(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER,
                 IcebergAwsAssumeRoleCredentialsProvider.class.getName());
-        target.put(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER + "."
-                + IcebergAwsAssumeRoleCredentialsProvider.ASSUME_ROLE_REGION, region);
-        target.put(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER + "."
-                + IcebergAwsAssumeRoleCredentialsProvider.ASSUME_ROLE_ARN, roleArn);
-        target.put(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER + "."
-                + IcebergAwsAssumeRoleCredentialsProvider.ASSUME_ROLE_SOURCE_PROVIDER_TYPE,
-                providerMode.getMode());
+        target.put(providerPrefix + AwsProperties.CLIENT_ASSUME_ROLE_REGION, region);
+        target.put(providerPrefix + AwsProperties.CLIENT_ASSUME_ROLE_ARN, roleArn);
+        target.put(providerPrefix + AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER,
+                AwsCredentialsProviderFactory.getV2ClassName(providerMode));
         target.put("aws.region", region);
         target.put(AwsProperties.CLIENT_ASSUME_ROLE_REGION, region);
         target.put(AwsProperties.CLIENT_ASSUME_ROLE_ARN, roleArn);
         if (StringUtils.isNotBlank(externalId)) {
-            target.put(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER + "."
-                    + IcebergAwsAssumeRoleCredentialsProvider.ASSUME_ROLE_EXTERNAL_ID, externalId);
+            target.put(providerPrefix + AwsProperties.CLIENT_ASSUME_ROLE_EXTERNAL_ID, externalId);
             target.put(AwsProperties.CLIENT_ASSUME_ROLE_EXTERNAL_ID, externalId);
         }
     }
