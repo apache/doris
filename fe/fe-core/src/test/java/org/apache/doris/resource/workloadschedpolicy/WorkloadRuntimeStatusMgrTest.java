@@ -55,7 +55,7 @@ public class WorkloadRuntimeStatusMgrTest {
         TReportWorkloadRuntimeStatusParams params = buildParams(beId, "q1", stats);
         mgr.updateBeQueryStats(params);
 
-        Map<String, TQueryStatistics> merged = mgr.getQueryStatisticsMap();
+        Map<String, TQueryStatistics> merged = getMergedSnapshot();
         Assert.assertEquals(1, merged.size());
 
         TQueryStatistics result = merged.get("q1");
@@ -74,7 +74,7 @@ public class WorkloadRuntimeStatusMgrTest {
         mgr.updateBeQueryStats(buildParams(10001L, "q1", buildStats(10, 3)));
         mgr.updateBeQueryStats(buildParams(10002L, "q1", buildStats(8, 5)));
 
-        Map<String, TQueryStatistics> merged = mgr.getQueryStatisticsMap();
+        Map<String, TQueryStatistics> merged = getMergedSnapshot();
         Assert.assertEquals(1, merged.size());
 
         TQueryStatistics result = merged.get("q1");
@@ -89,7 +89,7 @@ public class WorkloadRuntimeStatusMgrTest {
         mgr.updateBeQueryStats(buildParams(10001L, "q1", buildStats(10, 2)));
         mgr.updateBeQueryStats(buildParams(10001L, "q2", buildStats(20, 15)));
 
-        Map<String, TQueryStatistics> merged = mgr.getQueryStatisticsMap();
+        Map<String, TQueryStatistics> merged = getMergedSnapshot();
         Assert.assertEquals(2, merged.size());
 
         Assert.assertEquals(10, merged.get("q1").getTotalTasksNum());
@@ -113,7 +113,7 @@ public class WorkloadRuntimeStatusMgrTest {
         stats2.setScanRows(100);  // set some other field to make it non-empty
         mgr.updateBeQueryStats(buildParams(10002L, "q1", stats2));
 
-        Map<String, TQueryStatistics> merged = mgr.getQueryStatisticsMap();
+        Map<String, TQueryStatistics> merged = getMergedSnapshot();
         TQueryStatistics result = merged.get("q1");
 
         // BE2 didn't set total/finished, so original values from BE1 should be preserved
@@ -130,7 +130,7 @@ public class WorkloadRuntimeStatusMgrTest {
         // BE2 reports zero progress correctly
         mgr.updateBeQueryStats(buildParams(10002L, "q1", buildStats(0, 0)));
 
-        Map<String, TQueryStatistics> merged = mgr.getQueryStatisticsMap();
+        Map<String, TQueryStatistics> merged = getMergedSnapshot();
         TQueryStatistics result = merged.get("q1");
 
         // total=10, finished=4 (from BE1); BE2's (0,0) is additive → still (10,4)
@@ -168,7 +168,7 @@ public class WorkloadRuntimeStatusMgrTest {
         TReportWorkloadRuntimeStatusParams params = new TReportWorkloadRuntimeStatusParams();
         // backend_id not set, updateBeQueryStats should log a warning and return early
         mgr.updateBeQueryStats(params);
-        Assert.assertTrue(mgr.getQueryStatisticsMap().isEmpty());
+        Assert.assertTrue(getMergedSnapshot().isEmpty());
     }
 
     // ---- updateBeQueryStats with missing query stats map ----
@@ -179,7 +179,7 @@ public class WorkloadRuntimeStatusMgrTest {
         params.setBackendId(10001L);
         // query_statistics_result_map not set → should return early
         mgr.updateBeQueryStats(params);
-        Assert.assertTrue(mgr.getQueryStatisticsMap().isEmpty());
+        Assert.assertTrue(getMergedSnapshot().isEmpty());
     }
 
     // ---- isSet flag: verifying Thrift setter behavior inline ----
@@ -218,7 +218,7 @@ public class WorkloadRuntimeStatusMgrTest {
         // Intentionally leave total/finished unset
         mgr.updateBeQueryStats(buildParams(10001L, "q1", stats));
 
-        Map<String, TQueryStatistics> merged = mgr.getQueryStatisticsMap();
+        Map<String, TQueryStatistics> merged = getMergedSnapshot();
         TQueryStatistics result = merged.get("q1");
 
         // Fields should still be 0 and isSet should be false
@@ -234,13 +234,26 @@ public class WorkloadRuntimeStatusMgrTest {
         mgr.updateBeQueryStats(buildParams(10002L, "q1", buildStats(3, 3)));
         mgr.updateBeQueryStats(buildParams(10003L, "q1", buildStats(5, 0)));
 
-        Map<String, TQueryStatistics> merged = mgr.getQueryStatisticsMap();
+        Map<String, TQueryStatistics> merged = getMergedSnapshot();
         Assert.assertEquals(1, merged.size());
 
         TQueryStatistics result = merged.get("q1");
         // total = 4 + 3 + 5 = 12, finished = 1 + 3 + 0 = 4
         Assert.assertEquals(12, result.getTotalTasksNum());
         Assert.assertEquals(4, result.getFinishedTasksNum());
+    }
+
+    @Test
+    public void testSnapshotReadRequiresRebuild() {
+        mgr.updateBeQueryStats(buildParams(10001L, "q1", buildStats(6, 2)));
+        // Newly reported data is not visible to sync readers before snapshot rebuild.
+        Assert.assertTrue(mgr.getQueryStatisticsMap().isEmpty());
+
+        // Rebuild snapshot and verify the new data becomes visible.
+        Map<String, TQueryStatistics> merged = getMergedSnapshot();
+        Assert.assertEquals(1, merged.size());
+        Assert.assertEquals(6, merged.get("q1").getTotalTasksNum());
+        Assert.assertEquals(2, merged.get("q1").getFinishedTasksNum());
     }
 
     // ---- helper methods ----
@@ -262,5 +275,11 @@ public class WorkloadRuntimeStatusMgrTest {
         map.put(queryId, result);
         params.setQueryStatisticsResultMap(map);
         return params;
+    }
+
+    // Refresh and read snapshot to match daemon-driven visibility semantics.
+    private Map<String, TQueryStatistics> getMergedSnapshot() {
+        mgr.rebuildQueryStatisticsSnapshot();
+        return mgr.getQueryStatisticsMap();
     }
 }

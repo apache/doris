@@ -30,6 +30,7 @@ import org.apache.doris.thrift.TReportWorkloadRuntimeStatusParams;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.ImmutableMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -52,6 +53,8 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(WorkloadRuntimeStatusMgr.class);
     // backend id --> {query id --> (query last report time, query stats)}
     private Map<Long, BeReportInfo> beToQueryStatsMap = Maps.newConcurrentMap();
+    // Publish an immutable snapshot for synchronous proc/REST readers.
+    private volatile Map<String, TQueryStatistics> queryStatisticsSnapshot = ImmutableMap.of();
     private final ReentrantLock queryAuditEventLock = new ReentrantLock();
     private List<AuditEvent> queryAuditEventList = Lists.newLinkedList();
     private volatile long lastWarnTime;
@@ -73,10 +76,12 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        // 1 merge be query statistics
+        // 1 rebuild and publish query statistics snapshot
+        rebuildQueryStatisticsSnapshot();
+        // 2 read the latest immutable snapshot for downstream processing
         Map<String, TQueryStatistics> queryStatisticsMap = getQueryStatisticsMap();
 
-        // 2 log query audit
+        // 3 log query audit
         try {
             List<AuditEvent> auditEventList = getQueryNeedAudit();
             int missedLogCount = 0;
@@ -110,7 +115,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
             LOG.warn("exception happens when handleAuditEvent, ", t);
         }
 
-        // 3 clear beToQueryStatsMap when be report timeout
+        // 4 clear beToQueryStatsMap when be report timeout
         clearReportTimeoutBeStatistics();
     }
 
@@ -235,9 +240,19 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         }
     }
 
-    // NOTE: currently getQueryStatisticsMap must be called before clear beToQueryStatsMap
-    // so there is no need lock or null check when visit beToQueryStatsMap
+    // Rebuild query statistics from concurrent runtime maps and publish an immutable snapshot.
+    // This method is intentionally called by daemon thread and unit tests only.
+    void rebuildQueryStatisticsSnapshot() {
+        queryStatisticsSnapshot = ImmutableMap.copyOf(buildQueryStatisticsMapUnsafe());
+    }
+
+    // Return the latest published snapshot for synchronous readers such as proc/REST paths.
     public Map<String, TQueryStatistics> getQueryStatisticsMap() {
+        return queryStatisticsSnapshot;
+    }
+
+    // Build a merged map by traversing concurrent runtime structures.
+    private Map<String, TQueryStatistics> buildQueryStatisticsMapUnsafe() {
         // 1 merge query stats in all be
         Set<Long> beIdSet = beToQueryStatsMap.keySet();
         Map<String, TQueryStatistics> resultQueryMap = Maps.newHashMap();
