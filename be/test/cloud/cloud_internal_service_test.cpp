@@ -23,9 +23,9 @@
 #include <mutex>
 #include <unordered_map>
 
-#include "common/config.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "common/config.h"
 #include "cpp/sync_point.h"
 #include "gen_cpp/Status_types.h"
 #include "load/channel/load_stream_mgr.h"
@@ -181,7 +181,8 @@ TEST_F(CloudInternalServiceTest, TestSyncTabletMetaOfferFailure) {
     EXPECT_TRUE(done);
     ASSERT_TRUE(response.has_status());
     EXPECT_EQ(TStatusCode::INTERNAL_ERROR, response.status().status_code());
-    EXPECT_TRUE(response.status().error_msgs(0).find("failed to offer sync_tablet_meta request to work pool") !=
+    EXPECT_TRUE(response.status().error_msgs(0).find(
+                        "failed to offer sync_tablet_meta request to work pool") !=
                 std::string::npos);
 }
 
