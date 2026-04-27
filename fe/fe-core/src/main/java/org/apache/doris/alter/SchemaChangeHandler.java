@@ -1188,6 +1188,14 @@ public class SchemaChangeHandler extends AlterHandler {
                 } else {
                     newColumn.setAggregationType(AggregateType.REPLACE, true);
                 }
+            } else if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
+                Optional<String> syncMvName = getSyncMvName(olapTable);
+                if (syncMvName.isPresent()) {
+                    throw new DdlException(String.format(
+                            "Can not add key column to merge-on-write table when table has sync materialized view[%s]. "
+                                    + "Please drop the sync materialized view first, then alter the table and recreate it.",
+                            syncMvName.get()));
+                }
             }
         } else {
             if (newColumn.getAggregationType() != null && newColumn.isKey()) {
@@ -1362,6 +1370,18 @@ public class SchemaChangeHandler extends AlterHandler {
             checkAndAddColumn(modIndexSchema, newColumn, columnPos, newColNameSet, false, rollUpNewColumnUniqueId);
         }
         return lightSchemaChange;
+    }
+
+    private Optional<String> getSyncMvName(OlapTable olapTable) {
+        for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTable.getVisibleIndexIdToMeta().entrySet()) {
+            if (entry.getKey() == olapTable.getBaseIndexId()) {
+                continue;
+            }
+            if (entry.getValue().getDefineStmt() != null) {
+                return Optional.ofNullable(olapTable.getIndexNameById(entry.getKey()));
+            }
+        }
+        return Optional.empty();
     }
 
     /*
