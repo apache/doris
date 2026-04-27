@@ -636,8 +636,12 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
         }
     }
 
-    return _converter->convert(resolved_column, _field_schema->data_type, type, doris_column,
-                               is_dict_filter);
+    {
+        SCOPED_RAW_TIMER(&_convert_time);
+        RETURN_IF_ERROR(_converter->convert(resolved_column, _field_schema->data_type, type,
+                                            doris_column, is_dict_filter));
+    }
+    return Status::OK();
 }
 
 Status ArrayColumnReader::init(std::unique_ptr<ParquetColumnReader> element_reader,

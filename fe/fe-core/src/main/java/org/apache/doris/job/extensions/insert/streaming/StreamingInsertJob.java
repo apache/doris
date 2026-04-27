@@ -51,7 +51,6 @@ import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.job.offset.SourceOffsetProviderFactory;
 import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
-import org.apache.doris.job.offset.jdbc.JdbcTvfSourceOffsetProvider;
 import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
@@ -165,6 +164,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @Getter
     @SerializedName("tprops")
     private Map<String, String> targetProperties;
+    // Converted form of sourceProperties; must be refreshed whenever sourceProperties changes.
+    private transient Map<String, String> convertedSourceProperties;
 
     // The sampling window starts at the beginning of the sampling window.
     // If the error rate exceeds `max_filter_ratio` within the window, the sampling fails.
@@ -238,7 +239,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             StreamingJobUtils.resolveAndValidateSource(
                     dataSourceType, sourceProperties, String.valueOf(getJobId()), createTbls);
             this.offsetProvider = new JdbcSourceOffsetProvider(getJobId(), dataSourceType,
-                    StreamingJobUtils.convertCertFile(getDbId(), sourceProperties));
+                    getConvertedSourceProperties());
             JdbcSourceOffsetProvider rdsOffsetProvider = (JdbcSourceOffsetProvider) this.offsetProvider;
             rdsOffsetProvider.splitChunks(createTbls);
         } catch (Exception ex) {
@@ -418,7 +419,14 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
         // update source properties
         if (!alterJobCommand.getSourceProperties().isEmpty()) {
-            this.sourceProperties.putAll(alterJobCommand.getSourceProperties());
+            // Convert on a merged copy first; validateSource() only checks ssl_rootcert is
+            // non-empty, so cert-file lookup can still fail here. Commit to fields only on success.
+            Map<String, String> mergedSourceProperties = new HashMap<>(this.sourceProperties);
+            mergedSourceProperties.putAll(alterJobCommand.getSourceProperties());
+            Map<String, String> newConvertedSourceProperties =
+                    StreamingJobUtils.convertCertFile(getDbId(), mergedSourceProperties);
+            this.sourceProperties = mergedSourceProperties;
+            this.convertedSourceProperties = newConvertedSourceProperties;
             logParts.add("source properties: " + alterJobCommand.getSourceProperties());
         }
 
@@ -537,18 +545,33 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      * @return
      */
     private AbstractStreamingTask createStreamingMultiTblTask() throws JobException {
-        Map<String, String> convertSourceProps = StreamingJobUtils.convertCertFile(getDbId(), sourceProperties);
         return new StreamingMultiTblTask(getJobId(), Env.getCurrentEnv().getNextId(), dataSourceType,
-                offsetProvider, convertSourceProps, targetDb, targetProperties, jobProperties, getCreateUser());
+                offsetProvider, getConvertedSourceProperties(), targetDb, targetProperties, jobProperties,
+                getCreateUser());
     }
 
-    protected AbstractStreamingTask createStreamingInsertTask() {
+    private Map<String, String> getConvertedSourceProperties() throws JobException {
+        if (convertedSourceProperties == null) {
+            this.convertedSourceProperties = StreamingJobUtils.convertCertFile(getDbId(), sourceProperties);
+        }
+        return convertedSourceProperties;
+    }
+
+    private Map<String, String> getOriginTvfProps() {
         if (originTvfProps == null) {
             this.originTvfProps = getCurrentTvf().getProperties().getMap();
         }
+        return originTvfProps;
+    }
+
+    private Map<String, String> getProviderProps() throws JobException {
+        return tvfType != null ? getOriginTvfProps() : getConvertedSourceProperties();
+    }
+
+    protected AbstractStreamingTask createStreamingInsertTask() {
         return new StreamingInsertTask(getJobId(), Env.getCurrentEnv().getNextId(),
                 getExecuteSql(),
-                offsetProvider, getCurrentDbName(), jobProperties, originTvfProps, getCreateUser());
+                offsetProvider, getCurrentDbName(), jobProperties, getOriginTvfProps(), getCreateUser());
     }
 
     public void recordTasks(AbstractStreamingTask task) {
@@ -579,16 +602,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     protected void fetchMeta() throws JobException {
         long start = System.currentTimeMillis();
         try {
-            if (tvfType != null) {
-                if (originTvfProps == null) {
-                    this.originTvfProps = getCurrentTvf().getProperties().getMap();
-                }
-                // when fe restart, offsetProvider.jobId may be null
-                offsetProvider.ensureInitialized(getJobId(), originTvfProps);
-                offsetProvider.fetchRemoteMeta(originTvfProps);
-            } else {
-                offsetProvider.fetchRemoteMeta(new HashMap<>());
-            }
+            // when fe restart, offsetProvider.jobId may be null
+            Map<String, String> props = getProviderProps();
+            offsetProvider.ensureInitialized(getJobId(), props);
+            offsetProvider.fetchRemoteMeta(props);
         } catch (Exception ex) {
             log.warn("fetch remote meta failed, job id: {}", getJobId(), ex);
             if (this.getFailureReason() == null
@@ -806,7 +823,18 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (replayJob.getNonTxnJobStatistic() != null) {
             setNonTxnJobStatistic(replayJob.getNonTxnJobStatistic());
         }
+        if (replayJob.getSourceProperties() != null) {
+            this.sourceProperties = replayJob.getSourceProperties();
+            // Drop caches a former-master role may have populated; lazy re-init on next access.
+            this.convertedSourceProperties = null;
+        }
+        if (replayJob.getTargetProperties() != null) {
+            this.targetProperties = replayJob.getTargetProperties();
+        }
         setExecuteSql(replayJob.getExecuteSql());
+        // SQL-derived caches must be invalidated together so the next parse uses the replayed SQL.
+        this.baseCommand = null;
+        this.originTvfProps = null;
         setSucceedTaskCount(replayJob.getSucceedTaskCount());
         setFailedTaskCount(replayJob.getFailedTaskCount());
         setCanceledTaskCount(replayJob.getCanceledTaskCount());
@@ -1381,16 +1409,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             }
         }
 
-        // For TVF path, provider fields may be null after FE restart
-        if (this.offsetProvider instanceof JdbcTvfSourceOffsetProvider) {
-            if (originTvfProps == null) {
-                this.originTvfProps = getCurrentTvf().getProperties().getMap();
-            }
-            offsetProvider.ensureInitialized(getJobId(), originTvfProps);
-        }
-
         if (this.offsetProvider instanceof JdbcSourceOffsetProvider) {
-            // jdbc clean chunk meta table
+            // Best-effort refresh; don't block DROP JOB if SSL cert resolution fails.
+            try {
+                offsetProvider.ensureInitialized(getJobId(), getProviderProps());
+            } catch (JobException ex) {
+                log.warn("refresh provider props before cleanMeta failed, job id: {}", getJobId(), ex);
+            }
             ((JdbcSourceOffsetProvider) this.offsetProvider).cleanMeta(getJobId());
         }
     }
