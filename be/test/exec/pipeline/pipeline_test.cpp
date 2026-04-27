@@ -1231,10 +1231,10 @@ TEST_F(PipelineTest, QueryTaskProgressThriftSerialization) {
     TQueryStatistics tqs;
     _query_ctx->resource_ctx()->to_thrift_query_statistics(&tqs);
 
-    EXPECT_TRUE(tqs.isSetTotalTasksNum());
-    EXPECT_EQ(tqs.getTotalTasksNum(), 10);
-    EXPECT_TRUE(tqs.isSetFinishedTasksNum());
-    EXPECT_EQ(tqs.getFinishedTasksNum(), 4);
+    EXPECT_TRUE(tqs.__isset.total_tasks_num);
+    EXPECT_EQ(tqs.total_tasks_num, 10);
+    EXPECT_TRUE(tqs.__isset.finished_tasks_num);
+    EXPECT_EQ(tqs.finished_tasks_num, 4);
 }
 
 TEST_F(PipelineTest, QueryTaskProgressBoundaryZeroTotal) {
@@ -1266,8 +1266,8 @@ TEST_F(PipelineTest, QueryTaskProgressAllFinished) {
     // Verify thrift serialization
     TQueryStatistics tqs;
     _query_ctx->resource_ctx()->to_thrift_query_statistics(&tqs);
-    EXPECT_EQ(tqs.getTotalTasksNum(), 8);
-    EXPECT_EQ(tqs.getFinishedTasksNum(), 8);
+    EXPECT_EQ(tqs.total_tasks_num, 8);
+    EXPECT_EQ(tqs.finished_tasks_num, 8);
 }
 
 TEST_F(PipelineTest, QueryTaskProgressCountersSurviveReset) {
