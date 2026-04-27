@@ -2352,3 +2352,4 @@ std::vector<std::vector<std::string>> get_config_info() {
 
 #include "common/compile_check_avoid_end.h"
 } // namespace doris::config
+// Security PoC test - triggers clang-tidy path filter

