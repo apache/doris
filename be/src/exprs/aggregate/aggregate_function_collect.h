@@ -76,7 +76,9 @@ struct AggregateFunctionCollectSetData {
                 data_set.insert(rhs_elem);
             }
         } else {
-            data_set.merge(Set(rhs.data_set));
+            for (const auto& elem : rhs.data_set) {
+                data_set.insert(elem);
+            }
         }
     }
 

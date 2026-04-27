@@ -19,7 +19,13 @@ package org.apache.doris.connector.hudi;
 
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
+import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.THudiFileDesc;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -139,6 +145,79 @@ public class HudiScanRange implements ConnectorScanRange {
     public String toString() {
         return "HudiScanRange{path=" + path + ", format=" + fileFormat
                 + ", start=" + start + ", length=" + length + "}";
+    }
+
+    @Override
+    public void populateRangeParams(TTableFormatFileDesc formatDesc,
+            TFileRangeDesc rangeDesc) {
+        Map<String, String> props = getProperties();
+        THudiFileDesc fileDesc = new THudiFileDesc();
+
+        boolean isJni = "jni".equalsIgnoreCase(getFileFormat());
+
+        // Dynamic format downgrade: if JNI but no delta logs, use native reader
+        if (isJni) {
+            String deltaLogs = props.get("hudi.delta_logs");
+            if (deltaLogs == null || deltaLogs.isEmpty()) {
+                String dataFilePath = props.getOrDefault(
+                        "hudi.data_file_path", "");
+                if (!dataFilePath.isEmpty()) {
+                    String lower = dataFilePath.toLowerCase();
+                    if (lower.endsWith(".parquet")) {
+                        rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
+                        isJni = false;
+                    } else if (lower.endsWith(".orc")) {
+                        rangeDesc.setFormatType(TFileFormatType.FORMAT_ORC);
+                        isJni = false;
+                    }
+                }
+            }
+        }
+
+        if (isJni) {
+            fileDesc.setInstantTime(
+                    props.getOrDefault("hudi.instant_time", ""));
+            fileDesc.setSerde(props.getOrDefault("hudi.serde", ""));
+            fileDesc.setInputFormat(
+                    props.getOrDefault("hudi.input_format", ""));
+            fileDesc.setBasePath(
+                    props.getOrDefault("hudi.base_path", ""));
+            fileDesc.setDataFilePath(
+                    props.getOrDefault("hudi.data_file_path", ""));
+            fileDesc.setDataFileLength(Long.parseLong(
+                    props.getOrDefault("hudi.data_file_length", "0")));
+
+            String deltaLogs = props.get("hudi.delta_logs");
+            if (deltaLogs != null && !deltaLogs.isEmpty()) {
+                fileDesc.setDeltaLogs(
+                        Arrays.asList(deltaLogs.split(",")));
+            }
+            String colNames = props.get("hudi.column_names");
+            if (colNames != null && !colNames.isEmpty()) {
+                fileDesc.setColumnNames(
+                        Arrays.asList(colNames.split(",")));
+            }
+            String colTypes = props.get("hudi.column_types");
+            if (colTypes != null && !colTypes.isEmpty()) {
+                fileDesc.setColumnTypes(
+                        Arrays.asList(colTypes.split(",")));
+            }
+        }
+
+        formatDesc.setHudiParams(fileDesc);
+
+        // Set partition values for path-based partition extraction
+        Map<String, String> partValues = getPartitionValues();
+        if (partValues != null && !partValues.isEmpty()) {
+            List<String> pathKeys = new ArrayList<>();
+            List<String> pathValues = new ArrayList<>();
+            for (Map.Entry<String, String> entry : partValues.entrySet()) {
+                pathKeys.add(entry.getKey());
+                pathValues.add(entry.getValue());
+            }
+            rangeDesc.setColumnsFromPathKeys(pathKeys);
+            rangeDesc.setColumnsFromPath(pathValues);
+        }
     }
 
     /** Builder for constructing HudiScanRange instances. */

@@ -31,6 +31,13 @@ import java.io.OutputStream;
  * snapshots, job info, etc.). Writes are rejected when the in-memory buffer would exceed
  * {@link #MAX_SINGLE_UPLOAD_BYTES} to prevent OOM on large payloads.
  * For large file writes (Hive data files, Backup archives), multipart upload must be used instead.
+ *
+ * <p><strong>Empty-close semantics (#22):</strong> if {@link #close()} is called without any
+ * preceding {@code write(...)} call, NO object is uploaded. This avoids polluting the bucket
+ * with phantom 0-byte placeholders when the caller opens an output stream and aborts before
+ * writing. To explicitly create a zero-byte object, call {@code write(new byte[0])} (or
+ * {@code write(b, off, 0)}) prior to {@link #close()} — any write call, even of length 0,
+ * marks the stream as "written" and triggers an upload of the empty buffer.
  */
 class S3OutputStream extends OutputStream {
 
@@ -45,6 +52,9 @@ class S3OutputStream extends OutputStream {
     private final S3ObjStorage objStorage;
     private final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
     private boolean closed = false;
+    // Tracks whether write(...) was called at least once. close() skips the upload entirely
+    // when this is false to avoid creating phantom 0-byte objects on accidental empty close.
+    private boolean writeCalled = false;
 
     S3OutputStream(String remotePath, S3ObjStorage objStorage) {
         this.remotePath = remotePath;
@@ -55,6 +65,7 @@ class S3OutputStream extends OutputStream {
     public void write(int b) throws IOException {
         checkNotClosed();
         checkCapacity(1);
+        writeCalled = true;
         buffer.write(b);
     }
 
@@ -62,6 +73,7 @@ class S3OutputStream extends OutputStream {
     public void write(byte[] b, int off, int len) throws IOException {
         checkNotClosed();
         checkCapacity(len);
+        writeCalled = true;
         buffer.write(b, off, len);
     }
 
@@ -71,6 +83,10 @@ class S3OutputStream extends OutputStream {
             return;
         }
         closed = true;
+        if (!writeCalled) {
+            // No write call was ever made: skip upload to avoid creating a phantom 0-byte object.
+            return;
+        }
         byte[] data = buffer.toByteArray();
         objStorage.putObject(remotePath,
                 RequestBody.of(new ByteArrayInputStream(data), data.length));

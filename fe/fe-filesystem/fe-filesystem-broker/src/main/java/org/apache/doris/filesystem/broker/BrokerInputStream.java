@@ -33,6 +33,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
 import java.io.IOException;
+import java.util.Objects;
 
 /**
  * {@link DorisInputStream} backed by a Broker {@code pread} RPC.
@@ -58,6 +59,8 @@ class BrokerInputStream extends DorisInputStream {
     private boolean eof;
     /** True when the Thrift client has already been invalidated (e.g. on RPC failure). */
     private boolean clientInvalidated = false;
+    /** True after the first successful or attempted {@link #close()}; makes close idempotent. */
+    private boolean closed = false;
 
     BrokerInputStream(TNetworkAddress endpoint, BrokerClientPool clientPool,
             TPaloBrokerService.Client client, TBrokerFD fd) {
@@ -106,6 +109,10 @@ class BrokerInputStream extends DorisInputStream {
 
     @Override
     public int read(byte[] bytes, int off, int len) throws IOException {
+        Objects.checkFromIndexSize(off, len, Objects.requireNonNull(bytes).length);
+        if (len == 0) {
+            return 0;
+        }
         if (eof) {
             return -1;
         }
@@ -151,6 +158,10 @@ class BrokerInputStream extends DorisInputStream {
 
     @Override
     public void close() throws IOException {
+        if (closed) {
+            return;
+        }
+        closed = true;
         if (clientInvalidated) {
             // Client already invalidated by a prior RPC failure; broker FD will time out on the broker side.
             return;
@@ -160,8 +171,13 @@ class BrokerInputStream extends DorisInputStream {
             TBrokerOperationStatus opst = client.closeReader(req);
             if (opst.getStatusCode() != TBrokerOperationStatusCode.OK) {
                 LOG.warn("Failed to close broker reader for fd {}: {}", fd, opst.getMessage());
+                // Broker session state is unclear after a failed closeReader (the server-side
+                // FD may or may not have been released). Returning the client to the pool would
+                // hand a possibly-corrupt session to the next borrower; invalidate instead.
+                clientPool.invalidate(endpoint, client);
+            } else {
+                clientPool.returnGood(endpoint, client);
             }
-            clientPool.returnGood(endpoint, client);
         } catch (TException e) {
             clientPool.invalidate(endpoint, client);
             throw new IOException("Broker closeReader RPC failed: " + e.getMessage(), e);

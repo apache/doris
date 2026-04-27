@@ -28,6 +28,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_date.h"
 #include "core/data_type/data_type_date_time.h"
 #include "core/data_type/data_type_nullable.h"
@@ -49,6 +50,7 @@ void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_topn(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_bit(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_minmax(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_replace_reader_load(AggregateFunctionSimpleFactory& factory);
 
 TEST(AggTest, basic_test) {
@@ -134,6 +136,53 @@ TEST(AggTest, window_function_test) {
     EXPECT_EQ(size2, 2);
     size2 = agg_function2->align_of_data();
     EXPECT_EQ(size2, 1);
+}
+
+TEST(AggTest, percentile_query_option_routes_default_names_to_v2) {
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_percentile(factory);
+    int be_version = BeExecVersionManager::get_newest_version();
+
+    DataTypes percentile_types = {std::make_shared<DataTypeInt64>(),
+                                  std::make_shared<DataTypeFloat64>()};
+    auto percentile_result_type = std::make_shared<DataTypeFloat64>();
+    auto percentile_v1 =
+            factory.get("percentile", percentile_types, percentile_result_type, false, be_version);
+    ASSERT_NE(percentile_v1, nullptr);
+    EXPECT_EQ(percentile_v1->get_name(), "percentile");
+
+    auto percentile_v2 =
+            factory.get("percentile", percentile_types, percentile_result_type, false, be_version,
+                        {.new_version_percentile = true, .column_names = {}});
+    ASSERT_NE(percentile_v2, nullptr);
+    EXPECT_EQ(percentile_v2->get_name(), "percentile_v2");
+
+    auto percentile_cont_v1 = factory.get("percentile_cont", percentile_types,
+                                          percentile_result_type, false, be_version);
+    ASSERT_NE(percentile_cont_v1, nullptr);
+    EXPECT_EQ(percentile_cont_v1->get_name(), "percentile");
+
+    auto percentile_cont_v2 =
+            factory.get("percentile_cont", percentile_types, percentile_result_type, false,
+                        be_version, {.new_version_percentile = true, .column_names = {}});
+    ASSERT_NE(percentile_cont_v2, nullptr);
+    EXPECT_EQ(percentile_cont_v2->get_name(), "percentile_v2");
+
+    DataTypes percentile_array_types = {
+            std::make_shared<DataTypeInt64>(),
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat64>()))};
+    auto percentile_array_result_type =
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat64>()));
+    auto percentile_array_v1 = factory.get("percentile_array", percentile_array_types,
+                                           percentile_array_result_type, false, be_version);
+    ASSERT_NE(percentile_array_v1, nullptr);
+    EXPECT_EQ(percentile_array_v1->get_name(), "percentile_array");
+
+    auto percentile_array_v2 =
+            factory.get("percentile_array", percentile_array_types, percentile_array_result_type,
+                        false, be_version, {.new_version_percentile = true, .column_names = {}});
+    ASSERT_NE(percentile_array_v2, nullptr);
+    EXPECT_EQ(percentile_array_v2->get_name(), "percentile_array_v2");
 }
 
 TEST(AggTest, window_function_test2) {

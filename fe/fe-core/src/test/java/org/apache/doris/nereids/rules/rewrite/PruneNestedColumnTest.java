@@ -102,7 +102,16 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         createTable("create table str_tbl(\n"
                 + "  id int,\n"
                 + "  str_col string,\n"
-                + "  c_struct struct<f1: int, f3: string>\n"
+                + "  c_struct struct<f1: int, f3: string>,\n"
+                + "  map_col map<string, string>\n"
+                + ") properties ('replication_num'='1')");
+
+        createTable("create table nested_container_tbl(\n"
+                + "  id int,\n"
+                + "  s struct<\n"
+                + "    arr: array<struct<str_field: string, int_field: int>>,\n"
+                + "    m: map<string, string>\n"
+                + "  >\n"
                 + ") properties ('replication_num'='1')");
 
         connectContext.getSessionVariable().setDisableNereidsRules(RuleType.PRUNE_EMPTY_PARTITION.name());
@@ -131,6 +140,35 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 ImmutableList.of(path("s", "data", "*", "VALUES")),
                 ImmutableList.of()
         );
+    }
+
+    @Test
+    public void testMapElementLengthWithMapValuesKeepsKeysPath() throws Exception {
+        assertColumn("select length(map_col['a']), map_values(map_col)[1] from str_tbl",
+                "map<text,text>",
+                ImmutableList.of(path("map_col", "KEYS"), path("map_col", "VALUES")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testStructRootArrayMixedAccessSuppressesOffsetPath() throws Exception {
+        assertAllAccessPathsContain(
+                "select cardinality(struct_element(s, 'arr')), "
+                        + "struct_element(element_at(struct_element(s, 'arr'), 1), 'int_field') "
+                        + "from nested_container_tbl",
+                ImmutableList.of(path("s", "arr", "*", "int_field")),
+                ImmutableList.of(path("s", "arr", "OFFSET")));
+    }
+
+    @Test
+    public void testStructRootMapMixedAccessKeepsKeysPath() throws Exception {
+        assertAllAccessPathsContain(
+                "select length(element_at(struct_element(s, 'm'), 'a')), "
+                        + "element_at(map_values(struct_element(s, 'm')), 1) "
+                        + "from nested_container_tbl",
+                ImmutableList.of(path("s", "m", "KEYS"), path("s", "m", "VALUES")),
+                ImmutableList.of(path("s", "m", "*", "OFFSET"), path("s", "m", "VALUES", "OFFSET")));
     }
 
     @Test

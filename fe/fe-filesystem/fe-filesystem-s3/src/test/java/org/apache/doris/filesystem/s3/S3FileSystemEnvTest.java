@@ -179,6 +179,40 @@ class S3FileSystemEnvTest {
                 "Expected at least 2 entries, got " + entries.size());
     }
 
+    /**
+     * Regression test: prefix-based listing must not pull in objects under
+     * sibling directories that share a string prefix (e.g. listing "store"
+     * must not include "store_sales/..." or "store_returns/...").
+     * Reproduces the tpcds external-table mis-scan bug.
+     */
+    @Test
+    @Order(5)
+    void listMustNotIncludeSiblingPrefixDirectories() throws IOException {
+        writeContent("sibling-prefix/store/data.orc", "store-data".getBytes());
+        writeContent("sibling-prefix/store_sales/poison.orc", "should-not-appear".getBytes());
+        writeContent("sibling-prefix/store_returns/poison.orc", "should-not-appear".getBytes());
+
+        // Note: location intentionally omits the trailing slash, mimicking how
+        // an external table location is supplied by the user.
+        Location target = loc("sibling-prefix/store");
+        List<FileEntry> entries = new ArrayList<>();
+        try (FileIterator iter = fs.list(target)) {
+            while (iter.hasNext()) {
+                entries.add(iter.next());
+            }
+        }
+
+        for (FileEntry e : entries) {
+            String uri = e.location().uri();
+            Assertions.assertFalse(uri.contains("/store_sales/"),
+                    "list of 'store' must not contain sibling 'store_sales' object: " + uri);
+            Assertions.assertFalse(uri.contains("/store_returns/"),
+                    "list of 'store' must not contain sibling 'store_returns' object: " + uri);
+        }
+        Assertions.assertEquals(1, entries.size(),
+                "Expected exactly one object under 'store/', got: " + entries);
+    }
+
     // ------------------------------------------------------------------
     // IO round-trip
     // ------------------------------------------------------------------

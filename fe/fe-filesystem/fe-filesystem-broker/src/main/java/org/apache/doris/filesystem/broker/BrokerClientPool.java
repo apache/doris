@@ -41,14 +41,26 @@ class BrokerClientPool implements Closeable {
 
     private final GenericKeyedObjectPool<TNetworkAddress, TPaloBrokerService.Client> pool;
 
+    /**
+     * Default per-broker-host connection cap. Unbounded ({@code -1}) lets a runaway query plan
+     * exhaust the broker process; 64 is a sane upper bound that still allows healthy concurrency.
+     */
+    private static final int DEFAULT_MAX_TOTAL_PER_KEY = 64;
+    /**
+     * Default borrow wait. The previous 500&nbsp;ms threshold caused {@code borrow} to fail
+     * (NoSuchElementException &rarr; IOException) under modest contention; 5&nbsp;s gives the
+     * pool time to refill while still bounding head-of-line stalls.
+     */
+    private static final long DEFAULT_MAX_WAIT_MILLIS = 5_000L;
+
     @SuppressWarnings("unchecked")
     BrokerClientPool() {
         GenericKeyedObjectPoolConfig config = new GenericKeyedObjectPoolConfig();
         config.setMaxIdlePerKey(16);
         config.setMinIdlePerKey(0);
-        config.setMaxTotalPerKey(-1);
+        config.setMaxTotalPerKey(DEFAULT_MAX_TOTAL_PER_KEY);
         config.setMaxTotal(-1);
-        config.setMaxWaitMillis(500);
+        config.setMaxWaitMillis(DEFAULT_MAX_WAIT_MILLIS);
         config.setTestOnBorrow(true);
         this.pool = new GenericKeyedObjectPool<>(new BrokerClientFactory(), config);
     }

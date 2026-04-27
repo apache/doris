@@ -23,7 +23,10 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.thrift.TFileScanRangeParams;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
@@ -70,6 +73,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     private static final Logger LOG = LogManager.getLogger(PaimonScanPlanProvider.class);
 
     private static final Base64.Encoder BASE64_ENCODER = Base64.getEncoder();
+
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final TypeReference<Map<String, String>> MAP_TYPE_REF =
+            new TypeReference<Map<String, String>>() {};
 
     private final Map<String, String> properties;
 
@@ -346,6 +353,31 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             return Optional.of("parquet");
         }
         return Optional.empty();
+    }
+
+    @Override
+    public void populateScanLevelParams(TFileScanRangeParams params,
+            Map<String, String> properties) {
+        String predicate = properties.get("paimon.predicate");
+        if (predicate != null) {
+            params.setPaimonPredicate(predicate);
+        }
+
+        String optionsJson = properties.get("paimon.options_json");
+        if (optionsJson != null && !optionsJson.isEmpty()) {
+            try {
+                Map<String, String> options = OBJECT_MAPPER
+                        .readValue(optionsJson, MAP_TYPE_REF);
+                params.setPaimonOptions(options);
+            } catch (Exception e) {
+                LOG.warn("Failed to parse paimon.options_json", e);
+            }
+        }
+    }
+
+    @Override
+    public String getSerializedTable(Map<String, String> properties) {
+        return properties.get("paimon.serialized_table");
     }
 
     @SuppressWarnings("unchecked")

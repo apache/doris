@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <variant>
 
+#include "exec/common/hash_table/hash_crc32_return32.h"
 #include "exec/common/hash_table/hash_key_type.h"
 #include "exec/common/hash_table/hash_map_context.h"
 #include "exec/common/hash_table/join_hash_table.h"
@@ -71,18 +72,19 @@ template <int JoinOpType>
 inline constexpr bool is_asof_outer_join_op_v = JoinOpType == TJoinOp::ASOF_LEFT_OUTER_JOIN;
 
 template <class T>
-using PrimaryTypeHashTableContext = MethodOneNumber<T, JoinHashMap<T, HashCRC32<T>, false>>;
+using PrimaryTypeHashTableContext = MethodOneNumber<T, JoinHashMap<T, HashCRC32Return32<T>, false>>;
 
 template <class T>
 using DirectPrimaryTypeHashTableContext =
-        MethodOneNumberDirect<T, JoinHashMap<T, HashCRC32<T>, true>>;
+        MethodOneNumberDirect<T, JoinHashMap<T, HashCRC32Return32<T>, true>>;
 
 template <class Key>
-using FixedKeyHashTableContext = MethodKeysFixed<JoinHashMap<Key, HashCRC32<Key>, false>>;
+using FixedKeyHashTableContext = MethodKeysFixed<JoinHashMap<Key, HashCRC32Return32<Key>, false>>;
 
 using SerializedHashTableContext =
-        MethodSerialized<JoinHashMap<StringRef, DefaultHash<StringRef>, false>>;
-using MethodOneString = MethodStringNoCache<JoinHashMap<StringRef, DefaultHash<StringRef>, false>>;
+        MethodSerialized<JoinHashMap<StringRef, HashCRC32Return32<StringRef>, false>>;
+using MethodOneString =
+        MethodStringNoCache<JoinHashMap<StringRef, HashCRC32Return32<StringRef>, false>>;
 
 using HashTableVariants = std::variant<
         std::monostate, SerializedHashTableContext, PrimaryTypeHashTableContext<UInt8>,

@@ -145,8 +145,13 @@ public:
     // In the future this interface will add an additional parameter, Selector, which specifies
     // which rows in the block should be evaluated.
     // If expr is executing constant expressions, then block should be nullptr.
-    virtual Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                                  size_t count, ColumnPtr& result_column) const = 0;
+
+    Status execute_column(VExprContext* context, const Block* block, const Selector* selector,
+                          size_t count, ColumnPtr& result_column) const;
+
+    virtual Status execute_column_impl(VExprContext* context, const Block* block,
+                                       const Selector* selector, size_t count,
+                                       ColumnPtr& result_column) const = 0;
 
     // Currently, due to fe planning issues, for slot-ref expressions the type of the returned Column may not match data_type.
     // Therefore we need a function like this to return the actual type produced by execution.
@@ -320,7 +325,7 @@ public:
     }
 
     // fast_execute can direct copy expr filter result which build by apply index in segment_iterator
-    bool fast_execute(VExprContext* context, Selector* selector, size_t count,
+    bool fast_execute(VExprContext* context, const Selector* selector, size_t count,
                       ColumnPtr& result_column) const;
 
     virtual bool can_push_down_to_index() const { return false; }

@@ -21,6 +21,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
+import org.apache.doris.thrift.TFileScanRangeParams;
 
 import java.util.Collections;
 import java.util.List;
@@ -41,8 +42,7 @@ public interface ConnectorScanPlanProvider {
      *
      * <p>The engine uses this to determine which Thrift scan range structure
      * to generate. For example, {@link ConnectorScanRangeType#FILE_SCAN}
-     * produces TFileScanRange, while {@link ConnectorScanRangeType#ES_SCAN}
-     * produces TEsScanRange.</p>
+     * produces TFileScanRange.</p>
      *
      * @return the scan range type (default: FILE_SCAN)
      */
@@ -120,5 +120,77 @@ public interface ConnectorScanPlanProvider {
     default long estimateScanRangeCount(ConnectorSession session,
             ConnectorTableHandle handle) {
         return -1;
+    }
+
+    /**
+     * Returns scan-node-level properties along with filter pushdown results.
+     *
+     * <p>Override this when the connector performs fine-grained conjunct pushdown
+     * (e.g., ES query DSL building) and needs to report which conjuncts
+     * were NOT pushed. The indices in {@link ScanNodePropertiesResult#getNotPushedConjunctIndices()}
+     * refer to the AND children of the filter expression, in the same order as
+     * the conjuncts list.</p>
+     *
+     * <p>The default wraps {@link #getScanNodeProperties} with an empty not-pushed set,
+     * meaning all conjuncts are assumed to have been pushed.</p>
+     *
+     * @param session the current session
+     * @param handle  the table handle (may have been updated by applyFilter)
+     * @param columns the columns to read
+     * @param filter  an optional remaining filter expression
+     * @return properties with filter pushdown metadata
+     */
+    default ScanNodePropertiesResult getScanNodePropertiesResult(
+            ConnectorSession session,
+            ConnectorTableHandle handle,
+            List<ConnectorColumnHandle> columns,
+            Optional<ConnectorExpression> filter) {
+        return new ScanNodePropertiesResult(
+                getScanNodeProperties(session, handle, columns, filter));
+    }
+
+    /**
+     * Populates scan-level Thrift params that apply to all scan ranges.
+     * Called once after all ranges are distributed.
+     *
+     * <p>Connectors that need to set fields on TFileScanRangeParams
+     * (e.g., Paimon predicate, ES docvalue context) override this method.</p>
+     *
+     * @param params         the TFileScanRangeParams to populate
+     * @param nodeProperties the scan node properties from getScanNodeProperties()
+     */
+    default void populateScanLevelParams(TFileScanRangeParams params,
+            Map<String, String> nodeProperties) {
+        // Default: no scan-level params needed
+    }
+
+    /**
+     * Appends connector-specific EXPLAIN output.
+     * Called after the generic TABLE/QUERY/PREDICATES lines.
+     *
+     * <p>Each connector decides its own EXPLAIN format. For example, ES
+     * appends "ES index/type" and "REMOTE_PREDICATES" lines.</p>
+     *
+     * @param output         the StringBuilder to append to
+     * @param prefix         the indentation prefix for this explain level
+     * @param nodeProperties the scan node properties
+     */
+    default void appendExplainInfo(StringBuilder output,
+            String prefix, Map<String, String> nodeProperties) {
+        // Default: no extra EXPLAIN info
+    }
+
+    /**
+     * Returns the serialized table representation for this connector,
+     * or {@code null} if not applicable.
+     *
+     * <p>Currently used by Paimon to pass the serialized Paimon Table
+     * object to BE for JNI-based reading.</p>
+     *
+     * @param nodeProperties the scan node properties
+     * @return serialized table string, or null
+     */
+    default String getSerializedTable(Map<String, String> nodeProperties) {
+        return null;
     }
 }

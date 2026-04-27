@@ -96,7 +96,10 @@ void build_rowset_meta_with_spec_field(RowsetMeta& rowset_meta,
             spec_rowset_meta.is_segments_key_bounds_truncated());
     std::vector<KeyBoundsPB> segments_key_bounds;
     spec_rowset_meta.get_segments_key_bounds(&segments_key_bounds);
-    rowset_meta.set_segments_key_bounds(segments_key_bounds);
+    // Preserve source layout: if source was aggregated (size 1), re-aggregating
+    // the single entry is a no-op that also keeps the flag consistent.
+    rowset_meta.set_segments_key_bounds(segments_key_bounds,
+                                        spec_rowset_meta.is_segments_key_bounds_aggregated());
     std::vector<uint32_t> num_segment_rows;
     spec_rowset_meta.get_num_segment_rows(&num_segment_rows);
     rowset_meta.set_num_segment_rows(num_segment_rows);
@@ -1019,7 +1022,9 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
                                      _total_index_size);
     rowset_meta->set_data_disk_size(total_data_size + _total_data_size);
     rowset_meta->set_index_disk_size(total_index_size + _total_index_size);
-    rowset_meta->set_segments_key_bounds(segments_encoded_key_bounds);
+    bool aggregate_key_bounds = config::enable_aggregate_non_mow_key_bounds &&
+                                !_context.enable_unique_key_merge_on_write;
+    rowset_meta->set_segments_key_bounds(segments_encoded_key_bounds, aggregate_key_bounds);
     // TODO write zonemap to meta
     rowset_meta->set_empty((num_rows_written + _num_rows_written) == 0);
     rowset_meta->set_creation_time(time(nullptr));

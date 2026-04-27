@@ -22,10 +22,13 @@ import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.handle.NamedColumnHandle;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -88,6 +91,18 @@ public class EsConnectorMetadata implements ConnectorMetadata {
                 indexName, mapping, mappingEsId);
         return new ConnectorTableSchema(indexName, columns, "ELASTICSEARCH",
                 Collections.emptyMap());
+    }
+
+    @Override
+    public Map<String, ConnectorColumnHandle> getColumnHandles(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        ConnectorTableSchema schema = getTableSchema(session, handle);
+        List<ConnectorColumn> columns = schema.getColumns();
+        Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>(columns.size());
+        for (ConnectorColumn col : columns) {
+            handles.put(col.getName(), new NamedColumnHandle(col.getName()));
+        }
+        return handles;
     }
 
     /**
