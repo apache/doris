@@ -32,6 +32,7 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/defer_op.h"
 
 using namespace doris::vector_search_utils;
 
@@ -63,6 +64,8 @@ public:
 
     void set_vector_index(std::shared_ptr<VectorIndex> index) { _vector_index = index; }
     void set_need_save_index(bool value) { _need_save_index = value; }
+    size_t chunk_rows() const { return _chunk_rows; }
+    size_t float_array_capacity() const { return _float_array.capacity(); }
 };
 
 class AnnIndexWriterTest : public ::testing::Test {
@@ -165,6 +168,27 @@ TEST_F(AnnIndexWriterTest, TestInitWithDifferentProperties) {
         Status status = writer->init();
         EXPECT_TRUE(status.ok());
     }
+}
+
+TEST_F(AnnIndexWriterTest, TestComputeChunkRowsByBytes) {
+    const auto old_chunk_bytes = config::ann_index_build_chunk_bytes;
+    Defer defer([old_chunk_bytes]() { config::ann_index_build_chunk_bytes = old_chunk_bytes; });
+
+    config::ann_index_build_chunk_bytes = 64;
+
+    EXPECT_EQ(AnnIndexColumnWriter::compute_chunk_rows(4), 4);
+}
+
+TEST_F(AnnIndexWriterTest, TestInitDoesNotReserveChunkBuffer) {
+    auto writer = std::make_unique<TestAnnIndexColumnWriter>(_index_file_writer.get(),
+                                                             _tablet_index.get());
+
+    auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
+    fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
+    EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
+
+    ASSERT_TRUE(writer->init().ok());
+    EXPECT_EQ(writer->float_array_capacity(), 0);
 }
 
 TEST_F(AnnIndexWriterTest, TestAddArrayValuesSuccess) {
@@ -494,6 +518,33 @@ TEST_F(AnnIndexWriterTest, TestAddMoreThanChunkSize) {
 
     Status status = writer->finish();
     EXPECT_TRUE(status.ok());
+}
+
+TEST_F(AnnIndexWriterTest, TestFinishReleasesChunkBufferMemory) {
+    auto mock_index = std::make_shared<MockVectorIndex>();
+    auto writer = std::make_unique<TestAnnIndexColumnWriter>(_index_file_writer.get(),
+                                                             _tablet_index.get());
+
+    auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
+    fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
+    EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
+
+    ASSERT_TRUE(writer->init().ok());
+    writer->set_vector_index(mock_index);
+
+    EXPECT_CALL(*mock_index, train(2, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, add(2, testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+    EXPECT_CALL(*mock_index, save(testing::_)).Times(1).WillOnce(testing::Return(Status::OK()));
+
+    std::vector<float> vectors = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f};
+    std::vector<size_t> offsets = {0, 4, 8};
+    ASSERT_TRUE(writer->add_array_values(sizeof(float), vectors.data(), nullptr,
+                                         reinterpret_cast<const uint8_t*>(offsets.data()), 2)
+                        .ok());
+    EXPECT_GT(writer->float_array_capacity(), 0);
+
+    ASSERT_TRUE(writer->finish().ok());
+    EXPECT_EQ(writer->float_array_capacity(), 0);
 }
 
 TEST_F(AnnIndexWriterTest, TestCreateFromIndexColumnWriter) {

@@ -22,6 +22,7 @@
 #include <CLucene/util/bkd/bkd_writer.h>
 #include <glog/logging.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <roaring/roaring.hh>
@@ -46,6 +47,7 @@ public:
         return config::ann_index_build_chunk_size;
 #endif
     }
+    static size_t compute_chunk_rows(size_t dim);
     static constexpr const char* INDEX_TYPE = "index_type";
     static constexpr const char* METRIC_TYPE = "metric_type";
     static constexpr const char* DIM = "dim";
@@ -73,7 +75,10 @@ public:
     int64_t size() const override;
     Status finish() override;
 
-private:
+protected:
+    void _reset_chunk_buffer(bool release_memory);
+    size_t _current_chunk_capacity_elements() const { return _chunk_rows * _dimension; }
+
     // VectorIndex shoule be managed by some cache.
     // VectorIndex should be weak shared by AnnIndexWriter and VectorIndexReader
     // This should be a weak_ptr
@@ -85,5 +90,7 @@ private:
     const TabletIndex* _index_meta;
     std::shared_ptr<DorisFSDirectory> _dir;
     bool _need_save_index = false;
+    size_t _dimension = 0;
+    size_t _chunk_rows = 0;
 };
 } // namespace doris::segment_v2

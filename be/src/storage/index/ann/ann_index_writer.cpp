@@ -17,6 +17,7 @@
 
 #include "storage/index/ann/ann_index_writer.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <memory>
 #include <string>
@@ -39,6 +40,16 @@ AnnIndexColumnWriter::AnnIndexColumnWriter(IndexFileWriter* index_file_writer,
                                            const TabletIndex* index_meta)
         : _index_file_writer(index_file_writer), _index_meta(index_meta) {}
 
+size_t AnnIndexColumnWriter::compute_chunk_rows(size_t dim) {
+    if (dim == 0) {
+        return 1;
+    }
+    const size_t bytes_per_row = dim * sizeof(float);
+    const size_t rows_by_bytes = std::max<size_t>(
+            1, cast_set<size_t>(config::ann_index_build_chunk_bytes) / bytes_per_row);
+    return std::max<size_t>(1, std::min(cast_set<size_t>(chunk_size()), rows_by_bytes));
+}
+
 AnnIndexColumnWriter::~AnnIndexColumnWriter() {}
 
 Status AnnIndexColumnWriter::init() {
@@ -55,8 +66,8 @@ Status AnnIndexColumnWriter::init() {
     const std::string index_type = get_or_default(properties, INDEX_TYPE, "hnsw");
     const std::string metric_type = get_or_default(properties, METRIC_TYPE, "l2_distance");
     const std::string quantizer = get_or_default(properties, QUANTIZER, "flat");
-    FaissBuildParameter build_parameter;
     std::shared_ptr<FaissVectorIndex> faiss_index = std::make_shared<FaissVectorIndex>();
+    FaissBuildParameter build_parameter;
     build_parameter.index_type = FaissBuildParameter::string_to_index_type(index_type);
     build_parameter.dim = std::stoi(get_or_default(properties, DIM, "512"));
     build_parameter.max_degree = std::stoi(get_or_default(properties, MAX_DEGREE, "32"));
@@ -70,15 +81,15 @@ Status AnnIndexColumnWriter::init() {
     faiss_index->build(build_parameter);
 
     _vector_index = faiss_index;
+    _dimension = cast_set<size_t>(build_parameter.dim);
+    _chunk_rows = compute_chunk_rows(_dimension);
 
     LOG_INFO(
             "Create a new faiss index, index_type {} dim {} metric_type {} max_degree {}, "
-            "ef_construction {}, quantizer {}",
+            "ef_construction {}, quantizer {}, chunk_rows {} chunk_bytes {}",
             index_type, build_parameter.dim, metric_type, build_parameter.max_degree,
-            build_parameter.ef_construction, quantizer);
-
-    size_t block_size = AnnIndexColumnWriter::chunk_size() * build_parameter.dim;
-    _float_array.reserve(block_size);
+            build_parameter.ef_construction, quantizer, _chunk_rows,
+            _chunk_rows * _dimension * sizeof(float));
 
     return Status::OK();
 }
@@ -98,7 +109,7 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
     }
 
     const auto* offsets = reinterpret_cast<const size_t*>(offsets_ptr);
-    const size_t dim = _vector_index->get_dimension();
+    const size_t dim = _dimension;
     for (size_t i = 0; i < num_rows; ++i) {
         auto array_elem_size = offsets[i + 1] - offsets[i];
         if (array_elem_size != dim) {
@@ -109,10 +120,16 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
 
     const float* p = reinterpret_cast<const float*>(value_ptr);
 
-    const size_t full_elements = AnnIndexColumnWriter::chunk_size() * dim;
+    if (_chunk_rows == 0) {
+        _chunk_rows = compute_chunk_rows(dim);
+    }
+    const size_t full_elements = _current_chunk_capacity_elements();
     size_t remaining_elements = num_rows * dim;
     size_t src_offset = 0;
     while (remaining_elements > 0) {
+        if (_float_array.capacity() < full_elements) {
+            _float_array.reserve(full_elements);
+        }
         size_t available_space = full_elements - _float_array.size();
         size_t elements_to_add = std::min(remaining_elements, available_space);
 
@@ -121,11 +138,9 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
         remaining_elements -= elements_to_add;
 
         if (_float_array.size() == full_elements) {
-            RETURN_IF_ERROR(
-                    _vector_index->train(AnnIndexColumnWriter::chunk_size(), _float_array.data()));
-            RETURN_IF_ERROR(
-                    _vector_index->add(AnnIndexColumnWriter::chunk_size(), _float_array.data()));
-            _float_array.clear();
+            RETURN_IF_ERROR(_vector_index->train(_chunk_rows, _float_array.data()));
+            RETURN_IF_ERROR(_vector_index->add(_chunk_rows, _float_array.data()));
+            _reset_chunk_buffer(false);
             _need_save_index = true;
         }
     }
@@ -150,6 +165,14 @@ int64_t AnnIndexColumnWriter::size() const {
     return 0;
 }
 
+void AnnIndexColumnWriter::_reset_chunk_buffer(bool release_memory) {
+    _float_array.clear();
+    if (release_memory || _float_array.capacity() > _current_chunk_capacity_elements() * 2) {
+        PODArray<float> empty;
+        _float_array.swap(empty);
+    }
+}
+
 Status AnnIndexColumnWriter::finish() {
     Int64 min_train_rows = _vector_index->get_min_train_rows();
 
@@ -157,23 +180,26 @@ Status AnnIndexColumnWriter::finish() {
     // train/add the remaining data
     if (_float_array.empty()) {
         if (_need_save_index) {
-            return _vector_index->save(_dir.get());
+            auto st = _vector_index->save(_dir.get());
+            _reset_chunk_buffer(true);
+            return st;
         } else {
             // No data was added at all. This can happen if the segment has 0 rows
             // or all rows were filtered out. We need to delete the directory entry
             // to avoid writing an empty/invalid index file.
             LOG_INFO("No data to train/add for ANN index. Skipping index building.");
+            _reset_chunk_buffer(true);
             return _index_file_writer->delete_index(_index_meta);
         }
     } else {
-        DCHECK(_float_array.size() % _vector_index->get_dimension() == 0);
+        DCHECK(_float_array.size() % _dimension == 0);
 
-        Int64 num_rows = _float_array.size() / _vector_index->get_dimension();
+        Int64 num_rows = _float_array.size() / _dimension;
 
         if (num_rows >= min_train_rows) {
             RETURN_IF_ERROR(_vector_index->train(num_rows, _float_array.data()));
             RETURN_IF_ERROR(_vector_index->add(num_rows, _float_array.data()));
-            _float_array.clear();
+            _reset_chunk_buffer(true);
             return _vector_index->save(_dir.get());
         } else {
             // It happens to have not enough data to train.
@@ -183,7 +209,7 @@ Status AnnIndexColumnWriter::finish() {
                 // because the quantizer was already trained on previous batches. These vectors
                 // are simply added to the nearest clusters without retraining.
                 RETURN_IF_ERROR(_vector_index->add(num_rows, _float_array.data()));
-                _float_array.clear();
+                _reset_chunk_buffer(true);
                 return _vector_index->save(_dir.get());
             } else {
                 // Not enough data to train and no data added before.
@@ -195,7 +221,7 @@ Status AnnIndexColumnWriter::finish() {
                         "index "
                         "training. Skipping index building for this segment.",
                         num_rows, min_train_rows);
-                _float_array.clear();
+                _reset_chunk_buffer(true);
                 return _index_file_writer->delete_index(_index_meta);
             }
         }

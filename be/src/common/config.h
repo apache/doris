@@ -1802,6 +1802,9 @@ DECLARE_String(ann_index_ivf_list_cache_limit);
 DECLARE_mInt32(ann_index_ivf_list_cache_stale_sweep_time_sec);
 // Chunk size for ANN/vector index building per training/adding batch
 DECLARE_mInt64(ann_index_build_chunk_size);
+// Soft byte budget for each ANN/vector index build chunk. Used together with
+// ann_index_build_chunk_size to derive the effective per-batch row count.
+DECLARE_mInt64(ann_index_build_chunk_bytes);
 
 DECLARE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction);
 DECLARE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction);
