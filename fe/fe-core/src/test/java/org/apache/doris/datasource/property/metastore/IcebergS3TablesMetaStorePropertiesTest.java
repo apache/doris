@@ -19,10 +19,13 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.property.common.IcebergAwsClientCredentialsProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.aws.AssumeRoleAwsClientFactory;
+import org.apache.iceberg.aws.AwsClientProperties;
 import org.apache.iceberg.aws.AwsProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.catalog.Catalog;
@@ -45,6 +48,29 @@ public class IcebergS3TablesMetaStorePropertiesTest {
         Method m = IcebergS3TablesMetaStoreProperties.class.getDeclaredMethod("buildS3CatalogProperties", Map.class);
         m.setAccessible(true);
         m.invoke(metaProps, catalogProps);
+    }
+
+    @Test
+    public void s3FileIOCredentialPropertiesUseSharedS3Properties() {
+        Map<String, String> props = new HashMap<>();
+        props.put("s3.region", "us-east-1");
+        props.put("s3.endpoint", "https://s3.us-east-1.amazonaws.com");
+        props.put("s3.access_key", "AKID");
+        props.put("s3.secret_key", "SECRET");
+        props.put("s3.session_token", "TOKEN");
+        props.put("s3.credentials_provider_type", "INSTANCE_PROFILE");
+
+        Map<String, String> catalogProps = new HashMap<>();
+        IcebergAwsClientCredentialsProperties.putS3FileIOCredentialProperties(
+                catalogProps, S3Properties.of(props));
+
+        Assertions.assertEquals("https://s3.us-east-1.amazonaws.com",
+                catalogProps.get(S3FileIOProperties.ENDPOINT));
+        Assertions.assertEquals("AKID", catalogProps.get(S3FileIOProperties.ACCESS_KEY_ID));
+        Assertions.assertEquals("SECRET", catalogProps.get(S3FileIOProperties.SECRET_ACCESS_KEY));
+        Assertions.assertEquals("TOKEN", catalogProps.get(S3FileIOProperties.SESSION_TOKEN));
+        Assertions.assertFalse(catalogProps.containsKey(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER));
+        Assertions.assertFalse(catalogProps.containsKey(AwsProperties.CLIENT_ASSUME_ROLE_ARN));
     }
 
     @Test

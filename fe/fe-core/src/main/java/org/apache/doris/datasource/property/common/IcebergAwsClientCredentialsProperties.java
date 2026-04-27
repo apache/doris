@@ -22,6 +22,8 @@ import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.aws.AwsClientProperties;
 import org.apache.iceberg.aws.AwsProperties;
+import org.apache.iceberg.aws.s3.S3FileIOProperties;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 
 import java.util.Map;
 
@@ -55,6 +57,37 @@ public final class IcebergAwsClientCredentialsProperties {
         putCredentialsProvider(target, providerMode);
     }
 
+    public static void putS3FileIOCredentialProperties(Map<String, String> target,
+            S3Properties s3Properties) {
+        putS3FileIOProperties(target, s3Properties);
+        switch (getCredentialType(s3Properties)) {
+            case EXPLICIT:
+                return;
+            case ASSUME_ROLE:
+                IcebergAwsAssumeRoleProperties.putAssumeRoleProperties(target, s3Properties);
+                return;
+            case PROVIDER_CHAIN:
+                putCredentialsProvider(target, s3Properties.getAwsCredentialsProviderMode());
+                return;
+            default:
+                throw new IllegalStateException("Unsupported Iceberg AWS credential type");
+        }
+    }
+
+    public static AwsCredentialsProvider createAwsCredentialsProvider(S3Properties s3Properties,
+            boolean includeAnonymousInDefault) {
+        switch (getCredentialType(s3Properties)) {
+            case EXPLICIT:
+            case ASSUME_ROLE:
+                return s3Properties.getAwsCredentialsProvider();
+            case PROVIDER_CHAIN:
+                return AwsCredentialsProviderFactory.createV2(
+                        s3Properties.getAwsCredentialsProviderMode(), includeAnonymousInDefault);
+            default:
+                throw new IllegalStateException("Unsupported Iceberg AWS credential type");
+        }
+    }
+
     private static CredentialType getCredentialType(S3Properties s3Properties) {
         if (StringUtils.isNotBlank(s3Properties.getAccessKey())
                 && StringUtils.isNotBlank(s3Properties.getSecretKey())) {
@@ -72,6 +105,25 @@ public final class IcebergAwsClientCredentialsProperties {
         target.put(AwsProperties.REST_SECRET_ACCESS_KEY, secretKey);
         if (StringUtils.isNotBlank(sessionToken)) {
             target.put(AwsProperties.REST_SESSION_TOKEN, sessionToken);
+        }
+    }
+
+    private static void putS3FileIOProperties(Map<String, String> target,
+            S3Properties s3Properties) {
+        if (StringUtils.isNotBlank(s3Properties.getEndpoint())) {
+            target.put(S3FileIOProperties.ENDPOINT, s3Properties.getEndpoint());
+        }
+        if (StringUtils.isNotBlank(s3Properties.getUsePathStyle())) {
+            target.put(S3FileIOProperties.PATH_STYLE_ACCESS, s3Properties.getUsePathStyle());
+        }
+        if (StringUtils.isNotBlank(s3Properties.getAccessKey())) {
+            target.put(S3FileIOProperties.ACCESS_KEY_ID, s3Properties.getAccessKey());
+        }
+        if (StringUtils.isNotBlank(s3Properties.getSecretKey())) {
+            target.put(S3FileIOProperties.SECRET_ACCESS_KEY, s3Properties.getSecretKey());
+        }
+        if (StringUtils.isNotBlank(s3Properties.getSessionToken())) {
+            target.put(S3FileIOProperties.SESSION_TOKEN, s3Properties.getSessionToken());
         }
     }
 

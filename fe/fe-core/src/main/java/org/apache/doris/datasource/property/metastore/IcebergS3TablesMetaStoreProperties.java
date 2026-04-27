@@ -18,18 +18,14 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.property.common.AwsCredentialsProviderFactory;
-import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
-import org.apache.doris.datasource.property.common.IcebergAwsAssumeRoleProperties;
+import org.apache.doris.datasource.property.common.IcebergAwsClientCredentialsProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.aws.AwsClientProperties;
-import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.catalog.Catalog;
-import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3tables.S3TablesClient;
 import software.amazon.awssdk.services.s3tables.S3TablesClientBuilder;
@@ -78,67 +74,19 @@ public class IcebergS3TablesMetaStoreProperties extends AbstractIcebergPropertie
 
     private void buildS3CatalogProperties(Map<String, String> props) {
         props.put(AwsClientProperties.CLIENT_REGION, s3Properties.getRegion());
-        putS3FileIOProperties(props);
-
-        if (StringUtils.isNotBlank(s3Properties.getAccessKey())
-                && StringUtils.isNotBlank(s3Properties.getSecretKey())) {
-            return;
-        }
-        if (StringUtils.isNotBlank(s3Properties.getS3IAMRole())) {
-            IcebergAwsAssumeRoleProperties.putAssumeRoleProperties(props, s3Properties);
-            return;
-        }
-        putFileIOCredentialsProvider(props, s3Properties.getAwsCredentialsProviderMode());
-    }
-
-    private void putS3FileIOProperties(Map<String, String> props) {
-        if (StringUtils.isNotBlank(s3Properties.getEndpoint())) {
-            props.put(S3FileIOProperties.ENDPOINT, s3Properties.getEndpoint());
-        }
-        if (StringUtils.isNotBlank(s3Properties.getUsePathStyle())) {
-            props.put(S3FileIOProperties.PATH_STYLE_ACCESS, s3Properties.getUsePathStyle());
-        }
-        if (StringUtils.isNotBlank(s3Properties.getAccessKey())) {
-            props.put(S3FileIOProperties.ACCESS_KEY_ID, s3Properties.getAccessKey());
-        }
-        if (StringUtils.isNotBlank(s3Properties.getSecretKey())) {
-            props.put(S3FileIOProperties.SECRET_ACCESS_KEY, s3Properties.getSecretKey());
-        }
-        if (StringUtils.isNotBlank(s3Properties.getSessionToken())) {
-            props.put(S3FileIOProperties.SESSION_TOKEN, s3Properties.getSessionToken());
-        }
-    }
-
-    private void putFileIOCredentialsProvider(Map<String, String> props,
-            AwsCredentialsProviderMode providerMode) {
-        if (providerMode == null || providerMode == AwsCredentialsProviderMode.DEFAULT) {
-            return;
-        }
-        props.put(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER,
-                AwsCredentialsProviderFactory.getV2ClassName(providerMode));
+        IcebergAwsClientCredentialsProperties.putS3FileIOCredentialProperties(props, s3Properties);
     }
 
     private S3TablesClient buildS3TablesClient(Map<String, String> props) {
         S3TablesClientBuilder builder = S3TablesClient.builder()
                 .region(Region.of(s3Properties.getRegion()))
-                .credentialsProvider(getS3TablesCredentialsProvider());
+                .credentialsProvider(IcebergAwsClientCredentialsProperties.createAwsCredentialsProvider(
+                        s3Properties, false));
         String s3TablesEndpoint = props.get(S3TablesProperties.S3TABLES_ENDPOINT);
         if (StringUtils.isNotBlank(s3TablesEndpoint)) {
             builder.endpointOverride(URI.create(s3TablesEndpoint));
         }
         new HttpClientProperties(props).applyHttpClientConfigurations(builder);
         return builder.build();
-    }
-
-    private AwsCredentialsProvider getS3TablesCredentialsProvider() {
-        if (StringUtils.isNotBlank(s3Properties.getAccessKey())
-                && StringUtils.isNotBlank(s3Properties.getSecretKey())) {
-            return s3Properties.getAwsCredentialsProvider();
-        }
-        if (StringUtils.isNotBlank(s3Properties.getS3IAMRole())) {
-            return s3Properties.getAwsCredentialsProvider();
-        }
-        return AwsCredentialsProviderFactory.createV2(
-                s3Properties.getAwsCredentialsProviderMode(), false);
     }
 }
