@@ -32,16 +32,13 @@
 #include <vector>
 
 #include "common/config.h"
-#include "common/metrics/doris_metrics.h"
 #include "olap/rowset/segment_v2/ann_index/ann_index.h"
 #include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
 #include "olap/rowset/segment_v2/ann_index/faiss_ann_index.h"
-#include "storage/index/ann/ann_index.h"
-#include "storage/index/ann/ann_search_params.h"
-#include "storage/index/ann/faiss_ann_index.h"
+#include "util/doris_metrics.h"
 // metrics.h not used directly here
-#include "vector_search_utils.h"
 #include "util/defer_op.h"
+#include "vector_search_utils.h"
 
 using namespace doris::segment_v2;
 
