@@ -457,4 +457,121 @@ TEST_F(DataTypeStringSerDeTest, ArrowInt64OffsetsInUtf8Schema_ReceiverFix) {
     }
 }
 
+// Buggy schema/data combo (utf8 type tag + int64 offsets) where the offsets buffer
+// sits at a deliberately mis-aligned address. Run with UBSan to verify that the
+// receiver-side fallback uses byte-wise memcpy reads instead of dereferencing
+// raw_value_offsets_, which would trigger a misaligned-access UB on strict
+// architectures (and a UBSan diagnostic everywhere).
+TEST_F(DataTypeStringSerDeTest, ArrowInt64OffsetsInUtf8Schema_Misaligned) {
+    std::vector<std::string> strings = {"alpha", "beta", "gamma", "delta", "epsilon"};
+    const int64_t row_count = static_cast<int64_t>(strings.size());
+
+    // Build int64 offsets manually. Cumulative byte positions.
+    std::vector<int64_t> int64_offsets = {0};
+    int64_t total_length = 0;
+    for (const auto& s : strings) {
+        total_length += static_cast<int64_t>(s.size());
+        int64_offsets.push_back(total_length);
+    }
+
+    // Create an unaligned-by-1 byte buffer for offsets.
+    std::vector<uint8_t> offset_storage(int64_offsets.size() * sizeof(int64_t) + 8);
+    uint8_t* unaligned_offset_data = offset_storage.data() + 1;
+    for (size_t i = 0; i < int64_offsets.size(); ++i) {
+        memcpy(unaligned_offset_data + i * sizeof(int64_t), &int64_offsets[i], sizeof(int64_t));
+    }
+
+    // Concatenated value buffer (alignment irrelevant for byte data, but mis-align
+    // it too just to be thorough).
+    std::vector<uint8_t> value_storage(total_length + 8);
+    uint8_t* unaligned_value_data = value_storage.data() + 1;
+    int64_t cursor = 0;
+    for (const auto& s : strings) {
+        memcpy(unaligned_value_data + cursor, s.data(), s.size());
+        cursor += static_cast<int64_t>(s.size());
+    }
+
+    auto value_buffer = arrow::Buffer::Wrap(unaligned_value_data, total_length);
+    auto offset_buffer =
+            arrow::Buffer::Wrap(unaligned_offset_data, int64_offsets.size() * sizeof(int64_t));
+
+    // Wrap with utf8 schema even though offsets are int64 (the bug we are testing).
+    auto buggy_data =
+            arrow::ArrayData::Make(arrow::utf8(), row_count, {nullptr, offset_buffer, value_buffer},
+                                   /*null_count=*/0, /*offset=*/0);
+    auto buggy_array = std::make_shared<arrow::StringArray>(buggy_data);
+
+    // Sanity-check: the offsets buffer is genuinely mis-aligned to 8 bytes.
+    uintptr_t addr = reinterpret_cast<uintptr_t>(buggy_array->value_offsets()->data());
+    EXPECT_NE(addr % alignof(int64_t), 0u);
+
+    auto result_col = ColumnString::create();
+    cctz::time_zone tz;
+    auto st = serde_str->read_column_from_arrow(*result_col, buggy_array.get(), 0, row_count, tz);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_EQ(static_cast<int64_t>(result_col->size()), row_count);
+    for (int64_t i = 0; i < row_count; ++i) {
+        EXPECT_EQ(result_col->get_data_at(i).to_string(), strings[i]) << "row " << i;
+    }
+}
+
+// NULL rows must be handled correctly on the int64 fallback path.
+TEST_F(DataTypeStringSerDeTest, ArrowInt64OffsetsInUtf8Schema_WithNulls) {
+    arrow::LargeStringBuilder builder;
+    ASSERT_TRUE(builder.Append("first").ok());
+    ASSERT_TRUE(builder.AppendNull().ok());
+    ASSERT_TRUE(builder.Append("third").ok());
+    ASSERT_TRUE(builder.AppendNull().ok());
+    ASSERT_TRUE(builder.Append("fifth").ok());
+    std::shared_ptr<arrow::Array> large_array;
+    ASSERT_TRUE(builder.Finish(&large_array).ok());
+
+    auto buggy_data =
+            arrow::ArrayData::Make(arrow::utf8(), large_array->length(),
+                                   large_array->data()->buffers, large_array->null_count(), 0);
+    auto buggy_array = std::make_shared<arrow::StringArray>(buggy_data);
+
+    auto col = ColumnString::create();
+    cctz::time_zone tz;
+    auto st = serde_str->read_column_from_arrow(*col, buggy_array.get(), 0, large_array->length(),
+                                                tz);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_EQ(col->size(), 5);
+    EXPECT_EQ(col->get_data_at(0).to_string(), "first");
+    EXPECT_EQ(col->get_data_at(1).to_string(), "");
+    EXPECT_EQ(col->get_data_at(2).to_string(), "third");
+    EXPECT_EQ(col->get_data_at(3).to_string(), "");
+    EXPECT_EQ(col->get_data_at(4).to_string(), "fifth");
+}
+
+// Symmetric coverage for the BINARY type id path: the fallback shares the same
+// branch in read_column_from_arrow as STRING, but only STRING was previously tested.
+TEST_F(DataTypeStringSerDeTest, ArrowInt64OffsetsInBinarySchema_ReceiverFix) {
+    std::vector<std::string> blobs = {"\x01\x02\x03", "\xff\xee\xdd\xcc", "binary_payload",
+                                      std::string(64, 'A'), std::string(80, '\0')};
+    arrow::LargeBinaryBuilder builder;
+    for (const auto& b : blobs) {
+        ASSERT_TRUE(builder.Append(b).ok());
+    }
+    std::shared_ptr<arrow::Array> large_array;
+    ASSERT_TRUE(builder.Finish(&large_array).ok());
+
+    // Re-tag with binary() while keeping int64 offsets.
+    auto buggy_data =
+            arrow::ArrayData::Make(arrow::binary(), large_array->length(),
+                                   large_array->data()->buffers, large_array->null_count(), 0);
+    auto buggy_array = std::make_shared<arrow::BinaryArray>(buggy_data);
+
+    auto col = ColumnString::create();
+    cctz::time_zone tz;
+    auto st = serde_str->read_column_from_arrow(*col, buggy_array.get(), 0, large_array->length(),
+                                                tz);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_EQ(static_cast<size_t>(col->size()), blobs.size());
+    for (size_t i = 0; i < blobs.size(); ++i) {
+        const auto sref = col->get_data_at(i);
+        EXPECT_EQ(std::string(sref.data, sref.size), blobs[i]) << "row " << i;
+    }
+}
+
 } // namespace doris

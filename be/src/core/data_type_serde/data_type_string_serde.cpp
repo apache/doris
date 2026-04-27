@@ -264,31 +264,37 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
 
         const uint8_t* offsets_data = concrete_array->value_offsets()->data();
         const int64_t offsets_buf_size = concrete_array->value_offsets()->size();
-        const int64_t expected_int64_size = (arrow_array->length() + 1) * sizeof(int64_t);
 
-        // Detect schema/data mismatch: sender may upgrade utf8 to large_utf8 (int64 offsets)
-        // without updating the schema. For N rows, int32 offsets need (N+1)*4 bytes while
-        // int64 offsets need (N+1)*8 bytes. These sizes never collide for N >= 0.
+        const int64_t base = arrow_array->offset();
+        // Total number of int32/int64 entries actually backing this array view.
+        const int64_t total_offsets_count = base + arrow_array->length() + 1;
+        const int64_t expected_int64_size = total_offsets_count * sizeof(int64_t);
+
+        // Detect schema/data mismatch: the sender may upgrade a utf8 builder to
+        // large_utf8 (int64 offsets) when a column exceeds MAX_ARROW_UTF8 but forget
+        // to update the schema, leaving int64 offsets behind a utf8 type tag. For N
+        // backing entries int32 offsets need N*4 bytes while int64 offsets need N*8
+        // bytes, so an exact size match is unambiguous (4N != 8N for N >= 1).
+        // Note: for arbitrarily sub-sliced arrays whose underlying buffer is larger
+        // than `total_offsets_count` entries the heuristic falls back to int32; that
+        // is safe because the sender bug we are guarding against does not slice.
         const bool offsets_are_int64 = (offsets_buf_size == expected_int64_size);
 
         if (offsets_are_int64) {
-            // Reconstruct as LargeBinaryArray to read int64 offsets correctly.
-            auto large_type = (arrow_array->type_id() == arrow::Type::STRING)
-                                      ? arrow::large_utf8()
-                                      : arrow::large_binary();
-            auto new_data = arrow::ArrayData::Make(
-                    large_type, arrow_array->length(), arrow_array->data()->buffers,
-                    arrow_array->null_count(), concrete_array->offset());
-            auto large_array = std::make_shared<arrow::LargeBinaryArray>(new_data);
-            std::shared_ptr<arrow::Buffer> large_buffer = large_array->value_data();
-
+            const size_t offset_size = sizeof(int64_t);
             for (auto offset_i = start; offset_i < end; ++offset_i) {
-                if (!large_array->IsNull(offset_i)) {
-                    const auto* raw_data =
-                            large_buffer->data() + large_array->value_offset(offset_i);
+                if (!arrow_array->IsNull(offset_i)) {
+                    int64_t start_offset = 0;
+                    int64_t end_offset = 0;
+                    memcpy(&start_offset, offsets_data + (base + offset_i) * offset_size,
+                           offset_size);
+                    memcpy(&end_offset, offsets_data + (base + offset_i + 1) * offset_size,
+                           offset_size);
+                    const int64_t length = end_offset - start_offset;
+                    DCHECK_GE(length, 0);
+                    const auto* raw_data = buffer->data() + start_offset;
                     assert_cast<ColumnType&>(column).insert_data(
-                            reinterpret_cast<const char*>(raw_data),
-                            large_array->value_length(offset_i));
+                            reinterpret_cast<const char*>(raw_data), static_cast<size_t>(length));
                 } else {
                     assert_cast<ColumnType&>(column).insert_default();
                 }
@@ -299,8 +305,10 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
                 if (!concrete_array->IsNull(offset_i)) {
                     int32_t start_offset = 0;
                     int32_t end_offset = 0;
-                    memcpy(&start_offset, offsets_data + offset_i * offset_size, offset_size);
-                    memcpy(&end_offset, offsets_data + (offset_i + 1) * offset_size, offset_size);
+                    memcpy(&start_offset, offsets_data + (base + offset_i) * offset_size,
+                           offset_size);
+                    memcpy(&end_offset, offsets_data + (base + offset_i + 1) * offset_size,
+                           offset_size);
 
                     int32_t length = end_offset - start_offset;
                     const auto* raw_data = buffer->data() + start_offset;

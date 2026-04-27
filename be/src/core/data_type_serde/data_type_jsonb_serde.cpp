@@ -127,23 +127,59 @@ Status DataTypeJsonbSerDe::read_column_from_arrow(IColumn& column, const arrow::
         std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
 
         const uint8_t* offsets_data = concrete_array->value_offsets()->data();
-        const size_t offset_size = sizeof(int32_t);
+        const int64_t offsets_buf_size = concrete_array->value_offsets()->size();
+
+        const int64_t base = arrow_array->offset();
+        const int64_t total_offsets_count = base + arrow_array->length() + 1;
+        const int64_t expected_int64_size = total_offsets_count * sizeof(int64_t);
+
+        // Detect schema/data mismatch: the sender may upgrade a utf8 builder to
+        // large_utf8 (int64 offsets) when a column exceeds MAX_ARROW_UTF8 but forget
+        // to update the schema, leaving int64 offsets behind a utf8 type tag. See
+        // DataTypeStringSerDeBase::read_column_from_arrow for the same workaround.
+        const bool offsets_are_int64 = (offsets_buf_size == expected_int64_size);
 
         JsonBinaryValue value;
-        for (auto offset_i = start; offset_i < end; ++offset_i) {
-            if (!concrete_array->IsNull(offset_i)) {
-                auto start_offset = unaligned_load<int32_t>(offsets_data + offset_i * offset_size);
-                auto end_offset =
-                        unaligned_load<int32_t>(offsets_data + (offset_i + 1) * offset_size);
+        if (offsets_are_int64) {
+            const size_t offset_size = sizeof(int64_t);
+            for (auto offset_i = start; offset_i < end; ++offset_i) {
+                if (!arrow_array->IsNull(offset_i)) {
+                    int64_t start_offset = 0;
+                    int64_t end_offset = 0;
+                    memcpy(&start_offset, offsets_data + (base + offset_i) * offset_size,
+                           offset_size);
+                    memcpy(&end_offset, offsets_data + (base + offset_i + 1) * offset_size,
+                           offset_size);
+                    const int64_t length = end_offset - start_offset;
+                    DCHECK_GE(length, 0);
+                    const auto* raw_data = buffer->data() + start_offset;
+                    RETURN_IF_ERROR(value.from_json_string(reinterpret_cast<const char*>(raw_data),
+                                                           static_cast<size_t>(length)));
+                    column.insert_data(value.value(), value.size());
+                } else {
+                    column.insert_default();
+                }
+            }
+        } else {
+            const size_t offset_size = sizeof(int32_t);
+            for (auto offset_i = start; offset_i < end; ++offset_i) {
+                if (!concrete_array->IsNull(offset_i)) {
+                    int32_t start_offset = 0;
+                    int32_t end_offset = 0;
+                    memcpy(&start_offset, offsets_data + (base + offset_i) * offset_size,
+                           offset_size);
+                    memcpy(&end_offset, offsets_data + (base + offset_i + 1) * offset_size,
+                           offset_size);
 
-                int32_t length = end_offset - start_offset;
-                const auto* raw_data = buffer->data() + start_offset;
+                    int32_t length = end_offset - start_offset;
+                    const auto* raw_data = buffer->data() + start_offset;
 
-                RETURN_IF_ERROR(
-                        value.from_json_string(reinterpret_cast<const char*>(raw_data), length));
-                column.insert_data(value.value(), value.size());
-            } else {
-                column.insert_default();
+                    RETURN_IF_ERROR(value.from_json_string(reinterpret_cast<const char*>(raw_data),
+                                                           length));
+                    column.insert_data(value.value(), value.size());
+                } else {
+                    column.insert_default();
+                }
             }
         }
     } else if (arrow_array->type_id() == arrow::Type::FIXED_SIZE_BINARY) {
