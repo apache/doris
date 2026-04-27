@@ -18,7 +18,7 @@
 #pragma once
 
 #include <cstdint>
-#include <limits>
+#include <mutex>
 #include <utility>
 #include <vector>
 
@@ -101,12 +101,12 @@ public:
 
     inline size_t written_len() const override { return _iceberg_partition_writer->written_len(); }
 
-    // Returns a raw pointer to the FullSorter, used by SpillIcebergTableSinkLocalState
-    // to query memory usage (data_size, get_reserve_mem_size)
-    auto sorter() const { return _sorter.get(); }
+    size_t data_size() const;
+
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) const;
 
     // Called by the memory management system to trigger spilling data to disk
-    Status trigger_spill() { return _do_spill(); }
+    Status trigger_spill();
 
 private:
     // Calculate average row size from the first non-empty block to determine
@@ -128,6 +128,8 @@ private:
     // Sort the current in-memory data and write it to a new spill stream on disk.
     // Explicitly calls do_sort() before prepare_for_read() to guarantee sorted output.
     Status _do_spill();
+
+    Status _close_locked(const Status& status);
 
     // Merge all spilled streams and output final sorted data to Parquet/ORC files.
     // Handles file splitting when output exceeds target file size.
@@ -167,6 +169,17 @@ private:
     // Sorter and merger for handling in-memory sorting and multi-way merge
     std::unique_ptr<FullSorter> _sorter;
     std::unique_ptr<VSortedRunMerger> _merger;
+
+    // Serialize all accesses to _sorter because async writes and revoke spills run on
+    // different thread pools but touch the same FullSorter instance.
+    mutable std::mutex _sorter_mutex;
+
+    // Set to true once close() has finished tearing down the sorter / underlying writer.
+    // Late-arriving revoke spills (which run on a different thread than the async writer)
+    // must become no-ops after close, otherwise they would write to a fresh spill stream
+    // whose data never gets merged out (close has already produced the final output and
+    // cleaned up spill files).
+    bool _closed = false;
 
     // Queue of spill files waiting to be merged (FIFO order)
     std::deque<SpillFileSPtr> _sorted_spill_files;
