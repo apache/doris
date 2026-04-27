@@ -56,6 +56,7 @@
 #include "olap/base_tablet.h"
 #include "olap/cold_data_compaction.h"
 #include "olap/compaction_permit_limiter.h"
+#include "olap/compaction_task_tracker.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
@@ -1052,7 +1053,8 @@ void StorageEngine::_pop_tablet_from_submitted_compaction(TabletSharedPtr tablet
 }
 
 Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
-                                              CompactionType compaction_type, bool force) {
+                                              CompactionType compaction_type, bool force,
+                                              int trigger_method) {
     if (tablet->tablet_meta()->tablet_schema()->enable_single_replica_compaction() &&
         should_fetch_from_peer(tablet->tablet_id())) {
         VLOG_CRITICAL << "start to submit single replica compaction task for tablet: "
@@ -1080,6 +1082,38 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
         if (!force) {
             _permit_limiter.request(permits);
         }
+        // Register task with CompactionTaskTracker as PENDING
+        auto* tracker = CompactionTaskTracker::instance();
+        int64_t compaction_id = compaction->compaction_id();
+        {
+            CompactionTaskInfo info;
+            info.compaction_id = compaction_id;
+            info.tablet_id = tablet->tablet_id();
+            info.table_id = tablet->get_table_id();
+            info.partition_id = tablet->partition_id();
+            info.compaction_type = (compaction_type == CompactionType::BASE_COMPACTION)
+                                           ? CompactionProfileType::BASE
+                                   : (compaction_type == CompactionType::CUMULATIVE_COMPACTION)
+                                           ? CompactionProfileType::CUMULATIVE
+                                           : CompactionProfileType::FULL;
+            info.status = CompactionTaskStatus::PENDING;
+            info.trigger_method = static_cast<TriggerMethod>(trigger_method);
+            info.scheduled_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                             std::chrono::system_clock::now().time_since_epoch())
+                                             .count();
+            info.permits = permits;
+            info.backend_id = BackendOptions::get_backend_id();
+            info.compaction_score = tablet->get_real_compaction_score();
+            info.input_rowsets_count = compaction->input_rowsets_count();
+            info.input_row_num = compaction->input_row_num_value();
+            info.input_data_size = compaction->input_rowsets_data_size();
+            info.input_index_size = compaction->input_rowsets_index_size();
+            info.input_total_size = compaction->input_rowsets_total_size();
+            info.input_segments_num = compaction->input_segments_num_value();
+            info.input_version_range = compaction->input_version_range_str();
+            info.is_vertical = compaction->is_vertical();
+            tracker->register_task(std::move(info));
+        }
         std::unique_ptr<ThreadPool>& thread_pool =
                 (compaction_type == CompactionType::CUMULATIVE_COMPACTION)
                         ? _cumu_compaction_thread_pool
@@ -1093,96 +1127,9 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                       << ", max_threads: " << thread_pool->max_threads()
                       << ", min_threads: " << thread_pool->min_threads()
                       << ", num_total_queued_tasks: " << thread_pool->get_queue_size();
-        auto status = thread_pool->submit_func([tablet, compaction = std::move(compaction),
-                                                compaction_type, permits, force, this]() {
-            if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) [[likely]] {
-                DorisMetrics::instance()->cumulative_compaction_task_running_total->increment(1);
-                DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
-                        _cumu_compaction_thread_pool->get_queue_size());
-            } else if (compaction_type == CompactionType::BASE_COMPACTION) {
-                DorisMetrics::instance()->base_compaction_task_running_total->increment(1);
-                DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
-                        _base_compaction_thread_pool->get_queue_size());
-            }
-            bool is_large_task = true;
-            Defer defer {[&]() {
-                DBUG_EXECUTE_IF("StorageEngine._submit_compaction_task.sleep", { sleep(5); })
-                if (!force) {
-                    _permit_limiter.release(permits);
-                }
-                _pop_tablet_from_submitted_compaction(tablet, compaction_type);
-                tablet->compaction_stage = CompactionStage::NOT_SCHEDULED;
-                if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-                    std::lock_guard<std::mutex> lock(_cumu_compaction_delay_mtx);
-                    _cumu_compaction_thread_pool_used_threads--;
-                    if (!is_large_task) {
-                        _cumu_compaction_thread_pool_small_tasks_running--;
-                    }
-                    DorisMetrics::instance()->cumulative_compaction_task_running_total->increment(
-                            -1);
-                    DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
-                            _cumu_compaction_thread_pool->get_queue_size());
-                } else if (compaction_type == CompactionType::BASE_COMPACTION) {
-                    DorisMetrics::instance()->base_compaction_task_running_total->increment(-1);
-                    DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
-                            _base_compaction_thread_pool->get_queue_size());
-                }
-            }};
-            do {
-                if (compaction->compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
-                    std::lock_guard<std::mutex> lock(_cumu_compaction_delay_mtx);
-                    _cumu_compaction_thread_pool_used_threads++;
-                    if (config::large_cumu_compaction_task_min_thread_num > 1 &&
-                        _cumu_compaction_thread_pool->max_threads() >=
-                                config::large_cumu_compaction_task_min_thread_num) {
-                        // Determine if this is a large task based on configured thresholds
-                        is_large_task =
-                                (compaction->calc_input_rowsets_total_size() >
-                                         config::large_cumu_compaction_task_bytes_threshold ||
-                                 compaction->calc_input_rowsets_row_num() >
-                                         config::large_cumu_compaction_task_row_num_threshold);
-
-                        // Small task. No delay needed
-                        if (!is_large_task) {
-                            _cumu_compaction_thread_pool_small_tasks_running++;
-                            break;
-                        }
-                        // Deal with large task
-                        if (_should_delay_large_task()) {
-                            LOG_WARNING(
-                                    "failed to do CumulativeCompaction, cumu thread pool is "
-                                    "intensive, delay large task.")
-                                    .tag("tablet_id", tablet->tablet_id())
-                                    .tag("input_rows", compaction->calc_input_rowsets_row_num())
-                                    .tag("input_rowsets_total_size",
-                                         compaction->calc_input_rowsets_total_size())
-                                    .tag("config::large_cumu_compaction_task_bytes_threshold",
-                                         config::large_cumu_compaction_task_bytes_threshold)
-                                    .tag("config::large_cumu_compaction_task_row_num_threshold",
-                                         config::large_cumu_compaction_task_row_num_threshold)
-                                    .tag("remaining threads",
-                                         _cumu_compaction_thread_pool_used_threads)
-                                    .tag("small_tasks_running",
-                                         _cumu_compaction_thread_pool_small_tasks_running);
-                            // Delay this task and sleep 5s for this tablet
-                            long now = duration_cast<std::chrono::milliseconds>(
-                                               std::chrono::system_clock::now().time_since_epoch())
-                                               .count();
-                            tablet->set_last_cumu_compaction_failure_time(now);
-                            return;
-                        }
-                    }
-                }
-            } while (false);
-            if (!tablet->can_do_compaction(tablet->data_dir()->path_hash(), compaction_type)) {
-                LOG(INFO) << "Tablet state has been changed, no need to begin this compaction "
-                             "task, tablet_id="
-                          << tablet->tablet_id() << ", tablet_state=" << tablet->tablet_state();
-                return;
-            }
-            tablet->compaction_stage = CompactionStage::EXECUTING;
-            TEST_SYNC_POINT_RETURN_WITH_VOID("olap_server::execute_compaction");
-            tablet->execute_compaction(*compaction);
+        auto status = thread_pool->submit_func([=, compaction = std::move(compaction), this]() {
+            _handle_compaction(std::move(tablet), std::move(compaction), compaction_type, permits,
+                               force, compaction_id);
         });
         if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) [[likely]] {
             DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
@@ -1192,6 +1139,8 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                     _base_compaction_thread_pool->get_queue_size());
         }
         if (!st.ok()) {
+            // Cleanup tracker on submit failure
+            tracker->remove_task(compaction_id);
             if (!force) {
                 _permit_limiter.release(permits);
             }
@@ -1218,8 +1167,110 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
     }
 }
 
+void StorageEngine::_handle_compaction(TabletSharedPtr tablet,
+                                       std::shared_ptr<CompactionMixin> compaction,
+                                       CompactionType compaction_type, int64_t permits, bool force,
+                                       int64_t compaction_id) {
+    if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) [[likely]] {
+        DorisMetrics::instance()->cumulative_compaction_task_running_total->increment(1);
+        DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
+                _cumu_compaction_thread_pool->get_queue_size());
+    } else if (compaction_type == CompactionType::BASE_COMPACTION) {
+        DorisMetrics::instance()->base_compaction_task_running_total->increment(1);
+        DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
+                _base_compaction_thread_pool->get_queue_size());
+    }
+    bool is_large_task = true;
+    Defer defer {[&]() {
+        DBUG_EXECUTE_IF("StorageEngine._submit_compaction_task.sleep", { sleep(5); })
+        // Idempotent cleanup: remove task from tracker
+        CompactionTaskTracker::instance()->remove_task(compaction_id);
+        if (!force) {
+            _permit_limiter.release(permits);
+        }
+        _pop_tablet_from_submitted_compaction(tablet, compaction_type);
+        tablet->compaction_stage = CompactionStage::NOT_SCHEDULED;
+        if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+            std::lock_guard<std::mutex> lock(_cumu_compaction_delay_mtx);
+            _cumu_compaction_thread_pool_used_threads--;
+            if (!is_large_task) {
+                _cumu_compaction_thread_pool_small_tasks_running--;
+            }
+            DorisMetrics::instance()->cumulative_compaction_task_running_total->increment(-1);
+            DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
+                    _cumu_compaction_thread_pool->get_queue_size());
+        } else if (compaction_type == CompactionType::BASE_COMPACTION) {
+            DorisMetrics::instance()->base_compaction_task_running_total->increment(-1);
+            DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
+                    _base_compaction_thread_pool->get_queue_size());
+        }
+    }};
+    do {
+        if (compaction->compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
+            std::lock_guard<std::mutex> lock(_cumu_compaction_delay_mtx);
+            _cumu_compaction_thread_pool_used_threads++;
+            if (config::large_cumu_compaction_task_min_thread_num > 1 &&
+                _cumu_compaction_thread_pool->max_threads() >=
+                        config::large_cumu_compaction_task_min_thread_num) {
+                // Determine if this is a large task based on configured thresholds
+                is_large_task = (compaction->calc_input_rowsets_total_size() >
+                                         config::large_cumu_compaction_task_bytes_threshold ||
+                                 compaction->calc_input_rowsets_row_num() >
+                                         config::large_cumu_compaction_task_row_num_threshold);
+
+                // Small task. No delay needed
+                if (!is_large_task) {
+                    _cumu_compaction_thread_pool_small_tasks_running++;
+                    break;
+                }
+                // Deal with large task
+                if (_should_delay_large_task()) {
+                    LOG_WARNING(
+                            "failed to do CumulativeCompaction, cumu thread pool is "
+                            "intensive, delay large task.")
+                            .tag("tablet_id", tablet->tablet_id())
+                            .tag("input_rows", compaction->calc_input_rowsets_row_num())
+                            .tag("input_rowsets_total_size",
+                                 compaction->calc_input_rowsets_total_size())
+                            .tag("config::large_cumu_compaction_task_bytes_threshold",
+                                 config::large_cumu_compaction_task_bytes_threshold)
+                            .tag("config::large_cumu_compaction_task_row_num_threshold",
+                                 config::large_cumu_compaction_task_row_num_threshold)
+                            .tag("remaining threads", _cumu_compaction_thread_pool_used_threads)
+                            .tag("small_tasks_running",
+                                 _cumu_compaction_thread_pool_small_tasks_running);
+                    // Delay this task and sleep 5s for this tablet
+                    long now = duration_cast<std::chrono::milliseconds>(
+                                       std::chrono::system_clock::now().time_since_epoch())
+                                       .count();
+                    tablet->set_last_cumu_compaction_failure_time(now);
+                    return;
+                }
+            }
+        }
+    } while (false);
+    if (!tablet->can_do_compaction(tablet->data_dir()->path_hash(), compaction_type)) {
+        LOG(INFO) << "Tablet state has been changed, no need to begin this compaction "
+                     "task, tablet_id="
+                  << tablet->tablet_id() << ", tablet_state=" << tablet->tablet_state();
+        return;
+    }
+    tablet->compaction_stage = CompactionStage::EXECUTING;
+    // Update tracker to RUNNING
+    {
+        RunningStats rs;
+        rs.start_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   std::chrono::system_clock::now().time_since_epoch())
+                                   .count();
+        rs.permits = permits;
+        CompactionTaskTracker::instance()->update_to_running(compaction_id, rs);
+    }
+    TEST_SYNC_POINT_RETURN_WITH_VOID("olap_server::execute_compaction");
+    tablet->execute_compaction(*compaction);
+}
+
 Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
-                                             bool force, bool eager) {
+                                             bool force, bool eager, int trigger_method) {
     if (!eager) {
         DCHECK(compaction_type == CompactionType::BASE_COMPACTION ||
                compaction_type == CompactionType::CUMULATIVE_COMPACTION);
@@ -1249,7 +1300,7 @@ Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionT
                 _cumulative_compaction_policies.at(tablet->tablet_meta()->compaction_policy()));
     }
     tablet->set_skip_compaction(false);
-    return _submit_compaction_task(tablet, compaction_type, force);
+    return _submit_compaction_task(tablet, compaction_type, force, trigger_method);
 }
 
 Status StorageEngine::_handle_seg_compaction(std::shared_ptr<SegcompactionWorker> worker,
