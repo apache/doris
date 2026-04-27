@@ -204,39 +204,9 @@ public class MTMVTask extends AbstractTask {
             List<TableIf> tableIfs = Lists.newArrayList(tablesInPlan.first);
             tableIfs.sort(Comparator.comparing(TableIf::getId));
 
+            syncPartitionsIfNeeded(ctx, tableIfs);
+
             MTMVRefreshContext context;
-            Pair<List<String>, List<PartitionKeyDesc>> syncPartitions = null;
-            // lock table order by id to avoid deadlock
-            MetaLockUtils.readLockTables(tableIfs);
-            try {
-                // if mtmv is schema_change, check if column type has changed
-                // If it's not in the schema_change state, the column type definitely won't change.
-                if (MTMVState.SCHEMA_CHANGE.equals(mtmv.getStatus().getState())) {
-                    MTMVPlanUtil.ensureMTMVQueryUsable(mtmv, ctx);
-                }
-                if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
-                    Set<MTMVRelatedTableIf> pctTables = mtmv.getMvPartitionInfo().getPctTables();
-                    for (MTMVRelatedTableIf pctTable : pctTables) {
-                        if (!pctTable.isValidRelatedTable()) {
-                            throw new JobException("MTMV " + mtmv.getName() + "'s pct table " + pctTable.getName()
-                                    + " is not a valid pct table anymore, stop refreshing."
-                                    + " e.g. Table has multiple partition columns"
-                                    + " or including not supported transform functions.");
-                        }
-                    }
-                    syncPartitions = MTMVPartitionUtil.alignMvPartition(mtmv);
-                }
-            } finally {
-                MetaLockUtils.readUnlockTables(tableIfs);
-            }
-            if (syncPartitions != null) {
-                for (String pName : syncPartitions.first) {
-                    MTMVPartitionUtil.dropPartition(mtmv, pName);
-                }
-                for (PartitionKeyDesc partitionKeyDesc : syncPartitions.second) {
-                    MTMVPartitionUtil.addPartition(mtmv, partitionKeyDesc);
-                }
-            }
             MetaLockUtils.readLockTables(tableIfs);
             try {
                 context = MTMVRefreshContext.buildContext(mtmv);
@@ -248,77 +218,10 @@ public class MTMVTask extends AbstractTask {
             if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
                 return;
             }
-            // Attempt IVM refresh only when refresh mode is AUTO (scheduled) or INCREMENTAL (manual).
-            // COMPLETE and PARTITIONS always skip IVM and go straight to partition-based refresh.
-            RefreshMode currentRefreshMode = taskContext.getRefreshMode();
-            if (mtmv.isIvm()
-                    && (currentRefreshMode == RefreshMode.AUTO
-                        || currentRefreshMode == RefreshMode.INCREMENTAL)) {
-                IvmRefreshManager ivmRefreshManager = new IvmRefreshManager();
-                IvmRefreshResult ivmResult = ivmRefreshManager.doRefresh(mtmv);
-                if (ivmResult.isSuccess()) {
-                    LOG.info("IVM incremental refresh succeeded for mv={}, taskId={}",
-                            mtmv.getName(), getTaskId());
-                    return;
-                }
-                // INCREMENTAL was explicitly requested; do not fall back to full refresh.
-                if (currentRefreshMode == RefreshMode.INCREMENTAL) {
-                    throw new JobException(
-                            "IVM incremental refresh failed for mv=" + mtmv.getName()
-                            + ", reason=" + ivmResult.getFallbackReason()
-                            + ", detail=" + ivmResult.getDetailMessage());
-                }
-                LOG.warn("IVM refresh fell back for mv={}, reason={}, detail={}, taskId={}. "
-                        + "Continuing with partition-based refresh.",
-                        mtmv.getName(), ivmResult.getFallbackReason(),
-                        ivmResult.getDetailMessage(), getTaskId());
+            if (tryIvmFastPath()) {
+                return;
             }
-            Map<TableIf, String> tableWithPartKey = getIncrementalTableMap();
-            // Capture base table TSOs BEFORE the full refresh executes, so we record the
-            // snapshot version the refresh will read (not a later version after new data arrives).
-            Map<org.apache.doris.mtmv.BaseTableInfo, Long> ivmPreRefreshTsos = null;
-            if (mtmv.isIvm() && mtmv.getIvmInfo().isRunningIvmRefresh()) {
-                ivmPreRefreshTsos = IvmRefreshManager.captureBaseTableTsos(mtmv);
-            }
-            this.completedPartitions = Lists.newCopyOnWriteArrayList();
-            int refreshPartitionNum = mtmv.getRefreshPartitionNum();
-            long execNum = (needRefreshPartitions.size() / refreshPartitionNum) + ((needRefreshPartitions.size()
-                    % refreshPartitionNum) > 0 ? 1 : 0);
-            this.partitionSnapshots = Maps.newConcurrentMap();
-            for (int i = 0; i < execNum; i++) {
-                int start = i * refreshPartitionNum;
-                int end = start + refreshPartitionNum;
-                Set<String> execPartitionNames = Sets.newHashSet(needRefreshPartitions
-                        .subList(start, Math.min(end, needRefreshPartitions.size())));
-                // need get names before exec
-                Map<String, MTMVRefreshPartitionSnapshot> execPartitionSnapshots = MTMVPartitionUtil
-                        .generatePartitionSnapshots(context, relation.getBaseTablesOneLevelAndFromView(),
-                                execPartitionNames);
-                try {
-                    // TODO(IVM): When IVM full refresh falls back here, the refresh SQL should
-                    // bind to a specific TSO snapshot to guarantee that consumedTso exactly matches
-                    // the version the SQL actually reads. Currently TSO support is incomplete, so
-                    // the full refresh reads the latest visible version without TSO binding. This
-                    // means the post-refresh consumedTso reset may be slightly inaccurate if base
-                    // table data changes during execution. Address this when TSO-bound reads are
-                    // implemented.
-                    executeWithRetry(execPartitionNames, tableWithPartKey);
-                } catch (Exception e) {
-                    LOG.error("Execution failed after retries: {}", e.getMessage());
-                    throw new JobException(e.getMessage(), e);
-                }
-                completedPartitions.addAll(execPartitionNames);
-                partitionSnapshots.putAll(execPartitionSnapshots);
-            }
-            LOG.info("MTMVTask refresh used snapshot: {}, mvDbName: {}, mvName: {}, taskId: {}", partitionSnapshots,
-                    mtmv.getDatabase().getFullName(), mtmv.getName(), getTaskId());
-            // After a successful partition-based (COMPLETE) refresh, clear the IVM
-            // runningIvmRefresh flag if it was left set by a previous incomplete IVM run.
-            // Also advance consumedTso so the next incremental refresh starts from the
-            // correct position rather than re-processing already-refreshed data.
-            if (mtmv.isIvm() && ivmPreRefreshTsos != null && !ivmPreRefreshTsos.isEmpty()) {
-                IvmRefreshManager.resetIvmStateAfterFullRefresh(mtmv, ivmPreRefreshTsos);
-            }
+            executePartitionBasedRefresh(context);
         } catch (Throwable e) {
             if (getStatus() == TaskStatus.RUNNING) {
                 LOG.warn("run task failed: {}", e.getMessage());
@@ -327,6 +230,122 @@ public class MTMVTask extends AbstractTask {
                 // if status is not `RUNNING`,maybe the task was canceled, therefore, it is a normal situation
                 LOG.info("task [{}] interruption running, because status is [{}]", getTaskId(), getStatus());
             }
+        }
+    }
+
+    private void syncPartitionsIfNeeded(ConnectContext ctx, List<TableIf> tableIfs)
+            throws JobException, AnalysisException, DdlException {
+        Pair<List<String>, List<PartitionKeyDesc>> syncPartitions = null;
+        // lock table order by id to avoid deadlock
+        MetaLockUtils.readLockTables(tableIfs);
+        try {
+            // if mtmv is schema_change, check if column type has changed
+            // If it's not in the schema_change state, the column type definitely won't change.
+            if (MTMVState.SCHEMA_CHANGE.equals(mtmv.getStatus().getState())) {
+                MTMVPlanUtil.ensureMTMVQueryUsable(mtmv, ctx);
+            }
+            if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
+                Set<MTMVRelatedTableIf> pctTables = mtmv.getMvPartitionInfo().getPctTables();
+                for (MTMVRelatedTableIf pctTable : pctTables) {
+                    if (!pctTable.isValidRelatedTable()) {
+                        throw new JobException("MTMV " + mtmv.getName() + "'s pct table " + pctTable.getName()
+                                + " is not a valid pct table anymore, stop refreshing."
+                                + " e.g. Table has multiple partition columns"
+                                + " or including not supported transform functions.");
+                    }
+                }
+                syncPartitions = MTMVPartitionUtil.alignMvPartition(mtmv);
+            }
+        } finally {
+            MetaLockUtils.readUnlockTables(tableIfs);
+        }
+        if (syncPartitions != null) {
+            for (String pName : syncPartitions.first) {
+                MTMVPartitionUtil.dropPartition(mtmv, pName);
+            }
+            for (PartitionKeyDesc partitionKeyDesc : syncPartitions.second) {
+                MTMVPartitionUtil.addPartition(mtmv, partitionKeyDesc);
+            }
+        }
+    }
+
+    private boolean tryIvmFastPath() throws JobException {
+        // Attempt IVM refresh only when refresh mode is AUTO (scheduled) or INCREMENTAL (manual).
+        // COMPLETE and PARTITIONS always skip IVM and go straight to partition-based refresh.
+        RefreshMode currentRefreshMode = taskContext.getRefreshMode();
+        if (!mtmv.isIvm()
+                || (currentRefreshMode != RefreshMode.AUTO
+                    && currentRefreshMode != RefreshMode.INCREMENTAL)) {
+            return false;
+        }
+        IvmRefreshManager ivmRefreshManager = new IvmRefreshManager();
+        IvmRefreshResult ivmResult = ivmRefreshManager.doRefresh(mtmv);
+        if (ivmResult.isSuccess()) {
+            LOG.info("IVM incremental refresh succeeded for mv={}, taskId={}",
+                    mtmv.getName(), getTaskId());
+            return true;
+        }
+        // INCREMENTAL was explicitly requested; do not fall back to full refresh.
+        if (currentRefreshMode == RefreshMode.INCREMENTAL) {
+            throw new JobException(
+                    "IVM incremental refresh failed for mv=" + mtmv.getName()
+                    + ", reason=" + ivmResult.getFallbackReason()
+                    + ", detail=" + ivmResult.getDetailMessage());
+        }
+        LOG.warn("IVM refresh fell back for mv={}, reason={}, detail={}, taskId={}. "
+                + "Continuing with partition-based refresh.",
+                mtmv.getName(), ivmResult.getFallbackReason(),
+                ivmResult.getDetailMessage(), getTaskId());
+        return false;
+    }
+
+    private void executePartitionBasedRefresh(MTMVRefreshContext context)
+            throws JobException, AnalysisException {
+        Map<TableIf, String> tableWithPartKey = getIncrementalTableMap();
+        // Capture base table TSOs BEFORE the full refresh executes, so we record the
+        // snapshot version the refresh will read (not a later version after new data arrives).
+        Map<org.apache.doris.mtmv.BaseTableInfo, Long> ivmPreRefreshTsos = null;
+        if (mtmv.isIvm() && mtmv.getIvmInfo().isRunningIvmRefresh()) {
+            ivmPreRefreshTsos = IvmRefreshManager.captureBaseTableTsos(mtmv);
+        }
+        this.completedPartitions = Lists.newCopyOnWriteArrayList();
+        int refreshPartitionNum = mtmv.getRefreshPartitionNum();
+        long execNum = (needRefreshPartitions.size() / refreshPartitionNum) + ((needRefreshPartitions.size()
+                % refreshPartitionNum) > 0 ? 1 : 0);
+        this.partitionSnapshots = Maps.newConcurrentMap();
+        for (int i = 0; i < execNum; i++) {
+            int start = i * refreshPartitionNum;
+            int end = start + refreshPartitionNum;
+            Set<String> execPartitionNames = Sets.newHashSet(needRefreshPartitions
+                    .subList(start, Math.min(end, needRefreshPartitions.size())));
+            // need get names before exec
+            Map<String, MTMVRefreshPartitionSnapshot> execPartitionSnapshots = MTMVPartitionUtil
+                    .generatePartitionSnapshots(context, relation.getBaseTablesOneLevelAndFromView(),
+                            execPartitionNames);
+            try {
+                // TODO(IVM): When IVM full refresh falls back here, the refresh SQL should
+                // bind to a specific TSO snapshot to guarantee that consumedTso exactly matches
+                // the version the SQL actually reads. Currently TSO support is incomplete, so
+                // the full refresh reads the latest visible version without TSO binding. This
+                // means the post-refresh consumedTso reset may be slightly inaccurate if base
+                // table data changes during execution. Address this when TSO-bound reads are
+                // implemented.
+                executeWithRetry(execPartitionNames, tableWithPartKey);
+            } catch (Exception e) {
+                LOG.error("Execution failed after retries: {}", e.getMessage());
+                throw new JobException(e.getMessage(), e);
+            }
+            completedPartitions.addAll(execPartitionNames);
+            partitionSnapshots.putAll(execPartitionSnapshots);
+        }
+        LOG.info("MTMVTask refresh used snapshot: {}, mvDbName: {}, mvName: {}, taskId: {}", partitionSnapshots,
+                mtmv.getDatabase().getFullName(), mtmv.getName(), getTaskId());
+        // After a successful partition-based (COMPLETE) refresh, clear the IVM
+        // runningIvmRefresh flag if it was left set by a previous incomplete IVM run.
+        // Also advance consumedTso so the next incremental refresh starts from the
+        // correct position rather than re-processing already-refreshed data.
+        if (mtmv.isIvm() && ivmPreRefreshTsos != null && !ivmPreRefreshTsos.isEmpty()) {
+            IvmRefreshManager.resetIvmStateAfterFullRefresh(mtmv, ivmPreRefreshTsos);
         }
     }
 
