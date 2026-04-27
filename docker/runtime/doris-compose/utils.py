@@ -26,6 +26,7 @@ import subprocess
 import sys
 import time
 import yaml
+import shlex
 
 DORIS_PREFIX = "doris-"
 
