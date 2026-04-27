@@ -22,6 +22,9 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -33,6 +36,7 @@ import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.DistributionMode;
 import org.apache.doris.planner.HashJoinNode;
+import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget;
 import org.apache.doris.planner.ScanNode;
@@ -41,6 +45,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterType;
+import org.apache.doris.thrift.TTargetExprMonotonicity;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -170,6 +175,7 @@ public class RuntimeFilterTranslator {
             List<Expr> targetExprList = new ArrayList<>();
             List<Map<TupleId, List<SlotId>>> targetTupleIdMapList = new ArrayList<>();
             List<ScanNode> scanNodeList = new ArrayList<>();
+            List<RuntimeFilter> targetFilterList = new ArrayList<>();
             boolean hasInvalidTarget = false;
             for (RuntimeFilter filter : group) {
                 Slot curTargetSlot = filter.getTargetSlot();
@@ -199,6 +205,7 @@ public class RuntimeFilterTranslator {
                 TupleId targetTupleId = targetSlotRef.getDesc().getParentId();
                 SlotId targetSlotId = targetSlotRef.getSlotId();
                 scanNodeList.add(scanNode);
+                targetFilterList.add(filter);
                 targetExprList.add(targetExpr);
                 targetTupleIdMapList.add(ImmutableMap.of(targetTupleId, ImmutableList.of(targetSlotId)));
             }
@@ -223,6 +230,9 @@ public class RuntimeFilterTranslator {
                     Expr targetExpr = targetExprList.get(i);
                     origFilter.addTarget(new RuntimeFilterTarget(
                             scanNode, targetExpr, true, isLocalTarget));
+                    TTargetExprMonotonicity mono = classifyMonotonicityForPartitionPruning(
+                            targetFilterList.get(i).getTargetExpression(), scanNode);
+                    origFilter.setTargetMonotonicity(scanNode.getId(), mono);
                 }
                 origFilter.setBitmapFilterNotIn(head.isBitmapFilterNotIn());
                 origFilter.setBloomFilterSizeCalculatedByNdv(head.isBloomFilterSizeCalculatedByNdv());
@@ -315,6 +325,9 @@ public class RuntimeFilterTranslator {
                     Expr targetExpr = targetExprList.get(i);
                     origFilter.addTarget(new RuntimeFilterTarget(
                             scanNode, targetExpr, true, isLocalTarget));
+                    TTargetExprMonotonicity mono = classifyMonotonicityForPartitionPruning(
+                            filter.getTargetExpressions().get(i), scanNode);
+                    origFilter.setTargetMonotonicity(scanNode.getId(), mono);
                 }
                 origFilter.setBitmapFilterNotIn(filter.isBitmapFilterNotIn());
                 origFilter.setBloomFilterSizeCalculatedByNdv(filter.isBloomFilterSizeCalculatedByNdv());
@@ -375,5 +388,44 @@ public class RuntimeFilterTranslator {
                     DataType.fromCatalogType(targetExpr.getType()), DataType.fromCatalogType(src.getType())));
         }
         return targetExpr;
+    }
+
+    /**
+     * Classify whether a runtime-filter target expression can drive partition
+     * pruning on the given scan node.
+     *
+     * <p>Conservative implementation: only identity {@link Slot} references on a
+     * partition column are treated as monotonic increasing. Although Nereids
+     * exposes a {@code Monotonic} interface, its
+     * {@code isMonotonic(Literal lower, Literal upper)} contract is range-aware
+     * and most current implementations do not yet take the bounds into account
+     * correctly; treating every {@code instanceof Monotonic} node as
+     * unconditionally monotonic over the full domain would be unsound. Once the
+     * {@code Monotonic} implementations are completed/audited we can revisit
+     * this and walk through monotonic chains here.
+     */
+    static TTargetExprMonotonicity classifyMonotonicityForPartitionPruning(
+            Expression nereidsExpr, org.apache.doris.planner.PlanNode scanNode) {
+        if (!(scanNode instanceof OlapScanNode)) {
+            return TTargetExprMonotonicity.NON_MONOTONIC;
+        }
+        if (!(nereidsExpr instanceof Slot)) {
+            return TTargetExprMonotonicity.NON_MONOTONIC;
+        }
+        OlapTable table = ((OlapScanNode) scanNode).getOlapTable();
+        if (table == null) {
+            return TTargetExprMonotonicity.NON_MONOTONIC;
+        }
+        PartitionType partType = table.getPartitionInfo().getType();
+        if (partType != PartitionType.RANGE && partType != PartitionType.LIST) {
+            return TTargetExprMonotonicity.NON_MONOTONIC;
+        }
+        String colName = ((Slot) nereidsExpr).getName();
+        for (Column partCol : table.getPartitionInfo().getPartitionColumns()) {
+            if (partCol.getName().equalsIgnoreCase(colName)) {
+                return TTargetExprMonotonicity.MONOTONIC_INCREASING;
+            }
+        }
+        return TTargetExprMonotonicity.NON_MONOTONIC;
     }
 }

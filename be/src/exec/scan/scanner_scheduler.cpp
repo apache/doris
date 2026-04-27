@@ -202,6 +202,9 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                              << rf_status.to_string();
             }
 
+            // After processing late RFs, check if this scanner's partition was pruned.
+            if (!eos && scanner->check_partition_pruned()) { eos = true; }
+
             size_t raw_bytes_threshold = config::doris_scanner_row_bytes;
             if (ctx->low_memory_mode()) {
                 ctx->clear_free_blocks();

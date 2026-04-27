@@ -1,0 +1,158 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <mutex>
+#include <shared_mutex>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+#include "common/global_types.h"
+#include "core/data_type/data_type.h"
+#include "exec/common/hash_table/phmap_fwd_decl.h"
+#include "exprs/vexpr_fwd.h"
+#include "storage/olap_scan_common.h"
+
+namespace doris {
+
+class SlotDescriptor;
+class VExprContext;
+struct TPartitionBoundary;
+struct TRuntimeFilterDesc;
+struct TTargetExprMonotonicity;
+
+// Parsed representation of one partition boundary for one slot column.
+struct ParsedBoundary {
+    int64_t partition_id = 0;
+    SlotId slot_id = 0;
+    bool is_nullable = false;
+    ColumnValueRangeType boundary_cvr;
+    // True if the partition's value set is exactly {NULL} (e.g. LIST
+    // partition whose only key is NULL). The CVR alone cannot encode
+    // "only NULL" -- it stays as the whole range with contain_null=true
+    // -- so we track it explicitly to enable accurate pruning.
+    bool only_null = false;
+    // True if the partition's value set includes NULL (covers both
+    // only-NULL and mixed LIST partitions). Tracked separately because
+    // ColumnValueRange::set_contain_null(true) destructively clears the
+    // fixed-value set, so we cannot stash the NULL flag inside the CVR
+    // alongside the concrete values.
+    bool contains_null = false;
+    // For projected boundaries: true if the target_expr produced NULL on this
+    // partition's input value (cannot prune conservatively).
+    bool null_in_projection = false;
+};
+
+// Immutable, fragment-shared parse result of TPartitionBoundary list.
+//
+// Parsing is expensive (constructs VLiteral per literal, materializes a
+// ColumnPtr, builds ColumnValueRange) and depends only on plan-time data.
+// All pipeline instances of the same fragment share one parse, performed
+// in OperatorX::prepare() which is single-threaded fragment setup.
+class ParsedPartitionBoundaries {
+public:
+    ParsedPartitionBoundaries() = default;
+
+    // Build the parse result from the thrift `boundaries` list. Caller must
+    // ensure this is invoked at most once per instance (OperatorX::prepare()
+    // is the natural call site).
+    void parse(const std::vector<TPartitionBoundary>& boundaries,
+               const phmap::flat_hash_map<int, SlotDescriptor*>& slot_descs);
+
+    bool empty() const { return _partition_column_slot_ids.empty(); }
+    int64_t total_partitions() const { return _total_partition_count; }
+
+    const std::unordered_map<SlotId, std::vector<ParsedBoundary>>& slot_to_boundaries() const {
+        return _slot_to_boundaries;
+    }
+    const std::unordered_set<SlotId>& partition_column_slot_ids() const {
+        return _partition_column_slot_ids;
+    }
+
+    // Lazily compute projected boundaries for a non-identity monotonic target.
+    // `target_expr` is `impl->children()[0]` of the RF wrapper (a sub-tree of
+    // the conjunct). `leaf_slot_id` is the unique VSlotRef leaf inside it
+    // (FE asserted target_expr has exactly one input slot). `leaf_column_id`
+    // is that slot ref's `column_id()` -- the position in the runtime block.
+    // `direction` is the FE-side cumulative monotonicity. `ctx` is the
+    // conjunct's VExprContext (used to execute the sub-expression).
+    //
+    // Returns nullptr if projection is unsupported (e.g. non-RANGE partition,
+    // unsupported primitive type) -- caller then skips this RF.
+    //
+    // Direction:
+    //   MONOTONIC_INCREASING: projected lo and hi keep their roles
+    //   MONOTONIC_DECREASING: swap (projected lo, hi) -> (hi, lo)
+    //
+    // NULL: any input value that projects to NULL marks
+    //   null_in_projection=true; the existing _try_prune_by_single_rf
+    //   conservatively keeps the partition.
+    const std::vector<ParsedBoundary>* get_or_compute_projection(
+            int filter_id, const VExprSPtr& target_expr, SlotId leaf_slot_id, int leaf_column_id,
+            TTargetExprMonotonicity::type direction, VExprContext* ctx) const;
+
+private:
+    std::unordered_map<SlotId, std::vector<ParsedBoundary>> _slot_to_boundaries;
+    std::unordered_set<SlotId> _partition_column_slot_ids;
+    int64_t _total_partition_count = 0;
+    std::unordered_map<SlotId, DataTypePtr> _slot_data_types;
+
+    mutable std::mutex _projection_cache_mutex;
+    mutable std::unordered_map<int /*filter_id*/, std::vector<ParsedBoundary>> _projection_cache;
+};
+
+// Per-instance pruning state for runtime-filter partition pruning.
+//
+// Holds the set of partition IDs already pruned for this scan instance and
+// nothing else: the parsed boundaries are shared per-fragment and reached via
+// `OperatorXBase::parsed_partition_boundaries()`. The owner (ScanLocalStateBase)
+// passes the parsed object into `prune_by_runtime_filters` on each call.
+//
+// Thread safety: `is_partition_pruned()` is safe to call concurrently with
+// `prune_by_runtime_filters()` via an internal shared_mutex.
+class RuntimeFilterPartitionPruner {
+public:
+    RuntimeFilterPartitionPruner() = default;
+
+    // Evaluate RF conjuncts against the given parsed boundaries and mark
+    // pruned partitions on this per-instance state. Returns the number of
+    // *newly* pruned partitions in this call.
+    int64_t prune_by_runtime_filters(const ParsedPartitionBoundaries& parsed,
+                                     const VExprContextSPtrs& conjuncts,
+                                     const std::vector<TRuntimeFilterDesc>& rf_descs,
+                                     int scan_node_id);
+
+    // Thread-safe query: is the given partition_id pruned?
+    bool is_partition_pruned(int64_t partition_id) const;
+
+    // Number of partitions currently marked as pruned.
+    int64_t pruned_partition_count() const;
+
+private:
+    phmap::flat_hash_set<int64_t> _pruned_partition_ids;
+    mutable std::shared_mutex _prune_mutex;
+
+    // Try to prune partitions using a single RF's impl expression on the given boundaries.
+    // Adds newly pruned partition IDs to `newly_pruned`.
+    void _try_prune_by_single_rf(const std::vector<ParsedBoundary>& boundaries,
+                                 const VExprSPtr& impl,
+                                 phmap::flat_hash_set<int64_t>& newly_pruned);
+};
+
+} // namespace doris

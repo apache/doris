@@ -31,6 +31,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterDesc;
 import org.apache.doris.thrift.TRuntimeFilterType;
+import org.apache.doris.thrift.TTargetExprMonotonicity;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -39,6 +40,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -135,6 +137,15 @@ public final class RuntimeFilter {
 
     // Per-filter wait time in ms. -1 means use query-level default. 0 means non-blocking.
     private int waitTimeMs = -1;
+
+    // Per-target monotonicity for BE-side runtime-filter partition pruning,
+    // keyed by the target scan node's plan id. Filled by the Nereids
+    // RuntimeFilterTranslator at translation time (where the original
+    // Nereids Expression is still available for monotonicity classification);
+    // legacy planner cannot redo the classification because it only has
+    // analysis.Expr. Read by toThrift() and canPrunePartitionsFor().
+    private final Map<PlanNodeId, TTargetExprMonotonicity> targetMonotonicityByScanId
+            = new HashMap<>();
 
     /**
      * Internal representation of a runtime filter target.
@@ -316,7 +327,50 @@ public final class RuntimeFilter {
         if (waitTimeMs >= 0) {
             tFilter.setWaitTimeMs(waitTimeMs);
         }
+
+        // Per-target monotonicity for BE-side partition pruning. Populated
+        // upstream by RuntimeFilterTranslator (where the original Nereids
+        // Expression is available); we only forward it to the BE here.
+        // Gated by session variable `enable_runtime_filter_partition_prune`.
+        ConnectContext rfPruneCtx = ConnectContext.get();
+        boolean enableRfPartitionPrune = rfPruneCtx != null
+                && rfPruneCtx.getSessionVariable().isEnableRuntimeFilterPartitionPrune();
+        if (enableRfPartitionPrune && !targetMonotonicityByScanId.isEmpty()) {
+            Map<Integer, TTargetExprMonotonicity> monoMap = new HashMap<>();
+            for (Map.Entry<PlanNodeId, TTargetExprMonotonicity> e
+                    : targetMonotonicityByScanId.entrySet()) {
+                if (e.getValue() != TTargetExprMonotonicity.NON_MONOTONIC) {
+                    monoMap.put(e.getKey().asInt(), e.getValue());
+                }
+            }
+            if (!monoMap.isEmpty()) {
+                tFilter.setPlanIdToTargetMonotonicity(monoMap);
+            }
+        }
+
         return tFilter;
+    }
+
+    /**
+     * Record monotonicity for a target. Called by RuntimeFilterTranslator after
+     * the corresponding RuntimeFilterTarget has been added.
+     */
+    public void setTargetMonotonicity(PlanNodeId scanNodeId, TTargetExprMonotonicity m) {
+        targetMonotonicityByScanId.put(scanNodeId, m);
+    }
+
+    /**
+     * Returns true iff this RF can drive partition pruning for the given target
+     * scan node. Used by OlapScanNode.toThrift to decide whether it is worth
+     * serializing partition_boundaries to BE. Mirrors exactly the condition
+     * that toThrift() emits planId_to_target_monotonicity for: monotonic and
+     * grounded on a partition column. When BE later supports more shapes, the
+     * single source of truth for that decision lives in
+     * RuntimeFilterTranslator.classifyMonotonicityForPartitionPruning.
+     */
+    public boolean canPrunePartitionsFor(PlanNodeId scanNodeId) {
+        TTargetExprMonotonicity m = targetMonotonicityByScanId.get(scanNodeId);
+        return m != null && m != TTargetExprMonotonicity.NON_MONOTONIC;
     }
 
     public boolean hasTargets() {
