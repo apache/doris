@@ -428,7 +428,7 @@ class IvmNormalizeMtmvTest {
         Assertions.assertNotNull(target.getHiddenStateSlot(AggType.COUNT));
 
         // Row-id determinism: grouped agg → deterministic
-        Assertions.assertTrue(normalizeResult.getRowIdDeterminism().values().iterator().next());
+        Assertions.assertTrue(normalizeResult.isDeterministic(rowIdAlias.toSlot()));
     }
 
     @Test
