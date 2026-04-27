@@ -40,7 +40,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
@@ -225,21 +224,6 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
                     replacedPartitionKeys.second, replacedOrderExpressions.second);
         }
         return partitionTopN;
-    }
-
-    @Override
-    public Plan visitLogicalDeferMaterializeTopN(LogicalDeferMaterializeTopN<? extends Plan> topN, Void context) {
-        topN = visitChildren(this, topN, context);
-
-        LogicalTopN logicalTopN = (LogicalTopN) topN.getLogicalTopN().accept(this, context);
-        if (logicalTopN != topN.getLogicalTopN()) {
-            SlotReference replacedColumnIdSlot = replaceExpressions(
-                    ImmutableList.of(topN.getColumnIdSlot()), false, false).second.get(0);
-            return new LogicalDeferMaterializeTopN(
-                    logicalTopN, topN.getDeferMaterializeSlotIds(), replacedColumnIdSlot);
-        }
-
-        return topN;
     }
 
     @Override

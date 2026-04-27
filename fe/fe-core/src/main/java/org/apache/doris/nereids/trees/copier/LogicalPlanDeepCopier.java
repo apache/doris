@@ -39,7 +39,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -272,19 +271,6 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                         o.isAsc(), o.isNullFirst()))
                 .collect(ImmutableList.toImmutableList());
         return new LogicalTopN<>(orderKeys, topN.getLimit(), topN.getOffset(), child);
-    }
-
-    @Override
-    public Plan visitLogicalDeferMaterializeTopN(LogicalDeferMaterializeTopN<? extends Plan> topN,
-            DeepCopierContext context) {
-        LogicalTopN<? extends Plan> newTopN
-                = (LogicalTopN<? extends Plan>) visitLogicalTopN(topN.getLogicalTopN(), context);
-        Set<ExprId> newSlotIds = topN.getDeferMaterializeSlotIds().stream()
-                .map(context.exprIdReplaceMap::get)
-                .collect(ImmutableSet.toImmutableSet());
-        SlotReference newRowId = (SlotReference) ExpressionDeepCopier.INSTANCE
-                .deepCopy(topN.getColumnIdSlot(), context);
-        return new LogicalDeferMaterializeTopN<>(newTopN, newSlotIds, newRowId);
     }
 
     @Override

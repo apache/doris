@@ -129,7 +129,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalConnectorTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeResultSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
@@ -2184,7 +2183,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (project.hasMultiLayerProjection()
                 && !(inputFragment instanceof MultiCastPlanFragment)
                 // TODO support for two phase read with project, remove it after refactor
-                && !(project.child() instanceof PhysicalDeferMaterializeTopN)
                 && !(project.child() instanceof PhysicalDeferMaterializeOlapScan
                 || (project.child() instanceof PhysicalFilter
                 && ((PhysicalFilter<?>) project.child()).child() instanceof PhysicalDeferMaterializeOlapScan))) {
@@ -2316,13 +2314,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             updateScanSlotsMaterialization((ScanNode) inputPlanNode, requiredSlotIdSet,
                     requiredByProjectSlotIdSet, context);
         } else {
-            if (project.child() instanceof PhysicalDeferMaterializeTopN) {
-                inputFragment.setOutputExprs(allProjectionExprs);
-            } else {
-                TupleDescriptor tupleDescriptor = generateTupleDesc(slots, null, context);
-                inputPlanNode.setProjectList(projectionExprs);
-                inputPlanNode.setOutputTupleDesc(tupleDescriptor);
-            }
+            TupleDescriptor tupleDescriptor = generateTupleDesc(slots, null, context);
+            inputPlanNode.setProjectList(projectionExprs);
+            inputPlanNode.setOutputTupleDesc(tupleDescriptor);
         }
         return inputFragment;
     }
@@ -2620,21 +2614,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         updateLegacyPlanIdToPhysicalPlan(inputFragment.getPlanRoot(), topN);
         return inputFragment;
-    }
-
-    @Override
-    public PlanFragment visitPhysicalDeferMaterializeTopN(PhysicalDeferMaterializeTopN<? extends Plan> topN,
-            PlanTranslatorContext context) {
-        PlanFragment planFragment = visitPhysicalTopN(topN.getPhysicalTopN(), context);
-        if (planFragment.getPlanRoot() instanceof SortNode) {
-            SortNode sortNode = (SortNode) planFragment.getPlanRoot();
-            sortNode.setUseTwoPhaseReadOpt(true);
-            sortNode.getSortInfo().setUseTwoPhaseRead();
-            if (context.getTopnFilterContext().isTopnFilterSource(topN)) {
-                context.getTopnFilterContext().translateSource(topN, sortNode);
-            }
-        }
-        return planFragment;
     }
 
     @Override

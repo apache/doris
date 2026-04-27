@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -228,18 +227,6 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
     }
 
     @Override
-    public Statistics visitLogicalDeferMaterializeTopN(LogicalDeferMaterializeTopN<? extends Plan> topN,
-            DeriveContext context) {
-        Statistics stats = topN.getStats();
-        if (stats == null && deepDerive) {
-            Statistics childStats = topN.child().accept(this, context);
-            stats = context.calculator.computeTopN(topN, childStats);
-            topN.setStatistics(stats);
-        }
-        return stats;
-    }
-
-    @Override
     public Statistics visitLogicalPartitionTopN(LogicalPartitionTopN<? extends Plan> partitionTopN,
             DeriveContext context) {
         Statistics stats = partitionTopN.getStats();
@@ -413,8 +400,6 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
         return stats;
     }
 }
-
-
 
 
 
