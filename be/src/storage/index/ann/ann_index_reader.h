@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include "runtime/runtime_state.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/ann/ann_search_params.h"
@@ -63,6 +65,10 @@ public:
 
     size_t get_dimension() const;
 
+    void set_rowset_id(std::string rowset_id) { _rowset_id = rowset_id; }
+    void set_segment_id(uint32_t segment_id) { _segment_id = segment_id; }
+    void set_rows_of_segment(size_t rows) { _rows_of_segment = rows; }
+
 private:
     TabletIndex _index_meta;
     std::shared_ptr<IndexFileReader> _index_file_reader;
@@ -77,6 +83,9 @@ private:
     AnnIndexType _index_type;
     AnnIndexMetric _metric_type;
     size_t _dim;
+    std::string _rowset_id;
+    uint32_t _segment_id;
+    size_t _rows_of_segment = 0;
     DorisCallOnce<Status> _load_index_once;
 };
 
