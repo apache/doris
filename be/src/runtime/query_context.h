@@ -48,6 +48,7 @@ namespace doris {
 
 class PipelineFragmentContext;
 class PipelineTask;
+class QueryTaskController;
 class Dependency;
 class RecCTEScanLocalState;
 
@@ -316,6 +317,10 @@ private:
     // Task-level progress counters for current query.
     std::atomic<int> _total_task_num {0};
     std::atomic<int> _finished_task_num {0};
+
+    // Cached pointer to QueryTaskController, to avoid dynamic_cast on the hot path
+    // (every inc_finished_task_num / add_total_task_num call).
+    class QueryTaskController* _query_task_controller = nullptr;
 
     friend class QueryTaskController;
 

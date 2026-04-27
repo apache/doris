@@ -17,6 +17,7 @@
 
 #include "exec/pipeline/pipeline.h"
 
+#include <gen_cpp/FrontendService_types.h>
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
@@ -41,6 +42,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/workload_management/query_task_controller.h"
+#include "runtime/workload_management/resource_context.h"
 
 namespace doris {
 
@@ -1192,6 +1194,98 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
         EXPECT_EQ(downstream_recvr->_sender_queues[0]->_num_remaining_senders, 0);
     }
     downstream_recvr->close();
+}
+
+TEST_F(PipelineTest, QueryTaskProgressConcurrentUpdates) {
+    // Verify counters are thread-safe under concurrent updates from multiple threads.
+    auto resource_ctx = _query_ctx->resource_ctx();
+    auto* ctrl = dynamic_cast<QueryTaskController*>(resource_ctx->task_controller());
+    ASSERT_NE(ctrl, nullptr);
+
+    _query_ctx->add_total_task_num(400);
+
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 8; i++) {
+        threads.emplace_back([this]() {
+            for (int j = 0; j < 50; j++) {
+                _query_ctx->inc_finished_task_num();
+            }
+        });
+    }
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    EXPECT_EQ(ctrl->get_total_task_num(), 400);
+    EXPECT_EQ(ctrl->get_finished_task_num(), 400);
+}
+
+TEST_F(PipelineTest, QueryTaskProgressThriftSerialization) {
+    // Verify progress counters are correctly serialized to Thrift struct.
+    _query_ctx->add_total_task_num(10);
+    _query_ctx->inc_finished_task_num();
+    _query_ctx->inc_finished_task_num();
+    _query_ctx->inc_finished_task_num();
+    _query_ctx->inc_finished_task_num();
+
+    TQueryStatistics tqs;
+    _query_ctx->resource_ctx()->to_thrift_query_statistics(&tqs);
+
+    EXPECT_TRUE(tqs.isSetTotalTasksNum());
+    EXPECT_EQ(tqs.getTotalTasksNum(), 10);
+    EXPECT_TRUE(tqs.isSetFinishedTasksNum());
+    EXPECT_EQ(tqs.getFinishedTasksNum(), 4);
+}
+
+TEST_F(PipelineTest, QueryTaskProgressBoundaryZeroTotal) {
+    // Verify behavior when no tasks have been registered (total = 0).
+    auto* ctrl = dynamic_cast<QueryTaskController*>(_query_ctx->resource_ctx()->task_controller());
+    ASSERT_NE(ctrl, nullptr);
+
+    // total = 0, finished = 0
+    EXPECT_EQ(ctrl->get_total_task_num(), 0);
+    EXPECT_EQ(ctrl->get_finished_task_num(), 0);
+
+    // inc_finished with no total should still work without crash
+    _query_ctx->inc_finished_task_num();
+    EXPECT_EQ(ctrl->get_finished_task_num(), 1);
+}
+
+TEST_F(PipelineTest, QueryTaskProgressAllFinished) {
+    // Verify 100% progress when all tasks finish.
+    _query_ctx->add_total_task_num(8);
+    for (int i = 0; i < 8; i++) {
+        _query_ctx->inc_finished_task_num();
+    }
+
+    auto* ctrl = dynamic_cast<QueryTaskController*>(_query_ctx->resource_ctx()->task_controller());
+    ASSERT_NE(ctrl, nullptr);
+    EXPECT_EQ(ctrl->get_total_task_num(), 8);
+    EXPECT_EQ(ctrl->get_finished_task_num(), 8);
+
+    // Verify thrift serialization
+    TQueryStatistics tqs;
+    _query_ctx->resource_ctx()->to_thrift_query_statistics(&tqs);
+    EXPECT_EQ(tqs.getTotalTasksNum(), 8);
+    EXPECT_EQ(tqs.getFinishedTasksNum(), 8);
+}
+
+TEST_F(PipelineTest, QueryTaskProgressCountersSurviveReset) {
+    // Verify that after calling _reset(), fresh counters are initialized to zero.
+    auto* ctrl1 = dynamic_cast<QueryTaskController*>(_query_ctx->resource_ctx()->task_controller());
+    ASSERT_NE(ctrl1, nullptr);
+    _query_ctx->add_total_task_num(10);
+    _query_ctx->inc_finished_task_num();
+    _query_ctx->inc_finished_task_num();
+    EXPECT_EQ(ctrl1->get_total_task_num(), 10);
+    EXPECT_EQ(ctrl1->get_finished_task_num(), 2);
+
+    // Reset creates a new QueryContext
+    _reset();
+    auto* ctrl2 = dynamic_cast<QueryTaskController*>(_query_ctx->resource_ctx()->task_controller());
+    ASSERT_NE(ctrl2, nullptr);
+    EXPECT_EQ(ctrl2->get_total_task_num(), 0);
+    EXPECT_EQ(ctrl2->get_finished_task_num(), 0);
 }
 
 } // namespace doris

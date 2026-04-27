@@ -97,9 +97,10 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
             values.add(String.valueOf(total));
             values.add(String.valueOf(finished));
             if (total > 0) {
-                values.add((finished * 100 / total) + "%");
+                double pct = (double) finished * 100 / total;
+                values.add(String.format("%.1f%%", pct));
             } else {
-                values.add("0%");
+                values.add("0.0%");
             }
 
             sortedRowData.add(values);
