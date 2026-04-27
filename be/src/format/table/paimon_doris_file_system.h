@@ -21,10 +21,28 @@
 
 #include <string>
 
+#include "common/status.h"
+#include "paimon/status.h"
+
 namespace paimon {
+
+struct ParsedUri {
+    std::string scheme;
+    std::string authority;
+};
 
 // Visible for tests: maps a URI scheme to the Doris file type used by paimon-cpp.
 doris::TFileType::type map_scheme_to_file_type(const std::string& scheme);
+
+// Visible for tests.
+ParsedUri parse_uri(const std::string& path);
+std::string replace_scheme(const std::string& path, const std::string& scheme);
+std::string normalize_local_path(const std::string& path);
+std::string normalize_path_for_type(const std::string& path, const ParsedUri& uri,
+                                    doris::TFileType::type type);
+std::string build_fs_cache_key(doris::TFileType::type type, const ParsedUri& uri,
+                               const std::string& default_fs_name);
+Status to_paimon_status(const doris::Status& status);
 
 } // namespace paimon
 

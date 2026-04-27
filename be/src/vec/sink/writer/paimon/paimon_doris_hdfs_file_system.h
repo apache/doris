@@ -19,11 +19,18 @@
 
 #ifdef WITH_PAIMON_CPP
 
+#include <string>
+
+#include "common/status.h"
+#include "paimon/status.h"
+
 namespace doris::vectorized {
 
 constexpr const char* kPaimonDorisHdfsFsIdentifier = "doris_hdfs";
 
 void ensure_paimon_doris_hdfs_file_system_registered();
+std::string extract_hdfs_fs_name_for_test(const std::string& uri);
+paimon::Status to_paimon_status_for_test(const doris::Status& st);
 
 } // namespace doris::vectorized
 

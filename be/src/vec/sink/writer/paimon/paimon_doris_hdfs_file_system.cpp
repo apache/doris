@@ -415,6 +415,14 @@ public:
 
 namespace doris::vectorized {
 
+std::string extract_hdfs_fs_name_for_test(const std::string& uri) {
+    return _extract_hdfs_fs_name(uri);
+}
+
+paimon::Status to_paimon_status_for_test(const doris::Status& st) {
+    return _to_paimon_status(st);
+}
+
 void ensure_paimon_doris_hdfs_file_system_registered() {
     static std::once_flag once;
     std::call_once(once, [] {

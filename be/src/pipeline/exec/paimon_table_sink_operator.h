@@ -22,6 +22,13 @@
 
 namespace doris {
 
+bool should_use_paimon_jni_writer(const TDataSink& tsink);
+
+std::unique_ptr<vectorized::VPaimonTableWriter> create_paimon_table_writer(
+        const TDataSink& tsink, const VExprContextSPtrs& output_vexpr_ctxs,
+        std::shared_ptr<Dependency> async_writer_dependency = nullptr,
+        std::shared_ptr<Dependency> finish_dependency = nullptr);
+
 class PaimonTableSinkOperatorX;
 
 class PaimonTableSinkLocalState final

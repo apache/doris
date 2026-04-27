@@ -131,14 +131,16 @@ Status VPaimonJniTableWriter::open(RuntimeState* state, RuntimeProfile* profile)
     RETURN_IF_ERROR(_get_jni_env(&env));
     _arrow_pool = std::make_unique<ArrowMemoryPool<>>();
 
-    jclass local_cls = env->FindClass(PAIMON_JNI_CLASS.c_str());
-    if (local_cls == nullptr) {
-        RETURN_IF_ERROR(_check_jni_exception(env, "FindClass"));
-        return Status::InternalError("Failed to load class {}", PAIMON_JNI_CLASS);
+    Jni::LocalClass local_cls;
+    Status find_class_st =
+            Jni::Util::get_jni_scanner_class(env, PAIMON_JNI_CLASS.c_str(), &local_cls);
+    if (!find_class_st.ok()) {
+        RETURN_IF_ERROR(_check_jni_exception(env, "get_scanner_class"));
+        return Status::InternalError("Failed to load scanner class {}: {}", PAIMON_JNI_CLASS,
+                                     find_class_st.to_string());
     }
 
-    _jni_writer_cls = (jclass)env->NewGlobalRef(local_cls);
-    env->DeleteLocalRef(local_cls);
+    _jni_writer_cls = (jclass)env->NewGlobalRef(local_cls.get());
     if (_jni_writer_cls == nullptr) {
         return Status::InternalError("Failed to create global ref for class {}", PAIMON_JNI_CLASS);
     }
@@ -496,20 +498,25 @@ Status VPaimonJniTableWriter::close(Status status) {
         }
     }
 
-    env->CallVoidMethod(_jni_writer_obj, _close_id);
-    Status close_st = _check_jni_exception(env, "close");
-    if (!close_st.ok()) {
-        LOG(WARNING) << "paimon: failed to close writer in Java: " << close_st.to_string();
-        if (status.ok()) {
-            status = close_st;
+    if (_jni_writer_obj != nullptr && _close_id != nullptr) {
+        env->CallVoidMethod(_jni_writer_obj, _close_id);
+        Status close_st = _check_jni_exception(env, "close");
+        if (!close_st.ok()) {
+            LOG(WARNING) << "paimon: failed to close writer in Java: " << close_st.to_string();
+            if (status.ok()) {
+                status = close_st;
+            }
         }
+    } else {
+        LOG(INFO) << "paimon: skip Java close because writer object or close method is not "
+                     "initialized";
     }
 
     return status;
 }
 
 Status VPaimonJniTableWriter::_abort(JNIEnv* env) {
-    if (_jni_writer_obj) {
+    if (_jni_writer_obj != nullptr && _abort_id != nullptr) {
         env->CallVoidMethod(_jni_writer_obj, _abort_id);
         if (env->ExceptionCheck()) {
             return Jni::Env::GetJniExceptionMsg(env, true, "JNI exception occurred in abort: ");

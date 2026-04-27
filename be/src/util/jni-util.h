@@ -847,6 +847,8 @@ class Class : public Object<Ref> {
 public:
     Class() = default;
 
+    jclass get() const { return reinterpret_cast<jclass>(this->_obj); }
+
     static Status find_class(JNIEnv* env, const char* class_str, Class<Ref>* result) {
         DCHECK(result->uninitialized());
         if constexpr (Ref == Local) {

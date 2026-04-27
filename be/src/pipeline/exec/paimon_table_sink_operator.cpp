@@ -23,26 +23,38 @@
 
 namespace doris {
 
+bool should_use_paimon_jni_writer(const TDataSink& tsink) {
+    if (!tsink.__isset.paimon_table_sink) {
+        return false;
+    }
+    const auto& options = tsink.paimon_table_sink.options;
+    auto it = options.find("paimon_use_jni");
+    if (it == options.end()) {
+        return false;
+    }
+    return it->second == "true" || it->second == "1";
+}
+
+std::unique_ptr<vectorized::VPaimonTableWriter> create_paimon_table_writer(
+        const TDataSink& tsink, const VExprContextSPtrs& output_vexpr_ctxs,
+        std::shared_ptr<Dependency> async_writer_dependency,
+        std::shared_ptr<Dependency> finish_dependency) {
+    if (should_use_paimon_jni_writer(tsink)) {
+        return std::make_unique<vectorized::VPaimonJniTableWriter>(
+                tsink, output_vexpr_ctxs, std::move(async_writer_dependency),
+                std::move(finish_dependency));
+    }
+    return std::make_unique<vectorized::VPaimonTableWriter>(tsink, output_vexpr_ctxs,
+                                                            std::move(async_writer_dependency),
+                                                            std::move(finish_dependency));
+}
+
 Status PaimonTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-
-    bool use_jni = false;
-    if (info.tsink.__isset.paimon_table_sink) {
-        const auto& options = info.tsink.paimon_table_sink.options;
-        auto it = options.find("paimon_use_jni");
-        if (it != options.end()) {
-            use_jni = it->second == "true" || it->second == "1";
-        }
-    }
-    if (use_jni) {
-        _writer.reset(new vectorized::VPaimonJniTableWriter(
-                info.tsink, _output_vexpr_ctxs, _async_writer_dependency, _finish_dependency));
-    } else {
-        _writer.reset(new vectorized::VPaimonTableWriter(
-                info.tsink, _output_vexpr_ctxs, _async_writer_dependency, _finish_dependency));
-    }
+    _writer = create_paimon_table_writer(info.tsink, _output_vexpr_ctxs, _async_writer_dependency,
+                                         _finish_dependency);
 
     auto& p = _parent->cast<Parent>();
     RETURN_IF_ERROR(_writer->init_properties(p._pool));

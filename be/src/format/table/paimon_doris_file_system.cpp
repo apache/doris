@@ -43,11 +43,6 @@
 
 namespace paimon {
 
-struct ParsedUri {
-    std::string scheme;
-    std::string authority;
-};
-
 ParsedUri parse_uri(const std::string& path) {
     ParsedUri parsed;
     size_t scheme_pos = path.find("://");
