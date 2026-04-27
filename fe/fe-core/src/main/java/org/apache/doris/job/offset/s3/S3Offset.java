@@ -56,11 +56,6 @@ public class S3Offset implements Offset {
     }
 
     @Override
-    public int getPhysicalFileNum() {
-        return fileNum;
-    }
-
-    @Override
     public String toString() {
         return "{\"startFileName\":\"" + startFile + "\","
                 + "\"endFileName\":\"" + endFile + "\",\"fileNum\":" + fileNum + "}";

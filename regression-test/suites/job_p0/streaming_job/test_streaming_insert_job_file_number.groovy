@@ -92,6 +92,16 @@ suite("test_streaming_insert_job_file_number") {
     // Without fix this is BE split count (6); with fix it's physical file count (2).
     assert loadStat.fileNumber == 2
 
+    def taskInfo = sql """
+        select Status, LoadStatistic from tasks("type"="insert") where JobName='${jobName}'
+    """
+    log.info("taskInfo: " + taskInfo)
+    assert taskInfo.size() > 0
+    def lastTask = taskInfo.get(taskInfo.size() - 1)
+    assert lastTask.get(0) == "SUCCESS"
+    def taskStat = parseJson(lastTask.get(1))
+    assert taskStat.FileNumber == 2
+
     qt_select """ SELECT * FROM ${tableName} order by c1 """
 
     sql """

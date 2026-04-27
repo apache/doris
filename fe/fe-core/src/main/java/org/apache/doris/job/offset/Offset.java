@@ -28,9 +28,4 @@ public interface Offset {
     boolean isValidOffset();
 
     String showRange();
-
-    // -1 means source doesn't expose a physical file count (e.g. JDBC).
-    default int getPhysicalFileNum() {
-        return -1;
-    }
 }

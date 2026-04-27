@@ -70,6 +70,8 @@ import java.util.stream.Collectors;
 public abstract class FileScanNode extends ExternalScanNode {
     // For explain
     protected long totalFileSize = 0;
+    // -1 means unknown (batch-mode scans don't materialize splits on FE).
+    protected int selectedFileNum = -1;
     protected long totalPartitionNum = 0;
     // For display pushdown agg result
     protected long tableLevelRowCount = -1;
@@ -107,6 +109,10 @@ public abstract class FileScanNode extends ExternalScanNode {
 
     public long getTotalFileSize() {
         return totalFileSize;
+    }
+
+    public int getSelectedFileNum() {
+        return selectedFileNum;
     }
 
     /**
