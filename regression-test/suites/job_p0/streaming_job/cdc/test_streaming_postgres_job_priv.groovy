@@ -90,9 +90,11 @@ suite("test_streaming_postgres_job_priv", "p0,external,pg,external_docker,extern
             exception "Failed to init source reader"
         }
 
-        // grant replication to user
+        // grant replication + CREATE on database + table ownership (needed to auto-create publication)
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
              sql """ALTER ROLE ${newPgUser} WITH REPLICATION"""
+             sql """GRANT CREATE ON DATABASE ${pgDB} TO ${newPgUser}"""
+             sql """ALTER TABLE ${pgDB}.${pgSchema}.${tableName} OWNER TO ${newPgUser}"""
         }
 
 

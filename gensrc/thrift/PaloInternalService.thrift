@@ -482,6 +482,7 @@ struct TQueryOptions {
 
   // Use Rust-based Lance reader for FORMAT_LANCE scan ranges
   216: optional bool enable_rust_lance_reader = false;
+  217: optional bool new_version_percentile = false
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

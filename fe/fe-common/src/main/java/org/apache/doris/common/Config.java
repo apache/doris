@@ -1521,6 +1521,20 @@ public class Config extends ConfigBase {
     public static int grpc_keep_alive_second = 10;
 
     /**
+     * Whether to use gRPC directExecutor() for BackendServiceClient.
+     *
+     * WARNING: When enabled, gRPC client call listeners (including protobuf parsing/completion) may run on
+     * Netty EventLoop threads. If response messages are large, this can block transport threads and delay
+     * unrelated RPCs on the same channel.
+     *
+     * This option should only be enabled when you are sure responses are small and the risk is acceptable.
+     * Takes effect after FE restart.
+     */
+    @ConfField(description = {"是否为 BackendServiceClient 使用 gRPC directExecutor",
+            "Whether to use gRPC directExecutor for BackendServiceClient"})
+    public static boolean grpc_backend_client_use_direct_executor = false;
+
+    /**
      * Used to set minimal number of replication per tablet.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1880,6 +1894,12 @@ public class Config extends ConfigBase {
             "The maximum number of tasks a streaming job can keep in memory. If the number exceeds the limit, "
                     + "old records will be discarded."})
     public static int max_streaming_task_show_count = 100;
+
+    @ConfField(masterOnly = true, mutable = true, description = {
+            "Max auto resume retry count for streaming jobs. "
+                    + "After exceeding, the failure reason is rewritten to CANNOT_RESUME_ERR "
+                    + "and the job requires manual intervention."})
+    public static int streaming_job_max_auto_resume_count = 10;
 
     /* job test config */
     /**

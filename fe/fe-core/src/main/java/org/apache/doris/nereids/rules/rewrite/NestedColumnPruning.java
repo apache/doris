@@ -49,6 +49,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -264,28 +265,35 @@ public class NestedColumnPruning implements CustomRewriter {
                 continue;
             }
 
-            // For array/map columns that are NOT in offset-only mode, strip OFFSET-suffix paths
-            // when a non-OFFSET path also exists for the same slot. This handles cases like
-            // `select cardinality(arr), arr[1]` where the OFFSET path from cardinality() is
-            // redundant because full element data is also needed.
-            // If the ONLY paths for a slot end in OFFSET (e.g. cardinality(arr[0].field) alone),
-            // keep them — they carry meaningful nested-access semantics.
-            if (slot.getDataType().isArrayType() || slot.getDataType().isMapType()) {
-                int slotId = slot.getExprId().asInt();
-                boolean hasNonOffsetPath = allAccessPaths.get(slotId).stream().anyMatch(p -> {
-                    List<String> path = p.second;
-                    return path.isEmpty()
-                            || !AccessPathInfo.ACCESS_STRING_OFFSET.equals(path.get(path.size() - 1));
-                });
-                if (hasNonOffsetPath) {
-                    allAccessPaths.get(slotId).removeIf(p -> {
-                        List<String> path = p.second;
-                        return !path.isEmpty()
-                                && AccessPathInfo.ACCESS_STRING_OFFSET.equals(
-                                        path.get(path.size() - 1));
-                    });
+            // Strip OFFSET-suffix paths when a non-OFFSET path covers the same nested field or
+            // container. The overlapping array/map container may live under the root slot itself
+            // or under a nested struct field, so compare against the actual nested prefix instead
+            // of gating this logic on the root slot type.
+            int slotId = slot.getExprId().asInt();
+            Collection<Pair<ColumnAccessPathType, List<String>>> paths = allAccessPaths.get(slotId);
+            List<List<String>> nonOffsetPaths = new ArrayList<>();
+            for (Pair<ColumnAccessPathType, List<String>> p : paths) {
+                List<String> path = p.second;
+                if (path.isEmpty()
+                        || !AccessPathInfo.ACCESS_STRING_OFFSET.equals(path.get(path.size() - 1))) {
+                    nonOffsetPaths.add(path);
                 }
             }
+            List<Pair<ColumnAccessPathType, List<String>>> pathsToRemove = new ArrayList<>();
+            List<Pair<ColumnAccessPathType, List<String>>> pathsToAdd = new ArrayList<>();
+            for (Pair<ColumnAccessPathType, List<String>> p : new ArrayList<>(paths)) {
+                OffsetPathRewrite rewrite = analyzeOffsetPathRewrite(
+                        slot.getDataType(), p.second, nonOffsetPaths);
+                if (!rewrite.shouldRemoveOffsetPath()) {
+                    continue;
+                }
+                pathsToRemove.add(p);
+                for (List<String> supplementalPath : rewrite.getSupplementalPaths()) {
+                    pathsToAdd.add(Pair.of(p.first, supplementalPath));
+                }
+            }
+            paths.removeAll(pathsToRemove);
+            paths.addAll(pathsToAdd);
             List<ColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
             result.put(slot.getExprId().asInt(),
                     new AccessPathInfo(prunedDataType, allPaths, new ArrayList<>()));
@@ -321,6 +329,155 @@ public class NestedColumnPruning implements CustomRewriter {
         }
 
         return result;
+    }
+
+    /**
+     * Decide whether an OFFSET-suffix path can be removed because another non-OFFSET path
+     * already covers the same container.
+     *
+     * <p>For map element_at paths, {@code *} means "read keys fully, then follow the rest of
+     * the path on the value side". So a VALUES path can cover the value-side OFFSET access,
+     * but it does NOT cover the key lookup requirement. In that case we remove the OFFSET path
+     * and add a KEYS-only path instead.
+     */
+    private static OffsetPathRewrite analyzeOffsetPathRewrite(
+            DataType slotType, List<String> path, List<List<String>> nonOffsetPaths) {
+        if (path.isEmpty()
+                || !AccessPathInfo.ACCESS_STRING_OFFSET.equals(path.get(path.size() - 1))) {
+            return OffsetPathRewrite.keep();
+        }
+        List<String> prefix = path.subList(0, path.size() - 1);
+        List<List<String>> supplementalPaths = new ArrayList<>();
+        for (List<String> nonOffset : nonOffsetPaths) {
+            OffsetPathRewrite candidate = compareOffsetPrefixCoverage(slotType, prefix, nonOffset);
+            if (!candidate.shouldRemoveOffsetPath()) {
+                continue;
+            }
+            if (candidate.getSupplementalPaths().isEmpty()) {
+                return OffsetPathRewrite.remove();
+            }
+            supplementalPaths.addAll(candidate.getSupplementalPaths());
+        }
+        if (supplementalPaths.isEmpty()) {
+            return OffsetPathRewrite.keep();
+        }
+        return OffsetPathRewrite.rewriteWithSupplementalPaths(supplementalPaths);
+    }
+
+    private static OffsetPathRewrite compareOffsetPrefixCoverage(
+            DataType slotType, List<String> prefix, List<String> nonOffset) {
+        if (nonOffset.isEmpty()) {
+            return OffsetPathRewrite.remove();
+        }
+        int minLen = Math.min(prefix.size(), nonOffset.size());
+        List<List<String>> supplementalPaths = new ArrayList<>();
+        DataType currentType = slotType;
+        for (int i = 0; i < minLen; i++) {
+            String prefixComponent = prefix.get(i);
+            String nonOffsetComponent = nonOffset.get(i);
+            if (i == 0) {
+                if (!prefixComponent.equals(nonOffsetComponent)) {
+                    return OffsetPathRewrite.keep();
+                }
+                continue;
+            }
+            if (currentType.isStructType()) {
+                if (!prefixComponent.equals(nonOffsetComponent)) {
+                    return OffsetPathRewrite.keep();
+                }
+                StructField field = ((StructType) currentType).getField(prefixComponent);
+                if (field == null) {
+                    return OffsetPathRewrite.keep();
+                }
+                currentType = field.getDataType();
+                continue;
+            }
+            if (currentType.isArrayType()) {
+                if (!prefixComponent.equals(nonOffsetComponent)
+                        || !AccessPathInfo.ACCESS_ALL.equals(prefixComponent)) {
+                    return OffsetPathRewrite.keep();
+                }
+                currentType = ((ArrayType) currentType).getItemType();
+                continue;
+            }
+            if (currentType.isMapType()) {
+                MapType mapType = (MapType) currentType;
+                if (prefixComponent.equals(nonOffsetComponent)) {
+                    currentType = descendMapType(mapType, prefixComponent);
+                    continue;
+                }
+                if (AccessPathInfo.ACCESS_ALL.equals(prefixComponent)
+                        && AccessPathInfo.ACCESS_MAP_VALUES.equals(nonOffsetComponent)) {
+                    supplementalPaths.add(buildMapKeysOnlyPath(prefix, i));
+                    currentType = mapType.getValueType();
+                    continue;
+                }
+                if (AccessPathInfo.ACCESS_MAP_VALUES.equals(prefixComponent)
+                        && AccessPathInfo.ACCESS_ALL.equals(nonOffsetComponent)) {
+                    currentType = mapType.getValueType();
+                    continue;
+                }
+                if (AccessPathInfo.ACCESS_MAP_KEYS.equals(prefixComponent)
+                        && AccessPathInfo.ACCESS_ALL.equals(nonOffsetComponent)) {
+                    currentType = mapType.getKeyType();
+                    continue;
+                }
+                return OffsetPathRewrite.keep();
+            }
+            if (!prefixComponent.equals(nonOffsetComponent)) {
+                return OffsetPathRewrite.keep();
+            }
+        }
+        if (supplementalPaths.isEmpty()) {
+            return OffsetPathRewrite.remove();
+        }
+        return OffsetPathRewrite.rewriteWithSupplementalPaths(supplementalPaths);
+    }
+
+    private static DataType descendMapType(MapType mapType, String component) {
+        if (AccessPathInfo.ACCESS_MAP_KEYS.equals(component)) {
+            return mapType.getKeyType();
+        }
+        return mapType.getValueType();
+    }
+
+    private static List<String> buildMapKeysOnlyPath(List<String> prefix, int mapTokenIndex) {
+        List<String> keyPath = new ArrayList<>(prefix.subList(0, mapTokenIndex));
+        keyPath.add(AccessPathInfo.ACCESS_MAP_KEYS);
+        return keyPath;
+    }
+
+    private static final class OffsetPathRewrite {
+        private static final OffsetPathRewrite KEEP = new OffsetPathRewrite(false, ImmutableList.of());
+        private static final OffsetPathRewrite REMOVE = new OffsetPathRewrite(true, ImmutableList.of());
+
+        private final boolean removeOffsetPath;
+        private final List<List<String>> supplementalPaths;
+
+        private OffsetPathRewrite(boolean removeOffsetPath, List<List<String>> supplementalPaths) {
+            this.removeOffsetPath = removeOffsetPath;
+            this.supplementalPaths = supplementalPaths;
+        }
+
+        private static OffsetPathRewrite keep() {
+            return KEEP;
+        }
+
+        private static OffsetPathRewrite remove() {
+            return REMOVE;
+        }
+
+        private static OffsetPathRewrite rewriteWithSupplementalPaths(List<List<String>> supplementalPaths) {
+            return new OffsetPathRewrite(true, ImmutableList.copyOf(supplementalPaths));
+        }
+
+        private boolean shouldRemoveOffsetPath() {
+            return removeOffsetPath;
+        }
+
+        private List<List<String>> getSupplementalPaths() {
+            return supplementalPaths;
+        }
     }
 
     private static List<ColumnAccessPath> buildColumnAccessPaths(
@@ -664,7 +821,7 @@ public class NestedColumnPruning implements CustomRewriter {
                 return children.values().iterator().next().pruneDataType();
             } else if (accessAll) {
                 return Optional.of(type);
-            } else if (isStringOffsetOnly) {
+            } else if (isStringOffsetOnly && !accessPartialChild) {
                 // Only the offset array is accessed (e.g. length(str_col)).
                 return Optional.of(type);
             } else if (!accessPartialChild) {

@@ -1342,7 +1342,7 @@ public class MaterializedViewHandler extends AlterHandler {
             }
 
             // find from new alter jobs first
-            if (command.getAlterJobIdList() != null) {
+            if (command.getAlterJobIdList() != null && !command.getAlterJobIdList().isEmpty()) {
                 for (Long jobId : command.getAlterJobIdList()) {
                     AlterJobV2 alterJobV2 = getUnfinishedAlterJobV2ByJobId(jobId);
                     if (alterJobV2 == null) {

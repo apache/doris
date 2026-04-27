@@ -275,6 +275,14 @@ Status CloudSnapshotMgr::_create_rowset_meta(
     for (const auto& key_bound : source_meta_pb.segments_key_bounds()) {
         *new_rowset_meta_pb->add_segments_key_bounds() = key_bound;
     }
+    if (source_meta_pb.has_segments_key_bounds_truncated()) {
+        new_rowset_meta_pb->set_segments_key_bounds_truncated(
+                source_meta_pb.segments_key_bounds_truncated());
+    }
+    if (source_meta_pb.has_segments_key_bounds_aggregated()) {
+        new_rowset_meta_pb->set_segments_key_bounds_aggregated(
+                source_meta_pb.segments_key_bounds_aggregated());
+    }
     if (source_meta_pb.has_delete_predicate()) {
         DeletePredicatePB* new_delete_condition = new_rowset_meta_pb->mutable_delete_predicate();
         *new_delete_condition = source_meta_pb.delete_predicate();

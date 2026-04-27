@@ -117,6 +117,7 @@ import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.SubTransactionState;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionCommitFailedException;
+import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionIdGenerator;
 import org.apache.doris.transaction.TransactionNotFoundException;
 import org.apache.doris.transaction.TransactionState;
@@ -1833,27 +1834,60 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public void abortTransaction(Long dbId, Long transactionId, String reason,
             TxnCommitAttachment txnCommitAttachment, List<Table> tableList) throws UserException {
-        if (txnCommitAttachment != null) {
-            if (txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
-                RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnCommitAttachment;
-                TxnStateChangeCallback cb = callbackFactory.getCallback(rlTaskTxnCommitAttachment.getJobId());
-                if (cb != null) {
-                    // use a temporary transaction state to do before commit check,
-                    // what actually works is the transactionId
-                    TransactionState tmpTxnState = new TransactionState();
-                    tmpTxnState.setTransactionId(transactionId);
-                    cb.beforeAborted(tmpTxnState);
-                }
-            }
-        }
+        Pair<Long, TxnStateChangeCallback> callbackInfo =
+                handleBeforeAbort(dbId, transactionId, txnCommitAttachment);
 
         AbortTxnResponse abortTxnResponse = null;
         try {
             abortTxnResponse = abortTransactionImpl(dbId, transactionId, reason, null);
         } finally {
-            handleAfterAbort(abortTxnResponse, txnCommitAttachment, transactionId);
+            handleAfterAbort(abortTxnResponse, txnCommitAttachment, transactionId,
+                    callbackInfo.first, callbackInfo.second);
             clearTxnLastSignature(dbId, transactionId);
         }
+    }
+
+    /**
+     * Resolves the transaction callback and calls beforeAborted() before the abort RPC,
+     * so the lock-handoff pattern (beforeAborted acquires, afterAborted releases) wraps
+     * the correct scope.
+     *
+     * @return a Pair of (callbackId, callback); callback is null if no callback is registered
+     *         or if beforeAborted failed (in either case handleAfterAbort will skip afterAborted)
+     */
+    private Pair<Long, TxnStateChangeCallback> handleBeforeAbort(Long dbId, long transactionId,
+            TxnCommitAttachment txnCommitAttachment) throws UserException {
+        long callbackId = 0L;
+        if (txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
+            callbackId = ((RLTaskTxnCommitAttachment) txnCommitAttachment).getJobId();
+        } else if (txnCommitAttachment == null) {
+            // txnCommitAttachment is null (e.g. BE restart abort): the callbackId is only
+            // stored in the meta service, so do a pre-query to fetch it before the abort RPC,
+            // ensuring beforeAborted is called before the transaction is actually aborted.
+            TransactionState existingState = getTransactionState(dbId, transactionId);
+            if (existingState == null) {
+                throw new UserException("failed to get transaction state before abort, transactionId: "
+                        + transactionId);
+            }
+            callbackId = existingState.getCallbackId();
+        }
+        TxnStateChangeCallback cb = callbackFactory.getCallback(callbackId);
+        if (cb != null) {
+            // use a temporary transaction state to do before abort check,
+            // what actually works is the transactionId
+            TransactionState tmpTxnState = new TransactionState();
+            tmpTxnState.setTransactionId(transactionId);
+            try {
+                cb.beforeAborted(tmpTxnState);
+            } catch (TransactionException e) {
+                LOG.warn("beforeAborted failed for txn {}, callbackId {}, msg: {}",
+                        transactionId, callbackId, e.getMessage());
+                // beforeAborted failed so the lock was not acquired; pass null cb to
+                // handleAfterAbort so afterAborted is skipped and the lock is not released.
+                return Pair.of(callbackId, null);
+            }
+        }
+        return Pair.of(callbackId, cb);
     }
 
     private AbortTxnResponse abortTransactionImpl(Long dbId, Long transactionId, String reason,
@@ -1902,26 +1936,20 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     private void handleAfterAbort(AbortTxnResponse abortTxnResponse, TxnCommitAttachment txnCommitAttachment,
-                                long transactionId) throws UserException {
+                                long transactionId, long callbackId, TxnStateChangeCallback cb) throws UserException {
         TransactionState txnState = new TransactionState();
         boolean txnOperated = false;
-        long callbackId = 0L;
-        TxnStateChangeCallback cb = null;
         String abortReason = "";
 
         if (abortTxnResponse != null) {
             txnState = TxnUtil.transactionStateFromPb(abortTxnResponse.getTxnInfo());
             txnOperated = abortTxnResponse.getStatus().getCode() == MetaServiceCode.OK;
-            callbackId = txnState.getCallbackId();
             abortReason = txnState.getReason();
         }
-        if (txnCommitAttachment != null && txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
-            RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnCommitAttachment;
-            callbackId = rlTaskTxnCommitAttachment.getJobId();
+        if (txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
             txnState.setTransactionId(transactionId);
         }
 
-        cb = callbackFactory.getCallback(callbackId);
         if (cb != null) {
             LOG.info("run txn callback, txnId:{} callbackId:{}, txnState:{}",
                     transactionId, callbackId, txnState);
@@ -2373,9 +2401,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             return null;
         }
 
-        if (getTxnResponse.getStatus().getCode() != MetaServiceCode.OK || !getTxnResponse.hasTxnInfo()) {
-            LOG.info("getTransactionState exception: {}, {}", getTxnResponse.getStatus().getCode(),
-                    getTxnResponse.getStatus().getMsg());
+        if (getTxnResponse == null || getTxnResponse.getStatus().getCode() != MetaServiceCode.OK
+                || !getTxnResponse.hasTxnInfo()) {
+            LOG.info("getTransactionState exception: {}",
+                    getTxnResponse == null ? "null response" : getTxnResponse.getStatus().getCode()
+                            + " " + getTxnResponse.getStatus().getMsg());
             return null;
         }
         return TxnUtil.transactionStateFromPb(getTxnResponse.getTxnInfo());
