@@ -19,11 +19,6 @@ import org.awaitility.Awaitility
 
 import static java.util.concurrent.TimeUnit.SECONDS
 
-// Regression for DORIS-25333: single-table S3 streaming job must accumulate
-// filteredRows into jobStatistic. Previously the txn commit attachment /
-// LoadStatistic / updateJobStatisticAndOffset chain had no filteredRows
-// channel, so jobStatistic.filteredRows stayed at 0 even when BE had
-// filtered rows out due to column type constraints.
 suite("test_streaming_insert_job_filtered_rows") {
     def tableName = "test_streaming_insert_job_filtered_rows_tbl"
     def jobName = "test_streaming_insert_job_filtered_rows_name"
@@ -33,12 +28,8 @@ suite("test_streaming_insert_job_filtered_rows") {
         DROP JOB IF EXISTS where jobname =  '${jobName}'
     """
 
-    // c2 is declared as INT NOT NULL, but the CSV has string names in that
-    // column. Non-parseable int + NOT NULL forces BE to reject every row
-    // (DPP_ABNORMAL_ALL). Mirrors the pattern in
-    // test_streaming_mysql_job_errormsg.groovy (age int NOT NULL + 'abc').
-    // Using varchar here would not work because non-strict mode truncates
-    // silently instead of filtering.
+    // c2 INT NOT NULL forces BE to filter every row when CSV provides
+    // non-parseable strings in that column.
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
             `c1` int NULL,
@@ -97,14 +88,10 @@ suite("test_streaming_insert_job_filtered_rows") {
     def loadStat = parseJson(jobInfo.get(0).get(2))
     log.info("loadStatistic: " + jobInfo.get(0).get(2))
 
-    // Core assertion for the fix: filteredRows must be propagated end-to-end.
-    // All 20 rows are filtered because c2 values (Emily/Benjamin/...) can't
-    // parse as int and c2 is NOT NULL, so every row fails the NOT NULL check.
     assert loadStat.scannedRows == 20
     assert loadStat.fileNumber == 2
     assert loadStat.filteredRows == 20
 
-    // Rows actually persisted = scanned - filtered = 0.
     def rowCount = sql """ select count(1) from ${tableName} """
     assert rowCount.get(0).get(0) == 0
 
