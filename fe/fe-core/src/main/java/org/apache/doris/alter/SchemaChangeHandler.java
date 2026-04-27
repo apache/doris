@@ -2427,12 +2427,12 @@ public class SchemaChangeHandler extends AlterHandler {
                 long jobId = Env.getCurrentEnv().getNextId();
                 //for schema change add/drop value column optimize, direct modify table meta.
                 modifyTableLightSchemaChange(rawSql, db, olapTable, indexSchemaMap, newIndexes,
-                        null, isDropIndex, jobId, false, propertyMap);
+                        null, isDropIndex, jobId, false, propertyMap, null, null);
             } else if (Config.enable_light_index_change && lightIndexChange) {
                 long jobId = Env.getCurrentEnv().getNextId();
                 //for schema change add/drop inverted index and ngram_bf optimize, direct modify table meta firstly.
                 modifyTableLightSchemaChange(rawSql, db, olapTable, indexSchemaMap, newIndexes,
-                        alterIndexes, isDropIndex, jobId, false, propertyMap);
+                        alterIndexes, isDropIndex, jobId, false, propertyMap, null, null);
             } else if (buildIndexChange) {
                 if (alterIndexes.isEmpty()) {
                     throw new DdlException("Altered index is empty. please check your alter stmt.");
@@ -3194,7 +3194,8 @@ public class SchemaChangeHandler extends AlterHandler {
     public void modifyTableLightSchemaChange(String rawSql, Database db, OlapTable olapTable,
                                              Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> indexes,
                                              List<Index> alterIndexes, boolean isDropIndex,
-                                             long jobId, boolean isReplay, Map<String, String> propertyMap)
+                                             long jobId, boolean isReplay, Map<String, String> propertyMap,
+                                             Long createTimeMs, Long finishedTimeMs)
             throws DdlException, AnalysisException {
 
         if (LOG.isDebugEnabled()) {
@@ -3225,6 +3226,10 @@ public class SchemaChangeHandler extends AlterHandler {
         SchemaChangeJobV2 schemaChangeJob = AlterJobV2Factory.createSchemaChangeJobV2(
                 rawSql, jobId, db.getId(), olapTable.getId(),
                 olapTable.getName(), 1000);
+        if (createTimeMs != null) {
+            schemaChangeJob.setCreateTimeMs(createTimeMs);
+        }
+        long jobFinishedTimeMs = finishedTimeMs != null ? finishedTimeMs : System.currentTimeMillis();
 
         for (Map.Entry<Long, List<Column>> entry : changedIndexIdToSchema.entrySet()) {
             long originIndexId = entry.getKey();
@@ -3251,7 +3256,8 @@ public class SchemaChangeHandler extends AlterHandler {
         if (alterIndexes != null) {
             if (!isReplay) {
                 TableAddOrDropInvertedIndicesInfo info = new TableAddOrDropInvertedIndicesInfo(rawSql, db.getId(),
-                        olapTable.getId(), indexSchemaMap, indexes, alterIndexes, isDropIndex, jobId);
+                        olapTable.getId(), indexSchemaMap, indexes, alterIndexes, isDropIndex, jobId,
+                        schemaChangeJob.getCreateTimeMs(), jobFinishedTimeMs);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("logModifyTableAddOrDropInvertedIndices info:{}", info);
                 }
@@ -3284,7 +3290,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 Map<String, Long> indexNameToId = new HashMap<>(olapTable.getIndexNameToId());
                 TableAddOrDropColumnsInfo info = new TableAddOrDropColumnsInfo(
                         rawSql, db.getId(), olapTable.getId(), olapTable.getBaseIndexId(),
-                        indexSchemaMap, oldIndexSchemaMap, indexNameToId, indexes, jobId);
+                        indexSchemaMap, oldIndexSchemaMap, indexNameToId, indexes, jobId,
+                        schemaChangeJob.getCreateTimeMs(), jobFinishedTimeMs);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("logModifyTableAddOrDropColumns info:{}", info);
                 }
@@ -3321,7 +3328,7 @@ public class SchemaChangeHandler extends AlterHandler {
         // add job after edit log
         // set Job state then add job
         schemaChangeJob.setJobState(AlterJobV2.JobState.FINISHED);
-        schemaChangeJob.setFinishedTimeMs(System.currentTimeMillis());
+        schemaChangeJob.setFinishedTimeMs(jobFinishedTimeMs);
         this.addAlterJobV2(schemaChangeJob);
     }
 
@@ -3342,7 +3349,7 @@ public class SchemaChangeHandler extends AlterHandler {
         olapTable.writeLock();
         try {
             modifyTableLightSchemaChange("", db, olapTable, indexSchemaMap, indexes, null, false, jobId,
-                    true, new HashMap<>());
+                    true, new HashMap<>(), info.getCreateTimeMs(), info.getFinishedTimeMs());
         } catch (DdlException e) {
             // should not happen
             LOG.warn("failed to replay modify table add or drop or modify columns", e);
@@ -3483,7 +3490,8 @@ public class SchemaChangeHandler extends AlterHandler {
         olapTable.writeLock();
         try {
             modifyTableLightSchemaChange("", db, olapTable, indexSchemaMap, newIndexes,
-                                             alterIndexes, isDropIndex, jobId, true, new HashMap<>());
+                                             alterIndexes, isDropIndex, jobId, true, new HashMap<>(),
+                                             info.getCreateTimeMs(), info.getFinishedTimeMs());
         } catch (UserException e) {
             // should not happen
             LOG.warn("failed to replay modify table add or drop indexes", e);
