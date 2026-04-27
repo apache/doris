@@ -114,6 +114,15 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                         DataSourceConfigKeys.SNAPSHOT_PARALLELISM_DEFAULT));
     }
 
+    // Refresh fields that may be changed via ALTER JOB; called before each use.
+    @Override
+    public void ensureInitialized(Long jobId, Map<String, String> newProps) throws JobException {
+        this.sourceProperties = newProps;
+        this.snapshotParallelism = Integer.parseInt(
+                newProps.getOrDefault(DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
+                        DataSourceConfigKeys.SNAPSHOT_PARALLELISM_DEFAULT));
+    }
+
     @Override
     public String getSourceType() {
         return "jdbc";
@@ -237,11 +246,12 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                         new TypeReference<ResponseBody<Map<String, String>>>() {
                         }
                 );
-                if (endBinlogOffset != null
-                        && !endBinlogOffset.equals(responseObj.getData())) {
+                Map<String, String> newEndOffset = responseObj.getData();
+                // null→value also counts as a change: upstream may have advanced while fetch was blocked.
+                if (endBinlogOffset == null || !endBinlogOffset.equals(newEndOffset)) {
                     hasMoreData = true;
                 }
-                endBinlogOffset = responseObj.getData();
+                endBinlogOffset = newEndOffset;
             } catch (JsonProcessingException e) {
                 log.warn("Failed to parse end offset response: {}", response);
                 throw new JobException(response);

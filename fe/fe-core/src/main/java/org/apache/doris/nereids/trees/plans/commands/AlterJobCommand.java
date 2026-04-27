@@ -222,6 +222,36 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                     + "Use PROPERTIES('offset'='{...}') to alter offset");
         }
 
+        // Reject keys that the runtime reads only at first initialize and never refreshes,
+        // so ALTER would be a silent no-op. See JdbcSourceOffsetProvider / DebeziumJsonDeserializer.
+        if (sourceProperties.containsKey(DataSourceConfigKeys.SNAPSHOT_PARALLELISM)) {
+            Preconditions.checkArgument(Objects.equals(
+                    originSourceProperties.get(DataSourceConfigKeys.SNAPSHOT_PARALLELISM),
+                    sourceProperties.get(DataSourceConfigKeys.SNAPSHOT_PARALLELISM)),
+                    "The " + DataSourceConfigKeys.SNAPSHOT_PARALLELISM
+                            + " property cannot be modified in ALTER JOB");
+        }
+        if (sourceProperties.containsKey(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE)) {
+            Preconditions.checkArgument(Objects.equals(
+                    originSourceProperties.get(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE),
+                    sourceProperties.get(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE)),
+                    "The " + DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE
+                            + " property cannot be modified in ALTER JOB");
+        }
+        String tablePrefix = DataSourceConfigKeys.TABLE + ".";
+        for (String key : sourceProperties.keySet()) {
+            if (!key.startsWith(tablePrefix)) {
+                continue;
+            }
+            if (key.endsWith("." + DataSourceConfigKeys.TABLE_EXCLUDE_COLUMNS_SUFFIX)
+                    || key.endsWith("." + DataSourceConfigKeys.TABLE_TARGET_TABLE_SUFFIX)) {
+                Preconditions.checkArgument(Objects.equals(
+                        originSourceProperties.get(key),
+                        sourceProperties.get(key)),
+                        "The " + key + " property cannot be modified in ALTER JOB");
+            }
+        }
+
         // slot_name / publication_name decide Doris-vs-user ownership at create time; flipping
         // them afterwards would orphan Doris-created resources or let Doris drop user-owned ones.
         if (sourceProperties.containsKey(DataSourceConfigKeys.SLOT_NAME)) {
