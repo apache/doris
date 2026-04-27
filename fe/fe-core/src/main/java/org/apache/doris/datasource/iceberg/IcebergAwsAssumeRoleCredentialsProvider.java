@@ -17,70 +17,23 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.commons.lang3.StringUtils;
+import org.apache.doris.datasource.property.storage.S3Properties;
+
 import software.amazon.awssdk.auth.credentials.AwsCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
-import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.sts.StsClient;
-import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
 
 import java.util.Map;
-import java.util.Objects;
 
 public class IcebergAwsAssumeRoleCredentialsProvider implements AwsCredentialsProvider {
 
-    public static final String ASSUME_ROLE_ARN = "assume-role.arn";
-    public static final String ASSUME_ROLE_REGION = "assume-role.region";
-    public static final String ASSUME_ROLE_EXTERNAL_ID = "assume-role.external-id";
-    public static final String ASSUME_ROLE_SOURCE_CREDENTIALS_PROVIDER =
-            "assume-role.source-credentials-provider";
+    private final AwsCredentialsProvider provider;
 
-    private static final String DEFAULT_ROLE_SESSION_NAME = "aws-sdk-java-v2-fe";
-
-    private final StsAssumeRoleCredentialsProvider provider;
-
-    private IcebergAwsAssumeRoleCredentialsProvider(StsAssumeRoleCredentialsProvider provider) {
+    private IcebergAwsAssumeRoleCredentialsProvider(AwsCredentialsProvider provider) {
         this.provider = provider;
     }
 
     public static IcebergAwsAssumeRoleCredentialsProvider create(Map<String, String> props) {
-        String roleArn = Objects.requireNonNull(props.get(ASSUME_ROLE_ARN),
-                ASSUME_ROLE_ARN + " is required");
-        String region = Objects.requireNonNull(props.get(ASSUME_ROLE_REGION),
-                ASSUME_ROLE_REGION + " is required");
-        String externalId = props.get(ASSUME_ROLE_EXTERNAL_ID);
-        String sourceCredentialsProviderClassName = Objects.requireNonNull(
-                props.get(ASSUME_ROLE_SOURCE_CREDENTIALS_PROVIDER),
-                ASSUME_ROLE_SOURCE_CREDENTIALS_PROVIDER + " is required");
-
-        StsClient stsClient = StsClient.builder()
-                .region(Region.of(region))
-                .credentialsProvider(createSourceCredentialsProvider(sourceCredentialsProviderClassName))
-                .build();
-        StsAssumeRoleCredentialsProvider assumeRoleProvider = StsAssumeRoleCredentialsProvider.builder()
-                .stsClient(stsClient)
-                .refreshRequest(builder -> {
-                    builder.roleArn(roleArn)
-                            .roleSessionName(DEFAULT_ROLE_SESSION_NAME);
-                    if (StringUtils.isNotBlank(externalId)) {
-                        builder.externalId(externalId);
-                    }
-                })
-                .build();
-        return new IcebergAwsAssumeRoleCredentialsProvider(assumeRoleProvider);
-    }
-
-    private static AwsCredentialsProvider createSourceCredentialsProvider(String className) {
-        try {
-            Class<?> providerClass = Class.forName(className);
-            if (!AwsCredentialsProvider.class.isAssignableFrom(providerClass)) {
-                throw new IllegalArgumentException(className + " does not implement "
-                        + AwsCredentialsProvider.class.getName());
-            }
-            return (AwsCredentialsProvider) providerClass.getMethod("create").invoke(null);
-        } catch (ReflectiveOperationException e) {
-            throw new IllegalArgumentException("Cannot create AWS credentials provider: " + className, e);
-        }
+        return new IcebergAwsAssumeRoleCredentialsProvider(S3Properties.of(props).getAwsCredentialsProvider());
     }
 
     @Override

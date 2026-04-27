@@ -39,28 +39,22 @@ public final class IcebergAwsAssumeRoleProperties {
      * No-op if roleArn is blank.
      */
     public static void putAssumeRoleProperties(Map<String, String> target, S3Properties s3Properties) {
-        putAssumeRoleProperties(target, s3Properties.getRegion(), s3Properties.getS3IAMRole(),
-                s3Properties.getS3ExternalId(), s3Properties.getAwsCredentialsProviderMode());
-    }
-
-    private static void putAssumeRoleProperties(Map<String, String> target,
-            String region, String roleArn, String externalId, AwsCredentialsProviderMode providerMode) {
-        if (StringUtils.isBlank(roleArn)) {
+        if (StringUtils.isBlank(s3Properties.getS3IAMRole())) {
             return;
         }
         String providerPrefix = AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER + ".";
         target.put(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER,
                 IcebergAwsAssumeRoleCredentialsProvider.class.getName());
-        target.put(providerPrefix + IcebergAwsAssumeRoleCredentialsProvider.ASSUME_ROLE_REGION, region);
-        target.put(providerPrefix + IcebergAwsAssumeRoleCredentialsProvider.ASSUME_ROLE_ARN, roleArn);
-        target.put(providerPrefix + IcebergAwsAssumeRoleCredentialsProvider.ASSUME_ROLE_SOURCE_CREDENTIALS_PROVIDER,
-                AwsCredentialsProviderFactory.getV2ClassName(providerMode));
-        target.put("aws.region", region);
-        target.put(AwsProperties.CLIENT_ASSUME_ROLE_REGION, region);
-        target.put(AwsProperties.CLIENT_ASSUME_ROLE_ARN, roleArn);
-        if (StringUtils.isNotBlank(externalId)) {
-            target.put(providerPrefix + IcebergAwsAssumeRoleCredentialsProvider.ASSUME_ROLE_EXTERNAL_ID, externalId);
-            target.put(AwsProperties.CLIENT_ASSUME_ROLE_EXTERNAL_ID, externalId);
+        target.put(providerPrefix + S3Properties.REGION, s3Properties.getRegion());
+        target.put(providerPrefix + S3Properties.ROLE_ARN, s3Properties.getS3IAMRole());
+        target.put(providerPrefix + S3Properties.CREDENTIALS_PROVIDER_TYPE,
+                s3Properties.getAwsCredentialsProviderMode().getMode());
+        target.put("aws.region", s3Properties.getRegion());
+        target.put(AwsProperties.CLIENT_ASSUME_ROLE_REGION, s3Properties.getRegion());
+        target.put(AwsProperties.CLIENT_ASSUME_ROLE_ARN, s3Properties.getS3IAMRole());
+        if (StringUtils.isNotBlank(s3Properties.getS3ExternalId())) {
+            target.put(providerPrefix + S3Properties.EXTERNAL_ID, s3Properties.getS3ExternalId());
+            target.put(AwsProperties.CLIENT_ASSUME_ROLE_EXTERNAL_ID, s3Properties.getS3ExternalId());
         }
     }
 }
