@@ -243,9 +243,17 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         Map<String, TQueryStatistics> resultQueryMap = Maps.newHashMap();
         for (Long beId : beIdSet) {
             BeReportInfo beReportInfo = beToQueryStatsMap.get(beId);
+            if (beReportInfo == null) {
+                continue;
+            }
             Set<String> queryIdSet = beReportInfo.queryStatsMap.keySet();
             for (String queryId : queryIdSet) {
-                TQueryStatisticsResult curQueryStats = beReportInfo.queryStatsMap.get(queryId).second;
+                Pair<Long, TQueryStatisticsResult> queryStatsPair =
+                        beReportInfo.queryStatsMap.get(queryId);
+                if (queryStatsPair == null || queryStatsPair.second == null) {
+                    continue;
+                }
+                TQueryStatisticsResult curQueryStats = queryStatsPair.second;
 
                 TQueryStatistics retQuery = resultQueryMap.get(queryId);
                 if (retQuery == null) {
