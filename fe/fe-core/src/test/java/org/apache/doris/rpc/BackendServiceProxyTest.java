@@ -21,8 +21,11 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DNSCache;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.proto.InternalService;
 import org.apache.doris.thrift.TNetworkAddress;
 
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -31,6 +34,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.net.UnknownHostException;
+import java.lang.reflect.Constructor;
 import java.util.Map;
 
 /**
@@ -299,5 +303,54 @@ public class BackendServiceProxyTest {
         Assert.assertEquals(2, serviceMap.size());
         Assert.assertTrue(serviceMap.containsKey(address1));
         Assert.assertTrue(serviceMap.containsKey(address2));
+    }
+
+    @Test
+    public void testSyncTabletMeta() throws Exception {
+        String hostname = "backend-host.example.com";
+        String resolvedIp = "10.0.0.1";
+        int port = 9060;
+        TNetworkAddress address = new TNetworkAddress(hostname, port);
+        InternalService.PSyncTabletMetaRequest request = InternalService.PSyncTabletMetaRequest.newBuilder()
+                .addTabletIds(10001L)
+                .build();
+
+        BackendServiceClient client = Mockito.mock(BackendServiceClient.class);
+        Mockito.when(client.isNormalState()).thenReturn(true);
+        ListenableFuture<InternalService.PSyncTabletMetaResponse> expectedFuture = Futures.immediateFuture(
+                InternalService.PSyncTabletMetaResponse.newBuilder()
+                        .setSyncedTablets(1)
+                        .build());
+        Mockito.when(client.syncTabletMeta(request)).thenReturn(expectedFuture);
+        Mockito.when(mockDnsCache.get(hostname)).thenReturn(resolvedIp);
+
+        Map<TNetworkAddress, Object> serviceMap = Deencapsulation.getField(proxy, "serviceMap");
+        serviceMap.put(address, newBackendServiceClientExtIp(resolvedIp, client));
+
+        ListenableFuture<InternalService.PSyncTabletMetaResponse> actualFuture = proxy.syncTabletMeta(address, request);
+
+        Assert.assertSame(expectedFuture, actualFuture);
+        Mockito.verify(client).syncTabletMeta(request);
+    }
+
+    @Test
+    public void testSyncTabletMetaThrowsRpcException() {
+        String hostname = "non-existent-host.example.com";
+        TNetworkAddress address = new TNetworkAddress(hostname, 9060);
+        InternalService.PSyncTabletMetaRequest request = InternalService.PSyncTabletMetaRequest.newBuilder()
+                .addTabletIds(10001L)
+                .build();
+        Mockito.when(mockDnsCache.get(hostname)).thenReturn("");
+
+        RpcException exception = Assert.assertThrows(RpcException.class, () -> proxy.syncTabletMeta(address, request));
+        Assert.assertTrue(exception.getMessage().contains(hostname));
+    }
+
+    private Object newBackendServiceClientExtIp(String realIp, BackendServiceClient client) throws Exception {
+        Class<?> clazz = Class.forName("org.apache.doris.rpc.BackendServiceProxy$BackendServiceClientExtIp");
+        Constructor<?> constructor = clazz.getDeclaredConstructor(BackendServiceProxy.class,
+                String.class, BackendServiceClient.class);
+        constructor.setAccessible(true);
+        return constructor.newInstance(proxy, realIp, client);
     }
 }

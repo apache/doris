@@ -23,6 +23,7 @@
 #include <mutex>
 #include <unordered_map>
 
+#include "common/config.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cpp/sync_point.h"
@@ -160,6 +161,28 @@ TEST_F(CloudInternalServiceTest, TestSyncTabletMetaCountsSyncedSkippedAndFailedT
     EXPECT_EQ("time_series", cached_synced_tablet->tablet_meta()->compaction_policy());
     EXPECT_EQ("size_based", cached_failed_tablet->tablet_meta()->compaction_policy());
     EXPECT_EQ(nullptr, _engine.tablet_mgr().get_tablet_if_cached(kUncachedTabletId));
+}
+
+TEST_F(CloudInternalServiceTest, TestSyncTabletMetaOfferFailure) {
+    const auto original_queue_size = config::brpc_light_work_pool_max_queue_size;
+    config::brpc_light_work_pool_max_queue_size = 0;
+
+    CloudInternalServiceImpl service(_engine, &_exec_env);
+    PSyncTabletMetaRequest request;
+    request.add_tablet_ids(kSyncedTabletId);
+    PSyncTabletMetaResponse response;
+
+    bool done = false;
+    TestClosure closure([&]() { done = true; });
+
+    service.sync_tablet_meta(nullptr, &request, &response, &closure);
+    config::brpc_light_work_pool_max_queue_size = original_queue_size;
+
+    EXPECT_TRUE(done);
+    ASSERT_TRUE(response.has_status());
+    EXPECT_EQ(TStatusCode::INTERNAL_ERROR, response.status().status_code());
+    EXPECT_TRUE(response.status().error_msgs(0).find("failed to offer sync_tablet_meta request to work pool") !=
+                std::string::npos);
 }
 
 } // namespace doris
