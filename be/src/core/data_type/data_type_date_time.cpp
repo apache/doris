@@ -34,7 +34,6 @@
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
 #include "exprs/function/cast/cast_to_string.h"
-#include "util/io_helper.h"
 
 namespace doris {
 

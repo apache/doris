@@ -54,8 +54,11 @@ public:
     ~ParquetMetadataReader() override;
 
     Status init_reader();
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
     Status close() override;
+
+protected:
+    Status _do_init_reader(ReaderInitContext* /*ctx*/) override { return init_reader(); }
 
 private:
     Status _init_from_scan_range(const TMetaScanRange& scan_range);

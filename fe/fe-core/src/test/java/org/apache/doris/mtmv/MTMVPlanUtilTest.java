@@ -49,11 +49,10 @@ import org.apache.doris.nereids.types.VarcharType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Map;
@@ -145,26 +144,13 @@ public class MTMVPlanUtilTest extends SqlTestBase {
     }
 
     @Test
-    public void testGetDataType(@Mocked SlotReference slot, @Mocked TableIf slotTable) {
-        new Expectations() {
-            {
-                slot.getDataType();
-                minTimes = 0;
-                result = StringType.INSTANCE;
-
-                slot.isColumnFromTable();
-                minTimes = 0;
-                result = true;
-
-                slot.getOriginalTable();
-                minTimes = 0;
-                result = Optional.empty();
-
-                slot.getName();
-                minTimes = 0;
-                result = "slot_name";
-            }
-        };
+    public void testGetDataType() {
+        SlotReference slot = Mockito.mock(SlotReference.class);
+        TableIf slotTable = Mockito.mock(TableIf.class);
+        Mockito.when(slot.getDataType()).thenReturn(StringType.INSTANCE);
+        Mockito.when(slot.isColumnFromTable()).thenReturn(true);
+        Mockito.when(slot.getOriginalTable()).thenReturn(Optional.empty());
+        Mockito.when(slot.getName()).thenReturn("slot_name");
         // test i=0
         DataType dataType = MTMVPlanUtil.getDataType(slot, 0, connectContext, "pcol", Sets.newHashSet("dcol"));
         Assert.assertEquals(VarcharType.MAX_VARCHAR_TYPE, dataType);
@@ -181,34 +167,16 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         dataType = MTMVPlanUtil.getDataType(slot, 1, connectContext, "pcol", Sets.newHashSet("slot_name"));
         Assert.assertEquals(VarcharType.MAX_VARCHAR_TYPE, dataType);
         // test managed table
-        new Expectations() {
-            {
-                slot.getOriginalTable();
-                minTimes = 0;
-                result = Optional.of(slotTable);
-
-                slotTable.isManagedTable();
-                minTimes = 0;
-                result = true;
-            }
-        };
+        Mockito.when(slot.getOriginalTable()).thenReturn(Optional.of(slotTable));
+        Mockito.when(slotTable.isManagedTable()).thenReturn(true);
 
         dataType = MTMVPlanUtil.getDataType(slot, 1, connectContext, "pcol", Sets.newHashSet("slot_name"));
         Assert.assertEquals(StringType.INSTANCE, dataType);
 
         // test is not column table
         boolean originalUseMaxLengthOfVarcharInCtas = connectContext.getSessionVariable().useMaxLengthOfVarcharInCtas;
-        new Expectations() {
-            {
-                slot.getDataType();
-                minTimes = 0;
-                result = new VarcharType(10);
-
-                slot.isColumnFromTable();
-                minTimes = 0;
-                result = false;
-            }
-        };
+        Mockito.when(slot.getDataType()).thenReturn(new VarcharType(10));
+        Mockito.when(slot.isColumnFromTable()).thenReturn(false);
         connectContext.getSessionVariable().useMaxLengthOfVarcharInCtas = true;
         dataType = MTMVPlanUtil.getDataType(slot, 1, connectContext, "pcol", Sets.newHashSet("slot_name"));
         Assert.assertEquals(VarcharType.MAX_VARCHAR_TYPE, dataType);
@@ -220,24 +188,12 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         connectContext.getSessionVariable().useMaxLengthOfVarcharInCtas = originalUseMaxLengthOfVarcharInCtas;
 
         // test null type
-        new Expectations() {
-            {
-                slot.getDataType();
-                minTimes = 0;
-                result = NullType.INSTANCE;
-            }
-        };
+        Mockito.when(slot.getDataType()).thenReturn(NullType.INSTANCE);
         dataType = MTMVPlanUtil.getDataType(slot, 1, connectContext, "pcol", Sets.newHashSet("slot_name"));
         Assert.assertEquals(TinyIntType.INSTANCE, dataType);
 
         // test decimal type
-        new Expectations() {
-            {
-                slot.getDataType();
-                minTimes = 0;
-                result = DecimalV2Type.createDecimalV2Type(1, 1);
-            }
-        };
+        Mockito.when(slot.getDataType()).thenReturn(DecimalV2Type.createDecimalV2Type(1, 1));
         boolean originalEnableDecimalConversion = Config.enable_decimal_conversion;
         Config.enable_decimal_conversion = false;
         dataType = MTMVPlanUtil.getDataType(slot, 1, connectContext, "pcol", Sets.newHashSet("slot_name"));
@@ -247,25 +203,15 @@ public class MTMVPlanUtilTest extends SqlTestBase {
     }
 
     @Test
-    public void testGenerateColumns(@Mocked SlotReference slot, @Mocked Plan plan) {
-        new Expectations() {
-            {
-                plan.getOutput();
-                minTimes = 0;
-                result = Lists.newArrayList();
-            }
-        };
+    public void testGenerateColumns() {
+        SlotReference slot = Mockito.mock(SlotReference.class);
+        Plan plan = Mockito.mock(Plan.class);
+        Mockito.when(plan.getOutput()).thenReturn(Lists.newArrayList());
         // test slots is empty
         Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class, () ->
                 MTMVPlanUtil.generateColumns(plan, connectContext, null, null, null, null));
 
-        new Expectations() {
-            {
-                plan.getOutput();
-                minTimes = 0;
-                result = Lists.newArrayList(slot);
-            }
-        };
+        Mockito.when(plan.getOutput()).thenReturn(Lists.newArrayList(slot));
 
         // test size of slots and SimpleColumnDefinitions is different
         Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class, () ->
@@ -278,13 +224,9 @@ public class MTMVPlanUtilTest extends SqlTestBase {
                 MTMVPlanUtil.generateColumns(plan, connectContext, null, null,
                         Lists.newArrayList(new SimpleColumnDefinition("", "c1")), null));
 
-        new Expectations() {
-            {
-                plan.getOutput();
-                minTimes = 0;
-                result = Lists.newArrayList(slot, slot);
-            }
-        };
+        Mockito.when(slot.getDataType()).thenReturn(BigIntType.INSTANCE);
+        Mockito.when(slot.nullable()).thenReturn(true);
+        Mockito.when(plan.getOutput()).thenReturn(Lists.newArrayList(slot, slot));
         // test repeat col name
         Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class, () ->
                 MTMVPlanUtil.generateColumns(plan, connectContext, null, null,

@@ -23,7 +23,6 @@
 #include <vector>
 
 namespace doris::iceberg {
-#include "common/compile_check_begin.h"
 
 class StructLike;
 class Schema;
@@ -93,5 +92,4 @@ private:
     int _last_assigned_field_id;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris::iceberg

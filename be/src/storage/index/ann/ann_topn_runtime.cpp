@@ -42,7 +42,6 @@
 #include "storage/index/inverted/inverted_index_query_type.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 Result<IColumn::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr) {
     if (arg_expr->is_constant() == false) {

@@ -26,20 +26,20 @@
 #include "exec/common/hash_table/ph_hash_map.h"
 #include "exec/common/hash_table/string_hash_map.h"
 #include "exec/sort/partition_sorter.h"
-#include "exec/sort/vsort_exec_exprs.h"
+#include "exprs/vexpr_fwd.h"
 
 namespace doris {
 
 struct PartitionSortInfo {
     ~PartitionSortInfo() = default;
 
-    PartitionSortInfo(VSortExecExprs* vsort_exec_exprs, int64_t limit, int64_t offset,
+    PartitionSortInfo(const VExprContextSPtrs* ordering_expr_ctxs, int64_t limit, int64_t offset,
                       ObjectPool* pool, const std::vector<bool>& is_asc_order,
                       const std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
                       RuntimeState* runtime_state, RuntimeProfile* runtime_profile,
                       bool has_global_limit, int64_t partition_inner_limit,
                       TopNAlgorithm::type top_n_algorithm, TPartTopNPhase::type topn_phase)
-            : _vsort_exec_exprs(vsort_exec_exprs),
+            : _ordering_expr_ctxs(ordering_expr_ctxs),
               _limit(limit),
               _offset(offset),
               _pool(pool),
@@ -54,7 +54,7 @@ struct PartitionSortInfo {
               _topn_phase(topn_phase) {}
 
 public:
-    VSortExecExprs* _vsort_exec_exprs = nullptr;
+    const VExprContextSPtrs* _ordering_expr_ctxs = nullptr;
     int64_t _limit = -1;
     int64_t _offset = 0;
     ObjectPool* _pool = nullptr;

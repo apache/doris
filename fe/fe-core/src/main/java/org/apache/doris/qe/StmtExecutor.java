@@ -475,6 +475,16 @@ public class StmtExecutor {
         }
     }
 
+    /**
+     * Whether this executor has actually forwarded to master and created a {@link MasterOpExecutor}.
+     *
+     * <p>Do not confuse with {@link #isForwardToMaster()} which is a decision (may be re-evaluated)
+     * based on current statement shape / redirect status.
+     */
+    public boolean hasForwardedToMaster() {
+        return masterOpExecutor != null;
+    }
+
     public ShowResultSet getProxyShowResultSet() {
         return proxyShowResultSet;
     }

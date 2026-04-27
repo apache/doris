@@ -261,7 +261,21 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
             activePollFutures = null;
         }
 
-        // Clear previous contexts
+        // Close previous readers before clearing to avoid JDBC connection leak
+        if (!this.snapshotReaderContexts.isEmpty()) {
+            LOG.info(
+                    "Closing {} previous snapshot readers before preparing new splits",
+                    snapshotReaderContexts.size());
+            for (SnapshotReaderContext<
+                            org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit,
+                            Fetcher<SourceRecords, SourceSplitBase>,
+                            SnapshotSplitState>
+                    context : snapshotReaderContexts) {
+                if (context.getReader() != null) {
+                    closeReaderInternal(context.getReader());
+                }
+            }
+        }
         this.snapshotReaderContexts.clear();
         this.completedSplitIds.clear();
 
@@ -720,8 +734,10 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
             case EARLIEST_OFFSET:
                 startingOffset = createInitialOffset();
                 break;
-            case TIMESTAMP:
             case SPECIFIC_OFFSETS:
+                startingOffset = createOffset(startupOptions.getOffset());
+                break;
+            case TIMESTAMP:
             case COMMITTED_OFFSETS:
             default:
                 throw new IllegalStateException(

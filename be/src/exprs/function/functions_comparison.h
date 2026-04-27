@@ -42,7 +42,6 @@
 #include "storage/index/index_reader_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 /** Comparison functions: ==, !=, <, >, <=, >=.
   * The comparison functions always return 0 or 1 (UInt8).
@@ -622,5 +621,4 @@ public:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

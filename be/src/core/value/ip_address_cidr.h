@@ -24,7 +24,6 @@
 #include "exec/common/ipv6_to_binary.h"
 #include "util/sse_util.hpp"
 namespace doris {
-#include "common/compile_check_begin.h"
 
 static inline std::pair<UInt32, UInt32> apply_cidr_mask(UInt32 src, UInt8 bits_to_keep) {
     if (bits_to_keep >= 8 * sizeof(UInt32)) {
@@ -202,4 +201,3 @@ inline bool is_address_in_range(const IPAddressVariant& address, const IPAddress
 }
 
 } // namespace doris
-#include "common/compile_check_end.h"

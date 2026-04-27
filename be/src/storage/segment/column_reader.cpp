@@ -81,7 +81,6 @@
 #include "util/slice.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 #include "storage/segment/column_reader.h"
 
 inline bool read_as_string(PrimitiveType type) {
@@ -2564,6 +2563,5 @@ Status RowIdColumnIteratorV2::read_by_rowids(const rowid_t* rowids, const size_t
     }
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

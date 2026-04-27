@@ -18,6 +18,7 @@
 package org.apache.doris.job.offset.jdbc;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
@@ -29,6 +30,7 @@ import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.extensions.insert.streaming.DataSourceConfigValidator;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
 import org.apache.doris.job.offset.Offset;
@@ -109,6 +111,15 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         this.chunkHighWatermarkMap = new HashMap<>();
         this.snapshotParallelism = Integer.parseInt(
                 sourceProperties.getOrDefault(DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
+                        DataSourceConfigKeys.SNAPSHOT_PARALLELISM_DEFAULT));
+    }
+
+    // Refresh fields that may be changed via ALTER JOB; called before each use.
+    @Override
+    public void ensureInitialized(Long jobId, Map<String, String> newProps) throws JobException {
+        this.sourceProperties = newProps;
+        this.snapshotParallelism = Integer.parseInt(
+                newProps.getOrDefault(DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
                         DataSourceConfigKeys.SNAPSHOT_PARALLELISM_DEFAULT));
     }
 
@@ -235,11 +246,12 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                         new TypeReference<ResponseBody<Map<String, String>>>() {
                         }
                 );
-                if (endBinlogOffset != null
-                        && !endBinlogOffset.equals(responseObj.getData())) {
+                Map<String, String> newEndOffset = responseObj.getData();
+                // null→value also counts as a change: upstream may have advanced while fetch was blocked.
+                if (endBinlogOffset == null || !endBinlogOffset.equals(newEndOffset)) {
                     hasMoreData = true;
                 }
-                endBinlogOffset = responseObj.getData();
+                endBinlogOffset = newEndOffset;
             } catch (JsonProcessingException e) {
                 log.warn("Failed to parse end offset response: {}", response);
                 throw new JobException(response);
@@ -280,7 +292,8 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                     // snapshot to binlog phase
                     return true;
                 }
-                return compareOffset(endBinlogOffset, new HashMap<>(binlogSplit.getStartingOffset()));
+                hasMoreData = compareOffset(endBinlogOffset, new HashMap<>(binlogSplit.getStartingOffset()));
+                return hasMoreData;
             } else {
                 // snapshot means has data to consume
                 return true;
@@ -360,8 +373,31 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public Offset deserializeOffsetProperty(String offset) {
-        // no need cause cdc_stream has offset property
+        if (offset == null || offset.trim().isEmpty()) {
+            return null;
+        }
+        // JSON format: {"file":"binlog.000003","pos":154} or {"lsn":"123456"}
+        if (DataSourceConfigValidator.isJsonOffset(offset)) {
+            try {
+                Map<String, String> offsetMap = objectMapper.readValue(offset,
+                        new TypeReference<Map<String, String>>() {});
+                return new JdbcOffset(Collections.singletonList(new BinlogSplit(offsetMap)));
+            } catch (Exception e) {
+                log.warn("Failed to parse JSON offset: {}", offset, e);
+                return null;
+            }
+        }
         return null;
+    }
+
+    @Override
+    public void validateAlterOffset(String offset) throws Exception {
+        if (!DataSourceConfigValidator.isJsonOffset(offset)) {
+            throw new AnalysisException(
+                    "ALTER JOB for CDC only supports JSON specific offset, "
+                    + "e.g. '{\"file\":\"binlog.000001\",\"pos\":\"154\"}' for MySQL "
+                    + "or '{\"lsn\":\"12345678\"}' for PostgreSQL");
+        }
     }
 
     /**
@@ -431,9 +467,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     protected List<SnapshotSplit> recalculateRemainingSplits(
             Map<String, Map<String, Map<String, String>>> chunkHighWatermarkMap,
             Map<String, List<SnapshotSplit>> snapshotSplits) {
-        if (this.finishedSplits == null) {
-            this.finishedSplits = new ArrayList<>();
-        }
+        this.finishedSplits = new ArrayList<>();
         for (Map.Entry<String, Map<String, Map<String, String>>> entry : chunkHighWatermarkMap.entrySet()) {
             String tableId = entry.getKey();
             Map<String, Map<String, String>> splitIdToHighWatermark = entry.getValue();
@@ -566,6 +600,48 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     protected boolean isSnapshotOnlyMode() {
         String offset = sourceProperties.get(DataSourceConfigKeys.OFFSET);
         return DataSourceConfigKeys.OFFSET_SNAPSHOT.equalsIgnoreCase(offset);
+    }
+
+    @Override
+    public String getLag() {
+        if (currentOffset == null || currentOffset.snapshotSplit()) {
+            return "";
+        }
+        // Source is idle (last task consumed no data), report zero lag
+        if (!hasMoreData) {
+            return "0";
+        }
+        BinlogSplit binlogSplit = (BinlogSplit) currentOffset.getSplits().get(0);
+        Map<String, String> offsetMap = binlogSplit.getStartingOffset();
+        if (MapUtils.isEmpty(offsetMap)) {
+            return "";
+        }
+        long eventTimeMs = extractEventTimeMs(offsetMap);
+        if (eventTimeMs <= 0) {
+            return "0";
+        }
+        long lagSec = (System.currentTimeMillis() - eventTimeMs) / 1000;
+        return String.valueOf(Math.max(lagSec, 0));
+    }
+
+    /**
+     * Extract event timestamp in milliseconds from binlog offset map.
+     * MySQL: ts_sec (seconds), PostgreSQL: ts_usec (microseconds).
+     */
+    protected long extractEventTimeMs(Map<String, String> offsetMap) {
+        try {
+            String tsSec = offsetMap.get("ts_sec");
+            if (tsSec != null) {
+                return Long.parseLong(tsSec) * 1000;
+            }
+            String tsUsec = offsetMap.get("ts_usec");
+            if (tsUsec != null) {
+                return Long.parseLong(tsUsec) / 1000;
+            }
+        } catch (NumberFormatException e) {
+            log.warn("Failed to parse event timestamp from offset: {}", offsetMap, e);
+        }
+        return -1;
     }
 
     @Override

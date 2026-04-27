@@ -43,8 +43,6 @@
 #include "util/slice.h"
 namespace doris {
 
-#include "common/compile_check_begin.h"
-
 namespace io {
 
 class FileSystem;
@@ -682,7 +680,5 @@ private:
 };
 
 } // namespace io
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

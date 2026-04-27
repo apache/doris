@@ -35,7 +35,6 @@
 #include "util/pretty_printer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status PartitionedHashJoinSinkLocalState::init(doris::RuntimeState* state,
                                                doris::LocalSinkStateInfo& info) {
@@ -236,12 +235,21 @@ Status PartitionedHashJoinSinkLocalState::terminate(RuntimeState* state) {
     if (_terminated) {
         return Status::OK();
     }
+    // Walk the chain `_shared_state -> _inner_runtime_state` defensively.
+    // The inner runtime state is built separately from the outer sink's
+    // setup_local_state path, so its atomicity is weaker than a top-level
+    // local-state init. Any null in this chain on a cancel / early-wake
+    // path would NPE inside terminate.
+    if (_shared_state == nullptr || _shared_state->_inner_runtime_state == nullptr) {
+        return PipelineXSpillSinkLocalState<PartitionedHashJoinSharedState>::terminate(state);
+    }
     HashJoinBuildSinkLocalState* inner_sink_state {nullptr};
     if (auto* tmp_sink_state = _shared_state->_inner_runtime_state->get_sink_local_state()) {
         inner_sink_state = assert_cast<HashJoinBuildSinkLocalState*>(tmp_sink_state);
     }
     if (inner_sink_state) {
-        if (_parent->cast<PartitionedHashJoinSinkOperatorX>()._inner_sink_operator) {
+        if (_parent->cast<PartitionedHashJoinSinkOperatorX>()._inner_sink_operator &&
+            inner_sink_state->_runtime_filter_producer_helper) {
             RETURN_IF_ERROR(inner_sink_state->_runtime_filter_producer_helper->skip_process(state));
         }
         inner_sink_state->_terminated = true;
@@ -576,5 +584,4 @@ bool PartitionedHashJoinSinkLocalState::is_blockable() const {
     return _shared_state->_is_spilled;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

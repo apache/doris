@@ -21,7 +21,6 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
 import org.apache.doris.job.extensions.mtmv.MTMVTaskContext;
@@ -30,12 +29,13 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.commons.collections4.CollectionUtils;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Set;
@@ -47,56 +47,42 @@ public class MTMVTaskTest {
     private MTMVRelation relation = new MTMVRelation(Sets.newHashSet(), Sets.newHashSet(), Sets.newHashSet(),
             Sets.newHashSet(), Sets.newHashSet());
 
-    @Mocked
-    private MTMV mtmv;
-    @Mocked
-    private MTMVUtil mtmvUtil;
-    @Mocked
-    private MTMVPartitionUtil mtmvPartitionUtil;
-    @Mocked
-    private MTMVPartitionInfo mtmvPartitionInfo;
-    @Mocked
-    private MTMVRefreshInfo mtmvRefreshInfo;
+    private MTMV mtmv = Mockito.mock(MTMV.class);
+    private MTMVPartitionInfo mtmvPartitionInfo = Mockito.mock(MTMVPartitionInfo.class);
+    private MTMVRefreshInfo mtmvRefreshInfo = Mockito.mock(MTMVRefreshInfo.class);
+    private MockedStatic<MTMVUtil> mtmvUtilStatic;
+    private MockedStatic<MTMVPartitionUtil> mtmvPartitionUtilStatic;
 
     @Before
     public void setUp()
             throws NoSuchMethodException, SecurityException, AnalysisException, DdlException, MetaNotFoundException {
 
-        new Expectations() {
-            {
-                mtmvUtil.getMTMV(anyLong, anyLong);
-                minTimes = 0;
-                result = mtmv;
+        mtmvUtilStatic = Mockito.mockStatic(MTMVUtil.class);
+        mtmvPartitionUtilStatic = Mockito.mockStatic(MTMVPartitionUtil.class);
 
-                mtmv.getPartitionNames();
-                minTimes = 0;
-                result = Sets.newHashSet(poneName, ptwoName);
+        mtmvUtilStatic.when(() -> MTMVUtil.getMTMV(Mockito.anyLong(), Mockito.anyLong())).thenReturn(mtmv);
 
-                mtmv.getMvPartitionInfo();
-                minTimes = 0;
-                result = mtmvPartitionInfo;
+        Mockito.when(mtmv.getPartitionNames()).thenReturn(Sets.newHashSet(poneName, ptwoName));
 
-                mtmvPartitionInfo.getPartitionType();
-                minTimes = 0;
-                result = MTMVPartitionType.FOLLOW_BASE_TABLE;
+        Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(mtmvPartitionInfo);
 
-                // mtmvPartitionUtil.getPartitionsIdsByNames(mtmv, Lists.newArrayList(poneName));
-                // minTimes = 0;
-                // result = poneId;
+        Mockito.when(mtmvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.FOLLOW_BASE_TABLE);
 
-                mtmvPartitionUtil.isMTMVSync((MTMVRefreshContext) any, (Set<BaseTableInfo>) any, (Set<TableNameInfo>) any);
-                minTimes = 0;
-                result = true;
+        // mtmvPartitionUtil.getPartitionsIdsByNames(mtmv, Lists.newArrayList(poneName));
+        // minTimes = 0;
+        // result = poneId;
 
-                mtmv.getRefreshInfo();
-                minTimes = 0;
-                result = mtmvRefreshInfo;
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVSync(Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class), Mockito.nullable(Set.class))).thenReturn(true);
 
-                mtmvRefreshInfo.getRefreshMethod();
-                minTimes = 0;
-                result = RefreshMethod.COMPLETE;
-            }
-        };
+        Mockito.when(mtmv.getRefreshInfo()).thenReturn(mtmvRefreshInfo);
+
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.COMPLETE);
+    }
+
+    @After
+    public void tearDown() {
+        mtmvUtilStatic.close();
+        mtmvPartitionUtilStatic.close();
     }
 
     @Test
@@ -117,13 +103,7 @@ public class MTMVTaskTest {
 
     @Test
     public void testCalculateNeedRefreshPartitionsSystem() throws AnalysisException {
-        new Expectations() {
-            {
-                mtmvRefreshInfo.getRefreshMethod();
-                minTimes = 0;
-                result = RefreshMethod.AUTO;
-            }
-        };
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.AUTO);
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         List<String> result = task.calculateNeedRefreshPartitions(null);
@@ -140,13 +120,7 @@ public class MTMVTaskTest {
 
     @Test
     public void testCalculateNeedRefreshPartitionsSystemNotSyncComplete() throws AnalysisException {
-        new Expectations() {
-            {
-                mtmvPartitionUtil.isMTMVSync((MTMVRefreshContext) any, (Set<BaseTableInfo>) any, (Set<TableNameInfo>) any);
-                minTimes = 0;
-                result = false;
-            }
-        };
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVSync(Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class), Mockito.nullable(Set.class))).thenReturn(false);
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         List<String> result = task.calculateNeedRefreshPartitions(null);
@@ -155,23 +129,11 @@ public class MTMVTaskTest {
 
     @Test
     public void testCalculateNeedRefreshPartitionsSystemNotSyncAuto() throws AnalysisException {
-        new Expectations() {
-            {
-                mtmvPartitionUtil
-                        .isMTMVSync((MTMVRefreshContext) any, (Set<BaseTableInfo>) any, (Set<TableNameInfo>) any);
-                minTimes = 0;
-                result = false;
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVSync(Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class), Mockito.nullable(Set.class))).thenReturn(false);
 
-                mtmvRefreshInfo.getRefreshMethod();
-                minTimes = 0;
-                result = RefreshMethod.AUTO;
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.AUTO);
 
-                mtmvPartitionUtil
-                        .getMTMVNeedRefreshPartitions((MTMVRefreshContext) any, (Set<BaseTableInfo>) any);
-                minTimes = 0;
-                result = Lists.newArrayList(ptwoName);
-            }
-        };
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.getMTMVNeedRefreshPartitions(Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class))).thenReturn(Lists.newArrayList(ptwoName));
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         List<String> result = task.calculateNeedRefreshPartitions(null);

@@ -27,7 +27,6 @@
 namespace doris::segment_v2 {
 struct AnnRangeSearchParams;
 struct AnnRangeSearchResult;
-#include "common/compile_check_begin.h"
 class AnnIndexIterator : public IndexIterator {
 public:
     AnnIndexIterator(const IndexReaderPtr& reader);
@@ -57,5 +56,4 @@ private:
 
     ENABLE_FACTORY_CREATOR(AnnIndexIterator);
 };
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

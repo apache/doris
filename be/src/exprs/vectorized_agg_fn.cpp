@@ -56,7 +56,6 @@ class IColumn;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <class FunctionType>
 AggregateFunctionPtr get_agg_state_function(const DataTypes& argument_types,
@@ -230,6 +229,9 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                      .is_foreach = is_foreach,
                      .enable_aggregate_function_null_v2 =
                              state->enable_aggregate_function_null_v2(),
+                     .new_version_percentile =
+                             state->query_options().__isset.new_version_percentile &&
+                             state->query_options().new_version_percentile,
                      .column_names = std::move(column_names)});
         } else {
             _function = AggregateFunctionSimpleFactory::instance().get(
@@ -239,6 +241,9 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                      .is_foreach = is_foreach,
                      .enable_aggregate_function_null_v2 =
                              state->enable_aggregate_function_null_v2(),
+                     .new_version_percentile =
+                             state->query_options().__isset.new_version_percentile &&
+                             state->query_options().new_version_percentile,
                      .column_names = std::move(column_names)});
         }
     }
@@ -422,5 +427,4 @@ bool AggFnEvaluator::is_blockable() const {
                        [](VExprContextSPtr ctx) { return ctx->root()->is_blockable(); });
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

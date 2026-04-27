@@ -47,7 +47,6 @@
 #include "runtime/thread_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RowDescriptor;
 class RuntimeState;
 class TDataSink;
@@ -1217,5 +1216,4 @@ private:
 };
 #endif
 
-#include "common/compile_check_end.h"
 } // namespace doris

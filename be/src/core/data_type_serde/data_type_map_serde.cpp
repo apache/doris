@@ -31,7 +31,6 @@
 
 namespace doris {
 class Arena;
-#include "common/compile_check_begin.h"
 Status DataTypeMapSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                   int64_t end_idx, BufferWritable& bw,
                                                   FormatOptions& options) const {

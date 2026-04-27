@@ -27,7 +27,6 @@
 #include "exprs/table_function/table_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class Block;
 
@@ -89,5 +88,4 @@ private:
     ColumnPtr _elements_column = ColumnInt32::create();
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

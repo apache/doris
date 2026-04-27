@@ -395,7 +395,7 @@ DECLARE_mInt32(thrift_connect_timeout_seconds);
 DECLARE_mInt64(thrift_client_retry_interval_ms);
 // max message size of thrift request
 // default: 100 * 1024 * 1024
-DECLARE_mInt64(thrift_max_message_size);
+DECLARE_mInt32(thrift_max_message_size);
 // max bytes number for single scan range, used in segmentv2
 DECLARE_mInt32(doris_scan_range_max_mb);
 // single read execute fragment row number
@@ -1346,9 +1346,6 @@ DECLARE_mInt64(file_cache_max_file_reader_cache_size);
 DECLARE_mInt64(hdfs_write_batch_buffer_size_mb);
 //enable shrink memory
 DECLARE_mBool(enable_shrink_memory);
-// enable cache for high concurrent point query work load
-DECLARE_mInt32(schema_cache_capacity);
-DECLARE_mInt32(schema_cache_sweep_time_sec);
 
 // max number of segment cache
 DECLARE_Int32(segment_cache_capacity);
@@ -1775,6 +1772,10 @@ DECLARE_mInt32(segments_key_bounds_truncation_threshold);
 // ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DECLARE_mBool(random_segments_key_bounds_truncation);
 
+// If true, non-MOW rowsets store a single aggregated [rowset_min, rowset_max]
+// key-bounds entry instead of per-segment bounds, to reduce meta size on cloud FDB.
+DECLARE_mBool(enable_aggregate_non_mow_key_bounds);
+
 DECLARE_mBool(enable_auto_clone_on_compaction_missing_version);
 
 DECLARE_mBool(enable_auto_clone_on_mow_publish_missing_version);
@@ -1784,6 +1785,10 @@ DECLARE_String(fuzzy_test_type);
 
 // The maximum csv line reader output buffer size
 DECLARE_mInt64(max_csv_line_reader_output_buffer_size);
+
+// The maximum bytes of a single block returned by load file readers (CsvReader, NewJsonReader,
+// ParquetReader, OrcReader). Default is 200MB. Set to 0 to disable the limit.
+DECLARE_mInt64(load_reader_max_block_bytes);
 
 // Maximum number of OpenMP threads available for concurrent index builds.
 // -1 means auto: use 80% of detected CPU cores.
@@ -1816,6 +1821,7 @@ DECLARE_mInt32(concurrency_stats_dump_interval_ms);
 DECLARE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin);
 
 DECLARE_mBool(enable_cloud_make_rs_visible_on_be);
+DECLARE_mInt32(file_handles_deplenish_frequency_times);
 
 #ifdef BE_TEST
 // test s3

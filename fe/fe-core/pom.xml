@@ -82,6 +82,18 @@ under the License.
             <artifactId>fe-filesystem-spi</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- fe-connector-api: consumer-facing connector API (Connector, ConnectorMetadata, handles, etc.) -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- fe-connector-spi: provider contracts (ConnectorProvider, ConnectorContext) -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <!-- fe-filesystem impl modules: runtime dependencies removed in Phase 4 P4.1.
              Providers are now loaded from plugins/filesystem/ directory at startup
              via FileSystemPluginManager + DirectoryPluginRuntimeManager. -->
@@ -816,11 +828,6 @@ under the License.
                     <libDirectory>src/main/antlr4/org/apache/doris/nereids</libDirectory>
                 </configuration>
             </plugin>
-            <!-- jmockit -->
-            <!--fixme  Unify mocking framework usage across the project.
-            Currently, multiple mocking libraries (e.g., JMockit, Powermock) are used, 
-            which increases maintenance complexity and may cause agent conflicts (e.g., with JaCoCo).
-            Evaluate existing usages and standardize on a single framework where possible.-->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
@@ -831,7 +838,7 @@ under the License.
                     <reuseForks>false</reuseForks>
                     <useFile>false</useFile>
                     <argLine>
-                        -Xmx1024m -javaagent:${settings.localRepository}/org/jmockit/jmockit/${jmockit.version}/jmockit-${jmockit.version}.jar @{argLine}
+                        -Xmx1024m --add-reads=org.apache.arrow.flight.core=ALL-UNNAMED --add-opens=java.base/java.nio=org.apache.arrow.memory.core,ALL-UNNAMED @{argLine}
                     </argLine>
                 </configuration>
             </plugin>

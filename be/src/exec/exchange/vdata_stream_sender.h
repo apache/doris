@@ -53,7 +53,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class ObjectPool;
 class RuntimeState;
 class RowDescriptor;
@@ -164,6 +163,7 @@ public:
 
     std::shared_ptr<ExchangeSendCallback<PTransmitDataResult>> get_send_callback(RpcInstance* ins,
                                                                                  bool eos) {
+        // here we reuse the callback because it's re-construction may be expensive due to many parameters' capture
         if (!_send_callback) {
             _send_callback = ExchangeSendCallback<PTransmitDataResult>::create_shared();
         } else {
@@ -227,5 +227,3 @@ private:
     } while (0)
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

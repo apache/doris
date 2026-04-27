@@ -29,12 +29,15 @@
 
 #include "common/status.h"
 #include "core/data_type/data_type.h"
+#include "format/generic_reader.h"
 #include "format/parquet/parquet_column_convert.h"
 #include "format/parquet/parquet_common.h"
 #include "format/parquet/vparquet_column_chunk_reader.h"
-#include "format/table/table_format_reader.h"
+#include "format/table/table_schema_change_helper.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "parquet_column_convert.h"
+#include "vparquet_column_chunk_reader.h"
 
 namespace cctz {
 class time_zone;
@@ -45,7 +48,6 @@ struct IOContext;
 } // namespace doris::io
 
 namespace doris {
-#include "common/compile_check_begin.h"
 struct FieldSchema;
 template <typename T>
 class ColumnStr;
@@ -63,6 +65,7 @@ public:
                   decode_dict_time(0),
                   decode_level_time(0),
                   decode_null_map_time(0),
+                  convert_time(0),
                   skip_page_header_num(0),
                   parse_page_header_num(0),
                   read_page_header_time(0),
@@ -75,7 +78,8 @@ public:
                   page_cache_compressed_hit_counter(0),
                   page_cache_decompressed_hit_counter(0) {}
 
-        ColumnStatistics(ColumnChunkReaderStatistics& cs, int64_t null_map_time)
+        ColumnStatistics(ColumnChunkReaderStatistics& cs, int64_t null_map_time,
+                         int64_t convert_time_)
                 : page_index_read_calls(0),
                   decompress_time(cs.decompress_time),
                   decompress_cnt(cs.decompress_cnt),
@@ -84,6 +88,7 @@ public:
                   decode_dict_time(cs.decode_dict_time),
                   decode_level_time(cs.decode_level_time),
                   decode_null_map_time(null_map_time),
+                  convert_time(convert_time_),
                   skip_page_header_num(cs.skip_page_header_num),
                   parse_page_header_num(cs.parse_page_header_num),
                   read_page_header_time(cs.read_page_header_time),
@@ -104,6 +109,7 @@ public:
         int64_t decode_dict_time;
         int64_t decode_level_time;
         int64_t decode_null_map_time;
+        int64_t convert_time;
         int64_t skip_page_header_num;
         int64_t parse_page_header_num;
         int64_t read_page_header_time;
@@ -125,6 +131,7 @@ public:
             decode_dict_time += col_statistics.decode_dict_time;
             decode_level_time += col_statistics.decode_level_time;
             decode_null_map_time += col_statistics.decode_null_map_time;
+            convert_time += col_statistics.convert_time;
             skip_page_header_num += col_statistics.skip_page_header_num;
             parse_page_header_num += col_statistics.parse_page_header_num;
             read_page_header_time += col_statistics.read_page_header_time;
@@ -223,7 +230,8 @@ public:
     const std::vector<level_t>& get_rep_level() const override { return _rep_levels; }
     const std::vector<level_t>& get_def_level() const override { return _def_levels; }
     ColumnStatistics column_statistics() override {
-        return ColumnStatistics(_chunk_reader->chunk_statistics(), _decode_null_map_time);
+        return ColumnStatistics(_chunk_reader->chunk_statistics(), _decode_null_map_time,
+                                _convert_time);
     }
     void close() override {}
 
@@ -309,6 +317,7 @@ private:
     std::unique_ptr<parquet::PhysicalToLogicalConverter> _converter = nullptr;
     std::unique_ptr<std::vector<uint8_t>> _nested_filter_map_data = nullptr;
     size_t _orig_filter_map_index = 0;
+    int64_t _convert_time = 0;
 
     Status _skip_values(size_t num_values);
     Status _read_values(size_t num_values, ColumnPtr& doris_column, DataTypePtr& type,
@@ -533,7 +542,5 @@ public:
 
     void reset_filter_map_index() override { _filter_map_index = 0; }
 };
-
-#include "common/compile_check_end.h"
 
 }; // namespace doris

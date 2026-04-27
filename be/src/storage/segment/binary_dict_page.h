@@ -92,10 +92,6 @@ public:
 
     Status get_dictionary_page_encoding(EncodingTypePB* encoding) const override;
 
-    Status get_first_value(void* value) const override;
-
-    Status get_last_value(void* value) const override;
-
     uint64_t get_raw_data_size() const override;
 
 private:
@@ -123,7 +119,6 @@ private:
     // TODO(zc): rethink about this arena
     Arena _arena;
     faststring _buffer;
-    faststring _first_value;
     uint64_t _raw_data_size = 0;
 
     bool _has_empty = false;

@@ -26,7 +26,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
@@ -266,5 +265,4 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, Block* block, bool* e
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

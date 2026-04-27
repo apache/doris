@@ -25,13 +25,12 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 
 import com.google.common.collect.ImmutableMap;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 public class AccessControllerManagerTest {
 
@@ -48,244 +47,150 @@ public class AccessControllerManagerTest {
     }
 
     @Test
-    public void testCheckCtlPrivSkipCatalogPrivCheckWithCustomAccessControllerForSelect(
-            @Injectable CatalogAccessController defaultAccessController,
-            @Mocked Env env,
-            @Mocked CatalogMgr catalogMgr,
-            @Mocked CatalogIf catalog) {
-        AccessControllerManager accessControllerManager = createAccessControllerManager(defaultAccessController);
-        UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
-        Config.skip_catalog_priv_check = true;
+    public void testCheckCtlPrivSkipCatalogPrivCheckWithCustomAccessControllerForSelect() {
+        CatalogAccessController defaultAccessController = Mockito.mock(CatalogAccessController.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
 
-        new Expectations() {
-            {
-                defaultAccessController.checkGlobalPriv((UserIdentity) any, (PrivPredicate) any);
-                minTimes = 0;
-                result = false;
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            AccessControllerManager accessControllerManager = createAccessControllerManager(defaultAccessController);
+            UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
+            Config.skip_catalog_priv_check = true;
 
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+            Mockito.when(defaultAccessController.checkGlobalPriv(Mockito.any(), Mockito.any())).thenReturn(false);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+            Mockito.when(catalogMgr.getCatalog("custom_catalog")).thenReturn(catalog);
+            Mockito.when(catalog.isInternalCatalog()).thenReturn(false);
+            Mockito.when(catalog.getProperties()).thenReturn(
+                    ImmutableMap.of(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "mock.access.controller"));
 
-                env.getCatalogMgr();
-                minTimes = 0;
-                result = catalogMgr;
-
-                catalogMgr.getCatalog("custom_catalog");
-                minTimes = 0;
-                result = catalog;
-
-                catalog.isInternalCatalog();
-                minTimes = 0;
-                result = false;
-
-                catalog.getProperties();
-                minTimes = 0;
-                result = ImmutableMap.of(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "mock.access.controller");
-            }
-        };
-
-        Assert.assertTrue(accessControllerManager.checkCtlPriv(userIdentity, "custom_catalog", PrivPredicate.SELECT));
+            Assert.assertTrue(accessControllerManager.checkCtlPriv(
+                    userIdentity, "custom_catalog", PrivPredicate.SELECT));
+        }
     }
 
     @Test
-    public void testCheckCtlPrivSkipCatalogPrivCheckWithCustomAccessControllerForShow(
-            @Injectable CatalogAccessController defaultAccessController,
-            @Mocked Env env,
-            @Mocked CatalogMgr catalogMgr,
-            @Mocked CatalogIf catalog) {
-        AccessControllerManager accessControllerManager = createAccessControllerManager(defaultAccessController);
-        UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
-        Config.skip_catalog_priv_check = true;
+    public void testCheckCtlPrivSkipCatalogPrivCheckWithCustomAccessControllerForShow() {
+        CatalogAccessController defaultAccessController = Mockito.mock(CatalogAccessController.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
 
-        new Expectations() {
-            {
-                defaultAccessController.checkGlobalPriv((UserIdentity) any, (PrivPredicate) any);
-                minTimes = 0;
-                result = false;
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            AccessControllerManager accessControllerManager = createAccessControllerManager(defaultAccessController);
+            UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
+            Config.skip_catalog_priv_check = true;
 
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+            Mockito.when(defaultAccessController.checkGlobalPriv(Mockito.any(), Mockito.any())).thenReturn(false);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+            Mockito.when(catalogMgr.getCatalog("custom_catalog")).thenReturn(catalog);
+            Mockito.when(catalog.isInternalCatalog()).thenReturn(false);
+            Mockito.when(catalog.getProperties()).thenReturn(
+                    ImmutableMap.of(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "mock.access.controller"));
 
-                env.getCatalogMgr();
-                minTimes = 0;
-                result = catalogMgr;
-
-                catalogMgr.getCatalog("custom_catalog");
-                minTimes = 0;
-                result = catalog;
-
-                catalog.isInternalCatalog();
-                minTimes = 0;
-                result = false;
-
-                catalog.getProperties();
-                minTimes = 0;
-                result = ImmutableMap.of(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "mock.access.controller");
-            }
-        };
-
-        Assert.assertTrue(accessControllerManager.checkCtlPriv(userIdentity, "custom_catalog", PrivPredicate.SHOW));
+            Assert.assertTrue(accessControllerManager.checkCtlPriv(
+                    userIdentity, "custom_catalog", PrivPredicate.SHOW));
+        }
     }
 
     @Test
-    public void testCheckCtlPrivSkipCatalogPrivCheckWithoutCustomAccessController(
-            @Injectable CatalogAccessController defaultAccessController,
-            @Mocked Env env,
-            @Mocked CatalogMgr catalogMgr,
-            @Mocked CatalogIf catalog) {
-        AccessControllerManager accessControllerManager = createAccessControllerManager(defaultAccessController);
-        UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
-        Config.skip_catalog_priv_check = true;
+    public void testCheckCtlPrivSkipCatalogPrivCheckWithoutCustomAccessController() {
+        CatalogAccessController defaultAccessController = Mockito.mock(CatalogAccessController.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
 
-        new Expectations() {
-            {
-                defaultAccessController.checkGlobalPriv((UserIdentity) any, (PrivPredicate) any);
-                minTimes = 0;
-                result = false;
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            AccessControllerManager accessControllerManager = createAccessControllerManager(defaultAccessController);
+            UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
+            Config.skip_catalog_priv_check = true;
 
-                defaultAccessController.checkCtlPriv(anyBoolean, (UserIdentity) any, anyString, (PrivPredicate) any);
-                minTimes = 0;
-                result = false;
+            Mockito.when(defaultAccessController.checkGlobalPriv(Mockito.any(), Mockito.any())).thenReturn(false);
+            Mockito.when(defaultAccessController.checkCtlPriv(
+                    Mockito.anyBoolean(), Mockito.any(), Mockito.anyString(), Mockito.any())).thenReturn(false);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+            Mockito.when(catalogMgr.getCatalog("custom_catalog")).thenReturn(catalog);
+            Mockito.when(catalog.isInternalCatalog()).thenReturn(false);
+            Mockito.when(catalog.getProperties()).thenReturn(ImmutableMap.of("type", "test"));
 
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getCatalogMgr();
-                minTimes = 0;
-                result = catalogMgr;
-
-                catalogMgr.getCatalog("custom_catalog");
-                minTimes = 0;
-                result = catalog;
-
-                catalog.isInternalCatalog();
-                minTimes = 0;
-                result = false;
-
-                catalog.getProperties();
-                minTimes = 0;
-                result = ImmutableMap.of("type", "test");
-            }
-        };
-
-        Assert.assertFalse(accessControllerManager.checkCtlPriv(userIdentity, "custom_catalog", PrivPredicate.SELECT));
+            Assert.assertFalse(accessControllerManager.checkCtlPriv(
+                    userIdentity, "custom_catalog", PrivPredicate.SELECT));
+        }
     }
 
     @Test
-    public void testCheckCtlPrivCreateMustCheckDefaultAccessController(
-            @Injectable CatalogAccessController defaultAccessController,
-            @Mocked Env env,
-            @Mocked CatalogMgr catalogMgr) {
-        AccessControllerManager accessControllerManager = createAccessControllerManager(defaultAccessController);
-        UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
-        Config.skip_catalog_priv_check = true;
+    public void testCheckCtlPrivCreateMustCheckDefaultAccessController() {
+        CatalogAccessController defaultAccessController = Mockito.mock(CatalogAccessController.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
 
-        new Expectations() {
-            {
-                defaultAccessController.checkGlobalPriv((UserIdentity) any, (PrivPredicate) any);
-                minTimes = 0;
-                result = false;
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            AccessControllerManager accessControllerManager = createAccessControllerManager(defaultAccessController);
+            UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
+            Config.skip_catalog_priv_check = true;
 
-                defaultAccessController.checkCtlPriv(anyBoolean, (UserIdentity) any, anyString, (PrivPredicate) any);
-                minTimes = 0;
-                result = true;
+            Mockito.when(defaultAccessController.checkGlobalPriv(Mockito.any(), Mockito.any())).thenReturn(false);
+            Mockito.when(defaultAccessController.checkCtlPriv(
+                    Mockito.anyBoolean(), Mockito.any(), Mockito.anyString(), Mockito.any())).thenReturn(true);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+            Mockito.when(catalogMgr.getCatalog("not_exist_catalog")).thenReturn(null);
 
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getCatalogMgr();
-                minTimes = 0;
-                result = catalogMgr;
-
-                catalogMgr.getCatalog("not_exist_catalog");
-                minTimes = 0;
-                result = null;
-            }
-        };
-
-        Assert.assertTrue(accessControllerManager.checkCtlPriv(userIdentity, "not_exist_catalog", PrivPredicate.CREATE));
+            Assert.assertTrue(accessControllerManager.checkCtlPriv(
+                    userIdentity, "not_exist_catalog", PrivPredicate.CREATE));
+        }
     }
 
     @Test
-    public void testCheckCtlPrivLoadMustCheckDefaultAccessController(
-            @Injectable CatalogAccessController defaultAccessController,
-            @Mocked Env env,
-            @Mocked CatalogMgr catalogMgr,
-            @Mocked CatalogIf catalog) {
-        AccessControllerManager accessControllerManager = createAccessControllerManager(defaultAccessController);
-        UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
-        Config.skip_catalog_priv_check = true;
+    public void testCheckCtlPrivLoadMustCheckDefaultAccessController() {
+        CatalogAccessController defaultAccessController = Mockito.mock(CatalogAccessController.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
 
-        new Expectations() {
-            {
-                defaultAccessController.checkGlobalPriv((UserIdentity) any, (PrivPredicate) any);
-                minTimes = 0;
-                result = false;
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            AccessControllerManager accessControllerManager = createAccessControllerManager(defaultAccessController);
+            UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
+            Config.skip_catalog_priv_check = true;
 
-                defaultAccessController.checkCtlPriv(anyBoolean, (UserIdentity) any, anyString, (PrivPredicate) any);
-                minTimes = 0;
-                result = false;
+            Mockito.when(defaultAccessController.checkGlobalPriv(Mockito.any(), Mockito.any())).thenReturn(false);
+            Mockito.when(defaultAccessController.checkCtlPriv(
+                    Mockito.anyBoolean(), Mockito.any(), Mockito.anyString(), Mockito.any())).thenReturn(false);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+            Mockito.when(catalogMgr.getCatalog("custom_catalog")).thenReturn(catalog);
+            Mockito.when(catalog.isInternalCatalog()).thenReturn(false);
+            Mockito.when(catalog.getProperties()).thenReturn(
+                    ImmutableMap.of(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "mock.access.controller"));
 
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getCatalogMgr();
-                minTimes = 0;
-                result = catalogMgr;
-
-                catalogMgr.getCatalog("custom_catalog");
-                minTimes = 0;
-                result = catalog;
-
-                catalog.isInternalCatalog();
-                minTimes = 0;
-                result = false;
-
-                catalog.getProperties();
-                minTimes = 0;
-                result = ImmutableMap.of(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "mock.access.controller");
-            }
-        };
-
-        Assert.assertFalse(accessControllerManager.checkCtlPriv(userIdentity, "custom_catalog", PrivPredicate.LOAD));
+            Assert.assertFalse(accessControllerManager.checkCtlPriv(
+                    userIdentity, "custom_catalog", PrivPredicate.LOAD));
+        }
     }
 
     @Test
-    public void testCheckCtlPrivSkipCatalogPrivCheckWhenCatalogNotExist(
-            @Injectable CatalogAccessController defaultAccessController,
-            @Mocked Env env,
-            @Mocked CatalogMgr catalogMgr) {
-        AccessControllerManager accessControllerManager = createAccessControllerManager(defaultAccessController);
-        UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
-        Config.skip_catalog_priv_check = true;
+    public void testCheckCtlPrivSkipCatalogPrivCheckWhenCatalogNotExist() {
+        CatalogAccessController defaultAccessController = Mockito.mock(CatalogAccessController.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
 
-        new Expectations() {
-            {
-                defaultAccessController.checkGlobalPriv((UserIdentity) any, (PrivPredicate) any);
-                minTimes = 0;
-                result = false;
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            AccessControllerManager accessControllerManager = createAccessControllerManager(defaultAccessController);
+            UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
+            Config.skip_catalog_priv_check = true;
 
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+            Mockito.when(defaultAccessController.checkGlobalPriv(Mockito.any(), Mockito.any())).thenReturn(false);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+            Mockito.when(catalogMgr.getCatalog("not_exist_catalog")).thenReturn(null);
 
-                env.getCatalogMgr();
-                minTimes = 0;
-                result = catalogMgr;
-
-                catalogMgr.getCatalog("not_exist_catalog");
-                minTimes = 0;
-                result = null;
-            }
-        };
-
-        Assert.assertFalse(accessControllerManager.checkCtlPriv(userIdentity,
-                "not_exist_catalog", PrivPredicate.SELECT));
+            Assert.assertFalse(accessControllerManager.checkCtlPriv(
+                    userIdentity, "not_exist_catalog", PrivPredicate.SELECT));
+        }
     }
 
     private AccessControllerManager createAccessControllerManager(CatalogAccessController defaultAccessController) {

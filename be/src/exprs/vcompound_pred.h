@@ -31,7 +31,6 @@
 #include "util/simd/bits.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 inline std::string compound_operator_to_string(TExprOpcode::type op) {
     if (op == TExprOpcode::COMPOUND_AND) {
@@ -152,13 +151,14 @@ public:
         return Status::OK();
     }
 
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override {
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
         if (fast_execute(context, selector, count, result_column)) {
             return Status::OK();
         }
         if (get_num_children() == 1 || _has_const_child()) {
-            return VectorizedFnCall::execute_column(context, block, selector, count, result_column);
+            return VectorizedFnCall::execute_column_impl(context, block, selector, count,
+                                                         result_column);
         }
 
         ColumnPtr lhs_column;
@@ -417,5 +417,4 @@ private:
     TExprOpcode::type _op;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

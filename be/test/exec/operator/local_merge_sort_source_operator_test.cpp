@@ -40,12 +40,7 @@ struct LocalMergeSOrtSourceOperatorTest : public testing::Test {
         op->_is_asc_order = {false};
         op->_nulls_first = {false};
 
-        op->_vsort_exec_exprs._sort_tuple_slot_expr_ctxs =
-                MockSlotRef::create_mock_contexts(std::make_shared<DataTypeInt64>());
-
-        op->_vsort_exec_exprs._materialize_tuple = false;
-
-        op->_vsort_exec_exprs._ordering_expr_ctxs =
+        op->_ordering_expr_ctxs =
                 MockSlotRef::create_mock_contexts(std::make_shared<DataTypeInt64>());
 
         op->init_dependencies_and_sorter();

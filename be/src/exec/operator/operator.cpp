@@ -27,13 +27,14 @@
 #include "exec/operator/analytic_source_operator.h"
 #include "exec/operator/assert_num_rows_operator.h"
 #include "exec/operator/blackhole_sink_operator.h"
+#include "exec/operator/bucketed_aggregation_sink_operator.h"
+#include "exec/operator/bucketed_aggregation_source_operator.h"
 #include "exec/operator/cache_sink_operator.h"
 #include "exec/operator/cache_source_operator.h"
 #include "exec/operator/datagen_operator.h"
 #include "exec/operator/dict_sink_operator.h"
 #include "exec/operator/distinct_streaming_aggregation_operator.h"
 #include "exec/operator/empty_set_operator.h"
-#include "exec/operator/es_scan_operator.h"
 #include "exec/operator/exchange_sink_operator.h"
 #include "exec/operator/exchange_source_operator.h"
 #include "exec/operator/file_scan_operator.h"
@@ -99,7 +100,6 @@
 #include "util/string_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RowDescriptor;
 class RuntimeState;
 } // namespace doris
@@ -820,6 +820,7 @@ DECLARE_OPERATOR(SortSinkLocalState)
 DECLARE_OPERATOR(SpillSortSinkLocalState)
 DECLARE_OPERATOR(LocalExchangeSinkLocalState)
 DECLARE_OPERATOR(AggSinkLocalState)
+DECLARE_OPERATOR(BucketedAggSinkLocalState)
 DECLARE_OPERATOR(PartitionedAggSinkLocalState)
 DECLARE_OPERATOR(ExchangeSinkLocalState)
 DECLARE_OPERATOR(NestedLoopJoinBuildSinkLocalState)
@@ -845,12 +846,12 @@ DECLARE_OPERATOR(OlapScanLocalState)
 DECLARE_OPERATOR(GroupCommitLocalState)
 DECLARE_OPERATOR(JDBCScanLocalState)
 DECLARE_OPERATOR(FileScanLocalState)
-DECLARE_OPERATOR(EsScanLocalState)
 DECLARE_OPERATOR(AnalyticLocalState)
 DECLARE_OPERATOR(SortLocalState)
 DECLARE_OPERATOR(SpillSortLocalState)
 DECLARE_OPERATOR(LocalMergeSortLocalState)
 DECLARE_OPERATOR(AggLocalState)
+DECLARE_OPERATOR(BucketedAggLocalState)
 DECLARE_OPERATOR(PartitionedAggLocalState)
 DECLARE_OPERATOR(TableFunctionLocalState)
 DECLARE_OPERATOR(ExchangeLocalState)
@@ -897,6 +898,7 @@ template class PipelineXSinkLocalState<SpillSortSharedState>;
 template class PipelineXSinkLocalState<NestedLoopJoinSharedState>;
 template class PipelineXSinkLocalState<AnalyticSharedState>;
 template class PipelineXSinkLocalState<AggSharedState>;
+template class PipelineXSinkLocalState<BucketedAggSharedState>;
 template class PipelineXSinkLocalState<PartitionedAggSharedState>;
 template class PipelineXSinkLocalState<FakeSharedState>;
 template class PipelineXSinkLocalState<UnionSharedState>;
@@ -915,6 +917,7 @@ template class PipelineXLocalState<SpillSortSharedState>;
 template class PipelineXLocalState<NestedLoopJoinSharedState>;
 template class PipelineXLocalState<AnalyticSharedState>;
 template class PipelineXLocalState<AggSharedState>;
+template class PipelineXLocalState<BucketedAggSharedState>;
 template class PipelineXLocalState<PartitionedAggSharedState>;
 template class PipelineXLocalState<FakeSharedState>;
 template class PipelineXLocalState<UnionSharedState>;
@@ -943,5 +946,4 @@ template class OperatorX<DummyOperatorLocalState>;
 template class DataSinkOperatorX<DummySinkLocalState>;
 #endif
 
-#include "common/compile_check_end.h"
 } // namespace doris

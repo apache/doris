@@ -64,8 +64,8 @@ public:
 
     const std::string& expr_name() const override { return IF_NAME; }
 
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override;
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override;
 
 private:
     inline static const std::string IF_NAME = "if";
@@ -76,8 +76,8 @@ public:
     ShortCircuitCaseExpr(const TExprNode& node);
     ~ShortCircuitCaseExpr() override = default;
     const std::string& expr_name() const override { return CASE_NAME; }
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override;
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override;
 
 private:
     const bool _has_else_expr;
@@ -91,8 +91,8 @@ public:
     ~ShortCircuitIfNullExpr() override = default;
 
     const std::string& expr_name() const override { return IFNULL_NAME; }
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override;
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override;
 
 private:
     inline static const std::string IFNULL_NAME = "ifnull";
@@ -104,8 +104,8 @@ public:
     ShortCircuitCoalesceExpr(const TExprNode& node) : ShortCircuitExpr(node) {}
     ~ShortCircuitCoalesceExpr() override = default;
     const std::string& expr_name() const override { return COALESCE_NAME; }
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override;
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override;
 
 private:
     inline static const std::string COALESCE_NAME = "coalesce";

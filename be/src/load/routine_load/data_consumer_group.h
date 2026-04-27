@@ -36,7 +36,6 @@ class Message;
 } // namespace RdKafka
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class StreamLoadContext;
 
 // data consumer group saves a group of data consumers.
@@ -159,7 +158,5 @@ private:
     BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>> _queue;
     TFileFormatType::type _format;
 };
-
-#include "common/compile_check_end.h"
 
 } // end namespace doris

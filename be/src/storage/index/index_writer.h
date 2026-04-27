@@ -34,7 +34,6 @@
 #include "storage/options.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class CollectionValue;
 
@@ -108,5 +107,4 @@ private:
 
 } // namespace segment_v2
 
-#include "common/compile_check_end.h"
 } // namespace doris

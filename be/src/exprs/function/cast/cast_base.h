@@ -41,7 +41,6 @@
 #include "exprs/function/cast/cast_parameters.h"
 #include "exprs/function/function.h"
 #include "exprs/function/function_helpers.h"
-#include "util/io_helper.h"
 
 namespace doris {
 

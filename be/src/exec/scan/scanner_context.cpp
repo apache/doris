@@ -51,7 +51,6 @@
 namespace doris {
 
 using namespace std::chrono_literals;
-#include "common/compile_check_begin.h"
 
 // ==================== ScannerContext ====================
 ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_state,
@@ -760,5 +759,4 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
 bool ScannerContext::low_memory_mode() const {
     return _local_state->low_memory_mode();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

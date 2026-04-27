@@ -21,7 +21,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 int64_t CacheManager::for_each_cache_prune_stale_wrap(
         std::function<void(CachePolicy* cache_policy)> func, RuntimeProfile* profile) {
@@ -98,5 +97,4 @@ void CacheManager::for_each_cache_reset_initial_capacity(double adjust_weighted)
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

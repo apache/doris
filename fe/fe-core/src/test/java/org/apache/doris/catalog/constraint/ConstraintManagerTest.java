@@ -17,8 +17,8 @@
 
 package org.apache.doris.catalog.constraint;
 
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 
 import com.google.common.collect.ImmutableList;

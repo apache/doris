@@ -93,7 +93,6 @@ class TTransportException;
 } // namespace apache
 
 namespace doris {
-#include "common/compile_check_begin.h"
 namespace {
 
 bvar::LatencyRecorder g_ingest_binlog_latency("doris_backend_service", "ingest_binlog");
@@ -1327,5 +1326,4 @@ void BaseBackendService::get_python_packages(std::vector<TPythonPackageInfo>& re
     result = manager.package_infos_to_thrift(packages);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

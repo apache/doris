@@ -47,11 +47,13 @@
 #include "util/hash_util.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 class ColumnSorter;
 
 /** Column for String values.
+  * Note: In string functions, we assume that ColumnStr contains valid UTF-8 encoded data.
+  * However, ColumnStr is not guaranteed to always hold valid UTF-8, since it is also used
+  * as a serialization container where the content may be arbitrary binary data.
   */
 template <typename T>
 class ColumnStr final : public COWHelper<IColumn, ColumnStr<T>> {
@@ -537,6 +539,7 @@ public:
     }
 
     bool is_ascii() const;
+    bool is_valid_utf8() const;
 
     Chars& get_chars() { return chars; }
     const Chars& get_chars() const { return chars; }
@@ -575,4 +578,3 @@ public:
 using ColumnString = ColumnStr<UInt32>;
 using ColumnString64 = ColumnStr<UInt64>;
 } // namespace doris
-#include "common/compile_check_end.h"

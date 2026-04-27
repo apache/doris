@@ -37,7 +37,6 @@
 #include "core/types.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class BufferWritable;
 class IColumn;
@@ -81,5 +80,4 @@ private:
     DataTypeString data_type_string;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

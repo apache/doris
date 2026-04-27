@@ -25,7 +25,6 @@
 #include "core/data_type/data_type.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 inline void assert_arity_range(const std::string& name, const DataTypes& argument_types,
                                size_t least, size_t most) {
@@ -37,5 +36,3 @@ inline void assert_arity_range(const std::string& name, const DataTypes& argumen
 }
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

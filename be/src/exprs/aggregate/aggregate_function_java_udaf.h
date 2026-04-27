@@ -38,11 +38,9 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "format/jni/jni_data_bridge.h"
 #include "runtime/user_function_cache.h"
-#include "util/io_helper.h"
 #include "util/jni-util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 const char* UDAF_EXECUTOR_CLASS = "org/apache/doris/udf/UdafExecutor";
 const char* UDAF_EXECUTOR_CTOR_SIGNATURE = "([B)V";
@@ -416,5 +414,3 @@ private:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

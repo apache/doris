@@ -21,15 +21,13 @@ import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalTable;
 
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 public class ExternalEqualsTest {
-    @Mocked
-    private TestExternalCatalog ctl1;
-    @Mocked
-    private TestExternalCatalog ctl2;
+    private TestExternalCatalog ctl1 = Mockito.mock(TestExternalCatalog.class);
+    private TestExternalCatalog ctl2 = Mockito.mock(TestExternalCatalog.class);
 
     @Test
     public void testEquals() {

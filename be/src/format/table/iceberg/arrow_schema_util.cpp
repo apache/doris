@@ -21,7 +21,6 @@
 #include <arrow/util/key_value_metadata.h>
 
 namespace doris::iceberg {
-#include "common/compile_check_begin.h"
 
 const char* ArrowSchemaUtil::PARQUET_FIELD_ID = "PARQUET:field_id";
 const char* ArrowSchemaUtil::ORIGINAL_TYPE = "originalType";
@@ -132,5 +131,4 @@ Status ArrowSchemaUtil::convert_to(const iceberg::NestedField& field,
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::iceberg

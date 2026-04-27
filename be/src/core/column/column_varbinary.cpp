@@ -31,7 +31,6 @@
 #include "exec/sort/sort_block.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 MutableColumnPtr ColumnVarbinary::clone_resized(size_t size) const {
     auto res = create();
     if (size > 0) {
@@ -230,5 +229,4 @@ void ColumnVarbinary::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                         last_column);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

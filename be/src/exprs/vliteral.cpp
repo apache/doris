@@ -34,7 +34,6 @@
 #include "exprs/aggregate/aggregate_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class VExprContext;
 
@@ -49,8 +48,9 @@ Status VLiteral::prepare(RuntimeState* state, const RowDescriptor& desc, VExprCo
     return Status::OK();
 }
 
-Status VLiteral::execute_column(VExprContext* context, const Block* block, Selector* selector,
-                                size_t count, ColumnPtr& result_column) const {
+Status VLiteral::execute_column_impl(VExprContext* context, const Block* block,
+                                     const Selector* selector, size_t count,
+                                     ColumnPtr& result_column) const {
     DCHECK(selector == nullptr || selector->size() == count);
     result_column = _column_ptr->clone_resized(count);
     DCHECK_EQ(result_column->size(), count);
@@ -110,5 +110,4 @@ uint64_t VLiteral::get_digest(uint64_t seed) const {
     return seed;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

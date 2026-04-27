@@ -24,7 +24,6 @@
 #include "common/logging.h"
 
 namespace doris::cloud {
-#include "common/compile_check_begin.h"
 
 RowsetMetaCloudPB doris_rowset_meta_to_cloud(const RowsetMetaPB& in) {
     RowsetMetaCloudPB out;
@@ -80,7 +79,12 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     }
     out->set_txn_expiration(in.txn_expiration());
     out->set_segments_overlap_pb(in.segments_overlap_pb());
-    out->set_segments_key_bounds_truncated(in.segments_key_bounds_truncated());
+    if (in.has_segments_key_bounds_truncated()) {
+        out->set_segments_key_bounds_truncated(in.segments_key_bounds_truncated());
+    }
+    if (in.has_segments_key_bounds_aggregated()) {
+        out->set_segments_key_bounds_aggregated(in.segments_key_bounds_aggregated());
+    }
     out->mutable_num_segment_rows()->CopyFrom(in.num_segment_rows());
     out->mutable_segments_file_size()->CopyFrom(in.segments_file_size());
     out->set_index_id(in.index_id());
@@ -161,7 +165,12 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
     }
     out->set_txn_expiration(in.txn_expiration());
     out->set_segments_overlap_pb(in.segments_overlap_pb());
-    out->set_segments_key_bounds_truncated(in.segments_key_bounds_truncated());
+    if (in.has_segments_key_bounds_truncated()) {
+        out->set_segments_key_bounds_truncated(in.segments_key_bounds_truncated());
+    }
+    if (in.has_segments_key_bounds_aggregated()) {
+        out->set_segments_key_bounds_aggregated(in.segments_key_bounds_aggregated());
+    }
     out->mutable_num_segment_rows()->Swap(in.mutable_num_segment_rows());
     out->mutable_segments_file_size()->Swap(in.mutable_segments_file_size());
     out->set_index_id(in.index_id());
@@ -254,7 +263,12 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) 
     }
     out->set_txn_expiration(in.txn_expiration());
     out->set_segments_overlap_pb(in.segments_overlap_pb());
-    out->set_segments_key_bounds_truncated(in.segments_key_bounds_truncated());
+    if (in.has_segments_key_bounds_truncated()) {
+        out->set_segments_key_bounds_truncated(in.segments_key_bounds_truncated());
+    }
+    if (in.has_segments_key_bounds_aggregated()) {
+        out->set_segments_key_bounds_aggregated(in.segments_key_bounds_aggregated());
+    }
     out->mutable_num_segment_rows()->CopyFrom(in.num_segment_rows());
     out->mutable_segments_file_size()->CopyFrom(in.segments_file_size());
     out->set_index_id(in.index_id());
@@ -335,7 +349,12 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
     }
     out->set_txn_expiration(in.txn_expiration());
     out->set_segments_overlap_pb(in.segments_overlap_pb());
-    out->set_segments_key_bounds_truncated(in.segments_key_bounds_truncated());
+    if (in.has_segments_key_bounds_truncated()) {
+        out->set_segments_key_bounds_truncated(in.segments_key_bounds_truncated());
+    }
+    if (in.has_segments_key_bounds_aggregated()) {
+        out->set_segments_key_bounds_aggregated(in.segments_key_bounds_aggregated());
+    }
     out->mutable_num_segment_rows()->Swap(in.mutable_num_segment_rows());
     out->mutable_segments_file_size()->Swap(in.mutable_segments_file_size());
     out->set_index_id(in.index_id());
@@ -918,6 +937,5 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
         out->set_encryption_algorithm(in.encryption_algorithm());
     }
 }
-#include "common/compile_check_end.h"
 
 } // namespace doris::cloud

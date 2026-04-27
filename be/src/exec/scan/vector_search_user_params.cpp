@@ -20,7 +20,6 @@
 #include <fmt/format.h>
 
 namespace doris {
-#include "common/compile_check_begin.h"
 bool VectorSearchUserParams::operator==(const VectorSearchUserParams& other) const {
     return hnsw_ef_search == other.hnsw_ef_search &&
            hnsw_check_relative_distance == other.hnsw_check_relative_distance &&

@@ -69,12 +69,9 @@ public:
 private:
     void _build_fragment_context() {
         int fragment_id = 0;
-        _context = std::make_shared<PipelineFragmentContext>(
-                _query_id, TPipelineFragmentParams(), _query_ctx, ExecEnv::GetInstance(),
-                empty_function,
-                std::bind<Status>(std::mem_fn(&FragmentMgr::trigger_pipeline_context_report),
-                                  ExecEnv::GetInstance()->fragment_mgr(), std::placeholders::_1,
-                                  std::placeholders::_2));
+        _context = std::make_shared<PipelineFragmentContext>(_query_id, TPipelineFragmentParams(),
+                                                             _query_ctx, ExecEnv::GetInstance(),
+                                                             empty_function);
         _runtime_state = std::make_unique<MockRuntimeState>(
                 _query_id, fragment_id, _query_options, _query_ctx->query_globals,
                 ExecEnv::GetInstance(), _query_ctx.get());
@@ -530,7 +527,7 @@ TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION) {
         auto dep = std::make_shared<Dependency>(0, 0, "test_dep", true);
         task->_blocked_dep = dep.get();
         std::unique_lock<std::mutex> lc(mtx);
-        EXPECT_TRUE(task->wake_up(dep.get(), lc).ok());
+        task->wake_up(dep.get(), lc);
         EXPECT_EQ(task->_exec_state, PipelineTask::State::FINISHED);
         EXPECT_EQ(_task_scheduler->submit_count(), 0);
     }
@@ -541,7 +538,7 @@ TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION) {
         auto dep = std::make_shared<Dependency>(0, 0, "test_dep", true);
         task->_blocked_dep = dep.get();
         std::unique_lock<std::mutex> lc(mtx);
-        EXPECT_TRUE(task->wake_up(dep.get(), lc).ok());
+        task->wake_up(dep.get(), lc);
         EXPECT_EQ(task->_exec_state, PipelineTask::State::FINALIZED);
         EXPECT_EQ(_task_scheduler->submit_count(), 0);
         task->_wake_up_early = false;
@@ -554,7 +551,7 @@ TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION) {
         auto dep = std::make_shared<Dependency>(0, 0, "test_dep", true);
         task->_blocked_dep = dep.get();
         std::unique_lock<std::mutex> lc(mtx);
-        EXPECT_TRUE(task->wake_up(dep.get(), lc).ok());
+        task->wake_up(dep.get(), lc);
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         EXPECT_EQ(_task_scheduler->submit_count(), 1);
     }

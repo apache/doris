@@ -1640,4 +1640,17 @@ public class ConnectContext {
             tableNameSet.remove(tableName);
         }
     }
+
+    public int getAliveBeNumber() {
+        return Math.max(1, this.getEnv().getClusterInfo().getBackendsNumber(true));
+    }
+
+    public int getParallelInstanceNum() {
+        String clusterName = this.getSessionVariable().resolveCloudClusterName(this);
+        return Math.max(1, this.getSessionVariable().getParallelExecInstanceNum(clusterName));
+    }
+
+    public int getTotalInstanceNum() {
+        return getAliveBeNumber() * getParallelInstanceNum();
+    }
 }

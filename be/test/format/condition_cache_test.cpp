@@ -25,8 +25,9 @@
 
 #include "common/status.h"
 #include "format/generic_reader.h"
+#include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
-#include "format/table/iceberg_reader.h"
+#include "format/table/transactional_hive_common.h"
 
 namespace doris::vectorized {
 
@@ -365,42 +366,13 @@ TEST_F(CachePreAllocTest, ExtraElementDoesNotCauseIncorrectFiltering) {
 // ============================================================
 
 // GenericReader whose has_delete_operations() result is configurable,
-// used as the inner file-format reader for table-format readers.
+// used to test condition cache skip logic for various delete scenarios.
 class MockFileFormatReader : public GenericReader {
 public:
     bool mock_has_deletes = false;
-    Status get_next_block(Block*, size_t*, bool*) override { return Status::OK(); }
+    Status _do_get_next_block(Block*, size_t*, bool*) override { return Status::OK(); }
     bool has_delete_operations() const override { return mock_has_deletes; }
 };
-
-// Concrete IcebergTableReader (pure-virtual stubs filled in).
-// Exposes the protected _equality_delete_impls for testing.
-class TestableIcebergReader : public IcebergTableReader {
-public:
-    using IcebergTableReader::IcebergTableReader;
-    void set_delete_rows() override {}
-    Status _process_equality_delete(
-            const std::vector<TIcebergDeleteFileDesc>& delete_files) override {
-        return Status::OK();
-    }
-    void test_set_equality_delete(std::unique_ptr<EqualityDeleteBase> impl) {
-        _equality_delete_impls.push_back(std::move(impl));
-    }
-};
-
-// Minimal EqualityDeleteBase (only needs to be non-null for the check).
-class MockEqualityDelete : public EqualityDeleteBase {
-public:
-    MockEqualityDelete() : EqualityDeleteBase(nullptr, {}) {}
-    Status _build_set() override { return Status::OK(); }
-    Status filter_data_block(Block* data_block,
-                             const std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
-                             const std::unordered_map<int, std::string>& id_to_block_column_name,
-                             IColumn::Filter& filter) override {
-        return Status::OK();
-    }
-};
-
 // ============================================================
 // These tests reproduce the logic from
 // FileScanner::_init_reader_condition_cache() (file_scanner.cpp)
@@ -539,7 +511,7 @@ TEST_F(ConditionCacheDeleteOpsTest, OrcWithAcidDeletes_CacheSkipped) {
     TFileScanRangeParams params;
     TFileRangeDesc range;
     auto reader = OrcReader::create_unique(params, range, "", nullptr);
-    TransactionalHiveReader::AcidRowIDSet acid_deletes;
+    AcidRowIDSet acid_deletes;
     acid_deletes.insert({1, 0, 5});
     reader->set_delete_rows(&acid_deletes);
 
@@ -552,62 +524,37 @@ TEST_F(ConditionCacheDeleteOpsTest, OrcWithAcidDeletes_CacheSkipped) {
     EXPECT_EQ(cache, nullptr);
 }
 
-// -- IcebergTableReader: with equality deletes -> cache skipped --
-TEST_F(ConditionCacheDeleteOpsTest, IcebergWithEqualityDeletes_CacheSkipped) {
-    TFileScanRangeParams params;
-    TFileRangeDesc range;
-    auto inner = std::make_unique<MockFileFormatReader>();
-    inner->mock_has_deletes = false;
-    RuntimeProfile profile("test");
-    TestableIcebergReader reader(std::move(inner), &profile, nullptr, params, range, nullptr,
-                                 nullptr, nullptr);
-    reader.test_set_equality_delete(std::make_unique<MockEqualityDelete>());
+// -- MockReader: with deletes (simulating Iceberg/Hive with inner deletes) -> cache skipped --
+// In the new architecture, Iceberg readers inherit ParquetReader/OrcReader directly (CRTP),
+// so has_delete_operations() is resolved through the base reader. We use MockFileFormatReader
+// to test the generic condition cache skip logic.
+TEST_F(ConditionCacheDeleteOpsTest, ReaderWithDeletes_CacheSkipped) {
+    auto reader = std::make_unique<MockFileFormatReader>();
+    reader->mock_has_deletes = true;
 
     bool hit = false;
     std::shared_ptr<std::vector<bool>> cache;
     std::shared_ptr<ConditionCacheContext> ctx;
-    simulate_init_condition_cache(&reader, 42, "/data/iceberg.parquet", hit, cache, ctx);
+    simulate_init_condition_cache(reader.get(), 42, "/data/iceberg.parquet", hit, cache, ctx);
 
     EXPECT_EQ(ctx, nullptr);
     EXPECT_EQ(cache, nullptr);
 }
 
-// -- IcebergTableReader: with position deletes in inner reader -> cache skipped --
-TEST_F(ConditionCacheDeleteOpsTest, IcebergWithPositionDeletes_CacheSkipped) {
-    TFileScanRangeParams params;
-    TFileRangeDesc range;
-    auto inner = std::make_unique<MockFileFormatReader>();
-    inner->mock_has_deletes = true; // inner reader has position deletes
-    RuntimeProfile profile("test");
-    TestableIcebergReader reader(std::move(inner), &profile, nullptr, params, range, nullptr,
-                                 nullptr, nullptr);
+// -- MockReader: no deletes -> cache populated --
+TEST_F(ConditionCacheDeleteOpsTest, ReaderWithoutDeletes_CachePopulated) {
+    auto reader = std::make_unique<MockFileFormatReader>();
+    reader->mock_has_deletes = false;
 
     bool hit = false;
     std::shared_ptr<std::vector<bool>> cache;
     std::shared_ptr<ConditionCacheContext> ctx;
-    simulate_init_condition_cache(&reader, 42, "/data/iceberg.parquet", hit, cache, ctx);
+    simulate_init_condition_cache(reader.get(), 42, "/data/iceberg.parquet", hit, cache, ctx);
 
-    EXPECT_EQ(ctx, nullptr);
-    EXPECT_EQ(cache, nullptr);
-}
-
-// -- TransactionalHiveReader: inner reader has deletes -> cache skipped --
-TEST_F(ConditionCacheDeleteOpsTest, TransactionalHiveInnerDeletes_CacheSkipped) {
-    TFileScanRangeParams params;
-    TFileRangeDesc range;
-    auto inner = std::make_unique<MockFileFormatReader>();
-    inner->mock_has_deletes = true;
-    RuntimeProfile profile("test");
-    auto reader = TransactionalHiveReader::create_unique(std::move(inner), &profile, nullptr,
-                                                         params, range, nullptr, nullptr);
-
-    bool hit = false;
-    std::shared_ptr<std::vector<bool>> cache;
-    std::shared_ptr<ConditionCacheContext> ctx;
-    simulate_init_condition_cache(reader.get(), 42, "/data/hive_acid.orc", hit, cache, ctx);
-
-    EXPECT_EQ(ctx, nullptr);
-    EXPECT_EQ(cache, nullptr);
+    EXPECT_FALSE(hit);
+    EXPECT_NE(ctx, nullptr);
+    EXPECT_NE(cache, nullptr);
+    EXPECT_FALSE(ctx->is_hit);
 }
 
 // -- Pre-populated cache entry is NOT returned when deletes exist --

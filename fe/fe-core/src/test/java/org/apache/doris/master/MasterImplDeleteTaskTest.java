@@ -32,12 +32,13 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.collect.Lists;
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedConstruction;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 public class MasterImplDeleteTaskTest {
     private static final long BACKEND_ID = 10000L;
@@ -54,6 +55,8 @@ public class MasterImplDeleteTaskTest {
     private static final int BE_PORT = 9060;
 
     private MasterImpl masterImpl;
+    private MockedStatic<Env> mockedEnvStatic;
+    private MockedConstruction<ReportHandler> mockedReportHandlerConstruction;
 
     @Before
     public void setUp() {
@@ -64,18 +67,13 @@ public class MasterImplDeleteTaskTest {
         backend.setBePort(BE_PORT);
         systemInfoService.addBackend(backend);
 
-        new MockUp<Env>() {
-            @Mock
-            public SystemInfoService getCurrentSystemInfo() {
-                return systemInfoService;
-            }
-        };
+        mockedEnvStatic = Mockito.mockStatic(Env.class);
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
 
-        new MockUp<ReportHandler>() {
-            @Mock
-            public void start() {
-            }
-        };
+        mockedReportHandlerConstruction = Mockito.mockConstruction(ReportHandler.class,
+                (mock, context) -> {
+                    Mockito.doNothing().when(mock).start();
+                });
 
         masterImpl = new MasterImpl();
     }
@@ -83,6 +81,12 @@ public class MasterImplDeleteTaskTest {
     @After
     public void tearDown() {
         AgentTaskQueue.clearAllTasks();
+        if (mockedEnvStatic != null) {
+            mockedEnvStatic.close();
+        }
+        if (mockedReportHandlerConstruction != null) {
+            mockedReportHandlerConstruction.close();
+        }
     }
 
     @Test

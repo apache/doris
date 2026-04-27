@@ -583,6 +583,7 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
                     .setMaxValue(100)
                     .setIsUnknown(false)
                     .setUpdatedTime("")
+                    .setHotValues(new HashMap<>())
                     .build();
             map.put(e.getKey(), col);
         }

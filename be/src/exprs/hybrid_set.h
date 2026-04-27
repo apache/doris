@@ -27,10 +27,10 @@
 #include "core/data_type/primitive_type.h"
 #include "exec/common/hash_table/phmap_fwd_decl.h"
 #include "exec/runtime_filter/utils.h"
+#include "exprs/bitset_container.h"
 #include "exprs/filter_base.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 constexpr int FIXED_CONTAINER_MAX_SIZE = 8;
 
 /**
@@ -135,6 +135,12 @@ struct IsFixedContainer : std::false_type {};
 
 template <typename T, size_t N>
 struct IsFixedContainer<FixedContainer<T, N>> : std::true_type {};
+
+template <typename T>
+struct IsBitSetContainer : std::false_type {};
+
+template <typename T>
+struct IsBitSetContainer<BitSetContainer<T>> : std::true_type {};
 
 /**
  * Dynamic Container uses phmap::flat_hash_set.
@@ -808,5 +814,4 @@ private:
     ContainerType _set;
     ObjectPool _pool;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

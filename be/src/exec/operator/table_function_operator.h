@@ -24,7 +24,6 @@
 #include "exprs/table_function/table_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
@@ -183,5 +182,4 @@ private:
     std::vector<int> _child_slot_sizes;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

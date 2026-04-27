@@ -27,7 +27,6 @@
 #include "exec/sink/writer/iceberg/partition_transformers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class IcebergInsertPartitionFunction final : public PartitionFunction {
 public:
@@ -97,5 +96,4 @@ private:
     VExprContextSPtrs _delete_partition_expr_ctxs;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

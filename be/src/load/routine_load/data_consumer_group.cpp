@@ -33,7 +33,6 @@
 #include "util/stopwatch.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 bool DataConsumerGroup::_submit_all_consumers(
         std::function<void(std::shared_ptr<DataConsumer>, ConsumeFinishCallback)> consume_fn,
@@ -308,7 +307,5 @@ void KinesisDataConsumerGroup::actual_consume(
             queue, max_running_time_ms);
     cb(st);
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

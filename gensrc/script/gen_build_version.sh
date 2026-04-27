@@ -129,20 +129,23 @@ package org.apache.doris.common;
 
 public class Version {
 
-  public static final String DORIS_BUILD_VERSION_PREFIX = "${build_version_prefix}";
+  // Use String.valueOf() to prevent javac compile-time constant inlining.
+  // Without this, changing Version.class alone (e.g. via fast-compile-fe.sh)
+  // has no effect because the old values are baked into every referencing class.
+  public static final String DORIS_BUILD_VERSION_PREFIX = String.valueOf("${build_version_prefix}");
   public static final int DORIS_BUILD_VERSION_MAJOR = ${build_version_major};
   public static final int DORIS_BUILD_VERSION_MINOR = ${build_version_minor};
   public static final int DORIS_BUILD_VERSION_PATCH = ${build_version_patch};
   public static final int DORIS_BUILD_VERSION_HOTFIX = ${build_version_hotfix};
-  public static final String DORIS_BUILD_VERSION_RC_VERSION = "${build_version_rc_version}";
-  public static final String DORIS_FEATURE_LIST = "${doris_feature_list}";
+  public static final String DORIS_BUILD_VERSION_RC_VERSION = String.valueOf("${build_version_rc_version}");
+  public static final String DORIS_FEATURE_LIST = String.valueOf("${doris_feature_list}");
 
-  public static final String DORIS_BUILD_VERSION = "${build_version}";
-  public static final String DORIS_BUILD_HASH = "${build_hash}";
-  public static final String DORIS_BUILD_SHORT_HASH = "${build_short_hash}";
-  public static final String DORIS_BUILD_TIME = "${build_time}";
-  public static final String DORIS_BUILD_INFO = "${build_info}";
-  public static final String DORIS_JAVA_COMPILE_VERSION = "${java_version_str}";
+  public static final String DORIS_BUILD_VERSION = String.valueOf("${build_version}");
+  public static final String DORIS_BUILD_HASH = String.valueOf("${build_hash}");
+  public static final String DORIS_BUILD_SHORT_HASH = String.valueOf("${build_short_hash}");
+  public static final String DORIS_BUILD_TIME = String.valueOf("${build_time}");
+  public static final String DORIS_BUILD_INFO = String.valueOf("${build_info}");
+  public static final String DORIS_JAVA_COMPILE_VERSION = String.valueOf("${java_version_str}");
   public static final int DORIS_FE_META_VERSION = ${build_fe_meta_version};
 
   public static void main(String[] args) {

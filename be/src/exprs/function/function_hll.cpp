@@ -47,7 +47,6 @@
 #include "util/url_coding.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 struct HLLCardinality {
     static constexpr auto name = "hll_cardinality";
@@ -304,6 +303,10 @@ struct HllToBase64 {
             encoded_offset += outlen;
             offsets[i] = cast_set<uint32_t>(encoded_offset);
         }
+        // chars was sized using max_serialized_size(); the actual encoded length
+        // can be smaller (e.g. sparse HLL), so shrink chars to keep
+        // offsets.back() == chars.size() and satisfy ColumnString::sanity_check.
+        chars.resize(encoded_offset);
         return Status::OK();
     }
 };

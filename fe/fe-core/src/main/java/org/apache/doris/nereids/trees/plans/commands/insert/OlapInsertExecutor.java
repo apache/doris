@@ -88,7 +88,16 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
     public OlapInsertExecutor(ConnectContext ctx, Table table,
             String labelName, NereidsPlanner planner, Optional<InsertCommandContext> insertCtx, boolean emptyInsert,
             long jobId) {
-        super(ctx, table, labelName, planner, insertCtx, emptyInsert, jobId);
+        this(ctx, table, labelName, planner, insertCtx, emptyInsert, jobId, false);
+    }
+
+    /**
+     * constructor
+     */
+    public OlapInsertExecutor(ConnectContext ctx, Table table,
+            String labelName, NereidsPlanner planner, Optional<InsertCommandContext> insertCtx, boolean emptyInsert,
+            long jobId, boolean needRegister) {
+        super(ctx, table, labelName, planner, insertCtx, emptyInsert, jobId, needRegister);
         this.olapTable = (OlapTable) table;
     }
 
@@ -307,41 +316,36 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         }
         String finalErrorMsg = InsertUtils.getFinalErrorMsg(errMsg, firstErrorMsgPart, urlPart);
         ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, finalErrorMsg);
+        recordLoadJob(ctx.getCurrentUserIdentity());
+    }
+
+    private void recordLoadJob(UserIdentity userIdentity) {
+        if (!Config.enable_nereids_load && jobId != -1) {
+            try {
+                ctx.getEnv().getLoadManager()
+                        .recordFinishedLoadJob(labelName, txnId, database.getFullName(),
+                                table.getId(), EtlJobType.INSERT, createTime, errMsg,
+                                coordinator.getTrackingUrl(), coordinator.getFirstErrorMsg(),
+                                userIdentity, insertLoadJob.getId());
+            } catch (MetaNotFoundException e) {
+                LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
+                errMsg = "Record info of insert load with error " + e.getMessage();
+            }
+        }
     }
 
     @Override
     protected void afterExec(StmtExecutor executor) {
-        // Go here, which means:
-        // 1. transaction is finished successfully (COMMITTED or VISIBLE), or
-        // 2. transaction failed but Config.using_old_load_usage_pattern is true.
-        // we will record the load job info for these 2 cases
-        try {
-            // the statement parsed by Nereids is saved at executor::parsedStmt.
-            StatementBase statement = executor.getParsedStmt();
-            UserIdentity userIdentity;
-            //if we use job scheduler, parse statement will not set user identity,so we need to get it from context
-            if (null == statement) {
-                userIdentity = ctx.getCurrentUserIdentity();
-            } else {
-                userIdentity = statement.getUserInfo();
-            }
-            EtlJobType etlJobType = EtlJobType.INSERT;
-            // Do not register job if job id is -1.
-            if (!Config.enable_nereids_load && jobId != -1) {
-                // just record for loadv2 here
-                ctx.getEnv().getLoadManager()
-                        .recordFinishedLoadJob(labelName, txnId, database.getFullName(),
-                                table.getId(),
-                                etlJobType, createTime, errMsg,
-                                coordinator.getTrackingUrl(),
-                                coordinator.getFirstErrorMsg(),
-                                userIdentity, insertLoadJob.getId());
-            }
-        } catch (MetaNotFoundException e) {
-            LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
-            errMsg = "Record info of insert load with error " + e.getMessage();
+        // the statement parsed by Nereids is saved at executor::parsedStmt.
+        StatementBase statement = executor.getParsedStmt();
+        UserIdentity userIdentity;
+        // if we use job scheduler, parse statement will not set user identity, so we need to get it from context
+        if (null == statement) {
+            userIdentity = ctx.getCurrentUserIdentity();
+        } else {
+            userIdentity = statement.getUserInfo();
         }
-
+        recordLoadJob(userIdentity);
         setReturnInfo();
     }
 

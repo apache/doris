@@ -37,7 +37,6 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 namespace doris {
-#include "common/compile_check_begin.h"
 VirtualSlotRef::VirtualSlotRef(const doris::TExprNode& node)
         : VExpr(node),
           _column_id(-1),
@@ -103,8 +102,9 @@ Status VirtualSlotRef::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-Status VirtualSlotRef::execute_column(VExprContext* context, const Block* block, Selector* selector,
-                                      size_t count, ColumnPtr& result_column) const {
+Status VirtualSlotRef::execute_column_impl(VExprContext* context, const Block* block,
+                                           const Selector* selector, size_t count,
+                                           ColumnPtr& result_column) const {
     if (_column_id >= 0 && _column_id >= block->columns()) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "input block not contain slot column {}, column_id={}, block={}", *_column_name,
@@ -241,5 +241,4 @@ Status VirtualSlotRef::evaluate_ann_range_search(
 
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

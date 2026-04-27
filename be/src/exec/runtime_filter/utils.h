@@ -30,7 +30,6 @@
 #include "exprs/vexpr_fwd.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <typename T>
 auto get_convertor() {
@@ -118,5 +117,4 @@ bool check_state_impl(typename T::State real_state, std::vector<typename T::Stat
     return matched;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

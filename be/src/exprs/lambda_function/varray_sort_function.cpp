@@ -33,7 +33,6 @@
 #include "exprs/vexpr.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class VExprContext;
 
@@ -67,8 +66,8 @@ public:
 
     std::string get_name() const override { return name; }
 
-    Status execute(VExprContext* context, const Block* block, Selector* expr_selector, size_t count,
-                   ColumnPtr& result_column, const DataTypePtr& result_type,
+    Status execute(VExprContext* context, const Block* block, const Selector* expr_selector,
+                   size_t count, ColumnPtr& result_column, const DataTypePtr& result_type,
                    const VExprSPtrs& children) const override {
         ///* array_sort(lambda, arg) *///
 
@@ -270,5 +269,4 @@ void register_function_array_sort(doris::LambdaFunctionFactory& factory) {
     factory.register_function<ArraySortFunction>();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

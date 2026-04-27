@@ -21,7 +21,6 @@
 #include "exprs/function/cast/cast_base.h"
 
 namespace doris::CastWrapper {
-#include "common/compile_check_begin.h"
 // check struct value type and get to_type value
 // TODO: need handle another type to cast struct
 WrapperType create_struct_wrapper(FunctionContext* context, const DataTypePtr& from_type,
@@ -86,5 +85,4 @@ WrapperType create_struct_wrapper(FunctionContext* context, const DataTypePtr& f
         return Status::OK();
     };
 }
-#include "common/compile_check_end.h"
 } // namespace doris::CastWrapper

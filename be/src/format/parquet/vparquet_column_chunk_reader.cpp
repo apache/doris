@@ -49,7 +49,6 @@ struct IOContext;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::ColumnChunkReader(
         io::BufferedStreamReader* reader, tparquet::ColumnChunk* column_chunk,
@@ -754,5 +753,4 @@ template class ColumnChunkReader<true, false>;
 template class ColumnChunkReader<false, true>;
 template class ColumnChunkReader<false, false>;
 
-#include "common/compile_check_end.h"
 } // namespace doris

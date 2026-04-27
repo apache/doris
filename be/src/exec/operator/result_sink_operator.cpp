@@ -35,7 +35,6 @@
 #include "runtime/result_buffer_mgr.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -94,11 +93,11 @@ Status ResultSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
-ResultSinkOperatorX::ResultSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
+ResultSinkOperatorX::ResultSinkOperatorX(int operator_id, int node_id,
+                                         const RowDescriptor& row_desc,
                                          const std::vector<TExpr>& t_output_expr,
                                          const TResultSink& sink)
-        : DataSinkOperatorX(operator_id, std::numeric_limits<int>::max(),
-                            std::numeric_limits<int>::max()),
+        : DataSinkOperatorX(operator_id, node_id, node_id),
           _sink_type(!sink.__isset.type || sink.type == TResultSinkType::MYSQL_PROTOCOL
                              ? TResultSinkType::MYSQL_PROTOCOL
                              : sink.type),
@@ -215,5 +214,4 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
     return final_status;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -30,8 +30,6 @@
 
 namespace doris {
 
-#include "common/compile_check_begin.h"
-
 NativeReader::NativeReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                            const TFileRangeDesc& range, io::IOContext* io_ctx, RuntimeState* state)
         : _profile(profile),
@@ -146,7 +144,7 @@ Status NativeReader::init_reader() {
     return Status::OK();
 }
 
-Status NativeReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status NativeReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_eof) {
         *read_rows = 0;
         *eof = true;
@@ -219,9 +217,7 @@ Status NativeReader::get_next_block(Block* block, size_t* read_rows, bool* eof) 
     return Status::OK();
 }
 
-Status NativeReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                                 std::unordered_set<std::string>* missing_cols) {
-    missing_cols->clear();
+Status NativeReader::_get_columns_impl(std::unordered_map<std::string, DataTypePtr>* name_to_type) {
     RETURN_IF_ERROR(init_reader());
 
     if (!_schema_inited) {
@@ -363,7 +359,5 @@ Status NativeReader::_init_schema_from_pblock(const PBlock& pblock) {
     _schema_inited = true;
     return Status::OK();
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris

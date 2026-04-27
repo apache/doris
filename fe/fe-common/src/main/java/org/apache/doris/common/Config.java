@@ -397,6 +397,15 @@ public class Config extends ConfigBase {
     @ConfField(description = {"The connection timeout of thrift client, in milliseconds. 0 means no timeout."})
     public static int thrift_client_timeout_ms = 0;
 
+    @ConfField(mutable = true, masterOnly = false,
+            description = {"Thrift RPC 连接阶段的超时时间（毫秒），包括 TCP connect 和可能的 TLS 握手。"
+                    + "用于防止 reopen() 时因网络异常长时间阻塞。0 表示不设置。",
+                    "Timeout in milliseconds for the connect phase of Thrift RPC connections, "
+                    + "including TCP connect and potential TLS handshake. "
+                    + "Prevents long blocking during reopen() when network is unreachable. "
+                    + "0 means no timeout."})
+    public static int thrift_rpc_connect_timeout_ms = 10000;
+
     // The default value is inherited from org.apache.thrift.TConfiguration
     @ConfField(description = {"The maximum size of a received message of the Thrift server, in bytes"})
     public static int thrift_max_message_size = 100 * 1024 * 1024;
@@ -1512,6 +1521,20 @@ public class Config extends ConfigBase {
     public static int grpc_keep_alive_second = 10;
 
     /**
+     * Whether to use gRPC directExecutor() for BackendServiceClient.
+     *
+     * WARNING: When enabled, gRPC client call listeners (including protobuf parsing/completion) may run on
+     * Netty EventLoop threads. If response messages are large, this can block transport threads and delay
+     * unrelated RPCs on the same channel.
+     *
+     * This option should only be enabled when you are sure responses are small and the risk is acceptable.
+     * Takes effect after FE restart.
+     */
+    @ConfField(description = {"是否为 BackendServiceClient 使用 gRPC directExecutor",
+            "Whether to use gRPC directExecutor for BackendServiceClient"})
+    public static boolean grpc_backend_client_use_direct_executor = false;
+
+    /**
      * Used to set minimal number of replication per tablet.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1871,6 +1894,12 @@ public class Config extends ConfigBase {
             "The maximum number of tasks a streaming job can keep in memory. If the number exceeds the limit, "
                     + "old records will be discarded."})
     public static int max_streaming_task_show_count = 100;
+
+    @ConfField(masterOnly = true, mutable = true, description = {
+            "Max auto resume retry count for streaming jobs. "
+                    + "After exceeding, the failure reason is rewritten to CANNOT_RESUME_ERR "
+                    + "and the job requires manual intervention."})
+    public static int streaming_job_max_auto_resume_count = 10;
 
     /* job test config */
     /**
@@ -2511,6 +2540,23 @@ public class Config extends ConfigBase {
     @ConfField
     public static int auto_analyze_simultaneously_running_task_num = 1;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "统计信息收集时 string 列允许的最大字节长度。若列中存在长度超过该值的行，"
+                    + "该列的统计信息将被跳过收集（task 仍标记为 FINISHED，在 SHOW ANALYZE 中显示跳过原因）。"
+                    + "≤ 0 表示关闭此保护。默认 1024 (1KB)。"
+                    + "注意：此保护只覆盖 FULL / LINEAR / DUJ1 统计收集路径（即 analyze 全表和 sample 的主 SQL）。"
+                    + "当 enable_partition_analyze=true 时的 per-partition 路径（PARTITION_ANALYZE_TEMPLATE）"
+                    + "出于正确性考虑不启用该保护，详见 BaseAnalysisTask 中的 NOTE。",
+            "Max byte length allowed for a string column when collecting statistics. "
+                    + "If any row in a string column is longer than this value, the column's stats "
+                    + "collection is skipped (the task is still marked FINISHED, with the skip reason "
+                    + "shown in SHOW ANALYZE). A value <= 0 disables this protection. Default: 1024 (1KB). "
+                    + "Note: this protection applies to the FULL / LINEAR / DUJ1 collection paths "
+                    + "(i.e. the main SQL used by full-table and sample analyze). The per-partition path "
+                    + "(PARTITION_ANALYZE_TEMPLATE, used when enable_partition_analyze=true) is intentionally "
+                    + "not guarded for correctness reasons; see the NOTE in BaseAnalysisTask."})
+    public static long statistics_max_string_column_length = 1024;
+
     @Deprecated
     @ConfField
     public static final int period_analyze_simultaneously_running_task_num = 1;
@@ -2587,7 +2633,7 @@ public class Config extends ConfigBase {
                     + "2. For auto-bucket feature (Dynamic Partition): "
                     + "bucket number will be capped at autobucket_max_buckets automatically. "
                     + "Set to 0 or negative value to disable this limit for user-specified buckets."})
-    public static int max_bucket_num_per_partition = autobucket_max_buckets;
+    public static int max_bucket_num_per_partition = 768;
 
     @ConfField(description = {"Maximum number of connections for the Arrow Flight Server per FE."})
     public static int arrow_flight_max_connections = 4096;
@@ -2797,7 +2843,7 @@ public class Config extends ConfigBase {
             options = {"default", "password", "ldap", "<plugin_name>"})
     public static String authentication_type = "default";
 
-    @ConfField(description = {
+    @ConfField(mutable = true, description = {
             "Specifies the authentication chain used after primary authentication failure, "
                     + "multiple integration names are comma-separated"})
     public static String authentication_chain = "";
@@ -3463,10 +3509,12 @@ public class Config extends ConfigBase {
                     + "detailed information of all replicas of the tablet will be printed."})
     public static boolean sql_block_rule_ignore_admin = false;
 
-    @ConfField(description = {"Authentication plugin directory."})
+    @ConfField(description = {"Authentication plugin root directories. Use a comma-separated list to configure "
+            + "multiple roots."})
     public static String authentication_plugins_dir = EnvUtils.getDorisHome() + "/plugins/authentication";
 
-    @ConfField(description = {"Authorization plugin directory."})
+    @ConfField(description = {"Authorization plugin root directories. Use a comma-separated list to configure "
+            + "multiple roots."})
     public static String authorization_plugins_dir = EnvUtils.getDorisHome() + "/plugins/authorization";
 
     @ConfField(description = {"Security plugin directory."})
@@ -3476,6 +3524,11 @@ public class Config extends ConfigBase {
             + "Each subdirectory is one storage backend (e.g., s3/, hdfs/, azure/). "
             + "If empty, only classpath-based built-in providers are used (test/dev mode)."})
     public static String filesystem_plugin_root = EnvUtils.getDorisHome() + "/plugins/filesystem";
+
+    @ConfField(description = {"Directory containing connector provider plugin subdirectories. "
+            + "Each subdirectory is one connector (e.g., es/, jdbc/, iceberg/). "
+            + "If empty, only classpath-based built-in providers are used (test/dev mode)."})
+    public static String connector_plugin_root = EnvUtils.getDorisHome() + "/plugins/connector";
 
     @ConfField(description = {"Authorization plugin configuration file path. Must be under DORIS_HOME. "
             + "Default is conf/authorization.conf."})

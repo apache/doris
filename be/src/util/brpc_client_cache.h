@@ -64,7 +64,6 @@ using StubMap = phmap::parallel_flat_hash_map<
         std::allocator<std::pair<const std::string, StubEntry<T>>>, 8, std::mutex>;
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class FailureDetectClosure : public ::google::protobuf::Closure {
 public:
     FailureDetectClosure(std::shared_ptr<AtomicStatus>& channel_st,
@@ -353,5 +352,4 @@ private:
 
 using InternalServiceClientCache = BrpcClientCache<PBackendService_Stub>;
 using FunctionServiceClientCache = BrpcClientCache<PFunctionService_Stub>;
-#include "common/compile_check_end.h"
 } // namespace doris

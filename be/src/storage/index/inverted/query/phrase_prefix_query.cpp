@@ -21,7 +21,6 @@
 #include "storage/index/inverted/query/query_helper.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 PhrasePrefixQuery::PhrasePrefixQuery(SearcherPtr searcher, IndexQueryContextPtr context)
         : _searcher(std::move(searcher)),
@@ -79,5 +78,4 @@ void PhrasePrefixQuery::search(roaring::Roaring& roaring) {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

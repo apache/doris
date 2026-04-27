@@ -34,7 +34,6 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/hybrid_set.h"
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -406,7 +405,7 @@ struct GroupArrayStringUnionData : public GroupArraySetOpStringBaseData {
 
 /// Puts all values to the hybrid set. Returns an array of unique values
 template <typename ImplData>
-class AggregateFunctionGroupArraySetOp
+class AggregateFunctionGroupArraySetOp final
         : public IAggregateFunctionDataHelper<ImplData, AggregateFunctionGroupArraySetOp<ImplData>>,
           UnaryExpression,
           NotNullableAggregateFunction {
@@ -475,5 +474,3 @@ public:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

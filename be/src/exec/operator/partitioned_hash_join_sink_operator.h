@@ -32,7 +32,6 @@
 #include "exec/spill/spill_file_writer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 class PartitionedHashJoinSinkOperatorX;
@@ -182,5 +181,4 @@ private:
     std::unique_ptr<PartitionerBase> _partitioner;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

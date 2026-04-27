@@ -33,7 +33,6 @@
 #include "util/defer_op.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 CloudSizeBasedCumulativeCompactionPolicy::CloudSizeBasedCumulativeCompactionPolicy(
         int64_t promotion_size, double promotion_ratio, int64_t promotion_min_size,
@@ -359,5 +358,4 @@ int64_t CloudTimeSeriesCumulativeCompactionPolicy::new_cumulative_point(
     return output_rowset->end_version() + 1;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -39,13 +39,12 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import mockit.Expectations;
-import mockit.Injectable;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.Map;
 
@@ -307,7 +306,6 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
             jobSize++;
             waitAlterJobDone(alterJobs);
-
 
             // positive test
             testAddSingleSubColumn(tbl, tableName, defaultVal);
@@ -617,21 +615,18 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     }
 
     @Test
-    public void testAddValueColumnOnAggMV(@Injectable OlapTable olapTable, @Injectable Column newColumn,
-            @Injectable ColumnPosition columnPosition) {
+    public void testAddValueColumnOnAggMV() {
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
+        Column newColumn = Mockito.mock(Column.class);
+        ColumnPosition columnPosition = Mockito.mock(ColumnPosition.class);
         SchemaChangeHandler schemaChangeHandler = new SchemaChangeHandler();
-        new Expectations() {
-            {
-                olapTable.getKeysType();
-                result = KeysType.DUP_KEYS;
-                newColumn.getAggregationType();
-                result = null;
-                olapTable.getIndexMetaByIndexId(2).getKeysType();
-                result = KeysType.AGG_KEYS;
-                newColumn.isKey();
-                result = false;
-            }
-        };
+
+        Mockito.when(olapTable.getKeysType()).thenReturn(KeysType.DUP_KEYS);
+        Mockito.when(newColumn.getAggregationType()).thenReturn(null);
+        MaterializedIndexMeta mockMeta = Mockito.mock(MaterializedIndexMeta.class);
+        Mockito.when(olapTable.getIndexMetaByIndexId(2)).thenReturn(mockMeta);
+        Mockito.when(mockMeta.getKeysType()).thenReturn(KeysType.AGG_KEYS);
+        Mockito.when(newColumn.isKey()).thenReturn(false);
 
         try {
             Deencapsulation.invoke(schemaChangeHandler, "addColumnInternal", olapTable, newColumn, columnPosition,

@@ -24,7 +24,6 @@
 #include "storage/storage_policy.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 CloudRowsetBuilder::CloudRowsetBuilder(CloudStorageEngine& engine, const WriteRequest& req,
@@ -172,5 +171,4 @@ Status CloudRowsetBuilder::set_txn_related_info() {
     }
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

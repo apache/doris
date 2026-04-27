@@ -25,10 +25,9 @@
 #include <vector>
 
 #include "format/parquet/schema_desc.h"
-#include "format/table/table_format_reader.h"
+#include "format/table/table_schema_change_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 void HiveParquetNestedColumnUtils::extract_nested_column_ids(
         const FieldSchema& field_schema, const std::vector<std::vector<std::string>>& paths,

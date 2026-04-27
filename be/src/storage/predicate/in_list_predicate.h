@@ -55,7 +55,6 @@ struct std::equal_to<doris::uint24_t> {
 };
 
 namespace doris {
-#include "common/compile_check_begin.h"
 /**
  * Use HybridSetType can avoid virtual function call in the loop.
  * @tparam Type
@@ -663,5 +662,4 @@ private:
     // temp string for char type column
     std::list<std::string> _temp_datas;
 };
-#include "common/compile_check_end.h"
 } //namespace doris

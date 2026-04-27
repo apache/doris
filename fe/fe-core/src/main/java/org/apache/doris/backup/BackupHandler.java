@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.cloud.backup.CloudRestoreJob;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -39,7 +40,6 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
@@ -67,7 +67,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -450,14 +449,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             tableRefInfoList.addAll(tableRefInfos);
         } else {
             for (String tableName : tableNames) {
-                TableRefInfo tableRefInfo = new TableRefInfo(new TableNameInfo(db.getFullName(), tableName),
-                        null,
-                        null,
-                        null,
-                        new ArrayList<>(),
-                        null,
-                        null,
-                        new ArrayList<>());
+                TableRefInfo tableRefInfo = new TableRefInfo(new TableNameInfo(db.getFullName(), tableName), null);
                 tableRefInfoList.add(tableRefInfo);
             }
         }

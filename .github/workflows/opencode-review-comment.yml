@@ -1,0 +1,107 @@
+name: Code Review Comment Dispatch
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  statuses: write
+  pull-requests: write
+  contents: read
+  issues: write
+
+jobs:
+  resolve-pr:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/review')
+    outputs:
+      pr_number: ${{ steps.pr.outputs.pr_number }}
+      head_sha: ${{ steps.pr.outputs.head_sha }}
+      base_sha: ${{ steps.pr.outputs.base_sha }}
+      review_focus: ${{ steps.pr.outputs.review_focus }}
+    steps:
+      - name: Get PR info
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          PR_JSON=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.issue.number }})
+          HEAD_SHA=$(echo "$PR_JSON" | jq -r '.head.sha')
+          BASE_SHA=$(echo "$PR_JSON" | jq -r '.base.sha')
+          REVIEW_FOCUS=$(printf '%s' "${COMMENT_BODY#'/review'}" | sed 's/^[[:space:]]*//')
+
+          echo "pr_number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          {
+            echo "review_focus<<EOF"
+            printf '%s\n' "$REVIEW_FOCUS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+  code-review:
+    needs:
+      - resolve-pr
+      - mark-review-pending
+    if: >-
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/review')
+    uses: ./.github/workflows/opencode-review-runner.yml
+    secrets: inherit
+    with:
+      pr_number: ${{ needs.resolve-pr.outputs.pr_number }}
+      head_sha: ${{ needs.resolve-pr.outputs.head_sha }}
+      base_sha: ${{ needs.resolve-pr.outputs.base_sha }}
+      review_focus: ${{ needs.resolve-pr.outputs.review_focus }}
+
+  mark-review-pending:
+    needs: resolve-pr
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/review')
+    steps:
+      - name: Mark Code Review status as pending
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ needs.resolve-pr.outputs.head_sha }}
+        run: |
+          gh api repos/${REPO}/statuses/${HEAD_SHA} \
+            -X POST \
+            -f state='pending' \
+            -f context='code-review' \
+            -f description="Automated review is running for ${HEAD_SHA}." \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+  refresh-required-check:
+    needs:
+      - resolve-pr
+      - code-review
+    runs-on: ubuntu-latest
+    if: ${{ always() && needs.resolve-pr.result == 'success' && needs.code-review.result != 'skipped' }}
+    steps:
+      - name: Sync Code Review check for current head
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.resolve-pr.outputs.pr_number }}
+          HEAD_SHA: ${{ needs.resolve-pr.outputs.head_sha }}
+        run: |
+          state="pending"
+          summary="Trigger /review to start automated review for ${HEAD_SHA}."
+
+          if [ "${{ needs.code-review.result }}" = "success" ]; then
+            state="success"
+            summary="Automated review was triggered for ${HEAD_SHA}."
+          fi
+
+          gh api repos/${REPO}/statuses/${HEAD_SHA} \
+            -X POST \
+            -f state="${state}" \
+            -f context='code-review' \
+            -f description="${summary}" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

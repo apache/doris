@@ -27,27 +27,28 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.jupiter.api.Test;
-
-import java.util.Set;
+import org.mockito.Mockito;
 
 class PushDownDistinctThroughJoinTest implements MemoPatternMatchSupported {
     private static final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private static final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
     private static final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
     private static final LogicalOlapScan scan4 = PlanConstructor.newLogicalOlapScan(3, "t4", 0);
-    private MockUp<SessionVariable> mockUp = new MockUp<SessionVariable>() {
-        @Mock
-        public Set<Integer> getEnableNereidsRules() {
-            return ImmutableSet.of(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN.type());
-        }
-    };
+
+    private ConnectContext createMockedContext() {
+        ConnectContext ctx = MemoTestUtils.createConnectContext();
+        SessionVariable sv = Mockito.spy(ctx.getSessionVariable());
+        Mockito.doReturn(ImmutableSet.of(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN.type()))
+                .when(sv).getEnableNereidsRules();
+        ctx.setSessionVariable(sv);
+        return ctx;
+    }
 
     @Test
     void testPushdownJoin() {
@@ -58,7 +59,7 @@ class PushDownDistinctThroughJoinTest implements MemoPatternMatchSupported {
                 .distinct(ImmutableList.of(1, 3, 5, 7))
                 .build();
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+        PlanChecker.from(createMockedContext(), plan)
                 .customRewrite(new PushDownDistinctThroughJoin())
                 .matches(
                         logicalAggregate(
@@ -82,7 +83,7 @@ class PushDownDistinctThroughJoinTest implements MemoPatternMatchSupported {
                 .distinct(ImmutableList.of(1, 2, 3))
                 .build();
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+        PlanChecker.from(createMockedContext(), plan)
                 .customRewrite(new PushDownDistinctThroughJoin())
                 .matches(
                         logicalAggregate(

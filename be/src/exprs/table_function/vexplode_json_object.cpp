@@ -33,7 +33,6 @@
 #include "util/jsonb_writer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 VExplodeJsonObjectTableFunction::VExplodeJsonObjectTableFunction() {
     _fn_name = "vexplode_json_object";
@@ -160,5 +159,4 @@ int VExplodeJsonObjectTableFunction::get_value(MutableColumnPtr& column, int max
     return max_step;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

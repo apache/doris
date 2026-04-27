@@ -20,7 +20,6 @@
 #include "io/fs/connectivity/s3_connectivity_tester.h"
 
 namespace doris::io {
-#include "common/compile_check_begin.h"
 
 Status StorageConnectivityTester::test(TStorageBackendType::type type,
                                        const std::map<std::string, std::string>& properties) {
@@ -33,5 +32,4 @@ Status StorageConnectivityTester::test(TStorageBackendType::type type,
         return Status::OK();
     }
 }
-#include "common/compile_check_end.h"
 } // namespace doris::io

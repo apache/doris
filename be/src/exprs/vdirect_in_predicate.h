@@ -25,7 +25,6 @@
 #include "exprs/vslot_ref.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class VDirectInPredicate final : public VExpr {
     ENABLE_FACTORY_CREATOR(VDirectInPredicate);
@@ -54,8 +53,8 @@ public:
         return Status::OK();
     }
 
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override {
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
         return _do_execute(context, block, nullptr, selector, count, result_column, nullptr);
     }
 
@@ -117,7 +116,7 @@ public:
 
 private:
     Status _do_execute(VExprContext* context, const Block* block, const uint8_t* __restrict filter,
-                       Selector* selector, size_t count, ColumnPtr& result_column,
+                       const Selector* selector, size_t count, ColumnPtr& result_column,
                        ColumnPtr* arg_column) const {
         DCHECK(_open_finished || block == nullptr);
         DCHECK(!(filter != nullptr && selector != nullptr))
@@ -155,5 +154,4 @@ private:
     std::string _expr_name;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

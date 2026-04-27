@@ -19,14 +19,10 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -37,11 +33,9 @@ import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.thrift.TQueryColumn;
 
 import com.google.common.collect.ImmutableList;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -54,27 +48,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 // CHECKSTYLE OFF
 public class AnalysisManagerTest {
     @Test
-    public void testUpdateTaskStatus(@Mocked BaseAnalysisTask task1,
-            @Mocked BaseAnalysisTask task2) {
+    public void testUpdateTaskStatus() {
+        BaseAnalysisTask task1 = Mockito.mock(BaseAnalysisTask.class);
+        BaseAnalysisTask task2 = Mockito.mock(BaseAnalysisTask.class);
 
-        new MockUp<AnalysisManager>() {
-            @Mock
-            public void logCreateAnalysisTask(AnalysisInfo job) {}
-
-            @Mock
-            public void logCreateAnalysisJob(AnalysisInfo job) {}
-
-            @Mock
-            public void updateTableStats(AnalysisInfo jobInfo) {}
-
-        };
-
-        new MockUp<AnalysisInfo>() {
-            @Mock
-            public String toString() {
-                return "";
-            }
-        };
+        AnalysisManager manager = Mockito.spy(new AnalysisManager());
+        Mockito.doNothing().when(manager).logCreateAnalysisTask(Mockito.any());
+        Mockito.doNothing().when(manager).logCreateAnalysisJob(Mockito.any());
+        Mockito.doNothing().when(manager).updateTableStats(Mockito.any());
 
         AnalysisInfo job = new AnalysisInfoBuilder().setJobId(1)
                 .setState(AnalysisState.PENDING).setAnalysisType(AnalysisType.FUNDAMENTALS)
@@ -85,7 +66,6 @@ public class AnalysisManagerTest {
         AnalysisInfo taskInfo2 = new AnalysisInfoBuilder().setJobId(1)
                 .setTaskId(3).setAnalysisType(AnalysisType.FUNDAMENTALS).setJobType(JobType.MANUAL)
                 .setState(AnalysisState.PENDING).build();
-        AnalysisManager manager = new AnalysisManager();
         manager.replayCreateAnalysisJob(job);
         manager.replayCreateAnalysisTask(taskInfo1);
         manager.replayCreateAnalysisTask(taskInfo2);
@@ -106,6 +86,101 @@ public class AnalysisManagerTest {
         Assertions.assertEquals(job.state, AnalysisState.RUNNING);
         manager.updateTaskStatus(taskInfo2, AnalysisState.FINISHED, "", 0);
         Assertions.assertEquals(job.state, AnalysisState.FINISHED);
+    }
+
+    @Test
+    public void testUpdateTaskStatusPreservesSkipMessage() {
+        // Verify that a subsequent updateTaskStatus(FINISHED, "") call (e.g. from
+        // flushBuffer) does NOT wipe a previously-set skip message on info.message,
+        // and that job.message only accumulates the skip reason once.
+        BaseAnalysisTask task1 = Mockito.mock(BaseAnalysisTask.class);
+
+        AnalysisManager manager = Mockito.spy(new AnalysisManager());
+        Mockito.doNothing().when(manager).logCreateAnalysisTask(Mockito.any());
+        Mockito.doNothing().when(manager).logCreateAnalysisJob(Mockito.any());
+        Mockito.doNothing().when(manager).updateTableStats(Mockito.any());
+
+        AnalysisInfo job = new AnalysisInfoBuilder().setJobId(10)
+                .setState(AnalysisState.PENDING).setAnalysisType(AnalysisType.FUNDAMENTALS)
+                .setJobType(AnalysisInfo.JobType.MANUAL).build();
+        AnalysisInfo taskInfo = new AnalysisInfoBuilder().setJobId(10)
+                .setTaskId(11).setJobType(JobType.MANUAL).setAnalysisType(AnalysisType.FUNDAMENTALS)
+                .setColName("big_str").setState(AnalysisState.PENDING).build();
+        manager.replayCreateAnalysisJob(job);
+        manager.replayCreateAnalysisTask(taskInfo);
+
+        task1.info = taskInfo;
+        Map<Long, BaseAnalysisTask> tasks = new HashMap<>();
+        tasks.put(11L, task1);
+        manager.addToJobIdTasksMap(10, tasks);
+
+        String skipMsg = "Column [big_str] has row(s) whose byte length exceeds 1024"
+                + " (Config.statistics_max_string_column_length), skip collecting statistics for this column.";
+        manager.updateTaskStatus(taskInfo, AnalysisState.FINISHED, skipMsg, 0);
+        Assertions.assertEquals(skipMsg, taskInfo.message);
+        Assertions.assertTrue(job.message != null && job.message.contains(skipMsg),
+                "expected skip msg in job.message, got: " + job.message);
+        String firstJobMessage = job.message;
+
+        // Simulate flushBuffer replay: subsequent FINISHED with empty message should
+        // NOT wipe info.message NOR re-append skip reason.
+        manager.updateTaskStatus(taskInfo, AnalysisState.FINISHED, "", 0);
+        Assertions.assertEquals(skipMsg, taskInfo.message);
+        Assertions.assertEquals(firstJobMessage, job.message,
+                "job.message should not accumulate again on empty-message update");
+    }
+
+    @Test
+    public void testUpdateTaskStatusAccumulatesMultipleSkipMessages() {
+        // Two string columns get skipped -> job.message must contain both entries keyed
+        // by their respective colName, and repeated flushBuffer (FINISHED,"") replays
+        // must NOT duplicate them.
+        BaseAnalysisTask task1 = Mockito.mock(BaseAnalysisTask.class);
+        BaseAnalysisTask task2 = Mockito.mock(BaseAnalysisTask.class);
+
+        AnalysisManager manager = Mockito.spy(new AnalysisManager());
+        Mockito.doNothing().when(manager).logCreateAnalysisTask(Mockito.any());
+        Mockito.doNothing().when(manager).logCreateAnalysisJob(Mockito.any());
+        Mockito.doNothing().when(manager).updateTableStats(Mockito.any());
+
+        AnalysisInfo job = new AnalysisInfoBuilder().setJobId(20)
+                .setState(AnalysisState.PENDING).setAnalysisType(AnalysisType.FUNDAMENTALS)
+                .setJobType(AnalysisInfo.JobType.MANUAL).build();
+        AnalysisInfo ti1 = new AnalysisInfoBuilder().setJobId(20).setTaskId(21)
+                .setColName("s1").setJobType(JobType.MANUAL)
+                .setAnalysisType(AnalysisType.FUNDAMENTALS).setState(AnalysisState.PENDING).build();
+        AnalysisInfo ti2 = new AnalysisInfoBuilder().setJobId(20).setTaskId(22)
+                .setColName("s2").setJobType(JobType.MANUAL)
+                .setAnalysisType(AnalysisType.FUNDAMENTALS).setState(AnalysisState.PENDING).build();
+        manager.replayCreateAnalysisJob(job);
+        manager.replayCreateAnalysisTask(ti1);
+        manager.replayCreateAnalysisTask(ti2);
+        task1.info = ti1;
+        task2.info = ti2;
+        Map<Long, BaseAnalysisTask> tasks = new HashMap<>();
+        tasks.put(21L, task1);
+        tasks.put(22L, task2);
+        manager.addToJobIdTasksMap(20, tasks);
+
+        String skip1 = "Column [s1] has row(s) whose byte length exceeds 1024 ...";
+        String skip2 = "Column [s2] has row(s) whose byte length exceeds 1024 ...";
+        manager.updateTaskStatus(ti1, AnalysisState.FINISHED, skip1, 0);
+        manager.updateTaskStatus(ti2, AnalysisState.FINISHED, skip2, 0);
+        Assertions.assertNotNull(job.message);
+        Assertions.assertTrue(job.message.contains("s1:[" + skip1 + "]"),
+                "expected s1 skip in job.message, got: " + job.message);
+        Assertions.assertTrue(job.message.contains("s2:[" + skip2 + "]"),
+                "expected s2 skip in job.message, got: " + job.message);
+        String afterFirstRound = job.message;
+
+        // Simulate flushBuffer replay with empty message for both tasks. Neither entry
+        // should be duplicated.
+        manager.updateTaskStatus(ti1, AnalysisState.FINISHED, "", 0);
+        manager.updateTaskStatus(ti2, AnalysisState.FINISHED, "", 0);
+        Assertions.assertEquals(afterFirstRound, job.message,
+                "job.message must remain stable across flushBuffer replays");
+        Assertions.assertEquals(skip1, ti1.message);
+        Assertions.assertEquals(skip2, ti2.message);
     }
 
     @Test
@@ -146,26 +221,17 @@ public class AnalysisManagerTest {
         OlapTable table = new OlapTable(200, "testTable", schema, null, null, null);
         db.createTableWithLock(table, true, false);
 
-        new MockUp<Table>() {
-            @Mock
-            public DatabaseIf getDatabase() {
-                return db;
-            }
-        };
-
-        new MockUp<Database>() {
-            @Mock
-            public CatalogIf getCatalog() {
-                return testCatalog;
-            }
-        };
+        OlapTable spyTable = Mockito.spy(table);
+        Database spyDb = Mockito.spy(db);
+        Mockito.doReturn(spyDb).when(spyTable).getDatabase();
+        Mockito.doReturn(testCatalog).when(spyDb).getCatalog();
 
         SlotReference slot1 = new SlotReference(new ExprId(1), "slot1", IntegerType.INSTANCE, true,
-                new ArrayList<>(), table, column1, table, column1, ImmutableList.of());
+                new ArrayList<>(), spyTable, column1, spyTable, column1, ImmutableList.of());
         SlotReference slot2 = new SlotReference(new ExprId(2), "slot2", IntegerType.INSTANCE, true,
-                new ArrayList<>(), table, column2, table, column2, ImmutableList.of());
+                new ArrayList<>(), spyTable, column2, spyTable, column2, ImmutableList.of());
         SlotReference slot3 = new SlotReference(new ExprId(3), "slot3", IntegerType.INSTANCE, true,
-                new ArrayList<>(), table, column3, table, column3, ImmutableList.of());
+                new ArrayList<>(), spyTable, column3, spyTable, column3, ImmutableList.of());
         Set<Slot> set1 = new HashSet<>();
         set1.add(slot1);
         set1.add(slot2);
@@ -284,19 +350,18 @@ public class AnalysisManagerTest {
     @Test
     public void testAsyncDropStats() throws InterruptedException {
         AtomicInteger count = new AtomicInteger(0);
-        new MockUp<AnalysisManager>() {
-            @Mock
-            public void invalidateLocalStats(long catalogId, long dbId, long tableId, Set<String> columns,
-                                             TableStatsMeta tableStats, PartitionNamesInfo partitionNames) {
-                try {
-                    Thread.sleep(1000);
-                    count.incrementAndGet();
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
+        AnalysisManager analysisManager = Mockito.spy(new AnalysisManager());
+        Mockito.doAnswer(invocation -> {
+            try {
+                Thread.sleep(1000);
+                count.incrementAndGet();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
             }
-        };
-        AnalysisManager analysisManager = new AnalysisManager();
+            return null;
+        }).when(analysisManager).invalidateLocalStats(
+                Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong(),
+                Mockito.any(), Mockito.any(), Mockito.any());
         for (int i = 0; i < 20; i++) {
             System.out.println("Submit " + i);
             analysisManager.submitAsyncDropStatsTask(0, 0, 0, null, false);

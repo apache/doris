@@ -35,7 +35,6 @@
 #include "util/var_int.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -617,7 +616,7 @@ private:
     }
 };
 
-class AggregateFunctionWindowFunnelV2
+class AggregateFunctionWindowFunnelV2 final
         : public IAggregateFunctionDataHelper<WindowFunnelStateV2, AggregateFunctionWindowFunnelV2>,
           MultiExpression,
           NullableAggregateFunction {
@@ -675,5 +674,3 @@ protected:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

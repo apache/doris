@@ -24,7 +24,6 @@
 #include "exec/runtime_filter/runtime_filter_producer_helper_cross.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class NestedLoopJoinBuildSinkOperatorX;
 
@@ -84,5 +83,4 @@ private:
     RowDescriptor _row_descriptor;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

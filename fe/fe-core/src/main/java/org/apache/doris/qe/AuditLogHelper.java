@@ -185,7 +185,7 @@ public class AuditLogHelper {
         }
         Charset utf8Charset = Charset.forName("UTF-8");
         CharsetDecoder decoder = utf8Charset.newDecoder();
-        byte[] sb = str.getBytes();
+        byte[] sb = str.getBytes(utf8Charset);
         ByteBuffer buffer = ByteBuffer.wrap(sb, 0, maxLen);
         CharBuffer charBuffer = CharBuffer.allocate(maxLen);
         decoder.onMalformedInput(CodingErrorAction.IGNORE);
@@ -380,7 +380,7 @@ public class AuditLogHelper {
         auditEventBuilder.setStmt(handleStmt(encryptSql, parsedStmt));
 
         if (!Env.getCurrentEnv().isMaster()) {
-            if (ctx.executor != null && ctx.executor.isForwardToMaster()) {
+            if (ctx.executor != null && ctx.executor.hasForwardedToMaster()) {
                 auditEventBuilder.setState(ctx.executor.getProxyStatus());
                 int proxyStatusCode = ctx.executor.getProxyStatusCode();
                 if (proxyStatusCode != 0) {

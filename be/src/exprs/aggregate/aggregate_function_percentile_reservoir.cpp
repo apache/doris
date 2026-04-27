@@ -22,7 +22,6 @@
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 AggregateFunctionPtr createAggregateFunctionPercentileReservoir(const std::string& name,
                                                                 const DataTypes& argument_types,
@@ -48,5 +47,4 @@ void register_aggregate_function_percentile_reservoir(AggregateFunctionSimpleFac
                                    createAggregateFunctionPercentileReservoir);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

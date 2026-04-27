@@ -138,7 +138,8 @@ static void BM_BinaryCast_UI64_to_DateTimeV2(benchmark::State& state) {
     state.ResumeTiming();
 
     for (auto _ : state) {
-        benchmark::DoNotOptimize(test_data.data());
+        auto* td = test_data.data();
+        benchmark::DoNotOptimize(td);
 
         for (size_t i = 0; i < data_size; ++i) {
             auto result = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(test_data[i]);
@@ -160,7 +161,8 @@ static void BM_OldBinaryCast_UI64_to_DateTimeV2(benchmark::State& state) {
     state.ResumeTiming();
 
     for (auto _ : state) {
-        benchmark::DoNotOptimize(test_data.data());
+        auto* td = test_data.data();
+        benchmark::DoNotOptimize(td);
 
         for (size_t i = 0; i < data_size; ++i) {
             auto result = old_binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(test_data[i]);
@@ -183,7 +185,8 @@ static void BM_BinaryCast_DateTimeV2_to_UI64(benchmark::State& state) {
     state.ResumeTiming();
 
     for (auto _ : state) {
-        benchmark::DoNotOptimize(test_data.data());
+        auto* td = test_data.data();
+        benchmark::DoNotOptimize(td);
 
         for (size_t i = 0; i < data_size; ++i) {
             auto result = binary_cast<DateV2Value<DateTimeV2ValueType>, uint64_t>(test_data[i]);
@@ -206,7 +209,8 @@ static void BM_OldBinaryCast_DateTimeV2_to_UI64(benchmark::State& state) {
     state.ResumeTiming();
 
     for (auto _ : state) {
-        benchmark::DoNotOptimize(test_data.data());
+        auto* td = test_data.data();
+        benchmark::DoNotOptimize(td);
 
         for (size_t i = 0; i < data_size; ++i) {
             auto result = old_binary_cast<DateV2Value<DateTimeV2ValueType>, uint64_t>(test_data[i]);

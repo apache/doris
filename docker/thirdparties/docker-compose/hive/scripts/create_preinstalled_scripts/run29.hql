@@ -1,3 +1,4 @@
+drop table if exists mtmv_base1;
 create table mtmv_base1 (id INT, value STRING)
     PARTITIONED BY (part_col INT)
     CLUSTERED BY (id) INTO 3 BUCKETS

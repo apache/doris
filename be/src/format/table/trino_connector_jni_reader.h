@@ -35,7 +35,6 @@ class Block;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class TrinoConnectorJniReader : public JniReader {
     ENABLE_FACTORY_CREATOR(TrinoConnectorJniReader);
 
@@ -49,8 +48,10 @@ public:
 
     Status init_reader();
 
+protected:
+    Status _do_init_reader(ReaderInitContext* /*ctx*/) override { return init_reader(); }
+
 private:
     Status _set_spi_plugins_dir();
 };
-#include "common/compile_check_end.h"
 } // namespace doris
