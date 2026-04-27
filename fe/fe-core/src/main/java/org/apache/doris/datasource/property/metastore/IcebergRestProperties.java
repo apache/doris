@@ -18,20 +18,16 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.property.common.AwsCredentialsProviderFactory;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
-import org.apache.doris.datasource.property.common.IcebergAwsAssumeRoleProperties;
+import org.apache.doris.datasource.property.common.IcebergAwsClientCredentialsProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
 
 import lombok.Getter;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
-import org.apache.iceberg.aws.AwsClientProperties;
-import org.apache.iceberg.aws.AwsProperties;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 import org.apache.logging.log4j.util.Strings;
@@ -340,31 +336,10 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             icebergRestCatalogProperties.put("rest.sigv4-enabled", icebergRestSigV4Enabled);
             icebergRestCatalogProperties.put("rest.signing-region", icebergRestSigningRegion);
 
-            // Priority 1: Use explicit credentials (AK/SK)
-            boolean hasExplicitCredentials = StringUtils.isNotBlank(icebergRestAccessKeyId)
-                    && StringUtils.isNotBlank(icebergRestSecretAccessKey);
-            if (hasExplicitCredentials) {
-                icebergRestCatalogProperties.put(AwsProperties.REST_ACCESS_KEY_ID, icebergRestAccessKeyId);
-                icebergRestCatalogProperties.put(AwsProperties.REST_SECRET_ACCESS_KEY, icebergRestSecretAccessKey);
-                if (StringUtils.isNotBlank(icebergRestSessionToken)) {
-                    icebergRestCatalogProperties.put(AwsProperties.REST_SESSION_TOKEN, icebergRestSessionToken);
-                }
-                return;
-            }
-
-            // Priority 2: Use IAM Role (AssumeRole)
-            if (StringUtils.isNotBlank(icebergRestIamRole)) {
-                IcebergAwsAssumeRoleProperties.putAssumeRoleProperties(icebergRestCatalogProperties,
-                        icebergRestSigningRegion, icebergRestIamRole, icebergRestExternalId);
-                return;
-            }
-
-            // Priority 3: Use credentials provider chain
-            if (icebergRestCredentialsProviderMode != null) {
-                String providerClassName = AwsCredentialsProviderFactory.getV2ClassName(
-                        icebergRestCredentialsProviderMode);
-                icebergRestCatalogProperties.put(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER, providerClassName);
-            }
+            IcebergAwsClientCredentialsProperties.putRestCredentialProviderProperties(
+                    icebergRestCatalogProperties, icebergRestSigningRegion, icebergRestAccessKeyId,
+                    icebergRestSecretAccessKey, icebergRestSessionToken, icebergRestIamRole,
+                    icebergRestExternalId, icebergRestCredentialsProviderMode);
         }
     }
 
