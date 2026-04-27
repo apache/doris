@@ -17,12 +17,11 @@
 
 package org.apache.doris.datasource.property.common;
 
-import org.apache.doris.datasource.iceberg.IcebergS3FileIOAwsClientFactory;
 import org.apache.doris.datasource.property.storage.S3Properties;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.iceberg.aws.AssumeRoleAwsClientFactory;
 import org.apache.iceberg.aws.AwsProperties;
-import org.apache.iceberg.aws.s3.S3FileIOProperties;
 
 import java.util.Map;
 
@@ -42,8 +41,7 @@ public final class IcebergAwsAssumeRoleProperties {
         if (StringUtils.isBlank(s3Properties.getS3IAMRole())) {
             return;
         }
-        target.putIfAbsent(S3FileIOProperties.CLIENT_FACTORY,
-                IcebergS3FileIOAwsClientFactory.class.getName());
+        target.put(AwsProperties.CLIENT_FACTORY, AssumeRoleAwsClientFactory.class.getName());
         target.put("aws.region", s3Properties.getRegion());
         target.put(AwsProperties.CLIENT_ASSUME_ROLE_REGION, s3Properties.getRegion());
         target.put(AwsProperties.CLIENT_ASSUME_ROLE_ARN, s3Properties.getS3IAMRole());

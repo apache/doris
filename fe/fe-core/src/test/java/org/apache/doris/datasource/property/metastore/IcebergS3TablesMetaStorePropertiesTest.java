@@ -19,10 +19,11 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergS3FileIOAwsClientFactory;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.aws.AssumeRoleAwsClientFactory;
+import org.apache.iceberg.aws.AwsProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.catalog.Catalog;
 import org.junit.jupiter.api.Assertions;
@@ -86,9 +87,9 @@ public class IcebergS3TablesMetaStorePropertiesTest {
         Map<String, String> catalogProps = new HashMap<>();
         buildS3CatalogProperties(metaProps, catalogProps);
 
-        Assertions.assertFalse(catalogProps.containsKey("client.factory"));
-        Assertions.assertEquals(IcebergS3FileIOAwsClientFactory.class.getName(),
-                catalogProps.get(S3FileIOProperties.CLIENT_FACTORY));
+        Assertions.assertEquals(AssumeRoleAwsClientFactory.class.getName(),
+                catalogProps.get(AwsProperties.CLIENT_FACTORY));
+        Assertions.assertFalse(catalogProps.containsKey(S3FileIOProperties.CLIENT_FACTORY));
         Assertions.assertEquals("arn:aws:iam::123456789012:role/S3TablesRole", catalogProps.get("client.assume-role.arn"));
         Assertions.assertEquals("us-east-1", catalogProps.get("client.assume-role.region"));
         Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
@@ -262,9 +263,9 @@ public class IcebergS3TablesMetaStorePropertiesTest {
         // IAM Role should take priority
         Assertions.assertEquals("arn:aws:iam::123456789012:role/S3TablesRole",
                 catalogProps.get("client.assume-role.arn"));
-        Assertions.assertFalse(catalogProps.containsKey("client.factory"));
-        Assertions.assertEquals(IcebergS3FileIOAwsClientFactory.class.getName(),
-                catalogProps.get(S3FileIOProperties.CLIENT_FACTORY));
+        Assertions.assertEquals(AssumeRoleAwsClientFactory.class.getName(),
+                catalogProps.get(AwsProperties.CLIENT_FACTORY));
+        Assertions.assertFalse(catalogProps.containsKey(S3FileIOProperties.CLIENT_FACTORY));
         Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
         Assertions.assertFalse(catalogProps.containsKey(
                 "client.credentials-provider.s3.credentials_provider_type"));

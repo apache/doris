@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.datasource.iceberg.IcebergS3FileIOAwsClientFactory;
 import org.apache.doris.datasource.property.storage.OSSProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
@@ -25,7 +24,9 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
+import org.apache.iceberg.aws.AssumeRoleAwsClientFactory;
 import org.apache.iceberg.aws.AwsClientProperties;
+import org.apache.iceberg.aws.AwsProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 import org.junit.jupiter.api.Assertions;
@@ -491,9 +492,9 @@ public class IcebergRestPropertiesTest {
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
         Assertions.assertEquals("glue", catalogProps.get("rest.signing-name"));
         Assertions.assertEquals("us-east-1", catalogProps.get("rest.signing-region"));
-        Assertions.assertFalse(catalogProps.containsKey("client.factory"));
-        Assertions.assertEquals(IcebergS3FileIOAwsClientFactory.class.getName(),
-                catalogProps.get(S3FileIOProperties.CLIENT_FACTORY));
+        Assertions.assertEquals(AssumeRoleAwsClientFactory.class.getName(),
+                catalogProps.get(AwsProperties.CLIENT_FACTORY));
+        Assertions.assertFalse(catalogProps.containsKey(S3FileIOProperties.CLIENT_FACTORY));
         Assertions.assertEquals("arn:aws:iam::123456789012:role/MyGlueRole",
                 catalogProps.get("client.assume-role.arn"));
         Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
@@ -524,8 +525,9 @@ public class IcebergRestPropertiesTest {
 
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
         Assertions.assertEquals("s3tables", catalogProps.get("rest.signing-name"));
-        Assertions.assertEquals(IcebergS3FileIOAwsClientFactory.class.getName(),
-                catalogProps.get(S3FileIOProperties.CLIENT_FACTORY));
+        Assertions.assertEquals(AssumeRoleAwsClientFactory.class.getName(),
+                catalogProps.get(AwsProperties.CLIENT_FACTORY));
+        Assertions.assertFalse(catalogProps.containsKey(S3FileIOProperties.CLIENT_FACTORY));
         Assertions.assertEquals("arn:aws:iam::999999999999:role/S3TablesRole",
                 catalogProps.get("client.assume-role.arn"));
         Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
@@ -724,8 +726,9 @@ public class IcebergRestPropertiesTest {
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
         Assertions.assertEquals("arn:aws:iam::123456789012:role/MyRole",
                 catalogProps.get("client.assume-role.arn"));
-        Assertions.assertEquals("software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider",
-                catalogProps.get("client.credentials-provider"));
+        Assertions.assertEquals(AssumeRoleAwsClientFactory.class.getName(),
+                catalogProps.get(AwsProperties.CLIENT_FACTORY));
+        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
         Assertions.assertFalse(catalogProps.containsKey(
                 "client.credentials-provider.s3.credentials_provider_type"));
         Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider.s3.role_arn"));

@@ -37,7 +37,6 @@ public final class IcebergAwsClientCredentialsProperties {
                 return;
             case ASSUME_ROLE:
                 IcebergAwsAssumeRoleProperties.putAssumeRoleProperties(target, s3Properties);
-                putCredentialsProvider(target, s3Properties.getAwsCredentialsProviderMode());
                 return;
             case PROVIDER_CHAIN:
                 putCredentialsProvider(target, s3Properties.getAwsCredentialsProviderMode());
