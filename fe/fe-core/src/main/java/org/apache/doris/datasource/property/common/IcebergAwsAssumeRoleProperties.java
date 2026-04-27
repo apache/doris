@@ -17,8 +17,10 @@
 
 package org.apache.doris.datasource.property.common;
 
+import org.apache.doris.datasource.iceberg.IcebergAwsAssumeRoleCredentialsProvider;
+
 import org.apache.commons.lang3.StringUtils;
-import org.apache.iceberg.aws.AssumeRoleAwsClientFactory;
+import org.apache.iceberg.aws.AwsClientProperties;
 import org.apache.iceberg.aws.AwsProperties;
 
 import java.util.Map;
@@ -36,15 +38,25 @@ public final class IcebergAwsAssumeRoleProperties {
      * No-op if roleArn is blank.
      */
     public static void putAssumeRoleProperties(Map<String, String> target,
-            String region, String roleArn, String externalId) {
+            String region, String roleArn, String externalId, AwsCredentialsProviderMode providerMode) {
         if (StringUtils.isBlank(roleArn)) {
             return;
         }
-        target.put(AwsProperties.CLIENT_FACTORY, AssumeRoleAwsClientFactory.class.getName());
+        target.put(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER,
+                IcebergAwsAssumeRoleCredentialsProvider.class.getName());
+        target.put(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER + "."
+                + IcebergAwsAssumeRoleCredentialsProvider.ASSUME_ROLE_REGION, region);
+        target.put(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER + "."
+                + IcebergAwsAssumeRoleCredentialsProvider.ASSUME_ROLE_ARN, roleArn);
+        target.put(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER + "."
+                + IcebergAwsAssumeRoleCredentialsProvider.ASSUME_ROLE_SOURCE_PROVIDER_TYPE,
+                providerMode.getMode());
         target.put("aws.region", region);
         target.put(AwsProperties.CLIENT_ASSUME_ROLE_REGION, region);
         target.put(AwsProperties.CLIENT_ASSUME_ROLE_ARN, roleArn);
         if (StringUtils.isNotBlank(externalId)) {
+            target.put(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER + "."
+                    + IcebergAwsAssumeRoleCredentialsProvider.ASSUME_ROLE_EXTERNAL_ID, externalId);
             target.put(AwsProperties.CLIENT_ASSUME_ROLE_EXTERNAL_ID, externalId);
         }
     }

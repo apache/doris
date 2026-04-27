@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.datasource.iceberg.IcebergAwsAssumeRoleCredentialsProvider;
 import org.apache.doris.datasource.property.storage.OSSProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
@@ -490,9 +491,13 @@ public class IcebergRestPropertiesTest {
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
         Assertions.assertEquals("glue", catalogProps.get("rest.signing-name"));
         Assertions.assertEquals("us-east-1", catalogProps.get("rest.signing-region"));
-        Assertions.assertTrue(catalogProps.containsKey("client.factory"));
+        Assertions.assertFalse(catalogProps.containsKey("client.factory"));
+        Assertions.assertEquals(IcebergAwsAssumeRoleCredentialsProvider.class.getName(),
+                catalogProps.get("client.credentials-provider"));
         Assertions.assertEquals("arn:aws:iam::123456789012:role/MyGlueRole",
                 catalogProps.get("client.assume-role.arn"));
+        Assertions.assertEquals("DEFAULT",
+                catalogProps.get("client.credentials-provider.assume-role.source-provider-type"));
     }
 
     @Test
@@ -509,6 +514,8 @@ public class IcebergRestPropertiesTest {
 
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
         Assertions.assertEquals("s3tables", catalogProps.get("rest.signing-name"));
+        Assertions.assertEquals(IcebergAwsAssumeRoleCredentialsProvider.class.getName(),
+                catalogProps.get("client.credentials-provider"));
         Assertions.assertEquals("arn:aws:iam::999999999999:role/S3TablesRole",
                 catalogProps.get("client.assume-role.arn"));
     }
@@ -604,6 +611,8 @@ public class IcebergRestPropertiesTest {
 
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
         Assertions.assertEquals("external-123", catalogProps.get("client.assume-role.external-id"));
+        Assertions.assertEquals("external-123",
+                catalogProps.get("client.credentials-provider.assume-role.external-id"));
     }
 
     @Test
@@ -692,7 +701,7 @@ public class IcebergRestPropertiesTest {
         props.put("iceberg.rest.signing-region", "us-west-2");
         props.put("iceberg.rest.sigv4-enabled", "true");
         props.put("iceberg.rest.role_arn", "arn:aws:iam::123456789012:role/MyRole");
-        props.put("iceberg.rest.credentials_provider_type", "DEFAULT");
+        props.put("iceberg.rest.credentials_provider_type", "INSTANCE_PROFILE");
 
         IcebergRestProperties restProps = new IcebergRestProperties(props);
         Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
@@ -700,7 +709,10 @@ public class IcebergRestPropertiesTest {
         Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
         Assertions.assertEquals("arn:aws:iam::123456789012:role/MyRole",
                 catalogProps.get("client.assume-role.arn"));
-        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
+        Assertions.assertEquals(IcebergAwsAssumeRoleCredentialsProvider.class.getName(),
+                catalogProps.get("client.credentials-provider"));
+        Assertions.assertEquals("INSTANCE_PROFILE",
+                catalogProps.get("client.credentials-provider.assume-role.source-provider-type"));
     }
 
     @Test

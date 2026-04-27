@@ -36,7 +36,8 @@ public final class IcebergAwsClientCredentialsProperties {
                 putRestExplicitCredentials(target, accessKey, secretKey, sessionToken);
                 return;
             case ASSUME_ROLE:
-                IcebergAwsAssumeRoleProperties.putAssumeRoleProperties(target, region, roleArn, externalId);
+                IcebergAwsAssumeRoleProperties.putAssumeRoleProperties(target, region, roleArn,
+                        externalId, providerMode);
                 return;
             case PROVIDER_CHAIN:
                 putCredentialsProvider(target, providerMode);
@@ -56,7 +57,8 @@ public final class IcebergAwsClientCredentialsProperties {
                         explicitCredentialsProviderClassName);
                 return;
             case ASSUME_ROLE:
-                IcebergAwsAssumeRoleProperties.putAssumeRoleProperties(target, region, roleArn, externalId);
+                IcebergAwsAssumeRoleProperties.putAssumeRoleProperties(target, region, roleArn,
+                        externalId, providerMode);
                 return;
             case PROVIDER_CHAIN:
                 putCredentialsProvider(target, providerMode);

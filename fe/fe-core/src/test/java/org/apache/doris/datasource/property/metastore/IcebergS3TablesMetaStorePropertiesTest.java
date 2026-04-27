@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.iceberg.IcebergAwsAssumeRoleCredentialsProvider;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
@@ -84,9 +85,13 @@ public class IcebergS3TablesMetaStorePropertiesTest {
         Map<String, String> catalogProps = new HashMap<>();
         buildS3CatalogProperties(metaProps, catalogProps);
 
-        Assertions.assertTrue(catalogProps.containsKey("client.factory"));
+        Assertions.assertFalse(catalogProps.containsKey("client.factory"));
+        Assertions.assertEquals(IcebergAwsAssumeRoleCredentialsProvider.class.getName(),
+                catalogProps.get("client.credentials-provider"));
         Assertions.assertEquals("arn:aws:iam::123456789012:role/S3TablesRole", catalogProps.get("client.assume-role.arn"));
         Assertions.assertEquals("us-east-1", catalogProps.get("client.assume-role.region"));
+        Assertions.assertEquals("DEFAULT",
+                catalogProps.get("client.credentials-provider.assume-role.source-provider-type"));
     }
 
     @Test
@@ -108,6 +113,8 @@ public class IcebergS3TablesMetaStorePropertiesTest {
 
         Assertions.assertEquals("arn:aws:iam::999999999999:role/MyRole", catalogProps.get("client.assume-role.arn"));
         Assertions.assertEquals("external-id-123", catalogProps.get("client.assume-role.external-id"));
+        Assertions.assertEquals("external-id-123",
+                catalogProps.get("client.credentials-provider.assume-role.external-id"));
     }
 
     @Test
@@ -206,7 +213,7 @@ public class IcebergS3TablesMetaStorePropertiesTest {
         props.put("s3.region", "us-west-2");
         props.put("s3.access_key", "AKIAIOSFODNN7EXAMPLE");
         props.put("s3.secret_key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
-        props.put("s3.credentials_provider_type", "DEFAULT");
+        props.put("s3.credentials_provider_type", "INSTANCE_PROFILE");
         props.put("s3.endpoint", "https://s3.us-west-2.amazonaws.com");
 
         IcebergS3TablesMetaStoreProperties metaProps = new IcebergS3TablesMetaStoreProperties(props);
@@ -232,7 +239,7 @@ public class IcebergS3TablesMetaStorePropertiesTest {
         props.put("warehouse", "s3://my-bucket/warehouse");
         props.put("s3.region", "us-east-1");
         props.put("s3.role_arn", "arn:aws:iam::123456789012:role/S3TablesRole");
-        props.put("s3.credentials_provider_type", "DEFAULT");
+        props.put("s3.credentials_provider_type", "INSTANCE_PROFILE");
         props.put("s3.endpoint", "https://s3.us-east-1.amazonaws.com");
 
         IcebergS3TablesMetaStoreProperties metaProps = new IcebergS3TablesMetaStoreProperties(props);
@@ -244,9 +251,11 @@ public class IcebergS3TablesMetaStorePropertiesTest {
         // IAM Role should take priority
         Assertions.assertEquals("arn:aws:iam::123456789012:role/S3TablesRole",
                 catalogProps.get("client.assume-role.arn"));
-        Assertions.assertTrue(catalogProps.containsKey("client.factory"));
-        // Should NOT have credentials-provider set when using assume-role
-        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
+        Assertions.assertFalse(catalogProps.containsKey("client.factory"));
+        Assertions.assertEquals(IcebergAwsAssumeRoleCredentialsProvider.class.getName(),
+                catalogProps.get("client.credentials-provider"));
+        Assertions.assertEquals("INSTANCE_PROFILE",
+                catalogProps.get("client.credentials-provider.assume-role.source-provider-type"));
     }
 
     @Test

@@ -270,7 +270,8 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
         if (s3Properties instanceof S3Properties) {
             S3Properties awsProperties = (S3Properties) s3Properties;
             IcebergAwsAssumeRoleProperties.putAssumeRoleProperties(options,
-                    awsProperties.getRegion(), awsProperties.getS3IAMRole(), awsProperties.getS3ExternalId());
+                    awsProperties.getRegion(), awsProperties.getS3IAMRole(), awsProperties.getS3ExternalId(),
+                    awsProperties.getAwsCredentialsProviderMode());
         }
     }
 
