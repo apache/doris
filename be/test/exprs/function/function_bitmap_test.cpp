@@ -292,6 +292,12 @@ TEST(function_bitmap_test, function_bitmap_from_base64) {
         static_cast<void>(check_function<DataTypeBitMap, true>(func_name, input_types, data_set));
     }
     {
+        std::string invalid_set_v2_base64("CgIAAAABAAAAAAAAAA==");
+        DataSet data_set = {{{invalid_set_v2_base64}, Null()}};
+        static_cast<void>(check_function<DataTypeBitMap, true>(func_name, input_types, data_set, -1,
+                                                               -1, true));
+    }
+    {
         EXPECT_TRUE(config::set_config("bitmap_serialize_version", "1", false, true).ok());
 
         std::string base64_32_v1(

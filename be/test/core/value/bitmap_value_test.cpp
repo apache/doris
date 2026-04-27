@@ -1194,4 +1194,20 @@ TEST(BitmapValueTest, invalid_data) {
     char data[] = {0x02, static_cast<char>(0xff), 0x03};
     EXPECT_FALSE(bitmap.deserialize(data));
 }
+
+TEST(BitmapValueTest, invalid_set_v2_data) {
+    std::string data;
+    data.push_back(static_cast<char>(BitmapTypeCode::SET_V2));
+
+    char count[sizeof(uint32_t)];
+    encode_fixed32_le(reinterpret_cast<uint8_t*>(count), 2);
+    data.append(count, sizeof(count));
+
+    char value[sizeof(uint64_t)];
+    encode_fixed64_le(reinterpret_cast<uint8_t*>(value), 1);
+    data.append(value, sizeof(value));
+
+    BitmapValue bitmap;
+    EXPECT_FALSE(bitmap.deserialize(data.data(), data.size()));
+}
 } // namespace doris

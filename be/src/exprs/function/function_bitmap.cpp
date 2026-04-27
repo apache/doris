@@ -300,9 +300,12 @@ struct BitmapFromBase64 {
             if (outlen < 0) {
                 res.emplace_back();
                 null_map[i] = 1;
+            } else if (outlen == 0) {
+                res.emplace_back();
+                null_map[i] = 1;
             } else {
                 BitmapValue bitmap_val;
-                if (!bitmap_val.deserialize(decode_buff.data())) {
+                if (!bitmap_val.deserialize(decode_buff.data(), outlen)) {
                     return Status::RuntimeError("bitmap_from_base64 decode failed: base64: {}",
                                                 std::string(src_str, src_size));
                 }
