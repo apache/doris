@@ -76,6 +76,7 @@
 #include "recycler/recycler_service.h"
 #include "recycler/sync_executor.h"
 #include "recycler/util.h"
+#include "snapshot/snapshot_manager_factory.h"
 
 namespace doris::cloud {
 
@@ -231,7 +232,7 @@ Recycler::Recycler(std::shared_ptr<TxnKv> txn_kv) : txn_kv_(std::move(txn_kv)) {
 
     auto resource_mgr = std::make_shared<ResourceManager>(txn_kv_);
     txn_lazy_committer_ = std::make_shared<TxnLazyCommitter>(txn_kv_, std::move(resource_mgr));
-    snapshot_manager_ = std::make_shared<SnapshotManager>(txn_kv_);
+    snapshot_manager_ = create_snapshot_manager(txn_kv_);
 }
 
 Recycler::~Recycler() {
@@ -591,7 +592,8 @@ InstanceRecycler::InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const Instance
           resource_mgr_(std::make_shared<ResourceManager>(txn_kv_)) {
     delete_bitmap_lock_white_list_->init();
     resource_mgr_->init();
-    snapshot_manager_ = std::make_shared<SnapshotManager>(txn_kv_);
+
+    snapshot_manager_ = create_snapshot_manager(txn_kv_);
 
     // Since the recycler's resource manager could not be notified when instance info changes,
     // we need to refresh the instance info here to ensure the resource manager has the latest info.
