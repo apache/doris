@@ -59,10 +59,10 @@ import org.mockito.Mockito;
 import java.util.List;
 import java.util.Optional;
 
-class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
+class IvmLinearDeltaStrategyTest extends IvmDeltaTestBase {
 
-    private static final class TestableIvmSimpleScanDeltaStrategy extends IvmSimpleScanDeltaStrategy {
-        TestableIvmSimpleScanDeltaStrategy(IvmDeltaRewriteContext ctx) {
+    private static final class TestableIvmLinearDeltaStrategy extends IvmLinearDeltaStrategy {
+        TestableIvmLinearDeltaStrategy(IvmDeltaRewriteContext ctx) {
             super(ctx);
         }
 
@@ -100,7 +100,7 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
         MTMV mtmv = mockMtmv();
         LogicalOlapScan scan = buildScan();
         IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext(), null);
-        InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmSimpleScanDeltaStrategy(ctx)
+        InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmLinearDeltaStrategy(ctx)
                 .rewrite(buildScanPlan(scan)).get(0);
         UnboundTableSink<?> sink = getSink(command);
         Assertions.assertTrue(sink.getColNames().contains(Column.DELETE_SIGN));
@@ -109,9 +109,9 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
     @Test
     void testRewritePlanInjectsDmlFactorAtScan() {
         LogicalOlapScan scan = buildScan();
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(dummyCtx());
 
-        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(scan);
+        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(scan);
         Assertions.assertInstanceOf(LogicalProject.class, result.plan);
         Assertions.assertEquals(scan.getOutput().size() + 1, result.plan.getOutput().size());
         Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
@@ -123,9 +123,9 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
     void testVisitLogicalProjectAppendsDmlFactor() {
         LogicalOlapScan scan = buildScan();
         LogicalProject<LogicalOlapScan> project = new LogicalProject<>(ImmutableList.copyOf(scan.getOutput()), scan);
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(dummyCtx());
 
-        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(project);
+        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(project);
         Assertions.assertInstanceOf(LogicalProject.class, result.plan);
         Assertions.assertEquals(Column.IVM_DML_FACTOR_COL,
                 result.plan.getOutput().get(result.plan.getOutput().size() - 1).getName());
@@ -139,9 +139,9 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
                 .add(new Alias(new TinyIntLiteral((byte) 1), Column.IVM_DML_FACTOR_COL))
                 .build();
         LogicalProject<LogicalOlapScan> project = new LogicalProject<>(outputs, scan);
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(dummyCtx());
 
-        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(project);
+        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(project);
         Assertions.assertEquals(1,
                 result.plan.getOutput().stream().filter(slot -> Column.IVM_DML_FACTOR_COL.equals(slot.getName())).count());
         Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
@@ -151,9 +151,9 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
     void testVisitLogicalFilterPropagatesDmlFactor() {
         LogicalOlapScan scan = buildScan();
         Expression predicate = new GreaterThan(scan.getOutput().get(0), new IntegerLiteral(0));
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(dummyCtx());
 
-        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(
+        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(
                 new LogicalFilter<>(com.google.common.collect.ImmutableSet.of(predicate), scan));
         Assertions.assertInstanceOf(LogicalFilter.class, result.plan);
         Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
@@ -170,7 +170,7 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
 
         IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext(), null);
         Assertions.assertThrows(AnalysisException.class,
-                () -> new IvmSimpleScanDeltaStrategy(ctx).rewrite(plan));
+                () -> new IvmLinearDeltaStrategy(ctx).rewrite(plan));
     }
 
     @Test
@@ -179,7 +179,7 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
         LogicalProject<LogicalOlapScan> project = new LogicalProject<>(ImmutableList.copyOf(scan.getOutput()), scan);
         LogicalResultSink<LogicalProject<LogicalOlapScan>> sink = new LogicalResultSink<>(
                 ImmutableList.copyOf(scan.getOutput()), project);
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(dummyCtx());
 
         Assertions.assertSame(project, strategy.exposeStripResultSink(sink));
     }
@@ -187,7 +187,7 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
     @Test
     void testFindSlotByNameReturnsMatchingSlot() {
         LogicalOlapScan scan = buildScan();
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(dummyCtx());
 
         Slot slot = strategy.exposeFindSlotByName(scan.getOutput(), scan.getOutput().get(0).getName());
         Assertions.assertEquals(scan.getOutput().get(0), slot);
@@ -196,7 +196,7 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
     @Test
     void testFindSlotByNameThrowsWhenMissing() {
         LogicalOlapScan scan = buildScan();
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(dummyCtx());
 
         Assertions.assertThrows(AnalysisException.class,
                 () -> strategy.exposeFindSlotByName(scan.getOutput(), "missing_slot"));
@@ -211,7 +211,7 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
 
         LogicalOlapScan scan = buildScan();
         IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext(), null);
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(ctx);
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(ctx);
         Command command = strategy.exposeBuildInsertCommand(
                 new LogicalProject<>(ImmutableList.of((NamedExpression) scan.getOutput().get(0)), scan));
 
@@ -224,7 +224,7 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
         MTMV mtmv = mockMtmv();
         LogicalOlapScan scan = buildScan();
         IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext(), null);
-        InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmSimpleScanDeltaStrategy(ctx)
+        InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmLinearDeltaStrategy(ctx)
                 .rewrite(buildScanPlan(scan))
                 .get(0);
         UnboundTableSink<?> sink = getSink(command);
@@ -240,9 +240,9 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
     @Test
     void testRewritePlanWithoutOpColumnUsesLiteralOne() {
         LogicalOlapScan scan = buildScan(); // table without op column
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(dummyCtx());
 
-        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(scan);
+        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(scan);
         // The injected project should have scan columns + dml_factor
         LogicalProject<?> project = (LogicalProject<?>) result.plan;
         NamedExpression factorExpr = project.getProjects().get(project.getProjects().size() - 1);
@@ -256,9 +256,9 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
     @Test
     void testRewritePlanWithOpColumnUsesIfExpression() {
         LogicalOlapScan scan = buildScanWithOpColumn(); // table WITH op column
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(dummyCtx());
 
-        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(scan);
+        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(scan);
         LogicalProject<?> project = (LogicalProject<?>) result.plan;
         NamedExpression factorExpr = project.getProjects().get(project.getProjects().size() - 1);
         Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, factorExpr.getName());
@@ -283,9 +283,9 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
         // Wrap in project + result sink (simulating normalized plan)
         ImmutableList<NamedExpression> exprs = ImmutableList.copyOf(scan.getOutput());
         LogicalProject<LogicalOlapScan> userProject = new LogicalProject<>(exprs, scan);
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(dummyCtx());
 
-        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(userProject);
+        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(userProject);
         Assertions.assertNotNull(result.dmlFactorSlot);
         Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
         // The outer project should propagate dml_factor from the scan-level project
@@ -302,8 +302,8 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), scanDelta, scanSnapshot, JoinReorderContext.EMPTY);
 
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
-        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(join);
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(dummyCtx());
+        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(join);
 
         Assertions.assertNotNull(result.dmlFactorSlot,
                 "dml_factor should propagate from delta (left) side");
@@ -317,8 +317,8 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), scanSnapshot, scanDelta, JoinReorderContext.EMPTY);
 
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
-        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(join);
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(dummyCtx());
+        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(join);
 
         Assertions.assertNotNull(result.dmlFactorSlot,
                 "dml_factor should propagate from delta (right) side");
@@ -332,8 +332,8 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.CROSS_JOIN,
                 scanDelta, scanSnapshot, JoinReorderContext.EMPTY);
 
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
-        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(join);
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(dummyCtx());
+        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(join);
 
         Assertions.assertNotNull(result.dmlFactorSlot);
         // With null normalizeResult, conservative default adds a non-det guard (Project wrapping Join)
@@ -347,7 +347,7 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
 
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(dummyCtx());
         Assertions.assertThrows(AnalysisException.class,
                 () -> strategy.exposeRewritePlan(join),
                 "Both sides having dml_factor should throw");
@@ -360,8 +360,8 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
 
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
-        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(join);
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(dummyCtx());
+        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(join);
 
         Assertions.assertNull(result.dmlFactorSlot,
                 "Neither side having dml_factor should return null dml_factor");
@@ -374,7 +374,7 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
                 ImmutableList.of(), scanDelta, scanSnapshot, JoinReorderContext.EMPTY);
 
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(dummyCtx());
         Assertions.assertThrows(AnalysisException.class,
                 () -> strategy.exposeRewritePlan(join));
     }
@@ -401,8 +401,8 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
 
         IvmDeltaRewriteContext rewriteCtx = new IvmDeltaRewriteContext(mockMtmv(), new ConnectContext(),
                 normalizeResult);
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(rewriteCtx);
-        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(join);
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(rewriteCtx);
+        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(join);
 
         // The result should have assert_true guard wrapping dml_factor
         Assertions.assertNotNull(result.dmlFactorSlot);
@@ -434,8 +434,8 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
 
         IvmDeltaRewriteContext rewriteCtx = new IvmDeltaRewriteContext(mockMtmv(), new ConnectContext(),
                 normalizeResult);
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(rewriteCtx);
-        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(join);
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(rewriteCtx);
+        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(join);
 
         Assertions.assertNotNull(result.dmlFactorSlot);
         // Join result should NOT have an extra guard project
@@ -454,7 +454,7 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
                 Optional.of(new MarkJoinSlotReference("$mark")),
                 scanDelta, scanSnapshot, JoinReorderContext.EMPTY);
 
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(dummyCtx());
         Assertions.assertThrows(AnalysisException.class,
                 () -> strategy.exposeRewritePlan(join),
                 "Mark join conjuncts should throw AnalysisException");
@@ -480,8 +480,8 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
 
         IvmDeltaRewriteContext rewriteCtx = new IvmDeltaRewriteContext(mockMtmv(), new ConnectContext(),
                 normalizeResult);
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(rewriteCtx);
-        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(join);
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(rewriteCtx);
+        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(join);
 
         String planString = result.plan.toString();
         Assertions.assertTrue(planString.contains("IVM fallback: delete on non-deterministic row_id in INNER_JOIN"),
@@ -496,8 +496,8 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(condition), scanDelta, scanSnapshot, JoinReorderContext.EMPTY);
 
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
-        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(join);
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(dummyCtx());
+        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(join);
 
         Assertions.assertNotNull(result.dmlFactorSlot,
                 "dml_factor should propagate from delta side with hash conjuncts");
@@ -532,8 +532,8 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
         LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
         LogicalUnion union = buildUnionAll(scanDelta, scanSnapshot);
 
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
-        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(union);
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(dummyCtx());
+        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(union);
 
         Assertions.assertNotNull(result.dmlFactorSlot,
                 "dml_factor should propagate from delta arm");
@@ -548,8 +548,8 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
         LogicalOlapScan scanDelta = buildScan();
         LogicalUnion union = buildUnionAll(scanSnapshot, scanDelta);
 
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
-        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(union);
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(dummyCtx());
+        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(union);
 
         Assertions.assertNotNull(result.dmlFactorSlot,
                 "dml_factor should propagate from delta arm");
@@ -564,8 +564,8 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
         LogicalOlapScan scanB = buildScanForTable(3, "t3");
         LogicalUnion union = buildUnionAll(scanA, scanB);
 
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
-        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(union);
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(dummyCtx());
+        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(union);
 
         Assertions.assertNull(result.dmlFactorSlot,
                 "All-snapshot union should have null dmlFactorSlot");
@@ -579,7 +579,7 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
         LogicalOlapScan scanB = (LogicalOlapScan) buildScanForTable(2, "t2").withIsDelta(true);
         LogicalUnion union = buildUnionAll(scanA, scanB);
 
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(dummyCtx());
         Assertions.assertThrows(AnalysisException.class,
                 () -> strategy.exposeRewritePlan(union),
                 "Multiple delta arms in union should throw AnalysisException");
@@ -592,8 +592,8 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
         LogicalOlapScan scanC = buildScanForTable(3, "t3");
         LogicalUnion union = buildUnionAll(scanA, scanDelta, scanC);
 
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
-        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(union);
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(dummyCtx());
+        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(union);
 
         Assertions.assertNotNull(result.dmlFactorSlot,
                 "dml_factor should propagate from the middle delta arm");
@@ -612,8 +612,8 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
                 .map(NamedExpression::getExprId)
                 .collect(ImmutableList.toImmutableList());
 
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
-        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(union);
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(dummyCtx());
+        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(union);
 
         LogicalProject<?> project = (LogicalProject<?>) result.plan;
         List<Slot> projectOutput = project.getOutput();
@@ -636,8 +636,8 @@ class IvmSimpleScanDeltaStrategyTest extends IvmDeltaTestBase {
         LogicalUnion innerUnion = buildUnionAll(scanDelta, scanB);
         LogicalUnion outerUnion = buildUnionAll(innerUnion, scanC);
 
-        TestableIvmSimpleScanDeltaStrategy strategy = new TestableIvmSimpleScanDeltaStrategy(dummyCtx());
-        IvmSimpleScanDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(outerUnion);
+        TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(dummyCtx());
+        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(outerUnion);
 
         Assertions.assertNotNull(result.dmlFactorSlot,
                 "dml_factor should propagate from the nested delta arm");

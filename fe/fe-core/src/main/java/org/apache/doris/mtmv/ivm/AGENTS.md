@@ -36,14 +36,14 @@ The binlog/stream-based incremental data capture is **not yet implemented**. Dur
 
 ## DML Factor from binlog_op
 
-The `dml_factor` column (+1 for inserts, −1 for deletes) drives all delta computations. It is derived in `IvmSimpleScanDeltaStrategy.visitLogicalOlapScan()`:
+The `dml_factor` column (+1 for inserts, −1 for deletes) drives all delta computations. It is derived in `IvmLinearDeltaStrategy.visitLogicalOlapScan()`:
 
 - **binlog_op present**: If the base table has a column named `binlog_op` (`Column.BINLOG_OPERATION_COL`), its value follows the delete-sign convention (TinyInt: 0 = insert, 1 = delete). The dml_factor expression is `IF(binlog_op = 0, 1, -1)`.
 - **binlog_op absent (fallback)**: When the column does not exist (e.g., normal tables without binlog), dml_factor falls back to the literal `1` (insert-only assumption).
 
 Since `IvmAggDeltaStrategy` inherits `visitLogicalOlapScan()` without overriding, both simple-scan and aggregate MVs automatically use binlog_op-based dml_factor when available.
 
-See `IvmSimpleScanDeltaStrategy.buildDmlFactorExpr()` for the implementation.
+See `IvmLinearDeltaStrategy.buildDmlFactorExpr()` for the implementation.
 
 ## Row ID Generation
 
