@@ -284,6 +284,7 @@ private:
         RuntimeProfile::Counter* parse_page_header_num = nullptr;
         RuntimeProfile::Counter* predicate_filter_time = nullptr;
         RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr;
+        RuntimeProfile::Counter* convert_time = nullptr;
         RuntimeProfile::Counter* bloom_filter_read_time = nullptr;
     };
 

@@ -28,6 +28,8 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.maxcompute.MCTransaction;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
@@ -46,6 +48,8 @@ import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TLoadTxnCommitRequest;
 import org.apache.doris.thrift.TLoadTxnRollbackRequest;
+import org.apache.doris.thrift.TMaxComputeBlockIdRequest;
+import org.apache.doris.thrift.TMaxComputeBlockIdResult;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TNullableStringLiteral;
@@ -68,6 +72,7 @@ import org.junit.rules.ExpectedException;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -128,6 +133,12 @@ public class FrontendServiceImplTest {
             return;
         }
         throw new IllegalArgumentException("Unsupported command in test: " + sql);
+    }
+
+    private static void setPrivateField(Object target, String fieldName, Object value) throws Exception {
+        Field field = target.getClass().getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.set(target, value);
     }
 
 
@@ -274,6 +285,34 @@ public class FrontendServiceImplTest {
         TShowUserRequest request = new TShowUserRequest();
         TShowUserResult result = impl.showUser(request);
         System.out.println(result);
+    }
+
+    @Test
+    public void testGetMaxComputeBlockIdRange() throws Exception {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        long txnId = Env.getCurrentEnv().getNextId();
+        MCTransaction transaction = new MCTransaction(Mockito.mock(MaxComputeExternalCatalog.class));
+        setPrivateField(transaction, "writeSessionId", "session-1");
+        Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().putTxnById(txnId, transaction);
+
+        try {
+            TMaxComputeBlockIdRequest request = new TMaxComputeBlockIdRequest();
+            request.setTxnId(txnId);
+            request.setWriteSessionId("session-1");
+            request.setLength(1);
+
+            TMaxComputeBlockIdResult first = impl.getMaxComputeBlockIdRange(request);
+            Assert.assertEquals(TStatusCode.OK, first.getStatus().getStatusCode());
+            Assert.assertEquals(0L, first.getStart());
+            Assert.assertEquals(1L, first.getLength());
+
+            TMaxComputeBlockIdResult second = impl.getMaxComputeBlockIdRange(request);
+            Assert.assertEquals(TStatusCode.OK, second.getStatus().getStatusCode());
+            Assert.assertEquals(1L, second.getStart());
+            Assert.assertEquals(1L, second.getLength());
+        } finally {
+            Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().removeTxnById(txnId);
+        }
     }
 
     @Test

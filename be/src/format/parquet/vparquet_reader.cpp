@@ -276,6 +276,8 @@ void ParquetReader::_init_profile() {
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PredicateFilterTime", parquet_profile, 1);
         _parquet_profile.dict_filter_rewrite_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DictFilterRewriteTime", parquet_profile, 1);
+        _parquet_profile.convert_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ConvertTime", parquet_profile, 1);
         _parquet_profile.bloom_filter_read_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "BloomFilterReadTime", parquet_profile, 1);
     }
@@ -1484,6 +1486,7 @@ void ParquetReader::_collect_profile() {
                    _reader_statistics.predicate_filter_time);
     COUNTER_UPDATE(_parquet_profile.dict_filter_rewrite_time,
                    _reader_statistics.dict_filter_rewrite_time);
+    COUNTER_UPDATE(_parquet_profile.convert_time, _column_statistics.convert_time);
     COUNTER_UPDATE(_parquet_profile.bloom_filter_read_time,
                    _reader_statistics.bloom_filter_read_time);
     COUNTER_UPDATE(_parquet_profile.page_index_read_calls,
