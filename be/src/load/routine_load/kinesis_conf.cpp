@@ -17,7 +17,7 @@
 
 #include "load/routine_load/kinesis_conf.h"
 
-#include <glog/logging.h>
+#include "common/logging.h"
 
 namespace doris {
 

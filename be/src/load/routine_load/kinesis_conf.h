@@ -25,6 +25,8 @@
 #include <map>
 #include <string>
 
+#include "common/status.h"
+
 namespace doris {
 
 /**
