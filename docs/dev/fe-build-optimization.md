@@ -64,7 +64,7 @@
 |---|---|---|
 | `license-maven-plugin:add-third-party` | 每次本地构建都执行依赖许可证收集 | `release` profile |
 | `jacoco-maven-plugin:prepare-agent` | 每次本地构建都注入 coverage agent 参数 | `coverage` profile |
-| `maven-source-plugin:jar-no-fork` | 普通构建生成源码包 | `release` profile |
+| `maven-source-plugin:jar-no-fork` | 普通构建生成源码包 | 原有源码包模块的 `release` profile |
 | `flatten-maven-plugin` | 发布需要，普通本地编译不应成为关键路径 | `release` profile，或仅保留发布必需 execution |
 | `maven-checkstyle-plugin:check` | 质量门禁，不能默认移除 | 继续默认执行，可由 `DISABLE_JAVA_CHECK_STYLE=ON` 显式跳过 |
 
@@ -203,12 +203,16 @@ mvn package \
 
 Parent POM 保留日常构建必需插件，把发布和覆盖率相关动作放入显式 profile。
 
-`release` profile：
+Parent `release` profile：
 
 - `flatten-maven-plugin`
 - `license-maven-plugin:add-third-party`
-- `maven-source-plugin:jar-no-fork`
 - 发布所需的其它归档动作
+
+源码包不在 parent profile 中统一绑定，避免扩大发布 artifact 集合。只有优化前已经生成源码包的模块在各自的 `release` profile 中保留 `maven-source-plugin`：
+
+- `fe-foundation`、`fe-common`、`fe-catalog`、`fe-type`：`jar-no-fork` 和 `test-jar-no-fork`
+- `fe-grpc`、`fe-thrift`、`hive-udf`：`jar-no-fork`
 
 `coverage` profile：
 
@@ -263,7 +267,7 @@ MVN_OPT="-Pcoverage" ./build.sh --fe
 5. 更新 `fe/.mvn/maven-build-cache-config.xml`：
    - 删除 `copy-dependencies` 的 `runAlways`
    - 保留 checkstyle `runAlways`
-6. 将 `license`、`source jar`、`jacoco`、发布所需 `flatten` 动作移入显式 profile。
+6. 将 `license`、`source jar`、`jacoco`、发布所需 `flatten` 动作移入显式 profile；其中 source jar 仅保留在优化前已经生成源码包的模块。
 7. 保持 `maven-checkstyle-plugin:check` 默认运行。
 8. 保留 test-jar 默认绑定，避免在未完成依赖分析前破坏 test artifacts。
 9. 保持 `output/fe/lib` 输出契约不变：从 `fe/fe-core/target/doris-fe-lib.zip` 和 `target/doris-fe.jar` 组装 `output/fe/lib`。
