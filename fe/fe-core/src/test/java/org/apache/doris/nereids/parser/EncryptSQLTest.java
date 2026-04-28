@@ -19,7 +19,6 @@ package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.qe.ConnectContext;
@@ -52,7 +51,6 @@ public class EncryptSQLTest extends ParserTestBase {
             }
         };
         ctx.setEnv(env);
-        Config.enable_nereids_load = true;
 
         String sql = "EXPORT TABLE export_table TO \"s3://abc/aaa\" "
                 + "PROPERTIES("
