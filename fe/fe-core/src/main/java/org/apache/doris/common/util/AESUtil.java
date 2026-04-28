@@ -148,7 +148,7 @@ public class AESUtil {
             localDecryptCipherMap.put(serviceName, decryptCipher);
         }
         byte[] decryptedBytes = decryptCipher.doFinal(Base64.getDecoder().decode(
-            encryptedText.replace(" ", "+")));
+                encryptedText.replace(" ", "+").replace("%2F", "/")));
         TDeserializer deserializer = new TDeserializer(new TCompactProtocol.Factory());
         TBDPUserInfo userInfo = new TBDPUserInfo();
         deserializer.deserialize(userInfo, decryptedBytes);
