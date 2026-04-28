@@ -66,10 +66,6 @@ jobs:
         env:
           CODE_REVIEW_ZCLLL_COPILOT_OPENCODE_KEY: ${{ secrets.CODE_REVIEW_ZCLLL_COPILOT_OPENCODE_KEY }}
 
-      - name: Configure OpenCode permission
-        run: |
-          echo '{"permission":"allow"}' > opencode.json
-
       - name: Fetch existing PR review threads
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
