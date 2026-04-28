@@ -63,8 +63,11 @@ import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hudi.source.HudiScanNode;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
+import org.apache.doris.datasource.iceberg.IcebergMetadataPlanningExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
+import org.apache.doris.datasource.iceberg.source.IcebergMetadataPlanningScanNode;
 import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
+import org.apache.doris.datasource.iceberg.source.IcebergSysScanNode;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalTable;
 import org.apache.doris.datasource.lakesoul.source.LakeSoulScanNode;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
@@ -774,7 +777,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 default:
                     throw new RuntimeException("do not support DLA type " + ((HMSExternalTable) table).getDlaType());
             }
-        } else if (table instanceof IcebergExternalTable || table instanceof IcebergSysExternalTable) {
+        } else if (table instanceof IcebergMetadataPlanningExternalTable) {
+            scanNode = new IcebergMetadataPlanningScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
+                    context.getScanContext());
+        } else if (table instanceof IcebergSysExternalTable) {
+            scanNode = new IcebergSysScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
+                    context.getScanContext());
+        } else if (table instanceof IcebergExternalTable) {
             scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
                     context.getScanContext());
         } else if (table.getType() == TableIf.TableType.PAIMON_EXTERNAL_TABLE) {

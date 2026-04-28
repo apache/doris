@@ -70,9 +70,10 @@ public class IcebergScanNodeTest {
             mockedScanTaskUtil.when(() -> ScanTaskUtil.contentSizeInBytes(dataFile))
                     .thenReturn(10_000L * MB);
 
-            Method method = IcebergScanNode.class.getDeclaredMethod("determineTargetFileSplitSize", Iterable.class);
+            Method method = IcebergScanNode.class.getDeclaredMethod("determineTargetFileSplitSize",
+                    Iterable.class, boolean.class);
             method.setAccessible(true);
-            long target = (long) method.invoke(node, Collections.singletonList(task));
+            long target = (long) method.invoke(node, Collections.singletonList(task), false);
             Assert.assertEquals(100 * MB, target);
         }
     }
@@ -143,4 +144,5 @@ public class IcebergScanNodeTest {
                 .get(0);
         Assert.assertEquals(org.apache.doris.thrift.TFileFormatType.FORMAT_ORC, deleteFileDesc.getFileFormat());
     }
+
 }

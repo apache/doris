@@ -19,13 +19,24 @@ package org.apache.doris.common.profile;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.SafeStringBuilder;
+import org.apache.doris.nereids.trees.plans.distribute.PipelineDistributedPlan;
+import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.DefaultScanSource;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.StaticAssignedJob;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.UnassignedJob;
+import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.PlanFragmentId;
+import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.util.List;
 
@@ -127,5 +138,40 @@ public class ProfileStructureTest {
                 pipeline0.getName().contains("Pipeline 0(instance_num=4)"));
         Assert.assertTrue("Pipeline 1 should contain instance count",
                 pipeline1.getName().contains("Pipeline 1(instance_num=4)"));
+    }
+
+    @Test
+    public void testSetDistributedPlans() {
+        TUniqueId queryId = new TUniqueId(1L, 2L);
+        ExecutionProfile profile = new ExecutionProfile(queryId, Lists.newArrayList(100));
+
+        PlanFragment fragment = Mockito.mock(PlanFragment.class);
+        Mockito.when(fragment.getFragmentId()).thenReturn(new PlanFragmentId(100));
+
+        UnassignedJob unassignedJob = Mockito.mock(UnassignedJob.class);
+        Mockito.when(unassignedJob.getFragment()).thenReturn(fragment);
+
+        DistributedPlanWorker worker = Mockito.mock(DistributedPlanWorker.class);
+        Mockito.when(worker.id()).thenReturn(7L);
+        Mockito.when(worker.address()).thenReturn("127.0.0.1:9050");
+
+        StaticAssignedJob assignedJob = new StaticAssignedJob(0, new TUniqueId(3L, 4L),
+                unassignedJob, worker, DefaultScanSource.empty());
+        PipelineDistributedPlan distributedPlan = new PipelineDistributedPlan(unassignedJob,
+                Lists.newArrayList(assignedJob), LinkedHashMultimap.create());
+
+        DataSink sink = Mockito.mock(DataSink.class);
+        Mockito.when(sink.getExchNodeId()).thenReturn(new PlanNodeId(9));
+        distributedPlan.addDestinations(sink, Lists.newArrayList(assignedJob));
+
+        profile.setDistributedPlans(Lists.newArrayList(distributedPlan));
+
+        String result = profile.toString();
+        Assert.assertTrue(result.contains("DistributedPlan"));
+        Assert.assertTrue(result.contains("FragmentId: 100"));
+        Assert.assertTrue(result.contains("Destinations:"));
+        Assert.assertTrue(result.contains("Exchange 9:"));
+        Assert.assertTrue(result.contains("Instances:"));
+        Assert.assertTrue(result.contains("Worker: 7@127.0.0.1:9050"));
     }
 }

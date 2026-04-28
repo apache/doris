@@ -56,6 +56,7 @@ protected:
     Status _do_init_reader(ReaderInitContext* /*ctx*/) override { return init_reader(); }
 
 private:
+    static std::string get_java_scanner_class(const TFileRangeDesc& range);
     Status _init_status;
 };
 

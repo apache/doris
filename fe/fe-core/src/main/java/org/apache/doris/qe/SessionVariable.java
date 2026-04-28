@@ -541,6 +541,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // Target file size in bytes for Iceberg write operations
     public static final String ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES = "iceberg_write_target_file_size_bytes";
+    public static final String ICEBERG_METADATA_PLANNING_MODE = "iceberg_metadata_planning_mode";
     public static final String ENABLE_ICEBERG_MERGE_PARTITIONING = "enable_iceberg_merge_partitioning";
 
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
@@ -2416,6 +2417,13 @@ public class SessionVariable implements Serializable, Writable {
     // Default 0 means use config::iceberg_sink_max_file_size
     @VarAttrDef.VarAttr(name = ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES, needForward = true)
     public long icebergWriteTargetFileSizeBytes = 0L;
+
+    @VarAttrDef.VarAttr(name = ICEBERG_METADATA_PLANNING_MODE, needForward = true,
+            options = {"local", "distributed", "auto"},
+            description = {"控制 Iceberg metadata planning 的 FE 侧执行模式。",
+                    "Controls FE-side execution mode for Iceberg metadata planning."},
+            affectQueryResultInPlan = true)
+    public String icebergMetadataPlanningMode = "local";
 
     @VarAttrDef.VarAttr(
             name = NUM_PARTITIONS_IN_BATCH_MODE,
@@ -6413,6 +6421,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnableExternalTableBatchMode() {
         return enableExternalTableBatchMode;
+    }
+
+    public String getIcebergMetadataPlanningMode() {
+        return icebergMetadataPlanningMode;
     }
 
     public boolean showSplitProfileInfo() {

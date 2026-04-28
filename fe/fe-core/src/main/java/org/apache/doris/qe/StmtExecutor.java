@@ -2003,7 +2003,34 @@ public class StmtExecutor {
         return nereidsPlanner.getCascadesContext().getRewritePlan().getOutput();
     }
 
+    public interface ResultRowBatchIterator extends AutoCloseable {
+        List<ResultRow> getNextBatch();
+
+        @Override
+        void close();
+    }
+
     public List<ResultRow> executeInternalQuery() {
+        List<ResultRow> resultRows = new ArrayList<>();
+        try (ResultRowBatchIterator iterator = executeInternalQueryLazy()) {
+            while (true) {
+                List<ResultRow> batchRows = iterator.getNextBatch();
+                if (batchRows == null) {
+                    return resultRows;
+                }
+                resultRows.addAll(batchRows);
+            }
+        }
+    }
+
+    /**
+     * Executes an internal query and returns a lazy batch iterator.
+     *
+     * <p>The caller controls when to fetch the next batch and can stop early by closing the
+     * iterator. This keeps backpressure outside of {@link StmtExecutor} and avoids forcing
+     * all internal query consumers into a push-based API.
+     */
+    public ResultRowBatchIterator executeInternalQueryLazy() {
         if (LOG.isDebugEnabled()) {
             LOG.debug("INTERNAL QUERY: {}", originStmt.toString());
         }
@@ -2014,78 +2041,114 @@ public class StmtExecutor {
             context.setSqlHash(DigestUtils.md5Hex(originStmt.originStmt));
         }
         try {
-            List<ResultRow> resultRows = new ArrayList<>();
-            try {
-                parseByNereids();
-                Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
-                        "Nereids only process LogicalPlanAdapter,"
-                                + " but parsedStmt is " + parsedStmt.getClass().getName());
-                context.getState().setNereids(true);
-                context.getState().setIsQuery(true);
-                context.getState().setInternal(true);
-                planner = new NereidsPlanner(statementContext);
-                planner.plan(parsedStmt, context.getSessionVariable().toThrift());
-            } catch (Exception e) {
-                LOG.warn("Failed to run internal SQL: {}", originStmt, e);
-                throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
-            }
-            RowBatch batch;
-            if (Config.enable_collect_internal_query_profile) {
-                context.getSessionVariable().enableProfile = true;
-            }
-            coord = EnvFactory.getInstance().createCoordinator(context,
-                    planner, context.getStatsErrorEstimator());
-            profile.addExecutionProfile(coord.getExecutionProfile());
-            try {
-                QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
-                        new QueryInfo(context, originStmt.originStmt, coord));
-            } catch (UserException e) {
-                throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
-            }
-            updateProfile(false);
-            try {
-                coord.exec();
-            } catch (Exception e) {
-                throw new InternalQueryExecutionException(e.getMessage() + Util.getRootCauseMessage(e), e);
-            }
+            prepareInternalQueryExecution();
+            return new InternalQueryResultBatchIteratorImpl(queryId);
+        } catch (RuntimeException e) {
+            cleanupInternalQueryExecution();
+            throw e;
+        } catch (Exception e) {
+            cleanupInternalQueryExecution();
+            throw new RuntimeException(e.getMessage(), e);
+        }
+    }
 
+    private void prepareInternalQueryExecution() {
+        try {
+            parseByNereids();
+            Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
+                    "Nereids only process LogicalPlanAdapter,"
+                            + " but parsedStmt is " + parsedStmt.getClass().getName());
+            context.getState().setNereids(true);
+            context.getState().setIsQuery(true);
+            context.getState().setInternal(true);
+            planner = new NereidsPlanner(statementContext);
+            planner.plan(parsedStmt, context.getSessionVariable().toThrift());
+        } catch (Exception e) {
+            LOG.warn("Failed to run internal SQL: {}", originStmt, e);
+            throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
+        }
+        if (Config.enable_collect_internal_query_profile) {
+            context.getSessionVariable().enableProfile = true;
+        }
+        coord = EnvFactory.getInstance().createCoordinator(context,
+                planner, context.getStatsErrorEstimator());
+        profile.addExecutionProfile(coord.getExecutionProfile());
+        try {
+            QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
+                    new QueryInfo(context, originStmt.originStmt, coord));
+        } catch (UserException e) {
+            throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
+        }
+        updateProfile(false);
+        try {
+            coord.exec();
+        } catch (Exception e) {
+            throw new InternalQueryExecutionException(e.getMessage() + Util.getRootCauseMessage(e), e);
+        }
+    }
+
+    private void cleanupInternalQueryExecution() {
+        if (coord != null) {
+            coord.close();
+            coord = null;
+        }
+        AuditLogHelper.logAuditLog(context, originStmt.originStmt, parsedStmt, getQueryStatisticsForAuditLog(),
+                true);
+        QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
+        updateProfile(true);
+    }
+
+    private class InternalQueryResultBatchIteratorImpl implements ResultRowBatchIterator {
+        private final TUniqueId queryId;
+        private boolean closed = false;
+        private long totalRows = 0;
+
+        private InternalQueryResultBatchIteratorImpl(TUniqueId queryId) {
+            this.queryId = queryId;
+        }
+
+        public List<ResultRow> getNextBatch() {
+            Preconditions.checkState(!closed, "Internal query result iterator is closed");
             try {
                 while (true) {
-                    batch = coord.getNext();
+                    RowBatch batch = coord.getNext();
                     Preconditions.checkNotNull(batch, "Batch is Null.");
                     if (batch.isEos()) {
-                        LOG.info("Result rows for query {} is {}", DebugUtil.printId(queryId), resultRows.size());
-                        return resultRows;
-                    } else {
-                        // For null and not EOS batch, continue to get the next batch.
-                        if (batch.getBatch() == null) {
-                            continue;
-                        }
-                        if (batch.getBatch().getRows() != null) {
-                            context.updateReturnRows(batch.getBatch().getRows().size());
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug("Batch size for query {} is {}",
-                                        DebugUtil.printId(queryId), batch.getBatch().rows.size());
-                            }
-                        }
-                        resultRows.addAll(convertResultBatchToResultRows(batch.getBatch()));
+                        LOG.info("Result rows for query {} is {}", DebugUtil.printId(queryId), totalRows);
+                        close();
+                        return null;
+                    }
+                    if (batch.getBatch() == null) {
+                        continue;
+                    }
+                    if (batch.getBatch().getRows() != null) {
+                        context.updateReturnRows(batch.getBatch().getRows().size());
                         if (LOG.isDebugEnabled()) {
-                            LOG.debug("Result size for query {} is currently {}",
-                                    DebugUtil.printId(queryId), resultRows.size());
+                            LOG.debug("Batch size for query {} is {}",
+                                    DebugUtil.printId(queryId), batch.getBatch().rows.size());
                         }
                     }
+                    List<ResultRow> batchRows = convertResultBatchToResultRows(batch.getBatch());
+                    totalRows += batchRows.size();
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Result size for query {} is currently {}",
+                                DebugUtil.printId(queryId), totalRows);
+                    }
+                    return batchRows;
                 }
             } catch (Exception e) {
+                close();
                 throw new RuntimeException("Failed to fetch internal SQL result. " + Util.getRootCauseMessage(e), e);
             }
-        } finally {
-            if (coord != null) {
-                coord.close();
+        }
+
+        @Override
+        public void close() {
+            if (closed) {
+                return;
             }
-            AuditLogHelper.logAuditLog(context, originStmt.originStmt, parsedStmt, getQueryStatisticsForAuditLog(),
-                    true);
-            QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
-            updateProfile(true);
+            closed = true;
+            cleanupInternalQueryExecution();
         }
     }
 

@@ -40,6 +40,7 @@ import java.util.stream.Collectors;
  * @see org.apache.iceberg.MetadataTableType for all supported system table types
  */
 public class IcebergSysTable extends NativeSysTable {
+    public static final String METADATA_PLANNING = "metadata_planning";
     public static final String POSITION_DELETES = MetadataTableType.POSITION_DELETES.name().toLowerCase(Locale.ROOT);
 
     /**
@@ -53,6 +54,8 @@ public class IcebergSysTable extends NativeSysTable {
                     .collect(Collectors.toMap(SysTable::getSysTableName, Function.identity())));
     public static final SysTable UNSUPPORTED_POSITION_DELETES_TABLE =
             new IcebergSysTable(POSITION_DELETES, false);
+    public static final SysTable INTERNAL_METADATA_PLANNING_TABLE =
+            new IcebergMetadataPlanningSysTable(METADATA_PLANNING);
 
     private final String tableName;
     private final boolean supported;
