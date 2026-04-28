@@ -42,8 +42,7 @@ suite("test_nested_type_with_resize") {
             "storage_format" = "V2",
             "enable_unique_key_merge_on_write" = "true",
             "light_schema_change" = "true",
-            "disable_auto_compaction" = "false",
-            "enable_single_replica_compaction" = "false"
+            "disable_auto_compaction" = "false"
             ); """
 
     streamLoad {

@@ -41,7 +41,6 @@ const std::string PARAM_COMPACTION_BASE = "base";
 const std::string PARAM_COMPACTION_CUMULATIVE = "cumulative";
 const std::string PARAM_COMPACTION_FULL = "full";
 const std::string PARAM_COMPACTION_BINLOG = "binlog";
-const std::string PARAM_COMPACTION_REMOTE = "remote";
 const std::string PARAM_COMPACTION_FORCE = "force";
 
 /// This action is used for viewing the compaction status.
@@ -64,7 +63,6 @@ private:
 
     /// thread callback function for the tablet to do base/cumulative/binlog compaction
     Status _execute_compaction_callback(TabletSharedPtr tablet, const std::string& compaction_type,
-                                        bool fetch_from_remote,
                                         int8_t prefer_compaction_level = -1);
 
     /// fetch compaction running status

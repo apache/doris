@@ -605,11 +605,6 @@ void TabletMeta::init_schema_from_thrift(const TTabletSchema& tablet_schema,
                 tablet_schema.variant_enable_flatten_nested);
     }
 
-    if (tablet_schema.__isset.enable_single_replica_compaction) {
-        tablet_schema_pb->set_enable_single_replica_compaction(
-                tablet_schema.enable_single_replica_compaction);
-    }
-
     if (tablet_schema.__isset.delete_sign_idx) {
         tablet_schema_pb->set_delete_sign_idx(tablet_schema.delete_sign_idx);
     }
