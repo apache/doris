@@ -33,8 +33,8 @@ import org.junit.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import java.net.UnknownHostException;
 import java.lang.reflect.Constructor;
+import java.net.UnknownHostException;
 import java.util.Map;
 
 /**
