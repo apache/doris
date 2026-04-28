@@ -796,7 +796,7 @@ private:
     bool _enable_filter_by_min_max = true;
 
     std::vector<DecimalScaleParams> _decimal_scale_params;
-    size_t _decimal_scale_params_index;
+    size_t _decimal_scale_params_index = 0;
 
 protected:
     bool _is_acid = false;
@@ -973,8 +973,8 @@ private:
     io::FileReaderSPtr _tracing_file_reader;
 
     bool _is_all_tiny_stripes = false;
-    int64_t _orc_once_max_read_bytes;
-    int64_t _orc_max_merge_distance_bytes;
+    int64_t _orc_once_max_read_bytes = 0;
+    int64_t _orc_max_merge_distance_bytes = 0;
 
     std::vector<std::shared_ptr<StripeStreamInputStream>> _stripe_streams;
 

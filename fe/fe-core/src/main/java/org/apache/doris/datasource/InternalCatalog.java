@@ -3183,6 +3183,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             Pair<Boolean, Boolean> result;
+            boolean holdTableLock = false;
             db.writeLockOrDdlException();
             try {
                 // db name not changed
@@ -3191,51 +3192,76 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 // register table, write create table edit log
                 result = db.createTableWithoutLock(olapTable, false, createTableInfo.isIfNotExists());
+                if (!result.second) {
+                    olapTable.writeLock();
+                    holdTableLock = true;
+                }
             } finally {
                 db.writeUnlock();
             }
-            if (!result.first) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableShowName);
-            }
-
-            if (result.second) { // table already exists
-                if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
-                    // if this is a colocate table, its table id is already added to colocate group
-                    // so we should remove the tableId here
-                    Env.getCurrentColocateIndex().removeTable(tableId);
+            try {
+                if (!result.first) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableShowName);
                 }
-                for (Long tabletId : tabletIdSet) {
-                    Env.getCurrentInvertedIndex().deleteTablet(tabletId);
-                }
-                LOG.info("duplicate create table[{};{}] in db[{};{}], skip next steps",
-                        tableName, tableId, db.getName(), db.getId());
-            } else {
-                // if table not exists, then db.createTableWithLock will write an editlog.
-                hadLogEditCreateTable = true;
 
-                // we have added these index to memory, only need to persist here
-                if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
-                    GroupId groupId = Env.getCurrentColocateIndex().getGroup(tableId);
-                    Map<Tag, List<List<Long>>> backendsPerBucketSeq = Env.getCurrentColocateIndex()
-                            .getBackendsPerBucketSeq(groupId);
-                    ColocatePersistInfo info = ColocatePersistInfo.createForAddTable(groupId, tableId,
-                            backendsPerBucketSeq);
-                    Env.getCurrentEnv().getEditLog().logColocateAddTable(info);
-                }
-                LOG.info("successfully create table[{};{}] in db[{};{}]",
-                        tableName, tableId, db.getName(), db.getId());
-                Env.getCurrentEnv().getDynamicPartitionScheduler()
-                    .executeDynamicPartitionFirstTime(db.getId(), olapTable.getId());
-                // register or remove table from DynamicPartition after table created
-                DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable, false);
-                Env.getCurrentEnv().getDynamicPartitionScheduler()
-                        .createOrUpdateRuntimeInfo(tableId, DynamicPartitionScheduler.LAST_UPDATE_TIME,
-                        TimeUtils.getCurrentFormatTime());
-            }
+                if (result.second) { // table already exists
+                    if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
+                        // if this is a colocate table, its table id is already added to colocate group
+                        // so we should remove the tableId here
+                        Env.getCurrentColocateIndex().removeTable(tableId);
+                    }
+                    for (Long tabletId : tabletIdSet) {
+                        Env.getCurrentInvertedIndex().deleteTablet(tabletId);
+                    }
+                    LOG.info("duplicate create table[{};{}] in db[{};{}], skip next steps",
+                            tableName, tableId, db.getName(), db.getId());
+                } else {
+                    // if table not exists, then db.createTableWithLock will write an editlog.
+                    hadLogEditCreateTable = true;
 
-            if (DebugPointUtil.isEnable("FE.createOlapTable.exception")) {
-                LOG.info("debug point FE.createOlapTable.exception, throw e");
-                throw new DdlException("debug point FE.createOlapTable.exception");
+                    // we have added these index to memory, only need to persist here
+                    if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
+                        GroupId groupId = Env.getCurrentColocateIndex().getGroup(tableId);
+                        Map<Tag, List<List<Long>>> backendsPerBucketSeq = Env.getCurrentColocateIndex()
+                                .getBackendsPerBucketSeq(groupId);
+                        ColocatePersistInfo info = ColocatePersistInfo.createForAddTable(groupId, tableId,
+                                backendsPerBucketSeq);
+                        Env.getCurrentEnv().getEditLog().logColocateAddTable(info);
+                    }
+                    LOG.info("successfully create table[{};{}] in db[{};{}]",
+                            tableName, tableId, db.getName(), db.getId());
+
+                    if (DebugPointUtil.isEnable("FE.createOlapTable.beforeFirstTimeDynamicPartition")) {
+                        long sleepMs = DebugPointUtil.getDebugParamOrDefault(
+                                "FE.createOlapTable.beforeFirstTimeDynamicPartition", "sleepMs", 0L);
+                        if (sleepMs > 0) {
+                            LOG.info("debug point FE.createOlapTable.beforeFirstTimeDynamicPartition, sleep {}ms",
+                                    sleepMs);
+                            try {
+                                Thread.sleep(sleepMs);
+                            } catch (InterruptedException ignore) {
+                                Thread.currentThread().interrupt();
+                            }
+                        }
+                    }
+
+                    Env.getCurrentEnv().getDynamicPartitionScheduler()
+                            .executeDynamicPartitionFirstTime(db.getId(), olapTable.getId());
+                    // register or remove table from DynamicPartition after table created
+                    DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable, false);
+                    Env.getCurrentEnv().getDynamicPartitionScheduler()
+                            .createOrUpdateRuntimeInfo(tableId, DynamicPartitionScheduler.LAST_UPDATE_TIME,
+                                    TimeUtils.getCurrentFormatTime());
+                }
+
+                if (DebugPointUtil.isEnable("FE.createOlapTable.exception")) {
+                    LOG.info("debug point FE.createOlapTable.exception, throw e");
+                    throw new DdlException("debug point FE.createOlapTable.exception");
+                }
+            } finally {
+                if (holdTableLock) {
+                    olapTable.writeUnlock();
+                }
             }
         } catch (DdlException e) {
             LOG.warn("create table failed {} - {}", tabletIdSet, e.getMessage());

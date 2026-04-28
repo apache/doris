@@ -41,6 +41,23 @@ public class DataSourceConfigKeys {
     public static final String SSL_MODE = "ssl_mode";
     public static final String SSL_ROOTCERT = "ssl_rootcert";
 
+    // PostgreSQL replication slot and publication config
+    public static final String SLOT_NAME = "slot_name";
+    public static final String PUBLICATION_NAME = "publication_name";
+    public static final String DEFAULT_SLOT_PREFIX = "doris_cdc_";
+    public static final String DEFAULT_PUBLICATION_PREFIX = "doris_pub_";
+    // Pre-PR default (Debezium auto-created). Legacy jobs reconnecting on a newer version fall
+    // back to this name when no publication_name was persisted.
+    public static final String LEGACY_PUBLICATION_NAME = "dbz_publication";
+
+    public static String defaultSlotName(String jobId) {
+        return DEFAULT_SLOT_PREFIX + jobId;
+    }
+
+    public static String defaultPublicationName(String jobId) {
+        return DEFAULT_PUBLICATION_PREFIX + jobId;
+    }
+
     // per-table config: key format is "table.<tableName>.<suffix>"
     public static final String TABLE = "table";
     public static final String TABLE_EXCLUDE_COLUMNS_SUFFIX = "exclude_columns";

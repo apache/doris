@@ -341,7 +341,8 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
         const auto arrow_scale = arrow_decimal_type->scale();
         // TODO check precision
         for (auto value_i = start; value_i < end; ++value_i) {
-            auto value = *reinterpret_cast<const Decimal128V2*>(concrete_array->Value(value_i));
+            Decimal128V2 value {};
+            memcpy(&value, concrete_array->Value(value_i), sizeof(Decimal128V2));
             // convert scale to 9;
             if (9 > arrow_scale) {
                 using MaxNativeType = typename Decimal128V2::NativeType;
@@ -372,8 +373,9 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
     } else if constexpr (T == TYPE_DECIMAL256) {
         const auto* concrete_array = dynamic_cast<const arrow::Decimal256Array*>(arrow_array);
         for (auto value_i = start; value_i < end; ++value_i) {
-            column_data.emplace_back(
-                    *reinterpret_cast<const FieldType*>(concrete_array->Value(value_i)));
+            FieldType decimal_value {};
+            memcpy(&decimal_value, concrete_array->Value(value_i), sizeof(FieldType));
+            column_data.emplace_back(decimal_value);
         }
     } else {
         return Status::Error(ErrorCode::NOT_IMPLEMENTED_ERROR,

@@ -348,4 +348,32 @@ TEST_F(HandleErrorBrpcCallbackTest, weak_auto_release_closure_runs_with_external
     ASSERT_TRUE(ctx->is_cancelled());
 }
 
+// ==================== CountedFinishDependency::sub() underflow guard ====================
+
+TEST(CountedFinishDependencyTest, sub_with_zero_counter_throws) {
+    auto dep = std::make_shared<CountedFinishDependency>(0, 0, "TEST_DEP");
+    // Counter is 0 from construction; sub() must not silently underflow.
+    EXPECT_THROW(dep->sub(), Exception);
+}
+
+TEST(CountedFinishDependencyTest, sub_after_balanced_add_sub_throws) {
+    auto dep = std::make_shared<CountedFinishDependency>(0, 0, "TEST_DEP");
+    dep->add();
+    dep->sub(); // counter back to 0, dependency now ready
+    // A stray extra sub() must throw rather than wrap to UINT32_MAX (which would
+    // hang the query forever).
+    EXPECT_THROW(dep->sub(), Exception);
+}
+
+TEST(CountedFinishDependencyTest, balanced_add_sub_sets_ready) {
+    auto dep = std::make_shared<CountedFinishDependency>(0, 0, "TEST_DEP");
+    dep->add(3);
+    EXPECT_FALSE(dep->ready());
+    dep->sub();
+    dep->sub();
+    EXPECT_FALSE(dep->ready());
+    dep->sub();
+    EXPECT_TRUE(dep->ready());
+}
+
 } // namespace doris
