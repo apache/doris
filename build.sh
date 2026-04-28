@@ -816,7 +816,7 @@ function build_fe_modules() {
     local -a user_settings_opts=()
     local -a mvn_cmd=(
         "${MVN_CMD}"
-        install
+        package
         -pl
         "${FE_MODULES}"
         -am
