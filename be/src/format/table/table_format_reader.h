@@ -67,10 +67,11 @@ public:
             if (it == _fill_partition_values.end()) {
                 continue;
             }
-            auto col_ptr = block->get_by_position((*_fill_col_name_to_block_idx)[col_name])
-                                   .column->assume_mutable();
+            const auto block_pos = (*_fill_col_name_to_block_idx)[col_name];
+            auto& column_with_type = block->get_by_position(block_pos);
+            auto col_ptr = column_with_type.column->assume_mutable();
             const auto& [value, slot_desc] = it->second;
-            auto text_serde = slot_desc->get_data_type_ptr()->get_serde();
+            auto text_serde = column_with_type.type->get_serde();
             Slice slice(value.data(), value.size());
             uint64_t num_deserialized = 0;
             if (text_serde->deserialize_column_from_fixed_json(

@@ -739,6 +739,7 @@ private:
 
 protected:
     size_t get_batch_size() const { return _batch_size; }
+    const std::string& ctz() const { return _ctz; }
 
 private:
     int64_t _range_size;

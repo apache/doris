@@ -363,14 +363,45 @@ touch "${UT_TMP_DIR}/tmp_file"
 
 # prepare java jars
 LIB_DIR="${DORIS_TEST_BINARY_DIR}/lib/"
+JAVA_EXT_DIR="${LIB_DIR}/java_extensions"
 rm -rf "${LIB_DIR}"
 mkdir "${LIB_DIR}"
+mkdir "${JAVA_EXT_DIR}"
 if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
     cp -r "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${LIB_DIR}"
 fi
-if [[ -f "${DORIS_HOME}/output/be/lib/java-udf-jar-with-dependencies.jar" ]]; then
+if [[ -d "${DORIS_HOME}/output/be/lib/java_extensions/" ]]; then
+    cp -r "${DORIS_HOME}/output/be/lib/java_extensions/." "${JAVA_EXT_DIR}/"
+fi
+if [[ -f "${DORIS_HOME}/output/be/lib/java_extensions/java-udf/java-udf-jar-with-dependencies.jar" ]]; then
+    cp "${DORIS_HOME}/output/be/lib/java_extensions/java-udf/java-udf-jar-with-dependencies.jar" \
+        "${LIB_DIR}/"
+elif [[ -f "${DORIS_HOME}/output/be/lib/java-udf-jar-with-dependencies.jar" ]]; then
     cp "${DORIS_HOME}/output/be/lib/java-udf-jar-with-dependencies.jar" "${LIB_DIR}/"
 fi
+
+# add preload java libs first to match BE startup classpath ordering
+DORIS_PRELOAD_JAR=
+preload_jars=("preload-extensions")
+preload_jars+=("java-udf")
+for preload_jar_dir in "${preload_jars[@]}"; do
+    if [[ ! -d "${JAVA_EXT_DIR}/${preload_jar_dir}" ]]; then
+        continue
+    fi
+    for f in "${JAVA_EXT_DIR}/${preload_jar_dir}"/*.jar; do
+        if [[ ! -f "${f}" ]]; then
+            continue
+        fi
+        if [[ "${f}" == *"preload-extensions-project.jar" ]]; then
+            DORIS_PRELOAD_JAR="${f}"
+            continue
+        elif [[ -z "${DORIS_CLASSPATH}" ]]; then
+            export DORIS_CLASSPATH="${f}"
+        else
+            export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+        fi
+    done
+done
 
 # add java libs
 for f in "${LIB_DIR}"/*.jar; do
@@ -397,9 +428,21 @@ if [[ -d "${LIB_DIR}/hadoop_hdfs/" ]]; then
     done
 fi
 
+if [[ -n "${DORIS_PRELOAD_JAR}" ]]; then
+    if [[ -z "${DORIS_CLASSPATH}" ]]; then
+        DORIS_CLASSPATH="${DORIS_PRELOAD_JAR}"
+    else
+        DORIS_CLASSPATH="${DORIS_PRELOAD_JAR}:${DORIS_CLASSPATH}"
+    fi
+fi
+
 # the CLASSPATH and LIBHDFS_OPTS is used for hadoop libhdfs
 # and conf/ dir so that hadoop libhdfs can read .xml config file in conf/
-export CLASSPATH="${DORIS_CLASSPATH}"
+if [[ -z "${DORIS_CLASSPATH}" ]]; then
+    export CLASSPATH="${DORIS_TEST_BINARY_DIR}/conf"
+else
+    export CLASSPATH="${DORIS_TEST_BINARY_DIR}/conf:${DORIS_CLASSPATH}"
+fi
 # DORIS_CLASSPATH is for self-managed jni
 export DORIS_CLASSPATH="-Djava.class.path=${DORIS_CLASSPATH}"
 
@@ -463,15 +506,20 @@ if [[ "${MACHINE_OS}" == "Darwin" ]]; then
 fi
 
 # set LIBHDFS_OPTS for hadoop libhdfs
-export LIBHDFS_OPTS="${final_java_opt}"
+export LIBHDFS_OPTS="${final_java_opt} ${DORIS_CLASSPATH}"
 
 # set ORC_EXAMPLE_DIR for orc unit tests
 export ORC_EXAMPLE_DIR="${DORIS_HOME}/contrib/apache-orc/examples"
 
 # set asan and ubsan env to generate core file
 export DORIS_HOME="${DORIS_TEST_BINARY_DIR}/"
+if [[ -n "${LSAN_OPTIONS}" ]]; then
+    export LSAN_OPTIONS="suppressions=${ROOT}/conf/lsan_suppr.conf:${LSAN_OPTIONS}"
+else
+    export LSAN_OPTIONS="suppressions=${ROOT}/conf/lsan_suppr.conf"
+fi
 ## detect_container_overflow=0, https://github.com/google/sanitizers/issues/193
-export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0:check_malloc_usable_size=0
+export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0:check_malloc_usable_size=0:suppressions=${ROOT}/conf/asan_suppr.conf
 export UBSAN_OPTIONS=print_stacktrace=1
 export JAVA_OPTS="-Xmx1024m -DlogPath=${DORIS_HOME}/log/jni.log -Xloggc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} -Dsun.java.command=DorisBE -XX:-CriticalJNINatives -DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDLE_TIME=300000"
 

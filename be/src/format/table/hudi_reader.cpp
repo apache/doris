@@ -39,7 +39,7 @@ Status HudiParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
     // Build table_info_node using field_id matching (shared with Paimon/Iceberg)
     RETURN_IF_ERROR(gen_table_info_node_by_field_id(
             get_scan_params(), get_scan_range().table_format_params.hudi_params.schema_id,
-            get_tuple_descriptor(), *field_desc));
+            ctx->tuple_descriptor, *field_desc));
     ctx->table_info_node = table_info_node_ptr;
 
     // Extract column names from descriptors
@@ -67,7 +67,7 @@ Status HudiOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
     // Build table_info_node using field_id matching
     RETURN_IF_ERROR(gen_table_info_node_by_field_id(
             get_scan_params(), get_scan_range().table_format_params.hudi_params.schema_id,
-            get_tuple_descriptor(), orc_type_ptr));
+            ctx->tuple_descriptor, orc_type_ptr));
     ctx->table_info_node = table_info_node_ptr;
 
     // Extract column names from descriptors

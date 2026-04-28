@@ -24,18 +24,21 @@
 #include <gen_cpp/Types_types.h>
 #include <gtest/gtest.h>
 
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "common/consts.h"
 #include "common/object_pool.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/column/column_struct.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
@@ -46,6 +49,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
+#include "format/table/reader_test_util.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
@@ -53,6 +57,8 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "storage/olap_scan_common.h"
+#include "storage/segment/column_reader.h"
+#include "storage/utils.h"
 #include "util/timezone_utils.h"
 
 namespace doris::table {
@@ -77,68 +83,10 @@ protected:
                                      DataTypePtr& hobby_element_struct_type,
                                      DataTypePtr& hobbies_array_type,
                                      DataTypePtr& profile_struct_type, DataTypePtr& name_type) {
-        // Create name column type (direct field)
-        name_type = make_nullable(std::make_shared<DataTypeString>());
-
-        // First create coordinates struct type
-        std::vector<DataTypePtr> coordinates_types = {
-                make_nullable(std::make_shared<DataTypeFloat64>()), // lat (field ID 10)
-                make_nullable(std::make_shared<DataTypeFloat64>())  // lng (field ID 11)
-        };
-        std::vector<std::string> coordinates_names = {"lat", "lng"};
-        coordinates_struct_type = make_nullable(
-                std::make_shared<DataTypeStruct>(coordinates_types, coordinates_names));
-
-        // Create address struct type (with street, city, coordinates)
-        std::vector<DataTypePtr> address_types = {
-                make_nullable(std::make_shared<DataTypeString>()), // street (field ID 7)
-                make_nullable(std::make_shared<DataTypeString>()), // city (field ID 8)
-                coordinates_struct_type                            // coordinates (field ID 9)
-        };
-        std::vector<std::string> address_names = {"street", "city", "coordinates"};
-        address_struct_type =
-                make_nullable(std::make_shared<DataTypeStruct>(address_types, address_names));
-
-        // Create phone struct type
-        std::vector<DataTypePtr> phone_types = {
-                make_nullable(std::make_shared<DataTypeString>()), // country_code (field ID 14)
-                make_nullable(std::make_shared<DataTypeString>())  // number (field ID 15)
-        };
-        std::vector<std::string> phone_names = {"country_code", "number"};
-        phone_struct_type =
-                make_nullable(std::make_shared<DataTypeStruct>(phone_types, phone_names));
-
-        // Create contact struct type (with email, phone)
-        std::vector<DataTypePtr> contact_types = {
-                make_nullable(std::make_shared<DataTypeString>()), // email (field ID 12)
-                phone_struct_type                                  // phone (field ID 13)
-        };
-        std::vector<std::string> contact_names = {"email", "phone"};
-        contact_struct_type =
-                make_nullable(std::make_shared<DataTypeStruct>(contact_types, contact_names));
-
-        // Create hobby element struct type for array elements
-        std::vector<DataTypePtr> hobby_element_types = {
-                make_nullable(std::make_shared<DataTypeString>()), // name (field ID 17)
-                make_nullable(std::make_shared<DataTypeInt32>())   // level (field ID 18)
-        };
-        std::vector<std::string> hobby_element_names = {"name", "level"};
-        hobby_element_struct_type = make_nullable(
-                std::make_shared<DataTypeStruct>(hobby_element_types, hobby_element_names));
-
-        // Create hobbies array type
-        hobbies_array_type =
-                make_nullable(std::make_shared<DataTypeArray>(hobby_element_struct_type));
-
-        // Create complete profile struct type (with address, contact, hobbies)
-        std::vector<DataTypePtr> profile_types = {
-                address_struct_type, // address (field ID 4)
-                contact_struct_type, // contact (field ID 5)
-                hobbies_array_type   // hobbies (field ID 6)
-        };
-        std::vector<std::string> profile_names = {"address", "contact", "hobbies"};
-        profile_struct_type =
-                make_nullable(std::make_shared<DataTypeStruct>(profile_types, profile_names));
+        doris::reader_test::create_complex_user_profile_types(
+                coordinates_struct_type, address_struct_type, phone_struct_type,
+                contact_struct_type, hobby_element_struct_type, hobbies_array_type,
+                profile_struct_type, name_type);
     }
 
     // Helper function to create tuple descriptor
@@ -381,344 +329,720 @@ protected:
 
     // Helper function to recursively print column row counts and check size > 0
     void verify_test_results(Block& block, size_t read_rows) {
-        // Verify that we read some data
-        EXPECT_GT(read_rows, 0) << "Should read at least one row";
-        EXPECT_EQ(block.rows(), read_rows);
+        doris::reader_test::verify_nested_reader_block(block, read_rows);
+    }
 
-        // Verify column count matches expected (2 columns: name, profile)
-        EXPECT_EQ(block.columns(), 2);
+    Block make_string_block(const std::vector<std::pair<std::string, DataTypePtr>>& columns) {
+        Block block;
+        for (const auto& [name, type] : columns) {
+            block.insert(ColumnWithTypeAndName(type->create_column(), type, name));
+        }
+        return block;
+    }
 
-        // Verify column names and types
-        auto columns_with_names = block.get_columns_with_type_and_name();
-        std::vector<std::string> expected_column_names = {"name", "profile"};
-        for (size_t i = 0; i < expected_column_names.size(); i++) {
-            EXPECT_EQ(columns_with_names[i].name, expected_column_names[i]);
+    void verify_nullable_string_column_values(const Block& block, const std::string& column_name,
+                                              const std::vector<std::string>& expected_values) {
+        const auto& column = block.get_by_position(block.get_position_by_name(column_name));
+        auto* nullable = check_and_get_column<ColumnNullable>(column.column.get());
+        ASSERT_NE(nullable, nullptr);
+        const auto& nested = static_cast<const ColumnString&>(nullable->get_nested_column());
+        ASSERT_EQ(nullable->size(), expected_values.size());
+        for (size_t i = 0; i < expected_values.size(); ++i) {
+            ASSERT_FALSE(nullable->is_null_at(i));
+            EXPECT_EQ(nested.get_data_at(i).to_string(), expected_values[i]);
+        }
+    }
+
+    void verify_nullable_string_column_has_rows(const Block& block, const std::string& column_name,
+                                                size_t expected_rows) {
+        const auto& column = block.get_by_position(block.get_position_by_name(column_name));
+        auto* nullable = check_and_get_column<ColumnNullable>(column.column.get());
+        ASSERT_NE(nullable, nullptr);
+        const auto& nested = static_cast<const ColumnString&>(nullable->get_nested_column());
+        ASSERT_EQ(nullable->size(), expected_rows);
+        ASSERT_EQ(nested.size(), expected_rows);
+        if (expected_rows > 0) {
+            EXPECT_FALSE(nullable->is_null_at(0));
+        }
+    }
+
+    void verify_nullable_string_column_all_null(const Block& block, const std::string& column_name,
+                                                size_t expected_rows) {
+        const auto& column = block.get_by_position(block.get_position_by_name(column_name));
+        auto* nullable = check_and_get_column<ColumnNullable>(column.column.get());
+        ASSERT_NE(nullable, nullptr);
+        ASSERT_EQ(nullable->size(), expected_rows);
+        for (size_t i = 0; i < expected_rows; ++i) {
+            EXPECT_TRUE(nullable->is_null_at(i));
+        }
+    }
+
+    void verify_global_rowid_column(const Block& block, const std::string& column_name,
+                                    uint8_t expected_version, int64_t expected_backend_id,
+                                    uint32_t expected_file_id) {
+        const auto& column = block.get_by_position(block.get_position_by_name(column_name));
+        const auto& string_column = static_cast<const ColumnString&>(*column.column);
+        for (size_t i = 0; i < string_column.size(); ++i) {
+            ASSERT_EQ(string_column.get_data_at(i).size, sizeof(GlobalRowLoacationV2));
+            auto location = *reinterpret_cast<const GlobalRowLoacationV2*>(
+                    string_column.get_data_at(i).data);
+            EXPECT_EQ(location.version, expected_version);
+            EXPECT_EQ(location.backend_id, expected_backend_id);
+            EXPECT_EQ(location.file_id, expected_file_id);
+            EXPECT_EQ(location.row_id, static_cast<uint32_t>(i));
+        }
+    }
+
+    void read_hive_parquet_block(
+            const std::string& actual_file, TFileRangeDesc scan_range,
+            const TupleDescriptor* tuple_descriptor,
+            const std::unordered_map<std::string, uint32_t>& col_name_to_block_idx,
+            std::vector<ColumnDescriptor> column_descs,
+            const std::vector<std::pair<std::string, DataTypePtr>>& block_columns,
+            size_t* read_rows, Block* block,
+            const std::function<void(TFileScanRangeParams*, RuntimeState*)>& customize_context =
+                    nullptr,
+            const std::function<void(HiveParquetReader*)>& customize_reader = nullptr) {
+        auto local_fs = io::global_local_filesystem();
+        int64_t file_size = 0;
+        auto st = local_fs->file_size(actual_file, &file_size);
+        if (!st.ok()) {
+            GTEST_SKIP() << "Test file not found: " << actual_file;
+            return;
         }
 
-        // Verify column types
-        EXPECT_TRUE(columns_with_names[0].type->get_name().find("String") !=
-                    std::string::npos); // name is STRING
-        EXPECT_TRUE(columns_with_names[1].type->get_name().find("Struct") !=
-                    std::string::npos); // profile is STRUCT
-
-        // Print row count for each column and nested subcolumns
-        std::cout << "Block rows: " << block.rows() << std::endl;
-
-        // Helper function to recursively print column row counts
-        std::function<void(const ColumnPtr&, const DataTypePtr&, const std::string&, int)>
-                print_column_rows = [&](const ColumnPtr& col, const DataTypePtr& type,
-                                        const std::string& name, int depth) {
-                    std::string indent(depth * 2, ' ');
-                    std::cout << indent << name << " row count: " << col->size() << std::endl;
-                    EXPECT_GT(col->size(), 0) << name << " column/subcolumn size should be > 0";
-
-                    // Check if it's a nullable column
-                    if (const auto* nullable_col = typeid_cast<const ColumnNullable*>(col.get())) {
-                        auto nested_type =
-                                assert_cast<const DataTypeNullable*>(type.get())->get_nested_type();
-
-                        // Only add ".nested" suffix for non-leaf (complex) nullable columns
-                        // Leaf columns like String, Int, etc. should not get the ".nested" suffix
-                        bool is_complex_type =
-                                (typeid_cast<const DataTypeStruct*>(nested_type.get()) !=
-                                 nullptr) ||
-                                (typeid_cast<const DataTypeArray*>(nested_type.get()) != nullptr) ||
-                                (typeid_cast<const DataTypeMap*>(nested_type.get()) != nullptr);
-
-                        std::string nested_name = is_complex_type ? name + ".nested" : name;
-                        print_column_rows(nullable_col->get_nested_column_ptr(), nested_type,
-                                          nested_name, depth + (is_complex_type ? 1 : 0));
-                    }
-                    // Check if it's a struct column
-                    else if (const auto* struct_col = typeid_cast<const ColumnStruct*>(col.get())) {
-                        auto struct_type = assert_cast<const DataTypeStruct*>(type.get());
-                        for (size_t i = 0; i < struct_col->tuple_size(); ++i) {
-                            std::string field_name = struct_type->get_element_name(i);
-                            auto field_type = struct_type->get_element(i);
-                            print_column_rows(struct_col->get_column_ptr(i), field_type,
-                                              name + "." + field_name, depth + 1);
-                        }
-                    }
-                    // Check if it's an array column
-                    else if (const auto* array_col = typeid_cast<const ColumnArray*>(col.get())) {
-                        auto array_type = assert_cast<const DataTypeArray*>(type.get());
-                        auto element_type = array_type->get_nested_type();
-                        print_column_rows(array_col->get_data_ptr(), element_type, name + ".data",
-                                          depth + 1);
-                    }
-                };
-
-        // Print row counts for all columns
-        for (size_t i = 0; i < block.columns(); ++i) {
-            const auto& column_with_name = block.get_by_position(i);
-            print_column_rows(column_with_name.column, column_with_name.type, column_with_name.name,
-                              0);
-            EXPECT_EQ(column_with_name.column->size(), block.rows())
-                    << "Column " << column_with_name.name << " size mismatch";
+        RuntimeState runtime_state((TQueryOptions()), TQueryGlobals());
+        TFileScanRangeParams scan_params;
+        scan_params.format_type = TFileFormatType::FORMAT_PARQUET;
+        if (customize_context) {
+            customize_context(&scan_params, &runtime_state);
         }
+
+        scan_range.start_offset = 0;
+        scan_range.size = file_size;
+        scan_range.path = actual_file;
+
+        RuntimeProfile profile("test_profile");
+        cctz::time_zone ctz;
+        TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+        auto hive_reader =
+                std::make_unique<HiveParquetReader>(&profile, scan_params, scan_range, 1024, &ctz,
+                                                    nullptr, &runtime_state, nullptr, cache.get());
+        ASSERT_NE(hive_reader, nullptr);
+        if (customize_reader) {
+            customize_reader(hive_reader.get());
+        }
+
+        ParquetInitContext pq_ctx;
+        pq_ctx.column_descs = &column_descs;
+        pq_ctx.col_name_to_block_idx =
+                const_cast<std::unordered_map<std::string, uint32_t>*>(&col_name_to_block_idx);
+        pq_ctx.tuple_descriptor = tuple_descriptor;
+        pq_ctx.params = &scan_params;
+        pq_ctx.range = &scan_range;
+        st = hive_reader->init_reader(&pq_ctx);
+        ASSERT_TRUE(st.ok()) << st;
+
+        *block = make_string_block(block_columns);
+        bool eof = false;
+        st = hive_reader->get_next_block(block, read_rows, &eof);
+        ASSERT_TRUE(st.ok()) << st;
+    }
+
+    void read_hive_orc_block(
+            const std::string& actual_file, TFileRangeDesc scan_range,
+            const TupleDescriptor* tuple_descriptor,
+            const std::unordered_map<std::string, uint32_t>& col_name_to_block_idx,
+            std::vector<ColumnDescriptor> column_descs,
+            const std::vector<std::pair<std::string, DataTypePtr>>& block_columns,
+            size_t* read_rows, Block* block,
+            const std::function<void(TFileScanRangeParams*, RuntimeState*)>& customize_context =
+                    nullptr,
+            const std::function<void(HiveOrcReader*)>& customize_reader = nullptr) {
+        auto local_fs = io::global_local_filesystem();
+        int64_t file_size = 0;
+        auto st = local_fs->file_size(actual_file, &file_size);
+        if (!st.ok()) {
+            GTEST_SKIP() << "Test file not found: " << actual_file;
+            return;
+        }
+
+        RuntimeState runtime_state((TQueryOptions()), TQueryGlobals());
+        TFileScanRangeParams scan_params;
+        scan_params.format_type = TFileFormatType::FORMAT_ORC;
+        if (customize_context) {
+            customize_context(&scan_params, &runtime_state);
+        }
+
+        scan_range.start_offset = 0;
+        scan_range.size = file_size;
+        scan_range.path = actual_file;
+
+        RuntimeProfile profile("test_profile");
+        auto hive_reader =
+                std::make_unique<HiveOrcReader>(&profile, &runtime_state, scan_params, scan_range,
+                                                1024, "CST", nullptr, nullptr, cache.get());
+        ASSERT_NE(hive_reader, nullptr);
+        if (customize_reader) {
+            customize_reader(hive_reader.get());
+        }
+
+        OrcInitContext orc_ctx;
+        orc_ctx.column_descs = &column_descs;
+        orc_ctx.col_name_to_block_idx =
+                const_cast<std::unordered_map<std::string, uint32_t>*>(&col_name_to_block_idx);
+        orc_ctx.tuple_descriptor = tuple_descriptor;
+        orc_ctx.params = &scan_params;
+        orc_ctx.range = &scan_range;
+        st = hive_reader->init_reader(&orc_ctx);
+        ASSERT_TRUE(st.ok()) << st;
+
+        *block = make_string_block(block_columns);
+        bool eof = false;
+        st = hive_reader->get_next_block(block, read_rows, &eof);
+        ASSERT_TRUE(st.ok()) << st;
+    }
+
+    void read_hive_parquet_test_file(const std::string& test_file) {
+        auto local_fs = io::global_local_filesystem();
+        int64_t file_size = 0;
+        auto st = local_fs->file_size(test_file, &file_size);
+        if (!st.ok()) {
+            GTEST_SKIP() << "Test file not found: " << test_file;
+        }
+
+        RuntimeState runtime_state((TQueryOptions()), TQueryGlobals());
+        TFileScanRangeParams scan_params;
+        scan_params.format_type = TFileFormatType::FORMAT_PARQUET;
+
+        TFileRangeDesc scan_range;
+        scan_range.start_offset = 0;
+        scan_range.size = file_size;
+        scan_range.path = test_file;
+
+        RuntimeProfile profile("test_profile");
+        cctz::time_zone ctz;
+        TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+        auto hive_reader =
+                std::make_unique<HiveParquetReader>(&profile, scan_params, scan_range, 1024, &ctz,
+                                                    nullptr, &runtime_state, nullptr, cache.get());
+        ASSERT_NE(hive_reader, nullptr);
+
+        DataTypePtr coordinates_struct_type, address_struct_type, phone_struct_type;
+        DataTypePtr contact_struct_type, hobby_element_struct_type, hobbies_array_type;
+        DataTypePtr profile_struct_type, name_type;
+        create_complex_struct_types(coordinates_struct_type, address_struct_type, phone_struct_type,
+                                    contact_struct_type, hobby_element_struct_type,
+                                    hobbies_array_type, profile_struct_type, name_type);
+
+        DescriptorTbl* desc_tbl;
+        ObjectPool obj_pool;
+        TDescriptorTable t_desc_table;
+        TTableDescriptor t_table_desc;
+        std::vector<std::string> table_column_names = {"name", "profile"};
+        std::vector<int> table_column_positions = {1, 2};
+        std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING,
+                                                                TPrimitiveType::STRUCT};
+        const TupleDescriptor* tuple_descriptor = create_tuple_descriptor(
+                &desc_tbl, obj_pool, t_desc_table, t_table_desc, table_column_names,
+                table_column_positions, table_column_types);
+
+        std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0},
+                                                                           {"profile", 1}};
+
+        ParquetInitContext pq_ctx;
+        pq_ctx.column_names = table_column_names;
+        pq_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+        pq_ctx.tuple_descriptor = tuple_descriptor;
+        pq_ctx.params = &scan_params;
+        pq_ctx.range = &scan_range;
+        st = hive_reader->init_reader(&pq_ctx);
+        ASSERT_TRUE(st.ok()) << st;
+
+        Block block = doris::reader_test::make_name_profile_block(name_type, profile_struct_type);
+        size_t read_rows = 0;
+        bool eof = false;
+        st = hive_reader->get_next_block(&block, &read_rows, &eof);
+        ASSERT_TRUE(st.ok()) << st;
+        verify_test_results(block, read_rows);
+    }
+
+    void read_hive_orc_test_file(const std::string& test_file) {
+        auto local_fs = io::global_local_filesystem();
+        int64_t file_size = 0;
+        auto st = local_fs->file_size(test_file, &file_size);
+        if (!st.ok()) {
+            GTEST_SKIP() << "Test file not found: " << test_file;
+        }
+
+        RuntimeState runtime_state((TQueryOptions()), TQueryGlobals());
+        TFileScanRangeParams scan_params;
+        scan_params.format_type = TFileFormatType::FORMAT_ORC;
+
+        TFileRangeDesc scan_range;
+        scan_range.start_offset = 0;
+        scan_range.size = file_size;
+        scan_range.path = test_file;
+
+        RuntimeProfile profile("test_profile");
+        auto hive_reader =
+                std::make_unique<HiveOrcReader>(&profile, &runtime_state, scan_params, scan_range,
+                                                1024, "CST", nullptr, nullptr, cache.get());
+        ASSERT_NE(hive_reader, nullptr);
+
+        DataTypePtr coordinates_struct_type, address_struct_type, phone_struct_type;
+        DataTypePtr contact_struct_type, hobby_element_struct_type, hobbies_array_type;
+        DataTypePtr profile_struct_type, name_type;
+        create_complex_struct_types(coordinates_struct_type, address_struct_type, phone_struct_type,
+                                    contact_struct_type, hobby_element_struct_type,
+                                    hobbies_array_type, profile_struct_type, name_type);
+
+        DescriptorTbl* desc_tbl;
+        ObjectPool obj_pool;
+        TDescriptorTable t_desc_table;
+        TTableDescriptor t_table_desc;
+        std::vector<std::string> table_column_names = {"name", "profile"};
+        std::vector<int> table_column_positions = {1, 2};
+        std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING,
+                                                                TPrimitiveType::STRUCT};
+        const TupleDescriptor* tuple_descriptor = create_tuple_descriptor(
+                &desc_tbl, obj_pool, t_desc_table, t_table_desc, table_column_names,
+                table_column_positions, table_column_types);
+
+        std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0},
+                                                                           {"profile", 1}};
+
+        OrcInitContext orc_ctx;
+        orc_ctx.column_names = table_column_names;
+        orc_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+        orc_ctx.tuple_descriptor = tuple_descriptor;
+        orc_ctx.params = &scan_params;
+        orc_ctx.range = &scan_range;
+        st = hive_reader->init_reader(&orc_ctx);
+        ASSERT_TRUE(st.ok()) << st;
+
+        Block block = doris::reader_test::make_name_profile_block(name_type, profile_struct_type);
+        size_t read_rows = 0;
+        bool eof = false;
+        st = hive_reader->get_next_block(&block, &read_rows, &eof);
+        ASSERT_TRUE(st.ok()) << st;
+        verify_test_results(block, read_rows);
     }
 
     std::unique_ptr<doris::FileMetaCache> cache;
     cctz::time_zone timezone_obj;
 };
 
-// Test reading real Hive Parquet file using HiveTableReader
 TEST_F(HiveReaderTest, read_hive_parquet_file) {
-    // Read only: name, profile.address.coordinates.lat, profile.address.coordinates.lng, profile.contact.email
-    // Setup table descriptor for test columns with new schema:
-    /**
-    Schema:
-    message table {
-    required int64 id = 1;
-    required binary name (STRING) = 2;
-    required group profile = 3 {
-        optional group address = 4 {
-        optional binary street (STRING) = 7;
-        optional binary city (STRING) = 8;
-        optional group coordinates = 9 {
-            optional double lat = 10;
-            optional double lng = 11;
-        }
-        }
-        optional group contact = 5 {
-        optional binary email (STRING) = 12;
-        optional group phone = 13 {
-            optional binary country_code (STRING) = 14;
-            optional binary number (STRING) = 15;
-        }
-        }
-        optional group hobbies (LIST) = 6 {
-        repeated group list {
-            optional group element = 16 {
-            optional binary name (STRING) = 17;
-            optional int32 level = 18;
-            }
-        }
-        }
-    }
-    }
-    */
-
-    // Open the Hive Parquet test file
-    auto local_fs = io::global_local_filesystem();
-    io::FileReaderSPtr file_reader;
-    std::string test_file =
+    read_hive_parquet_test_file(
             "./be/test/exec/test_data/complex_user_profiles_iceberg_parquet/data/"
-            "00000-0-a0022aad-d3b6-4e73-b181-f0a09aac7034-0-00001.parquet";
-    auto st = local_fs->open_file(test_file, &file_reader);
-    if (!st.ok()) {
-        GTEST_SKIP() << "Test file not found: " << test_file;
-        return;
-    }
-
-    // Setup runtime state
-    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
-
-    // Setup scan parameters
-    TFileScanRangeParams scan_params;
-    scan_params.format_type = TFileFormatType::FORMAT_PARQUET;
-
-    TFileRangeDesc scan_range;
-    scan_range.start_offset = 0;
-    scan_range.size = file_reader->size(); // Read entire file
-    scan_range.path = test_file;
-
-    // Create mock profile
-    RuntimeProfile profile("test_profile");
-
-    // Create HiveParquetReader (directly inherits ParquetReader)
-    cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
-    auto hive_reader =
-            std::make_unique<HiveParquetReader>(&profile, scan_params, scan_range, 1024, &ctz,
-                                                nullptr, &runtime_state, nullptr, cache.get());
-
-    // Set file reader for the hive reader (inherited from ParquetReader)
-    hive_reader->set_file_reader(file_reader);
-
-    // Create complex struct types using helper function
-    DataTypePtr coordinates_struct_type, address_struct_type, phone_struct_type;
-    DataTypePtr contact_struct_type, hobby_element_struct_type, hobbies_array_type;
-    DataTypePtr profile_struct_type, name_type;
-    create_complex_struct_types(coordinates_struct_type, address_struct_type, phone_struct_type,
-                                contact_struct_type, hobby_element_struct_type, hobbies_array_type,
-                                profile_struct_type, name_type);
-
-    // Create tuple descriptor using helper function
-    DescriptorTbl* desc_tbl;
-    ObjectPool obj_pool;
-    TDescriptorTable t_desc_table;
-    TTableDescriptor t_table_desc;
-    std::vector<std::string> table_column_names = {"name", "profile"};
-    std::vector<int> table_column_positions = {1, 2};
-    std::vector<TPrimitiveType::type> table_column_types = {
-            TPrimitiveType::STRING, TPrimitiveType::STRUCT // profile 用 STRUCT 类型
-    };
-    const TupleDescriptor* tuple_descriptor =
-            create_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc,
-                                    table_column_names, table_column_positions, table_column_types);
-
-    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0}, {"profile", 1}};
-
-    // Use the template method init_reader (inherited from ParquetReader)
-    // on_before_init_columns hook in HiveParquetReader will do schema matching
-    ParquetInitContext pq_ctx;
-    pq_ctx.column_names = table_column_names;
-    pq_ctx.col_name_to_block_idx = &col_name_to_block_idx;
-    pq_ctx.tuple_descriptor = tuple_descriptor;
-    pq_ctx.params = &scan_params;
-    pq_ctx.range = &scan_range;
-    st = hive_reader->init_reader(&pq_ctx);
-    ASSERT_TRUE(st.ok()) << st;
-
-    // set_fill_columns logic is now inlined in _do_init_reader,
-    // so no separate call is needed.
-
-    // Create block for reading nested structure (not flattened)
-    Block block;
-    {
-        MutableColumnPtr name_column = name_type->create_column();
-        block.insert(ColumnWithTypeAndName(std::move(name_column), name_type, "name"));
-        // Add profile column (nested struct)
-        MutableColumnPtr profile_column = profile_struct_type->create_column();
-        block.insert(
-                ColumnWithTypeAndName(std::move(profile_column), profile_struct_type, "profile"));
-    }
-
-    // Read data from the file
-    size_t read_rows = 0;
-    bool eof = false;
-    st = hive_reader->get_next_block(&block, &read_rows, &eof);
-    ASSERT_TRUE(st.ok()) << st;
-
-    // Verify test results using helper function
-    verify_test_results(block, read_rows);
+            "00000-0-a0022aad-d3b6-4e73-b181-f0a09aac7034-0-00001.parquet");
 }
 
-// Test reading real Hive Orc file using HiveTableReader
-TEST_F(HiveReaderTest, read_hive_rrc_file) {
-    // Read only: name, profile.address.coordinates.lat, profile.address.coordinates.lng, profile.contact.email
-    // Setup table descriptor for test columns with new schema:
-    /**
-    Schema:
-    message table {
-    required int64 id = 1;
-    required binary name (STRING) = 2;
-    required group profile = 3 {
-        optional group address = 4 {
-        optional binary street (STRING) = 7;
-        optional binary city (STRING) = 8;
-        optional group coordinates = 9 {
-            optional double lat = 10;
-            optional double lng = 11;
-        }
-        }
-        optional group contact = 5 {
-        optional binary email (STRING) = 12;
-        optional group phone = 13 {
-            optional binary country_code (STRING) = 14;
-            optional binary number (STRING) = 15;
-        }
-        }
-        optional group hobbies (LIST) = 6 {
-        repeated group list {
-            optional group element = 16 {
-            optional binary name (STRING) = 17;
-            optional int32 level = 18;
-            }
-        }
-        }
-    }
-    }
-    */
-    // Open the Hive Orc test file
-    auto local_fs = io::global_local_filesystem();
-    io::FileReaderSPtr file_reader;
-    std::string test_file =
+TEST_F(HiveReaderTest, read_hive_orc_file) {
+    read_hive_orc_test_file(
             "./be/test/exec/test_data/complex_user_profiles_iceberg_orc/data/"
-            "00000-0-e4897963-0081-4127-bebe-35dc7dc1edeb-0-00001.orc";
-    auto st = local_fs->open_file(test_file, &file_reader);
-    if (!st.ok()) {
-        GTEST_SKIP() << "Test file not found: " << test_file;
-        return;
-    }
+            "00000-0-e4897963-0081-4127-bebe-35dc7dc1edeb-0-00001.orc");
+}
 
-    // Setup runtime state
-    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
+TEST_F(HiveReaderTest, read_nested_hive_parquet_file) {
+    read_hive_parquet_test_file(
+            "./be/test/exec/test_data/nested_user_profiles_parquet/"
+            "part-00000-64a7a390-1a03-4efc-ab51-557e9369a1f9-c000.snappy.parquet");
+}
 
-    // Setup scan parameters
-    TFileScanRangeParams scan_params;
-    scan_params.format_type = TFileFormatType::FORMAT_ORC;
+TEST_F(HiveReaderTest, read_nested_hive_orc_file) {
+    read_hive_orc_test_file(
+            "./be/test/exec/test_data/nested_user_profiles_orc/"
+            "part-00000-62614f23-05d1-4043-a533-b155ef52b720-c000.snappy.orc");
+}
 
-    TFileRangeDesc scan_range;
-    scan_range.start_offset = 0;
-    scan_range.size = file_reader->size(); // Read entire file
-    scan_range.path = test_file;
-
-    // Create mock profile
-    RuntimeProfile profile("test_profile");
-
-    // Create HiveOrcReader (directly inherits OrcReader)
-    auto hive_reader =
-            std::make_unique<HiveOrcReader>(&profile, &runtime_state, scan_params, scan_range, 1024,
-                                            "CST", nullptr, nullptr, cache.get());
-
-    // Create complex struct types using helper function
-    DataTypePtr coordinates_struct_type, address_struct_type, phone_struct_type;
-    DataTypePtr contact_struct_type, hobby_element_struct_type, hobbies_array_type;
-    DataTypePtr profile_struct_type, name_type;
-    create_complex_struct_types(coordinates_struct_type, address_struct_type, phone_struct_type,
-                                contact_struct_type, hobby_element_struct_type, hobbies_array_type,
-                                profile_struct_type, name_type);
-
-    // Create tuple descriptor using helper function
+TEST_F(HiveReaderTest, fills_partition_column_from_scan_range_for_parquet) {
     DescriptorTbl* desc_tbl;
     ObjectPool obj_pool;
     TDescriptorTable t_desc_table;
     TTableDescriptor t_table_desc;
-    std::vector<std::string> table_column_names = {"name", "profile"};
+    std::vector<std::string> table_column_names = {"name", "year"};
     std::vector<int> table_column_positions = {1, 2};
-    std::vector<TPrimitiveType::type> table_column_types = {
-            TPrimitiveType::STRING, TPrimitiveType::STRUCT // profile 用 STRUCT 类型
-    };
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING,
+                                                            TPrimitiveType::STRING};
     const TupleDescriptor* tuple_descriptor =
             create_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc,
                                     table_column_names, table_column_positions, table_column_types);
 
-    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0}, {"profile", 1}};
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0}, {"year", 1}};
+    std::vector<ColumnDescriptor> column_descs = {
+            {"name", tuple_descriptor->slots()[0], ColumnCategory::REGULAR, nullptr},
+            {"year", tuple_descriptor->slots()[1], ColumnCategory::PARTITION_KEY, nullptr}};
 
-    OrcInitContext orc_ctx;
-    orc_ctx.column_names = table_column_names;
-    orc_ctx.col_name_to_block_idx = &col_name_to_block_idx;
-    orc_ctx.tuple_descriptor = tuple_descriptor;
-    orc_ctx.params = &scan_params;
-    orc_ctx.range = &scan_range;
-    st = hive_reader->init_reader(&orc_ctx);
-    ASSERT_TRUE(st.ok()) << st;
+    TFileRangeDesc scan_range;
+    scan_range.path =
+            "file:///warehouse/nested_user_profiles/year=2024/part-00000-64a7a390-1a03-4efc-"
+            "ab51-557e9369a1f9-c000.snappy.parquet";
+    scan_range.__set_columns_from_path_keys({"year"});
+    scan_range.__set_columns_from_path({"2024"});
 
-    // set_fill_columns logic is now inlined in _do_init_reader,
-    // so no separate call is needed.
-
-    // Create block for reading nested structure (not flattened)
-    Block block;
-
-    {
-        MutableColumnPtr name_column = name_type->create_column();
-        block.insert(ColumnWithTypeAndName(std::move(name_column), name_type, "name"));
-        // Add profile column (nested struct)
-        MutableColumnPtr profile_column = profile_struct_type->create_column();
-        block.insert(
-                ColumnWithTypeAndName(std::move(profile_column), profile_struct_type, "profile"));
-    }
-
-    // Read data from the file
+    auto nullable_string = make_nullable(std::make_shared<DataTypeString>());
     size_t read_rows = 0;
-    bool eof = false;
-    st = hive_reader->get_next_block(&block, &read_rows, &eof);
-    ASSERT_TRUE(st.ok()) << st;
+    Block block;
+    read_hive_parquet_block(
+            "./be/test/exec/test_data/nested_user_profiles_parquet/"
+            "part-00000-64a7a390-1a03-4efc-ab51-557e9369a1f9-c000.snappy.parquet",
+            scan_range, tuple_descriptor, col_name_to_block_idx, column_descs,
+            {{"name", nullable_string}, {"year", nullable_string}}, &read_rows, &block);
 
-    // Verify test results using helper function
-    verify_test_results(block, read_rows);
+    ASSERT_GT(read_rows, 0);
+    EXPECT_EQ(block.rows(), read_rows);
+    verify_nullable_string_column_values(block, "year",
+                                         std::vector<std::string>(read_rows, "2024"));
+}
+
+TEST_F(HiveReaderTest, fills_partition_column_from_scan_range_for_orc) {
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {"name", "year"};
+    std::vector<int> table_column_positions = {1, 2};
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING,
+                                                            TPrimitiveType::STRING};
+    const TupleDescriptor* tuple_descriptor =
+            create_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc,
+                                    table_column_names, table_column_positions, table_column_types);
+
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0}, {"year", 1}};
+    std::vector<ColumnDescriptor> column_descs = {
+            {"name", tuple_descriptor->slots()[0], ColumnCategory::REGULAR, nullptr},
+            {"year", tuple_descriptor->slots()[1], ColumnCategory::PARTITION_KEY, nullptr}};
+
+    TFileRangeDesc scan_range;
+    scan_range.path =
+            "./be/test/exec/test_data/nested_user_profiles_orc/"
+            "part-00000-62614f23-05d1-4043-a533-b155ef52b720-c000.snappy.orc";
+    scan_range.__set_columns_from_path_keys({"year"});
+    scan_range.__set_columns_from_path({"2024"});
+
+    auto nullable_string = make_nullable(std::make_shared<DataTypeString>());
+    size_t read_rows = 0;
+    Block block;
+    read_hive_orc_block(
+            "./be/test/exec/test_data/nested_user_profiles_orc/"
+            "part-00000-62614f23-05d1-4043-a533-b155ef52b720-c000.snappy.orc",
+            scan_range, tuple_descriptor, col_name_to_block_idx, column_descs,
+            {{"name", nullable_string}, {"year", nullable_string}}, &read_rows, &block);
+
+    ASSERT_GT(read_rows, 0);
+    EXPECT_EQ(block.rows(), read_rows);
+    verify_nullable_string_column_values(block, "year",
+                                         std::vector<std::string>(read_rows, "2024"));
+}
+
+TEST_F(HiveReaderTest, fills_missing_column_with_null_for_parquet) {
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {"name", "country"};
+    std::vector<int> table_column_positions = {1, 2};
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING,
+                                                            TPrimitiveType::STRING};
+    const TupleDescriptor* tuple_descriptor =
+            create_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc,
+                                    table_column_names, table_column_positions, table_column_types);
+
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0}, {"country", 1}};
+    std::vector<ColumnDescriptor> column_descs = {
+            {"name", tuple_descriptor->slots()[0], ColumnCategory::REGULAR, nullptr},
+            {"country", tuple_descriptor->slots()[1], ColumnCategory::REGULAR, nullptr}};
+
+    TFileRangeDesc scan_range;
+    scan_range.path =
+            "./be/test/exec/test_data/nested_user_profiles_parquet/"
+            "part-00000-64a7a390-1a03-4efc-ab51-557e9369a1f9-c000.snappy.parquet";
+
+    auto nullable_string = make_nullable(std::make_shared<DataTypeString>());
+    size_t read_rows = 0;
+    Block block;
+    read_hive_parquet_block(scan_range.path, scan_range, tuple_descriptor, col_name_to_block_idx,
+                            column_descs, {{"name", nullable_string}, {"country", nullable_string}},
+                            &read_rows, &block);
+
+    ASSERT_GT(read_rows, 0);
+    EXPECT_EQ(block.rows(), read_rows);
+    verify_nullable_string_column_all_null(block, "country", read_rows);
+}
+
+TEST_F(HiveReaderTest, fills_missing_column_with_null_for_orc) {
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {"name", "country"};
+    std::vector<int> table_column_positions = {1, 2};
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING,
+                                                            TPrimitiveType::STRING};
+    const TupleDescriptor* tuple_descriptor =
+            create_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc,
+                                    table_column_names, table_column_positions, table_column_types);
+
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0}, {"country", 1}};
+    std::vector<ColumnDescriptor> column_descs = {
+            {"name", tuple_descriptor->slots()[0], ColumnCategory::REGULAR, nullptr},
+            {"country", tuple_descriptor->slots()[1], ColumnCategory::REGULAR, nullptr}};
+
+    TFileRangeDesc scan_range;
+    scan_range.path =
+            "./be/test/exec/test_data/nested_user_profiles_orc/"
+            "part-00000-62614f23-05d1-4043-a533-b155ef52b720-c000.snappy.orc";
+
+    auto nullable_string = make_nullable(std::make_shared<DataTypeString>());
+    size_t read_rows = 0;
+    Block block;
+    read_hive_orc_block(scan_range.path, scan_range, tuple_descriptor, col_name_to_block_idx,
+                        column_descs, {{"name", nullable_string}, {"country", nullable_string}},
+                        &read_rows, &block);
+
+    ASSERT_GT(read_rows, 0);
+    EXPECT_EQ(block.rows(), read_rows);
+    verify_nullable_string_column_all_null(block, "country", read_rows);
+}
+
+TEST_F(HiveReaderTest, reads_generated_column_from_file_for_parquet) {
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {"name"};
+    std::vector<int> table_column_positions = {1};
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING};
+    const TupleDescriptor* tuple_descriptor =
+            create_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc,
+                                    table_column_names, table_column_positions, table_column_types);
+
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0}};
+    std::vector<ColumnDescriptor> column_descs = {
+            {"name", tuple_descriptor->slots()[0], ColumnCategory::GENERATED, nullptr}};
+
+    TFileRangeDesc scan_range;
+    scan_range.path =
+            "./be/test/exec/test_data/nested_user_profiles_parquet/"
+            "part-00000-64a7a390-1a03-4efc-ab51-557e9369a1f9-c000.snappy.parquet";
+
+    auto nullable_string = make_nullable(std::make_shared<DataTypeString>());
+    size_t read_rows = 0;
+    Block block;
+    read_hive_parquet_block(scan_range.path, scan_range, tuple_descriptor, col_name_to_block_idx,
+                            column_descs, {{"name", nullable_string}}, &read_rows, &block);
+
+    ASSERT_GT(read_rows, 0);
+    EXPECT_EQ(block.rows(), read_rows);
+    verify_nullable_string_column_has_rows(block, "name", read_rows);
+}
+
+TEST_F(HiveReaderTest, reads_generated_column_from_file_for_orc) {
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {"name"};
+    std::vector<int> table_column_positions = {1};
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING};
+    const TupleDescriptor* tuple_descriptor =
+            create_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc,
+                                    table_column_names, table_column_positions, table_column_types);
+
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0}};
+    std::vector<ColumnDescriptor> column_descs = {
+            {"name", tuple_descriptor->slots()[0], ColumnCategory::GENERATED, nullptr}};
+
+    TFileRangeDesc scan_range;
+    scan_range.path =
+            "./be/test/exec/test_data/nested_user_profiles_orc/"
+            "part-00000-62614f23-05d1-4043-a533-b155ef52b720-c000.snappy.orc";
+
+    auto nullable_string = make_nullable(std::make_shared<DataTypeString>());
+    size_t read_rows = 0;
+    Block block;
+    read_hive_orc_block(scan_range.path, scan_range, tuple_descriptor, col_name_to_block_idx,
+                        column_descs, {{"name", nullable_string}}, &read_rows, &block);
+
+    ASSERT_GT(read_rows, 0);
+    EXPECT_EQ(block.rows(), read_rows);
+    verify_nullable_string_column_has_rows(block, "name", read_rows);
+}
+
+TEST_F(HiveReaderTest, uses_column_indexes_when_parquet_name_mapping_is_disabled) {
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {"alias_name"};
+    std::vector<int> table_column_positions = {0};
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING};
+    const TupleDescriptor* tuple_descriptor =
+            create_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc,
+                                    table_column_names, table_column_positions, table_column_types);
+
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"alias_name", 0}};
+    std::vector<ColumnDescriptor> column_descs = {
+            {"alias_name", tuple_descriptor->slots()[0], ColumnCategory::REGULAR, nullptr}};
+
+    TFileRangeDesc scan_range;
+    scan_range.path =
+            "./be/test/exec/test_data/nested_user_profiles_parquet/"
+            "part-00000-64a7a390-1a03-4efc-ab51-557e9369a1f9-c000.snappy.parquet";
+
+    auto nullable_string = make_nullable(std::make_shared<DataTypeString>());
+    size_t read_rows = 0;
+    Block block;
+    read_hive_parquet_block(scan_range.path, scan_range, tuple_descriptor, col_name_to_block_idx,
+                            column_descs, {{"alias_name", nullable_string}}, &read_rows, &block,
+                            [](TFileScanRangeParams* scan_params, RuntimeState* runtime_state) {
+                                scan_params->column_idxs = {0};
+                                TQueryOptions query_options = runtime_state->query_options();
+                                query_options.__set_hive_parquet_use_column_names(false);
+                                runtime_state->set_query_options(query_options);
+                            });
+
+    ASSERT_GT(read_rows, 0);
+    EXPECT_EQ(block.rows(), read_rows);
+    verify_nullable_string_column_has_rows(block, "alias_name", read_rows);
+}
+
+TEST_F(HiveReaderTest, uses_column_indexes_when_orc_name_mapping_is_disabled) {
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {"alias_name"};
+    std::vector<int> table_column_positions = {0};
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING};
+    const TupleDescriptor* tuple_descriptor =
+            create_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc,
+                                    table_column_names, table_column_positions, table_column_types);
+
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"alias_name", 0}};
+    std::vector<ColumnDescriptor> column_descs = {
+            {"alias_name", tuple_descriptor->slots()[0], ColumnCategory::REGULAR, nullptr}};
+
+    TFileRangeDesc scan_range;
+    scan_range.path =
+            "./be/test/exec/test_data/nested_user_profiles_orc/"
+            "part-00000-62614f23-05d1-4043-a533-b155ef52b720-c000.snappy.orc";
+
+    auto nullable_string = make_nullable(std::make_shared<DataTypeString>());
+    size_t read_rows = 0;
+    Block block;
+    read_hive_orc_block(scan_range.path, scan_range, tuple_descriptor, col_name_to_block_idx,
+                        column_descs, {{"alias_name", nullable_string}}, &read_rows, &block,
+                        [](TFileScanRangeParams* scan_params, RuntimeState* runtime_state) {
+                            scan_params->column_idxs = {0};
+                            TQueryOptions query_options = runtime_state->query_options();
+                            query_options.__set_hive_orc_use_column_names(false);
+                            runtime_state->set_query_options(query_options);
+                        });
+
+    ASSERT_GT(read_rows, 0);
+    EXPECT_EQ(block.rows(), read_rows);
+    verify_nullable_string_column_has_rows(block, "alias_name", read_rows);
+}
+
+TEST_F(HiveReaderTest, fills_global_rowid_synthesized_column_for_parquet) {
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::string global_rowid_col_name = BeConsts::GLOBAL_ROWID_COL + "test";
+    std::vector<std::string> table_column_names = {"name", global_rowid_col_name};
+    std::vector<int> table_column_positions = {1, 2};
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING,
+                                                            TPrimitiveType::STRING};
+    const TupleDescriptor* tuple_descriptor =
+            create_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc,
+                                    table_column_names, table_column_positions, table_column_types);
+
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0},
+                                                                       {global_rowid_col_name, 1}};
+    std::vector<ColumnDescriptor> column_descs = {
+            {"name", tuple_descriptor->slots()[0], ColumnCategory::REGULAR, nullptr},
+            {global_rowid_col_name, tuple_descriptor->slots()[1], ColumnCategory::SYNTHESIZED,
+             nullptr}};
+
+    TFileRangeDesc scan_range;
+    scan_range.path =
+            "./be/test/exec/test_data/nested_user_profiles_parquet/"
+            "part-00000-64a7a390-1a03-4efc-ab51-557e9369a1f9-c000.snappy.parquet";
+
+    auto nullable_string = make_nullable(std::make_shared<DataTypeString>());
+    auto global_rowid_type = std::make_shared<DataTypeString>();
+    size_t read_rows = 0;
+    Block block;
+    constexpr uint8_t kVersion = 1;
+    constexpr int64_t kBackendId = 10020;
+    constexpr uint32_t kFileId = 31;
+    read_hive_parquet_block(scan_range.path, scan_range, tuple_descriptor, col_name_to_block_idx,
+                            column_descs,
+                            {{"name", nullable_string}, {global_rowid_col_name, global_rowid_type}},
+                            &read_rows, &block, nullptr, [&](HiveParquetReader* reader) {
+                                reader->set_create_row_id_column_iterator_func([&]() {
+                                    return std::make_shared<segment_v2::RowIdColumnIteratorV2>(
+                                            kVersion, kBackendId, kFileId);
+                                });
+                            });
+
+    ASSERT_GT(read_rows, 0);
+    EXPECT_EQ(block.rows(), read_rows);
+    verify_nullable_string_column_has_rows(block, "name", read_rows);
+    verify_global_rowid_column(block, global_rowid_col_name, kVersion, kBackendId, kFileId);
+}
+
+TEST_F(HiveReaderTest, fills_global_rowid_synthesized_column_for_orc) {
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::string global_rowid_col_name = BeConsts::GLOBAL_ROWID_COL + "test";
+    std::vector<std::string> table_column_names = {"name", global_rowid_col_name};
+    std::vector<int> table_column_positions = {1, 2};
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING,
+                                                            TPrimitiveType::STRING};
+    const TupleDescriptor* tuple_descriptor =
+            create_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc,
+                                    table_column_names, table_column_positions, table_column_types);
+
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0},
+                                                                       {global_rowid_col_name, 1}};
+    std::vector<ColumnDescriptor> column_descs = {
+            {"name", tuple_descriptor->slots()[0], ColumnCategory::REGULAR, nullptr},
+            {global_rowid_col_name, tuple_descriptor->slots()[1], ColumnCategory::SYNTHESIZED,
+             nullptr}};
+
+    TFileRangeDesc scan_range;
+    scan_range.path =
+            "./be/test/exec/test_data/nested_user_profiles_orc/"
+            "part-00000-62614f23-05d1-4043-a533-b155ef52b720-c000.snappy.orc";
+
+    auto nullable_string = make_nullable(std::make_shared<DataTypeString>());
+    auto global_rowid_type = std::make_shared<DataTypeString>();
+    size_t read_rows = 0;
+    Block block;
+    constexpr uint8_t kVersion = 1;
+    constexpr int64_t kBackendId = 10021;
+    constexpr uint32_t kFileId = 32;
+    read_hive_orc_block(scan_range.path, scan_range, tuple_descriptor, col_name_to_block_idx,
+                        column_descs,
+                        {{"name", nullable_string}, {global_rowid_col_name, global_rowid_type}},
+                        &read_rows, &block, nullptr, [&](HiveOrcReader* reader) {
+                            reader->set_create_row_id_column_iterator_func([&]() {
+                                return std::make_shared<segment_v2::RowIdColumnIteratorV2>(
+                                        kVersion, kBackendId, kFileId);
+                            });
+                        });
+
+    ASSERT_GT(read_rows, 0);
+    EXPECT_EQ(block.rows(), read_rows);
+    verify_nullable_string_column_has_rows(block, "name", read_rows);
+    verify_global_rowid_column(block, global_rowid_col_name, kVersion, kBackendId, kFileId);
 }
 
 } // namespace doris::table

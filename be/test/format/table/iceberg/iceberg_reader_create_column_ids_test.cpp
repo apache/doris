@@ -665,8 +665,8 @@ protected:
             const std::string& test_file) {
         // Open the Iceberg Parquet test file
         auto local_fs = io::global_local_filesystem();
-        io::FileReaderSPtr file_reader;
-        auto st = local_fs->open_file(test_file, &file_reader);
+        int64_t file_size = 0;
+        auto st = local_fs->file_size(test_file, &file_size);
         if (!st.ok()) {
             return {nullptr, nullptr};
         }
@@ -680,7 +680,7 @@ protected:
 
         TFileRangeDesc scan_range;
         scan_range.start_offset = 0;
-        scan_range.size = file_reader->size(); // Read entire file
+        scan_range.size = file_size; // Read entire file
         scan_range.path = test_file;
 
         // Create mock profile
@@ -697,9 +697,6 @@ protected:
             return {nullptr, nullptr};
         }
 
-        // Set file reader directly on the iceberg reader (it IS the ParquetReader)
-        iceberg_reader->set_file_reader(file_reader);
-
         const FieldDescriptor* field_desc = nullptr;
         st = iceberg_reader->get_file_metadata_schema(&field_desc);
         if (!st.ok() || !field_desc) {
@@ -712,10 +709,9 @@ protected:
     // Helper function: create and setup OrcReader
     std::tuple<std::unique_ptr<IcebergOrcReader>, const orc::Type*> create_orc_reader(
             const std::string& test_file) {
-        // Open the Iceberg Orc test file
         auto local_fs = io::global_local_filesystem();
-        io::FileReaderSPtr file_reader;
-        auto st = local_fs->open_file(test_file, &file_reader);
+        int64_t file_size = 0;
+        auto st = local_fs->file_size(test_file, &file_size);
         if (!st.ok()) {
             return {nullptr, nullptr};
         }
@@ -729,7 +725,7 @@ protected:
 
         TFileRangeDesc scan_range;
         scan_range.start_offset = 0;
-        scan_range.size = file_reader->size(); // Read entire file
+        scan_range.size = file_size; // Read entire file
         scan_range.path = test_file;
 
         // Create mock profile

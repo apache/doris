@@ -456,7 +456,7 @@ Status IcebergReaderMixin<BaseReader>::_equality_delete_base(
         std::vector<int> delete_col_ids;
         std::unordered_map<std::string, uint32_t> delete_col_name_to_block_idx;
 
-        if (auto* parquet_reader = typeid_cast<ParquetReader*>(delete_reader.get())) {
+        if (auto* parquet_reader = dynamic_cast<ParquetReader*>(delete_reader.get())) {
             const FieldDescriptor* delete_field_desc = nullptr;
             RETURN_IF_ERROR(parquet_reader->get_file_metadata_schema(&delete_field_desc));
             DCHECK(delete_field_desc != nullptr);
@@ -501,7 +501,7 @@ Status IcebergReaderMixin<BaseReader>::_equality_delete_base(
             if (!st2.ok()) {
                 return st2;
             }
-        } else if (auto* orc_reader = typeid_cast<OrcReader*>(delete_reader.get())) {
+        } else if (auto* orc_reader = dynamic_cast<OrcReader*>(delete_reader.get())) {
             // For ORC: use get_parsed_schema with field_ids from delete_file
             // ORC field_ids come from the Thrift descriptor, not from ORC metadata
             RETURN_IF_ERROR(delete_reader->get_parsed_schema(&equality_delete_col_names,

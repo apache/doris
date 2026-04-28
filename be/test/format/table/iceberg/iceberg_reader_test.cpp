@@ -24,18 +24,21 @@
 #include <gen_cpp/Types_types.h>
 #include <gtest/gtest.h>
 
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "common/config.h"
 #include "common/object_pool.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
@@ -49,6 +52,8 @@
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_column_chunk_reader.h"
 #include "format/parquet/vparquet_reader.h"
+#include "format/table/reader_test_util.h"
+#include "gen_cpp/ExternalTableSchema_types.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
@@ -56,6 +61,9 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "storage/olap_scan_common.h"
+#include "storage/segment/column_reader.h"
+#include "storage/utils.h"
+#include "util/defer_op.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
@@ -84,10 +92,10 @@ protected:
 
     std::unique_ptr<ParquetReader> create_delete_file_parquet_reader(
             RuntimeProfile* profile, RuntimeState* runtime_state, TFileScanRangeParams* scan_params,
-            TFileRangeDesc* scan_range, io::FileReaderSPtr* file_reader,
-            const tparquet::FileMetaData** file_meta_data) {
+            TFileRangeDesc* scan_range, const tparquet::FileMetaData** file_meta_data) {
         auto local_fs = io::global_local_filesystem();
-        auto st = local_fs->open_file(mixed_position_delete_file(), file_reader);
+        int64_t file_size = 0;
+        auto st = local_fs->file_size(mixed_position_delete_file(), &file_size);
         EXPECT_TRUE(st.ok()) << st;
         if (!st.ok()) {
             return nullptr;
@@ -96,7 +104,7 @@ protected:
         scan_params->format_type = TFileFormatType::FORMAT_PARQUET;
 
         scan_range->start_offset = 0;
-        scan_range->size = (*file_reader)->size();
+        scan_range->size = file_size;
         scan_range->path = mixed_position_delete_file();
 
         auto parquet_reader =
@@ -106,8 +114,6 @@ protected:
         if (parquet_reader == nullptr) {
             return nullptr;
         }
-
-        parquet_reader->set_file_reader(*file_reader);
 
         ParquetInitContext pq_ctx;
         pq_ctx.column_names = delete_file_column_names;
@@ -134,68 +140,10 @@ protected:
                                      DataTypePtr& hobby_element_struct_type,
                                      DataTypePtr& hobbies_array_type,
                                      DataTypePtr& profile_struct_type, DataTypePtr& name_type) {
-        // Create name column type (direct field)
-        name_type = make_nullable(std::make_shared<DataTypeString>());
-
-        // First create coordinates struct type
-        std::vector<DataTypePtr> coordinates_types = {
-                make_nullable(std::make_shared<DataTypeFloat64>()), // lat (field ID 10)
-                make_nullable(std::make_shared<DataTypeFloat64>())  // lng (field ID 11)
-        };
-        std::vector<std::string> coordinates_names = {"lat", "lng"};
-        coordinates_struct_type = make_nullable(
-                std::make_shared<DataTypeStruct>(coordinates_types, coordinates_names));
-
-        // Create address struct type (with street, city, coordinates)
-        std::vector<DataTypePtr> address_types = {
-                make_nullable(std::make_shared<DataTypeString>()), // street (field ID 7)
-                make_nullable(std::make_shared<DataTypeString>()), // city (field ID 8)
-                coordinates_struct_type                            // coordinates (field ID 9)
-        };
-        std::vector<std::string> address_names = {"street", "city", "coordinates"};
-        address_struct_type =
-                make_nullable(std::make_shared<DataTypeStruct>(address_types, address_names));
-
-        // Create phone struct type
-        std::vector<DataTypePtr> phone_types = {
-                make_nullable(std::make_shared<DataTypeString>()), // country_code (field ID 14)
-                make_nullable(std::make_shared<DataTypeString>())  // number (field ID 15)
-        };
-        std::vector<std::string> phone_names = {"country_code", "number"};
-        phone_struct_type =
-                make_nullable(std::make_shared<DataTypeStruct>(phone_types, phone_names));
-
-        // Create contact struct type (with email, phone)
-        std::vector<DataTypePtr> contact_types = {
-                make_nullable(std::make_shared<DataTypeString>()), // email (field ID 12)
-                phone_struct_type                                  // phone (field ID 13)
-        };
-        std::vector<std::string> contact_names = {"email", "phone"};
-        contact_struct_type =
-                make_nullable(std::make_shared<DataTypeStruct>(contact_types, contact_names));
-
-        // Create hobby element struct type for array elements
-        std::vector<DataTypePtr> hobby_element_types = {
-                make_nullable(std::make_shared<DataTypeString>()), // name (field ID 17)
-                make_nullable(std::make_shared<DataTypeInt32>())   // level (field ID 18)
-        };
-        std::vector<std::string> hobby_element_names = {"name", "level"};
-        hobby_element_struct_type = make_nullable(
-                std::make_shared<DataTypeStruct>(hobby_element_types, hobby_element_names));
-
-        // Create hobbies array type
-        hobbies_array_type =
-                make_nullable(std::make_shared<DataTypeArray>(hobby_element_struct_type));
-
-        // Create complete profile struct type (with address, contact, hobbies)
-        std::vector<DataTypePtr> profile_types = {
-                address_struct_type, // address (field ID 4)
-                contact_struct_type, // contact (field ID 5)
-                hobbies_array_type   // hobbies (field ID 6)
-        };
-        std::vector<std::string> profile_names = {"address", "contact", "hobbies"};
-        profile_struct_type =
-                make_nullable(std::make_shared<DataTypeStruct>(profile_types, profile_names));
+        reader_test::create_complex_user_profile_types(
+                coordinates_struct_type, address_struct_type, phone_struct_type,
+                contact_struct_type, hobby_element_struct_type, hobbies_array_type,
+                profile_struct_type, name_type);
     }
 
     // Helper function to create tuple descriptor
@@ -439,83 +387,482 @@ protected:
         return (*desc_tbl)->get_tuple_descriptor(0);
     }
 
+    const TupleDescriptor* create_simple_tuple_descriptor(
+            DescriptorTbl** desc_tbl, ObjectPool& obj_pool, TDescriptorTable& t_desc_table,
+            TTableDescriptor& t_table_desc, const std::vector<std::string>& column_names,
+            const std::vector<int32_t>& column_unique_ids,
+            const std::vector<TPrimitiveType::type>& column_types) {
+        t_table_desc.__set_id(0);
+        t_table_desc.__set_tableType(TTableType::OLAP_TABLE);
+        t_table_desc.__set_numCols(0);
+        t_table_desc.__set_numClusteringCols(0);
+        t_desc_table.tableDescriptors.push_back(t_table_desc);
+        t_desc_table.__isset.tableDescriptors = true;
+
+        for (size_t i = 0; i < column_names.size(); ++i) {
+            TSlotDescriptor tslot_desc;
+            tslot_desc.__set_id(static_cast<int>(i));
+            tslot_desc.__set_parent(0);
+            tslot_desc.__set_col_unique_id(column_unique_ids[i]);
+
+            TTypeDesc type;
+            if (column_types[i] == TPrimitiveType::STRUCT &&
+                column_names[i] == BeConsts::ICEBERG_ROWID_COL) {
+                TTypeNode struct_node;
+                struct_node.__set_type(TTypeNodeType::STRUCT);
+                std::vector<TStructField> struct_fields;
+                TStructField file_path_field;
+                file_path_field.__set_name("file_path");
+                file_path_field.__set_contains_null(false);
+                struct_fields.push_back(file_path_field);
+                TStructField pos_field;
+                pos_field.__set_name("pos");
+                pos_field.__set_contains_null(false);
+                struct_fields.push_back(pos_field);
+                TStructField partition_spec_id_field;
+                partition_spec_id_field.__set_name("partition_spec_id");
+                partition_spec_id_field.__set_contains_null(false);
+                struct_fields.push_back(partition_spec_id_field);
+                TStructField partition_data_field;
+                partition_data_field.__set_name("partition_data");
+                partition_data_field.__set_contains_null(false);
+                struct_fields.push_back(partition_data_field);
+                struct_node.__set_struct_fields(struct_fields);
+                type.types.push_back(struct_node);
+
+                TTypeNode file_path_node;
+                file_path_node.__set_type(TTypeNodeType::SCALAR);
+                TScalarType file_path_scalar_type;
+                file_path_scalar_type.__set_type(TPrimitiveType::STRING);
+                file_path_node.__set_scalar_type(file_path_scalar_type);
+                type.types.push_back(file_path_node);
+
+                TTypeNode pos_node;
+                pos_node.__set_type(TTypeNodeType::SCALAR);
+                TScalarType pos_scalar_type;
+                pos_scalar_type.__set_type(TPrimitiveType::BIGINT);
+                pos_node.__set_scalar_type(pos_scalar_type);
+                type.types.push_back(pos_node);
+
+                TTypeNode partition_spec_id_node;
+                partition_spec_id_node.__set_type(TTypeNodeType::SCALAR);
+                TScalarType partition_spec_id_scalar_type;
+                partition_spec_id_scalar_type.__set_type(TPrimitiveType::INT);
+                partition_spec_id_node.__set_scalar_type(partition_spec_id_scalar_type);
+                type.types.push_back(partition_spec_id_node);
+
+                TTypeNode partition_data_node;
+                partition_data_node.__set_type(TTypeNodeType::SCALAR);
+                TScalarType partition_data_scalar_type;
+                partition_data_scalar_type.__set_type(TPrimitiveType::STRING);
+                partition_data_node.__set_scalar_type(partition_data_scalar_type);
+                type.types.push_back(partition_data_node);
+            } else {
+                TTypeNode node;
+                node.__set_type(TTypeNodeType::SCALAR);
+                TScalarType scalar_type;
+                scalar_type.__set_type(column_types[i]);
+                node.__set_scalar_type(scalar_type);
+                type.types.push_back(node);
+            }
+            tslot_desc.__set_slotType(type);
+
+            tslot_desc.__set_columnPos(0);
+            tslot_desc.__set_byteOffset(0);
+            tslot_desc.__set_nullIndicatorByte(0);
+            tslot_desc.__set_nullIndicatorBit(-1);
+            tslot_desc.__set_colName(column_names[i]);
+            tslot_desc.__set_slotIdx(0);
+            tslot_desc.__set_isMaterialized(true);
+            t_desc_table.slotDescriptors.push_back(tslot_desc);
+        }
+        t_desc_table.__isset.slotDescriptors = true;
+
+        TTupleDescriptor t_tuple_desc;
+        t_tuple_desc.__set_id(0);
+        t_tuple_desc.__set_byteSize(16);
+        t_tuple_desc.__set_numNullBytes(0);
+        t_tuple_desc.__set_tableId(0);
+        t_tuple_desc.__isset.tableId = true;
+        t_desc_table.tupleDescriptors.push_back(t_tuple_desc);
+
+        EXPECT_TRUE(DescriptorTbl::create(&obj_pool, t_desc_table, desc_tbl).ok());
+        return (*desc_tbl)->get_tuple_descriptor(0);
+    }
+
     // Helper function to verify test results
     void verify_test_results(Block& block, size_t read_rows) {
-        // Verify that we read some data
-        EXPECT_GT(read_rows, 0) << "Should read at least one row";
-        EXPECT_EQ(block.rows(), read_rows);
+        reader_test::verify_nested_reader_block(block, read_rows);
+    }
 
-        // Verify column count matches expected (2 columns: name, profile)
-        EXPECT_EQ(block.columns(), 2);
+    Block make_scalar_block(const std::vector<std::pair<std::string, DataTypePtr>>& columns) {
+        Block block;
+        for (const auto& [name, type] : columns) {
+            block.insert(ColumnWithTypeAndName(type->create_column(), type, name));
+        }
+        return block;
+    }
 
-        // Verify column names and types
-        auto columns_with_names = block.get_columns_with_type_and_name();
-        std::vector<std::string> expected_column_names = {"name", "profile"};
-        for (size_t i = 0; i < expected_column_names.size(); i++) {
-            EXPECT_EQ(columns_with_names[i].name, expected_column_names[i]);
+    void verify_nullable_string_column_values(const Block& block, const std::string& column_name,
+                                              const std::vector<std::string>& expected_values) {
+        const auto& column = block.get_by_position(block.get_position_by_name(column_name));
+        auto* nullable = check_and_get_column<ColumnNullable>(column.column.get());
+        ASSERT_NE(nullable, nullptr);
+        const auto& nested = static_cast<const ColumnString&>(nullable->get_nested_column());
+        ASSERT_EQ(nullable->size(), expected_values.size());
+        for (size_t i = 0; i < expected_values.size(); ++i) {
+            ASSERT_FALSE(nullable->is_null_at(i));
+            EXPECT_EQ(nested.get_data_at(i).to_string(), expected_values[i]);
+        }
+    }
+
+    void verify_nullable_string_column_has_rows(const Block& block, const std::string& column_name,
+                                                size_t expected_rows) {
+        const auto& column = block.get_by_position(block.get_position_by_name(column_name));
+        auto* nullable = check_and_get_column<ColumnNullable>(column.column.get());
+        ASSERT_NE(nullable, nullptr);
+        const auto& nested = static_cast<const ColumnString&>(nullable->get_nested_column());
+        ASSERT_EQ(nullable->size(), expected_rows);
+        ASSERT_EQ(nested.size(), expected_rows);
+        if (expected_rows > 0) {
+            EXPECT_FALSE(nullable->is_null_at(0));
+        }
+    }
+
+    void verify_nullable_string_column_all_null(const Block& block, const std::string& column_name,
+                                                size_t expected_rows) {
+        const auto& column = block.get_by_position(block.get_position_by_name(column_name));
+        auto* nullable = check_and_get_column<ColumnNullable>(column.column.get());
+        ASSERT_NE(nullable, nullptr);
+        ASSERT_EQ(nullable->size(), expected_rows);
+        for (size_t i = 0; i < expected_rows; ++i) {
+            EXPECT_TRUE(nullable->is_null_at(i));
+        }
+    }
+
+    void verify_nullable_int64_column_sequence(const Block& block, const std::string& column_name,
+                                               int64_t start_value) {
+        const auto& column = block.get_by_position(block.get_position_by_name(column_name));
+        auto* nullable = check_and_get_column<ColumnNullable>(column.column.get());
+        ASSERT_NE(nullable, nullptr);
+        const auto& nested = static_cast<const ColumnInt64&>(nullable->get_nested_column());
+        for (size_t i = 0; i < nullable->size(); ++i) {
+            ASSERT_FALSE(nullable->is_null_at(i));
+            EXPECT_EQ(nested.get_element(i), start_value + static_cast<int64_t>(i));
+        }
+    }
+
+    void verify_nullable_int64_column_constant(const Block& block, const std::string& column_name,
+                                               int64_t expected_value) {
+        const auto& column = block.get_by_position(block.get_position_by_name(column_name));
+        auto* nullable = check_and_get_column<ColumnNullable>(column.column.get());
+        ASSERT_NE(nullable, nullptr);
+        const auto& nested = static_cast<const ColumnInt64&>(nullable->get_nested_column());
+        for (size_t i = 0; i < nullable->size(); ++i) {
+            ASSERT_FALSE(nullable->is_null_at(i));
+            EXPECT_EQ(nested.get_element(i), expected_value);
+        }
+    }
+
+    void verify_iceberg_rowid_column(const Block& block, const std::string& column_name,
+                                     const std::string& expected_file_path,
+                                     int32_t expected_partition_spec_id,
+                                     const std::string& expected_partition_data_json) {
+        const auto& column = block.get_by_position(block.get_position_by_name(column_name));
+        auto* struct_column = check_and_get_column<ColumnStruct>(column.column.get());
+        ASSERT_NE(struct_column, nullptr);
+        ASSERT_EQ(struct_column->tuple_size(), 4);
+
+        const auto& file_path_column =
+                assert_cast<const ColumnString&>(struct_column->get_column(0));
+        const auto& row_pos_column = assert_cast<const ColumnInt64&>(struct_column->get_column(1));
+        const auto& spec_id_column = assert_cast<const ColumnInt32&>(struct_column->get_column(2));
+        const auto& partition_data_column =
+                assert_cast<const ColumnString&>(struct_column->get_column(3));
+
+        for (size_t i = 0; i < struct_column->size(); ++i) {
+            EXPECT_EQ(file_path_column.get_data_at(i).to_string(), expected_file_path);
+            EXPECT_EQ(row_pos_column.get_element(i), static_cast<int64_t>(i));
+            EXPECT_EQ(spec_id_column.get_element(i), expected_partition_spec_id);
+            EXPECT_EQ(partition_data_column.get_data_at(i).to_string(),
+                      expected_partition_data_json);
+        }
+    }
+
+    void verify_global_rowid_column(const Block& block, const std::string& column_name,
+                                    uint8_t expected_version, int64_t expected_backend_id,
+                                    uint32_t expected_file_id) {
+        const auto& column = block.get_by_position(block.get_position_by_name(column_name));
+        const auto& string_column = assert_cast<const ColumnString&>(*column.column);
+        for (size_t i = 0; i < string_column.size(); ++i) {
+            ASSERT_EQ(string_column.get_data_at(i).size, sizeof(GlobalRowLoacationV2));
+            auto location = *reinterpret_cast<const GlobalRowLoacationV2*>(
+                    string_column.get_data_at(i).data);
+            EXPECT_EQ(location.version, expected_version);
+            EXPECT_EQ(location.backend_id, expected_backend_id);
+            EXPECT_EQ(location.file_id, expected_file_id);
+            EXPECT_EQ(location.row_id, static_cast<uint32_t>(i));
+        }
+    }
+
+    doris::schema::external::TSchema build_history_schema_with_name_field(int32_t field_id) {
+        doris::schema::external::TSchema schema;
+        schema.__set_schema_id(1);
+
+        TColumnType struct_type;
+        struct_type.type = TPrimitiveType::STRUCT;
+        doris::schema::external::TStructField root_field;
+
+        TColumnType string_type;
+        string_type.type = TPrimitiveType::STRING;
+        auto name_field = std::make_shared<doris::schema::external::TField>();
+        name_field->name = "name";
+        name_field->id = field_id;
+        name_field->type = string_type;
+
+        doris::schema::external::TFieldPtr name_ptr;
+        name_ptr.__set_field_ptr(name_field);
+        root_field.fields.emplace_back(name_ptr);
+
+        schema.__set_root_field(root_field);
+        return schema;
+    }
+
+    void read_iceberg_parquet_scalar_block(
+            const std::string& actual_file, TFileRangeDesc scan_range,
+            const TupleDescriptor* tuple_descriptor,
+            const std::unordered_map<std::string, uint32_t>& col_name_to_block_idx,
+            std::vector<ColumnDescriptor> column_descs,
+            const std::vector<std::pair<std::string, DataTypePtr>>& block_columns,
+            size_t* read_rows, Block* block,
+            const TFileScanRangeParams* custom_scan_params = nullptr,
+            const std::function<void(IcebergParquetReader*)>& customize_reader = nullptr) {
+        auto local_fs = io::global_local_filesystem();
+        int64_t file_size = 0;
+        auto st = local_fs->file_size(actual_file, &file_size);
+        if (!st.ok()) {
+            GTEST_SKIP() << "Test file not found: " << actual_file;
+            return;
         }
 
-        // Verify column types
-        EXPECT_TRUE(columns_with_names[0].type->get_name().find("String") !=
-                    std::string::npos); // name is STRING
-        EXPECT_TRUE(columns_with_names[1].type->get_name().find("Struct") !=
-                    std::string::npos); // profile is STRUCT
+        RuntimeState runtime_state((TQueryOptions()), TQueryGlobals());
+        TFileScanRangeParams scan_params =
+                custom_scan_params ? *custom_scan_params : TFileScanRangeParams {};
+        scan_params.format_type = TFileFormatType::FORMAT_PARQUET;
 
-        // Print row count for each column and nested subcolumns
-        std::cout << "Block rows: " << block.rows() << std::endl;
+        scan_range.start_offset = 0;
+        scan_range.size = file_size;
+        scan_range.path = actual_file;
 
-        // Helper function to recursively print column row counts and check size > 0
-        std::function<void(const ColumnPtr&, const DataTypePtr&, const std::string&, int)>
-                print_column_rows = [&](const ColumnPtr& col, const DataTypePtr& type,
-                                        const std::string& name, int depth) {
-                    std::string indent(depth * 2, ' ');
-                    std::cout << indent << name << " row count: " << col->size() << std::endl;
-                    EXPECT_GT(col->size(), 0) << name << " column/subcolumn size should be > 0";
-
-                    // Check if it's a nullable column
-                    if (const auto* nullable_col = typeid_cast<const ColumnNullable*>(col.get())) {
-                        auto nested_type =
-                                assert_cast<const DataTypeNullable*>(type.get())->get_nested_type();
-
-                        // Only add ".nested" suffix for non-leaf (complex) nullable columns
-                        // Leaf columns like String, Int, etc. should not get the ".nested" suffix
-                        bool is_complex_type =
-                                (typeid_cast<const DataTypeStruct*>(nested_type.get()) !=
-                                 nullptr) ||
-                                (typeid_cast<const DataTypeArray*>(nested_type.get()) != nullptr) ||
-                                (typeid_cast<const DataTypeMap*>(nested_type.get()) != nullptr);
-
-                        std::string nested_name = is_complex_type ? name + ".nested" : name;
-                        print_column_rows(nullable_col->get_nested_column_ptr(), nested_type,
-                                          nested_name, depth + (is_complex_type ? 1 : 0));
-                    }
-                    // Check if it's a struct column
-                    else if (const auto* struct_col = typeid_cast<const ColumnStruct*>(col.get())) {
-                        auto struct_type = assert_cast<const DataTypeStruct*>(type.get());
-                        for (size_t i = 0; i < struct_col->tuple_size(); ++i) {
-                            std::string field_name = struct_type->get_element_name(i);
-                            auto field_type = struct_type->get_element(i);
-                            print_column_rows(struct_col->get_column_ptr(i), field_type,
-                                              name + "." + field_name, depth + 1);
-                        }
-                    }
-                    // Check if it's an array column
-                    else if (const auto* array_col = typeid_cast<const ColumnArray*>(col.get())) {
-                        auto array_type = assert_cast<const DataTypeArray*>(type.get());
-                        auto element_type = array_type->get_nested_type();
-                        print_column_rows(array_col->get_data_ptr(), element_type, name + ".data",
-                                          depth + 1);
-                    }
-                };
-
-        // Print row counts for all columns
-        for (size_t i = 0; i < block.columns(); ++i) {
-            const auto& column_with_name = block.get_by_position(i);
-            print_column_rows(column_with_name.column, column_with_name.type, column_with_name.name,
-                              0);
-            EXPECT_EQ(column_with_name.column->size(), block.rows())
-                    << "Column " << column_with_name.name << " size mismatch";
+        RuntimeProfile profile("test_profile");
+        cctz::time_zone ctz;
+        TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+        auto iceberg_reader = std::make_unique<IcebergParquetReader>(
+                nullptr, &profile, scan_params, scan_range, 1024, &ctz, nullptr, &runtime_state,
+                cache.get());
+        ASSERT_NE(iceberg_reader, nullptr);
+        if (customize_reader) {
+            customize_reader(iceberg_reader.get());
         }
+
+        ParquetInitContext pq_ctx;
+        pq_ctx.column_descs = &column_descs;
+        pq_ctx.col_name_to_block_idx =
+                const_cast<std::unordered_map<std::string, uint32_t>*>(&col_name_to_block_idx);
+        pq_ctx.tuple_descriptor = tuple_descriptor;
+        pq_ctx.params = &scan_params;
+        pq_ctx.range = &scan_range;
+        st = iceberg_reader->init_reader(&pq_ctx);
+        ASSERT_TRUE(st.ok()) << st;
+
+        *block = make_scalar_block(block_columns);
+        bool eof = false;
+        st = iceberg_reader->get_next_block(block, read_rows, &eof);
+        ASSERT_TRUE(st.ok()) << st;
+    }
+
+    void read_iceberg_orc_scalar_block(
+            const std::string& actual_file, TFileRangeDesc scan_range,
+            const TupleDescriptor* tuple_descriptor,
+            const std::unordered_map<std::string, uint32_t>& col_name_to_block_idx,
+            std::vector<ColumnDescriptor> column_descs,
+            const std::vector<std::pair<std::string, DataTypePtr>>& block_columns,
+            size_t* read_rows, Block* block,
+            const TFileScanRangeParams* custom_scan_params = nullptr,
+            const std::function<void(IcebergOrcReader*)>& customize_reader = nullptr) {
+        auto local_fs = io::global_local_filesystem();
+        int64_t file_size = 0;
+        auto st = local_fs->file_size(actual_file, &file_size);
+        if (!st.ok()) {
+            GTEST_SKIP() << "Test file not found: " << actual_file;
+            return;
+        }
+
+        RuntimeState runtime_state((TQueryOptions()), TQueryGlobals());
+        TFileScanRangeParams scan_params =
+                custom_scan_params ? *custom_scan_params : TFileScanRangeParams {};
+        scan_params.format_type = TFileFormatType::FORMAT_ORC;
+
+        scan_range.start_offset = 0;
+        scan_range.size = file_size;
+        scan_range.path = actual_file;
+
+        RuntimeProfile profile("test_profile");
+        auto iceberg_reader =
+                std::make_unique<IcebergOrcReader>(nullptr, &profile, &runtime_state, scan_params,
+                                                   scan_range, 1024, "CST", nullptr, cache.get());
+        ASSERT_NE(iceberg_reader, nullptr);
+        if (customize_reader) {
+            customize_reader(iceberg_reader.get());
+        }
+
+        OrcInitContext orc_ctx;
+        orc_ctx.column_descs = &column_descs;
+        orc_ctx.col_name_to_block_idx =
+                const_cast<std::unordered_map<std::string, uint32_t>*>(&col_name_to_block_idx);
+        orc_ctx.tuple_descriptor = tuple_descriptor;
+        orc_ctx.row_descriptor = nullptr;
+        orc_ctx.params = &scan_params;
+        orc_ctx.range = &scan_range;
+        st = iceberg_reader->init_reader(&orc_ctx);
+        ASSERT_TRUE(st.ok()) << st;
+
+        *block = make_scalar_block(block_columns);
+        bool eof = false;
+        st = iceberg_reader->get_next_block(block, read_rows, &eof);
+        ASSERT_TRUE(st.ok()) << st;
+    }
+
+    void read_iceberg_parquet_test_file(const std::string& test_file) {
+        auto local_fs = io::global_local_filesystem();
+        int64_t file_size = 0;
+        auto st = local_fs->file_size(test_file, &file_size);
+        if (!st.ok()) {
+            GTEST_SKIP() << "Test file not found: " << test_file;
+        }
+
+        RuntimeState runtime_state((TQueryOptions()), TQueryGlobals());
+        TFileScanRangeParams scan_params;
+        scan_params.format_type = TFileFormatType::FORMAT_PARQUET;
+
+        TFileRangeDesc scan_range;
+        scan_range.start_offset = 0;
+        scan_range.size = file_size;
+        scan_range.path = test_file;
+
+        RuntimeProfile profile("test_profile");
+
+        cctz::time_zone ctz;
+        TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+        auto iceberg_reader = std::make_unique<IcebergParquetReader>(
+                nullptr, &profile, scan_params, scan_range, 1024, &ctz, nullptr, &runtime_state,
+                cache.get());
+        ASSERT_NE(iceberg_reader, nullptr);
+
+        DataTypePtr coordinates_struct_type, address_struct_type, phone_struct_type;
+        DataTypePtr contact_struct_type, hobby_element_struct_type, hobbies_array_type;
+        DataTypePtr profile_struct_type, name_type;
+        create_complex_struct_types(coordinates_struct_type, address_struct_type, phone_struct_type,
+                                    contact_struct_type, hobby_element_struct_type,
+                                    hobbies_array_type, profile_struct_type, name_type);
+
+        DescriptorTbl* desc_tbl;
+        ObjectPool obj_pool;
+        TDescriptorTable t_desc_table;
+        TTableDescriptor t_table_desc;
+        const TupleDescriptor* tuple_descriptor =
+                create_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc);
+
+        std::vector<std::string> table_col_names = {"name", "profile"};
+        std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0},
+                                                                           {"profile", 1}};
+        std::vector<ColumnDescriptor> column_descs;
+        for (const auto& name : table_col_names) {
+            ColumnDescriptor desc;
+            desc.name = name;
+            column_descs.push_back(desc);
+        }
+
+        ParquetInitContext pq_ctx;
+        pq_ctx.column_descs = &column_descs;
+        pq_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+        pq_ctx.tuple_descriptor = tuple_descriptor;
+        pq_ctx.params = &scan_params;
+        pq_ctx.range = &scan_range;
+        st = iceberg_reader->init_reader(&pq_ctx);
+        ASSERT_TRUE(st.ok()) << st;
+
+        Block block = reader_test::make_name_profile_block(name_type, profile_struct_type);
+        size_t read_rows = 0;
+        bool eof = false;
+        st = iceberg_reader->get_next_block(&block, &read_rows, &eof);
+        ASSERT_TRUE(st.ok()) << st;
+        verify_test_results(block, read_rows);
+    }
+
+    void read_iceberg_orc_test_file(const std::string& test_file) {
+        auto local_fs = io::global_local_filesystem();
+        int64_t file_size = 0;
+        auto st = local_fs->file_size(test_file, &file_size);
+        if (!st.ok()) {
+            GTEST_SKIP() << "Test file not found: " << test_file;
+        }
+
+        RuntimeState runtime_state((TQueryOptions()), TQueryGlobals());
+        TFileScanRangeParams scan_params;
+        scan_params.format_type = TFileFormatType::FORMAT_ORC;
+
+        TFileRangeDesc scan_range;
+        scan_range.start_offset = 0;
+        scan_range.size = file_size;
+        scan_range.path = test_file;
+
+        RuntimeProfile profile("test_profile");
+        auto iceberg_reader =
+                std::make_unique<IcebergOrcReader>(nullptr, &profile, &runtime_state, scan_params,
+                                                   scan_range, 1024, "CST", nullptr, cache.get());
+        ASSERT_NE(iceberg_reader, nullptr);
+
+        DataTypePtr coordinates_struct_type, address_struct_type, phone_struct_type;
+        DataTypePtr contact_struct_type, hobby_element_struct_type, hobbies_array_type;
+        DataTypePtr profile_struct_type, name_type;
+        create_complex_struct_types(coordinates_struct_type, address_struct_type, phone_struct_type,
+                                    contact_struct_type, hobby_element_struct_type,
+                                    hobbies_array_type, profile_struct_type, name_type);
+
+        DescriptorTbl* desc_tbl;
+        ObjectPool obj_pool;
+        TDescriptorTable t_desc_table;
+        TTableDescriptor t_table_desc;
+        const TupleDescriptor* tuple_descriptor =
+                create_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc);
+
+        std::vector<std::string> table_col_names = {"name", "profile"};
+        std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0},
+                                                                           {"profile", 1}};
+        std::vector<ColumnDescriptor> column_descs;
+        for (const auto& name : table_col_names) {
+            ColumnDescriptor desc;
+            desc.name = name;
+            column_descs.push_back(desc);
+        }
+
+        OrcInitContext orc_ctx;
+        orc_ctx.column_descs = &column_descs;
+        orc_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+        orc_ctx.tuple_descriptor = tuple_descriptor;
+        orc_ctx.row_descriptor = nullptr;
+        orc_ctx.params = &scan_params;
+        orc_ctx.range = &scan_range;
+        st = iceberg_reader->init_reader(&orc_ctx);
+        ASSERT_TRUE(st.ok()) << st;
+
+        Block block = reader_test::make_name_profile_block(name_type, profile_struct_type);
+        size_t read_rows = 0;
+        bool eof = false;
+        st = iceberg_reader->get_next_block(&block, &read_rows, &eof);
+        ASSERT_TRUE(st.ok()) << st;
+        verify_test_results(block, read_rows);
     }
 
     std::unique_ptr<doris::FileMetaCache> cache;
@@ -612,10 +959,9 @@ TEST_F(IcebergReaderTest, generated_position_delete_file_is_mixed_encoded) {
     RuntimeState runtime_state((TQueryOptions()), TQueryGlobals());
     TFileScanRangeParams scan_params;
     TFileRangeDesc scan_range;
-    io::FileReaderSPtr file_reader;
     const tparquet::FileMetaData* file_meta_data = nullptr;
-    auto parquet_reader = create_delete_file_parquet_reader(
-            &profile, &runtime_state, &scan_params, &scan_range, &file_reader, &file_meta_data);
+    auto parquet_reader = create_delete_file_parquet_reader(&profile, &runtime_state, &scan_params,
+                                                            &scan_range, &file_meta_data);
     ASSERT_NE(parquet_reader, nullptr);
     ASSERT_NE(file_meta_data, nullptr);
     ASSERT_EQ(file_meta_data->row_groups.size(), 1);
@@ -638,110 +984,665 @@ TEST_F(IcebergReaderTest, generated_position_delete_file_is_mixed_encoded) {
     EXPECT_TRUE(has_dictionary_encoding);
 }
 
-// Test reading real Iceberg Parquet file using IcebergTableReader
 TEST_F(IcebergReaderTest, read_iceberg_parquet_file) {
-    // Read only: name, profile.address.coordinates.lat, profile.address.coordinates.lng, profile.contact.email
-    // Setup table descriptor for test columns with new schema:
-    /**
-    Schema:
-    message table {
-    required int64 id = 1;
-    required binary name (STRING) = 2;
-    required group profile = 3 {
-        optional group address = 4 {
-        optional binary street (STRING) = 7;
-        optional binary city (STRING) = 8;
-        optional group coordinates = 9 {
-            optional double lat = 10;
-            optional double lng = 11;
-        }
-        }
-        optional group contact = 5 {
-        optional binary email (STRING) = 12;
-        optional group phone = 13 {
-            optional binary country_code (STRING) = 14;
-            optional binary number (STRING) = 15;
-        }
-        }
-        optional group hobbies (LIST) = 6 {
-        repeated group list {
-            optional group element = 16 {
-            optional binary name (STRING) = 17;
-            optional int32 level = 18;
-            }
-        }
-        }
-    }
-    }
-    */
-
-    // Open the Iceberg Parquet test file
-    auto local_fs = io::global_local_filesystem();
-    io::FileReaderSPtr file_reader;
-    std::string test_file =
+    read_iceberg_parquet_test_file(
             "./be/test/exec/test_data/complex_user_profiles_iceberg_parquet/data/"
-            "00000-0-a0022aad-d3b6-4e73-b181-f0a09aac7034-0-00001.parquet";
-    auto st = local_fs->open_file(test_file, &file_reader);
+            "00000-0-a0022aad-d3b6-4e73-b181-f0a09aac7034-0-00001.parquet");
+}
+
+TEST_F(IcebergReaderTest, read_iceberg_orc_file) {
+    read_iceberg_orc_test_file(
+            "./be/test/exec/test_data/complex_user_profiles_iceberg_orc/data/"
+            "00000-0-e4897963-0081-4127-bebe-35dc7dc1edeb-0-00001.orc");
+}
+
+TEST_F(IcebergReaderTest, read_nested_iceberg_parquet_file) {
+    read_iceberg_parquet_test_file(
+            "./be/test/exec/test_data/nested_user_profiles_iceberg_parquet/data/"
+            "00000-9-a7e0135f-d581-40e4-8d56-a929aded99e4-0-00001.parquet");
+}
+
+TEST_F(IcebergReaderTest, read_nested_iceberg_orc_file) {
+    read_iceberg_orc_test_file(
+            "./be/test/exec/test_data/nested_user_profiles_iceberg_orc/data/"
+            "00000-8-5a144c37-16a4-47c6-96db-0007175b5c90-0-00001.orc");
+}
+
+TEST_F(IcebergReaderTest, fills_partition_column_from_scan_range_for_parquet) {
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {"name", "year"};
+    std::vector<int32_t> table_column_unique_ids = {2, 100};
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING,
+                                                            TPrimitiveType::STRING};
+    const TupleDescriptor* tuple_descriptor = create_simple_tuple_descriptor(
+            &desc_tbl, obj_pool, t_desc_table, t_table_desc, table_column_names,
+            table_column_unique_ids, table_column_types);
+
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0}, {"year", 1}};
+    std::vector<ColumnDescriptor> column_descs = {
+            {"name", tuple_descriptor->slots()[0], ColumnCategory::REGULAR, nullptr},
+            {"year", tuple_descriptor->slots()[1], ColumnCategory::REGULAR, nullptr}};
+
+    TFileRangeDesc scan_range;
+    scan_range.path =
+            "./be/test/exec/test_data/nested_user_profiles_iceberg_parquet/data/"
+            "00000-9-a7e0135f-d581-40e4-8d56-a929aded99e4-0-00001.parquet";
+    scan_range.__isset.table_format_params = true;
+    scan_range.__set_columns_from_path_keys({"year"});
+    scan_range.__set_columns_from_path({"2024"});
+
+    auto nullable_string = make_nullable(std::make_shared<DataTypeString>());
+    size_t read_rows = 0;
+    Block block;
+    read_iceberg_parquet_scalar_block(
+            scan_range.path, scan_range, tuple_descriptor, col_name_to_block_idx, column_descs,
+            {{"name", nullable_string}, {"year", nullable_string}}, &read_rows, &block);
+
+    ASSERT_GT(read_rows, 0);
+    EXPECT_EQ(block.rows(), read_rows);
+    verify_nullable_string_column_values(block, "year",
+                                         std::vector<std::string>(read_rows, "2024"));
+}
+
+TEST_F(IcebergReaderTest, history_schema_without_field_ids_falls_back_to_name_for_parquet) {
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {"name"};
+    std::vector<int32_t> table_column_unique_ids = {2};
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING};
+    const TupleDescriptor* tuple_descriptor = create_simple_tuple_descriptor(
+            &desc_tbl, obj_pool, t_desc_table, t_table_desc, table_column_names,
+            table_column_unique_ids, table_column_types);
+
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0}};
+    std::vector<ColumnDescriptor> column_descs = {
+            {"name", tuple_descriptor->slots()[0], ColumnCategory::REGULAR, nullptr}};
+
+    TFileRangeDesc scan_range;
+    scan_range.path =
+            "./be/test/exec/test_data/nested_user_profiles_parquet/"
+            "part-00000-64a7a390-1a03-4efc-ab51-557e9369a1f9-c000.snappy.parquet";
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_current_schema_id(1);
+    scan_params.__set_history_schema_info({build_history_schema_with_name_field(2)});
+
+    auto nullable_string = make_nullable(std::make_shared<DataTypeString>());
+    size_t read_rows = 0;
+    Block block;
+    read_iceberg_parquet_scalar_block(
+            scan_range.path, scan_range, tuple_descriptor, col_name_to_block_idx, column_descs,
+            {{"name", nullable_string}}, &read_rows, &block, &scan_params);
+
+    ASSERT_GT(read_rows, 0);
+    EXPECT_EQ(block.rows(), read_rows);
+    verify_nullable_string_column_has_rows(block, "name", read_rows);
+}
+
+TEST_F(IcebergReaderTest, disabled_partition_fallback_keeps_missing_partition_null_for_parquet) {
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {"name", "year"};
+    std::vector<int32_t> table_column_unique_ids = {2, 100};
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING,
+                                                            TPrimitiveType::STRING};
+    const TupleDescriptor* tuple_descriptor = create_simple_tuple_descriptor(
+            &desc_tbl, obj_pool, t_desc_table, t_table_desc, table_column_names,
+            table_column_unique_ids, table_column_types);
+
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0}, {"year", 1}};
+    std::vector<ColumnDescriptor> column_descs = {
+            {"name", tuple_descriptor->slots()[0], ColumnCategory::REGULAR, nullptr},
+            {"year", tuple_descriptor->slots()[1], ColumnCategory::REGULAR, nullptr}};
+
+    TFileRangeDesc scan_range;
+    scan_range.path =
+            "./be/test/exec/test_data/nested_user_profiles_iceberg_parquet/data/"
+            "00000-9-a7e0135f-d581-40e4-8d56-a929aded99e4-0-00001.parquet";
+    scan_range.__isset.table_format_params = true;
+    scan_range.__set_columns_from_path_keys({"year"});
+    scan_range.__set_columns_from_path({"2024"});
+
+    auto nullable_string = make_nullable(std::make_shared<DataTypeString>());
+    size_t read_rows = 0;
+    Block block;
+    auto old_value = config::enable_iceberg_partition_column_fallback;
+    Defer restore_fallback =
+            Defer([&]() { config::enable_iceberg_partition_column_fallback = old_value; });
+    config::enable_iceberg_partition_column_fallback = false;
+    read_iceberg_parquet_scalar_block(
+            scan_range.path, scan_range, tuple_descriptor, col_name_to_block_idx, column_descs,
+            {{"name", nullable_string}, {"year", nullable_string}}, &read_rows, &block);
+
+    ASSERT_GT(read_rows, 0);
+    EXPECT_EQ(block.rows(), read_rows);
+    verify_nullable_string_column_all_null(block, "year", read_rows);
+}
+
+TEST_F(IcebergReaderTest, fills_iceberg_rowid_synthesized_column_for_parquet) {
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {BeConsts::ICEBERG_ROWID_COL};
+    std::vector<int32_t> table_column_unique_ids = {200};
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRUCT};
+    const TupleDescriptor* tuple_descriptor = create_simple_tuple_descriptor(
+            &desc_tbl, obj_pool, t_desc_table, t_table_desc, table_column_names,
+            table_column_unique_ids, table_column_types);
+
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {
+            {BeConsts::ICEBERG_ROWID_COL, 0}};
+    std::vector<ColumnDescriptor> column_descs = {{BeConsts::ICEBERG_ROWID_COL,
+                                                   tuple_descriptor->slots()[0],
+                                                   ColumnCategory::SYNTHESIZED, nullptr}};
+
+    TFileRangeDesc scan_range;
+    scan_range.path =
+            "./be/test/exec/test_data/nested_user_profiles_iceberg_parquet/data/"
+            "00000-9-a7e0135f-d581-40e4-8d56-a929aded99e4-0-00001.parquet";
+    scan_range.__isset.table_format_params = true;
+    scan_range.table_format_params.table_format_type = "iceberg";
+    scan_range.table_format_params.iceberg_params.__set_original_file_path(scan_range.path);
+    scan_range.table_format_params.iceberg_params.__set_partition_spec_id(7);
+    scan_range.table_format_params.iceberg_params.__set_partition_data_json("{\"year\":2024}");
+
+    auto rowid_struct_type = std::make_shared<DataTypeStruct>(
+            DataTypes {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt64>(),
+                       std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()},
+            Strings {"file_path", "pos", "partition_spec_id", "partition_data"});
+    size_t read_rows = 0;
+    Block block;
+    read_iceberg_parquet_scalar_block(
+            scan_range.path, scan_range, tuple_descriptor, col_name_to_block_idx, column_descs,
+            {{BeConsts::ICEBERG_ROWID_COL, rowid_struct_type}}, &read_rows, &block);
+
+    ASSERT_GT(read_rows, 0);
+    EXPECT_EQ(block.rows(), read_rows);
+    verify_iceberg_rowid_column(block, BeConsts::ICEBERG_ROWID_COL, scan_range.path, 7,
+                                "{\"year\":2024}");
+}
+
+TEST_F(IcebergReaderTest, fills_global_rowid_synthesized_column_for_parquet) {
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::string global_rowid_col_name = BeConsts::GLOBAL_ROWID_COL + "test";
+    std::vector<std::string> table_column_names = {global_rowid_col_name};
+    std::vector<int32_t> table_column_unique_ids = {201};
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING};
+    const TupleDescriptor* tuple_descriptor = create_simple_tuple_descriptor(
+            &desc_tbl, obj_pool, t_desc_table, t_table_desc, table_column_names,
+            table_column_unique_ids, table_column_types);
+
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{global_rowid_col_name, 0}};
+    std::vector<ColumnDescriptor> column_descs = {{global_rowid_col_name,
+                                                   tuple_descriptor->slots()[0],
+                                                   ColumnCategory::SYNTHESIZED, nullptr}};
+
+    TFileRangeDesc scan_range;
+    scan_range.path =
+            "./be/test/exec/test_data/nested_user_profiles_iceberg_parquet/data/"
+            "00000-9-a7e0135f-d581-40e4-8d56-a929aded99e4-0-00001.parquet";
+
+    auto global_rowid_type = std::make_shared<DataTypeString>();
+    size_t read_rows = 0;
+    Block block;
+    constexpr uint8_t kVersion = 1;
+    constexpr int64_t kBackendId = 10086;
+    constexpr uint32_t kFileId = 7;
+    read_iceberg_parquet_scalar_block(
+            scan_range.path, scan_range, tuple_descriptor, col_name_to_block_idx, column_descs,
+            {{global_rowid_col_name, global_rowid_type}}, &read_rows, &block, nullptr,
+            [&](IcebergParquetReader* reader) {
+                reader->set_create_row_id_column_iterator_func([&]() {
+                    return std::make_shared<segment_v2::RowIdColumnIteratorV2>(kVersion, kBackendId,
+                                                                               kFileId);
+                });
+            });
+
+    ASSERT_GT(read_rows, 0);
+    EXPECT_EQ(block.rows(), read_rows);
+    verify_global_rowid_column(block, global_rowid_col_name, kVersion, kBackendId, kFileId);
+}
+
+TEST_F(IcebergReaderTest, reads_generated_column_from_file_for_parquet) {
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {"name"};
+    std::vector<int32_t> table_column_unique_ids = {2};
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING};
+    const TupleDescriptor* tuple_descriptor = create_simple_tuple_descriptor(
+            &desc_tbl, obj_pool, t_desc_table, t_table_desc, table_column_names,
+            table_column_unique_ids, table_column_types);
+
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0}};
+    std::vector<ColumnDescriptor> column_descs = {
+            {"name", tuple_descriptor->slots()[0], ColumnCategory::GENERATED, nullptr}};
+
+    TFileRangeDesc scan_range;
+    scan_range.path =
+            "./be/test/exec/test_data/nested_user_profiles_iceberg_parquet/data/"
+            "00000-9-a7e0135f-d581-40e4-8d56-a929aded99e4-0-00001.parquet";
+
+    auto nullable_string = make_nullable(std::make_shared<DataTypeString>());
+    size_t read_rows = 0;
+    Block block;
+    read_iceberg_parquet_scalar_block(scan_range.path, scan_range, tuple_descriptor,
+                                      col_name_to_block_idx, column_descs,
+                                      {{"name", nullable_string}}, &read_rows, &block);
+
+    ASSERT_GT(read_rows, 0);
+    EXPECT_EQ(block.rows(), read_rows);
+    verify_nullable_string_column_has_rows(block, "name", read_rows);
+}
+
+TEST_F(IcebergReaderTest, fills_partition_column_from_scan_range_for_orc) {
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {"name", "year"};
+    std::vector<int32_t> table_column_unique_ids = {2, 100};
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING,
+                                                            TPrimitiveType::STRING};
+    const TupleDescriptor* tuple_descriptor = create_simple_tuple_descriptor(
+            &desc_tbl, obj_pool, t_desc_table, t_table_desc, table_column_names,
+            table_column_unique_ids, table_column_types);
+
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0}, {"year", 1}};
+    std::vector<ColumnDescriptor> column_descs = {
+            {"name", tuple_descriptor->slots()[0], ColumnCategory::REGULAR, nullptr},
+            {"year", tuple_descriptor->slots()[1], ColumnCategory::REGULAR, nullptr}};
+
+    TFileRangeDesc scan_range;
+    scan_range.path =
+            "./be/test/exec/test_data/nested_user_profiles_iceberg_orc/data/"
+            "00000-8-5a144c37-16a4-47c6-96db-0007175b5c90-0-00001.orc";
+    scan_range.__isset.table_format_params = true;
+    scan_range.__set_columns_from_path_keys({"year"});
+    scan_range.__set_columns_from_path({"2024"});
+
+    auto nullable_string = make_nullable(std::make_shared<DataTypeString>());
+    size_t read_rows = 0;
+    Block block;
+    read_iceberg_orc_scalar_block(
+            scan_range.path, scan_range, tuple_descriptor, col_name_to_block_idx, column_descs,
+            {{"name", nullable_string}, {"year", nullable_string}}, &read_rows, &block);
+
+    ASSERT_GT(read_rows, 0);
+    EXPECT_EQ(block.rows(), read_rows);
+    verify_nullable_string_column_values(block, "year",
+                                         std::vector<std::string>(read_rows, "2024"));
+}
+
+TEST_F(IcebergReaderTest, history_schema_without_field_ids_falls_back_to_name_for_orc) {
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {"name"};
+    std::vector<int32_t> table_column_unique_ids = {2};
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING};
+    const TupleDescriptor* tuple_descriptor = create_simple_tuple_descriptor(
+            &desc_tbl, obj_pool, t_desc_table, t_table_desc, table_column_names,
+            table_column_unique_ids, table_column_types);
+
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0}};
+    std::vector<ColumnDescriptor> column_descs = {
+            {"name", tuple_descriptor->slots()[0], ColumnCategory::REGULAR, nullptr}};
+
+    TFileRangeDesc scan_range;
+    scan_range.path =
+            "./be/test/exec/test_data/nested_user_profiles_orc/"
+            "part-00000-62614f23-05d1-4043-a533-b155ef52b720-c000.snappy.orc";
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_current_schema_id(1);
+    scan_params.__set_history_schema_info({build_history_schema_with_name_field(2)});
+
+    auto nullable_string = make_nullable(std::make_shared<DataTypeString>());
+    size_t read_rows = 0;
+    Block block;
+    read_iceberg_orc_scalar_block(scan_range.path, scan_range, tuple_descriptor,
+                                  col_name_to_block_idx, column_descs, {{"name", nullable_string}},
+                                  &read_rows, &block, &scan_params);
+
+    ASSERT_GT(read_rows, 0);
+    EXPECT_EQ(block.rows(), read_rows);
+    verify_nullable_string_column_has_rows(block, "name", read_rows);
+}
+
+TEST_F(IcebergReaderTest, disabled_partition_fallback_keeps_missing_partition_null_for_orc) {
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {"name", "year"};
+    std::vector<int32_t> table_column_unique_ids = {2, 100};
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING,
+                                                            TPrimitiveType::STRING};
+    const TupleDescriptor* tuple_descriptor = create_simple_tuple_descriptor(
+            &desc_tbl, obj_pool, t_desc_table, t_table_desc, table_column_names,
+            table_column_unique_ids, table_column_types);
+
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0}, {"year", 1}};
+    std::vector<ColumnDescriptor> column_descs = {
+            {"name", tuple_descriptor->slots()[0], ColumnCategory::REGULAR, nullptr},
+            {"year", tuple_descriptor->slots()[1], ColumnCategory::REGULAR, nullptr}};
+
+    TFileRangeDesc scan_range;
+    scan_range.path =
+            "./be/test/exec/test_data/nested_user_profiles_iceberg_orc/data/"
+            "00000-8-5a144c37-16a4-47c6-96db-0007175b5c90-0-00001.orc";
+    scan_range.__isset.table_format_params = true;
+    scan_range.__set_columns_from_path_keys({"year"});
+    scan_range.__set_columns_from_path({"2024"});
+
+    auto nullable_string = make_nullable(std::make_shared<DataTypeString>());
+    size_t read_rows = 0;
+    Block block;
+    auto old_value = config::enable_iceberg_partition_column_fallback;
+    Defer restore_fallback =
+            Defer([&]() { config::enable_iceberg_partition_column_fallback = old_value; });
+    config::enable_iceberg_partition_column_fallback = false;
+    read_iceberg_orc_scalar_block(
+            scan_range.path, scan_range, tuple_descriptor, col_name_to_block_idx, column_descs,
+            {{"name", nullable_string}, {"year", nullable_string}}, &read_rows, &block);
+
+    ASSERT_GT(read_rows, 0);
+    EXPECT_EQ(block.rows(), read_rows);
+    verify_nullable_string_column_all_null(block, "year", read_rows);
+}
+
+TEST_F(IcebergReaderTest, fills_iceberg_rowid_synthesized_column_for_orc) {
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {"name", BeConsts::ICEBERG_ROWID_COL};
+    std::vector<int32_t> table_column_unique_ids = {2, 200};
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING,
+                                                            TPrimitiveType::STRUCT};
+    const TupleDescriptor* tuple_descriptor = create_simple_tuple_descriptor(
+            &desc_tbl, obj_pool, t_desc_table, t_table_desc, table_column_names,
+            table_column_unique_ids, table_column_types);
+
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {
+            {"name", 0}, {BeConsts::ICEBERG_ROWID_COL, 1}};
+    std::vector<ColumnDescriptor> column_descs = {
+            {"name", tuple_descriptor->slots()[0], ColumnCategory::REGULAR, nullptr},
+            {BeConsts::ICEBERG_ROWID_COL, tuple_descriptor->slots()[1], ColumnCategory::SYNTHESIZED,
+             nullptr}};
+
+    TFileRangeDesc scan_range;
+    scan_range.path =
+            "./be/test/exec/test_data/nested_user_profiles_iceberg_orc/data/"
+            "00000-8-5a144c37-16a4-47c6-96db-0007175b5c90-0-00001.orc";
+    scan_range.__isset.table_format_params = true;
+    scan_range.table_format_params.table_format_type = "iceberg";
+    scan_range.table_format_params.iceberg_params.__set_original_file_path(scan_range.path);
+    scan_range.table_format_params.iceberg_params.__set_partition_spec_id(8);
+    scan_range.table_format_params.iceberg_params.__set_partition_data_json("{\"year\":2024}");
+
+    auto rowid_struct_type = std::make_shared<DataTypeStruct>(
+            DataTypes {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt64>(),
+                       std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()},
+            Strings {"file_path", "pos", "partition_spec_id", "partition_data"});
+    auto nullable_string = make_nullable(std::make_shared<DataTypeString>());
+    size_t read_rows = 0;
+    Block block;
+    read_iceberg_orc_scalar_block(
+            scan_range.path, scan_range, tuple_descriptor, col_name_to_block_idx, column_descs,
+            {{"name", nullable_string}, {BeConsts::ICEBERG_ROWID_COL, rowid_struct_type}},
+            &read_rows, &block);
+
+    ASSERT_GT(read_rows, 0);
+    EXPECT_EQ(block.rows(), read_rows);
+    verify_iceberg_rowid_column(block, BeConsts::ICEBERG_ROWID_COL, scan_range.path, 8,
+                                "{\"year\":2024}");
+}
+
+TEST_F(IcebergReaderTest, fills_global_rowid_synthesized_column_for_orc) {
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::string global_rowid_col_name = BeConsts::GLOBAL_ROWID_COL + "test";
+    std::vector<std::string> table_column_names = {"name", global_rowid_col_name};
+    std::vector<int32_t> table_column_unique_ids = {2, 201};
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING,
+                                                            TPrimitiveType::STRING};
+    const TupleDescriptor* tuple_descriptor = create_simple_tuple_descriptor(
+            &desc_tbl, obj_pool, t_desc_table, t_table_desc, table_column_names,
+            table_column_unique_ids, table_column_types);
+
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0},
+                                                                       {global_rowid_col_name, 1}};
+    std::vector<ColumnDescriptor> column_descs = {
+            {"name", tuple_descriptor->slots()[0], ColumnCategory::REGULAR, nullptr},
+            {global_rowid_col_name, tuple_descriptor->slots()[1], ColumnCategory::SYNTHESIZED,
+             nullptr}};
+
+    TFileRangeDesc scan_range;
+    scan_range.path =
+            "./be/test/exec/test_data/nested_user_profiles_iceberg_orc/data/"
+            "00000-8-5a144c37-16a4-47c6-96db-0007175b5c90-0-00001.orc";
+
+    auto global_rowid_type = std::make_shared<DataTypeString>();
+    auto nullable_string = make_nullable(std::make_shared<DataTypeString>());
+    size_t read_rows = 0;
+    Block block;
+    constexpr uint8_t kVersion = 1;
+    constexpr int64_t kBackendId = 10010;
+    constexpr uint32_t kFileId = 11;
+    read_iceberg_orc_scalar_block(
+            scan_range.path, scan_range, tuple_descriptor, col_name_to_block_idx, column_descs,
+            {{"name", nullable_string}, {global_rowid_col_name, global_rowid_type}}, &read_rows,
+            &block, nullptr, [&](IcebergOrcReader* reader) {
+                reader->set_create_row_id_column_iterator_func([&]() {
+                    return std::make_shared<segment_v2::RowIdColumnIteratorV2>(kVersion, kBackendId,
+                                                                               kFileId);
+                });
+            });
+
+    ASSERT_GT(read_rows, 0);
+    EXPECT_EQ(block.rows(), read_rows);
+    verify_global_rowid_column(block, global_rowid_col_name, kVersion, kBackendId, kFileId);
+}
+
+TEST_F(IcebergReaderTest, reads_generated_column_from_file_for_orc) {
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {"name"};
+    std::vector<int32_t> table_column_unique_ids = {2};
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING};
+    const TupleDescriptor* tuple_descriptor = create_simple_tuple_descriptor(
+            &desc_tbl, obj_pool, t_desc_table, t_table_desc, table_column_names,
+            table_column_unique_ids, table_column_types);
+
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0}};
+    std::vector<ColumnDescriptor> column_descs = {
+            {"name", tuple_descriptor->slots()[0], ColumnCategory::GENERATED, nullptr}};
+
+    TFileRangeDesc scan_range;
+    scan_range.path =
+            "./be/test/exec/test_data/nested_user_profiles_iceberg_orc/data/"
+            "00000-8-5a144c37-16a4-47c6-96db-0007175b5c90-0-00001.orc";
+
+    auto nullable_string = make_nullable(std::make_shared<DataTypeString>());
+    size_t read_rows = 0;
+    Block block;
+    read_iceberg_orc_scalar_block(scan_range.path, scan_range, tuple_descriptor,
+                                  col_name_to_block_idx, column_descs, {{"name", nullable_string}},
+                                  &read_rows, &block);
+
+    ASSERT_GT(read_rows, 0);
+    EXPECT_EQ(block.rows(), read_rows);
+    verify_nullable_string_column_has_rows(block, "name", read_rows);
+}
+
+TEST_F(IcebergReaderTest, fills_row_lineage_columns_from_scan_range_for_parquet) {
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {"name", "_row_id",
+                                                   "_last_updated_sequence_number"};
+    std::vector<int32_t> table_column_unique_ids = {2, 200, 201};
+    std::vector<TPrimitiveType::type> table_column_types = {
+            TPrimitiveType::STRING, TPrimitiveType::BIGINT, TPrimitiveType::BIGINT};
+    const TupleDescriptor* tuple_descriptor = create_simple_tuple_descriptor(
+            &desc_tbl, obj_pool, t_desc_table, t_table_desc, table_column_names,
+            table_column_unique_ids, table_column_types);
+
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {
+            {"name", 0}, {"_row_id", 1}, {"_last_updated_sequence_number", 2}};
+    std::vector<ColumnDescriptor> column_descs = {
+            {"name", tuple_descriptor->slots()[0], ColumnCategory::REGULAR, nullptr},
+            {"_row_id", tuple_descriptor->slots()[1], ColumnCategory::GENERATED, nullptr},
+            {"_last_updated_sequence_number", tuple_descriptor->slots()[2],
+             ColumnCategory::GENERATED, nullptr}};
+
+    TFileRangeDesc scan_range;
+    scan_range.path =
+            "./be/test/exec/test_data/nested_user_profiles_iceberg_parquet/data/"
+            "00000-9-a7e0135f-d581-40e4-8d56-a929aded99e4-0-00001.parquet";
+    scan_range.__isset.table_format_params = true;
+    scan_range.table_format_params.table_format_type = "iceberg";
+    scan_range.table_format_params.iceberg_params.__set_first_row_id(1000);
+    scan_range.table_format_params.iceberg_params.__set_last_updated_sequence_number(77);
+
+    auto nullable_string = make_nullable(std::make_shared<DataTypeString>());
+    auto nullable_int64 = make_nullable(std::make_shared<DataTypeInt64>());
+    size_t read_rows = 0;
+    Block block;
+    read_iceberg_parquet_scalar_block(scan_range.path, scan_range, tuple_descriptor,
+                                      col_name_to_block_idx, column_descs,
+                                      {{"name", nullable_string},
+                                       {"_row_id", nullable_int64},
+                                       {"_last_updated_sequence_number", nullable_int64}},
+                                      &read_rows, &block);
+
+    ASSERT_GT(read_rows, 0);
+    EXPECT_EQ(block.rows(), read_rows);
+    verify_nullable_int64_column_sequence(block, "_row_id", 1000);
+    verify_nullable_int64_column_constant(block, "_last_updated_sequence_number", 77);
+}
+
+TEST_F(IcebergReaderTest, fills_row_lineage_columns_from_scan_range_for_orc) {
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {"name", "_row_id",
+                                                   "_last_updated_sequence_number"};
+    std::vector<int32_t> table_column_unique_ids = {2, 200, 201};
+    std::vector<TPrimitiveType::type> table_column_types = {
+            TPrimitiveType::STRING, TPrimitiveType::BIGINT, TPrimitiveType::BIGINT};
+    const TupleDescriptor* tuple_descriptor = create_simple_tuple_descriptor(
+            &desc_tbl, obj_pool, t_desc_table, t_table_desc, table_column_names,
+            table_column_unique_ids, table_column_types);
+
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {
+            {"name", 0}, {"_row_id", 1}, {"_last_updated_sequence_number", 2}};
+    std::vector<ColumnDescriptor> column_descs = {
+            {"name", tuple_descriptor->slots()[0], ColumnCategory::REGULAR, nullptr},
+            {"_row_id", tuple_descriptor->slots()[1], ColumnCategory::GENERATED, nullptr},
+            {"_last_updated_sequence_number", tuple_descriptor->slots()[2],
+             ColumnCategory::GENERATED, nullptr}};
+
+    TFileRangeDesc scan_range;
+    scan_range.path =
+            "./be/test/exec/test_data/nested_user_profiles_iceberg_orc/data/"
+            "00000-8-5a144c37-16a4-47c6-96db-0007175b5c90-0-00001.orc";
+    scan_range.__isset.table_format_params = true;
+    scan_range.table_format_params.table_format_type = "iceberg";
+    scan_range.table_format_params.iceberg_params.__set_first_row_id(2000);
+    scan_range.table_format_params.iceberg_params.__set_last_updated_sequence_number(88);
+
+    auto nullable_string = make_nullable(std::make_shared<DataTypeString>());
+    auto nullable_int64 = make_nullable(std::make_shared<DataTypeInt64>());
+    size_t read_rows = 0;
+    Block block;
+    read_iceberg_orc_scalar_block(scan_range.path, scan_range, tuple_descriptor,
+                                  col_name_to_block_idx, column_descs,
+                                  {{"name", nullable_string},
+                                   {"_row_id", nullable_int64},
+                                   {"_last_updated_sequence_number", nullable_int64}},
+                                  &read_rows, &block);
+
+    ASSERT_GT(read_rows, 0);
+    EXPECT_EQ(block.rows(), read_rows);
+    verify_nullable_int64_column_sequence(block, "_row_id", 2000);
+    verify_nullable_int64_column_constant(block, "_last_updated_sequence_number", 88);
+}
+
+TEST_F(IcebergReaderTest, rejects_multiple_deletion_vectors_during_parquet_init) {
+    auto local_fs = io::global_local_filesystem();
+    std::string test_file =
+            "./be/test/exec/test_data/nested_user_profiles_iceberg_parquet/data/"
+            "00000-9-a7e0135f-d581-40e4-8d56-a929aded99e4-0-00001.parquet";
+    int64_t file_size = 0;
+    auto st = local_fs->file_size(test_file, &file_size);
     if (!st.ok()) {
         GTEST_SKIP() << "Test file not found: " << test_file;
-        return;
     }
 
-    // Setup runtime state
-    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {"name"};
+    std::vector<int32_t> table_column_unique_ids = {2};
+    std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING};
+    const TupleDescriptor* tuple_descriptor = create_simple_tuple_descriptor(
+            &desc_tbl, obj_pool, t_desc_table, t_table_desc, table_column_names,
+            table_column_unique_ids, table_column_types);
 
-    // Setup scan parameters
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"name", 0}};
+    std::vector<ColumnDescriptor> column_descs = {
+            {"name", tuple_descriptor->slots()[0], ColumnCategory::REGULAR, nullptr}};
+
+    RuntimeState runtime_state((TQueryOptions()), TQueryGlobals());
     TFileScanRangeParams scan_params;
     scan_params.format_type = TFileFormatType::FORMAT_PARQUET;
 
     TFileRangeDesc scan_range;
     scan_range.start_offset = 0;
-    scan_range.size = file_reader->size(); // Read entire file
+    scan_range.size = file_size;
     scan_range.path = test_file;
+    scan_range.__isset.table_format_params = true;
+    scan_range.table_format_params.table_format_type = "iceberg";
+    scan_range.table_format_params.iceberg_params.__set_format_version(2);
+    scan_range.table_format_params.iceberg_params.__set_original_file_path(test_file);
 
-    // Create mock profile
-    RuntimeProfile profile("test_profile");
+    TIcebergDeleteFileDesc dv1;
+    dv1.path = "memory://dv-1.bin";
+    dv1.content = IcebergParquetReader::DELETION_VECTOR;
+    TIcebergDeleteFileDesc dv2;
+    dv2.path = "memory://dv-2.bin";
+    dv2.content = IcebergParquetReader::DELETION_VECTOR;
+    scan_range.table_format_params.iceberg_params.__set_delete_files({dv1, dv2});
 
-    // Create IcebergParquetReader (IS-A ParquetReader via CRTP mixin)
-    cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
-
+    RuntimeProfile profile("multiple_dv_init_test");
     auto iceberg_reader = std::make_unique<IcebergParquetReader>(
-            nullptr /* kv_cache */, &profile, scan_params, scan_range, 1024, &ctz,
-            nullptr /* io_ctx */, &runtime_state, cache.get());
+            nullptr, &profile, scan_params, scan_range, 1024, &timezone_obj, nullptr,
+            &runtime_state, cache.get());
     ASSERT_NE(iceberg_reader, nullptr);
 
-    // Set file reader for the iceberg reader (it IS the ParquetReader)
-    iceberg_reader->set_file_reader(file_reader);
-
-    // Create complex struct types using helper function
-    DataTypePtr coordinates_struct_type, address_struct_type, phone_struct_type;
-    DataTypePtr contact_struct_type, hobby_element_struct_type, hobbies_array_type;
-    DataTypePtr profile_struct_type, name_type;
-    create_complex_struct_types(coordinates_struct_type, address_struct_type, phone_struct_type,
-                                contact_struct_type, hobby_element_struct_type, hobbies_array_type,
-                                profile_struct_type, name_type);
-
-    // Create tuple descriptor using helper function
-    DescriptorTbl* desc_tbl;
-    ObjectPool obj_pool;
-    TDescriptorTable t_desc_table;
-    TTableDescriptor t_table_desc;
-    const TupleDescriptor* tuple_descriptor =
-            create_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc);
-
-    std::vector<std::string> table_col_names = {"name", "profile"};
-    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {
-            {"name", 0},
-            {"profile", 1},
-    };
-
-    std::vector<ColumnDescriptor> column_descs;
-    for (const auto& name : table_col_names) {
-        ColumnDescriptor desc;
-        desc.name = name;
-        column_descs.push_back(desc);
-    }
     ParquetInitContext pq_ctx;
     pq_ctx.column_descs = &column_descs;
     pq_ctx.col_name_to_block_idx = &col_name_to_block_idx;
@@ -749,163 +1650,9 @@ TEST_F(IcebergReaderTest, read_iceberg_parquet_file) {
     pq_ctx.params = &scan_params;
     pq_ctx.range = &scan_range;
     st = iceberg_reader->init_reader(&pq_ctx);
-    ASSERT_TRUE(st.ok()) << st;
-
-    // set_fill_columns logic is now inlined in _do_init_reader,
-    // so no separate call is needed.
-
-    // Create block for reading nested structure (not flattened)
-    Block block;
-    {
-        MutableColumnPtr name_column = name_type->create_column();
-        block.insert(ColumnWithTypeAndName(std::move(name_column), name_type, "name"));
-        // Add profile column (nested struct)
-        MutableColumnPtr profile_column = profile_struct_type->create_column();
-        block.insert(
-                ColumnWithTypeAndName(std::move(profile_column), profile_struct_type, "profile"));
-    }
-
-    // Read data from the file
-    size_t read_rows = 0;
-    bool eof = false;
-    st = iceberg_reader->get_next_block(&block, &read_rows, &eof);
-    ASSERT_TRUE(st.ok()) << st;
-
-    // Verify test results using helper function
-    verify_test_results(block, read_rows);
-}
-
-// Test reading real Iceberg Orc file using IcebergTableReader
-TEST_F(IcebergReaderTest, read_iceberg_orc_file) {
-    // Read only: name, profile.address.coordinates.lat, profile.address.coordinates.lng, profile.contact.email
-    // Setup table descriptor for test columns with new schema:
-    /**
-    Schema:
-    message table {
-    required int64 id = 1;
-    required binary name (STRING) = 2;
-    required group profile = 3 {
-        optional group address = 4 {
-        optional binary street (STRING) = 7;
-        optional binary city (STRING) = 8;
-        optional group coordinates = 9 {
-            optional double lat = 10;
-            optional double lng = 11;
-        }
-        }
-        optional group contact = 5 {
-        optional binary email (STRING) = 12;
-        optional group phone = 13 {
-            optional binary country_code (STRING) = 14;
-            optional binary number (STRING) = 15;
-        }
-        }
-        optional group hobbies (LIST) = 6 {
-        repeated group list {
-            optional group element = 16 {
-            optional binary name (STRING) = 17;
-            optional int32 level = 18;
-            }
-        }
-        }
-    }
-    }
-    */
-
-    // Open the Iceberg Orc test file
-    auto local_fs = io::global_local_filesystem();
-    io::FileReaderSPtr file_reader;
-    std::string test_file =
-            "./be/test/exec/test_data/complex_user_profiles_iceberg_orc/data/"
-            "00000-0-e4897963-0081-4127-bebe-35dc7dc1edeb-0-00001.orc";
-    auto st = local_fs->open_file(test_file, &file_reader);
-    if (!st.ok()) {
-        GTEST_SKIP() << "Test file not found: " << test_file;
-        return;
-    }
-
-    // Setup runtime state
-    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
-
-    // Setup scan parameters
-    TFileScanRangeParams scan_params;
-    scan_params.format_type = TFileFormatType::FORMAT_ORC;
-
-    TFileRangeDesc scan_range;
-    scan_range.start_offset = 0;
-    scan_range.size = file_reader->size(); // Read entire file
-    scan_range.path = test_file;
-
-    // Create mock profile
-    RuntimeProfile profile("test_profile");
-
-    // Create IcebergOrcReader (IS-A OrcReader via CRTP mixin)
-    auto iceberg_reader = std::make_unique<IcebergOrcReader>(
-            nullptr /* kv_cache */, &profile, &runtime_state, scan_params, scan_range, 1024, "CST",
-            nullptr /* io_ctx */, cache.get());
-    ASSERT_NE(iceberg_reader, nullptr);
-
-    // Create complex struct types using helper function
-    DataTypePtr coordinates_struct_type, address_struct_type, phone_struct_type;
-    DataTypePtr contact_struct_type, hobby_element_struct_type, hobbies_array_type;
-    DataTypePtr profile_struct_type, name_type;
-    create_complex_struct_types(coordinates_struct_type, address_struct_type, phone_struct_type,
-                                contact_struct_type, hobby_element_struct_type, hobbies_array_type,
-                                profile_struct_type, name_type);
-
-    // Create tuple descriptor using helper function
-    DescriptorTbl* desc_tbl;
-    ObjectPool obj_pool;
-    TDescriptorTable t_desc_table;
-    TTableDescriptor t_table_desc;
-    const TupleDescriptor* tuple_descriptor =
-            create_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc);
-
-    std::vector<std::string> table_col_names = {"name", "profile"};
-    const RowDescriptor* row_descriptor = nullptr;
-    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {
-            {"name", 0},
-            {"profile", 1},
-    };
-
-    std::vector<ColumnDescriptor> column_descs;
-    for (const auto& name : table_col_names) {
-        ColumnDescriptor desc;
-        desc.name = name;
-        column_descs.push_back(desc);
-    }
-    OrcInitContext orc_ctx;
-    orc_ctx.column_descs = &column_descs;
-    orc_ctx.col_name_to_block_idx = &col_name_to_block_idx;
-    orc_ctx.tuple_descriptor = tuple_descriptor;
-    orc_ctx.row_descriptor = row_descriptor;
-    orc_ctx.params = &scan_params;
-    orc_ctx.range = &scan_range;
-    st = iceberg_reader->init_reader(&orc_ctx);
-    ASSERT_TRUE(st.ok()) << st;
-
-    // set_fill_columns logic is now inlined in _do_init_reader,
-    // so no separate call is needed.
-
-    // Create block for reading nested structure (not flattened)
-    Block block;
-    {
-        MutableColumnPtr name_column = name_type->create_column();
-        block.insert(ColumnWithTypeAndName(std::move(name_column), name_type, "name"));
-        // Add profile column (nested struct)
-        MutableColumnPtr profile_column = profile_struct_type->create_column();
-        block.insert(
-                ColumnWithTypeAndName(std::move(profile_column), profile_struct_type, "profile"));
-    }
-
-    // Read data from the file
-    size_t read_rows = 0;
-    bool eof = false;
-    st = iceberg_reader->get_next_block(&block, &read_rows, &eof);
-    ASSERT_TRUE(st.ok()) << st;
-
-    // Verify test results using helper function
-    verify_test_results(block, read_rows);
+    ASSERT_FALSE(st.ok());
+    EXPECT_TRUE(st.is<ErrorCode::DATA_QUALITY_ERROR>());
+    EXPECT_NE(st.to_string().find("multiple DVs"), std::string::npos);
 }
 
 } // namespace doris
