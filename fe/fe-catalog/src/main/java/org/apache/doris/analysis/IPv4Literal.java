@@ -56,10 +56,10 @@ public class IPv4Literal extends LiteralExpr {
         this.value = other.value;
     }
 
-    private static long parseIPv4toLong(String ipv4) {
+    private static long parseIPv4toLong(String ipv4) throws AnalysisException {
         String[] parts = ipv4.split("\\.");
         if (parts.length != 4) {
-            return 0L;
+            throw new AnalysisException("Invalid IPv4 format: " + ipv4);
         }
 
         long value = 0L;
@@ -68,10 +68,10 @@ public class IPv4Literal extends LiteralExpr {
             try {
                 octet = Short.parseShort(parts[i]);
             } catch (NumberFormatException e) {
-                return 0L;
+                throw new AnalysisException("Invalid IPv4 format: " + ipv4);
             }
             if (octet < 0 || octet > 255) {
-                return 0L;
+                throw new AnalysisException("Invalid IPv4 format: " + ipv4);
             }
             value = (value << 8) | octet;
         }
