@@ -79,7 +79,8 @@ using namespace ErrorCode;
 NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                              const TFileScanRangeParams& params, const TFileRangeDesc& range,
                              const std::vector<SlotDescriptor*>& file_slot_descs, bool* scanner_eof,
-                             io::IOContext* io_ctx, std::shared_ptr<io::IOContext> io_ctx_holder)
+                             size_t batch_size, io::IOContext* io_ctx,
+                             std::shared_ptr<io::IOContext> io_ctx_holder)
         : _vhandle_json_callback(nullptr),
           _state(state),
           _profile(profile),
@@ -100,7 +101,8 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
           _scanner_eof(scanner_eof),
           _current_offset(0),
           _io_ctx(io_ctx),
-          _io_ctx_holder(std::move(io_ctx_holder)) {
+          _io_ctx_holder(std::move(io_ctx_holder)),
+          _batch_size(std::max(batch_size, 1UL)) {
     if (_io_ctx == nullptr && _io_ctx_holder) {
         _io_ctx = _io_ctx_holder.get();
     }
@@ -117,7 +119,7 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
 
 NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                              const TFileRangeDesc& range,
-                             const std::vector<SlotDescriptor*>& file_slot_descs,
+                             const std::vector<SlotDescriptor*>& file_slot_descs, size_t batch_size,
                              io::IOContext* io_ctx, std::shared_ptr<io::IOContext> io_ctx_holder)
         : _vhandle_json_callback(nullptr),
           _state(nullptr),
@@ -135,7 +137,8 @@ NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams
           _parse_allocator(_parse_buffer, sizeof(_parse_buffer)),
           _origin_json_doc(&_value_allocator, sizeof(_parse_buffer), &_parse_allocator),
           _io_ctx(io_ctx),
-          _io_ctx_holder(std::move(io_ctx_holder)) {
+          _io_ctx_holder(std::move(io_ctx_holder)),
+          _batch_size(std::max(batch_size, 1UL)) {
     if (_io_ctx == nullptr && _io_ctx_holder) {
         _io_ctx = _io_ctx_holder.get();
     }
@@ -203,9 +206,10 @@ Status NewJsonReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         return Status::OK();
     }
 
-    const int batch_size = std::max(_state->batch_size(), (int)_MIN_BATCH_SIZE);
+    const auto batch_size = _batch_size;
+    const auto max_block_bytes = _state->preferred_block_size_bytes();
 
-    while (block->rows() < batch_size && !_reader_eof) {
+    while (block->rows() < batch_size && !_reader_eof && (block->bytes() < max_block_bytes)) {
         if (UNLIKELY(_read_json_by_line && _skip_first_line)) {
             size_t size = 0;
             const uint8_t* line_ptr = nullptr;
@@ -249,6 +253,15 @@ Status NewJsonReader::init_schema_reader() {
     // generate _parsed_jsonpaths and _parsed_json_root
     RETURN_IF_ERROR(_parse_jsonpath_and_json_root());
     return Status::OK();
+}
+
+void NewJsonReader::set_batch_size(size_t batch_size) {
+    // 0 means "not set" / "use default" for the row-based readers; we must
+    // never let _batch_size be 0 because _do_get_next_block uses it as the
+    // upper bound of a `while (block->rows() < batch_size)` loop and a 0
+    // would make the reader return without setting eof, causing the scanner
+    // to spin on empty blocks.
+    _batch_size = std::max(batch_size, 1UL);
 }
 
 Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,

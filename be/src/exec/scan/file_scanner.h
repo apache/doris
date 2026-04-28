@@ -40,6 +40,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
 #include "storage/olap_scan_common.h"
+#include "storage/segment/adaptive_block_size_predictor.h"
 
 namespace doris {
 class RuntimeState;
@@ -59,6 +60,7 @@ class FileScanner : public Scanner {
 
 public:
     static constexpr const char* NAME = "FileScanner";
+    static constexpr size_t ADAPTIVE_BATCH_INITIAL_PROBE_ROWS = 32;
 
     // sub profile name (for parquet/orc)
     static const std::string FileReadBytesProfile;
@@ -212,6 +214,10 @@ private:
     RuntimeProfile::Counter* _file_read_calls_counter = nullptr;
     RuntimeProfile::Counter* _file_read_time_counter = nullptr;
     RuntimeProfile::Counter* _runtime_filter_partition_pruned_range_counter = nullptr;
+    RuntimeProfile::Counter* _adaptive_batch_predicted_rows_counter = nullptr;
+    RuntimeProfile::Counter* _adaptive_batch_actual_bytes_before_truncate_counter = nullptr;
+    RuntimeProfile::Counter* _adaptive_batch_actual_bytes_after_truncate_counter = nullptr;
+    RuntimeProfile::Counter* _adaptive_batch_probe_count_counter = nullptr;
 
     const std::unordered_map<std::string, int>* _col_name_to_slot_id = nullptr;
     // single slot filter conjuncts
@@ -237,7 +243,8 @@ private:
     int64_t _last_bytes_read_from_local = 0;
     int64_t _last_bytes_read_from_remote = 0;
 
-private:
+    std::unique_ptr<AdaptiveBlockSizePredictor> _block_size_predictor;
+
     Status _init_expr_ctxes();
     Status _init_src_block(Block* block);
     Status _check_output_block_types();
@@ -282,10 +289,18 @@ private:
         _counter.num_rows_filtered = 0;
     }
 
-    TPushAggOp::type _get_push_down_agg_type() {
+    TPushAggOp::type _get_push_down_agg_type() const {
         return _local_state == nullptr ? TPushAggOp::type::NONE
                                        : _local_state->get_push_down_agg_type();
     }
+
+    void _reset_adaptive_batch_size_state();
+    void _init_adaptive_batch_size_state(TFileFormatType::type format_type);
+    bool _should_enable_adaptive_batch_size(TFileFormatType::type format_type) const;
+    bool _should_run_adaptive_batch_size() const;
+    size_t _predict_reader_batch_rows();
+    void _update_adaptive_batch_size_before_truncate(const Block& block);
+    void _update_adaptive_batch_size_after_truncate(const Block& block);
 
     // enable the file meta cache only when
     // 1. max_external_file_meta_cache_num is > 0

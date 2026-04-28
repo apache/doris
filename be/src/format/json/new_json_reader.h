@@ -70,19 +70,29 @@ public:
     NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                   const TFileScanRangeParams& params, const TFileRangeDesc& range,
                   const std::vector<SlotDescriptor*>& file_slot_descs, bool* scanner_eof,
-                  io::IOContext* io_ctx, std::shared_ptr<io::IOContext> io_ctx_holder = nullptr);
+                  size_t batch_size, io::IOContext* io_ctx,
+                  std::shared_ptr<io::IOContext> io_ctx_holder = nullptr);
 
     NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                   const TFileRangeDesc& range, const std::vector<SlotDescriptor*>& file_slot_descs,
-                  io::IOContext* io_ctx, std::shared_ptr<io::IOContext> io_ctx_holder = nullptr);
+                  size_t batch_size, io::IOContext* io_ctx,
+                  std::shared_ptr<io::IOContext> io_ctx_holder = nullptr);
     ~NewJsonReader() override = default;
 
     Status init_reader(
             const std::unordered_map<std::string, VExprContextSPtr>& col_default_value_ctx,
             bool is_load);
+
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
     Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
+
+    // Row-based readers control throughput via row count, not byte budget.
+    // The FileScanner's AdaptiveBlockSizePredictor converts the byte budget
+    // into a predicted row count and calls set_batch_size() with it.
+    void set_batch_size(size_t batch_size) override;
+    size_t get_batch_size() const override { return _batch_size; }
+
     Status init_schema_reader() override;
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<DataTypePtr>* col_types) override;
@@ -296,6 +306,8 @@ private:
 
     DataTypeSerDeSPtrs _serdes;
     DataTypeSerDe::FormatOptions _serde_options;
+    // Adaptive batch size set by FileScanner.
+    size_t _batch_size;
 };
 
 #include "common/compile_check_end.h"

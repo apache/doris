@@ -152,11 +152,11 @@ public:
               std::shared_ptr<io::IOContext> io_ctx_holder, FileMetaCache* meta_cache = nullptr,
               bool enable_lazy_mat = true);
 
-    OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+    OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range, size_t batch_size,
               const std::string& ctz, io::IOContext* io_ctx, FileMetaCache* meta_cache = nullptr,
               bool enable_lazy_mat = true);
 
-    OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+    OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range, size_t batch_size,
               const std::string& ctz, std::shared_ptr<io::IOContext> io_ctx_holder,
               FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true);
 
@@ -180,6 +180,8 @@ public:
             const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) override;
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+
+    void set_batch_size(size_t batch_size) override;
 
     int64_t size() const;
 
@@ -235,6 +237,8 @@ public:
     static const orc::Type& remove_acid(const orc::Type& type);
 
     bool count_read_rows() override { return true; }
+
+    size_t get_batch_size() const override { return _batch_size; }
 
 protected:
     void _collect_profile_before_close() override;
@@ -676,6 +680,7 @@ private:
     io::FileDescription _file_description;
     size_t _batch_size;
     int64_t _range_start_offset;
+
     int64_t _range_size;
     std::string _ctz;
 

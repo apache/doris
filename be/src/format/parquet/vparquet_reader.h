@@ -140,6 +140,8 @@ public:
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
+    void set_batch_size(size_t batch_size) override;
+
     Status close() override;
 
     // set the delete rows in current parquet file
@@ -356,6 +358,7 @@ private:
     const VExprContextSPtrs* _not_single_slot_filter_conjuncts = nullptr;
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts = nullptr;
     std::unordered_map<tparquet::Type::type, bool> _ignored_stats;
+    size_t get_batch_size() const override { return _batch_size; }
 
     std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
                                                                                            -1};
@@ -363,6 +366,7 @@ private:
 
 protected:
     bool _filter_groups = true;
+
     RowGroupReader::IcebergRowIdParams _iceberg_rowid_params;
 
     std::set<uint64_t> _column_ids;
