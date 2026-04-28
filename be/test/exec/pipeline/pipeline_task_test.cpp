@@ -18,6 +18,10 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <future>
+#include <thread>
+
 #include "common/config.h"
 #include "common/status.h"
 #include "exec/operator/operator.h"
@@ -34,6 +38,7 @@
 #include "testutil/mock/mock_thread_mem_tracker_mgr.h"
 #include "testutil/mock/mock_workload_group_mgr.h"
 #include "util/debug_points.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -555,6 +560,68 @@ TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION) {
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         EXPECT_EQ(_task_scheduler->submit_count(), 1);
     }
+}
+
+TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION_KEEP_FINALIZED_ON_WAKE_UP_RACE) {
+    auto num_instances = 1;
+    auto pip_id = 0;
+    auto task_id = 0;
+    auto pip = std::make_shared<Pipeline>(pip_id, num_instances, num_instances);
+    OperatorPtr source_op;
+    source_op.reset(new DummyOperator());
+    EXPECT_TRUE(pip->add_operator(source_op, num_instances).ok());
+
+    int op_id = 1;
+    int node_id = 2;
+    int dest_id = 3;
+    DataSinkOperatorPtr sink_op;
+    sink_op.reset(new DummySinkOperatorX(op_id, node_id, dest_id));
+    EXPECT_TRUE(pip->set_sink(sink_op).ok());
+
+    auto profile = std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_id));
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
+    _runtime_state->resize_op_id_to_local_state(-1);
+    auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
+                                               profile.get(), shared_state_map, task_id);
+    task->_exec_time_slice = 10'000'000'000ULL;
+
+    std::vector<TScanRangeParams> scan_range;
+    int sender_id = 0;
+    TDataSink tsink;
+    EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
+    task->_wake_up_early = true;
+    task->_exec_state = PipelineTask::State::BLOCKED;
+
+    auto origin_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    Defer debug_point_cleanup {[&]() {
+        DebugPoints::instance()->remove("PipelineTask::_state_transition.before_runnable_cas");
+        config::enable_debug_points = origin_enable_debug_points;
+    }};
+
+    std::promise<void> wake_up_reached_promise;
+    std::future<void> wake_up_reached = wake_up_reached_promise.get_future();
+    std::promise<void> release_wake_up_promise;
+    std::future<void> release_wake_up = release_wake_up_promise.get_future();
+    DebugPoints::instance()->add_with_callback(
+            "PipelineTask::_state_transition.before_runnable_cas", std::function<void()>([&]() {
+                wake_up_reached_promise.set_value();
+                release_wake_up.wait();
+            }));
+
+    std::thread wake_up_thread(
+            [&]() { EXPECT_TRUE(task->_state_transition(PipelineTask::State::RUNNABLE).ok()); });
+    EXPECT_EQ(wake_up_reached.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+    EXPECT_TRUE(task->close(Status::OK()).ok());
+    EXPECT_TRUE(task->finalize().ok());
+    release_wake_up_promise.set_value();
+    wake_up_thread.join();
+
+    EXPECT_EQ(task->_exec_state, PipelineTask::State::FINALIZED);
+    EXPECT_EQ(task->_sink, nullptr);
+    EXPECT_TRUE(task->_operators.empty());
 }
 
 TEST_F(PipelineTaskTest, TEST_SINK_FINISHED) {
