@@ -21,6 +21,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <deque>
 #include <list>
 #include <memory>
 #include <string>
@@ -84,6 +85,7 @@ struct ParquetInitContext final : public ReaderInitContext {
     const std::unordered_map<std::string, int>* colname_to_slot_id = nullptr;
     const VExprContextSPtrs* not_single_slot_filter_conjuncts = nullptr;
     const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts = nullptr;
+    const VExprContextSPtrs* zone_map_filter_conjuncts = nullptr;
     bool filter_groups = true;
 };
 
@@ -145,6 +147,7 @@ public:
     // Subclasses (HiveParquetReader, etc.) call GenericReader::on_before_init_reader directly,
     // so this override only applies to plain ParquetReader (TVF, load).
     Status on_before_init_reader(ReaderInitContext* ctx) override;
+    Status on_late_arrival_runtime_filter_changed() override;
 
 protected:
     // ---- Unified init_reader(ReaderInitContext*) overrides ----
@@ -322,6 +325,9 @@ private:
             const tparquet::RowGroup& row_group,
             const std::vector<std::unique_ptr<MutilColumnBlockPredicate>>& push_down_pred,
             bool* filter_group, bool* filtered_by_min_max, bool* filtered_by_bloom_filter);
+    Status _read_column_stat(const tparquet::RowGroup& row_group, int file_col_idx,
+                             ParquetPredicate::ColumnStat* column_stat);
+    Status _process_vexpr_zone_map_filter(const tparquet::RowGroup& row_group, bool* filter_group);
 
     /*
      * 1. row group min-max filter
@@ -422,8 +428,10 @@ private:
     bool _enable_filter_by_min_max = true;
     bool _enable_filter_by_bloom_filter = true;
     const std::unordered_map<std::string, int>* _colname_to_slot_id = nullptr;
+    const VExprContextSPtrs* _conjuncts = nullptr;
     const VExprContextSPtrs* _not_single_slot_filter_conjuncts = nullptr;
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts = nullptr;
+    const VExprContextSPtrs* _zone_map_filter_conjuncts = nullptr;
     std::unordered_map<tparquet::Type::type, bool> _ignored_stats;
 
 protected:

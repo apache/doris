@@ -419,6 +419,7 @@ Status OrcReader::_do_init_reader(ReaderInitContext* base_ctx) {
     auto* ctx = checked_context_cast<OrcInitContext>(base_ctx);
     _table_column_names = base_ctx->column_names;
     _col_name_to_block_idx = base_ctx->col_name_to_block_idx;
+    _conjuncts = ctx->conjuncts;
     if (ctx->conjuncts != nullptr) {
         _lazy_read_ctx.conjuncts = *ctx->conjuncts;
     }
@@ -498,22 +499,7 @@ Status OrcReader::_do_init_reader(ReaderInitContext* base_ctx) {
     RETURN_IF_ERROR(_init_orc_row_reader());
 
     // 5. Build filter conjuncts from not_single_slot and predicate_partition_columns
-    if (!_not_single_slot_filter_conjuncts.empty()) {
-        _filter_conjuncts.insert(_filter_conjuncts.end(), _not_single_slot_filter_conjuncts.begin(),
-                                 _not_single_slot_filter_conjuncts.end());
-        _disable_dict_filter = true;
-    }
-    if (_slot_id_to_filter_conjuncts && !_slot_id_to_filter_conjuncts->empty()) {
-        for (auto& kv : _lazy_read_ctx.predicate_partition_columns) {
-            auto& [value, slot_desc] = kv.second;
-            auto iter = _slot_id_to_filter_conjuncts->find(slot_desc->id());
-            if (iter != _slot_id_to_filter_conjuncts->end()) {
-                for (const auto& conjunct_ctx : iter->second) {
-                    _filter_conjuncts.push_back(conjunct_ctx);
-                }
-            }
-        }
-    }
+    _rebuild_filter_conjuncts();
 
     return Status::OK();
 }
@@ -1329,6 +1315,114 @@ void OrcReader::_classify_columns_for_lazy_read(
         !_lazy_read_ctx.lazy_read_columns.empty()) {
         _lazy_read_ctx.can_lazy_read = true;
     }
+}
+
+void OrcReader::_rebuild_filter_conjuncts() {
+    _filter_conjuncts.clear();
+    _disable_dict_filter = false;
+    if (!_not_single_slot_filter_conjuncts.empty()) {
+        _filter_conjuncts.insert(_filter_conjuncts.end(), _not_single_slot_filter_conjuncts.begin(),
+                                 _not_single_slot_filter_conjuncts.end());
+        _disable_dict_filter = true;
+    }
+    if (_slot_id_to_filter_conjuncts == nullptr || _slot_id_to_filter_conjuncts->empty()) {
+        return;
+    }
+    for (auto& kv : _lazy_read_ctx.predicate_partition_columns) {
+        auto& [value, slot_desc] = kv.second;
+        auto iter = _slot_id_to_filter_conjuncts->find(slot_desc->id());
+        if (iter != _slot_id_to_filter_conjuncts->end()) {
+            for (const auto& conjunct_ctx : iter->second) {
+                _filter_conjuncts.push_back(conjunct_ctx);
+            }
+        }
+    }
+    for (const auto& [col_name, ctx] : _lazy_read_ctx.predicate_missing_columns) {
+        auto iter = std::ranges::find_if(_tuple_descriptor->slots(), [&](const auto* slot_desc) {
+            return slot_desc->col_name() == col_name;
+        });
+        if (iter == _tuple_descriptor->slots().end()) {
+            continue;
+        }
+        auto conjunct_iter = _slot_id_to_filter_conjuncts->find((*iter)->id());
+        if (conjunct_iter != _slot_id_to_filter_conjuncts->end()) {
+            for (const auto& conjunct_ctx : conjunct_iter->second) {
+                _filter_conjuncts.push_back(conjunct_ctx);
+            }
+        }
+    }
+    if (_state != nullptr && _state->enable_adjust_conjunct_order_by_cost()) {
+        std::ranges::sort(_filter_conjuncts, [](const auto& a, const auto& b) {
+            return a->execute_cost() < b->execute_cost();
+        });
+    }
+}
+
+Status OrcReader::on_late_arrival_runtime_filter_changed() {
+    if (_conjuncts == nullptr || _conjuncts->size() <= _lazy_read_ctx.conjuncts.size() ||
+        _row_reader == nullptr) {
+        return Status::OK();
+    }
+
+    const uint64_t current_read_position = _current_read_position;
+    _lazy_read_ctx.conjuncts = *_conjuncts;
+    _lazy_read_ctx.can_lazy_read = false;
+    _lazy_read_ctx.resize_first_column = true;
+    _lazy_read_ctx.all_read_columns.clear();
+    _lazy_read_ctx.all_predicate_col_ids.clear();
+    _lazy_read_ctx.predicate_columns.first.clear();
+    _lazy_read_ctx.predicate_columns.second.clear();
+    _lazy_read_ctx.predicate_orc_columns.clear();
+    _lazy_read_ctx.lazy_read_columns.clear();
+    _lazy_read_ctx.predicate_partition_columns.clear();
+    _lazy_read_ctx.partition_columns.clear();
+    _lazy_read_ctx.predicate_missing_columns.clear();
+    _lazy_read_ctx.missing_columns.clear();
+    _lazy_read_ctx.partial_predicate_columns.clear();
+    _lazy_read_ctx.filter_phase_rows = 0;
+
+    _dict_filter_cols.clear();
+    _dict_filter_conjuncts.clear();
+    _non_dict_filter_conjuncts.clear();
+    _push_down_exprs.clear();
+    _dict_cols_has_converted = false;
+    if (_obj_pool != nullptr) {
+        _obj_pool->clear();
+    }
+
+    std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_table_columns;
+    _collect_predicate_columns_from_conjuncts(predicate_table_columns);
+    _classify_columns_for_lazy_read(predicate_table_columns, _fill_partition_values,
+                                    _fill_missing_defaults);
+
+    _row_reader_options = orc::RowReaderOptions();
+    if (!_lazy_read_ctx.conjuncts.empty() && _enable_filter_by_min_max) {
+        auto res = _init_search_argument(_push_down_exprs);
+        if (_state != nullptr && _state->query_options().check_orc_init_sargs_success && !res) {
+            std::stringstream ss;
+            for (const auto& conjunct : _lazy_read_ctx.conjuncts) {
+                ss << conjunct->root()->debug_string() << "\n";
+            }
+            return Status::InternalError(
+                    "Session variable check_orc_init_sargs_success is set, but "
+                    "_init_search_argument returns false because all exprs can not be pushed "
+                    "down:\n " +
+                    ss.str());
+        }
+    }
+    RETURN_IF_ERROR(_init_orc_row_reader());
+    _rebuild_filter_conjuncts();
+    if (current_read_position > _first_row_in_range) {
+        try {
+            _row_reader->seekToRow(current_read_position);
+        } catch (std::exception& e) {
+            return Status::InternalError(
+                    "Failed to seek ORC row reader after late runtime filter refresh. reason = {}",
+                    e.what());
+        }
+        _current_read_position = current_read_position;
+    }
+    return Status::OK();
 }
 
 Status OrcReader::_init_orc_row_reader() {

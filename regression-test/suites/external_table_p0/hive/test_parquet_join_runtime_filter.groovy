@@ -40,8 +40,9 @@ suite("test_parquet_join_runtime_filter", "p0,external") {
     }
 
 
-    def extractFilteredGroupsValue = { String profileText ->
-        def values = (profileText =~ /RowGroupsFiltered:\s*(\d+)/).collect { it[1].toLong() }
+    def extractMetricValues = { String profileText, String metricName ->
+        def values = (profileText =~ /${java.util.regex.Pattern.quote(metricName)}:\s*(\d+)/)
+                .collect { it[1].toLong() }
         return values.sort { a, b -> b <=> a }
     }
 
@@ -104,12 +105,17 @@ suite("test_parquet_join_runtime_filter", "p0,external") {
                 def sql_result = sql """
                     select *, "${t1}" from fact_big as a  join dim_small as b on a.k = b.k  where b.c1 = 5
                 """
-                def filter_result = extractFilteredGroupsValue(getProfileWithToken(t1));
+                def profileText = getProfileWithToken(t1)
+                def filter_result = extractMetricValues(profileText, "RowGroupsFiltered");
+                def min_max_filter_result = extractMetricValues(profileText, "RowGroupsFilteredByMinMax");
                 logger.info("sql_result = ${sql_result}");
                 logger.info("filter_result = ${filter_result}");
+                logger.info("min_max_filter_result = ${min_max_filter_result}");
 
                 assertTrue(filter_result.size() == 2)
                 assertTrue(filter_result[0] > 40)
+                assertTrue(min_max_filter_result.size() >= 1)
+                assertTrue(min_max_filter_result[0] > 0)
             }
 
 
@@ -119,12 +125,17 @@ suite("test_parquet_join_runtime_filter", "p0,external") {
                 def sql_result = sql """
                     select *, "${t1}" from fact_big as a  join dim_small as b on a.k = b.k  where b.c1 in (1,2)
                 """
-                def filter_result = extractFilteredGroupsValue(getProfileWithToken(t1));
+                def profileText = getProfileWithToken(t1)
+                def filter_result = extractMetricValues(profileText, "RowGroupsFiltered");
+                def min_max_filter_result = extractMetricValues(profileText, "RowGroupsFilteredByMinMax");
                 logger.info("sql_result = ${sql_result}");
                 logger.info("filter_result = ${filter_result}");
+                logger.info("min_max_filter_result = ${min_max_filter_result}");
 
                 assertTrue(filter_result.size() == 2)
                 assertTrue(filter_result[0] > 30)
+                assertTrue(min_max_filter_result.size() >= 1)
+                assertTrue(min_max_filter_result[0] > 0)
             }
 
 
@@ -135,12 +146,17 @@ suite("test_parquet_join_runtime_filter", "p0,external") {
                 def sql_result = sql """
                     select *, "${t1}" from fact_big as a  join dim_small as b on a.k = b.k  where b.c1 < 3  
                 """
-                def filter_result = extractFilteredGroupsValue(getProfileWithToken(t1));
+                def profileText = getProfileWithToken(t1)
+                def filter_result = extractMetricValues(profileText, "RowGroupsFiltered");
+                def min_max_filter_result = extractMetricValues(profileText, "RowGroupsFilteredByMinMax");
                 logger.info("sql_result = ${sql_result}");
                 logger.info("filter_result = ${filter_result}");
+                logger.info("min_max_filter_result = ${min_max_filter_result}");
 
                 assertTrue(filter_result.size() == 2)
                 assertTrue(filter_result[0] > 30)
+                assertTrue(min_max_filter_result.size() >= 1)
+                assertTrue(min_max_filter_result[0] > 0)
             }
 
 
@@ -150,12 +166,17 @@ suite("test_parquet_join_runtime_filter", "p0,external") {
                 def sql_result = sql """
                     select *, "${t1}" from fact_big as a  join dim_small as b on a.k = b.k  where b.c2 >= 50   
                 """
-                def filter_result = extractFilteredGroupsValue(getProfileWithToken(t1));
+                def profileText = getProfileWithToken(t1)
+                def filter_result = extractMetricValues(profileText, "RowGroupsFiltered");
+                def min_max_filter_result = extractMetricValues(profileText, "RowGroupsFilteredByMinMax");
                 logger.info("sql_result = ${sql_result}");
                 logger.info("filter_result = ${filter_result}");
+                logger.info("min_max_filter_result = ${min_max_filter_result}");
 
                 assertTrue(filter_result.size() == 2)
                 assertTrue(filter_result[0] > 40)
+                assertTrue(min_max_filter_result.size() >= 1)
+                assertTrue(min_max_filter_result[0] > 0)
             }
 
 

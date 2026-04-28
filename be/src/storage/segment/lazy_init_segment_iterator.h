@@ -52,6 +52,13 @@ public:
         return _inner_iterator->current_block_row_locations(locations);
     }
 
+    Status refresh_for_late_arrival_runtime_filter() override {
+        if (_inner_iterator == nullptr) {
+            return Status::OK();
+        }
+        return _inner_iterator->refresh_for_late_arrival_runtime_filter();
+    }
+
     void update_profile(RuntimeProfile* profile) override {
         if (_inner_iterator != nullptr) {
             _inner_iterator->update_profile(profile);

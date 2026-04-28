@@ -83,6 +83,7 @@ public:
 
     bool can_push_down_to_index() const override;
     bool equals(const VExpr& other) override;
+    ZoneMapEvalResult evaluate_zone_map(const ZoneMapEvalContext& ctx) const override;
 
     size_t estimate_memory(const size_t rows) override;
 
@@ -103,6 +104,10 @@ protected:
     std::string _function_name;
 
 private:
+    ZoneMapEvalResult _evaluate_null_predicate(const ZoneMapEvalContext& ctx) const;
+    TExprOpcode::type _flip_opcode(TExprOpcode::type opcode) const;
+    bool _try_extract_slot_and_literal(const VExpr** slot_out, const VExpr** literal_out,
+                                       bool* slot_on_left) const;
     Status _do_execute(VExprContext* context, const Block* block, const Selector* selector,
                        size_t count, ColumnPtr& result_column, ColumnPtr* arg_column) const;
 };

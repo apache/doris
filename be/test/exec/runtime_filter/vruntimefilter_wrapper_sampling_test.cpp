@@ -22,13 +22,15 @@
 #include "exec/runtime_filter/runtime_filter_test_utils.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vruntimefilter_wrapper.h"
+#include "storage/index/zone_map/zone_map_eval_context.h"
 
 namespace doris {
 
 // Minimal VExpr implementation for testing VRuntimeFilterWrapper in isolation.
 class StubVExpr : public VExpr {
 public:
-    StubVExpr() : VExpr(make_texpr_node()) {}
+    explicit StubVExpr(ZoneMapEvalResult zone_map_result = ZoneMapEvalResult::kUnsupported)
+            : VExpr(make_texpr_node()), _zone_map_result(zone_map_result) {}
 
     const std::string& expr_name() const override {
         static const std::string name = "StubVExpr";
@@ -47,6 +49,10 @@ public:
     // DCHECK-fail on the second open() call.
     bool is_constant() const override { return false; }
 
+    ZoneMapEvalResult evaluate_zone_map(const ZoneMapEvalContext&) const override {
+        return _zone_map_result;
+    }
+
 private:
     static TExprNode make_texpr_node() {
         return TExprNodeBuilder(TExprNodeType::SLOT_REF,
@@ -59,6 +65,8 @@ private:
                                 0)
                 .build();
     }
+
+    ZoneMapEvalResult _zone_map_result;
 };
 
 class VRuntimeFilterWrapperSamplingTest : public RuntimeFilterTest {};
@@ -176,6 +184,38 @@ TEST_F(VRuntimeFilterWrapperSamplingTest, sampling_frequency_survives_context_re
     auto& selectivity = context2->get_runtime_filter_selectivity();
     selectivity.update_judge_selectivity(1, 2000, 50000, 0.1);
     EXPECT_TRUE(selectivity.maybe_always_true_can_ignore());
+}
+
+TEST_F(VRuntimeFilterWrapperSamplingTest, zone_map_delegates_to_impl_when_not_null_aware) {
+    auto stub = std::make_shared<StubVExpr>(ZoneMapEvalResult::kNoMatch);
+    auto node = TExprNodeBuilder(TExprNodeType::SLOT_REF,
+                                 TTypeDescBuilder()
+                                         .set_types(TTypeNodeBuilder()
+                                                            .set_type(TTypeNodeType::SCALAR)
+                                                            .set_scalar_type(TPrimitiveType::INT)
+                                                            .build())
+                                         .build(),
+                                 0)
+                        .build();
+    auto wrapper = VRuntimeFilterWrapper::create_shared(node, stub, 0.4, false, /*filter_id=*/1);
+    ZoneMapEvalContext ctx;
+    EXPECT_EQ(ZoneMapEvalResult::kNoMatch, wrapper->evaluate_zone_map(ctx));
+}
+
+TEST_F(VRuntimeFilterWrapperSamplingTest, zone_map_is_unsupported_for_null_aware_wrapper) {
+    auto stub = std::make_shared<StubVExpr>(ZoneMapEvalResult::kNoMatch);
+    auto node = TExprNodeBuilder(TExprNodeType::SLOT_REF,
+                                 TTypeDescBuilder()
+                                         .set_types(TTypeNodeBuilder()
+                                                            .set_type(TTypeNodeType::SCALAR)
+                                                            .set_scalar_type(TPrimitiveType::INT)
+                                                            .build())
+                                         .build(),
+                                 0)
+                        .build();
+    auto wrapper = VRuntimeFilterWrapper::create_shared(node, stub, 0.4, true, /*filter_id=*/1);
+    ZoneMapEvalContext ctx;
+    EXPECT_EQ(ZoneMapEvalResult::kUnsupported, wrapper->evaluate_zone_map(ctx));
 }
 
 } // namespace doris

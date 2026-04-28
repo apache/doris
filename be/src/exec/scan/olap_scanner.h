@@ -82,6 +82,7 @@ public:
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
     void _collect_profile_before_close() override;
+    Status _on_late_arrival_runtime_filter_appended() override;
 
 private:
     Status _init_tablet_reader_params(

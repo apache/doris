@@ -442,6 +442,34 @@ Status ColumnReader::get_row_ranges_by_zone_map(
     return Status::OK();
 }
 
+Status ColumnReader::get_row_ranges_by_zone_map_expr(const ZoneMapMatchFunc& match_func,
+                                                     RowRanges* row_ranges, int64_t* pass_all_count,
+                                                     const ColumnIteratorOptions& iter_opts) {
+    RETURN_IF_ERROR(_load_zone_map_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
+
+    const auto& zone_maps = _zone_map_index->page_zone_maps();
+    std::vector<uint32_t> page_indexes;
+    page_indexes.reserve(zone_maps.size());
+    for (size_t i = 0; i < zone_maps.size(); ++i) {
+        if (zone_maps[i].pass_all()) {
+            page_indexes.push_back(cast_set<uint32_t>(i));
+            if (pass_all_count != nullptr) {
+                ++(*pass_all_count);
+            }
+            continue;
+        }
+
+        segment_v2::ZoneMap zone_map;
+        RETURN_IF_ERROR(ZoneMap::from_proto(zone_maps[i], _data_type, zone_map));
+        if (match_func(zone_map)) {
+            page_indexes.push_back(cast_set<uint32_t>(i));
+        }
+    }
+
+    RETURN_IF_ERROR(_calculate_row_ranges(page_indexes, row_ranges, iter_opts));
+    return Status::OK();
+}
+
 Status ColumnReader::next_batch_of_zone_map(size_t* n, MutableColumnPtr& dst) const {
     if (_segment_zone_map == nullptr) {
         return Status::InternalError("segment zonemap not exist");
@@ -2431,6 +2459,20 @@ Status FileColumnIterator::get_row_ranges_by_zone_map(
     if (_reader->has_zone_map()) {
         RETURN_IF_ERROR(_reader->get_row_ranges_by_zone_map(col_predicates, delete_predicates,
                                                             row_ranges, _opts));
+    }
+    return Status::OK();
+}
+
+Status FileColumnIterator::get_row_ranges_by_zone_map_expr(const ZoneMapMatchFunc& match_func,
+                                                           RowRanges* row_ranges,
+                                                           int64_t* pass_all_count,
+                                                           int64_t* missing_index_count) {
+    if (_reader->has_zone_map()) {
+        return _reader->get_row_ranges_by_zone_map_expr(match_func, row_ranges, pass_all_count,
+                                                        _opts);
+    }
+    if (missing_index_count != nullptr) {
+        ++(*missing_index_count);
     }
     return Status::OK();
 }

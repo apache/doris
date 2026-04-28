@@ -50,6 +50,7 @@
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/index_reader.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/zone_map/zone_map_eval_result.h"
 #include "util/date_func.h"
 
 namespace doris {
@@ -59,6 +60,7 @@ class HybridSetBase;
 class ObjectPool;
 class RowDescriptor;
 class RuntimeState;
+struct ZoneMapEvalContext;
 
 namespace segment_v2 {
 class IndexIterator;
@@ -160,6 +162,10 @@ public:
     virtual Status execute_filter(VExprContext* context, const Block* block,
                                   uint8_t* __restrict result_filter_data, size_t rows,
                                   bool accept_null, bool* can_filter_all) const;
+
+    virtual ZoneMapEvalResult evaluate_zone_map(const ZoneMapEvalContext& ctx) const {
+        return ZoneMapEvalResult::kUnsupported;
+    }
 
     // `is_blockable` means this expr will be blocked in `execute` (e.g. AI Function, Remote Function)
     [[nodiscard]] virtual bool is_blockable() const {

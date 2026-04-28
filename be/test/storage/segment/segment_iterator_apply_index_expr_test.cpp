@@ -25,7 +25,6 @@
 #include "exprs/vexpr_context.h"
 #include "runtime/runtime_state.h"
 #include "storage/olap_common.h"
-#include "storage/segment/column_reader.h"
 #include "storage/tablet/tablet_schema.h"
 
 // Use #define private public to access private members for testing
@@ -131,6 +130,7 @@ protected:
 
         _iter->_opts.runtime_state = &_runtime_state;
         _iter->_opts.stats = &_stats;
+        _iter->_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
     }
 
     std::shared_ptr<Segment> _segment;

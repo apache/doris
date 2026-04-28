@@ -71,6 +71,10 @@ Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
     return res;
 }
 
+Status BlockReader::refresh_for_late_arrival_runtime_filter() {
+    return _vcollect_iter.refresh_for_late_arrival_runtime_filter();
+}
+
 bool BlockReader::_rowsets_not_mono_asc_disjoint(const ReaderParams& read_params) {
     std::string pre_rs_last_key;
     bool pre_rs_key_bounds_truncated {false};
@@ -226,7 +230,7 @@ Status BlockReader::init(const ReaderParams& read_params) {
 
     if (_tablet_schema->has_seq_map()) {
         if (_tablet_schema->has_sequence_col()) {
-            auto msg = "sequence columns conflict, both seq_col and seq_map are true!";
+            const auto* msg = "sequence columns conflict, both seq_col and seq_map are true!";
             LOG(WARNING) << msg;
             return Status::InternalError(msg);
         }

@@ -263,6 +263,9 @@ public:
     // Pass condition cache context to the reader for HIT/MISS tracking.
     virtual void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) {}
 
+    // Let an already-open reader refresh its pushdown state after late runtime filters arrive.
+    virtual Status on_late_arrival_runtime_filter_changed() { return Status::OK(); }
+
     // Returns true if this reader can produce an accurate total row count from metadata
     // without reading actual data. Used to determine if CountReader decorator can be applied.
     // Only ORC and Parquet readers support this (via file footer metadata).

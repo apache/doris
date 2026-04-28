@@ -83,6 +83,8 @@ public:
         }
     }
 
+    Status refresh_for_late_arrival_runtime_filter();
+
     inline bool use_topn_next() const { return _topn_limit > 0; }
 
 private:
@@ -145,6 +147,9 @@ private:
         virtual Status current_block_row_locations(std::vector<RowLocation>* row_location) = 0;
 
         [[nodiscard]] virtual Status ensure_first_row_ref() = 0;
+        [[nodiscard]] virtual Status refresh_for_late_arrival_runtime_filter() {
+            return Status::OK();
+        }
 
         virtual void update_profile(RuntimeProfile* profile) = 0;
 
@@ -214,6 +219,7 @@ private:
         }
 
         Status refresh_current_row();
+        Status refresh_for_late_arrival_runtime_filter() override;
 
     private:
         Status _next_by_ref(IteratorRowRef* ref);
@@ -302,6 +308,7 @@ private:
         }
 
         void init_level0_iterators_for_union();
+        Status refresh_for_late_arrival_runtime_filter() override;
 
     private:
         Status _merge_next(IteratorRowRef* ref);
@@ -332,6 +339,7 @@ private:
         bool _skip_same;
         // used when `_merge == true`
         std::unique_ptr<MergeHeap> _heap;
+        std::vector<LevelIterator*> _active_children;
 
         std::vector<RowLocation> _block_row_locations;
     };

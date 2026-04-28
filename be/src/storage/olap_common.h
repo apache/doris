@@ -351,7 +351,14 @@ struct OlapReaderStatistics {
     int64_t generate_row_ranges_by_column_conditions_ns = 0;
     int64_t generate_row_ranges_by_bf_ns = 0;
     int64_t generate_row_ranges_by_zonemap_ns = 0;
+    int64_t generate_row_ranges_by_zonemap_expr_ns = 0;
     int64_t generate_row_ranges_by_dict_ns = 0;
+    int64_t zone_map_expr_evaluated = 0;
+    int64_t zone_map_expr_skipped_pages = 0;
+    int64_t zone_map_expr_unsupported = 0;
+    int64_t zone_map_expr_missing_stats = 0;
+    int64_t zone_map_expr_missing_index = 0;
+    int64_t zone_map_expr_type_mismatch = 0;
 
     int64_t index_load_ns = 0;
 

@@ -28,6 +28,7 @@
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
+#include "storage/index/zone_map/zone_map_eval_context.h"
 #include "util/simd/bits.h"
 
 namespace doris {
@@ -58,6 +59,36 @@ public:
 #endif
 
     const std::string& expr_name() const override { return _expr_name; }
+
+    ZoneMapEvalResult evaluate_zone_map(const ZoneMapEvalContext& ctx) const override {
+        if (_op == TExprOpcode::COMPOUND_AND) {
+            bool any_unsupported = false;
+            for (const auto& child : _children) {
+                auto result = child->evaluate_zone_map(ctx);
+                if (result == ZoneMapEvalResult::kNoMatch) {
+                    return ZoneMapEvalResult::kNoMatch;
+                }
+                if (result == ZoneMapEvalResult::kUnsupported) {
+                    any_unsupported = true;
+                }
+            }
+            return any_unsupported ? ZoneMapEvalResult::kUnsupported : ZoneMapEvalResult::kMayMatch;
+        }
+        if (_op == TExprOpcode::COMPOUND_OR) {
+            bool all_no_match = true;
+            for (const auto& child : _children) {
+                auto result = child->evaluate_zone_map(ctx);
+                if (result == ZoneMapEvalResult::kMayMatch) {
+                    return ZoneMapEvalResult::kMayMatch;
+                }
+                if (result != ZoneMapEvalResult::kNoMatch) {
+                    all_no_match = false;
+                }
+            }
+            return all_no_match ? ZoneMapEvalResult::kNoMatch : ZoneMapEvalResult::kMayMatch;
+        }
+        return ZoneMapEvalResult::kUnsupported;
+    }
 
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override {
         segment_v2::InvertedIndexResultBitmap res;
@@ -231,7 +262,7 @@ public:
                 result_column = lhs_column;
             } else if (rhs_column->use_count() == 1) {
                 result_column = rhs_column;
-                auto tmp_column = rhs_data_column;
+                auto* tmp_column = rhs_data_column;
                 rhs_data_column = lhs_data_column;
                 lhs_data_column = tmp_column;
             } else {

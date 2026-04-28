@@ -55,6 +55,7 @@ suite("condition_cache_orc", "tvf,external,external_docker") {
             }
             attempts++
         }
+        logger.info("getProfileWithToken: token=${token}, profileId=${profileId}")
         assertTrue(profileId != null && profileId != "")
         Thread.sleep(800)
         return getProfile(profileId).toString()
@@ -93,6 +94,43 @@ suite("condition_cache_orc", "tvf,external,external_docker") {
         return metrics
     }
 
+    def extractProfileBlocks = { String profileText, String blockName ->
+        List<String> lines = profileText.readLines()
+        List<String> blocks = []
+        List<String> currentBlock = []
+        boolean inBlock = false
+        int blockIndent = -1
+
+        lines.each { line ->
+            def indent = (line =~ /^(\s*)/)[0][1].length()
+            def matcher = line =~ /^(\s*)\s+${Pattern.quote(blockName)}:/
+            if (matcher.find()) {
+                if (inBlock && !currentBlock.isEmpty()) {
+                    blocks << currentBlock.join("\n")
+                    currentBlock = []
+                }
+                inBlock = true
+                blockIndent = matcher.group(1).length()
+                currentBlock << line
+            } else if (inBlock) {
+                if (!line.trim().isEmpty() && indent <= blockIndent) {
+                    blocks << currentBlock.join("\n")
+                    currentBlock = []
+                    inBlock = false
+                    blockIndent = -1
+                } else {
+                    currentBlock << line
+                }
+            }
+        }
+
+        if (inBlock && !currentBlock.isEmpty()) {
+            blocks << currentBlock.join("\n")
+        }
+
+        return blocks
+    }
+
     def extractProfileValue =  { String profileText, String keyName -> 
         def matcher = profileText =~ /(?m)^\s*-\s*${keyName}:\s*(.+)$/
         return matcher.find() ? matcher.group(1).trim() : null
@@ -102,11 +140,33 @@ suite("condition_cache_orc", "tvf,external,external_docker") {
     assertTrue(backends.size() > 0)
     def be_id = backends[0][0]
     def be_host = backends[0][1]
+    def be_http_port = backends[0][4]
     def basePath = "/tmp/test_condition_cache_orc"
+    def localAddresses = java.net.NetworkInterface.networkInterfaces().toList()
+            .findAll { it.isUp() && !it.isLoopback() }
+            .collectMany { nic -> nic.inetAddresses.toList().collect { it.hostAddress } }
+            .toSet()
+    def runOnBeHost = { String command, boolean failOnError = true ->
+        if (be_host == "127.0.0.1" || be_host == "localhost" || localAddresses.contains(be_host)) {
+            def process = ["/bin/bash", "-c", command].execute()
+            def stdout = new StringBuffer()
+            def stderr = new StringBuffer()
+            process.consumeProcessOutput(stdout, stderr)
+            process.waitFor()
+            if (failOnError && process.exitValue() != 0) {
+                throw new IllegalStateException(
+                        "Failed to run local command on ${be_host}: ${command}\n${stderr}")
+            }
+            return process.exitValue()
+        }
+        return sshExec("root", be_host, command, failOnError)
+    }
 
-    sshExec("root", be_host, "rm -rf ${basePath}", false)
-    sshExec("root", be_host, "mkdir -p ${basePath}")
-    sshExec("root", be_host, "chmod 777 ${basePath}")
+    http_client("GET", "http://${be_host}:${be_http_port}/api/clear_cache/ConditionCache")
+
+    runOnBeHost("rm -rf ${basePath}", false)
+    runOnBeHost("mkdir -p ${basePath}")
+    runOnBeHost("chmod 777 ${basePath}")
 
     // ============ Source tables ============
 
@@ -178,7 +238,7 @@ suite("condition_cache_orc", "tvf,external,external_docker") {
 
     def fmt = "orc"
     // Export data to format
-    sshExec("root", be_host, "rm -f ${basePath}/${fmt}_main_*")
+    runOnBeHost("rm -f ${basePath}/${fmt}_main_*")
     sql """
         INSERT INTO local(
             "file_path" = "${basePath}/${fmt}_main_",
@@ -187,7 +247,7 @@ suite("condition_cache_orc", "tvf,external,external_docker") {
         ) SELECT id, name, age, score FROM ${srcTable} ORDER BY id
     """
 
-    sshExec("root", be_host, "rm -f ${basePath}/${fmt}_join_*")
+    runOnBeHost("rm -f ${basePath}/${fmt}_join_*")
     sql """
         INSERT INTO local(
             "file_path" = "${basePath}/${fmt}_join_",
@@ -196,7 +256,7 @@ suite("condition_cache_orc", "tvf,external,external_docker") {
         ) SELECT id, department, position, salary FROM ${joinSrcTable} ORDER BY id
     """
 
-    sshExec("root", be_host, "rm -f ${basePath}/${fmt}_large_*")
+    runOnBeHost("rm -f ${basePath}/${fmt}_large_*")
     sql """
         INSERT INTO local(
             "file_path" = "${basePath}/${fmt}_large_",
@@ -236,6 +296,7 @@ suite("condition_cache_orc", "tvf,external,external_docker") {
         ORDER BY 1, 2, 3, 4;
     """
     def profileText = getProfileWithToken(uuid)
+    logger.info("profileText = ${profileText}")
     assertTrue(profileText.contains("Scanner"), "Profile does not contain Scanner")
     assertTrue(profileText.contains("ConditionCacheHit"), "Profile does not contain ConditionCacheHit")
     assertTrue(profileText.contains("ConditionCacheFilteredRows"), "Profile does not contain ConditionCacheFilteredRows")
@@ -272,6 +333,7 @@ suite("condition_cache_orc", "tvf,external,external_docker") {
         ORDER BY 1, 2, 3, 4;
     """
     profileText = getProfileWithToken(uuid)
+    logger.info("profileText = ${profileText}")
     assertTrue(profileText.contains("Scanner"), "Profile does not contain Scanner")
     assertTrue(profileText.contains("ConditionCacheHit"), "Profile does not contain ConditionCacheHit")
     assertTrue(profileText.contains("ConditionCacheFilteredRows"), "Profile does not contain ConditionCacheFilteredRows")
@@ -480,7 +542,38 @@ suite("condition_cache_orc", "tvf,external,external_docker") {
     """
     // id=1: Alice(85.5)+Engineering(100000), id=4: David(92)+Engineering(140000)
 
-    // ---- Test 7: LIMIT with large file (verify incomplete cache not stored) ----
+    // ---- Test 7: Late runtime filter should use ORC SearchArgument without polluting cache ----
+    sql "set enable_condition_cache=true"
+    sql "set runtime_filter_type=12"
+    sql "set runtime_filter_wait_time_ms=0"
+
+    http_client("GET", "http://${be_host}:${be_http_port}/api/clear_cache/ConditionCache")
+
+    def runLateRfOrcQuery = { token, expectedConditionCacheHit ->
+        def queryResult = sql """
+            SELECT count(*) FROM (
+                SELECT t1.id, "${token}"
+                FROM ${largeTvf} t1
+                JOIN ${joinTvf} t2 ON t1.id = t2.id
+                WHERE t2.salary > 90000
+            ) late_rf_tmp
+        """
+        assertEquals("4", queryResult[0][0].toString())
+
+        profileText = getProfileWithToken(token)
+        def lateRfScannerBlock = extractProfileBlocks(profileText, "Scanner").find { block ->
+            (block =~ /OrcReader SearchArgument:\s+.*id in \[(?=[^\]]*1)(?=[^\]]*2)(?=[^\]]*4)(?=[^\]]*5)[^\]]+\]/).find()
+        }
+        logger.info("late_rf_orc_scanner_block = ${lateRfScannerBlock}")
+        assertTrue(lateRfScannerBlock != null)
+        assertTrue(lateRfScannerBlock.contains("ApplyAllRuntimeFilters: True"))
+        assertTrue(lateRfScannerBlock.contains("ConditionCacheHit: ${expectedConditionCacheHit}"))
+    }
+
+    runLateRfOrcQuery(UUID.randomUUID().toString(), "0")
+    runLateRfOrcQuery(UUID.randomUUID().toString(), "1")
+
+    // ---- Test 8: LIMIT with large file (verify incomplete cache not stored) ----
     // Large table has 5000 rows spanning multiple granules.
     // age > 25 matches ~4000 rows. LIMIT 10 causes early termination.
     // The incomplete cache must NOT be stored; otherwise the subsequent

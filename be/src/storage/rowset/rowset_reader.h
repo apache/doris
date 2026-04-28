@@ -81,6 +81,8 @@ public:
         return Status::NotSupported("to be implemented");
     }
 
+    virtual Status refresh_for_late_arrival_runtime_filter() { return Status::OK(); }
+
     virtual void update_profile(RuntimeProfile* profile) = 0;
 
     virtual RowsetReaderSharedPtr clone() = 0;

@@ -96,6 +96,13 @@ const std::string& VRuntimeFilterWrapper::expr_name() const {
     return _expr_name;
 }
 
+ZoneMapEvalResult VRuntimeFilterWrapper::evaluate_zone_map(const ZoneMapEvalContext& ctx) const {
+    if (_null_aware || _impl == nullptr) {
+        return ZoneMapEvalResult::kUnsupported;
+    }
+    return _impl->evaluate_zone_map(ctx);
+}
+
 Status VRuntimeFilterWrapper::execute_filter(VExprContext* context, const Block* block,
                                              uint8_t* __restrict result_filter_data, size_t rows,
                                              bool accept_null, bool* can_filter_all) const {
