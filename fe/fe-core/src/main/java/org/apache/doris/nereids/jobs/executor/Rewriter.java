@@ -186,6 +186,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.util.MoreFieldsThread;
+import org.apache.doris.qe.MaskingOptimizer;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -810,6 +811,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
 
                 // this rule batch must keep at the end of rewrite to do some plan check
                 topic("final rewrite and check",
+                        custom(RuleType.MASKING_OPTIMIZER, MaskingOptimizer::new),
                         custom(RuleType.CHECK_DATA_TYPES, CheckDataTypes::new),
                         topDown(new PushDownFilterThroughProject(), new MergeProjectable()),
                         custom(RuleType.ADJUST_CONJUNCTS_RETURN_TYPE, AdjustConjunctsReturnType::new),

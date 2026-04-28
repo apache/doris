@@ -99,7 +99,7 @@ public abstract class Planner {
             appendTupleInfo(str);
         }
         appendHintInfo(str);
-        return str.toString();
+        return PlanTreePrinter.printPlanExplanation(str.toString());
     }
 
     public Map<Integer, String> getExplainStringMap() {

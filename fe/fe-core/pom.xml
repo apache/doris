@@ -191,6 +191,29 @@ under the License.
             <artifactId>jackson-databind</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.jd.mpc.hive</groupId>
+            <artifactId>mpc-hive-enc-sdk</artifactId>
+            <version>1.0.4-SNAPSHOT</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.jd.security.dsccgsdk</groupId>
+                    <artifactId>dsc-cg-sdk</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.jd.security.data</groupId>
+                    <artifactId>sensitive-data-recognition</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.jd.security</groupId>
+                    <artifactId>tdeclient</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.alibaba</groupId>
+                    <artifactId>fastjson</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>je</artifactId>
         </dependency>

@@ -750,6 +750,15 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKIP_CHECKING_ACID_VERSION_FILE = "skip_checking_acid_version_file";
 
+    public static final String MASKING_ENABLED = "masking_enabled";
+    public static final String MASKING_DMS_URL = "masking_dms_url";
+    public static final String MASKING_SANDBOX_PROJECT_ID = "masking_sandbox_project_id";
+    public static final String MASKING_SANDBOX_ENV = "masking_sandbox_env";
+    public static final String MASKING_SANDBOX_DATA_VERIFY = "masking_sandbox_data_verify";
+    public static final String MASKING_LINEAGE_PRINT_ENABLED = "masking_lineage_print_enabled";
+    public static final String MASKING_LINEAGE_PRINT_PREFIX = "masking_lineage_print_prefix";
+    public static final String MASKING_LINEAGE_PRINT_SUFFIX = "masking_lineage_print_suffix";
+
     public static final String ENABLE_EXTENDED_REGEX = "enable_extended_regex";
 
     public static final String SHORT_CIRCUIT_EVALUATION = "short_circuit_evaluation";
@@ -964,6 +973,54 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = ENABLE_STATS)
     public boolean enableStats = true;
+
+    @VariableMgr.VarAttr(name = MASKING_ENABLED, needForward = true, description = {
+            "是否开启脱敏功能（开启后才进行血缘解析与脱敏优化）。",
+            "Whether to enable masking (lineage parsing and masking optimization)."
+    })
+    public boolean maskingEnabled = false;
+
+    @VariableMgr.VarAttr(name = MASKING_DMS_URL, needForward = true, description = {
+            "查询脱敏策略的 HTTP 接口地址。",
+            "HTTP URL to query masking policies."
+    })
+    public String maskingDmsUrl = "";
+
+    @VariableMgr.VarAttr(name = MASKING_SANDBOX_PROJECT_ID, needForward = true, description = {
+            "沙箱项目 ID，查询脱敏策略时作为接口参数。",
+            "Sandbox project id for masking policy query."
+    })
+    public String maskingSandboxProjectId = "";
+
+    @VariableMgr.VarAttr(name = MASKING_SANDBOX_ENV, needForward = true, description = {
+            "脱敏环境标识（prod/pre）。",
+            "Masking environment identifier (prod/pre)."
+    })
+    public String maskingSandboxEnv = "prod";
+
+    @VariableMgr.VarAttr(name = MASKING_SANDBOX_DATA_VERIFY, needForward = true, description = {
+            "是否明文验数：true 使用保持原值策略；false 正常脱敏。",
+            "Plaintext verification: true keeps original values; false masks normally."
+    })
+    public boolean maskingSandboxDataVerify = false;
+
+    @VariableMgr.VarAttr(name = MASKING_LINEAGE_PRINT_ENABLED, needForward = true, description = {
+            "是否在 EXPLAIN 中打印血缘 JSON。",
+            "Whether to print lineage JSON in EXPLAIN output."
+    })
+    public boolean maskingLineagePrintEnabled = false;
+
+    @VariableMgr.VarAttr(name = MASKING_LINEAGE_PRINT_PREFIX, needForward = true, description = {
+            "血缘输出前缀，便于解析。",
+            "Lineage output prefix for parsing."
+    })
+    public String maskingLineagePrintPrefix = "";
+
+    @VariableMgr.VarAttr(name = MASKING_LINEAGE_PRINT_SUFFIX, needForward = true, description = {
+            "血缘输出后缀，便于解析。",
+            "Lineage output suffix for parsing."
+    })
+    public String maskingLineagePrintSuffix = "";
 
     // session origin value
     public Map<SessionVariableField, String> sessionOriginValue = new HashMap<>();
@@ -4628,6 +4685,15 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableNereidsDistributePlanner() {
         return enableNereidsDistributePlanner;
+    }
+
+    // Compatibility helpers for tests and callers migrated from older branches.
+    public boolean isEnableNereidsPlanner() {
+        return enableNereidsPlanner;
+    }
+
+    public void setEnableNereidsPlanner(boolean enableNereidsPlanner) {
+        this.enableNereidsPlanner = enableNereidsPlanner;
     }
 
     public void setEnableNereidsDistributePlanner(boolean enableNereidsDistributePlanner) {
