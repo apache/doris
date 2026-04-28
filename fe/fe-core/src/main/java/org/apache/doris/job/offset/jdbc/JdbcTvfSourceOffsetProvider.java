@@ -117,10 +117,7 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
         if (this.jobId != null) {
             return;
         }
-        // One-time initialization below — safe to skip on FE restart because the provider
-        // is reconstructed fresh (getPersistInfo returns null), so jobId is null then too.
         this.jobId = jobId;
-        this.chunkHighWatermarkMap = new HashMap<>();
         this.sourceType = resolvedType;
         String table = originTvfProps.get(DataSourceConfigKeys.TABLE);
         Preconditions.checkArgument(table != null, "table is required for cdc_stream TVF");
