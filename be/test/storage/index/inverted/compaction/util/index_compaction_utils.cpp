@@ -31,6 +31,7 @@
 #include "json2pb/pb_to_json.h"
 #include "storage/compaction/base_compaction.h"
 #include "storage/index/index_file_reader.h"
+#include "storage/index/inverted/inverted_index_query_param.h"
 #include "storage/index/inverted/query/query_factory.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/beta_rowset_writer.h"
@@ -163,7 +164,7 @@ class IndexCompactionUtils {
 
         for (int i = 0; i < query_data.size(); i++) {
             Field param_value = Field::create_field<TYPE_INT>(int32_t(query_data[i]));
-            std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
+            std::unique_ptr<segment_v2::InvertedIndexQueryParam> query_param = nullptr;
             EXPECT_TRUE(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
                                 PrimitiveType::TYPE_INT, &param_value, query_param)
                                 .ok());
@@ -173,8 +174,11 @@ class IndexCompactionUtils {
             IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
             context->stats = &stats;
 
+            const auto* num_param =
+                    dynamic_cast<const segment_v2::NumericQueryParam*>(query_param.get());
+            EXPECT_NE(num_param, nullptr);
             EXPECT_TRUE(idx_reader
-                                ->invoke_bkd_query(context, query_param->get_value(),
+                                ->invoke_bkd_query(context, num_param,
                                                    InvertedIndexQueryType::EQUAL_QUERY,
                                                    *bkd_searcher, result)
                                 .ok());

@@ -26,8 +26,6 @@
 
 namespace doris {
 
-void (*FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR>::set_to_max)(void*) = nullptr;
-
 static TypeInfoPtr create_type_info_ptr(const TypeInfo* type_info, bool should_reclaim_memory);
 
 bool is_scalar_type(FieldType field_type) {

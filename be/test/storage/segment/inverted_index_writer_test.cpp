@@ -40,6 +40,7 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
+#include "storage/index/inverted/inverted_index_query_param.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/iterator/olap_data_convertor.h"
 #include "storage/tablet/tablet_schema.h"
@@ -176,7 +177,9 @@ public:
             context->stats = &stats;
             context->runtime_state = &runtime_state;
 
-            auto status = bkd_reader->query(context, "c1", &values[i],
+            auto qp = TypedInvertedIndexQueryParam<TYPE_INT>::create_unique();
+            qp->set_value(&values[i]);
+            auto status = bkd_reader->query(context, "c1", qp.get(),
                                             doris::segment_v2::InvertedIndexQueryType::EQUAL_QUERY,
                                             bitmap);
             EXPECT_TRUE(status.ok()) << status;
@@ -202,7 +205,9 @@ public:
         context->stats = &stats;
         context->runtime_state = &runtime_state;
 
-        auto status = bkd_reader->query(context, "c1", &test_value,
+        auto test_qp = TypedInvertedIndexQueryParam<TYPE_INT>::create_unique();
+        test_qp->set_value(&test_value);
+        auto status = bkd_reader->query(context, "c1", test_qp.get(),
                                         doris::segment_v2::InvertedIndexQueryType::LESS_THAN_QUERY,
                                         less_than_bitmap);
         EXPECT_TRUE(status.ok()) << status;
@@ -221,7 +226,7 @@ public:
         // Test GREATER_THAN query
         std::shared_ptr<roaring::Roaring> greater_than_bitmap =
                 std::make_shared<roaring::Roaring>();
-        status = bkd_reader->query(context, "c1", &test_value,
+        status = bkd_reader->query(context, "c1", test_qp.get(),
                                    doris::segment_v2::InvertedIndexQueryType::GREATER_THAN_QUERY,
                                    greater_than_bitmap);
         EXPECT_TRUE(status.ok()) << status;
@@ -739,7 +744,9 @@ public:
             context->stats = &stats;
             context->runtime_state = &runtime_state;
 
-            auto query_status = inverted_reader->query(context, field_name, &str_ref,
+            auto qp = TypedInvertedIndexQueryParam<TYPE_VARCHAR>::create_unique();
+            qp->set_value(&str_ref);
+            auto query_status = inverted_reader->query(context, field_name, qp.get(),
                                                        InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(query_status.ok()) << query_status;
             // For regular strings, both should work the same
@@ -945,12 +952,14 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
         context->stats = &stats;
         context->runtime_state = &runtime_state;
 
-        auto query_status_enabled =
-                inverted_reader_enabled->query(context, field_name, &values[i],
-                                               InvertedIndexQueryType::EQUAL_QUERY, bitmap_enabled);
+        StringRef str_ref(values[i].data, values[i].size);
+        auto qp = TypedInvertedIndexQueryParam<TYPE_VARCHAR>::create_unique();
+        qp->set_value(&str_ref);
+        auto query_status_enabled = inverted_reader_enabled->query(
+                context, field_name, qp.get(), InvertedIndexQueryType::EQUAL_QUERY, bitmap_enabled);
 
         auto query_status_disabled = inverted_reader_disabled->query(
-                context, field_name, &values[i], InvertedIndexQueryType::EQUAL_QUERY,
+                context, field_name, qp.get(), InvertedIndexQueryType::EQUAL_QUERY,
                 bitmap_disabled);
 
         EXPECT_TRUE(query_status_enabled.ok()) << query_status_enabled;

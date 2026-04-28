@@ -54,14 +54,14 @@ public:
     }
 
     Status query(const IndexQueryContextPtr& context, const std::string& column_name,
-                 const void* query_value, InvertedIndexQueryType query_type,
+                 const InvertedIndexQueryParam* query_value, InvertedIndexQueryType query_type,
                  std::shared_ptr<roaring::Roaring>& roaring,
                  const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) override {
         return Status::OK();
     }
 
     Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
-                     const void* query_value, InvertedIndexQueryType query_type,
+                     const InvertedIndexQueryParam* query_value, InvertedIndexQueryType query_type,
                      size_t* count) override {
         *count = 0;
         return Status::OK();

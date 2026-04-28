@@ -48,6 +48,7 @@
 #include "exprs/function/function.h"
 #include "exprs/function/function_helpers.h"
 #include "storage/index/index_reader_helper.h"
+#include "storage/index/inverted/inverted_index_query_param.h"
 
 namespace doris {
 
@@ -708,7 +709,7 @@ public:
         std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
 
         auto param_type = data_type_with_name.second->get_primitive_type();
-        std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
+        std::unique_ptr<segment_v2::InvertedIndexQueryParam> query_param = nullptr;
 
         // >= min ip
         RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
@@ -717,7 +718,7 @@ public:
         min_param.column_name = data_type_with_name.first;
         min_param.column_type = data_type_with_name.second;
         min_param.query_type = segment_v2::InvertedIndexQueryType::GREATER_EQUAL_QUERY;
-        min_param.query_value = query_param->get_value();
+        min_param.query_value = std::move(query_param);
         min_param.num_rows = num_rows;
         min_param.roaring = std::make_shared<roaring::Roaring>();
         RETURN_IF_ERROR(iter->read_from_index(&min_param));
@@ -729,7 +730,7 @@ public:
         max_param.column_name = data_type_with_name.first;
         max_param.column_type = data_type_with_name.second;
         max_param.query_type = segment_v2::InvertedIndexQueryType::LESS_EQUAL_QUERY;
-        max_param.query_value = query_param->get_value();
+        max_param.query_value = std::move(query_param);
         max_param.num_rows = num_rows;
         max_param.roaring = std::make_shared<roaring::Roaring>();
         RETURN_IF_ERROR(iter->read_from_index(&max_param));

@@ -29,7 +29,8 @@ namespace doris::segment_v2 {
 struct InvertedIndexParam {
     std::string column_name;
     DataTypePtr column_type;
-    const void* query_value;
+    // Owns the typed query value; reader receives query_value.get().
+    std::unique_ptr<InvertedIndexQueryParam> query_value;
     InvertedIndexQueryType query_type;
     uint32_t num_rows;
     std::shared_ptr<roaring::Roaring> roaring;
@@ -73,7 +74,8 @@ private:
     ENABLE_FACTORY_CREATOR(InvertedIndexIterator);
 
     Status try_read_from_inverted_index(const InvertedIndexReaderPtr& reader,
-                                        const std::string& column_name, const void* query_value,
+                                        const std::string& column_name,
+                                        const InvertedIndexQueryParam* query_value,
                                         InvertedIndexQueryType query_type, size_t* count);
 
     // Normalize analyzer_key to lowercase.

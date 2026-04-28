@@ -88,8 +88,8 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
                     runtime_state->query_options().inverted_index_skip_threshold;
             size_t hit_count = 0;
             RETURN_IF_ERROR(try_read_from_inverted_index(reader, i_param->column_name,
-                                                         i_param->query_value, i_param->query_type,
-                                                         &hit_count));
+                                                         i_param->query_value.get(),
+                                                         i_param->query_type, &hit_count));
             if (hit_count > i_param->num_rows * query_bkd_limit_percent / 100) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
                         "hit count: {}, bkd inverted reached limit {}% , segment num "
@@ -101,7 +101,7 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
 
     // Note: analyzer_ctx is now passed via i_param->analyzer_ctx
     auto execute_query = [&]() {
-        return reader->query(_context, i_param->column_name, i_param->query_value,
+        return reader->query(_context, i_param->column_name, i_param->query_value.get(),
                              i_param->query_type, i_param->roaring, i_param->analyzer_ctx);
     };
 
@@ -133,11 +133,10 @@ Result<bool> InvertedIndexIterator::has_null() {
     return reader->has_null();
 }
 
-Status InvertedIndexIterator::try_read_from_inverted_index(const InvertedIndexReaderPtr& reader,
-                                                           const std::string& column_name,
-                                                           const void* query_value,
-                                                           InvertedIndexQueryType query_type,
-                                                           size_t* count) {
+Status InvertedIndexIterator::try_read_from_inverted_index(
+        const InvertedIndexReaderPtr& reader, const std::string& column_name,
+        const InvertedIndexQueryParam* query_value, InvertedIndexQueryType query_type,
+        size_t* count) {
     // NOTE: only bkd index support try read now.
     if (query_type == InvertedIndexQueryType::GREATER_EQUAL_QUERY ||
         query_type == InvertedIndexQueryType::GREATER_THAN_QUERY ||

@@ -21,6 +21,7 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstring>
 #include <map>
 #include <memory>
@@ -34,7 +35,7 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
-#include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/inverted/inverted_index_query_param.h"
 #include "storage/index/inverted/inverted_index_writer.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
@@ -332,7 +333,9 @@ public:
         context->io_ctx = &io_ctx;
         context->stats = &stats;
         context->runtime_state = &runtime_state;
-        auto query_status = str_reader->query(context, field_name, &str_ref,
+        auto qp_335 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+        qp_335->set_value(&str_ref);
+        auto query_status = str_reader->query(context, field_name, qp_335.get(),
                                               InvertedIndexQueryType::EQUAL_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -345,7 +348,9 @@ public:
         std::string not_exist = "orange";
         StringRef not_exist_ref(not_exist.c_str(), not_exist.length());
 
-        query_status = str_reader->query(context, field_name, &not_exist_ref,
+        auto qp_348 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+        qp_348->set_value(&not_exist_ref);
+        query_status = str_reader->query(context, field_name, qp_348.get(),
                                          InvertedIndexQueryType::EQUAL_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -438,7 +443,9 @@ public:
         context->stats = &stats;
         context->runtime_state = &runtime_state;
 
-        auto query_status = bkd_reader->query(context, field_name, &query_value,
+        auto qp_441 = TypedInvertedIndexQueryParam<TYPE_INT>::create_unique();
+        qp_441->set_value(&query_value);
+        auto query_status = bkd_reader->query(context, field_name, qp_441.get(),
                                               InvertedIndexQueryType::EQUAL_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -450,7 +457,9 @@ public:
         bitmap = std::make_shared<roaring::Roaring>();
         int32_t less_than_value = 100;
 
-        query_status = bkd_reader->query(context, field_name, &less_than_value,
+        auto qp_453 = TypedInvertedIndexQueryParam<TYPE_INT>::create_unique();
+        qp_453->set_value(&less_than_value);
+        query_status = bkd_reader->query(context, field_name, qp_453.get(),
                                          InvertedIndexQueryType::LESS_THAN_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -462,7 +471,9 @@ public:
         bitmap = std::make_shared<roaring::Roaring>();
         int32_t greater_than_value = 100;
 
-        query_status = bkd_reader->query(context, field_name, &greater_than_value,
+        auto qp_465 = TypedInvertedIndexQueryParam<TYPE_INT>::create_unique();
+        qp_465->set_value(&greater_than_value);
+        query_status = bkd_reader->query(context, field_name, qp_465.get(),
                                          InvertedIndexQueryType::GREATER_THAN_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -521,7 +532,9 @@ public:
         context->stats = &stats;
         context->runtime_state = &runtime_state;
 
-        auto query_status = str_reader->query(context, field_name, &str_ref,
+        auto qp_524 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+        qp_524->set_value(&str_ref);
+        auto query_status = str_reader->query(context, field_name, qp_524.get(),
                                               InvertedIndexQueryType::EQUAL_QUERY, bitmap1);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -531,7 +544,9 @@ public:
         // Second query with same value, should be cache hit
         std::shared_ptr<roaring::Roaring> bitmap2 = std::make_shared<roaring::Roaring>();
 
-        query_status = str_reader->query(context, field_name, &str_ref,
+        auto qp_534 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+        qp_534->set_value(&str_ref);
+        query_status = str_reader->query(context, field_name, qp_534.get(),
                                          InvertedIndexQueryType::EQUAL_QUERY, bitmap2);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -589,7 +604,9 @@ public:
         context->stats = &stats;
         context->runtime_state = &runtime_state;
 
-        auto query_status = str_reader->query(context, field_name, &str_ref,
+        auto qp_592 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+        qp_592->set_value(&str_ref);
+        auto query_status = str_reader->query(context, field_name, qp_592.get(),
                                               InvertedIndexQueryType::EQUAL_QUERY, bitmap1);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -600,7 +617,9 @@ public:
         std::shared_ptr<roaring::Roaring> bitmap2 = std::make_shared<roaring::Roaring>();
         StringRef str_ref2(values[1].data, values[1].size); // "banana"
 
-        query_status = str_reader->query(context, field_name, &str_ref2,
+        auto qp_603 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+        qp_603->set_value(&str_ref2);
+        query_status = str_reader->query(context, field_name, qp_603.get(),
                                          InvertedIndexQueryType::EQUAL_QUERY, bitmap2);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -657,7 +676,9 @@ public:
 
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
             StringRef term_ref(term.data(), term.size());
-            auto status = str_reader->query(context, field_name, &term_ref,
+            auto qp_660 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+            qp_660->set_value(&term_ref);
+            auto status = str_reader->query(context, field_name, qp_660.get(),
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok()) << status;
             EXPECT_EQ(1, bitmap->cardinality());
@@ -788,7 +809,9 @@ public:
         context->stats = &stats;
         context->runtime_state = &runtime_state;
 
-        auto query_status = str_reader->query(context, field_name, &str_ref,
+        auto qp_791 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+        qp_791->set_value(&str_ref);
+        auto query_status = str_reader->query(context, field_name, qp_791.get(),
                                               InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -803,7 +826,9 @@ public:
         query_term = "apple";
         StringRef str_ref_a(query_term.c_str(), query_term.length());
 
-        query_status = str_reader->query(context, field_name, &str_ref_a,
+        auto qp_806 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+        qp_806->set_value(&str_ref_a);
+        query_status = str_reader->query(context, field_name, qp_806.get(),
                                          InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -883,8 +908,10 @@ public:
             context->stats = &stats;
             context->runtime_state = &runtime_state;
 
+            auto qp_887 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+            qp_887->set_value(&str_ref);
             auto query_status =
-                    str_reader->query(context, field_name, &str_ref,
+                    str_reader->query(context, field_name, qp_887.get(),
                                       InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
 
             EXPECT_TRUE(query_status.ok()) << query_status;
@@ -900,7 +927,9 @@ public:
             query_term = "term_a";
             StringRef str_ref_a(query_term.c_str(), query_term.length());
 
-            query_status = str_reader->query(context, field_name, &str_ref_a,
+            auto qp_903 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+            qp_903->set_value(&str_ref_a);
+            query_status = str_reader->query(context, field_name, qp_903.get(),
                                              InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
 
             EXPECT_TRUE(query_status.ok()) << query_status;
@@ -916,7 +945,9 @@ public:
             query_term = "noexist";
             StringRef str_ref_no_term(query_term.c_str(), query_term.length());
 
-            query_status = str_reader->query(context, field_name, &str_ref_no_term,
+            auto qp_919 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+            qp_919->set_value(&str_ref_no_term);
+            query_status = str_reader->query(context, field_name, qp_919.get(),
                                              InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
             EXPECT_TRUE(query_status.ok()) << query_status;
             EXPECT_EQ(bitmap->cardinality(), 0) << "V3: Should find 0 documents matching 'noexist'";
@@ -965,7 +996,9 @@ public:
             context->stats = &stats;
             context->runtime_state = &runtime_state;
 
-            auto query_status = str_reader->query(context, field_name, &str_ref,
+            auto qp_968 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+            qp_968->set_value(&str_ref);
+            auto query_status = str_reader->query(context, field_name, qp_968.get(),
                                                   InvertedIndexQueryType::EQUAL_QUERY, bitmap);
 
             EXPECT_TRUE(query_status.ok()) << query_status;
@@ -981,7 +1014,9 @@ public:
             query_term = "term_a";
             StringRef str_ref_a(query_term.c_str(), query_term.length());
 
-            query_status = str_reader->query(context, field_name, &str_ref_a,
+            auto qp_984 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+            qp_984->set_value(&str_ref_a);
+            query_status = str_reader->query(context, field_name, qp_984.get(),
                                              InvertedIndexQueryType::EQUAL_QUERY, bitmap);
 
             EXPECT_TRUE(query_status.ok()) << query_status;
@@ -997,7 +1032,9 @@ public:
             query_term = "noexist";
             StringRef str_ref_no_term(query_term.c_str(), query_term.length());
 
-            query_status = str_reader->query(context, field_name, &str_ref_no_term,
+            auto qp_1000 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+            qp_1000->set_value(&str_ref_no_term);
+            query_status = str_reader->query(context, field_name, qp_1000.get(),
                                              InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(query_status.ok()) << query_status;
             EXPECT_EQ(bitmap->cardinality(), 0) << "V3: Should find 0 documents matching 'noexist'";
@@ -1064,7 +1101,9 @@ public:
         context->stats = &stats;
         context->runtime_state = &runtime_state;
 
-        auto query_status = index_reader->query(context, field_name, &str_ref,
+        auto qp_1067 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+        qp_1067->set_value(&str_ref);
+        auto query_status = index_reader->query(context, field_name, qp_1067.get(),
                                                 InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
 
         ASSERT_TRUE(query_status.ok()) << "Query failed for term '" << query_term << "' in file "
@@ -2086,7 +2125,9 @@ public:
         std::string field_name = "1"; // c2 unique_id
         StringRef query_val(values[0].data, values[0].size);
 
-        Status st = mock_reader->query(context, field_name, &query_val,
+        auto qp_2089 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+        qp_2089->set_value(&query_val);
+        Status st = mock_reader->query(context, field_name, qp_2089.get(),
                                        InvertedIndexQueryType::EQUAL_QUERY, bitmap);
 
         EXPECT_FALSE(st.ok());
@@ -2148,7 +2189,9 @@ public:
         std::string query_term = "world";
         StringRef query_val(query_term.data(), query_term.size());
 
-        Status st = mock_reader->query(context, field_name, &query_val,
+        auto qp_2151 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+        qp_2151->set_value(&query_val);
+        Status st = mock_reader->query(context, field_name, qp_2151.get(),
                                        InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
 
         EXPECT_FALSE(st.ok());
@@ -2158,7 +2201,9 @@ public:
         std::string phrase_query = "Apache Doris";
         StringRef phrase_query_val(phrase_query.data(), phrase_query.size());
 
-        st = mock_reader->query(context, field_name, &phrase_query_val,
+        auto qp_2161 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+        qp_2161->set_value(&phrase_query_val);
+        st = mock_reader->query(context, field_name, qp_2161.get(),
                                 InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
 
         EXPECT_FALSE(st.ok());
@@ -2271,7 +2316,9 @@ public:
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
             std::string query_lower = "apple"; // lowercase
             StringRef str_ref(query_lower.c_str(), query_lower.length());
-            auto status = str_reader->query(context, "c2", &str_ref,
+            auto qp_2274 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+            qp_2274->set_value(&str_ref);
+            auto status = str_reader->query(context, "c2", qp_2274.get(),
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
             EXPECT_GT(bitmap->cardinality(), 0) << "Should find 'Apple' with lowercase query";
@@ -2311,7 +2358,9 @@ public:
             std::string long_query = "this_is_a_very_long_string_that_exceeds_ignore_above_limit";
             StringRef str_ref(long_query.c_str(), long_query.length());
 
-            auto status = str_reader->query(context, "c2", &str_ref,
+            auto qp_2314 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+            qp_2314->set_value(&str_ref);
+            auto status = str_reader->query(context, "c2", qp_2314.get(),
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_FALSE(status.ok());
             EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED);
@@ -2373,7 +2422,9 @@ public:
             std::string query = "quick database";
             StringRef query_ref(query.c_str(), query.length());
 
-            auto status = fulltext_reader->query(context, "c2", &query_ref,
+            auto qp_2376 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+            qp_2376->set_value(&query_ref);
+            auto status = fulltext_reader->query(context, "c2", qp_2376.get(),
                                                  InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
             EXPECT_GT(bitmap->cardinality(), 0)
@@ -2386,7 +2437,9 @@ public:
             std::string query = "search fast";
             StringRef query_ref(query.c_str(), query.length());
 
-            auto status = fulltext_reader->query(context, "c2", &query_ref,
+            auto qp_2389 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+            qp_2389->set_value(&query_ref);
+            auto status = fulltext_reader->query(context, "c2", qp_2389.get(),
                                                  InvertedIndexQueryType::MATCH_ALL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
@@ -2397,8 +2450,10 @@ public:
             std::string query = "quick brown";
             StringRef query_ref(query.c_str(), query.length());
 
+            auto qp = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+            qp->set_value(&query_ref);
             auto status = fulltext_reader->query(
-                    context, "c2", &query_ref, InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
+                    context, "c2", qp.get(), InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
 
@@ -2408,7 +2463,9 @@ public:
             std::string query = "sear";
             StringRef query_ref(query.c_str(), query.length());
 
-            auto status = fulltext_reader->query(context, "c2", &query_ref,
+            auto qp_2411 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+            qp_2411->set_value(&query_ref);
+            auto status = fulltext_reader->query(context, "c2", qp_2411.get(),
                                                  InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY,
                                                  bitmap);
             EXPECT_TRUE(status.ok());
@@ -2420,8 +2477,10 @@ public:
             std::string query = "qu.*k";
             StringRef query_ref(query.c_str(), query.length());
 
+            auto qp = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+            qp->set_value(&query_ref);
             auto status = fulltext_reader->query(
-                    context, "c2", &query_ref, InvertedIndexQueryType::MATCH_REGEXP_QUERY, bitmap);
+                    context, "c2", qp.get(), InvertedIndexQueryType::MATCH_REGEXP_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
     }
@@ -2479,9 +2538,11 @@ public:
         std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
         StringRef str_ref("test1", 5);
 
+        auto param_qp = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+        param_qp->set_value(&str_ref);
         InvertedIndexParam param;
         param.column_name = "c2";
-        param.query_value = &str_ref;
+        param.query_value = std::move(param_qp);
         param.query_type = InvertedIndexQueryType::EQUAL_QUERY;
         param.num_rows = 3;
         param.roaring = bitmap;
@@ -2494,9 +2555,11 @@ public:
         size_t count = 0;
         auto* inverted_index_iterator = static_cast<InvertedIndexIterator*>(iterator.get());
         inverted_index_iterator->set_context(context);
+        auto try_qp = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+        try_qp->set_value(&str_ref);
         status = inverted_index_iterator->try_read_from_inverted_index(
                 std::static_pointer_cast<InvertedIndexReader>(inverted_index_reader), "c2",
-                &str_ref, InvertedIndexQueryType::EQUAL_QUERY, &count);
+                try_qp.get(), InvertedIndexQueryType::EQUAL_QUERY, &count);
         EXPECT_TRUE(status.ok());
     }
 
@@ -2568,7 +2631,9 @@ public:
             std::string query = "500";
             StringRef str_ref(query.c_str(), query.length());
 
-            auto status = str_reader->query(context, "c2", &str_ref,
+            auto qp_2571 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+            qp_2571->set_value(&str_ref);
+            auto status = str_reader->query(context, "c2", qp_2571.get(),
                                             InvertedIndexQueryType::LESS_THAN_QUERY, bitmap);
             // This might succeed or fail depending on the implementation limits
             // The important thing is we handle the potential TooManyClauses error gracefully
@@ -2605,7 +2670,9 @@ public:
             std::string empty_query = "";
             StringRef str_ref(empty_query.c_str(), empty_query.length());
 
-            auto status = fulltext_reader->query(context, "c2", &str_ref,
+            auto qp_2608 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+            qp_2608->set_value(&str_ref);
+            auto status = fulltext_reader->query(context, "c2", qp_2608.get(),
                                                  InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
             // Should either succeed with empty result or fail gracefully
         }
@@ -2747,7 +2814,9 @@ public:
             std::string query = "500";
             StringRef str_ref(query.c_str(), query.length());
 
-            auto status = str_reader->query(context, "c2", &str_ref,
+            auto qp_2750 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+            qp_2750->set_value(&str_ref);
+            auto status = str_reader->query(context, "c2", qp_2750.get(),
                                             InvertedIndexQueryType::LESS_THAN_QUERY, bitmap);
             // This might succeed or fail depending on the implementation limits
             // The important thing is we handle the potential TooManyClauses error gracefully
@@ -2784,7 +2853,9 @@ public:
             std::string empty_query;
             StringRef str_ref(empty_query.c_str(), empty_query.length());
 
-            auto status = fulltext_reader->query(context, "c2", &str_ref,
+            auto qp_2787 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+            qp_2787->set_value(&str_ref);
+            auto status = fulltext_reader->query(context, "c2", qp_2787.get(),
                                                  InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
             // Should either succeed with empty result or fail gracefully
         }
@@ -2835,8 +2906,10 @@ public:
             std::string regexp_query = "test.*";
             StringRef query_ref(regexp_query.c_str(), regexp_query.length());
 
+            auto qp = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+            qp->set_value(&query_ref);
             auto status = fulltext_reader->query(
-                    context, "c2", &query_ref, InvertedIndexQueryType::MATCH_REGEXP_QUERY, bitmap);
+                    context, "c2", qp.get(), InvertedIndexQueryType::MATCH_REGEXP_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
 
@@ -2871,46 +2944,355 @@ public:
             std::string query = "cherry";
             StringRef str_ref(query.c_str(), query.length());
 
-            auto status = str_reader->query(context, "c2", &str_ref,
+            auto qp_2874 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+            qp_2874->set_value(&str_ref);
+            auto status = str_reader->query(context, "c2", qp_2874.get(),
                                             InvertedIndexQueryType::LESS_THAN_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
 
             // Test LESS_EQUAL_QUERY
             bitmap = std::make_shared<roaring::Roaring>();
-            status = str_reader->query(context, "c2", &str_ref,
+            auto qp_2880 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+            qp_2880->set_value(&str_ref);
+            status = str_reader->query(context, "c2", qp_2880.get(),
                                        InvertedIndexQueryType::LESS_EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
 
             // Test GREATER_THAN_QUERY
             bitmap = std::make_shared<roaring::Roaring>();
-            status = str_reader->query(context, "c2", &str_ref,
+            auto qp_2886 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+            qp_2886->set_value(&str_ref);
+            status = str_reader->query(context, "c2", qp_2886.get(),
                                        InvertedIndexQueryType::GREATER_THAN_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
 
             // Test GREATER_EQUAL_QUERY
             bitmap = std::make_shared<roaring::Roaring>();
-            status = str_reader->query(context, "c2", &str_ref,
+            auto qp_2892 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+            qp_2892->set_value(&str_ref);
+            status = str_reader->query(context, "c2", qp_2892.get(),
                                        InvertedIndexQueryType::GREATER_EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
 
             // Test MATCH_PHRASE_QUERY for StringType
             bitmap = std::make_shared<roaring::Roaring>();
-            status = str_reader->query(context, "c2", &str_ref,
+            auto qp_2898 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+            qp_2898->set_value(&str_ref);
+            status = str_reader->query(context, "c2", qp_2898.get(),
                                        InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
 
             // Test MATCH_PHRASE_PREFIX_QUERY for StringType
             bitmap = std::make_shared<roaring::Roaring>();
-            status = str_reader->query(context, "c2", &str_ref,
+            auto qp_2904 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+            qp_2904->set_value(&str_ref);
+            status = str_reader->query(context, "c2", qp_2904.get(),
                                        InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
 
             // Test MATCH_REGEXP_QUERY for StringType
             bitmap = std::make_shared<roaring::Roaring>();
-            status = str_reader->query(context, "c2", &str_ref,
+            auto qp_2910 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+            qp_2910->set_value(&str_ref);
+            status = str_reader->query(context, "c2", qp_2910.get(),
                                        InvertedIndexQueryType::MATCH_REGEXP_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
+    }
+
+    // Sanity probe: confirm type_limit<decimal12_t> is specialised and not
+    // falling through to the zero-init default of an unspecialised
+    // numeric_limits. TypedInvertedIndexQueryParam<TYPE_DECIMALV2>::encode_min/
+    // max_ascending depend on this specialisation for valid +/-infinity
+    // sentinels — without it both bounds collapse to encoded({0,0}) and BKD
+    // half-bounded range queries on DecimalV2 columns silently miss negative
+    // (for LESS_THAN) or positive (for GREATER_THAN) values.
+    void test_type_limit_decimal12_specialisation() {
+        auto lo = type_limit<decimal12_t>::min();
+        auto hi = type_limit<decimal12_t>::max();
+        EXPECT_EQ(lo.integer, -999999999999999999LL);
+        EXPECT_EQ(lo.fraction, -999999999);
+        EXPECT_EQ(hi.integer, +999999999999999999LL);
+        EXPECT_EQ(hi.fraction, +999999999);
+    }
+
+    // Same regression as decimal12_t but for uint24_t (TYPE_DATE storage).
+    // Values match OLAP DATE packing: 0001-01-01 / 9999-12-31.
+    void test_type_limit_uint24_specialisation() {
+        EXPECT_EQ(static_cast<uint32_t>(type_limit<uint24_t>::min()), 33u);
+        EXPECT_EQ(static_cast<uint32_t>(type_limit<uint24_t>::max()), 5119903u);
+    }
+
+    // Generic BKD range-query verifier. Writes `values` into the BKD index
+    // for `column_name`, then runs EQUAL / LESS_THAN / LESS_EQUAL /
+    // GREATER_THAN / GREATER_EQUAL queries against `threshold`. Expected
+    // cardinalities are derived from the input `values` + `threshold` via
+    // std::count_if, so the caller doesn't have to keep them in sync.
+    //
+    // Locks in:
+    //  * the typed-param interface (TypedInvertedIndexQueryParam<PT>)
+    //  * the +/-infinity sentinels from type_limit<storage_val>
+    //  * BKD's writer/reader/visitor agreement on KeyCoder-encoded bytes
+    template <PrimitiveType PT, typename T>
+    void verify_bkd_range_queries(int col_id, std::string_view rowset_id,
+                                  const std::string& column_name, std::vector<T> values,
+                                  T threshold) {
+        OlapReaderStatistics stats;
+        RuntimeState runtime_state;
+        io::IOContext io_ctx;
+
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+
+        TabletIndex idx_meta;
+        std::string index_path_prefix;
+        prepare_bkd_index_typed(rowset_id, /*seg_id=*/0, col_id, values, &idx_meta,
+                                &index_path_prefix);
+
+        auto reader = std::make_shared<IndexFileReader>(
+                io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
+        EXPECT_TRUE(reader->init().ok());
+
+        auto bkd_reader = BkdIndexReader::create_shared(&idx_meta, reader);
+        EXPECT_NE(bkd_reader, nullptr);
+
+        auto run_query = [&](InvertedIndexQueryType qt, T thr) {
+            auto qp = TypedInvertedIndexQueryParam<PT>::create_unique();
+            qp->set_value(&thr);
+            auto bitmap = std::make_shared<roaring::Roaring>();
+            auto status = bkd_reader->query(context, column_name, qp.get(), qt, bitmap);
+            EXPECT_TRUE(status.ok()) << column_name << ": " << status;
+            return bitmap->cardinality();
+        };
+
+        const auto expect_eq = std::count_if(values.begin(), values.end(),
+                                             [&](const T& v) { return v == threshold; });
+        const auto expect_lt = std::count_if(values.begin(), values.end(),
+                                             [&](const T& v) { return v < threshold; });
+        const auto expect_le = std::count_if(values.begin(), values.end(),
+                                             [&](const T& v) { return v <= threshold; });
+        const auto expect_gt = std::count_if(values.begin(), values.end(),
+                                             [&](const T& v) { return v > threshold; });
+        const auto expect_ge = std::count_if(values.begin(), values.end(),
+                                             [&](const T& v) { return v >= threshold; });
+
+        EXPECT_EQ(run_query(InvertedIndexQueryType::EQUAL_QUERY, threshold), expect_eq)
+                << column_name << " EQUAL";
+        EXPECT_EQ(run_query(InvertedIndexQueryType::LESS_THAN_QUERY, threshold), expect_lt)
+                << column_name << " LESS_THAN (relies on encode_min sentinel)";
+        EXPECT_EQ(run_query(InvertedIndexQueryType::LESS_EQUAL_QUERY, threshold), expect_le)
+                << column_name << " LESS_EQUAL (relies on encode_min sentinel)";
+        EXPECT_EQ(run_query(InvertedIndexQueryType::GREATER_THAN_QUERY, threshold), expect_gt)
+                << column_name << " GREATER_THAN (relies on encode_max sentinel)";
+        EXPECT_EQ(run_query(InvertedIndexQueryType::GREATER_EQUAL_QUERY, threshold), expect_ge)
+                << column_name << " GREATER_EQUAL (relies on encode_max sentinel)";
+    }
+
+    // Per-type wrappers. col_id values match create_comprehensive_schema()
+    // (commented-out c_double/c_float shift later indices, hence date=4,
+    // datetime=5, decimal=6, bool=7, tinyint=8, smallint=9, largeint=10,
+    // datev2=12, datetimev2=13, timestamptz=14).
+    void test_bkd_range_int() {
+        // INT32 row counts: -1000 (loss), 0 (balance), 42, 100, 200, 300.
+        verify_bkd_range_queries<TYPE_INT, int32_t>(
+                /*col_id=*/0, "bkd_range_int", "c_int", {-1000, 0, 42, 100, 200, 300},
+                /*threshold=*/100);
+    }
+    void test_bkd_range_bigint() {
+        // INT64 nanosecond timestamps (relative epoch deltas).
+        verify_bkd_range_queries<TYPE_BIGINT, int64_t>(
+                /*col_id=*/1, "bkd_range_bigint", "c_bigint",
+                {-1'000'000LL, 0LL, 1'500LL, 1'000'000LL, 1'000'000'000LL, 100'000'000'000LL},
+                /*threshold=*/1'000'000LL);
+    }
+    void test_bkd_range_smallint() {
+        // INT16 range: -32768..32767, e.g. signed short port deltas.
+        verify_bkd_range_queries<TYPE_SMALLINT, int16_t>(
+                /*col_id=*/9, "bkd_range_smallint", "c_smallint",
+                {int16_t(-32768), int16_t(-1024), int16_t(-1), int16_t(0), int16_t(8080),
+                 int16_t(32767)},
+                /*threshold=*/int16_t(0));
+    }
+    void test_bkd_range_tinyint() {
+        // INT8 range: -128..127, e.g. log-level / tinyint flags.
+        verify_bkd_range_queries<TYPE_TINYINT, int8_t>(
+                /*col_id=*/8, "bkd_range_tinyint", "c_tinyint",
+                {int8_t(-128), int8_t(-10), int8_t(-1), int8_t(0), int8_t(50), int8_t(127)},
+                /*threshold=*/int8_t(0));
+    }
+    void test_bkd_range_largeint() {
+        // INT128. Spans negative through ~10^12 to exercise the high half.
+        verify_bkd_range_queries<TYPE_LARGEINT, __int128_t>(
+                /*col_id=*/10, "bkd_range_largeint", "c_largeint",
+                {static_cast<__int128_t>(-1'000'000), static_cast<__int128_t>(-1),
+                 static_cast<__int128_t>(0), static_cast<__int128_t>(1),
+                 static_cast<__int128_t>(1'000'000), static_cast<__int128_t>(1'000'000'000'000LL)},
+                /*threshold=*/static_cast<__int128_t>(0));
+    }
+    void test_bkd_range_decimalv2() {
+        // Real DecimalV2 (DECIMAL(27,9)) literals: -100.0, 0.0, 42.5, 100.0, 200.0, 300.0
+        // (decimal12_t.fraction is scaled by 10^9).
+        verify_bkd_range_queries<TYPE_DECIMALV2, decimal12_t>(
+                /*col_id=*/6, "bkd_range_decimalv2", "c_decimal",
+                {decimal12_t {-100, 0}, decimal12_t {0, 0}, decimal12_t {42, 500'000'000},
+                 decimal12_t {100, 0}, decimal12_t {200, 0}, decimal12_t {300, 0}},
+                /*threshold=*/decimal12_t {100, 0});
+    }
+    void test_bkd_range_date() {
+        // DATE in OLAP packed format `(year << 9) | (month << 5) | day`:
+        //   2020-01-01, 2021-06-15, 2023-03-10, 2024-12-31, 2026-08-08, 2030-01-01
+        auto pack_date = [](int y, int m, int d) -> uint24_t {
+            return uint24_t(static_cast<uint32_t>((y << 9) | (m << 5) | d));
+        };
+        verify_bkd_range_queries<TYPE_DATE, uint24_t>(
+                /*col_id=*/4, "bkd_range_date", "c_date",
+                {pack_date(2020, 1, 1), pack_date(2021, 6, 15), pack_date(2023, 3, 10),
+                 pack_date(2024, 12, 31), pack_date(2026, 8, 8), pack_date(2030, 1, 1)},
+                /*threshold=*/pack_date(2024, 12, 31));
+    }
+    void test_bkd_range_datetime() {
+        // OLAP DATETIME packs as decimal YYYYMMDDhhmmss (see VecDateTimeValue::
+        // to_olap_datetime). TypedInvertedIndexQueryParam<TYPE_DATETIME>::storage_val
+        // is int64_t (conditional_t override) to line up with KeyCoder<DATETIME>'s
+        // signed view.
+        auto dt = [](int y, int mo, int d, int h, int mi, int s) -> int64_t {
+            return static_cast<int64_t>((static_cast<uint64_t>(y) * 10000 + mo * 100 + d) *
+                                                1000000ULL +
+                                        static_cast<uint64_t>(h) * 10000 + mi * 100 + s);
+        };
+        verify_bkd_range_queries<TYPE_DATETIME, int64_t>(
+                /*col_id=*/5, "bkd_range_datetime", "c_datetime",
+                {dt(2020, 1, 1, 12, 0, 0), dt(2021, 1, 1, 12, 0, 0), dt(2022, 6, 15, 15, 0, 0),
+                 dt(2024, 3, 10, 9, 30, 0), dt(2025, 12, 25, 0, 0, 0), dt(2030, 1, 1, 12, 0, 0)},
+                /*threshold=*/dt(2024, 3, 10, 9, 30, 0));
+    }
+    void test_bkd_range_datev2() {
+        // DateV2 packed format: bits [0..4]=day, [5..8]=month, [9..23]=year.
+        auto pack_datev2 = [](int y, int m, int d) -> uint32_t {
+            return static_cast<uint32_t>((y << 9) | (m << 5) | d);
+        };
+        verify_bkd_range_queries<TYPE_DATEV2, uint32_t>(
+                /*col_id=*/12, "bkd_range_datev2", "c_datev2",
+                {pack_datev2(2020, 1, 1), pack_datev2(2021, 6, 15), pack_datev2(2023, 3, 10),
+                 pack_datev2(2024, 12, 31), pack_datev2(2026, 8, 8), pack_datev2(2030, 1, 1)},
+                /*threshold=*/pack_datev2(2024, 12, 31));
+    }
+    // DateTimeV2 / TimestampTz packing per vdatetime_value.h:
+    //   [date_v2 << 37] | [hour << 32] | [minute << 26] | [second << 20] | microsecond
+    //   date_v2 = (year << 9) | (month << 5) | day
+    static uint64_t pack_dtv2(int y, int mo, int d, int h, int mi, int s, int us = 0) {
+        uint64_t date = (static_cast<uint64_t>(y) << 9) | (static_cast<uint64_t>(mo) << 5) | d;
+        return (date << 37) | (static_cast<uint64_t>(h) << 32) | (static_cast<uint64_t>(mi) << 26) |
+               (static_cast<uint64_t>(s) << 20) | us;
+    }
+    void test_bkd_range_datetimev2() {
+        verify_bkd_range_queries<TYPE_DATETIMEV2, uint64_t>(
+                /*col_id=*/13, "bkd_range_datetimev2", "c_datetimev2",
+                {pack_dtv2(2020, 1, 1, 12, 0, 0), pack_dtv2(2021, 6, 15, 15, 0, 0),
+                 pack_dtv2(2023, 3, 10, 9, 30, 0), pack_dtv2(2024, 12, 31, 23, 59, 59),
+                 pack_dtv2(2026, 8, 8, 8, 8, 8), pack_dtv2(2030, 1, 1, 12, 0, 0)},
+                /*threshold=*/pack_dtv2(2024, 12, 31, 23, 59, 59));
+    }
+    void test_bkd_range_timestamptz() {
+        // TimestampTzValue storage = uint64_t with the same DateTimeV2 packing
+        // (the TZ offset lives outside the BKD-indexed key).
+        verify_bkd_range_queries<TYPE_TIMESTAMPTZ, uint64_t>(
+                /*col_id=*/14, "bkd_range_timestamptz", "c_timestamptz",
+                {pack_dtv2(2020, 1, 1, 12, 0, 0), pack_dtv2(2021, 6, 15, 15, 0, 0),
+                 pack_dtv2(2023, 3, 10, 9, 30, 0), pack_dtv2(2024, 12, 31, 23, 59, 59),
+                 pack_dtv2(2026, 8, 8, 8, 8, 8), pack_dtv2(2030, 1, 1, 12, 0, 0)},
+                /*threshold=*/pack_dtv2(2024, 12, 31, 23, 59, 59));
+    }
+    void test_bkd_range_bool() {
+        // Storage = uint8_t. With duplicates {false,false,false,true,true,true}
+        // threshold=false means LT=0 / LE=3 / GT=3 / GE=6.
+        verify_bkd_range_queries<TYPE_BOOLEAN, uint8_t>(
+                /*col_id=*/7, "bkd_range_bool", "c_bool",
+                {uint8_t(0), uint8_t(0), uint8_t(0), uint8_t(1), uint8_t(1), uint8_t(1)},
+                /*threshold=*/uint8_t(0));
+    }
+    void test_bkd_range_float() {
+        // FLOAT real values: ~-100.5 (negative offset), -1.25, 0.0, π
+        // approximated, 100.25, 1234.5 (mid-positive).
+        verify_bkd_range_queries<TYPE_FLOAT, float>(
+                /*col_id=*/15, "bkd_range_float", "c_float",
+                {-100.5f, -1.25f, 0.0f, 3.14159f, 100.25f, 1234.5f},
+                /*threshold=*/3.14159f);
+    }
+    void test_bkd_range_double() {
+        // DOUBLE real values across magnitudes from -1e10 to +1e10, including
+        // negative scientific, π, and large positive.
+        verify_bkd_range_queries<TYPE_DOUBLE, double>(
+                /*col_id=*/16, "bkd_range_double", "c_double",
+                {-9.87654321e10, -1.5, 0.0, 3.14159265358979, 1.0e6, 1.0e10},
+                /*threshold=*/3.14159265358979);
+    }
+    void test_bkd_range_decimal32() {
+        // DECIMAL(9, 2). Storage = real_value × 10^2.
+        auto d = [](double v) { return static_cast<int32_t>(std::llround(v * 100)); };
+        verify_bkd_range_queries<TYPE_DECIMAL32, int32_t>(
+                /*col_id=*/17, "bkd_range_decimal32", "c_decimal32",
+                {d(-1.00), d(-0.01), d(0.00), d(1.23), d(9999.99), d(999999.99)},
+                /*threshold=*/d(1.23));
+    }
+    void test_bkd_range_decimal64() {
+        // DECIMAL(18, 4). Storage = real_value × 10^4.
+        auto d = [](double v) { return static_cast<int64_t>(std::llround(v * 10000)); };
+        verify_bkd_range_queries<TYPE_DECIMAL64, int64_t>(
+                /*col_id=*/18, "bkd_range_decimal64", "c_decimal64",
+                {d(-100.0), d(0.0), d(0.0123), d(12345.6789), d(99999999.9999), d(9999999999.9999)},
+                /*threshold=*/d(12345.6789));
+    }
+    void test_bkd_range_decimal128i() {
+        // DECIMAL(38, 10) stored as Int128. Values:
+        //   -100.0000000000, -0.0000000001, 0, 1.2345678900,
+        //   12345.6789012345, 1e30 (ledger-scale).
+        verify_bkd_range_queries<TYPE_DECIMAL128I, __int128_t>(
+                /*col_id=*/19, "bkd_range_decimal128i", "c_decimal128i",
+                {static_cast<__int128_t>(-1'000'000'000'000LL), static_cast<__int128_t>(-1),
+                 static_cast<__int128_t>(0), static_cast<__int128_t>(12'345'678'900LL),
+                 static_cast<__int128_t>(123'456'789'012'345LL),
+                 static_cast<__int128_t>(1'000'000'000'000'000LL) *
+                         static_cast<__int128_t>(1'000'000'000'000'000LL)},
+                /*threshold=*/static_cast<__int128_t>(12'345'678'900LL));
+    }
+    void test_bkd_range_decimal256() {
+        // DECIMAL(76, 20) stored as wide::Int256. Use scaled integers spanning
+        // a representative range from -1e6 up to 10^18.
+        verify_bkd_range_queries<TYPE_DECIMAL256, wide::Int256>(
+                /*col_id=*/20, "bkd_range_decimal256", "c_decimal256",
+                {wide::Int256(-1'000'000), wide::Int256(-1), wide::Int256(0),
+                 wide::Int256(123'456'789), wide::Int256(123'456'789'012'345LL),
+                 wide::Int256(1'000'000'000'000'000'000LL)},
+                /*threshold=*/wide::Int256(123'456'789));
+    }
+    void test_bkd_range_ipv4() {
+        // Real IPv4 addresses. uint32_t encoding = (a<<24)|(b<<16)|(c<<8)|d:
+        //   0.0.0.1, 10.0.0.1, 127.0.0.1, 192.168.0.1, 192.168.0.254, 255.255.255.254
+        verify_bkd_range_queries<TYPE_IPV4, uint32_t>(
+                /*col_id=*/21, "bkd_range_ipv4", "c_ipv4",
+                {0x00000001U, 0x0A000001U, 0x7F000001U, 0xC0A80001U, 0xC0A800FEU, 0xFFFFFFFEU},
+                /*threshold=*/0xC0A80001U); // 192.168.0.1
+    }
+    void test_bkd_range_ipv6() {
+        // Real IPv6 addresses (uint128_t = 16-byte big-endian view):
+        //   ::1                 (loopback)
+        //   ::ffff:7f00:0001    (IPv4-mapped 127.0.0.1)
+        //   2001:db8::1         (documentation prefix)
+        //   2001:db8:1::1
+        //   fe80::1             (link-local)
+        //   ffff:ffff::         (last valid)
+        auto ipv6 = [](uint64_t hi, uint64_t lo) -> uint128_t {
+            return (static_cast<uint128_t>(hi) << 64) | lo;
+        };
+        verify_bkd_range_queries<TYPE_IPV6, uint128_t>(
+                /*col_id=*/22, "bkd_range_ipv6", "c_ipv6",
+                {ipv6(0, 1), ipv6(0, 0x0000FFFF7F000001ULL), ipv6(0x20010DB800000000ULL, 1),
+                 ipv6(0x20010DB800010000ULL, 1), ipv6(0xFE80000000000000ULL, 1),
+                 ipv6(0xFFFFFFFF00000000ULL, 0)},
+                /*threshold=*/ipv6(0x20010DB800000000ULL, 1)); // 2001:db8::1
     }
 
     // Test BKD specific uncovered paths
@@ -2953,13 +3335,17 @@ public:
         for (auto& test_case : test_cases) {
             // Test try_query path
             size_t count = 0;
-            auto status = bkd_reader->try_query(context, "c1", &test_case.second, test_case.first,
-                                                &count);
+            auto qp_2956 = TypedInvertedIndexQueryParam<TYPE_INT>::create_unique();
+            qp_2956->set_value(&test_case.second);
+            auto status =
+                    bkd_reader->try_query(context, "c1", qp_2956.get(), test_case.first, &count);
             EXPECT_TRUE(status.ok()) << "Try query type: " << static_cast<int>(test_case.first);
 
             // Test actual query path
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            status = bkd_reader->query(context, "c1", &test_case.second, test_case.first, bitmap);
+            auto qp_2962 = TypedInvertedIndexQueryParam<TYPE_INT>::create_unique();
+            qp_2962->set_value(&test_case.second);
+            status = bkd_reader->query(context, "c1", qp_2962.get(), test_case.first, bitmap);
             EXPECT_TRUE(status.ok()) << "Query type: " << static_cast<int>(test_case.first);
         }
 
@@ -2968,12 +3354,16 @@ public:
         int32_t max_value = 100; // Greater than maximum in data
 
         std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-        auto status = bkd_reader->query(context, "c1", &min_value,
+        auto qp_2971 = TypedInvertedIndexQueryParam<TYPE_INT>::create_unique();
+        qp_2971->set_value(&min_value);
+        auto status = bkd_reader->query(context, "c1", qp_2971.get(),
                                         InvertedIndexQueryType::GREATER_THAN_QUERY, bitmap);
         EXPECT_TRUE(status.ok());
 
         bitmap = std::make_shared<roaring::Roaring>();
-        status = bkd_reader->query(context, "c1", &max_value,
+        auto qp_2976 = TypedInvertedIndexQueryParam<TYPE_INT>::create_unique();
+        qp_2976->set_value(&max_value);
+        status = bkd_reader->query(context, "c1", qp_2976.get(),
                                    InvertedIndexQueryType::LESS_THAN_QUERY, bitmap);
         EXPECT_TRUE(status.ok());
     }
@@ -3019,11 +3409,16 @@ public:
         // Test the bypass path in read_from_inverted_index
         std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
         int32_t query_value = 3;
+        auto make_int_qp = [&query_value]() {
+            auto qp = TypedInvertedIndexQueryParam<TYPE_INT>::create_unique();
+            qp->set_value(&query_value);
+            return qp;
+        };
 
         // This should trigger the bypass logic due to low threshold
         InvertedIndexParam param;
         param.column_name = "c1";
-        param.query_value = &query_value;
+        param.query_value = make_int_qp();
         param.query_type = InvertedIndexQueryType::LESS_THAN_QUERY;
         param.num_rows = 5;
         param.roaring = bitmap;
@@ -3037,7 +3432,7 @@ public:
         bitmap = std::make_shared<roaring::Roaring>();
         InvertedIndexParam param1;
         param1.column_name = "c1";
-        param1.query_value = &query_value;
+        param1.query_value = make_int_qp();
         param1.query_type = InvertedIndexQueryType::EQUAL_QUERY;
         param1.num_rows = 5;
         param1.roaring = bitmap;
@@ -3047,10 +3442,11 @@ public:
 
         // Test try_read_from_inverted_index with non-BKD compatible query
         size_t count = 0;
+        auto try_qp = make_int_qp();
         status = inverted_index_iterator->try_read_from_inverted_index(
                 std::static_pointer_cast<InvertedIndexReader>(
                         iterator->get_reader(InvertedIndexReaderType::STRING_TYPE)),
-                "c1", &query_value, InvertedIndexQueryType::MATCH_ANY_QUERY, &count);
+                "c1", try_qp.get(), InvertedIndexQueryType::MATCH_ANY_QUERY, &count);
         EXPECT_TRUE(status.ok()); // Should succeed but not do anything for non-BKD queries
     }
 
@@ -3080,6 +3476,16 @@ public:
                 {"c_datev2", FieldType::OLAP_FIELD_TYPE_DATEV2, 4, false},
                 {"c_datetimev2", FieldType::OLAP_FIELD_TYPE_DATETIMEV2, 8, false},
                 {"c_timestamptz", FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, 8, false},
+                // Appended (col_id 15..) — keep new entries here so existing
+                // col_id references in older tests remain stable.
+                {"c_float", FieldType::OLAP_FIELD_TYPE_FLOAT, 4, false},              // 15
+                {"c_double", FieldType::OLAP_FIELD_TYPE_DOUBLE, 8, false},            // 16
+                {"c_decimal32", FieldType::OLAP_FIELD_TYPE_DECIMAL32, 4, false},      // 17
+                {"c_decimal64", FieldType::OLAP_FIELD_TYPE_DECIMAL64, 8, false},      // 18
+                {"c_decimal128i", FieldType::OLAP_FIELD_TYPE_DECIMAL128I, 16, false}, // 19
+                {"c_decimal256", FieldType::OLAP_FIELD_TYPE_DECIMAL256, 32, false},   // 20
+                {"c_ipv4", FieldType::OLAP_FIELD_TYPE_IPV4, 4, false},                // 21
+                {"c_ipv6", FieldType::OLAP_FIELD_TYPE_IPV6, 16, false},               // 22
         };
 
         for (size_t i = 0; i < columns.size(); ++i) {
@@ -3189,8 +3595,10 @@ public:
 
             for (auto& test_case : test_cases) {
                 std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-                auto status = bkd_reader->query(context, "c_int", &test_case.second,
-                                                test_case.first, bitmap);
+                auto qp_3192 = TypedInvertedIndexQueryParam<TYPE_INT>::create_unique();
+                qp_3192->set_value(&test_case.second);
+                auto status =
+                        bkd_reader->query(context, "c_int", qp_3192.get(), test_case.first, bitmap);
                 EXPECT_TRUE(status.ok()) << "Query type: " << static_cast<int>(test_case.first);
 
                 if (test_case.first == InvertedIndexQueryType::EQUAL_QUERY) {
@@ -3201,7 +3609,9 @@ public:
 
             for (auto& test_case : test_cases) {
                 size_t count = 0;
-                auto status = bkd_reader->try_query(context, "c_int", &test_case.second,
+                auto qp_3204 = TypedInvertedIndexQueryParam<TYPE_INT>::create_unique();
+                qp_3204->set_value(&test_case.second);
+                auto status = bkd_reader->try_query(context, "c_int", qp_3204.get(),
                                                     test_case.first, &count);
                 EXPECT_TRUE(status.ok()) << "Try query type: " << static_cast<int>(test_case.first);
             }
@@ -3226,7 +3636,9 @@ public:
 
             int64_t query_value = 1000000LL;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto status = bkd_reader->query(context, "c_bigint", &query_value,
+            auto qp_3229 = TypedInvertedIndexQueryParam<TYPE_BIGINT>::create_unique();
+            qp_3229->set_value(&query_value);
+            auto status = bkd_reader->query(context, "c_bigint", qp_3229.get(),
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
             EXPECT_EQ(bitmap->cardinality(), 1);
@@ -3259,7 +3671,9 @@ public:
 
             for (auto& test_case : test_cases) {
                 std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-                auto status = bkd_reader->query(context, "c_timestamptz", &test_case.second,
+                auto qp_3262 = TypedInvertedIndexQueryParam<TYPE_DATETIMEV2>::create_unique();
+                qp_3262->set_value(&test_case.second);
+                auto status = bkd_reader->query(context, "c_timestamptz", qp_3262.get(),
                                                 test_case.first, bitmap);
                 EXPECT_TRUE(status.ok()) << "Query type: " << static_cast<int>(test_case.first);
 
@@ -3271,7 +3685,9 @@ public:
 
             for (auto& test_case : test_cases) {
                 size_t count = 0;
-                auto status = bkd_reader->try_query(context, "c_timestamptz", &test_case.second,
+                auto qp_3274 = TypedInvertedIndexQueryParam<TYPE_DATETIMEV2>::create_unique();
+                qp_3274->set_value(&test_case.second);
+                auto status = bkd_reader->try_query(context, "c_timestamptz", qp_3274.get(),
                                                     test_case.first, &count);
                 EXPECT_TRUE(status.ok()) << "Try query type: " << static_cast<int>(test_case.first);
             }
@@ -3297,7 +3713,9 @@ public:
             double query_value = 3.14;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
             auto status =
-                    bkd_reader->query(&io_ctx, &stats, &runtime_state, "c_double", &query_value,
+                    auto qp_3300 = TypedInvertedIndexQueryParam<TYPE_DOUBLE>::create_unique();
+                    qp_3300->set_value(&stats);
+                    bkd_reader->query(&io_ctx, qp_3300.get(), &runtime_state, "c_double", &query_value,
                                       InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
             EXPECT_EQ(bitmap->cardinality(), 1);
@@ -3323,7 +3741,9 @@ public:
             float query_value = 1.5f;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
             auto status =
-                    bkd_reader->query(&io_ctx, &stats, &runtime_state, "c_float", &query_value,
+                    auto qp_3326 = TypedInvertedIndexQueryParam<TYPE_FLOAT>::create_unique();
+                    qp_3326->set_value(&stats);
+                    bkd_reader->query(&io_ctx, qp_3326.get(), &runtime_state, "c_float", &query_value,
                                       InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
             EXPECT_EQ(bitmap->cardinality(), 1);
@@ -3363,7 +3783,11 @@ public:
 
             uint32_t query_value = 20240102;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto status = bkd_reader->query(context, "c_date", &query_value,
+            // TYPE_DATE storage is uint24_t — narrow from the test's uint32_t.
+            typename PrimitiveTypeTraits<TYPE_DATE>::StorageFieldType date_storage(query_value);
+            auto qp_3366 = TypedInvertedIndexQueryParam<TYPE_DATE>::create_unique();
+            qp_3366->set_value(&date_storage);
+            auto status = bkd_reader->query(context, "c_date", qp_3366.get(),
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
@@ -3386,9 +3810,14 @@ public:
             auto bkd_reader = BkdIndexReader::create_shared(&idx_meta, reader);
             EXPECT_NE(bkd_reader, nullptr);
 
-            uint64_t query_value = 20240101130000ULL;
+            // TypedInvertedIndexQueryParam<TYPE_DATETIME>::storage_val is int64_t
+            // (conditional_t override on storage_val) — match the type to avoid
+            // signedness pointer-conversion errors.
+            int64_t query_value = 20240101130000LL;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto status = bkd_reader->query(context, "c_datetime", &query_value,
+            auto qp_3391 = TypedInvertedIndexQueryParam<TYPE_DATETIME>::create_unique();
+            qp_3391->set_value(&query_value);
+            auto status = bkd_reader->query(context, "c_datetime", qp_3391.get(),
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
@@ -3412,7 +3841,11 @@ public:
 
             bool query_value = true;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto status = bkd_reader->query(context, "c_bool", &query_value,
+            // TYPE_BOOLEAN storage is uint8_t.
+            uint8_t bool_storage = query_value ? 1 : 0;
+            auto qp_3415 = TypedInvertedIndexQueryParam<TYPE_BOOLEAN>::create_unique();
+            qp_3415->set_value(&bool_storage);
+            auto status = bkd_reader->query(context, "c_bool", qp_3415.get(),
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
@@ -3436,7 +3869,9 @@ public:
 
             int8_t query_value = 1;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto status = bkd_reader->query(context, "c_tinyint", &query_value,
+            auto qp_3439 = TypedInvertedIndexQueryParam<TYPE_TINYINT>::create_unique();
+            qp_3439->set_value(&query_value);
+            auto status = bkd_reader->query(context, "c_tinyint", qp_3439.get(),
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
@@ -3460,7 +3895,9 @@ public:
 
             int16_t query_value = 1000;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto status = bkd_reader->query(context, "c_smallint", &query_value,
+            auto qp_3463 = TypedInvertedIndexQueryParam<TYPE_SMALLINT>::create_unique();
+            qp_3463->set_value(&query_value);
+            auto status = bkd_reader->query(context, "c_smallint", qp_3463.get(),
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
@@ -3484,7 +3921,9 @@ public:
 
             __int128 query_value = 0;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto status = bkd_reader->query(context, "c_largeint", &query_value,
+            auto qp_3487 = TypedInvertedIndexQueryParam<TYPE_LARGEINT>::create_unique();
+            qp_3487->set_value(&query_value);
+            auto status = bkd_reader->query(context, "c_largeint", qp_3487.get(),
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
@@ -3508,7 +3947,9 @@ public:
 
             uint32_t query_value = 20240202;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto status = bkd_reader->query(context, "c_datev2", &query_value,
+            auto qp_3511 = TypedInvertedIndexQueryParam<TYPE_DATEV2>::create_unique();
+            qp_3511->set_value(&query_value);
+            auto status = bkd_reader->query(context, "c_datev2", qp_3511.get(),
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
@@ -3533,7 +3974,9 @@ public:
 
             uint64_t query_value = 20240201130000ULL;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto status = bkd_reader->query(context, "c_datetimev2", &query_value,
+            auto qp_3536 = TypedInvertedIndexQueryParam<TYPE_DATETIMEV2>::create_unique();
+            qp_3536->set_value(&query_value);
+            auto status = bkd_reader->query(context, "c_datetimev2", qp_3536.get(),
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
@@ -3558,7 +4001,9 @@ public:
 
             uint64_t query_value = 20240201130000ULL;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto status = bkd_reader->query(context, "c_timestamptz", &query_value,
+            auto qp_3561 = TypedInvertedIndexQueryParam<TYPE_DATETIMEV2>::create_unique();
+            qp_3561->set_value(&query_value);
+            auto status = bkd_reader->query(context, "c_timestamptz", qp_3561.get(),
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
@@ -3644,8 +4089,10 @@ public:
 
                     std::string query_value = "test";
                     std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
+                    auto qp_unsupp = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
+                    qp_unsupp->set_value(query_value);
                     auto query_status =
-                            bkd_reader->query(context, "c_unsupported", &query_value,
+                            bkd_reader->query(context, "c_unsupported", qp_unsupp.get(),
                                               InvertedIndexQueryType::EQUAL_QUERY, bitmap);
                     // This might fail due to unsupported type, which is what we want to test
                 }
@@ -3671,6 +4118,126 @@ TEST_F(InvertedIndexReaderTest, NullBitmapRead) {
 // BKD index reading test
 TEST_F(InvertedIndexReaderTest, BkdIndexRead) {
     test_bkd_index_read();
+}
+
+// Regression: type_limit<decimal12_t> must be specialised, otherwise both
+// min() and max() collapse to decimal12_t{0, 0} (zero-init default of an
+// unspecialised numeric_limits) and TypedInvertedIndexQueryParam<TYPE_DECIMALV2>
+// produces invalid +/-infinity sentinels.
+TEST_F(InvertedIndexReaderTest, TypeLimitDecimal12Specialisation) {
+    test_type_limit_decimal12_specialisation();
+}
+
+// BKD half-bounded range query regression suite, one TEST_F per BKD-supported
+// PrimitiveType. They all share `verify_bkd_range_queries`, which:
+//  - writes 6 sorted values into a fresh BKD index
+//  - asserts EQUAL / LESS_THAN / LESS_EQUAL / GREATER_THAN / GREATER_EQUAL
+//    cardinalities derived from the values via std::count_if.
+//
+// Locks in the typed-param interface, the +/-infinity sentinels from
+// type_limit<storage_val>, and BKD writer/reader/visitor agreement.
+TEST_F(InvertedIndexReaderTest, TypeLimitUint24Specialisation) {
+    test_type_limit_uint24_specialisation();
+}
+TEST_F(InvertedIndexReaderTest, BkdRangeIntRangeQuery) {
+    test_bkd_range_int();
+}
+TEST_F(InvertedIndexReaderTest, BkdRangeBigIntRangeQuery) {
+    test_bkd_range_bigint();
+}
+TEST_F(InvertedIndexReaderTest, BkdRangeSmallIntRangeQuery) {
+    test_bkd_range_smallint();
+}
+TEST_F(InvertedIndexReaderTest, BkdRangeTinyIntRangeQuery) {
+    test_bkd_range_tinyint();
+}
+TEST_F(InvertedIndexReaderTest, BkdRangeLargeIntRangeQuery) {
+    test_bkd_range_largeint();
+}
+TEST_F(InvertedIndexReaderTest, BkdRangeDecimalV2RangeQuery) {
+    test_bkd_range_decimalv2();
+}
+TEST_F(InvertedIndexReaderTest, BkdRangeDateRangeQuery) {
+    test_bkd_range_date();
+}
+TEST_F(InvertedIndexReaderTest, BkdRangeDateTimeRangeQuery) {
+    test_bkd_range_datetime();
+}
+TEST_F(InvertedIndexReaderTest, BkdRangeDateV2RangeQuery) {
+    test_bkd_range_datev2();
+}
+TEST_F(InvertedIndexReaderTest, BkdRangeDateTimeV2RangeQuery) {
+    test_bkd_range_datetimev2();
+}
+TEST_F(InvertedIndexReaderTest, BkdRangeTimestampTzRangeQuery) {
+    test_bkd_range_timestamptz();
+}
+TEST_F(InvertedIndexReaderTest, BkdRangeBoolRangeQuery) {
+    test_bkd_range_bool();
+}
+TEST_F(InvertedIndexReaderTest, BkdRangeFloatRangeQuery) {
+    test_bkd_range_float();
+}
+TEST_F(InvertedIndexReaderTest, BkdRangeDoubleRangeQuery) {
+    test_bkd_range_double();
+}
+TEST_F(InvertedIndexReaderTest, BkdRangeDecimal32RangeQuery) {
+    test_bkd_range_decimal32();
+}
+TEST_F(InvertedIndexReaderTest, BkdRangeDecimal64RangeQuery) {
+    test_bkd_range_decimal64();
+}
+TEST_F(InvertedIndexReaderTest, BkdRangeDecimal128IRangeQuery) {
+    test_bkd_range_decimal128i();
+}
+TEST_F(InvertedIndexReaderTest, BkdRangeDecimal256RangeQuery) {
+    test_bkd_range_decimal256();
+}
+TEST_F(InvertedIndexReaderTest, BkdRangeIPv4RangeQuery) {
+    test_bkd_range_ipv4();
+}
+TEST_F(InvertedIndexReaderTest, BkdRangeIPv6RangeQuery) {
+    test_bkd_range_ipv6();
+}
+
+// Verifies that KeyCoder<OLAP_FIELD_TYPE_DATETIME> produces byte-identical
+// output regardless of whether the input pointer is to int64_t or uint64_t.
+// This is what makes TypedInvertedIndexQueryParam<TYPE_DATETIME>::storage_val
+// = int64_t (signed view) and the historic uint64_t storage interchangeable for
+// real datetime values: KeyCoder reads bit pattern via memcpy, then sign-flips
+// based on its own CppType (= int64_t) — so signed/unsigned at the call site
+// doesn't change the encoded bytes as long as bit patterns agree.
+TEST(KeyCoderDateTimeTest, ByteIdenticalForSignedAndUnsignedInput) {
+    const auto* coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_DATETIME);
+    ASSERT_NE(coder, nullptr);
+
+    // Mix realistic datetimes with the boundary values that drive sentinels.
+    constexpr int64_t kCases[] = {
+            10101000000LL,    // 0001-01-01 00:00:00 (smallest valid set_to_min sentinel)
+            20200101120000LL, // 2020-01-01 12:00:00
+            20240310093000LL, // 2024-03-10 09:30:00
+            99991231235959LL, // 9999-12-31 23:59:59 (largest valid set_to_max sentinel)
+            std::numeric_limits<int64_t>::max(), // type_limit max sentinel
+            0LL, // type_limit min (also = INT64_MIN's bit-flipped image)
+            std::numeric_limits<int64_t>::lowest(),
+    };
+
+    for (int64_t case_val : kCases) {
+        int64_t signed_val = case_val;
+        uint64_t unsigned_val;
+        std::memcpy(&unsigned_val, &signed_val, sizeof(unsigned_val));
+
+        std::string signed_buf;
+        std::string unsigned_buf;
+        coder->full_encode_ascending(&signed_val, &signed_buf);
+        coder->full_encode_ascending(&unsigned_val, &unsigned_buf);
+
+        ASSERT_EQ(signed_buf.size(), sizeof(int64_t));
+        ASSERT_EQ(unsigned_buf.size(), sizeof(uint64_t));
+        EXPECT_EQ(signed_buf, unsigned_buf)
+                << "DATETIME KeyCoder must produce identical bytes for value "
+                << static_cast<int64_t>(case_val) << " regardless of pointer type";
+    }
 }
 
 // Query cache test

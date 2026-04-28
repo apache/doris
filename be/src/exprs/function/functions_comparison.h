@@ -40,6 +40,7 @@
 #include "exprs/function/function_helpers.h"
 #include "exprs/function/functions_logical.h"
 #include "storage/index/index_reader_helper.h"
+#include "storage/index/inverted/inverted_index_query_param.h"
 
 namespace doris {
 
@@ -487,14 +488,14 @@ public:
             return Status::OK();
         }
         auto param_type = arguments[0].type->get_primitive_type();
-        std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
+        std::unique_ptr<segment_v2::InvertedIndexQueryParam> query_param = nullptr;
         RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
                 param_type, &param_value, query_param));
 
         segment_v2::InvertedIndexParam param;
         param.column_name = data_type_with_name.first;
         param.column_type = data_type_with_name.second;
-        param.query_value = query_param->get_value();
+        param.query_value = std::move(query_param);
         param.query_type = query_type;
         param.num_rows = num_rows;
         param.roaring = std::make_shared<roaring::Roaring>();

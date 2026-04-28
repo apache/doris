@@ -17,8 +17,10 @@
 
 #pragma once
 
+#include "core/decimal12.h"
 #include "core/extended_types.h"
 #include "core/string_ref.h"
+#include "core/uint24.h"
 #include "core/value/decimalv2_value.h"
 #include "core/value/timestamptz_value.h"
 
@@ -52,6 +54,24 @@ template <>
 struct type_limit<DecimalV2Value> {
     static DecimalV2Value min() { return DecimalV2Value::get_min_decimal(); }
     static DecimalV2Value max() { return DecimalV2Value::get_max_decimal(); }
+};
+
+// std::numeric_limits is not specialised for these custom storage types, so
+// the generic type_limit would return T() = zero for both min and max,
+// silently breaking BKD half-bounded range queries.
+
+// DECIMALV2 storage. Largest representable DecimalV2 value (18 digits . 9 digits).
+template <>
+struct type_limit<decimal12_t> {
+    static decimal12_t min() { return decimal12_t {-999999999999999999LL, -999999999}; }
+    static decimal12_t max() { return decimal12_t {+999999999999999999LL, +999999999}; }
+};
+
+// DATE storage. Packed as `year<<9 | month<<5 | day`: 33=0001-01-01, 5119903=9999-12-31.
+template <>
+struct type_limit<uint24_t> {
+    static uint24_t min() { return uint24_t(33); }
+    static uint24_t max() { return uint24_t(5119903); }
 };
 
 template <>

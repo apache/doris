@@ -49,6 +49,7 @@
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/inverted_index_query_param.h"
 #include "storage/index/inverted/inverted_index_query_type.h"
 #include "storage/index/inverted/inverted_index_searcher.h"
 #include "storage/index/inverted/query/phrase_query.h"
@@ -289,13 +290,19 @@ Status FullTextIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterato
 }
 
 Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
-                                  const std::string& column_name, const void* query_value,
+                                  const std::string& column_name,
+                                  const InvertedIndexQueryParam* query_value,
                                   InvertedIndexQueryType query_type,
                                   std::shared_ptr<roaring::Roaring>& bit_map,
                                   const InvertedIndexAnalyzerCtx* analyzer_ctx) {
     SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
 
-    std::string search_str = *reinterpret_cast<const std::string*>(query_value);
+    const auto* str_param = dynamic_cast<const StringQueryParam*>(query_value);
+    if (str_param == nullptr) {
+        return Status::InternalError("FullTextIndexReader expected StringQueryParam");
+    }
+    std::string search_str;
+    str_param->get_string(&search_str);
     VLOG_DEBUG << column_name << " begin to search the fulltext index from clucene, query_str ["
                << search_str << "]";
 
@@ -408,13 +415,19 @@ Status StringTypeInvertedIndexReader::new_iterator(std::unique_ptr<IndexIterator
 }
 
 Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
-                                            const std::string& column_name, const void* query_value,
+                                            const std::string& column_name,
+                                            const InvertedIndexQueryParam* query_value,
                                             InvertedIndexQueryType query_type,
                                             std::shared_ptr<roaring::Roaring>& bit_map,
                                             const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/) {
     SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
 
-    std::string search_str = *reinterpret_cast<const std::string*>(query_value);
+    const auto* str_param = dynamic_cast<const StringQueryParam*>(query_value);
+    if (str_param == nullptr) {
+        return Status::InternalError("StringTypeInvertedIndexReader expected StringQueryParam");
+    }
+    std::string search_str;
+    str_param->get_string(&search_str);
 
     // If the written value exceeds ignore_above, it will be written as null.
     // The queried value exceeds ignore_above means the written value cannot be found.
@@ -541,23 +554,20 @@ Status BkdIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterator) {
 }
 
 template <InvertedIndexQueryType QT>
-Status BkdIndexReader::construct_bkd_query_value(const void* query_value,
+Status BkdIndexReader::construct_bkd_query_value(const NumericQueryParam* query_value,
                                                  std::shared_ptr<lucene::util::bkd::bkd_reader> r,
                                                  InvertedIndexVisitor<QT>* visitor) {
-    std::vector<char> tmp(r->bytes_per_dim_);
     if constexpr (QT == InvertedIndexQueryType::EQUAL_QUERY) {
-        _value_key_coder->full_encode_ascending(query_value, &visitor->query_max);
-        _value_key_coder->full_encode_ascending(query_value, &visitor->query_min);
+        query_value->encode_ascending(_value_key_coder, &visitor->query_max);
+        query_value->encode_ascending(_value_key_coder, &visitor->query_min);
     } else if constexpr (QT == InvertedIndexQueryType::LESS_THAN_QUERY ||
                          QT == InvertedIndexQueryType::LESS_EQUAL_QUERY) {
-        _value_key_coder->full_encode_ascending(query_value, &visitor->query_max);
-        _type_info->set_to_min(tmp.data());
-        _value_key_coder->full_encode_ascending(tmp.data(), &visitor->query_min);
+        query_value->encode_ascending(_value_key_coder, &visitor->query_max);
+        query_value->encode_min_ascending(_value_key_coder, &visitor->query_min);
     } else if constexpr (QT == InvertedIndexQueryType::GREATER_THAN_QUERY ||
                          QT == InvertedIndexQueryType::GREATER_EQUAL_QUERY) {
-        _value_key_coder->full_encode_ascending(query_value, &visitor->query_min);
-        _type_info->set_to_max(tmp.data());
-        _value_key_coder->full_encode_ascending(tmp.data(), &visitor->query_max);
+        query_value->encode_ascending(_value_key_coder, &visitor->query_min);
+        query_value->encode_max_ascending(_value_key_coder, &visitor->query_max);
     } else {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "invalid query type when query bkd index");
@@ -566,7 +576,7 @@ Status BkdIndexReader::construct_bkd_query_value(const void* query_value,
 }
 
 Status BkdIndexReader::invoke_bkd_try_query(const IndexQueryContextPtr& context,
-                                            const void* query_value,
+                                            const NumericQueryParam* query_value,
                                             InvertedIndexQueryType query_type,
                                             std::shared_ptr<lucene::util::bkd::bkd_reader> r,
                                             size_t* count) {
@@ -617,7 +627,8 @@ Status BkdIndexReader::invoke_bkd_try_query(const IndexQueryContextPtr& context,
 }
 
 Status BkdIndexReader::invoke_bkd_query(const IndexQueryContextPtr& context,
-                                        const void* query_value, InvertedIndexQueryType query_type,
+                                        const NumericQueryParam* query_value,
+                                        InvertedIndexQueryType query_type,
                                         std::shared_ptr<lucene::util::bkd::bkd_reader> r,
                                         std::shared_ptr<roaring::Roaring>& bit_map) {
     SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_timer);
@@ -668,8 +679,13 @@ Status BkdIndexReader::invoke_bkd_query(const IndexQueryContextPtr& context,
 }
 
 Status BkdIndexReader::try_query(const IndexQueryContextPtr& context,
-                                 const std::string& column_name, const void* query_value,
+                                 const std::string& column_name,
+                                 const InvertedIndexQueryParam* query_value,
                                  InvertedIndexQueryType query_type, size_t* count) {
+    const auto* num_param = dynamic_cast<const NumericQueryParam*>(query_value);
+    if (num_param == nullptr) {
+        return Status::InternalError("BkdIndexReader::try_query expected NumericQueryParam");
+    }
     try {
         std::shared_ptr<lucene::util::bkd::bkd_reader> r;
         auto st = get_bkd_reader(context, r);
@@ -680,7 +696,7 @@ Status BkdIndexReader::try_query(const IndexQueryContextPtr& context,
             return st;
         }
         std::string query_str;
-        _value_key_coder->full_encode_ascending(query_value, &query_str);
+        num_param->encode_ascending(_value_key_coder, &query_str);
 
         auto index_file_key = _index_file_reader->get_index_file_cache_key(&_index_meta);
         InvertedIndexQueryCache::CacheKey cache_key {index_file_key, column_name, query_type,
@@ -693,7 +709,7 @@ Status BkdIndexReader::try_query(const IndexQueryContextPtr& context,
             return Status::OK();
         }
 
-        return invoke_bkd_try_query(context, query_value, query_type, r, count);
+        return invoke_bkd_try_query(context, num_param, query_type, r, count);
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "BKD Query CLuceneError Occurred, error msg: {}", e.what());
@@ -704,11 +720,16 @@ Status BkdIndexReader::try_query(const IndexQueryContextPtr& context,
 }
 
 Status BkdIndexReader::query(const IndexQueryContextPtr& context, const std::string& column_name,
-                             const void* query_value, InvertedIndexQueryType query_type,
+                             const InvertedIndexQueryParam* query_value,
+                             InvertedIndexQueryType query_type,
                              std::shared_ptr<roaring::Roaring>& bit_map,
                              const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/) {
     SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
 
+    const auto* num_param = dynamic_cast<const NumericQueryParam*>(query_value);
+    if (num_param == nullptr) {
+        return Status::InternalError("BkdIndexReader::query expected NumericQueryParam");
+    }
     try {
         std::shared_ptr<lucene::util::bkd::bkd_reader> r;
         auto st = get_bkd_reader(context, r);
@@ -719,7 +740,7 @@ Status BkdIndexReader::query(const IndexQueryContextPtr& context, const std::str
             return st;
         }
         std::string query_str;
-        _value_key_coder->full_encode_ascending(query_value, &query_str);
+        num_param->encode_ascending(_value_key_coder, &query_str);
 
         auto index_file_key = _index_file_reader->get_index_file_cache_key(&_index_meta);
         InvertedIndexQueryCache::CacheKey cache_key {index_file_key, column_name, query_type,
@@ -730,7 +751,7 @@ Status BkdIndexReader::query(const IndexQueryContextPtr& context, const std::str
             return Status::OK();
         }
 
-        RETURN_IF_ERROR(invoke_bkd_query(context, query_value, query_type, r, bit_map));
+        RETURN_IF_ERROR(invoke_bkd_query(context, num_param, query_type, r, bit_map));
         bit_map->runOptimize();
         cache->insert(cache_key, bit_map, &cache_handler);
 

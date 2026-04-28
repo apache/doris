@@ -23,6 +23,7 @@
 #include "runtime/runtime_state.h"
 #include "storage/index/index_reader_helper.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
+#include "storage/index/inverted/inverted_index_query_param.h"
 #include "util/debug_points.h"
 
 namespace doris {
@@ -79,14 +80,14 @@ Status FunctionMatchBase::evaluate_inverted_index(
         return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
                 "arguments for match must be string");
     }
-    std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
+    std::unique_ptr<InvertedIndexQueryParam> query_param = nullptr;
     RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(param_type, &param_value,
                                                                        query_param));
 
     InvertedIndexParam param;
     param.column_name = data_type_with_name.first;
     param.column_type = data_type_with_name.second;
-    param.query_value = query_param->get_value();
+    param.query_value = std::move(query_param);
     param.query_type = get_query_type_from_fn_name();
     param.num_rows = num_rows;
     param.roaring = std::make_shared<roaring::Roaring>();

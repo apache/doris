@@ -24,6 +24,7 @@
 #include "core/column/column_dictionary.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/index/inverted/inverted_index_cache.h" // IWYU pragma: keep
+#include "storage/index/inverted/inverted_index_query_param.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/predicate/column_predicate.h"
 
@@ -92,14 +93,14 @@ public:
             return Status::InvalidArgument("invalid comparison predicate type {}", PT);
         }
 
-        std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
+        std::unique_ptr<InvertedIndexQueryParam> query_param = nullptr;
         RETURN_IF_ERROR(
                 InvertedIndexQueryParamFactory::create_query_value<Type>(&_value, query_param));
 
         InvertedIndexParam param;
         param.column_name = name_with_type.first;
         param.column_type = name_with_type.second;
-        param.query_value = query_param->get_value();
+        param.query_value = std::move(query_param);
         param.query_type = query_type;
         param.num_rows = num_rows;
         param.roaring = std::make_shared<roaring::Roaring>();

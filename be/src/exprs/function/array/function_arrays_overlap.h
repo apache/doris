@@ -246,7 +246,7 @@ public:
             RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
             null_bitmap = null_bitmap_cache_handle.get_bitmap();
         }
-        std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
+        std::unique_ptr<InvertedIndexQueryParam> query_param = nullptr;
         const Array& query_val = param_value.get<TYPE_ARRAY>();
 
         InvertedIndexParam param;
@@ -262,7 +262,7 @@ public:
             }
             RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
                     nested_param_type, &nested_query_val, query_param));
-            param.query_value = query_param->get_value();
+            param.query_value = std::move(query_param);
             param.roaring = std::make_shared<roaring::Roaring>();
             param.analyzer_ctx = analyzer_ctx;
             RETURN_IF_ERROR(iter->read_from_index(segment_v2::IndexParam {&param}));
