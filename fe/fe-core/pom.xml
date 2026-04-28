@@ -936,6 +936,7 @@ under the License.
                 <configuration>
                     <appendAssemblyId>true</appendAssemblyId>
                     <outputDirectory>${project.build.directory}</outputDirectory>
+                    <recompressZippedFiles>false</recompressZippedFiles>
                     <descriptors>
                         <descriptor>src/main/assembly/fe-lib.xml</descriptor>
                     </descriptors>
