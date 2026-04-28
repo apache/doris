@@ -17,7 +17,6 @@
 
 package org.apache.doris.common.classloader;
 
-import org.apache.doris.common.jni.utils.ExpiringMap;
 import org.apache.doris.common.jni.utils.UdfClassCache;
 
 import com.google.common.collect.Streams;
@@ -37,6 +36,7 @@ import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.stream.Collectors;
@@ -88,7 +88,16 @@ public class ScannerLoader {
 
     public static final Logger LOG = LogManager.getLogger(ScannerLoader.class);
     private static final Map<String, Class<?>> loadedClasses = new HashMap<>();
-    private static final ExpiringMap<String, UdfClassCache> udfLoadedClasses = new ExpiringMap<>();
+    // Cache of UDF class metadata (including the URLClassLoader used to load the UDF).
+    // Entries are inserted on first use and only ever removed by an explicit
+    // cleanUdfClassLoader() call (triggered by FE on DROP FUNCTION). There is intentionally
+    // no time-based eviction: that previously caused two issues —
+    //   1) closing a URLClassLoader while another thread was still loading classes from it
+    //      led to NoClassDefFoundError;
+    //   2) rebuilding a fresh URLClassLoader on every eviction produced multiple coexisting
+    //      ClassLoaders for the same UDF, which broke lazy class resolution and reflective
+    //      lookups inside user UDF code.
+    private static final Map<String, UdfClassCache> udfLoadedClasses = new ConcurrentHashMap<>();
     private static final String CLASS_SUFFIX = ".class";
     private static final String LOAD_PACKAGE = "org.apache.doris";
 
@@ -116,15 +125,46 @@ public class ScannerLoader {
         return udfLoadedClasses.get(functionSignature);
     }
 
-    public static synchronized void cacheClassLoader(String functionSignature, UdfClassCache classCache,
+    /**
+     * Cache the UDF class metadata for the given function signature.
+     * The {@code expirationTime} parameter is kept for backward compatibility with the
+     * existing call sites and DDL property {@code expiration_time}, but is no longer used:
+     * cached entries are not evicted by time. Removal happens only via
+     * {@link #cleanUdfClassLoader(String)} on DROP FUNCTION.
+     */
+    public static void cacheClassLoader(String functionSignature, UdfClassCache classCache,
             long expirationTime) {
-        LOG.info("Cache UDF for: {}", functionSignature);
-        udfLoadedClasses.put(functionSignature, classCache, expirationTime * 60 * 1000L);
+        LOG.info("Cache UDF for: " + functionSignature);
+        UdfClassCache previous = udfLoadedClasses.put(functionSignature, classCache);
+        if (previous != null && previous != classCache) {
+            // A previous entry existed; close it now to avoid leaking the URLClassLoader.
+            // No live executor should still be holding it because the cache miss path that
+            // led us here only fires when getUdfClassLoader() returned null — which only
+            // happens after an explicit cleanUdfClassLoader() removed the previous entry.
+            // Defensive close in case callers race.
+            try {
+                previous.close();
+            } catch (Exception e) {
+                LOG.warn("Failed to close previous UdfClassCache for " + functionSignature, e);
+            }
+        }
     }
 
-    public synchronized void cleanUdfClassLoader(String functionSignature) {
-        LOG.info("cleanUdfClassLoader for: {}", functionSignature);
-        udfLoadedClasses.remove(functionSignature);
+    public void cleanUdfClassLoader(String functionSignature) {
+        LOG.info("cleanUdfClassLoader for: " + functionSignature);
+        UdfClassCache removed = udfLoadedClasses.remove(functionSignature);
+        if (removed != null) {
+            // Immediately close the URLClassLoader. NOTE: any in-flight query still holding a
+            // reference to this cache (e.g. via JNIContext.executor) will fail with
+            // NoClassDefFoundError on lazy class resolution after this point. This is the
+            // accepted semantic of DROP FUNCTION: the function is gone, queries against it
+            // are expected to fail.
+            try {
+                removed.close();
+            } catch (Exception e) {
+                LOG.warn("Failed to close UdfClassCache for " + functionSignature, e);
+            }
+        }
     }
 
     /**
