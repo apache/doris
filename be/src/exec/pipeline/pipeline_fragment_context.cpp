@@ -1888,6 +1888,16 @@ bool PipelineFragmentContext::_close_fragment_instance() {
     Defer defer_op {[&]() { _is_fragment_instance_closed = true; }};
     _fragment_level_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
     if (!_need_notify_close) {
+        if (_runtime_state) {
+            for (auto& tasks : _tasks) {
+                for (auto& task : tasks) {
+                    if (!task.first->runtime_state()->paimon_commit_messages().empty()) {
+                        _runtime_state->add_paimon_commit_messages(
+                                task.first->runtime_state()->paimon_commit_messages());
+                    }
+                }
+            }
+        }
         auto st = send_report(true);
         if (!st) {
             LOG(WARNING) << fmt::format("Failed to send report for query {}, fragment {}: {}",
@@ -2187,6 +2197,21 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
         }
     }
 
+    // Paimon commit messages (for FE to commit snapshot).
+    if (auto pcm = req.runtime_state->paimon_commit_messages(); !pcm.empty()) {
+        params.__isset.paimon_commit_messages = true;
+        params.paimon_commit_messages.insert(params.paimon_commit_messages.end(), pcm.begin(),
+                                             pcm.end());
+    } else if (!req.runtime_states.empty()) {
+        for (auto* rs : req.runtime_states) {
+            if (auto rs_pcm = rs->paimon_commit_messages(); !rs_pcm.empty()) {
+                params.__isset.paimon_commit_messages = true;
+                params.paimon_commit_messages.insert(params.paimon_commit_messages.end(),
+                                                     rs_pcm.begin(), rs_pcm.end());
+            }
+        }
+    }
+
     req.runtime_state->get_unreported_errors(&(params.error_log));
     params.__isset.error_log = (!params.error_log.empty());
 
@@ -2241,23 +2266,22 @@ Status PipelineFragmentContext::send_report(bool done) {
     // no need to send report.
     // Load will set _is_report_success to true because load wants to know
     // the process.
-    if (!_is_report_success && done && exec_status.ok()) {
-        bool has_task_states = false;
-        bool has_paimon_commit_messages = !_runtime_state->paimon_commit_messages().empty();
-        if (!has_paimon_commit_messages) {
-            for (auto& tasks : _tasks) {
-                for (auto& task : tasks) {
-                    has_task_states = true;
-                    if (!task.second->paimon_commit_messages().empty()) {
-                        has_paimon_commit_messages = true;
-                        break;
-                    }
-                }
-                if (has_paimon_commit_messages) {
-                    break;
-                }
+    bool has_paimon_commit_messages = !_runtime_state->paimon_commit_messages().empty();
+    bool has_task_states = false;
+    for (auto& tasks : _tasks) {
+        for (auto& task : tasks) {
+            has_task_states = true;
+            if (!task.first->runtime_state()->paimon_commit_messages().empty()) {
+                has_paimon_commit_messages = true;
+                break;
             }
         }
+        if (has_paimon_commit_messages) {
+            break;
+        }
+    }
+
+    if (!_is_report_success && done && exec_status.ok()) {
         if (has_task_states && !has_paimon_commit_messages) {
             return Status::OK();
         }
@@ -2269,7 +2293,7 @@ Status PipelineFragmentContext::send_report(bool done) {
     // a internal cancellation being processed
     // When limit is reached the fragment is also cancelled, but _is_report_on_cancel will
     // be set to false, to avoid sending fault report to FE.
-    if (!_is_report_success && !_is_report_on_cancel) {
+    if (!_is_report_success && !_is_report_on_cancel && !has_paimon_commit_messages) {
         if (done) {
             // if done is true, which means the query is finished successfully, we can safely close the fragment instance without sending report to FE, and just return OK status here.
             return Status::OK();

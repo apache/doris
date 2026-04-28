@@ -1194,10 +1194,10 @@ public class SessionVariable implements Serializable, Writable {
     public String resourceGroup = "";
 
     @VariableMgr.VarAttr(name = "enable_paimon_jni_writer", needForward = true)
-    public boolean enablePaimonJniWriter = false;
+    public boolean enablePaimonJniWriter = true;
 
     @VariableMgr.VarAttr(name = "enable_paimon_jni_compact", needForward = true)
-    public boolean enablePaimonJniCompact = true;
+    public boolean enablePaimonJniCompact = false;
 
     @VariableMgr.VarAttr(name = ENABLE_PAIMON_DISTRIBUTED_BUCKET_SHUFFLE, needForward = true)
     public boolean enablePaimonDistributedBucketShuffle = true;
