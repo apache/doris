@@ -92,6 +92,7 @@
 #include "storage/task/engine_storage_migration_task.h"
 #include "storage/txn/txn_manager.h"
 #include "storage/utils.h"
+#include "udf/python/python_server.h"
 #include "util/brpc_client_cache.h"
 #include "util/debug_points.h"
 #include "util/jni-util.h"
@@ -2596,6 +2597,7 @@ void clean_udf_cache_callback(const TAgentTaskRequest& req) {
 
     if (clean_req.__isset.function_id && clean_req.function_id > 0) {
         UserFunctionCache::instance()->drop_function_cache(clean_req.function_id);
+        PythonServerManager::instance().clear_udaf_state_cache(clean_req.function_id);
     }
 
     LOG(INFO) << "clean udf cache finish: function_signature=" << clean_req.function_signature;

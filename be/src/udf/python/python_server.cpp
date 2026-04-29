@@ -31,6 +31,7 @@
 
 #include "arrow/flight/client.h"
 #include "common/config.h"
+#include "common/status.h"
 #include "udf/python/python_udaf_client.h"
 #include "udf/python/python_udf_client.h"
 #include "udf/python/python_udtf_client.h"
@@ -413,7 +414,19 @@ Status PythonServerManager::clear_module_cache(const std::string& location) {
     }
 
     std::string body = fmt::format(R"({{"location": "{}"}})", location);
+    return _broadcast_action_to_processes("clear_module_cache", body,
+                                          fmt::format("location={}", location));
+}
 
+void PythonServerManager::clear_udaf_state_cache(int64_t function_id) {
+    std::string body = fmt::format(R"({{"function_id": {}}})", function_id);
+    THROW_IF_ERROR(_broadcast_action_to_processes("clear_udaf_state_cache", body,
+                                                  fmt::format("function_id={}", function_id)));
+}
+
+Status PythonServerManager::_broadcast_action_to_processes(const std::string& action_type,
+                                                           const std::string& body,
+                                                           const std::string& log_name) {
     int success_count = 0;
     int fail_count = 0;
     bool has_active_process = false;
@@ -441,7 +454,7 @@ Status PythonServerManager::clear_module_cache(const std::string& location) {
                 auto client = std::move(*client_result);
 
                 arrow::flight::Action action;
-                action.type = "clear_module_cache";
+                action.type = action_type;
                 action.body = arrow::Buffer::FromString(body);
 
                 auto result_stream = client->DoAction(action);
@@ -467,13 +480,12 @@ Status PythonServerManager::clear_module_cache(const std::string& location) {
         return Status::OK();
     }
 
-    LOG(INFO) << "clear_module_cache completed for location=" << location
-              << ", success=" << success_count << ", failed=" << fail_count;
+    LOG(INFO) << action_type << " completed for " << log_name << ", success=" << success_count
+              << ", failed=" << fail_count;
 
     if (fail_count > 0) {
-        return Status::InternalError(
-                "clear_module_cache failed for location={}, success={}, failed={}", location,
-                success_count, fail_count);
+        return Status::InternalError("{} failed for {}, success={}, failed={}", action_type,
+                                     log_name, success_count, fail_count);
     }
 
     return Status::OK();

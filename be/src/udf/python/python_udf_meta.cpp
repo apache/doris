@@ -56,6 +56,7 @@ Status PythonUDFMeta::serialize_arrow_schema(const std::shared_ptr<arrow::Schema
     json format:
     {
         "name": "xxx",
+        "id": 123,
         "symbol": "xxx",
         "location": "xxx",
         "udf_load_type": 0 or 1,
@@ -72,6 +73,7 @@ Status PythonUDFMeta::serialize_to_json(std::string* json_str) const {
     doc.SetObject();
     auto& allocator = doc.GetAllocator();
     doc.AddMember("name", rapidjson::Value().SetString(name.c_str(), allocator), allocator);
+    doc.AddMember("id", rapidjson::Value().SetInt64(id), allocator);
     doc.AddMember("symbol", rapidjson::Value().SetString(symbol.c_str(), allocator), allocator);
     doc.AddMember("location", rapidjson::Value().SetString(location.c_str(), allocator), allocator);
     doc.AddMember("udf_load_type", rapidjson::Value().SetInt(static_cast<int>(type)), allocator);
