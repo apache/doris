@@ -174,6 +174,9 @@ public class OlapTableSink extends DataSink {
                     "if load_to_single_tablet set to true," + " the olap table must be with random distribution");
         }
         tSink.setLoadToSingleTablet(loadToSingleTablet);
+        if (dstTable.getEnableLowMemoryLoad()) {
+            tSink.setEnableLowMemoryLoad(true);
+        }
         tSink.setTxnTimeoutS(txnExpirationS);
         String vaultId = dstTable.getStorageVaultId();
         if (vaultId != null && !vaultId.isEmpty()) {

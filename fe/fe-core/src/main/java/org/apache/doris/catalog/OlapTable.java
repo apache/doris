@@ -2515,6 +2515,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         tableProperty.buildEnableLightSchemaChange();
     }
 
+    public void setEnableLowMemoryLoad(boolean enableLowMemoryLoad) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_ENABLE_LOW_MEMORY_LOAD,
+                Boolean.valueOf(enableLowMemoryLoad).toString());
+        tableProperty.buildEnableLowMemoryLoad();
+    }
+
+    public boolean getEnableLowMemoryLoad() {
+        return tableProperty != null && tableProperty.getEnableLowMemoryLoad();
+    }
+
     public short getMinLoadReplicaNum() {
         if (tableProperty != null) {
             return tableProperty.getMinLoadReplicaNum();

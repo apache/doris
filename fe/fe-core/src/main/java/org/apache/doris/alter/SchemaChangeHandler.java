@@ -2256,6 +2256,21 @@ public class SchemaChangeHandler extends AlterHandler {
                         }
                         enableLightSchemaChange(db, olapTable);
                         return;
+                    } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_LOW_MEMORY_LOAD)) {
+                        boolean enableLowMemoryLoad;
+                        try {
+                            enableLowMemoryLoad = PropertyAnalyzer.analyzeEnableLowMemoryLoad(
+                                    new HashMap<>(properties));
+                        } catch (AnalysisException e) {
+                            throw new DdlException(e.getMessage());
+                        }
+                        if (enableLowMemoryLoad && !olapTable.isDuplicateWithoutKey()) {
+                            throw new DdlException(PropertyAnalyzer.PROPERTIES_ENABLE_LOW_MEMORY_LOAD
+                                    + " only supports duplicate key tables without key columns");
+                        }
+                        olapTable.setEnableLowMemoryLoad(enableLowMemoryLoad);
+                        Env.getCurrentEnv().modifyTableProperties(db, olapTable, properties);
+                        return;
                     } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN)
                             || properties.containsKey(PropertyAnalyzer.PROPERTIES_ROW_STORE_COLUMNS)) {
                         String value = properties.get(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN);

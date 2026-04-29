@@ -77,6 +77,7 @@ Status CloudRowsetBuilder::init() {
     context.write_file_cache = _req.write_file_cache;
     context.partial_update_info = _partial_update_info;
     context.file_cache_ttl_sec = _tablet->ttl_seconds();
+    context.enable_low_memory_load = _req.enable_low_memory_load;
     context.storage_resource = _engine.get_storage_resource(_req.storage_vault_id);
     if (!context.storage_resource) {
         return Status::InternalError("vault id not found, maybe not sync, vault id {}",

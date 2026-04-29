@@ -142,6 +142,8 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             throw new AnalysisException("Can not change enable_duplicate_without_keys_by_default");
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE)) {
             // do nothing, will be alter in SchemaChangeHandler.updateTableProperties
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_LOW_MEMORY_LOAD)) {
+            // do nothing, will be alter in SchemaChangeHandler.updateTableProperties
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED)) {
             setIsBeingSynced(Boolean.parseBoolean(properties.getOrDefault(
                     PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED, "false")));

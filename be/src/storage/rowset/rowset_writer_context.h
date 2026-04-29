@@ -100,6 +100,7 @@ struct RowsetWriterContext {
 
     // memtable_on_sink_support_index_v2 = true, we will create SinkFileWriter to send inverted index file
     bool memtable_on_sink_support_index_v2 = false;
+    bool enable_low_memory_load = false;
 
     /// begin file cache opts
     bool write_file_cache = false;

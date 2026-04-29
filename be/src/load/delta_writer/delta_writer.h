@@ -87,7 +87,10 @@ public:
 
     int64_t txn_id() const { return _req.txn_id; }
 
-    int64_t total_received_rows() const { return _memtable_writer->total_received_rows(); }
+    int64_t total_received_rows() const {
+        return _req.enable_low_memory_load ? _total_received_rows
+                                           : _memtable_writer->total_received_rows();
+    }
 
     int64_t num_rows_filtered() const;
 
@@ -103,11 +106,17 @@ protected:
 
     Status init();
 
+    Status _write_directly_to_rowset(const Block* block, const DorisVector<uint32_t>& row_idxs);
+
+    void _init_direct_write_column_offset();
+
     bool _is_init = false;
     bool _is_cancelled = false;
     WriteRequest _req;
     std::unique_ptr<BaseRowsetBuilder> _rowset_builder;
     std::shared_ptr<MemTableWriter> _memtable_writer;
+    std::vector<int> _direct_write_column_offset;
+    bool _is_direct_write_column_offset_init = false;
 
     // total rows num written by DeltaWriter
     std::atomic<int64_t> _total_received_rows = 0;

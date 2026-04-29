@@ -1106,6 +1106,7 @@ DECLARE_mDouble(max_amplified_read_ratio);
 // 1MB for oss, 8KB for hdfs
 DECLARE_mInt32(merged_oss_min_io_size);
 DECLARE_mInt32(merged_hdfs_min_io_size);
+DECLARE_mInt64(column_writer_page_flush_threshold);
 
 // OrcReader
 DECLARE_mInt32(orc_natural_read_size_mb);

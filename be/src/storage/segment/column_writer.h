@@ -79,6 +79,7 @@ struct ColumnWriterOptions {
     SegmentFooterPB* footer = nullptr;
     io::FileWriter* file_writer = nullptr;
     CompressionTypePB compression_type = UNKNOWN_COMPRESSION;
+    bool enable_low_memory_load = false;
     RowsetWriterContext* rowset_ctx = nullptr;
     // For collect segment statistics for compaction
     std::vector<RowsetReaderSharedPtr> input_rs_readers;
@@ -311,6 +312,7 @@ private:
     }
 
     Status _write_data_page(Page* page);
+    Status _flush_pages_if_needed();
 
 private:
     io::FileWriter* _file_writer = nullptr;

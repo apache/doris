@@ -300,6 +300,7 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     opts.file_writer = _file_writer;
     opts.compression_type = _opts.compression_type;
     opts.footer = &_footer;
+    opts.enable_low_memory_load = _opts.rowset_ctx->enable_low_memory_load;
     opts.input_rs_readers = _opts.rowset_ctx->input_rs_readers;
 
     opts.encoding_preference = {.integer_type_default_use_plain_encoding =

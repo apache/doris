@@ -3937,6 +3937,11 @@ public class Env {
 
         }
 
+        if (olapTable.getEnableLowMemoryLoad()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_LOW_MEMORY_LOAD).append("\" = \"");
+            sb.append(olapTable.getEnableLowMemoryLoad()).append("\"");
+        }
+
         // storage policy
         if (olapTable.getStoragePolicy() != null && !olapTable.getStoragePolicy().equals("")) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY).append("\" = \"");
@@ -6238,6 +6243,7 @@ public class Env {
                 .buildTimeSeriesCompactionFileCountThreshold()
                 .buildTimeSeriesCompactionTimeThresholdSeconds()
                 .buildSkipWriteIndexOnLoad()
+                .buildEnableLowMemoryLoad()
                 .buildDisableAutoCompaction()
                 .buildEnableSingleReplicaCompaction()
                 .buildEnableTso()

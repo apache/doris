@@ -304,6 +304,7 @@ struct TOlapTableSink {
     23: optional double max_filter_ratio
 
     24: optional string storage_vault_id
+    25: optional bool enable_low_memory_load
 }
 
 struct THiveLocationParams {

@@ -302,6 +302,9 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     opts.compression_type = _opts.compression_type;
     opts.footer = &_footer;
     if (_opts.rowset_ctx != nullptr) {
+        opts.enable_low_memory_load = _opts.rowset_ctx->enable_low_memory_load;
+    }
+    if (_opts.rowset_ctx != nullptr) {
         opts.input_rs_readers = _opts.rowset_ctx->input_rs_readers;
     }
     opts.encoding_preference = {.integer_type_default_use_plain_encoding =

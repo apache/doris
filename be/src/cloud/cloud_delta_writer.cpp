@@ -70,6 +70,9 @@ Status CloudDeltaWriter::write(const Block* block, const DorisVector<uint32_t>& 
     }
     std::lock_guard lock(_mtx);
     CHECK(_is_init || _is_cancelled);
+    if (_req.enable_low_memory_load) {
+        return _write_directly_to_rowset(block, row_idxs);
+    }
     {
         SCOPED_TIMER(_wait_flush_limit_timer);
         while (_memtable_writer->flush_running_count() >=
@@ -83,6 +86,9 @@ Status CloudDeltaWriter::write(const Block* block, const DorisVector<uint32_t>& 
 Status CloudDeltaWriter::close() {
     std::lock_guard lock(_mtx);
     CHECK(_is_init);
+    if (_req.enable_low_memory_load) {
+        return _rowset_builder->rowset_writer()->flush();
+    }
     return _memtable_writer->close();
 }
 

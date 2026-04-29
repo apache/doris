@@ -235,6 +235,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
         wrequest.table_schema_param = _schema;
         wrequest.txn_expiration = params.txn_expiration(); // Required by CLOUD.
         wrequest.storage_vault_id = params.storage_vault_id();
+        wrequest.enable_low_memory_load = params.enable_low_memory_load();
 
         auto delta_writer = create_delta_writer(wrequest);
         {
@@ -519,6 +520,7 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
                 .is_high_priority = _is_high_priority,
                 .write_file_cache = request.write_file_cache(),
                 .storage_vault_id = request.storage_vault_id(),
+                .enable_low_memory_load = request.enable_low_memory_load(),
         };
 
         auto delta_writer = create_delta_writer(wrequest);

@@ -2424,6 +2424,20 @@ public class InternalCatalog implements CatalogIf<Database> {
         // use light schema change optimization
         olapTable.setEnableLightSchemaChange(enableLightSchemaChange);
 
+        boolean enableLowMemoryLoad;
+        try {
+            enableLowMemoryLoad = PropertyAnalyzer.analyzeEnableLowMemoryLoad(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        if (enableLowMemoryLoad && !olapTable.isDuplicateWithoutKey()) {
+            throw new DdlException(PropertyAnalyzer.PROPERTIES_ENABLE_LOW_MEMORY_LOAD
+                    + " only supports duplicate key tables without key columns");
+        }
+        if (enableLowMemoryLoad) {
+            olapTable.setEnableLowMemoryLoad(true);
+        }
+
         // check if light schema change is disabled, variant type rely on light schema change
         if (!enableLightSchemaChange) {
             for (Column column : baseSchema) {

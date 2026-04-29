@@ -92,6 +92,8 @@ public class TableProperty implements GsonPostProcessable {
 
     private boolean enableLightSchemaChange = false;
 
+    private boolean enableLowMemoryLoad = false;
+
     private boolean disableAutoCompaction = false;
 
     private boolean variantEnableFlattenNested = false;
@@ -170,6 +172,7 @@ public class TableProperty implements GsonPostProcessable {
                 buildTimeSeriesCompactionFileCountThreshold();
                 buildTimeSeriesCompactionTimeThresholdSeconds();
                 buildSkipWriteIndexOnLoad();
+                buildEnableLowMemoryLoad();
                 buildEnableSingleReplicaCompaction();
                 buildEnableTso();
                 buildVerticalCompactionNumColumnsPerGroup();
@@ -289,6 +292,12 @@ public class TableProperty implements GsonPostProcessable {
     public TableProperty buildEnableLightSchemaChange() {
         enableLightSchemaChange = Boolean.parseBoolean(
                 properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE, "false"));
+        return this;
+    }
+
+    public TableProperty buildEnableLowMemoryLoad() {
+        enableLowMemoryLoad = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ENABLE_LOW_MEMORY_LOAD, "false"));
         return this;
     }
 
@@ -728,6 +737,10 @@ public class TableProperty implements GsonPostProcessable {
 
     public boolean getUseSchemaLightChange() {
         return enableLightSchemaChange;
+    }
+
+    public boolean getEnableLowMemoryLoad() {
+        return enableLowMemoryLoad;
     }
 
     public void setEnableUniqueKeyMergeOnWrite(boolean enable) {

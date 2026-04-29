@@ -656,6 +656,10 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     request->set_is_incremental(is_incremental);
     request->set_txn_expiration(_parent->_txn_expiration);
     request->set_write_file_cache(_parent->_write_file_cache);
+    if (_parent->_t_sink.olap_table_sink.__isset.enable_low_memory_load &&
+        _parent->_t_sink.olap_table_sink.enable_low_memory_load) {
+        request->set_enable_low_memory_load(true);
+    }
 
     if (_wg_id > 0) {
         request->set_workload_group_id(_wg_id);

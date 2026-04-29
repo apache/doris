@@ -148,6 +148,7 @@ message PTabletWriterOpenRequest {
     optional string storage_vault_id = 18;
     optional int32 sender_id = 19;
     optional int64 workload_group_id = 20;
+    optional bool enable_low_memory_load = 21;
 };
 
 message PTabletWriterOpenResult {

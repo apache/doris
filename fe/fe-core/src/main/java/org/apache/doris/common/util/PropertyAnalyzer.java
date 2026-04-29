@@ -116,6 +116,8 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE = "light_schema_change";
 
+    public static final String PROPERTIES_ENABLE_LOW_MEMORY_LOAD = "enable_low_memory_load";
+
     public static final String PROPERTIES_DISTRIBUTION_TYPE = "distribution_type";
     public static final String PROPERTIES_SEND_CLEAR_ALTER_TASK = "send_clear_alter_tasks";
     /*
@@ -812,6 +814,24 @@ public class PropertyAnalyzer {
             return false;
         }
         throw new AnalysisException(PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE + " must be `true` or `false`");
+    }
+
+    public static boolean analyzeEnableLowMemoryLoad(Map<String, String> properties)
+            throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_ENABLE_LOW_MEMORY_LOAD);
+        if (value == null) {
+            return false;
+        }
+        properties.remove(PROPERTIES_ENABLE_LOW_MEMORY_LOAD);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_ENABLE_LOW_MEMORY_LOAD + " must be `true` or `false`");
     }
 
     public static Boolean analyzeDisableAutoCompaction(Map<String, String> properties) throws AnalysisException {

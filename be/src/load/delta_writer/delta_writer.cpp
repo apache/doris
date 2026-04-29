@@ -36,6 +36,7 @@
 #include "core/block/block.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "load/memtable/memtable_flush_executor.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
@@ -61,7 +62,10 @@ using namespace ErrorCode;
 
 BaseDeltaWriter::BaseDeltaWriter(const WriteRequest& req, RuntimeProfile* profile,
                                  const UniqueId& load_id)
-        : _req(req), _memtable_writer(new MemTableWriter(req)) {
+        : _req(req) {
+    if (!_req.enable_low_memory_load) {
+        _memtable_writer = std::make_shared<MemTableWriter>(req);
+    }
     _init_profile(profile);
 }
 
@@ -87,10 +91,12 @@ BaseDeltaWriter::~BaseDeltaWriter() {
         return;
     }
 
-    // cancel and wait all memtables in flush queue to be finished
-    static_cast<void>(_memtable_writer->cancel());
+    if (!_req.enable_low_memory_load) {
+        // cancel and wait all memtables in flush queue to be finished
+        static_cast<void>(_memtable_writer->cancel());
+    }
 
-    if (_rowset_builder->tablet() != nullptr) {
+    if (!_req.enable_low_memory_load && _rowset_builder->tablet() != nullptr) {
         const FlushStatistic& stat = _memtable_writer->get_flush_token_stats();
         _rowset_builder->tablet()->flush_bytes->increment(stat.flush_size_bytes);
         _rowset_builder->tablet()->flush_finish_count->increment(stat.flush_finish_count);
@@ -130,6 +136,10 @@ Status BaseDeltaWriter::init() {
         wg_sptr = doris::thread_context()->resource_ctx()->workload_group();
     }
     RETURN_IF_ERROR(_rowset_builder->init());
+    if (_req.enable_low_memory_load) {
+        _is_init = true;
+        return Status::OK();
+    }
     RETURN_IF_ERROR(_memtable_writer->init(
             _rowset_builder->rowset_writer(), _rowset_builder->tablet_schema(),
             _rowset_builder->get_partial_update_info(), wg_sptr,
@@ -149,6 +159,9 @@ Status DeltaWriter::write(const Block* block, const DorisVector<uint32_t>& row_i
     if (!_is_init && !_is_cancelled) {
         RETURN_IF_ERROR(init());
     }
+    if (_req.enable_low_memory_load) {
+        return _write_directly_to_rowset(block, row_idxs);
+    }
     {
         SCOPED_TIMER(_wait_flush_limit_timer);
         while (_memtable_writer->flush_running_count() >=
@@ -160,6 +173,9 @@ Status DeltaWriter::write(const Block* block, const DorisVector<uint32_t>& row_i
 }
 
 Status BaseDeltaWriter::wait_flush() {
+    if (_req.enable_low_memory_load) {
+        return Status::OK();
+    }
     return _memtable_writer->wait_flush();
 }
 
@@ -175,12 +191,17 @@ Status DeltaWriter::close() {
         // for this tablet when being closed.
         RETURN_IF_ERROR(init());
     }
+    if (_req.enable_low_memory_load) {
+        return _rowset_builder->rowset_writer()->flush();
+    }
     return _memtable_writer->close();
 }
 
 Status BaseDeltaWriter::build_rowset() {
     SCOPED_TIMER(_close_wait_timer);
-    RETURN_IF_ERROR(_memtable_writer->close_wait(_profile));
+    if (!_req.enable_low_memory_load) {
+        RETURN_IF_ERROR(_memtable_writer->close_wait(_profile));
+    }
     return _rowset_builder->build_rowset();
 }
 
@@ -238,7 +259,11 @@ Status BaseDeltaWriter::cancel_with_status(const Status& st) {
     if (_is_cancelled) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(_memtable_writer->cancel_with_status(st));
+    if (_req.enable_low_memory_load) {
+        RETURN_IF_ERROR(_rowset_builder->cancel());
+    } else {
+        RETURN_IF_ERROR(_memtable_writer->cancel_with_status(st));
+    }
     _is_cancelled = true;
     return Status::OK();
 }
@@ -249,7 +274,46 @@ Status DeltaWriter::cancel_with_status(const Status& st) {
 }
 
 int64_t BaseDeltaWriter::mem_consumption(MemType mem) {
+    if (_req.enable_low_memory_load) {
+        return 0;
+    }
     return _memtable_writer->mem_consumption(mem);
+}
+
+void BaseDeltaWriter::_init_direct_write_column_offset() {
+    DCHECK(_req.slots != nullptr);
+    DCHECK(_req.tuple_desc != nullptr);
+    for (auto* slot_desc : *_req.slots) {
+        const auto& slots = _req.tuple_desc->slots();
+        bool found = false;
+        for (int j = 0; j < slots.size(); ++j) {
+            if (slot_desc->id() == slots[j]->id()) {
+                _direct_write_column_offset.emplace_back(j);
+                found = true;
+                break;
+            }
+        }
+        DORIS_CHECK(found);
+    }
+    _is_direct_write_column_offset_init = true;
+}
+
+Status BaseDeltaWriter::_write_directly_to_rowset(const Block* block,
+                                                  const DorisVector<uint32_t>& row_idxs) {
+    if (_is_cancelled) {
+        return Status::Cancelled("delta writer is cancelled");
+    }
+    if (!_is_direct_write_column_offset_init) {
+        _init_direct_write_column_offset();
+    }
+    auto clone_block = block->clone_without_columns(&_direct_write_column_offset);
+    auto mutable_block = MutableBlock::build_mutable_block(&clone_block);
+    RETURN_IF_ERROR(mutable_block.add_rows(block, row_idxs.data(), row_idxs.data() + row_idxs.size(),
+                                           &_direct_write_column_offset));
+    auto direct_write_block = mutable_block.to_block();
+    RETURN_IF_ERROR(_rowset_builder->rowset_writer()->add_block(&direct_write_block));
+    _total_received_rows += row_idxs.size();
+    return Status::OK();
 }
 
 void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) {

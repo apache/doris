@@ -44,6 +44,7 @@ struct WriteRequest {
     bool is_high_priority = false;
     bool write_file_cache = false;
     std::string storage_vault_id;
+    bool enable_low_memory_load = false;
 };
 
 } // namespace doris

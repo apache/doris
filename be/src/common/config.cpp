@@ -1048,6 +1048,7 @@ DEFINE_mInt32(parquet_rowgroup_max_buffer_mb, "128");
 DEFINE_mInt32(parquet_column_max_buffer_mb, "8");
 DEFINE_mDouble(max_amplified_read_ratio, "0.8");
 DEFINE_mInt32(merged_oss_min_io_size, "1048576");
+DEFINE_mInt64(column_writer_page_flush_threshold, "4194304");
 DEFINE_mInt32(merged_hdfs_min_io_size, "8192");
 
 // OrcReader
