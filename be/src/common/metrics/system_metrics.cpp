@@ -467,6 +467,17 @@ void SystemMetrics::_update_cpu_metrics() {
             continue;
         }
 
+        if (cpu_name == "cpu") {
+            AggregateCpuTime aggregate_cpu_time;
+            aggregate_cpu_time.total_time = values[0] + values[1] + values[2] + values[3] +
+                                            values[4] + values[5] + values[6] + values[7];
+            aggregate_cpu_time.idle_time = values[3] + values[4];
+            aggregate_cpu_time.initialized = aggregate_cpu_time.total_time > 0;
+            // Publish a consistent aggregate snapshot derived from one /proc/stat row.
+            std::lock_guard<std::mutex> lk(_aggregate_cpu_time_mutex);
+            _aggregate_cpu_time = aggregate_cpu_time;
+        }
+
         for (int i = 0; i < CpuMetrics::cpu_num_metrics; ++i) {
             it->second->metrics[i]->set_value(values[i]);
         }
@@ -906,6 +917,20 @@ double SystemMetrics::get_load_average_1_min() {
     } else {
         return 0;
     }
+}
+
+bool SystemMetrics::get_aggregate_cpu_time(int64_t* total_time, int64_t* idle_time) const {
+    DCHECK(total_time != nullptr);
+    DCHECK(idle_time != nullptr);
+
+    std::lock_guard<std::mutex> lk(_aggregate_cpu_time_mutex);
+    if (!_aggregate_cpu_time.initialized) {
+        return false;
+    }
+
+    *total_time = _aggregate_cpu_time.total_time;
+    *idle_time = _aggregate_cpu_time.idle_time;
+    return true;
 }
 
 void SystemMetrics::get_network_traffic(std::map<std::string, int64_t>* send_map,

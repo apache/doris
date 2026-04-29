@@ -20,10 +20,13 @@ package org.apache.doris.job.extensions.insert.streaming;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.InternalErrorCode;
@@ -167,6 +170,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     // Converted form of sourceProperties; must be refreshed whenever sourceProperties changes.
     private transient Map<String, String> convertedSourceProperties;
 
+    @Getter
+    @SerializedName("ccn")
+    private volatile String cloudCluster;
+
     // The sampling window starts at the beginning of the sampling window.
     // If the error rate exceeds `max_filter_ratio` within the window, the sampling fails.
     @Setter
@@ -238,8 +245,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             }
             StreamingJobUtils.resolveAndValidateSource(
                     dataSourceType, sourceProperties, String.valueOf(getJobId()), createTbls);
-            this.offsetProvider = new JdbcSourceOffsetProvider(getJobId(), dataSourceType,
-                    getConvertedSourceProperties());
+            this.offsetProvider = createOffsetProvider(getConvertedSourceProperties());
             JdbcSourceOffsetProvider rdsOffsetProvider = (JdbcSourceOffsetProvider) this.offsetProvider;
             rdsOffsetProvider.splitChunks(createTbls);
         } catch (Exception ex) {
@@ -292,6 +298,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.jobProperties = new StreamingJobProperties(properties);
             jobProperties.validate();
             this.sampleWindowMs = jobProperties.getMaxIntervalSecond() * 10 * 1000;
+            resolveCloudCluster();
             // build time definition
             JobExecutionConfiguration execConfig = getJobConfig();
             TimerDefinition timerDefinition = new TimerDefinition();
@@ -305,13 +312,75 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
     }
 
+    private void resolveCloudCluster() throws AnalysisException {
+        String requested = validateComputeGroupProperty(properties);
+        if (requested != null) {
+            this.cloudCluster = requested;
+            return;
+        }
+        if (!Config.isCloudMode()) {
+            return;
+        }
+        if (ConnectContext.get() == null) {
+            throw new AnalysisException("compute_group must be specified when no active session is available");
+        }
+        String sessionCluster;
+        try {
+            sessionCluster = ConnectContext.get().getCloudCluster();
+        } catch (ComputeGroupException e) {
+            throw new AnalysisException("failed to resolve compute_group: " + e.getMessage());
+        }
+        if (StringUtils.isBlank(sessionCluster)) {
+            throw new AnalysisException("compute_group is required in cloud mode; "
+                    + "specify compute_group explicitly or bind a default cluster with USAGE");
+        }
+        try {
+            ((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(sessionCluster);
+        } catch (DdlException e) {
+            throw new AnalysisException(e.getMessage());
+        }
+        this.cloudCluster = sessionCluster;
+    }
+
+    // returns the validated compute_group value, or null when the property is absent.
+    // throws if the key is present but blank, non-cloud mode, or the user lacks USAGE on the cluster.
+    private String validateComputeGroupProperty(Map<String, String> props) throws AnalysisException {
+        if (props == null || !props.containsKey(StreamingJobProperties.COMPUTE_GROUP_PROPERTY)) {
+            return null;
+        }
+        String value = props.get(StreamingJobProperties.COMPUTE_GROUP_PROPERTY);
+        if (StringUtils.isBlank(value)) {
+            throw new AnalysisException("compute_group cannot be empty");
+        }
+        if (!Config.isCloudMode()) {
+            throw new AnalysisException("compute_group is only supported in cloud mode");
+        }
+        try {
+            ((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(value);
+        } catch (DdlException e) {
+            throw new AnalysisException(e.getMessage());
+        }
+        return value;
+    }
+
+    private SourceOffsetProvider createOffsetProvider(Map<String, String> jdbcSourceProps) {
+        SourceOffsetProvider provider;
+        if (tvfType != null) {
+            provider = SourceOffsetProviderFactory.createSourceOffsetProvider(tvfType);
+        } else {
+            provider = new JdbcSourceOffsetProvider(getJobId(), dataSourceType, jdbcSourceProps);
+        }
+        provider.setCloudCluster(this.cloudCluster);
+        return provider;
+    }
+
     private void initInsertJob() {
         try {
             init();
             UnboundTVFRelation currentTvf = getCurrentTvf();
             this.tvfType = currentTvf.getFunctionName();
             this.originTvfProps = currentTvf.getProperties().getMap();
-            this.offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(currentTvf.getFunctionName());
+            this.offsetProvider = createOffsetProvider(sourceProperties);
             this.offsetProvider.ensureInitialized(getJobId(), originTvfProps);
             // Validate source-side resources (e.g. PG slot/publication ownership) once at job
             // creation so conflicts fail fast. No-op for standalone cdc_stream TVF (no job).
@@ -410,6 +479,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             String encryptedSql = generateEncryptedSql();
             logParts.add("sql: " + encryptedSql);
         }
+
+        validateComputeGroupProperty(alterJobCommand.getProperties());
 
         // update properties
         if (!alterJobCommand.getProperties().isEmpty()) {
@@ -547,7 +618,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private AbstractStreamingTask createStreamingMultiTblTask() throws JobException {
         return new StreamingMultiTblTask(getJobId(), Env.getCurrentEnv().getNextId(), dataSourceType,
                 offsetProvider, getConvertedSourceProperties(), targetDb, targetProperties, jobProperties,
-                getCreateUser());
+                getCreateUser(), cloudCluster);
     }
 
     private Map<String, String> getConvertedSourceProperties() throws JobException {
@@ -571,7 +642,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     protected AbstractStreamingTask createStreamingInsertTask() {
         return new StreamingInsertTask(getJobId(), Env.getCurrentEnv().getNextId(),
                 getExecuteSql(),
-                offsetProvider, getCurrentDbName(), jobProperties, getOriginTvfProps(), getCreateUser());
+                offsetProvider, getCurrentDbName(), jobProperties, getOriginTvfProps(),
+                getCreateUser(), cloudCluster);
     }
 
     public void recordTasks(AbstractStreamingTask task) {
@@ -855,6 +927,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             if (Config.isCloudMode()) {
                 resetCloudProgress(offset);
             }
+        }
+        if (inputProperties.containsKey(StreamingJobProperties.COMPUTE_GROUP_PROPERTY)) {
+            this.cloudCluster = inputProperties.get(StreamingJobProperties.COMPUTE_GROUP_PROPERTY);
+            offsetProvider.setCloudCluster(this.cloudCluster);
         }
         this.properties.putAll(inputProperties);
         this.jobProperties = new StreamingJobProperties(this.properties);
@@ -1227,11 +1303,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @Override
     public void gsonPostProcess() throws IOException {
         if (offsetProvider == null) {
+            offsetProvider = createOffsetProvider(sourceProperties);
             if (tvfType != null) {
-                offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(tvfType);
                 offsetProvider.restoreFromPersistInfo(offsetProviderPersist);
-            } else {
-                offsetProvider = new JdbcSourceOffsetProvider(getJobId(), dataSourceType, sourceProperties);
             }
         }
 

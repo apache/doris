@@ -29,6 +29,7 @@ import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CaseExpr;
 import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.ColumnRefExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
@@ -62,6 +63,7 @@ import org.apache.doris.analysis.TimeV2Literal;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.analysis.TryCastExpr;
 import org.apache.doris.analysis.VarBinaryLiteral;
+import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.analysis.VirtualSlotRef;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.RestoreJob;
@@ -272,46 +274,48 @@ public class GsonUtils {
     private static final RuntimeTypeAdapterFactory<org.apache.doris.analysis.Expr> exprAdapterFactory
             = RuntimeTypeAdapterFactory
             .of(Expr.class, "clazz")
+            .registerSubtype(ArithmeticExpr.class, ArithmeticExpr.class.getSimpleName())
+            .registerSubtype(CaseExpr.class, CaseExpr.class.getSimpleName())
+            .registerSubtype(CastExpr.class, CastExpr.class.getSimpleName())
+            .registerSubtype(ColumnRefExpr.class, ColumnRefExpr.class.getSimpleName())
+            .registerSubtype(TryCastExpr.class, TryCastExpr.class.getSimpleName())
+            .registerSubtype(EncryptKeyRef.class, EncryptKeyRef.class.getSimpleName())
             .registerSubtype(FunctionCallExpr.class, FunctionCallExpr.class.getSimpleName())
             .registerSubtype(LambdaFunctionCallExpr.class, LambdaFunctionCallExpr.class.getSimpleName())
-            .registerSubtype(CastExpr.class, CastExpr.class.getSimpleName())
-            .registerSubtype(TryCastExpr.class, TryCastExpr.class.getSimpleName())
-            .registerSubtype(TimestampArithmeticExpr.class, TimestampArithmeticExpr.class.getSimpleName())
-            .registerSubtype(IsNullPredicate.class, IsNullPredicate.class.getSimpleName())
+            .registerSubtype(InformationFunction.class, InformationFunction.class.getSimpleName())
+            .registerSubtype(LambdaFunctionExpr.class, LambdaFunctionExpr.class.getSimpleName())
+            .registerSubtype(LiteralExpr.class, LiteralExpr.class.getSimpleName())
+            .registerSubtype(ArrayLiteral.class, ArrayLiteral.class.getSimpleName())
+            .registerSubtype(BoolLiteral.class, BoolLiteral.class.getSimpleName())
+            .registerSubtype(DateLiteral.class, DateLiteral.class.getSimpleName())
+            .registerSubtype(IPv4Literal.class, IPv4Literal.class.getSimpleName())
+            .registerSubtype(IPv6Literal.class, IPv6Literal.class.getSimpleName())
+            .registerSubtype(JsonLiteral.class, JsonLiteral.class.getSimpleName())
+            .registerSubtype(MapLiteral.class, MapLiteral.class.getSimpleName())
+            .registerSubtype(MaxLiteral.class, MaxLiteral.class.getSimpleName())
+            .registerSubtype(NullLiteral.class, NullLiteral.class.getSimpleName())
+            .registerSubtype(NumericLiteralExpr.class, NumericLiteralExpr.class.getSimpleName())
+            .registerSubtype(DecimalLiteral.class, DecimalLiteral.class.getSimpleName())
+            .registerSubtype(FloatLiteral.class, FloatLiteral.class.getSimpleName())
+            .registerSubtype(IntLiteral.class, IntLiteral.class.getSimpleName())
+            .registerSubtype(LargeIntLiteral.class, LargeIntLiteral.class.getSimpleName())
+            .registerSubtype(PlaceHolderExpr.class, PlaceHolderExpr.class.getSimpleName())
+            .registerSubtype(StringLiteral.class, StringLiteral.class.getSimpleName())
+            .registerSubtype(StructLiteral.class, StructLiteral.class.getSimpleName())
+            .registerSubtype(TimeV2Literal.class, TimeV2Literal.class.getSimpleName())
+            .registerSubtype(VarBinaryLiteral.class, VarBinaryLiteral.class.getSimpleName())
             .registerSubtype(BetweenPredicate.class, BetweenPredicate.class.getSimpleName())
             .registerSubtype(BinaryPredicate.class, BinaryPredicate.class.getSimpleName())
+            .registerSubtype(CompoundPredicate.class, CompoundPredicate.class.getSimpleName())
+            .registerSubtype(InPredicate.class, InPredicate.class.getSimpleName())
+            .registerSubtype(IsNullPredicate.class, IsNullPredicate.class.getSimpleName())
             .registerSubtype(LikePredicate.class, LikePredicate.class.getSimpleName())
             .registerSubtype(MatchPredicate.class, MatchPredicate.class.getSimpleName())
             .registerSubtype(SearchPredicate.class, SearchPredicate.class.getSimpleName())
-            .registerSubtype(InPredicate.class, InPredicate.class.getSimpleName())
-            .registerSubtype(CompoundPredicate.class, CompoundPredicate.class.getSimpleName())
-            .registerSubtype(BoolLiteral.class, BoolLiteral.class.getSimpleName())
-            .registerSubtype(MaxLiteral.class, MaxLiteral.class.getSimpleName())
-            .registerSubtype(StringLiteral.class, StringLiteral.class.getSimpleName())
-            .registerSubtype(IntLiteral.class, IntLiteral.class.getSimpleName())
-            .registerSubtype(LargeIntLiteral.class, LargeIntLiteral.class.getSimpleName())
-            .registerSubtype(LiteralExpr.class, LiteralExpr.class.getSimpleName())
-            .registerSubtype(DecimalLiteral.class, DecimalLiteral.class.getSimpleName())
-            .registerSubtype(FloatLiteral.class, FloatLiteral.class.getSimpleName())
-            .registerSubtype(NullLiteral.class, NullLiteral.class.getSimpleName())
-            .registerSubtype(VarBinaryLiteral.class, VarBinaryLiteral.class.getSimpleName())
-            .registerSubtype(MapLiteral.class, MapLiteral.class.getSimpleName())
-            .registerSubtype(DateLiteral.class, DateLiteral.class.getSimpleName())
-            .registerSubtype(IPv6Literal.class, IPv6Literal.class.getSimpleName())
-            .registerSubtype(IPv4Literal.class, IPv4Literal.class.getSimpleName())
-            .registerSubtype(TimeV2Literal.class, TimeV2Literal.class.getSimpleName())
-            .registerSubtype(JsonLiteral.class, JsonLiteral.class.getSimpleName())
-            .registerSubtype(ArrayLiteral.class, ArrayLiteral.class.getSimpleName())
-            .registerSubtype(StructLiteral.class, StructLiteral.class.getSimpleName())
-            .registerSubtype(NumericLiteralExpr.class, NumericLiteralExpr.class.getSimpleName())
-            .registerSubtype(PlaceHolderExpr.class, PlaceHolderExpr.class.getSimpleName())
-            .registerSubtype(CaseExpr.class, CaseExpr.class.getSimpleName())
-            .registerSubtype(LambdaFunctionExpr.class, LambdaFunctionExpr.class.getSimpleName())
-            .registerSubtype(EncryptKeyRef.class, EncryptKeyRef.class.getSimpleName())
-            .registerSubtype(ArithmeticExpr.class, ArithmeticExpr.class.getSimpleName())
             .registerSubtype(SlotRef.class, SlotRef.class.getSimpleName())
             .registerSubtype(VirtualSlotRef.class, VirtualSlotRef.class.getSimpleName())
-            .registerSubtype(InformationFunction.class, InformationFunction.class.getSimpleName());
+            .registerSubtype(TimestampArithmeticExpr.class, TimestampArithmeticExpr.class.getSimpleName())
+            .registerSubtype(VariableExpr.class, VariableExpr.class.getSimpleName());
 
     // runtime adapter for class "DistributionInfo"
     private static RuntimeTypeAdapterFactory<DistributionInfo> distributionInfoTypeAdapterFactory
