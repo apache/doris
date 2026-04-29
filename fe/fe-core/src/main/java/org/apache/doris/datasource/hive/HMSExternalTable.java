@@ -159,6 +159,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         // So add to SUPPORTED_HIVE_FILE_FORMATS and treat is as a hive table.
         // Then Doris will just list the files from location and read parquet files directly.
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hudi.hadoop.HoodieParquetInputFormatBase");
+        SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.RCFileInputFormat");
+        SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.mapred.SequenceFileInputFormat");
 
         SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS = Sets.newHashSet();
         SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.orc.OrcInputFormat");
@@ -1204,6 +1206,17 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 type = TFileFormatType.FORMAT_CSV_PLAIN;
             } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_MULTI_DELIMIT_SERDE)) {
                 type = TFileFormatType.FORMAT_TEXT;
+            } else {
+                throw new UserException("Unsupported hive table serde: " + serDeLib);
+            }
+        } else if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.SEQUENCE_FILE.getDesc())) {
+            return TFileFormatType.FORMAT_SEQUENCE;
+        } else if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.RCFILE.getDesc())) {
+            String serDeLib = table.getSd().getSerdeInfo().getSerializationLib();
+            if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_RC_TEXT_SERDE)) {
+                return TFileFormatType.FORMAT_RCTEXT;
+            } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_RC_BINARY_SERDE)) {
+                return TFileFormatType.FORMAT_RCBINARY;
             } else {
                 throw new UserException("Unsupported hive table serde: " + serDeLib);
             }

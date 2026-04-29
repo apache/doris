@@ -265,6 +265,7 @@ public:
     }
 
     static std::string get_jni_type(const DataTypePtr& data_type);
+    
     static std::string get_jni_type_with_different_string(const DataTypePtr& data_type);
 
     static Status to_java_table(Block* block, size_t num_rows, const ColumnNumbers& arguments,

@@ -59,6 +59,7 @@
 #include "vec/exec/format/arrow/arrow_stream_reader.h"
 #include "vec/exec/format/avro/avro_jni_reader.h"
 #include "vec/exec/format/csv/csv_reader.h"
+#include "vec/exec/format/hive/hive_jni_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
@@ -1109,6 +1110,19 @@ Status FileScanner::_get_next_reader() {
             _cur_reader = AvroJNIReader::create_unique(_state, _profile, *_params, _file_slot_descs,
                                                        range);
             init_status = ((AvroJNIReader*)(_cur_reader.get()))->init_reader();
+            // Set col_name_to_block_idx for JNI readers to avoid repeated map creation
+            if (_cur_reader) {
+                static_cast<JniReader*>(_cur_reader.get())
+                        ->set_col_name_to_block_idx(&_src_block_name_to_idx);
+            }
+            break;
+        }
+        case TFileFormatType::FORMAT_SEQUENCE:
+        case TFileFormatType::FORMAT_RCTEXT:
+        case TFileFormatType::FORMAT_RCBINARY: {
+            _cur_reader = HiveJNIReader::create_unique(_state, _profile, *_params, _file_slot_descs,
+                                                       range);
+            init_status = ((HiveJNIReader*)(_cur_reader.get()))->init_reader();
             // Set col_name_to_block_idx for JNI readers to avoid repeated map creation
             if (_cur_reader) {
                 static_cast<JniReader*>(_cur_reader.get())

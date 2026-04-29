@@ -37,6 +37,7 @@ import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
+import org.apache.doris.qe.BDPAuthContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
@@ -464,6 +465,22 @@ public abstract class FileQueryScanNode extends FileScanNode {
                     }
                     if (params.getBrokerAddresses().isEmpty()) {
                         throw new UserException("No alive broker.");
+                    }
+                }
+            } else {
+                BDPAuthContext bdpAuthContext = BDPAuthContext.get();
+                if (bdpAuthContext != null) {
+                    if (bdpAuthContext.getHadoopUserName() != null) {
+                        params.putToProperties("HADOOP_USER_NAME", bdpAuthContext.getHadoopUserName());
+                    }
+                    if (bdpAuthContext.getErp() != null) {
+                        params.putToProperties("BEE_USER", bdpAuthContext.getErp());
+                    }
+                    if (bdpAuthContext.getSource() != null) {
+                        params.properties.put("BEE_SOURCE", bdpAuthContext.getSource());
+                    }
+                    if (bdpAuthContext.getUserToken() != null) {
+                        params.properties.put("HADOOP_USER_TOKEN", bdpAuthContext.getUserToken());
                     }
                 }
             }

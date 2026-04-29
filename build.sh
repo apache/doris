@@ -591,6 +591,7 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("be-java-extensions/trino-connector-scanner")
     modules+=("be-java-extensions/max-compute-scanner")
     modules+=("be-java-extensions/avro-scanner")
+    modules+=("be-java-extensions/hive-scanner")
     # lakesoul-scanner has been deprecated
     # modules+=("be-java-extensions/lakesoul-scanner")
     modules+=("be-java-extensions/preload-extensions")
@@ -930,6 +931,7 @@ EOF
     extensions_modules+=("trino-connector-scanner")
     extensions_modules+=("max-compute-scanner")
     extensions_modules+=("avro-scanner")
+    extensions_modules+=("hive-scanner")
     # lakesoul-scanner has been deprecated
     # extensions_modules+=("lakesoul-scanner")
     extensions_modules+=("preload-extensions")

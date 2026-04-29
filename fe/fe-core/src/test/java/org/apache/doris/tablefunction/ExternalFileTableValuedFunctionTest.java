@@ -46,7 +46,7 @@ public class ExternalFileTableValuedFunctionTest {
             Assert.fail();
         } catch (AnalysisException e) {
             e.printStackTrace();
-            Assert.assertTrue(e.getMessage().contains("unsupported column type: bool"));
+            Assert.assertTrue(e.getMessage().contains("Unsupported column type: bool"));
         }
 
         csvSchema.clear();

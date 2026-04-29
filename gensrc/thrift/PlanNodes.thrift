@@ -109,7 +109,10 @@ enum TFileFormatType {
     FORMAT_CSV_SNAPPYBLOCK = 14,
     FORMAT_WAL = 15,
     FORMAT_ARROW = 16,
-    FORMAT_TEXT = 17
+    FORMAT_TEXT = 17,
+    FORMAT_RCBINARY = 18,
+    FORMAT_RCTEXT = 19,
+    FORMAT_SEQUENCE = 20
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,

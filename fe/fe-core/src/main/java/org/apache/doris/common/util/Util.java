@@ -576,6 +576,12 @@ public class Util {
             return TFileFormatType.FORMAT_WAL;
         } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_ARROW)) {
             return TFileFormatType.FORMAT_ARROW;
+        } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_SEQUENCE)) {
+            return TFileFormatType.FORMAT_SEQUENCE;
+        } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_RC_BINARY)) {
+            return TFileFormatType.FORMAT_RCBINARY;
+        } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_RC_TEXT)) {
+            return TFileFormatType.FORMAT_RCTEXT;
         } else {
             return TFileFormatType.FORMAT_UNKNOWN;
         }

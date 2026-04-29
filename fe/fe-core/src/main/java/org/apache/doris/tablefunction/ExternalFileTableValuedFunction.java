@@ -45,6 +45,9 @@ import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.RCBinaryFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.RCTextFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.SequenceFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.TextFileFormatProperties;
 import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
@@ -207,7 +210,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileFormatProperties.analyzeFileFormatProperties(copiedProps, true);
 
         if (fileFormatProperties instanceof CsvFileFormatProperties
-                || fileFormatProperties instanceof TextFileFormatProperties) {
+                || fileFormatProperties instanceof TextFileFormatProperties
+                || fileFormatProperties instanceof SequenceFileFormatProperties
+                || fileFormatProperties instanceof RCBinaryFileFormatProperties
+                || fileFormatProperties instanceof RCTextFileFormatProperties) {
             FileFormatUtils.parseCsvSchema(csvSchema, getOrDefaultAndRemove(copiedProps,
                     CsvFileFormatProperties.PROP_CSV_SCHEMA, ""));
             if (LOG.isDebugEnabled()) {

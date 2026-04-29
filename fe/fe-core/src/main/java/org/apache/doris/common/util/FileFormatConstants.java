@@ -30,6 +30,9 @@ public class FileFormatConstants {
     public static final String FORMAT_AVRO = "avro";
     public static final String FORMAT_WAL = "wal";
     public static final String FORMAT_ARROW = "arrow";
+    public static final String FORMAT_RC_BINARY = "rc_binary";
+    public static final String FORMAT_RC_TEXT = "rc_text";
+    public static final String FORMAT_SEQUENCE = "sequence";
 
     public static final String PROP_FORMAT = "format";
     public static final String PROP_COLUMN_SEPARATOR = "column_separator";
@@ -54,5 +57,11 @@ public class FileFormatConstants {
     public static final Pattern DECIMAL_TYPE_PATTERN = Pattern.compile("decimal\\((\\d+),(\\d+)\\)");
     // datetime(p)
     public static final Pattern DATETIME_TYPE_PATTERN = Pattern.compile("datetime\\((\\d+)\\)");
+    // timestamp(p)
+    public static final Pattern TIMESTAMP_TYPE_PATTERN = Pattern.compile("timestamp\\((\\d+)\\)");
+    // char(len)
+    public static final Pattern CHAR_TYPE_PATTERN = Pattern.compile("char\\((\\d+)\\)");
+    // varchar(len)
+    public static final Pattern VARCHAR_TYPE_PATTERN = Pattern.compile("varchar\\((\\d+)\\)");
 
 }

@@ -734,11 +734,6 @@ under the License.
                 <version>${re2j.version}</version>
             </dependency>
             <dependency>
-                <groupId>org.apache.hadoop</groupId>
-                <artifactId>hadoop-client-api</artifactId>
-                <version>${hadoop.version}</version>
-            </dependency>
-            <dependency>
                 <groupId>org.apache.hadoop.thirdparty</groupId>
                 <artifactId>hadoop-shaded-guava</artifactId>
                 <version>${hadoop.thirdparty.guava.version}</version>
@@ -1613,6 +1608,11 @@ under the License.
                 <groupId>org.mariadb.jdbc</groupId>
                 <artifactId>mariadb-java-client</artifactId>
                 <version>${mariadb-java-client.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hive</groupId>
+                <artifactId>hive-serde</artifactId>
+                <version>${hive.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.hive</groupId>

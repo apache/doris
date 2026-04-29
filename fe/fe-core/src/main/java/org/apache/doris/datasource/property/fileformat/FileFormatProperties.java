@@ -39,6 +39,9 @@ public abstract class FileFormatProperties {
     public static final String FORMAT_AVRO = "avro";
     public static final String FORMAT_WAL = "wal";
     public static final String FORMAT_ARROW = "arrow";
+    public static final String FORMAT_SEQUENCE = "sequence";
+    public static final String FORMAT_RCBINARY = "rc_binary";
+    public static final String FORMAT_RCTEXT = "rc_text";
     public static final String PROP_COMPRESS_TYPE = "compress_type";
 
     protected String formatName;
@@ -102,6 +105,12 @@ public abstract class FileFormatProperties {
                 return new WalFileFormatProperties();
             case FORMAT_ARROW:
                 return new ArrowFileFormatProperties();
+            case FORMAT_SEQUENCE:
+                return new SequenceFileFormatProperties();
+            case FORMAT_RCBINARY:
+                return new RCBinaryFileFormatProperties();
+            case FORMAT_RCTEXT:
+                return new RCTextFileFormatProperties();
             default:
                 throw new AnalysisException("format:" + formatString + " is not supported.");
         }

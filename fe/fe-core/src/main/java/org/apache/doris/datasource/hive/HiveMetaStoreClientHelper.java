@@ -100,11 +100,15 @@ public class HiveMetaStoreClientHelper {
     public static final String HIVE_TEXT_SERDE = "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe";
     public static final String HIVE_OPEN_CSV_SERDE = "org.apache.hadoop.hive.serde2.OpenCSVSerde";
     public static final String HIVE_MULTI_DELIMIT_SERDE = "org.apache.hadoop.hive.serde2.MultiDelimitSerDe";
+    public static final String HIVE_RC_TEXT_SERDE = "org.apache.hadoop.hive.serde2.columnar.ColumnarSerDe";
+    public static final String HIVE_RC_BINARY_SERDE = "org.apache.hadoop.hive.serde2.columnar.LazyBinaryColumnarSerDe";
 
     public enum HiveFileFormat {
         TEXT_FILE(0, "text"),
         PARQUET(1, "parquet"),
-        ORC(2, "orc");
+        ORC(2, "orc"),
+        RCFILE(3, "rcfile"),
+        SEQUENCE_FILE(4, "sequencefile");
 
         private int index;
         private String desc;
