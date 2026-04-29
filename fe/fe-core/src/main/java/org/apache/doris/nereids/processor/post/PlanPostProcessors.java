@@ -76,6 +76,9 @@ public class PlanPostProcessors {
             builder.add(new LazyMaterializeTopN());
         }
         builder.add(new MergeProjectPostProcessor());
+        if (cascadesContext.getConnectContext().getSessionVariable().enableGroupJoin) {
+            builder.add(new GroupJoinFusePostProcessor());
+        }
 
         if (cascadesContext.getConnectContext().getSessionVariable().enableAggregateCse) {
             builder.add(new ProjectAggregateExpressionsForCse());

@@ -77,6 +77,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeFile
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeTVFScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGroupJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -368,6 +369,11 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
     public R visitPhysicalNestedLoopJoin(
             PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> nestedLoopJoin, C context) {
         return visitAbstractPhysicalJoin(nestedLoopJoin, context);
+    }
+
+    public R visitPhysicalGroupJoin(
+            PhysicalGroupJoin<? extends Plan, ? extends Plan> groupJoin, C context) {
+        return visitAbstractPhysicalJoin(groupJoin, context);
     }
 
     public R visitPhysicalLimit(PhysicalLimit<? extends Plan> limit, C context) {

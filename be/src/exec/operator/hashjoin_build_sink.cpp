@@ -856,6 +856,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, Block* in_block, bo
         // For ASOF JOIN, build pre-sorted index for O(log K) lookup
         RETURN_IF_ERROR(local_state.build_asof_index(*local_state._shared_state->build_block));
         local_state.init_short_circuit_for_probe();
+        RETURN_IF_ERROR(_on_build_complete(state, local_state));
     } else if (!local_state._should_build_hash_table) {
         // The non-builder instance waits for the builder (task 0) to finish building the hash table.
         // If _signaled is false, either the builder hasn't finished yet, or the builder was

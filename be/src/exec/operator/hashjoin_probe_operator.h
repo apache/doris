@@ -43,7 +43,9 @@ using HashTableCtxVariants =
                      ProcessHashTableProbe<TJoinOp::ASOF_LEFT_OUTER_JOIN>>;
 
 class HashJoinProbeOperatorX;
-class HashJoinProbeLocalState MOCK_REMOVE(final)
+class GroupJoinProbeOperatorX;
+class GroupJoinProbeLocalState;
+class HashJoinProbeLocalState
         : public JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState> {
 public:
     using Parent = HashJoinProbeOperatorX;
@@ -72,6 +74,7 @@ private:
     std::vector<uint16_t> _convert_block_to_null(Block& block);
     Status _extract_join_column(Block& block, const std::vector<int>& res_col_ids);
     friend class HashJoinProbeOperatorX;
+    friend class GroupJoinProbeOperatorX;
     template <int JoinOpType>
     friend struct ProcessHashTableProbe;
 
@@ -121,7 +124,7 @@ private:
     RuntimeProfile::Counter* _asof_probe_search_timer = nullptr;
 };
 
-class HashJoinProbeOperatorX MOCK_REMOVE(final)
+class HashJoinProbeOperatorX
         : public JoinProbeOperatorX<HashJoinProbeLocalState> {
 public:
     HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
@@ -183,6 +186,8 @@ private:
                         RuntimeProfile::Counter& expr_call_timer,
                         std::vector<int>& res_col_ids) const;
     friend class HashJoinProbeLocalState;
+    friend class GroupJoinProbeOperatorX;
+    friend class GroupJoinProbeLocalState;
     template <int JoinOpType>
     friend struct ProcessHashTableProbe;
 

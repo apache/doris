@@ -25,7 +25,7 @@
 namespace doris {
 class HashJoinBuildSinkOperatorX;
 
-class HashJoinBuildSinkLocalState MOCK_REMOVE(final)
+class HashJoinBuildSinkLocalState
         : public JoinBuildSinkLocalState<HashJoinSharedState, HashJoinBuildSinkLocalState> {
 public:
     ENABLE_FACTORY_CREATOR(HashJoinBuildSinkLocalState);
@@ -61,6 +61,7 @@ protected:
     Status _extract_join_column(Block& block, ColumnUInt8::MutablePtr& null_map,
                                 ColumnRawPtrs& raw_ptrs, const std::vector<int>& res_col_ids);
     friend class HashJoinBuildSinkOperatorX;
+    friend class GroupJoinBuildSinkOperatorX;
     friend class PartitionedHashJoinSinkLocalState;
     template <class HashTableContext>
     friend struct ProcessHashTableBuild;
@@ -104,7 +105,7 @@ protected:
     RuntimeProfile::Counter* _asof_index_group_timer = nullptr;
 };
 
-class HashJoinBuildSinkOperatorX MOCK_REMOVE(final)
+class HashJoinBuildSinkOperatorX
         : public JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState> {
 public:
     HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
@@ -168,6 +169,13 @@ public:
                state->query_options().enable_left_semi_direct_return_opt;
     }
 
+protected:
+    virtual Status _on_build_complete(RuntimeState* state, HashJoinBuildSinkLocalState& local_state) {
+        return Status::OK();
+    }
+
+    std::vector<bool> _should_keep_column_flags;
+
 private:
     friend class HashJoinBuildSinkLocalState;
 
@@ -184,7 +192,6 @@ private:
     std::vector<TExpr> _partition_exprs;
 
     std::vector<SlotId> _hash_output_slot_ids;
-    std::vector<bool> _should_keep_column_flags;
     bool _should_keep_hash_key_column = false;
     // if build side has variant column and need output variant column
     // need to finalize variant column to speed up the join op

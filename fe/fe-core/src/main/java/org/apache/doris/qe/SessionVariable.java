@@ -1043,6 +1043,12 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = "enable_aggregate_cse", needForward = true)
     public boolean enableAggregateCse = true;
 
+    @VarAttrDef.VarAttr(name = "enable_group_join", needForward = true,
+            varType = VariableAnnotation.EXPERIMENTAL,
+            description = {"是否启用 GroupJoin 算子融合优化（实验特性）",
+                    "Enable GroupJoin operator fusion optimization (experimental)"})
+    public boolean enableGroupJoin = false;
+
     // Experimental: enable pushing down virtual slots (common sub-expressions) into OlapScan.
     // When false (default), the optimizer rule PushDownVirtualColumnsIntoOlapScan will not apply.
     @VarAttrDef.VarAttr(name = "enable_virtual_slot_for_cse", needForward = true,

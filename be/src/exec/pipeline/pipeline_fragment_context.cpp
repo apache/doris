@@ -67,6 +67,8 @@
 #include "exec/operator/file_scan_operator.h"
 #include "exec/operator/group_commit_block_sink_operator.h"
 #include "exec/operator/group_commit_scan_operator.h"
+#include "exec/operator/groupjoin_build_sink_operator.h"
+#include "exec/operator/groupjoin_probe_operator.h"
 #include "exec/operator/hashjoin_build_sink.h"
 #include "exec/operator/hashjoin_probe_operator.h"
 #include "exec/operator/hive_table_sink_operator.h"
@@ -1305,6 +1307,110 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     bool enable_query_cache = _params.fragment.__isset.query_cache_param;
 
     bool fe_with_old_version = false;
+    auto build_hash_join_pipelines = [&](const TPlanNode& join_tnode) -> Status {
+        const auto is_group_join = join_tnode.node_type == TPlanNodeType::GROUP_JOIN_NODE;
+        const auto is_broadcast_join = join_tnode.hash_join_node.__isset.is_broadcast_join &&
+                                       join_tnode.hash_join_node.is_broadcast_join;
+        const auto enable_spill = _runtime_state->enable_spill();
+        if (enable_spill && !is_broadcast_join) {
+            auto tnode_ = join_tnode;
+            tnode_.runtime_filters.clear();
+            std::shared_ptr<HashJoinProbeOperatorX> inner_probe_operator;
+            std::shared_ptr<HashJoinBuildSinkOperatorX> probe_side_inner_sink_operator;
+            if (is_group_join) {
+                inner_probe_operator =
+                        std::make_shared<GroupJoinProbeOperatorX>(pool, tnode_, 0, descs);
+                probe_side_inner_sink_operator =
+                        std::make_shared<GroupJoinBuildSinkOperatorX>(pool, 0, 0, tnode_, descs);
+            } else {
+                inner_probe_operator =
+                        std::make_shared<HashJoinProbeOperatorX>(pool, tnode_, 0, descs);
+                probe_side_inner_sink_operator =
+                        std::make_shared<HashJoinBuildSinkOperatorX>(pool, 0, 0, tnode_, descs);
+            }
+
+            RETURN_IF_ERROR(inner_probe_operator->init(tnode_, _runtime_state.get()));
+            RETURN_IF_ERROR(probe_side_inner_sink_operator->init(tnode_, _runtime_state.get()));
+
+            auto probe_operator = std::make_shared<PartitionedHashJoinProbeOperatorX>(
+                    pool, tnode_, next_operator_id(), descs);
+            probe_operator->set_inner_operators(probe_side_inner_sink_operator,
+                                                inner_probe_operator);
+            op = std::move(probe_operator);
+            RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
+
+            const auto downstream_pipeline_id = cur_pipe->id();
+            if (!_dag.contains(downstream_pipeline_id)) {
+                _dag.insert({downstream_pipeline_id, {}});
+            }
+            PipelinePtr build_side_pipe = add_pipeline(cur_pipe);
+            _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
+
+            std::shared_ptr<HashJoinBuildSinkOperatorX> inner_sink_operator;
+            if (is_group_join) {
+                inner_sink_operator =
+                        std::make_shared<GroupJoinBuildSinkOperatorX>(pool, 0, 0, join_tnode, descs);
+            } else {
+                inner_sink_operator =
+                        std::make_shared<HashJoinBuildSinkOperatorX>(pool, 0, 0, join_tnode, descs);
+            }
+            auto sink_operator = std::make_shared<PartitionedHashJoinSinkOperatorX>(
+                    pool, next_sink_operator_id(), op->operator_id(), tnode_, descs);
+            RETURN_IF_ERROR(inner_sink_operator->init(join_tnode, _runtime_state.get()));
+
+            sink_operator->set_inner_operators(inner_sink_operator, inner_probe_operator);
+            sink_ops.push_back(std::move(sink_operator));
+            RETURN_IF_ERROR(build_side_pipe->set_sink(sink_ops.back()));
+            RETURN_IF_ERROR(build_side_pipe->sink()->init(tnode_, _runtime_state.get()));
+
+            _pipeline_parent_map.push(op->node_id(), cur_pipe);
+            _pipeline_parent_map.push(op->node_id(), build_side_pipe);
+        } else {
+            if (is_group_join) {
+                op = std::make_shared<GroupJoinProbeOperatorX>(pool, join_tnode, next_operator_id(),
+                                                               descs);
+            } else {
+                op = std::make_shared<HashJoinProbeOperatorX>(pool, join_tnode, next_operator_id(),
+                                                              descs);
+            }
+            RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
+
+            const auto downstream_pipeline_id = cur_pipe->id();
+            if (!_dag.contains(downstream_pipeline_id)) {
+                _dag.insert({downstream_pipeline_id, {}});
+            }
+            PipelinePtr build_side_pipe = add_pipeline(cur_pipe);
+            _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
+
+            if (is_group_join) {
+                sink_ops.push_back(std::make_shared<GroupJoinBuildSinkOperatorX>(
+                        pool, next_sink_operator_id(), op->operator_id(), join_tnode, descs));
+            } else {
+                sink_ops.push_back(std::make_shared<HashJoinBuildSinkOperatorX>(
+                        pool, next_sink_operator_id(), op->operator_id(), join_tnode, descs));
+            }
+            RETURN_IF_ERROR(build_side_pipe->set_sink(sink_ops.back()));
+            RETURN_IF_ERROR(build_side_pipe->sink()->init(join_tnode, _runtime_state.get()));
+
+            _pipeline_parent_map.push(op->node_id(), cur_pipe);
+            _pipeline_parent_map.push(op->node_id(), build_side_pipe);
+        }
+        if (is_broadcast_join && _runtime_state->enable_share_hash_table_for_broadcast_join()) {
+            std::shared_ptr<HashJoinSharedState> shared_state =
+                    HashJoinSharedState::create_shared(_num_instances);
+            for (int i = 0; i < _num_instances; i++) {
+                auto sink_dep = std::make_shared<Dependency>(op->operator_id(), op->node_id(),
+                                                             "HASH_JOIN_BUILD_DEPENDENCY");
+                sink_dep->set_shared_state(shared_state.get());
+                shared_state->sink_deps.push_back(sink_dep);
+            }
+            shared_state->create_source_dependencies(_num_instances, op->operator_id(),
+                                                     op->node_id(), "HASH_JOIN_PROBE");
+            _op_id_to_shared_state.insert(
+                    {op->operator_id(), {shared_state, shared_state->sink_deps}});
+        }
+        return Status::OK();
+    };
     switch (tnode.node_type) {
     case TPlanNodeType::OLAP_SCAN_NODE: {
         op = std::make_shared<OlapScanOperatorX>(
@@ -1518,83 +1624,22 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         break;
     }
     case TPlanNodeType::HASH_JOIN_NODE: {
-        const auto is_broadcast_join = tnode.hash_join_node.__isset.is_broadcast_join &&
-                                       tnode.hash_join_node.is_broadcast_join;
-        const auto enable_spill = _runtime_state->enable_spill();
-        if (enable_spill && !is_broadcast_join) {
-            auto tnode_ = tnode;
-            tnode_.runtime_filters.clear();
-            auto inner_probe_operator =
-                    std::make_shared<HashJoinProbeOperatorX>(pool, tnode_, 0, descs);
-
-            // probe side inner sink operator is used to build hash table on probe side when data is spilled.
-            // So here use `tnode_` which has no runtime filters.
-            auto probe_side_inner_sink_operator =
-                    std::make_shared<HashJoinBuildSinkOperatorX>(pool, 0, 0, tnode_, descs);
-
-            RETURN_IF_ERROR(inner_probe_operator->init(tnode_, _runtime_state.get()));
-            RETURN_IF_ERROR(probe_side_inner_sink_operator->init(tnode_, _runtime_state.get()));
-
-            auto probe_operator = std::make_shared<PartitionedHashJoinProbeOperatorX>(
-                    pool, tnode_, next_operator_id(), descs);
-            probe_operator->set_inner_operators(probe_side_inner_sink_operator,
-                                                inner_probe_operator);
-            op = std::move(probe_operator);
-            RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
-
-            const auto downstream_pipeline_id = cur_pipe->id();
-            if (!_dag.contains(downstream_pipeline_id)) {
-                _dag.insert({downstream_pipeline_id, {}});
-            }
-            PipelinePtr build_side_pipe = add_pipeline(cur_pipe);
-            _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
-
-            auto inner_sink_operator =
-                    std::make_shared<HashJoinBuildSinkOperatorX>(pool, 0, 0, tnode, descs);
-            auto sink_operator = std::make_shared<PartitionedHashJoinSinkOperatorX>(
-                    pool, next_sink_operator_id(), op->operator_id(), tnode_, descs);
-            RETURN_IF_ERROR(inner_sink_operator->init(tnode, _runtime_state.get()));
-
-            sink_operator->set_inner_operators(inner_sink_operator, inner_probe_operator);
-            sink_ops.push_back(std::move(sink_operator));
-            RETURN_IF_ERROR(build_side_pipe->set_sink(sink_ops.back()));
-            RETURN_IF_ERROR(build_side_pipe->sink()->init(tnode_, _runtime_state.get()));
-
-            _pipeline_parent_map.push(op->node_id(), cur_pipe);
-            _pipeline_parent_map.push(op->node_id(), build_side_pipe);
-        } else {
-            op = std::make_shared<HashJoinProbeOperatorX>(pool, tnode, next_operator_id(), descs);
-            RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
-
-            const auto downstream_pipeline_id = cur_pipe->id();
-            if (!_dag.contains(downstream_pipeline_id)) {
-                _dag.insert({downstream_pipeline_id, {}});
-            }
-            PipelinePtr build_side_pipe = add_pipeline(cur_pipe);
-            _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
-
-            sink_ops.push_back(std::make_shared<HashJoinBuildSinkOperatorX>(
-                    pool, next_sink_operator_id(), op->operator_id(), tnode, descs));
-            RETURN_IF_ERROR(build_side_pipe->set_sink(sink_ops.back()));
-            RETURN_IF_ERROR(build_side_pipe->sink()->init(tnode, _runtime_state.get()));
-
-            _pipeline_parent_map.push(op->node_id(), cur_pipe);
-            _pipeline_parent_map.push(op->node_id(), build_side_pipe);
+        RETURN_IF_ERROR(build_hash_join_pipelines(tnode));
+        break;
+    }
+    case TPlanNodeType::GROUP_JOIN_NODE: {
+        auto join_tnode = tnode;
+        join_tnode.hash_join_node.__set_join_op(tnode.group_join_node.join_op);
+        join_tnode.hash_join_node.__set_eq_join_conjuncts(tnode.group_join_node.eq_join_conjuncts);
+        if (tnode.group_join_node.__isset.vother_join_conjunct) {
+            join_tnode.hash_join_node.__set_vother_join_conjunct(
+                    tnode.group_join_node.vother_join_conjunct);
         }
-        if (is_broadcast_join && _runtime_state->enable_share_hash_table_for_broadcast_join()) {
-            std::shared_ptr<HashJoinSharedState> shared_state =
-                    HashJoinSharedState::create_shared(_num_instances);
-            for (int i = 0; i < _num_instances; i++) {
-                auto sink_dep = std::make_shared<Dependency>(op->operator_id(), op->node_id(),
-                                                             "HASH_JOIN_BUILD_DEPENDENCY");
-                sink_dep->set_shared_state(shared_state.get());
-                shared_state->sink_deps.push_back(sink_dep);
-            }
-            shared_state->create_source_dependencies(_num_instances, op->operator_id(),
-                                                     op->node_id(), "HASH_JOIN_PROBE");
-            _op_id_to_shared_state.insert(
-                    {op->operator_id(), {shared_state, shared_state->sink_deps}});
+        join_tnode.hash_join_node.__set_is_broadcast_join(tnode.group_join_node.is_broadcast_join);
+        if (tnode.group_join_node.__isset.dist_type) {
+            join_tnode.hash_join_node.__set_dist_type(tnode.group_join_node.dist_type);
         }
+        RETURN_IF_ERROR(build_hash_join_pipelines(join_tnode));
         break;
     }
     case TPlanNodeType::CROSS_JOIN_NODE: {

@@ -135,6 +135,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGroupJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
@@ -198,6 +199,7 @@ import org.apache.doris.planner.EmptySetNode;
 import org.apache.doris.planner.ExceptNode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.GroupCommitBlockSink;
+import org.apache.doris.planner.GroupJoinNode;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.HiveTableSink;
 import org.apache.doris.planner.IcebergDeleteSink;
@@ -1614,6 +1616,83 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      *      only contains left (right) children output slots.
      *
      */
+    @Override
+    public PlanFragment visitPhysicalGroupJoin(
+            PhysicalGroupJoin<? extends Plan, ? extends Plan> groupJoin,
+            PlanTranslatorContext context) {
+        Preconditions.checkArgument(groupJoin.left() instanceof PhysicalPlan,
+                "GroupJoin's left child should be PhysicalPlan");
+        Preconditions.checkArgument(groupJoin.right() instanceof PhysicalPlan,
+                "GroupJoin's right child should be PhysicalPlan");
+
+        // NOTICE: We must visit from right to left, to ensure the last fragment is root fragment
+        PlanFragment rightFragment = groupJoin.child(1).accept(this, context);
+        PlanFragment leftFragment = groupJoin.child(0).accept(this, context);
+
+        PlanNode leftPlanRoot = leftFragment.getPlanRoot();
+        PlanNode rightPlanRoot = rightFragment.getPlanRoot();
+        JoinType joinType = groupJoin.getJoinType();
+        JoinOperator joinOperator = JoinType.toJoinOperator(joinType);
+
+        List<Expr> execEqConjuncts = groupJoin.getHashJoinConjuncts().stream()
+                .map(EqualPredicate.class::cast)
+                .map(e -> JoinUtils.swapEqualToForChildrenOrder(e, groupJoin.left().getOutputSet()))
+                .map(e -> ExpressionTranslator.translate(e, context))
+                .collect(Collectors.toList());
+
+        Expr otherJoinConjunct = null;
+        if (!groupJoin.getOtherJoinConjuncts().isEmpty()) {
+            otherJoinConjunct = ExpressionTranslator.translate(
+                    groupJoin.getOtherJoinConjuncts().get(0), context);
+        }
+
+        List<Expr> groupByExprs = groupJoin.getGroupByExpressions().stream()
+                .map(e -> ExpressionTranslator.translate(e, context))
+                .collect(Collectors.toList());
+
+        List<FunctionCallExpr> aggFuncs = Lists.newArrayList();
+        for (NamedExpression expr : groupJoin.getOutputExpressions()) {
+            Set<Expression> aggs = ExpressionUtils.collect(ImmutableList.of(expr),
+                    e -> e instanceof org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction);
+            for (Expression agg : aggs) {
+                Expr translated = ExpressionTranslator.translate(agg, context);
+                if (translated instanceof FunctionCallExpr) {
+                    aggFuncs.add((FunctionCallExpr) translated);
+                }
+            }
+        }
+
+        GroupJoinNode groupJoinNode = new GroupJoinNode(
+                context.nextPlanNodeId(),
+                leftPlanRoot,
+                rightPlanRoot,
+                joinOperator,
+                execEqConjuncts,
+                otherJoinConjunct,
+                groupByExprs,
+                aggFuncs);
+        groupJoinNode.setNereidsId(groupJoin.getId());
+        context.getNereidsIdToPlanNodeIdMap().put(groupJoin.getId(), groupJoinNode.getId());
+
+        // Connect fragments (same logic as connectJoinNode)
+        groupJoinNode.setChild(0, leftPlanRoot);
+        groupJoinNode.setChild(1, rightPlanRoot);
+        setPlanRoot(leftFragment, groupJoinNode, groupJoin);
+        context.mergePlanFragment(rightFragment, leftFragment);
+        for (PlanFragment rightChild : rightFragment.getChildren()) {
+            leftFragment.addChild(rightChild);
+        }
+
+        // TODO(PR2): set distribution mode (broadcast/colocate/partitioned) for GroupJoinNode.
+
+        // translate runtime filter
+        context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> groupJoin
+                .getRuntimeFilters().forEach(filter -> runtimeFilterTranslator
+                        .createLegacyRuntimeFilter(filter, groupJoinNode, context)));
+
+        return leftFragment;
+    }
+
     @Override
     public PlanFragment visitPhysicalHashJoin(
             PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin,
