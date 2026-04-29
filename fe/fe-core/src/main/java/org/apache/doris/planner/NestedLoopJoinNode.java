@@ -23,12 +23,19 @@ import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNestedLoopJoinNode;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Nested loop join between left child and right child.
@@ -52,6 +59,12 @@ public class NestedLoopJoinNode extends JoinNodeBase {
 
     private List<Expr> markJoinConjuncts;
 
+    private final Set<SlotId> materializedSlotIds = Sets.newHashSet();
+
+    private final Map<ExprId, SlotId> materializedSlotIdMap = Maps.newHashMap();
+
+    private boolean hasMaterializedSlotIds = false;
+
     public static boolean canParallelize(JoinOperator joinOp) {
         return joinOp == JoinOperator.CROSS_JOIN || joinOp == JoinOperator.INNER_JOIN
                 || joinOp == JoinOperator.LEFT_OUTER_JOIN || joinOp == JoinOperator.LEFT_SEMI_JOIN
@@ -67,6 +80,23 @@ public class NestedLoopJoinNode extends JoinNodeBase {
 
     public void setMarkJoinConjuncts(List<Expr> markJoinConjuncts) {
         this.markJoinConjuncts = markJoinConjuncts;
+    }
+
+    public Set<SlotId> getMaterializedSlotIds() {
+        return materializedSlotIds;
+    }
+
+    public Map<ExprId, SlotId> getMaterializedSlotIdMap() {
+        return materializedSlotIdMap;
+    }
+
+    public void enableMaterializedSlotIds() {
+        hasMaterializedSlotIds = true;
+    }
+
+    public void addSlotIdToMaterializedSlotIds(SlotId slotId) {
+        materializedSlotIds.add(slotId);
+        hasMaterializedSlotIds = true;
     }
 
     public NestedLoopJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, List<TupleId> tupleIds,
@@ -103,6 +133,13 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         }
         msg.nested_loop_join_node.setIsOutputLeftSideOnly(isOutputLeftSideOnly);
         msg.nested_loop_join_node.setUseSpecificProjections(false);
+        if (hasMaterializedSlotIds) {
+            List<Integer> slotIds = new ArrayList<>();
+            for (SlotId slotId : materializedSlotIds) {
+                slotIds.add(slotId.asInt());
+            }
+            msg.nested_loop_join_node.setMaterializedSlotIds(slotIds);
+        }
         msg.node_type = TPlanNodeType.CROSS_JOIN_NODE;
     }
 
@@ -144,6 +181,13 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         if (outputSlotIds != null) {
             output.append(detailPrefix).append("output slot ids: ");
             for (SlotId slotId : outputSlotIds) {
+                output.append(slotId).append(" ");
+            }
+            output.append("\n");
+        }
+        if (hasMaterializedSlotIds) {
+            output.append(detailPrefix).append("materialized slot ids: ");
+            for (SlotId slotId : materializedSlotIds) {
                 output.append(slotId).append(" ");
             }
             output.append("\n");

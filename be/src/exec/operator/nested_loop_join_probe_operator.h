@@ -17,12 +17,13 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include <cstdint>
+#include <set>
+#include <vector>
 
 #include "common/cast_set.h"
 #include "common/status.h"
+#include "core/column/column.h"
 #include "exec/operator/join_probe_operator.h"
 #include "exec/operator/operator.h"
 #include "util/simd/bits.h"
@@ -77,6 +78,18 @@ public:
 private:
     // Whether to generate data based on the build side
     bool use_generate_block_base_build() const;
+    Status _generate_lazy_block_base_probe(RuntimeState* state, Block* probe_block);
+    Status _generate_lazy_block_base_build(RuntimeState* state, Block* probe_block);
+    Status _append_lazy_rows(const IColumn::Filter& filter, size_t selected_rows,
+                             bool fixed_side_probe, int64_t fixed_side_pos,
+                             const Block& probe_block, const Block& build_block);
+    void _replace_lazy_placeholder_columns(size_t rows);
+    void _append_lazy_probe_eval_columns(ColumnsWithTypeAndName& eval_columns,
+                                         const Block& probe_block, bool fixed_side_probe,
+                                         int64_t fixed_side_pos, size_t rows);
+    void _append_lazy_build_eval_columns(ColumnsWithTypeAndName& eval_columns,
+                                         const Block& build_block, bool fixed_side_probe,
+                                         int64_t fixed_side_pos, size_t rows);
 
     friend class NestedLoopJoinProbeOperatorX;
     void _update_additional_flags(Block* block);
@@ -139,7 +152,7 @@ private:
     template <bool SetBuildSideFlag, bool SetProbeSideFlag, bool IgnoreNull>
     Status _do_filtering_and_update_visited_flags(Block* block, bool materialize) {
         // The number of columns will not exceed the range of u32.
-        uint32_t column_to_keep = cast_set<uint32_t>(block->columns());
+        auto column_to_keep = cast_set<uint32_t>(block->columns());
         // If we need to set visited flags for build side,
         // 1. Execute conjuncts and get a column with bool type to do filtering.
         // 2. Use bool column to update build-side visited flags.
@@ -258,6 +271,11 @@ private:
     VExprContextSPtrs _join_conjuncts;
     size_t _num_probe_side_columns = 0;
     size_t _num_build_side_columns = 0;
+    bool _has_materialized_slot_ids = false;
+    std::vector<SlotId> _materialized_slot_ids;
+    bool _enable_lazy_materialize = false;
+    std::set<int> _lazy_eval_column_ids;
+    std::set<int> _materialize_column_ids;
     const bool _old_version_flag;
 };
 
