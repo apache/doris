@@ -88,7 +88,7 @@ public:
     int64_t txn_id() const { return _req.txn_id; }
 
     int64_t total_received_rows() const {
-        return _req.enable_low_memory_load ? _total_received_rows
+        return _req.enable_low_memory_load ? _total_received_rows.load()
                                            : _memtable_writer->total_received_rows();
     }
 
