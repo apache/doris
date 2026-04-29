@@ -244,12 +244,8 @@ jobs:
         done < all_files
 
         if ${changed_sensitive} && [[ "${COMMENT_TRIGGER_TYPE}" != "buildall" ]]; then
-          create_an_issue_comment "${PULL_REQUEST_NUM}" \
-            "⚠️ **Security Notice**: This PR modifies pipeline scripts that are executed by TeamCity with credentials access (ak/sk, tokens, etc.).
-
-To prevent injection attacks, single test triggers (\`run p0\`, \`run feut\`, etc.) are blocked when pipeline scripts are modified.
-
-Please review the pipeline script changes carefully. If they are safe, a committer can use \`run buildall\` to explicitly acknowledge and trigger the pipeline."
+          msg="⚠️ **Security Notice**: This PR modifies pipeline scripts that are executed by TeamCity with credentials access (ak/sk, tokens, etc.).\n\nTo prevent injection attacks, single test triggers (\`run p0\`, \`run feut\`, etc.) are blocked when pipeline scripts are modified.\n\nPlease review the pipeline script changes carefully. If they are safe, a committer can use \`run buildall\` to explicitly acknowledge and trigger the pipeline."
+          create_an_issue_comment "${PULL_REQUEST_NUM}" "${msg}"
           exit 1
         fi
 
