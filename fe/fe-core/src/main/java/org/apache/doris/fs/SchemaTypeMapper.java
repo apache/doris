@@ -58,7 +58,8 @@ public enum SchemaTypeMapper {
     //todo Support for this type is planned but not yet implemented.
     OFS("ofs", StorageProperties.Type.BROKER, FileSystemType.OFS, TFileType.FILE_BROKER),
     GFS("gfs", StorageProperties.Type.BROKER, FileSystemType.HDFS, TFileType.FILE_BROKER),
-    JFS("jfs", StorageProperties.Type.BROKER, FileSystemType.JFS, TFileType.FILE_BROKER),
+    // JuiceFS is accessed through Hadoop-compatible APIs in Doris, so it follows the HDFS path.
+    JFS("jfs", StorageProperties.Type.HDFS, FileSystemType.HDFS, TFileType.FILE_HDFS),
     VIEWFS("viewfs", StorageProperties.Type.HDFS, FileSystemType.HDFS, TFileType.FILE_HDFS),
     FILE("file", StorageProperties.Type.LOCAL, FileSystemType.FILE, TFileType.FILE_LOCAL),
     OSS_HDFS("oss", StorageProperties.Type.OSS_HDFS, FileSystemType.HDFS, TFileType.FILE_HDFS),

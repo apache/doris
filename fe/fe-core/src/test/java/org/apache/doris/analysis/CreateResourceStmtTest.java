@@ -69,6 +69,14 @@ public class CreateResourceStmtTest {
         Assert.assertEquals(ResourceType.S3, stmt.getResourceType());
         Assert.assertEquals("CREATE EXTERNAL RESOURCE 's3' PROPERTIES(\"type\"  =  \"s3\")", stmt.toSql());
 
+        properties = Maps.newHashMap();
+        properties.put("type", "jfs");
+        properties.put("fs.defaultFS", "jfs://cluster");
+        stmt = new CreateResourceStmt(true, false, "jfs0", properties);
+        stmt.analyze(analyzer);
+        Assert.assertEquals("jfs0", stmt.getResourceName());
+        Assert.assertEquals(ResourceType.HDFS, stmt.getResourceType());
+
     }
 
     @Test(expected = AnalysisException.class)

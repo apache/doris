@@ -30,7 +30,7 @@ import java.util.Set;
 
 public class HdfsPropertiesUtilsTest {
 
-    private static final Set<String> supportSchema = ImmutableSet.of("hdfs", "viewfs");
+    private static final Set<String> supportSchema = ImmutableSet.of("hdfs", "viewfs", "jfs");
 
     @Test
     public void testCheckLoadPropsAndReturnUri_success() throws Exception {
@@ -108,6 +108,15 @@ public class HdfsPropertiesUtilsTest {
     }
 
     @Test
+    public void testConstructDefaultFsFromUri_jfs() {
+        Map<String, String> props = new HashMap<>();
+        props.put("uri", "jfs://cluster/path");
+
+        String result = HdfsPropertiesUtils.extractDefaultFsFromUri(props, supportSchema);
+        Assertions.assertEquals("jfs://cluster", result);
+    }
+
+    @Test
     public void testConstructDefaultFsFromUri_invalidSchema() {
         Map<String, String> props = new HashMap<>();
         props.put("uri", "obs://bucket/test");
@@ -144,6 +153,13 @@ public class HdfsPropertiesUtilsTest {
         String uri = "HDFS://localhost:9000/test";
         String result = HdfsPropertiesUtils.convertUrlToFilePath(uri, "", supportSchema);
         Assertions.assertEquals("HDFS://localhost:9000/test", result);
+    }
+
+    @Test
+    public void testConvertUrlToFilePath_jfs() throws Exception {
+        String uri = "jfs://cluster/user/test";
+        String result = HdfsPropertiesUtils.convertUrlToFilePath(uri, "", supportSchema);
+        Assertions.assertEquals("jfs://cluster/user/test", result);
     }
 
     @Test

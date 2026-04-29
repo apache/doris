@@ -38,7 +38,9 @@ public class HdfsPropertiesTest {
         // Test 1: Check default authentication type (should be "simple")
         Map<String, String> simpleHdfsProperties = new HashMap<>();
         simpleHdfsProperties.put("uri", "hdfs://test/1.orc");
-        Assertions.assertEquals(HdfsProperties.class,  StorageProperties.createPrimary(simpleHdfsProperties).getClass());
+        Assertions.assertEquals(HdfsProperties.class, StorageProperties.createPrimary(simpleHdfsProperties).getClass());
+        simpleHdfsProperties.put("uri", "jfs://test/1.orc");
+        Assertions.assertEquals(HdfsProperties.class, StorageProperties.createPrimary(simpleHdfsProperties).getClass());
         Map<String, String> origProps = createBaseHdfsProperties();
         List<StorageProperties> storageProperties = StorageProperties.createAll(origProps);
         HdfsProperties hdfsProperties = (HdfsProperties) storageProperties.get(0);
@@ -184,5 +186,23 @@ public class HdfsPropertiesTest {
         });
         Assertions.assertEquals("hdfs://localhost:9000/test", hdfsProperties.validateAndNormalizeUri("hdfs://localhost:9000/test"));
 
+    }
+
+    @Test
+    public void testJfsBackendProperties() throws UserException {
+        Map<String, String> origProps = createBaseHdfsProperties();
+        origProps.put("fs.defaultFS", "jfs://cluster");
+        origProps.put("uri", "jfs://cluster/user/test/file.parquet");
+        origProps.put("fs.jfs.impl", "io.juicefs.JuiceFileSystem");
+        origProps.put("juicefs.cluster.meta", "redis://127.0.0.1:6379/1");
+
+        HdfsProperties hdfsProperties = (HdfsProperties) StorageProperties.createAll(origProps).get(0);
+        Map<String, String> beProperties = hdfsProperties.getBackendConfigProperties();
+        Assertions.assertEquals("jfs://cluster", beProperties.get("fs.defaultFS"));
+        Assertions.assertEquals("io.juicefs.JuiceFileSystem", beProperties.get("fs.jfs.impl"));
+        Assertions.assertEquals("redis://127.0.0.1:6379/1", beProperties.get("juicefs.cluster.meta"));
+        Assertions.assertEquals("jfs://cluster/user/test/file.parquet", hdfsProperties.validateAndGetUri(origProps));
+        Assertions.assertEquals("jfs://cluster/user/test/file.parquet",
+                hdfsProperties.validateAndNormalizeUri("jfs://cluster/user/test/file.parquet"));
     }
 }
