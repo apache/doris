@@ -218,6 +218,41 @@ jobs:
     #   if: ${{ failure() }}
     #   uses: mxschmitt/action-tmate@v3
 
+    - name: "Check for sensitive pipeline script changes"
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) }}
+      id: security_check
+      env:
+        PULL_REQUEST_NUM: ${{ steps.parse.outputs.PULL_REQUEST_NUM }}
+        COMMENT_TRIGGER_TYPE: ${{ steps.parse.outputs.COMMENT_TRIGGER_TYPE }}
+      run: |
+        # This check is intentionally written inline (not sourced from any repository file)
+        # so it cannot be bypassed by modifying files in a PR.
+        # Matches .sh files under regression-test/pipeline/ but excludes files under conf/ subdirectories.
+        source regression-test/pipeline/common/github-utils.sh
+
+        changed_sensitive=false
+        while IFS= read -r f; do
+          if [[ "${f}" == regression-test/pipeline/*.sh ||
+                "${f}" == regression-test/pipeline/*/*.sh ||
+                "${f}" == regression-test/pipeline/*/*/*.sh ]]; then
+            if [[ "${f}" != *'/conf/'* ]]; then
+              echo "Sensitive pipeline script changed: ${f}"
+              changed_sensitive=true
+              break
+            fi
+          fi
+        done < all_files
+
+        if ${changed_sensitive} && [[ "${COMMENT_TRIGGER_TYPE}" != "buildall" ]]; then
+          create_an_issue_comment "${PULL_REQUEST_NUM}" \
+            "⚠️ **Security Notice**: This PR modifies pipeline scripts that are executed by TeamCity with credentials access (ak/sk, tokens, etc.).
+
+To prevent injection attacks, single test triggers (\`run p0\`, \`run feut\`, etc.) are blocked when pipeline scripts are modified.
+
+Please review the pipeline script changes carefully. If they are safe, a committer can use \`run buildall\` to explicitly acknowledge and trigger the pipeline."
+          exit 1
+        fi
+
     - name: "skip check coverage"
       if: ${{ fromJSON(steps.parse.outputs.comment_skip_coverage) }}
       run: |
