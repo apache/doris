@@ -23,9 +23,12 @@
 #include <arrow/type.h>
 #include <gtest/gtest.h>
 
+#include <cstdint>
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace doris {
 
@@ -57,12 +60,55 @@ std::shared_ptr<arrow::RecordBatch> make_udaf_response(const std::optional<std::
     return arrow::RecordBatch::Make(schema, 1, {success_array, rows_processed_array, data_array});
 }
 
+std::shared_ptr<arrow::RecordBatch> make_udaf_response_with_data_array(
+        const std::shared_ptr<arrow::Array>& data_array) {
+    arrow::BooleanBuilder success_builder;
+    std::shared_ptr<arrow::Array> success_array;
+    EXPECT_TRUE(success_builder.Append(false).ok());
+    EXPECT_TRUE(success_builder.Finish(&success_array).ok());
+
+    arrow::Int64Builder rows_processed_builder;
+    std::shared_ptr<arrow::Array> rows_processed_array;
+    EXPECT_TRUE(rows_processed_builder.Append(0).ok());
+    EXPECT_TRUE(rows_processed_builder.Finish(&rows_processed_array).ok());
+
+    auto schema = arrow::schema({
+            arrow::field("success", arrow::boolean()),
+            arrow::field("rows_processed", arrow::int64()),
+            arrow::field("serialized_data", arrow::binary()),
+    });
+    return arrow::RecordBatch::Make(schema, 1, {success_array, rows_processed_array, data_array});
+}
+
 TEST(PythonUDAFClientTest, FailureStatusIncludesPythonErrorMessage) {
     auto response = make_udaf_response("finish failed");
     Status status = PythonUDAFClient::make_udaf_failure_status_for_test(response, "FINALIZE", 7);
 
     EXPECT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("FINALIZE operation failed for place_id=7: finish failed"),
+              std::string::npos);
+}
+
+TEST(PythonUDAFClientTest, FailureStatusHandlesUnalignedBinaryOffsets) {
+    std::string error = "finalize failed";
+    std::vector<uint8_t> offset_storage(1 + 2 * sizeof(int32_t));
+    uint8_t* unaligned_offsets = offset_storage.data() + 1;
+    int32_t offset_start = 0;
+    int32_t offset_end = static_cast<int32_t>(error.size());
+    memcpy(unaligned_offsets, &offset_start, sizeof(int32_t));
+    memcpy(unaligned_offsets + sizeof(int32_t), &offset_end, sizeof(int32_t));
+
+    auto offset_buffer = arrow::Buffer::Wrap(unaligned_offsets, 2 * sizeof(int32_t));
+    auto value_buffer =
+            arrow::Buffer::Wrap(reinterpret_cast<const uint8_t*>(error.data()), error.size());
+    auto data_array = std::make_shared<arrow::BinaryArray>(1, offset_buffer, value_buffer);
+    ASSERT_EQ(reinterpret_cast<uintptr_t>(data_array->raw_value_offsets()) % alignof(int32_t), 1);
+
+    Status status = PythonUDAFClient::make_udaf_failure_status_for_test(
+            make_udaf_response_with_data_array(data_array), "FINALIZE", 13);
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("FINALIZE operation failed for place_id=13: finalize failed"),
               std::string::npos);
 }
 

@@ -32,6 +32,7 @@
 #include "format/arrow/arrow_utils.h"
 #include "udf/python/python_udf_meta.h"
 #include "udf/python/python_udf_runtime.h"
+#include "util/unaligned.h"
 
 namespace doris {
 
@@ -66,11 +67,20 @@ Status PythonUDAFClient::make_udaf_failure_status(
         return Status::InternalError("{} operation failed for place_id={}", operation, place_id);
     }
 
-    const uint8_t* data = data_array->value_data()->data() + data_array->value_offset(0);
-    int32_t length = data_array->value_length(0);
+    const auto* offsets = data_array->raw_value_offsets();
+    if (offsets == nullptr) [[unlikely]] {
+        return Status::InternalError("Invalid {} failure response for place_id={}: null offsets",
+                                     operation, place_id);
+    }
+    // Arrow Flight buffers may be unaligned after IPC deserialization
+    int32_t offset_start = unaligned_load<int32_t>(offsets);
+    int32_t offset_end = unaligned_load<int32_t>(offsets + 1);
+
+    int32_t length = offset_end - offset_start;
     if (length <= 0) {
         return Status::InternalError("{} operation failed for place_id={}", operation, place_id);
     }
+    const uint8_t* data = data_array->value_data()->data() + offset_start;
     std::string error_message(reinterpret_cast<const char*>(data), length);
     return Status::InternalError("{} operation failed for place_id={}: {}", operation, place_id,
                                  error_message);
@@ -178,13 +188,12 @@ Status PythonUDAFClient::accumulate(int64_t place_id, bool is_single_place,
         return make_udaf_failure_status(response, "ACCUMULATE", place_id);
     }
 
-    // Cast to uint8_t* first to avoid UBSAN misaligned pointer errors
-    const uint8_t* raw_ptr = reinterpret_cast<const uint8_t*>(rows_processed_array->raw_values());
+    // Arrow Flight buffers may be unaligned after IPC deserialization.
+    const auto* raw_ptr = rows_processed_array->raw_values();
     if (raw_ptr == nullptr) {
         return Status::InternalError("ACCUMULATE response has null rows_processed array");
     }
-    int64_t rows_processed;
-    memcpy(&rows_processed, raw_ptr, sizeof(int64_t));
+    int64_t rows_processed = unaligned_load<int64_t>(raw_ptr);
 
     int64_t expected_rows = row_end - row_start;
 
@@ -221,14 +230,13 @@ Status PythonUDAFClient::serialize(int64_t place_id,
         return make_udaf_failure_status(response, "SERIALIZE", place_id);
     }
 
-    // Cast to uint8_t* first to avoid UBSAN misaligned pointer errors
-    const uint8_t* offsets = reinterpret_cast<const uint8_t*>(data_array->raw_value_offsets());
+    // Arrow Flight buffers may be unaligned after IPC deserialization.
+    const auto* offsets = data_array->raw_value_offsets();
     if (offsets == nullptr) {
         return Status::InternalError("SERIALIZE response has null offsets");
     }
-    int32_t offset_start, offset_end;
-    memcpy(&offset_start, offsets, sizeof(int32_t));
-    memcpy(&offset_end, offsets + sizeof(int32_t), sizeof(int32_t));
+    int32_t offset_start = unaligned_load<int32_t>(offsets);
+    int32_t offset_end = unaligned_load<int32_t>(offsets + 1);
 
     int32_t length = offset_end - offset_start;
 
@@ -296,14 +304,13 @@ Status PythonUDAFClient::finalize(int64_t place_id, std::shared_ptr<arrow::Recor
         return make_udaf_failure_status(response_batch, "FINALIZE", place_id);
     }
 
-    // Cast to uint8_t* first to avoid UBSAN misaligned pointer errors
-    const uint8_t* offsets = reinterpret_cast<const uint8_t*>(data_array->raw_value_offsets());
+    // Arrow Flight buffers may be unaligned after IPC deserialization.
+    const auto* offsets = data_array->raw_value_offsets();
     if (offsets == nullptr) {
         return Status::InternalError("FINALIZE response has null offsets");
     }
-    int32_t offset_start, offset_end;
-    memcpy(&offset_start, offsets, sizeof(int32_t));
-    memcpy(&offset_end, offsets + sizeof(int32_t), sizeof(int32_t));
+    int32_t offset_start = unaligned_load<int32_t>(offsets);
+    int32_t offset_end = unaligned_load<int32_t>(offsets + 1);
 
     int32_t length = offset_end - offset_start;
 
