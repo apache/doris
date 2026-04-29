@@ -30,7 +30,9 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/types.h"
 #include "io/fs/file_writer.h"
+#include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/collection_value.h"
+#include "runtime/exec_env.h"
 #include "storage/field.h"
 #include "storage/index/bloom_filter/bloom_filter_index_writer.h"
 #include "storage/index/inverted/inverted_index_writer.h"
@@ -822,6 +824,10 @@ Status ScalarColumnWriter::_write_data_page(Page* page) {
 
 Status ScalarColumnWriter::_flush_pages_if_needed() {
     if (!_opts.enable_low_memory_load || _data_size < config::column_writer_page_flush_threshold) {
+        return Status::OK();
+    }
+    auto* memtable_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
+    if (memtable_limiter == nullptr || !memtable_limiter->hard_limit_reached()) {
         return Status::OK();
     }
     auto offset = _file_writer->bytes_appended();

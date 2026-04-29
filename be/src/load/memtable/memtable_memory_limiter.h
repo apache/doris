@@ -56,6 +56,8 @@ public:
 
     bool soft_limit_reached() { return _soft_limit_reached(); }
 
+    bool hard_limit_reached() { return _hard_limit_reached(); }
+
 private:
     static inline int64_t _sys_avail_mem_less_than_warning_water_mark();
     static inline int64_t _process_used_mem_more_than_soft_mem_limit();
