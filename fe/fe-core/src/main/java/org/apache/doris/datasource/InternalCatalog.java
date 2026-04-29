@@ -2430,7 +2430,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
-        if (enableLowMemoryLoad && !olapTable.isDuplicateWithoutKey()) {
+        if (enableLowMemoryLoad && !(keysType == KeysType.DUP_KEYS && olapTable.getKeysNum() == 0)) {
             throw new DdlException(PropertyAnalyzer.PROPERTIES_ENABLE_LOW_MEMORY_LOAD
                     + " only supports duplicate key tables without key columns");
         }
