@@ -23,15 +23,22 @@ import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
@@ -225,6 +232,14 @@ public class Predicates {
             // normalized expressions is not in query, can not compensate
             return null;
         }
+
+        // Try to detect whole-bucket ranges and synthesize date_trunc equality predicates
+        Map<Expression, ExpressionInfo> syntheticPredicates = detectAndSynthesizeWholeBucketPredicates(
+                normalizedExpressions, viewStructInfo, viewToQuerySlotMapping);
+        if (syntheticPredicates != null) {
+            return syntheticPredicates;
+        }
+
         Map<Expression, ExpressionInfo> normalizedExpressionsWithLiteral = new HashMap<>();
         for (Expression expression : normalizedExpressions) {
             Set<Literal> literalSet = expression.collect(expressionTreeNode -> expressionTreeNode instanceof Literal);
@@ -252,6 +267,184 @@ public class Predicates {
         expression = expressionNormalization.rewrite(expression, context);
         expression = expressionOptimization.rewrite(expression, context);
         return ExpressionUtils.extractConjunctionToSet(expression);
+    }
+
+    /**
+     * Detect if normalized expressions form a whole-bucket range and synthesize date_trunc equality predicates.
+     * Returns null if no whole-bucket pattern detected.
+     */
+    private static Map<Expression, ExpressionInfo> detectAndSynthesizeWholeBucketPredicates(
+            Set<Expression> normalizedExpressions,
+            StructInfo viewStructInfo,
+            SlotMapping viewToQuerySlotMapping) {
+        // Group predicates by slot
+        Map<Expression, List<Expression>> slotToPredicates = new HashMap<>();
+        for (Expression expr : normalizedExpressions) {
+            if (!(expr instanceof ComparisonPredicate)) {
+                continue;
+            }
+            ComparisonPredicate pred = (ComparisonPredicate) expr;
+            Expression left = pred.left();
+            if (left instanceof SlotReference) {
+                slotToPredicates.computeIfAbsent(left, k -> new ArrayList<>()).add(expr);
+            }
+        }
+
+        // Check if view has date_trunc on any of these slots
+        Map<SlotReference, DateTrunc> viewDateTruncMap = extractViewDateTruncExpressions(viewStructInfo);
+        if (viewDateTruncMap.isEmpty()) {
+            return null;
+        }
+
+        // Map view slots to query slots
+        Map<SlotReference, SlotReference> viewToQuerySlotMap = viewToQuerySlotMapping.toSlotReferenceMap();
+        Map<SlotReference, DateTrunc> querySlotToViewDateTrunc = new HashMap<>();
+        for (Map.Entry<SlotReference, DateTrunc> entry : viewDateTruncMap.entrySet()) {
+            SlotReference viewSlot = entry.getKey();
+            SlotReference querySlot = viewToQuerySlotMap.get(viewSlot);
+            if (querySlot != null) {
+                querySlotToViewDateTrunc.put(querySlot, entry.getValue());
+            }
+        }
+
+        // Try to detect whole-bucket ranges
+        for (Map.Entry<Expression, List<Expression>> entry : slotToPredicates.entrySet()) {
+            if (!(entry.getKey() instanceof SlotReference)) {
+                continue;
+            }
+            SlotReference slot = (SlotReference) entry.getKey();
+            DateTrunc viewDateTrunc = querySlotToViewDateTrunc.get(slot);
+            if (viewDateTrunc == null) {
+                continue;
+            }
+
+            List<Expression> predicates = entry.getValue();
+            if (predicates.size() != 2) {
+                continue;
+            }
+
+            // Extract lower and upper bounds
+            DateLiteral lowerBound = null;
+            DateLiteral upperBound = null;
+            for (Expression pred : predicates) {
+                if (!(pred instanceof ComparisonPredicate)) {
+                    continue;
+                }
+                ComparisonPredicate cp = (ComparisonPredicate) pred;
+                if (!(cp.right() instanceof DateLiteral) || cp.right() instanceof DateTimeLiteral) {
+                    continue;
+                }
+                DateLiteral literal = (DateLiteral) cp.right();
+                if (cp instanceof GreaterThanEqual) {
+                    lowerBound = literal;
+                } else if (cp instanceof GreaterThan) {
+                    // dt > '2024-12-31' is equivalent to dt >= '2025-01-01' for DATE type
+                    lowerBound = (DateLiteral) literal.plusDays(1);
+                } else if (cp instanceof LessThanEqual) {
+                    upperBound = literal;
+                } else if (cp instanceof LessThan) {
+                    // dt < '2025-02-01' is equivalent to dt <= '2025-01-31' for DATE type
+                    upperBound = (DateLiteral) literal.plusDays(-1);
+                }
+            }
+
+            if (lowerBound == null || upperBound == null) {
+                continue;
+            }
+            if (lowerBound.getDouble() > upperBound.getDouble()) {
+                continue;
+            }
+
+            // Detect whole bucket
+            java.util.Optional<DateTruncRangeDetector.BucketInfo> bucketInfo =
+                    DateTruncRangeDetector.detectWholeBucket(lowerBound, upperBound);
+            if (!bucketInfo.isPresent()) {
+                continue;
+            }
+
+            // Check if bucket unit matches view date_trunc unit
+            String bucketUnit = bucketInfo.get().unit;
+            String viewUnit = extractDateTruncUnit(viewDateTrunc);
+            if (viewUnit == null || !viewUnit.equalsIgnoreCase(bucketUnit)) {
+                continue;
+            }
+
+            // Synthesize date_trunc(slot, unit) = bucket_start
+            DateLiteral bucketStart = bucketInfo.get().bucketStart;
+            Expression syntheticPredicate = new EqualTo(
+                    rebuildDateTruncOnQuerySlot(viewDateTrunc, slot),
+                    bucketStart
+            );
+
+            // Build result map with synthetic predicate and remaining non-date predicates
+            Map<Expression, ExpressionInfo> result = new HashMap<>();
+            result.put(syntheticPredicate, new ExpressionInfo(bucketStart, true));
+
+            // Add remaining predicates that are not part of the detected date range
+            Set<Expression> consumedPredicates = new HashSet<>(predicates);
+            for (Expression expr : normalizedExpressions) {
+                if (!consumedPredicates.contains(expr)) {
+                    Set<Literal> literalSet = expr.collect(e -> e instanceof Literal);
+                    if (expr.anyMatch(AggregateFunction.class::isInstance)) {
+                        return null;
+                    }
+                    if (literalSet.size() == 1 && expr instanceof ComparisonPredicate
+                            && !(expr instanceof GreaterThan || expr instanceof LessThanEqual)) {
+                        result.put(expr, new ExpressionInfo(literalSet.iterator().next()));
+                    } else {
+                        result.put(expr, ExpressionInfo.EMPTY);
+                    }
+                }
+            }
+            return result;
+        }
+
+        return null;
+    }
+
+    /**
+     * Extract date_trunc expressions from view output shuttled expressions.
+     */
+    private static Map<SlotReference, DateTrunc> extractViewDateTruncExpressions(StructInfo viewStructInfo) {
+        Map<SlotReference, DateTrunc> result = new HashMap<>();
+        for (Expression expr : viewStructInfo.getPlanOutputShuttledExpressions()) {
+            Expression unwrapped = expr;
+            if (unwrapped instanceof Alias) {
+                unwrapped = ((Alias) unwrapped).child();
+            }
+            if (unwrapped instanceof DateTrunc) {
+                DateTrunc dateTrunc = (DateTrunc) unwrapped;
+                Expression dateArg = dateTrunc.child(0).getDataType().isDateLikeType()
+                        ? dateTrunc.child(0) : dateTrunc.child(1);
+                if (dateArg instanceof SlotReference) {
+                    result.put((SlotReference) dateArg, dateTrunc);
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Extract the unit string from a DateTrunc expression.
+     */
+    private static String extractDateTruncUnit(DateTrunc dateTrunc) {
+        Expression arg0 = dateTrunc.child(0);
+        Expression arg1 = dateTrunc.child(1);
+        if (arg1 instanceof StringLikeLiteral) {
+            return ((StringLikeLiteral) arg1).getStringValue();
+        } else if (arg0 instanceof StringLikeLiteral) {
+            return ((StringLikeLiteral) arg0).getStringValue();
+        }
+        return null;
+    }
+
+    private static DateTrunc rebuildDateTruncOnQuerySlot(DateTrunc viewDateTrunc, SlotReference querySlot) {
+        Expression arg0 = viewDateTrunc.child(0);
+        Expression arg1 = viewDateTrunc.child(1);
+        if (arg0.getDataType().isDateLikeType()) {
+            return new DateTrunc(querySlot, arg1);
+        }
+        return new DateTrunc(arg0, querySlot);
     }
 
     /**
@@ -302,12 +495,18 @@ public class Predicates {
      */
     public static final class ExpressionInfo {
 
-        public static final ExpressionInfo EMPTY = new ExpressionInfo(null);
+        public static final ExpressionInfo EMPTY = new ExpressionInfo(null, false);
 
         public final Literal literal;
+        public final boolean isSyntheticDateTruncEquality;
 
         public ExpressionInfo(Literal literal) {
+            this(literal, false);
+        }
+
+        public ExpressionInfo(Literal literal, boolean isSyntheticDateTruncEquality) {
             this.literal = literal;
+            this.isSyntheticDateTruncEquality = isSyntheticDateTruncEquality;
         }
     }
 
