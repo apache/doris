@@ -27,7 +27,7 @@ export CDC_CLIENT_HOME="${ROOT}"
 
 "${DORIS_HOME}"/generated-source.sh noclean
 cd "${DORIS_HOME}/fe"
-"${MVN_CMD}" install -pl fe-common -Dskip.doc=true -DskipTests -Dmaven.build.cache.enabled=false
+"${MVN_CMD}" -Pflatten install -pl fe-common -Dskip.doc=true -DskipTests -Dmaven.build.cache.enabled=false
 
 echo "Install cdc client..."
 cd "${CDC_CLIENT_HOME}"
