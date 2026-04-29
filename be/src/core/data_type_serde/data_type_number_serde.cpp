@@ -256,7 +256,8 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
         for (size_t offset_i = start; offset_i < end; ++offset_i) {
             if (!concrete_array->IsNull(offset_i)) {
                 auto start_offset = unaligned_load<int32_t>(offsets_data + offset_i * offset_size);
-                auto end_offset = unaligned_load<int32_t>(offsets_data + (offset_i + 1) * offset_size);
+                auto end_offset =
+                        unaligned_load<int32_t>(offsets_data + (offset_i + 1) * offset_size);
 
                 const auto* raw_data = buffer->data() + start_offset;
                 const auto raw_data_len = end_offset - start_offset;
