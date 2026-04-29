@@ -40,7 +40,7 @@ ColumnsWithSortDescriptions get_columns_with_sort_description(const Block& block
 }
 
 void sort_block(Block& src_block, Block& dest_block, const SortDescription& description,
-                HybridSorter& hybrid_sorter, UInt64 limit) {
+                UInt64 limit) {
     if (!src_block.columns()) {
         return;
     }
@@ -53,8 +53,7 @@ void sort_block(Block& src_block, Block& dest_block, const SortDescription& desc
                 src_block.safe_get_by_position(description[0].column_number).column.get();
 
         IColumn::Permutation perm;
-        column->get_permutation(reverse, limit, description[0].nulls_direction, hybrid_sorter,
-                                perm);
+        column->get_permutation(reverse, limit, description[0].nulls_direction, perm);
 
         size_t columns = src_block.columns();
         for (size_t i = 0; i < columns; ++i) {
@@ -80,7 +79,7 @@ void sort_block(Block& src_block, Block& dest_block, const SortDescription& desc
 
             // TODO: ColumnSorter should be constructed only once.
             for (size_t i = 0; i < columns_with_sort_desc.size(); i++) {
-                ColumnSorter sorter(columns_with_sort_desc[i], hybrid_sorter, limit);
+                ColumnSorter sorter(columns_with_sort_desc[i], limit);
                 sorter.operator()(flags, perm, range, i == columns_with_sort_desc.size() - 1);
             }
         }

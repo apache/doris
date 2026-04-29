@@ -59,7 +59,12 @@ struct SortOperatorTest : public ::testing::Test {
 
         sink->_is_asc_order = {true};
         sink->_nulls_first = {false};
-        sink->_ordering_expr_ctxs =
+        sink->_vsort_exec_exprs._sort_tuple_slot_expr_ctxs =
+                MockSlotRef::create_mock_contexts(std::make_shared<DataTypeInt64>());
+
+        sink->_vsort_exec_exprs._materialize_tuple = false;
+
+        sink->_vsort_exec_exprs._ordering_expr_ctxs =
                 MockSlotRef::create_mock_contexts(std::make_shared<DataTypeInt64>());
 
         _child_op->_mock_row_desc.reset(

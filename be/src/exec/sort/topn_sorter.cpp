@@ -32,11 +32,16 @@ class RowDescriptor;
 class RuntimeProfile;
 class RuntimeState;
 
-TopNSorter::TopNSorter(const VExprContextSPtrs& ordering_expr_ctxs, int64_t limit, int64_t offset,
+class VSortExecExprs;
+} // namespace doris
+
+namespace doris {
+
+TopNSorter::TopNSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset,
                        ObjectPool* pool, std::vector<bool>& is_asc_order,
                        std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
                        RuntimeState* state, RuntimeProfile* profile)
-        : Sorter(ordering_expr_ctxs, state, limit, offset, pool, is_asc_order, nulls_first),
+        : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
           _state(MergeSorterState::create_unique(row_desc, offset)),
           _row_desc(row_desc) {}
 

@@ -114,7 +114,7 @@ public:
     }
 
     void get_permutation(bool reverse, size_t limit, int /*nan_direction_hint*/,
-                         HybridSorter& sorter, IColumn::Permutation& res) const override;
+                         IColumn::Permutation& res) const override;
 
     size_t get_max_row_byte_size() const override;
 

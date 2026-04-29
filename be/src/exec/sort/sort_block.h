@@ -44,7 +44,6 @@
 #include "core/types.h"
 #include "exec/sort/sort_description.h"
 #include "util/simd/bits.h"
-#include "vec/core/hybrid_sorter.h"
 
 namespace doris {
 template <PrimitiveType T>
@@ -57,7 +56,7 @@ namespace doris {
 #include "common/compile_check_begin.h"
 /// Sort one block by `description`. If limit != 0, then the partial sort of the first `limit` rows is produced.
 void sort_block(Block& src_block, Block& dest_block, const SortDescription& description,
-                HybridSorter& hybrid_sorter, UInt64 limit = 0);
+                UInt64 limit = 0);
 
 using ColumnWithSortDescription = std::pair<const IColumn*, SortColumnDescription>;
 
@@ -149,13 +148,11 @@ using PermutationForColumn = std::vector<PermutationWithInlineValue<T>>;
 
 class ColumnSorter {
 public:
-    explicit ColumnSorter(const ColumnWithSortDescription& column, HybridSorter& hybrid_sorter,
-                          const size_t limit)
+    explicit ColumnSorter(const ColumnWithSortDescription& column, const size_t limit)
             : _column_with_sort_desc(column),
               _limit(limit),
               _nulls_direction(column.second.nulls_direction),
-              _direction(column.second.direction),
-              _hybrid_sorter(hybrid_sorter) {}
+              _direction(column.second.direction) {}
 
     void operator()(EqualFlags& flags, IColumn::Permutation& perms, EqualRange& range,
                     bool last_column) const {
@@ -187,7 +184,7 @@ public:
                 }
                 new_limit = _limit + equal_count;
             } else {
-                _hybrid_sorter.sort(begin, end, less);
+                pdqsort(begin, end, less);
             }
         };
 
@@ -418,7 +415,7 @@ private:
                 }
                 new_limit = _limit + equal_count;
             } else {
-                _hybrid_sorter.sort(begin, end, sort_comparator);
+                pdqsort(begin, end, sort_comparator);
             }
         };
 
@@ -484,7 +481,7 @@ private:
                 }
                 new_limit = _limit + equal_count;
             } else {
-                _hybrid_sorter.sort(begin, end, sort_comparator);
+                pdqsort(begin, end, sort_comparator);
             }
         };
 
@@ -524,7 +521,6 @@ private:
     mutable size_t _limit;
     const int _nulls_direction;
     const int _direction;
-    HybridSorter& _hybrid_sorter;
 };
 #include "common/compile_check_end.h"
 } // namespace doris

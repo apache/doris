@@ -25,7 +25,7 @@
 #include "exec/exchange/vdata_stream_mgr.h"
 #include "exec/exchange/vdata_stream_recvr.h"
 #include "exec/operator/operator.h"
-#include "exprs/vexpr.h"
+#include "exec/sort/vsort_exec_exprs.h"
 #include "exprs/vexpr_context.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -104,10 +104,7 @@ Status ExchangeLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
     auto& p = _parent->cast<ExchangeSourceOperatorX>();
     if (p.is_merging()) {
-        ordering_expr_ctxs.resize(p._ordering_expr_ctxs.size());
-        for (size_t i = 0; i < p._ordering_expr_ctxs.size(); i++) {
-            RETURN_IF_ERROR(p._ordering_expr_ctxs[i]->clone(state, ordering_expr_ctxs[i]));
-        }
+        RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, vsort_exec_exprs));
     }
     return Status::OK();
 }
@@ -128,8 +125,7 @@ Status ExchangeSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state
     if (!_is_merging) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.exchange_node.sort_info.ordering_exprs,
-                                             _ordering_expr_ctxs));
+    RETURN_IF_ERROR(_vsort_exec_exprs.init(tnode.exchange_node.sort_info, _pool));
     _is_asc_order = tnode.exchange_node.sort_info.is_asc_order;
     _nulls_first = tnode.exchange_node.sort_info.nulls_first;
 
@@ -141,8 +137,8 @@ Status ExchangeSourceOperatorX::prepare(RuntimeState* state) {
     DCHECK_GT(_num_senders, 0);
 
     if (_is_merging) {
-        RETURN_IF_ERROR(VExpr::prepare(_ordering_expr_ctxs, state, _row_descriptor));
-        RETURN_IF_ERROR(VExpr::open(_ordering_expr_ctxs, state));
+        RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _row_descriptor, _row_descriptor));
+        RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
     }
     return Status::OK();
 }
@@ -158,8 +154,8 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, Block* block, boo
     if (_is_merging && !local_state.is_ready) {
         SCOPED_TIMER(local_state.create_merger_timer);
         RETURN_IF_ERROR(local_state.stream_recvr->create_merger(
-                local_state.ordering_expr_ctxs, _is_asc_order, _nulls_first, state->batch_size(),
-                _limit, _offset));
+                local_state.vsort_exec_exprs.ordering_expr_ctxs(), _is_asc_order, _nulls_first,
+                state->batch_size(), _limit, _offset));
         local_state.is_ready = true;
         return Status::OK();
     }
@@ -214,10 +210,16 @@ Status ExchangeLocalState::close(RuntimeState* state) {
     if (stream_recvr != nullptr) {
         stream_recvr->close();
     }
+    if (_parent->cast<ExchangeSourceOperatorX>()._is_merging) {
+        vsort_exec_exprs.close(state);
+    }
     return Base::close(state);
 }
 
 Status ExchangeSourceOperatorX::close(RuntimeState* state) {
+    if (_is_merging && !is_closed()) {
+        _vsort_exec_exprs.close(state);
+    }
     _is_closed = true;
     return OperatorX<ExchangeLocalState>::close(state);
 }

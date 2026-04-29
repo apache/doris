@@ -110,7 +110,7 @@ public:
     }
 
     void get_permutation(bool /*reverse*/, size_t /*limit*/, int /*nan_direction_hint*/,
-                         HybridSorter&, Permutation& res) const override {
+                         Permutation& res) const override {
         res.resize(s);
         for (size_t i = 0; i < s; ++i) res[i] = i;
     }

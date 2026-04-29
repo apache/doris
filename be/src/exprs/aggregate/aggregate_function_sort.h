@@ -108,10 +108,7 @@ struct AggregateFunctionSortData {
         }
     }
 
-    void sort() {
-        HybridSorter hybrid_sorter;
-        sort_block(block, block, sort_desc, hybrid_sorter, block.rows());
-    }
+    void sort() { sort_block(block, block, sort_desc, block.rows()); }
 };
 
 template <typename Data>

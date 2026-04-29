@@ -50,7 +50,6 @@ public:
 
     std::shared_ptr<IDataType> type;
     DataTypeSerDeSPtr serder;
-    MockRuntimeState _state;
 };
 
 TEST_F(DataTypeTimeStampTzTest, test_normal) {
@@ -111,18 +110,26 @@ TEST_F(DataTypeTimeStampTzTest, test_sort) {
 
     ObjectPool pool;
 
-    VExprContextSPtrs ordering_expr_ctxs;
+    VSortExecExprs sort_exec_exprs;
 
     std::vector<bool> is_asc_order {true};
     std::vector<bool> nulls_first {false};
 
     row_desc.reset(new MockRowDescriptor({std::make_shared<DataTypeTimeStampTz>()}, &pool));
 
-    ordering_expr_ctxs =
+    sort_exec_exprs._sort_tuple_slot_expr_ctxs =
             MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeTimeStampTz>());
 
-    sorter = FullSorter::create_unique(ordering_expr_ctxs, 3, 3, &pool, is_asc_order, nulls_first,
-                                       *row_desc, &_state, nullptr);
+    sort_exec_exprs._materialize_tuple = false;
+
+    sort_exec_exprs._ordering_expr_ctxs =
+            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeTimeStampTz>());
+
+    sort_exec_exprs._sort_tuple_slot_expr_ctxs =
+            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeTimeStampTz>());
+
+    sorter = FullSorter::create_unique(sort_exec_exprs, 3, 3, &pool, is_asc_order, nulls_first,
+                                       *row_desc, nullptr, nullptr);
     sorter->init_profile(&_profile);
     {
         Block block = ColumnHelper::create_block<DataTypeTimeStampTz>(

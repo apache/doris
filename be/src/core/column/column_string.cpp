@@ -544,7 +544,7 @@ struct ColumnStr<T>::less {
 
 template <typename T>
 void ColumnStr<T>::get_permutation(bool reverse, size_t limit, int /*nan_direction_hint*/,
-                                   HybridSorter& sorter, IColumn::Permutation& res) const {
+                                   IColumn::Permutation& res) const {
     size_t s = offsets.size();
     res.resize(s);
     for (size_t i = 0; i < s; ++i) {
@@ -552,9 +552,9 @@ void ColumnStr<T>::get_permutation(bool reverse, size_t limit, int /*nan_directi
     }
 
     if (reverse) {
-        sorter.sort(res.begin(), res.end(), less<false>(*this));
+        pdqsort(res.begin(), res.end(), less<false>(*this));
     } else {
-        sorter.sort(res.begin(), res.end(), less<true>(*this));
+        pdqsort(res.begin(), res.end(), less<true>(*this));
     }
 }
 
