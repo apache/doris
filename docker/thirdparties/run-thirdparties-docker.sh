@@ -25,6 +25,7 @@ set -eo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 . "${ROOT}/custom_settings.env"
+. "${ROOT}/juicefs-helpers.sh"
 
 usage() {
     echo "
@@ -699,6 +700,7 @@ start_iceberg_rest() {
 echo "starting dockers in parallel"
 
 reserve_ports
+juicefs_init_runtime_vars
 
 # Ensure hive data is downloaded before starting hive2/hive3, but only once
 need_prepare_hive_data=0
@@ -711,6 +713,12 @@ fi
 if [[ $need_prepare_hive_data -eq 1 ]]; then
     echo "prepare hive2/hive3 data"
     bash "${ROOT}/docker-compose/hive/scripts/prepare-hive-data.sh"
+fi
+
+if [[ "${STOP}" -ne 1 ]]; then
+    if [[ "${RUN_HIVE2}" -eq 1 ]] || [[ "${RUN_HIVE3}" -eq 1 ]]; then
+        juicefs_ensure_hadoop_jar_for_hive
+    fi
 fi
 
 declare -A pids
@@ -842,6 +850,17 @@ for compose in "${!pids[@]}"; do
         exit 1
     fi
 done
+
+if [[ "${STOP}" -ne 1 ]]; then
+    if [[ "${RUN_HIVE2}" -eq 1 ]]; then
+        . "${ROOT}/docker-compose/hive/hive-2x_settings.env"
+        juicefs_prepare_meta_for_hive "${JFS_CLUSTER_META}" "cluster"
+    fi
+    if [[ "${RUN_HIVE3}" -eq 1 ]]; then
+        . "${ROOT}/docker-compose/hive/hive-3x_settings.env"
+        juicefs_prepare_meta_for_hive "${JFS_CLUSTER_META}" "cluster"
+    fi
+fi
 
 echo "docker started"
 sudo docker ps -a --format "{{.ID}} | {{.Image}} | {{.Status}}"

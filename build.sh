@@ -69,6 +69,7 @@ Usage: $0 <options>
     DISABLE_BE_JAVA_EXTENSIONS  If set DISABLE_BE_JAVA_EXTENSIONS=ON, we will do not build binary with java-udf,hadoop-hudi-scanner,jdbc-scanner and so on Default is OFF.
     DISABLE_JAVA_CHECK_STYLE    If set DISABLE_JAVA_CHECK_STYLE=ON, it will skip style check of java code in FE.
     DISABLE_BUILD_AZURE         If set DISABLE_BUILD_AZURE=ON, it will not build azure into BE.
+    DISABLE_BUILD_JUICEFS       If set DISABLE_BUILD_JUICEFS=ON, it will skip packaging juicefs-hadoop jar into FE/BE output.
   Eg.
     $0                                      build all
     $0 --be                                 build Backend
@@ -457,6 +458,13 @@ if [[ -n "${DISABLE_BUILD_AZURE}" ]]; then
     BUILD_AZURE='OFF'
 fi
 
+if [[ "$(echo "${DISABLE_BUILD_JUICEFS}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
+    BUILD_JUICEFS='OFF'
+else
+    BUILD_JUICEFS='ON'
+fi
+export DISABLE_BUILD_JUICEFS
+
 if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
     ENABLE_INJECTION_POINT='OFF'
 fi
@@ -785,7 +793,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/conf/ldap.conf" "${DORIS_OUTPUT}/fe/conf"/
     cp -r -p "${DORIS_HOME}/conf/mysql_ssl_default_certificate" "${DORIS_OUTPUT}/fe/"/
     rm -rf "${DORIS_OUTPUT}/fe/lib"/*
-    install -d "${DORIS_OUTPUT}/fe/lib/jindofs"
+    install -d "${DORIS_OUTPUT}/fe/lib/jindofs" "${DORIS_OUTPUT}/fe/lib/juicefs"
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/lib"/* "${DORIS_OUTPUT}/fe/lib"/
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/doris-fe.jar" "${DORIS_OUTPUT}/fe/lib"/
     if [[ "${WITH_TDE_DIR}" != "" ]]; then
@@ -802,6 +810,10 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     elif [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "${TARGET_ARCH}" == 'aarch64' ]]; then
         cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-el7-aarch64-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
         cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
+    fi
+
+    if [[ "${BUILD_JUICEFS}" == "ON" ]]; then
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/juicefs"/
     fi
 
     cp -r -p "${DORIS_HOME}/minidump" "${DORIS_OUTPUT}/fe"/
@@ -965,7 +977,7 @@ EOF
     done        
 
     # copy jindofs jars, only support for Linux x64 or arm
-    install -d "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
+    install -d "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/ "${DORIS_OUTPUT}/be/lib/java_extensions/juicefs"/
     if [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "$TARGET_ARCH" == 'x86_64' ]]; then
         cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
         cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-ubuntu22-x86_64-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
@@ -973,6 +985,10 @@ EOF
     elif [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "$TARGET_ARCH" == 'aarch64' ]]; then
         cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-el7-aarch64-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
         cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
+    fi
+
+    if [[ "${BUILD_JUICEFS}" == "ON" ]]; then
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/juicefs"/
     fi
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
