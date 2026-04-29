@@ -301,6 +301,18 @@ TEST_F(PythonServerTest, ShutdownAfterFailedInitializationDoesNotCrash) {
     EXPECT_NO_THROW(mgr.shutdown());
 }
 
+TEST_F(PythonServerTest, ClearUdafStateCacheWithoutProcessesIsNoOp) {
+    PythonServerManager mgr;
+
+    EXPECT_NO_THROW(mgr.clear_udaf_state_cache(12345));
+}
+
+TEST_F(PythonServerTest, ClearModuleCacheWithoutProcessesIsNoOp) {
+    PythonServerManager mgr;
+
+    EXPECT_NO_THROW(mgr.clear_module_cache("/tmp/python_udf_cache"));
+}
+
 // ============================================================================
 // PythonServerManager::get_client() - client retrieval test
 // ============================================================================

@@ -455,6 +455,7 @@ class PythonUDFMeta:
 
     def __init__(
         self,
+        function_id: int,
         name: str,
         symbol: str,
         location: str,
@@ -470,6 +471,7 @@ class PythonUDFMeta:
         Initialize Python UDF metadata.
 
         Args:
+            function_id: FE catalog function id
             name: UDF function name
             symbol: Symbol to load (function name or module.function)
             location: File path or directory containing the UDF
@@ -481,6 +483,7 @@ class PythonUDFMeta:
             output_type: PyArrow data type for return value
             client_type: 0 for UDF, 1 for UDAF, 2 for UDTF
         """
+        self.id = function_id
         self.name = name
         self.symbol = symbol
         self.location = location
@@ -508,7 +511,7 @@ class PythonUDFMeta:
         """Returns a string representation of the UDF metadata."""
         udf_load_type_str = "INLINE" if self.udf_load_type == 0 else "MODULE"
         return (
-            f"PythonUDFMeta(name={self.name}, symbol={self.symbol}, "
+            f"PythonUDFMeta(id={self.id}, name={self.name}, symbol={self.symbol}, "
             f"location={self.location}, udf_load_type={udf_load_type_str}, runtime_version={self.runtime_version}, "
             f"always_nullable={self.always_nullable}, client_type={self.client_type.name}, "
             f"input_types={self.input_types}, output_type={self.output_type})"
@@ -1573,8 +1576,9 @@ class FlightServer(flight.FlightServerBase):
             location: Unix socket path for the server
         """
         super().__init__(location)
-        # Use a dictionary to maintain separate state managers for each UDAF function
-        # Key: function signature (name + input_types), Value: UDAFStateManager instance
+        # Use a dictionary to maintain separate state managers for each UDAF function.
+        # Key includes function_id so DROP/CREATE with the same name and signature
+        # cannot reuse a class loaded from old inline code.
         self.udaf_state_managers: Dict[str, UDAFStateManager] = {}
         self.udaf_managers_lock = threading.Lock()
 
@@ -1591,9 +1595,10 @@ class FlightServer(flight.FlightServerBase):
         Returns:
             UDAFStateManager instance for this specific UDAF
         """
-        # Create a unique key based on function name and argument types
         type_names = [str(field.type) for field in python_udaf_meta.input_types]
-        func_key = f"{python_udaf_meta.name}({','.join(type_names)})"
+        func_key = (
+            f"{python_udaf_meta.id}:{python_udaf_meta.name}({','.join(type_names)})"
+        )
 
         with self.udaf_managers_lock:
             if func_key not in self.udaf_state_managers:
@@ -1604,6 +1609,31 @@ class FlightServer(flight.FlightServerBase):
                 self.udaf_state_managers[func_key] = manager
 
         return self.udaf_state_managers[func_key]
+
+    def _clear_udaf_state_cache_by_function_id(self, function_id: int) -> int:
+        """
+        Clear UDAF managers for a dropped function id.
+
+        DROP FUNCTION cache cleanup is asynchronous. The runtime key still includes
+        function_id for correctness, while this action releases old states and class
+        objects after the drop task reaches this Python process.
+        """
+        prefix = f"{function_id}:"
+        cleared = 0
+
+        with self.udaf_managers_lock:
+            keys_to_remove = [
+                key for key in self.udaf_state_managers if key.startswith(prefix)
+            ]
+            for key in keys_to_remove:
+                manager = self.udaf_state_managers.pop(key)
+                manager.states.clear()
+                cleared += 1
+
+        if cleared:
+            gc.collect()
+
+        return cleared
 
     @staticmethod
     def parse_python_udf_meta(
@@ -1621,6 +1651,7 @@ class FlightServer(flight.FlightServerBase):
             return None
 
         cmd_json = json.loads(descriptor.command)
+        function_id = cmd_json["id"]
         name = cmd_json["name"]
         symbol = cmd_json["symbol"]
         location = cmd_json["location"]
@@ -1646,6 +1677,7 @@ class FlightServer(flight.FlightServerBase):
         output_type = output_schema.field(0).type
 
         python_udf_meta = PythonUDFMeta(
+            function_id=function_id,
             name=name,
             symbol=symbol,
             location=location,
@@ -2526,13 +2558,41 @@ class FlightServer(flight.FlightServerBase):
         Supported actions:
         - "clear_module_cache": Clear Python module cache for a specific location
           Body: JSON with "location" field (the UDF cache directory path)
+        - "clear_udaf_state_cache": Clear UDAF runtime state for a dropped function id
+          Body: JSON with "function_id" field
         """
         action_type = action.type
 
         if action_type == "clear_module_cache":
             yield from self._handle_clear_module_cache(action.body.to_pybytes())
+        elif action_type == "clear_udaf_state_cache":
+            yield from self._handle_clear_udaf_state_cache(action.body.to_pybytes())
         else:
             raise flight.FlightUnavailableError(f"Unknown action: {action_type}")
+
+    def _handle_clear_udaf_state_cache(self, body: bytes):
+        """
+        Clear cached UDAF state managers for a dropped function id.
+        """
+        try:
+            params = json.loads(body.decode("utf-8"))
+            function_id = int(params["function_id"])
+
+            cleared_managers = self._clear_udaf_state_cache_by_function_id(function_id)
+
+            result = {
+                "success": True,
+                "cleared_managers": cleared_managers,
+                "function_id": function_id,
+            }
+            yield flight.Result(json.dumps(result).encode("utf-8"))
+
+        except Exception as e:
+            logging.error("clear_udaf_state_cache failed: %s", e)
+            yield flight.Result(json.dumps({
+                "success": False,
+                "error": str(e)
+            }).encode("utf-8"))
 
     def _handle_clear_module_cache(self, body: bytes):
         """
