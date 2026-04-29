@@ -67,7 +67,7 @@ Status SubQueue::try_push(std::unique_ptr<Block> block) {
 }
 
 bool SubQueue::mark_finished(std::atomic_uint32_t& unfinished_counter,
-                              std::atomic_bool& all_finished) {
+                             std::atomic_bool& all_finished) {
     LockGuard l(queue_lock);
     if (is_finished) {
         return false;
@@ -107,8 +107,8 @@ bool DataQueue::has_more_data() const {
     return _cur_blocks_total_nums.load() > 0;
 }
 
-void DataQueue::set_source_dependency(
-        std::shared_ptr<Dependency> source_dependency) NO_THREAD_SAFETY_ANALYSIS {
+void DataQueue::set_source_dependency(std::shared_ptr<Dependency> source_dependency)
+        NO_THREAD_SAFETY_ANALYSIS {
     _source_dependency = std::move(source_dependency);
 }
 

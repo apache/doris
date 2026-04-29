@@ -108,7 +108,6 @@ private:
     void set_source_ready();
     void set_source_block();
 
-
     std::vector<std::unique_ptr<SubQueue>> _sub_queues;
 
     //how many deque will be init, always will be one
@@ -122,8 +121,6 @@ private:
     // only used by streaming agg source operator
 
     std::atomic_bool _is_low_memory_mode = false;
-
-
 
     // _source_dependency is written once during initialization (set_source_dependency)
     // and read/used only while holding _source_lock thereafter.
