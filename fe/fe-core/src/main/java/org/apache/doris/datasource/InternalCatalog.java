@@ -42,6 +42,8 @@ import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
+import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.InfoSchemaDb;
@@ -537,6 +539,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             // 3. remove db from catalog
             idToDb.remove(db.getId());
             fullNameToDb.remove(db.getFullName());
+            Env.getCurrentEnv().getFunctionRegistry().dropUdfByDb(db.getFullName());
             DropDbInfo info = new DropDbInfo(dbName, force, recycleTime);
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(), db.getId());
             Env.getCurrentEnv().getDictionaryManager().dropDbDictionaries(dbName);
@@ -595,6 +598,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             fullNameToDb.remove(dbName);
             idToDb.remove(db.getId());
+            Env.getCurrentEnv().getFunctionRegistry().dropUdfByDb(dbName);
         } finally {
             unlock();
         }
@@ -644,6 +648,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L, newDbName, "", "", "", "");
             Env.getCurrentEnv().getEditLog().logRecoverDb(recoverInfo);
             db.unmarkDropped();
+            registerDbFunctionsToNereids(db);
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
             db.writeUnlock();
@@ -726,7 +731,15 @@ public class InternalCatalog implements CatalogIf<Database> {
         // add db to catalog
         replayCreateDb(db, newDbName);
         db.unmarkDropped();
+        registerDbFunctionsToNereids(db);
         LOG.info("replay recover db[{}]", dbId);
+    }
+
+    private void registerDbFunctionsToNereids(Database db) {
+        // A recovered database reuses catalog Function objects, so rebuild their Nereids builders.
+        for (Function function : db.getFunctions()) {
+            FunctionUtil.translateToNereids(db.getFullName(), function);
+        }
     }
 
     public void alterDatabaseQuota(String dbName, QuotaType quotaType, long quotaValue) throws DdlException {
