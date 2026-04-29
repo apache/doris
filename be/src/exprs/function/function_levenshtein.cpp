@@ -26,7 +26,6 @@
 #include "util/simd/vstring_function.h"
 
 namespace doris {
-#include "common/compile_check_avoid_begin.h"
 
 struct NameLevenshtein {
     static constexpr auto name = "levenshtein";
@@ -261,5 +260,4 @@ void register_function_levenshtein(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionLevenshtein>();
 }
 
-#include "common/compile_check_avoid_end.h"
 } // namespace doris
