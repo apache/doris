@@ -60,13 +60,14 @@ struct LevenshteinImpl {
                                 ResultPaddedPODArray& res) {
         const size_t size = loffsets.size();
         res.resize(size);
-        const bool right_ascii = simd::VStringFunctions::is_ascii(rdata);
+        const auto right = rdata.trim_tail_padding_zero();
+        const bool right_ascii = simd::VStringFunctions::is_ascii(right);
         std::vector<size_t> right_offsets;
-        simd::VStringFunctions::get_utf8_char_offsets(rdata, right_offsets);
+        simd::VStringFunctions::get_utf8_char_offsets(right, right_offsets);
         std::vector<size_t> left_offsets;
         for (size_t i = 0; i < size; ++i) {
             res[i] = levenshtein_distance_with_right_offsets(string_ref_at(ldata, loffsets, i),
-                                                             left_offsets, rdata, right_offsets,
+                                                             left_offsets, right, right_offsets,
                                                              right_ascii);
         }
         return Status::OK();
@@ -76,12 +77,13 @@ struct LevenshteinImpl {
                                 const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
         const size_t size = roffsets.size();
         res.resize(size);
-        const bool left_ascii = simd::VStringFunctions::is_ascii(ldata);
+        const auto left = ldata.trim_tail_padding_zero();
+        const bool left_ascii = simd::VStringFunctions::is_ascii(left);
         std::vector<size_t> left_offsets;
-        simd::VStringFunctions::get_utf8_char_offsets(ldata, left_offsets);
+        simd::VStringFunctions::get_utf8_char_offsets(left, left_offsets);
         std::vector<size_t> right_offsets;
         for (size_t i = 0; i < size; ++i) {
-            res[i] = levenshtein_distance_with_left_offsets(ldata, left_offsets, left_ascii,
+            res[i] = levenshtein_distance_with_left_offsets(left, left_offsets, left_ascii,
                                                             string_ref_at(rdata, roffsets, i),
                                                             right_offsets);
         }
