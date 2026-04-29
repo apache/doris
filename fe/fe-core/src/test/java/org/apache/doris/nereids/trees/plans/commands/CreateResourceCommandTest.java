@@ -68,6 +68,11 @@ public class CreateResourceCommandTest extends TestWithFeService {
         info = new CreateResourceInfo(false, false, "test", properties);
         CreateResourceCommand createResourceCommand3 = new CreateResourceCommand(info);
         Assertions.assertThrows(AnalysisException.class, () -> createResourceCommand3.getInfo().validate());
+
+        properties = ImmutableMap.of("type", "jfs", "fs.defaultFS", "jfs://cluster");
+        info = new CreateResourceInfo(true, false, "test_jfs", properties);
+        CreateResourceCommand createResourceCommand4 = new CreateResourceCommand(info);
+        Assertions.assertDoesNotThrow(() -> createResourceCommand4.getInfo().validate());
     }
 
     @Test

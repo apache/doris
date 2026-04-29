@@ -1953,6 +1953,15 @@ build_jindofs() {
     cp -r ${TP_SOURCE_DIR}/${JINDOFS_SOURCE}/* "${TP_INSTALL_DIR}/jindofs_libs/"
 }
 
+# juicefs
+build_juicefs() {
+    check_if_archive_exist "${JUICEFS_NAME}"
+
+    rm -rf "${TP_INSTALL_DIR}/juicefs_libs/"
+    mkdir -p "${TP_INSTALL_DIR}/juicefs_libs/"
+    cp -r "${TP_SOURCE_DIR}/${JUICEFS_NAME}" "${TP_INSTALL_DIR}/juicefs_libs/"
+}
+
 # pugixml
 build_pugixml() {
     check_if_source_exist "${PUGIXML_SOURCE}"
@@ -1974,6 +1983,7 @@ build_pugixml() {
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
         jindofs
+        juicefs
         odbc
         openssl
         libevent
@@ -2139,6 +2149,7 @@ cleanup_package_source() {
         dragonbox)       src_var="DRAGONBOX_SOURCE" ;;
         icu)             src_var="ICU_SOURCE" ;;
         jindofs)         src_var="JINDOFS_SOURCE" ;;
+        juicefs)         src_var="JUICEFS_SOURCE" ;;
         pugixml)         src_var="PUGIXML_SOURCE" ;;
         aws_sdk)         src_var="AWS_SDK_SOURCE" ;;
         lzma)            src_var="LZMA_SOURCE" ;;
