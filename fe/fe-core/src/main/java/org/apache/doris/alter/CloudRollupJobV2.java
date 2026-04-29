@@ -34,6 +34,7 @@ import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -199,10 +200,16 @@ public class CloudRollupJobV2 extends RollupJobV2 {
         }
 
         // create all rollup replicas success.
-        // add rollup index to catalog
+        // reserve the watershed txn id and then add rollup index to catalog
         tbl.writeLockOrAlterCancelException();
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
+            Preconditions.checkState(watershedTxnId == -1, watershedTxnId);
+            try {
+                this.watershedTxnId = Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
+            } catch (UserException e) {
+                throw new AlterCancelException(e.getMessage());
+            }
             addRollupIndexToCatalog(tbl);
         } finally {
             tbl.writeUnlock();

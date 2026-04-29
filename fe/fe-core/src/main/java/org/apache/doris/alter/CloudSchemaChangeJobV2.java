@@ -35,6 +35,7 @@ import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
@@ -207,10 +208,16 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
         }
 
         // create all replicas success.
-        // add all shadow indexes to catalog
+        // reserve the watershed txn id and then add all shadow indexes to catalog
         tbl.writeLockOrAlterCancelException();
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
+            Preconditions.checkState(watershedTxnId == -1, watershedTxnId);
+            try {
+                this.watershedTxnId = Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
+            } catch (UserException e) {
+                throw new AlterCancelException(e.getMessage());
+            }
             addShadowIndexToCatalog(tbl);
         } finally {
             tbl.writeUnlock();
