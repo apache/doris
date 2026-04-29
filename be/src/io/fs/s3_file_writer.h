@@ -71,6 +71,7 @@ public:
     }
 
     Status close(bool non_block = false) override;
+    Status try_finish_close() override;
 
 private:
     Status _close_impl();
