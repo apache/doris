@@ -758,6 +758,13 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     return Repeat.generateVirtualGroupingIdSlot();
                 } else {
                     GroupingScalarFunction groupingScalarFunction = originExpression.get();
+                    // Shuttle inner expressions of grouping function so that slots produced
+                    // by NormalizeRepeat alias-rewrite (e.g. col1#3 from `date_1 col1`) are
+                    // resolved back to base-table slots before mv mapping lookup.
+                    groupingScalarFunction = (GroupingScalarFunction) ExpressionUtils.shuttleExpressionWithLineage(
+                        groupingScalarFunction,
+                        rewriteContext.getQueryTopPlan(),
+                        rewriteContext.getQueryTableBitSet());
                     groupingScalarFunction =
                             (GroupingScalarFunction) groupingScalarFunction.accept(this, rewriteContext);
                     if (!rewriteContext.isValid()) {

@@ -37,11 +37,13 @@ import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
@@ -253,23 +255,46 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             Plan rewrittenPlan;
             Plan mvScan = materializationContext.getScanPlan(queryStructInfo, cascadesContext);
             Plan queryPlan = queryStructInfo.getTopPlan();
+            // Predicates that reference VirtualSlotReference (e.g. grouping_id produced by
+            // GROUPING SETS / ROLLUP / CUBE) cannot be rewritten on top of mvScan because the
+            // materialized view does not physically store these slots. They are produced again
+            // by the LogicalRepeat / LogicalAggregate that the aggregate rewrite re-builds on
+            // top of mvScan, so defer them and apply them after rewriteQueryByView.
+            List<Expression> deferredPredicates = new ArrayList<>();
             if (compensatePredicates.isAlwaysTrue()) {
                 rewrittenPlan = mvScan;
             } else {
-                // Try to rewrite compensate predicates by using mv scan
-                List<Expression> rewriteCompensatePredicates = rewriteExpression(compensatePredicates.toList(),
-                        queryPlan, materializationContext.getShuttledExprToScanExprMapping(),
-                        viewToQuerySlotMapping, queryStructInfo.getTableBitSet());
-                if (rewriteCompensatePredicates.isEmpty()) {
-                    materializationContext.recordFailReason(queryStructInfo,
-                            "Rewrite compensate predicate by view fail",
-                            () -> String.format("compensatePredicates = %s,\n mvExprToMvScanExprMapping = %s,\n"
-                                            + "viewToQuerySlotMapping = %s",
-                                    compensatePredicates, materializationContext.getShuttledExprToScanExprMapping(),
-                                    viewToQuerySlotMapping));
-                    continue;
+                List<Expression> mvScanBoundPredicates = new ArrayList<>();
+                for (Expression compensatePredicate : compensatePredicates.toList()) {
+                    for (Expression conjunct : ExpressionUtils.extractConjunction(compensatePredicate)) {
+                        if (conjunct.anyMatch(e -> e instanceof VirtualSlotReference)) {
+                            deferredPredicates.add(conjunct);
+                        } else {
+                            mvScanBoundPredicates.add(conjunct);
+                        }
+                    }
                 }
-                rewrittenPlan = new LogicalFilter<>(Sets.newLinkedHashSet(rewriteCompensatePredicates), mvScan);
+                boolean noMvScanFilterNeeded = mvScanBoundPredicates.isEmpty()
+                        || mvScanBoundPredicates.stream().allMatch(BooleanLiteral.TRUE::equals);
+                if (noMvScanFilterNeeded) {
+                    rewrittenPlan = mvScan;
+                } else {
+                    // Try to rewrite compensate predicates by using mv scan
+                    List<Expression> rewriteCompensatePredicates = rewriteExpression(mvScanBoundPredicates,
+                            queryPlan, materializationContext.getShuttledExprToScanExprMapping(),
+                            viewToQuerySlotMapping, queryStructInfo.getTableBitSet());
+                    if (rewriteCompensatePredicates.isEmpty()) {
+                        materializationContext.recordFailReason(queryStructInfo,
+                                "Rewrite compensate predicate by view fail",
+                                () -> String.format("compensatePredicates = %s,\n mvExprToMvScanExprMapping = %s,\n"
+                                                + "viewToQuerySlotMapping = %s",
+                                        compensatePredicates,
+                                        materializationContext.getShuttledExprToScanExprMapping(),
+                                        viewToQuerySlotMapping));
+                        continue;
+                    }
+                    rewrittenPlan = new LogicalFilter<>(Sets.newLinkedHashSet(rewriteCompensatePredicates), mvScan);
+                }
             }
             boolean checkResult = rewriteQueryByViewPreCheck(matchMode, queryStructInfo,
                     viewStructInfo, viewToQuerySlotMapping, rewrittenPlan, materializationContext);
@@ -398,6 +423,57 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                         + "origin output is %s",
                                 rewrittenPlanOutput, queryPlan.getOutput()));
                 continue;
+            }
+            // Apply deferred predicates (those referencing VirtualSlotReference such as grouping_id)
+            // on top of the rewritten plan. After normalizeExpressions, rewrittenPlan output uses
+            // the query top-plan ExprIds (e.g. select-list aliases), but deferredPredicates were
+            // collected from queryStructInfo predicates, which are already shuttled down along the
+            // lineage to base / virtual slots (e.g. VirtualSlot#15 instead of the alias slot #8).
+            // We therefore build a reverse lineage mapping from "shuttled-down" slot to top-output
+            // alias slot, and rewrite deferredPredicates to reference top-output ExprIds before
+            // wrapping them as a LogicalFilter on top of the rewritten plan.
+            if (!deferredPredicates.isEmpty()) {
+                List<Slot> queryTopOutput = queryStructInfo.getTopPlan().getOutput();
+                List<? extends Expression> shuttledQueryTopOutput = ExpressionUtils.shuttleExpressionWithLineage(
+                        new ArrayList<>(queryTopOutput), queryStructInfo.getTopPlan(),
+                        queryStructInfo.getTableBitSet());
+                Map<Expression, Expression> shuttledToTopSlot = new HashMap<>();
+                for (int i = 0; i < shuttledQueryTopOutput.size(); i++) {
+                    Expression shuttledExpr = shuttledQueryTopOutput.get(i);
+                    Slot topSlot = queryTopOutput.get(i);
+                    if (shuttledExpr instanceof Slot) {
+                        shuttledToTopSlot.put(shuttledExpr, topSlot);
+                    }
+                }
+                Set<ExprId> outputExprIdSet = rewrittenPlan.getOutputExprIdSet();
+                List<Expression> rewrittenDeferred = new ArrayList<>(deferredPredicates.size());
+                boolean allMappable = true;
+                for (Expression deferred : deferredPredicates) {
+                    Expression rewritten = ExpressionUtils.replace(deferred, shuttledToTopSlot);
+                    boolean allInOutput = rewritten.getInputSlots().stream()
+                            .allMatch(slot -> outputExprIdSet.contains(slot.getExprId()));
+                    if (!allInOutput) {
+                        allMappable = false;
+                        break;
+                    }
+                    rewrittenDeferred.add(rewritten);
+                }
+                if (!allMappable) {
+                    Plan rewrittenPlanForLog = rewrittenPlan;
+                    LOG.warn("MV deferred predicate sanity check failed: deferredPredicates = {},\n"
+                                    + " shuttledToTopSlot = {},\n rewrittenPlan output = {},\n"
+                                    + " rewrittenPlan = \n{}",
+                            deferredPredicates, shuttledToTopSlot,
+                            rewrittenPlanForLog.getOutput(), rewrittenPlanForLog.treeString());
+                    materializationContext.recordFailReason(queryStructInfo,
+                            "Deferred predicate references slots not in rewritten plan output",
+                            () -> String.format("deferredPredicates = %s,\n shuttledToTopSlot = %s,\n"
+                                            + " rewrittenPlan output = %s",
+                                    deferredPredicates, shuttledToTopSlot,
+                                    rewrittenPlanForLog.getOutput()));
+                    continue;
+                }
+                rewrittenPlan = new LogicalFilter<>(Sets.newLinkedHashSet(rewrittenDeferred), rewrittenPlan);
             }
             // Merge project
             rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,

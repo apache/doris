@@ -277,6 +277,17 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
                 hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), newChild);
     }
 
+    /**
+     * Build a new LogicalAggregate with replaced groupBy / output / sourceRepeat / child.
+     * Used when the underlying expressions and sourceRepeat must be rebuilt together
+     * (for example during deep copy where ExprIds are regenerated).
+     */
+    public LogicalAggregate<Plan> withChildGroupByOutputAndSourceRepeat(List<Expression> groupByExprList,
+            List<NamedExpression> outputExpressionList, Optional<LogicalRepeat<?>> newSourceRepeat, Plan newChild) {
+        return new LogicalAggregate<>(groupByExprList, outputExpressionList, normalized, ordinalIsResolved, generated,
+                hasPushed, newSourceRepeat, Optional.empty(), Optional.empty(), newChild);
+    }
+
     public LogicalAggregate<Plan> withChildAndOutput(CHILD_TYPE child,
                                                        List<NamedExpression> outputExpressionList) {
         return new LogicalAggregate<>(groupByExpressions, outputExpressionList, normalized, ordinalIsResolved,

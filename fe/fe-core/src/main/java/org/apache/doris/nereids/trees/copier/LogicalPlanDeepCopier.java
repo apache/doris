@@ -151,7 +151,20 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<NamedExpression> outputExpressions = aggregate.getOutputExpressions().stream()
                 .map(o -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
                 .collect(ImmutableList.toImmutableList());
-        return aggregate.withChildGroupByAndOutput(groupByExpressions, outputExpressions, child);
+        // sourceRepeat holds the original LogicalRepeat with the producer side ExprIds.
+        // It must be deep-copied as well, otherwise the rewritten plan still references stale
+        // SlotReferences inside groupingSets, which breaks downstream rules like MV rewriting.
+        Optional<LogicalRepeat<?>> newSourceRepeat = Optional.empty();
+        if (aggregate.getSourceRepeat().isPresent()) {
+            LogicalRepeat<?> srcRepeat = aggregate.getSourceRepeat().get();
+            if (srcRepeat == aggregate.child() && child instanceof LogicalRepeat) {
+                newSourceRepeat = Optional.of((LogicalRepeat<?>) child);
+            } else {
+                newSourceRepeat = Optional.of((LogicalRepeat<?>) srcRepeat.accept(this, context));
+            }
+        }
+        return aggregate.withChildGroupByOutputAndSourceRepeat(
+                groupByExpressions, outputExpressions, newSourceRepeat, child);
     }
 
     @Override
