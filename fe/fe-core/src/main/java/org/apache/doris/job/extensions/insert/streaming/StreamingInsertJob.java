@@ -297,19 +297,33 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         try {
             this.jobProperties = new StreamingJobProperties(properties);
             jobProperties.validate();
-            this.sampleWindowMs = jobProperties.getMaxIntervalSecond() * 10 * 1000;
             resolveCloudCluster();
             // build time definition
             JobExecutionConfiguration execConfig = getJobConfig();
             TimerDefinition timerDefinition = new TimerDefinition();
-            timerDefinition.setInterval(jobProperties.getMaxIntervalSecond());
             timerDefinition.setIntervalUnit(IntervalUnit.SECOND);
             timerDefinition.setStartTimeMs(execConfig.getTimerDefinition().getStartTimeMs());
             execConfig.setTimerDefinition(timerDefinition);
+            recomputeDerivedFields();
         } catch (AnalysisException ae) {
             log.warn("parse streaming insert job failed, props: {}", properties, ae);
             throw new RuntimeException(ae.getMessage());
         }
+    }
+
+    private void recomputeDerivedFields() {
+        if (jobProperties == null) {
+            return;
+        }
+        long maxIntervalSec = jobProperties.getMaxIntervalSecond();
+        this.sampleWindowMs = maxIntervalSec * 10 * 1000;
+        JobExecutionConfiguration execConfig = getJobConfig();
+        if (execConfig != null && execConfig.getTimerDefinition() != null) {
+            execConfig.getTimerDefinition().setInterval(maxIntervalSec);
+        }
+        this.sampleStartTime = System.currentTimeMillis();
+        this.sampleWindowScannedRows = 0L;
+        this.sampleWindowFilteredRows = 0L;
     }
 
     private void resolveCloudCluster() throws AnalysisException {
@@ -938,6 +952,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
         this.properties.putAll(inputProperties);
         this.jobProperties = new StreamingJobProperties(this.properties);
+        recomputeDerivedFields();
     }
 
     private void resetCloudProgress(Offset offset) throws JobException {
@@ -1317,6 +1332,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (jobProperties == null && properties != null) {
             jobProperties = new StreamingJobProperties(properties);
         }
+        recomputeDerivedFields();
 
         if (null == getSucceedTaskCount()) {
             setSucceedTaskCount(new AtomicLong(0));
