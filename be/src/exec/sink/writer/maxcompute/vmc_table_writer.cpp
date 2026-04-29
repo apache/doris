@@ -22,6 +22,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format/transformer/vjni_format_transformer.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/uid_util.h"
 
@@ -99,6 +100,7 @@ Status VMCTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
 
 std::map<std::string, std::string> VMCTableWriter::_build_base_writer_params() {
     auto params = _mc_sink.properties;
+    const auto& master_fe_addr = _state->exec_env()->cluster_info()->master_fe_addr;
     if (_mc_sink.__isset.endpoint) params["endpoint"] = _mc_sink.endpoint;
     if (_mc_sink.__isset.project) params["project"] = _mc_sink.project;
     if (_mc_sink.__isset.table_name) params["table"] = _mc_sink.table_name;
@@ -118,6 +120,10 @@ std::map<std::string, std::string> VMCTableWriter::_build_base_writer_params() {
     if (_mc_sink.__isset.retry_count) {
         params["retry_count"] = std::to_string(_mc_sink.retry_count);
     }
+    params["fe_host"] = master_fe_addr.hostname;
+    params["fe_port"] = std::to_string(master_fe_addr.port);
+    params["fe_rpc_timeout_ms"] = std::to_string(config::thrift_rpc_timeout_ms);
+    params["fe_thrift_server_type"] = config::thrift_server_type_of_fe;
     return params;
 }
 

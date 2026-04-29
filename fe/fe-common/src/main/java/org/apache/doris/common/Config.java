@@ -2314,6 +2314,13 @@ public class Config extends ConfigBase {
     public static long max_external_table_split_file_meta_cache_num = 100000;
 
     /**
+     * Maximum number of MaxCompute Storage API write block IDs that can be allocated in one write session.
+     */
+    @ConfField(mutable = false, masterOnly = true, description = {
+            "Maximum number of MaxCompute Storage API write block IDs that can be allocated in one write session."})
+    public static long max_compute_write_max_block_count = 20000L;
+
+    /**
      * Max cache loader thread-pool size.
      * Max thread pool size for loading external meta cache
      */
