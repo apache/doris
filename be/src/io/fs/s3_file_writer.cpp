@@ -142,32 +142,9 @@ Status S3FileWriter::close(bool non_block) {
     };
 
     if (state() == State::CLOSED) {
-        if (_async_close_pack != nullptr) {
-            _st = _async_close_pack->future.get();
-            _async_close_pack = nullptr;
-            // Return the final close status so that a blocking close issued after
-            // an async close observes the real result just like the legacy behavior.
-            if (!non_block && _st.ok()) {
-                record_close_latency();
-            }
-            return _st;
-        }
-        if (non_block) {
-            if (_st.ok()) {
-                record_close_latency();
-                return Status::Error<ErrorCode::ALREADY_CLOSED>(
-                        "S3FileWriter already closed, file path {}, file key {}",
-                        _obj_storage_path_opts.path.native(), _obj_storage_path_opts.key);
-            }
-            return _st;
-        }
-        if (_st.ok()) {
-            record_close_latency();
-            return Status::Error<ErrorCode::ALREADY_CLOSED>(
-                    "S3FileWriter already closed, file path {}, file key {}",
-                    _obj_storage_path_opts.path.native(), _obj_storage_path_opts.key);
-        }
-        return _st;
+        return Status::InternalError("S3FileWriter already closed, file path {}, file key {}",
+                                     _obj_storage_path_opts.path.native(),
+                                     _obj_storage_path_opts.key);
     }
     if (state() == State::ASYNC_CLOSING) {
         if (non_block) {
@@ -194,7 +171,6 @@ Status S3FileWriter::close(bool non_block) {
             s3_file_writer_async_close_queuing << -1;
             s3_file_writer_async_close_processing << 1;
             _st = _close_impl();
-            _state = State::CLOSED;
             _async_close_pack->promise.set_value(_st);
             s3_file_writer_async_close_processing << -1;
         });
@@ -204,6 +180,31 @@ Status S3FileWriter::close(bool non_block) {
     if (!non_block && _st.ok()) {
         record_close_latency();
     }
+    return _st;
+}
+
+Status S3FileWriter::try_finish_close() {
+    if (state() == State::CLOSED) {
+        if (_async_close_pack != nullptr) {
+            if (_async_close_pack->future.wait_for(std::chrono::seconds(0)) !=
+                std::future_status::ready) {
+                return Status::NeedSendAgain("async close is not finished");
+            }
+            _st = _async_close_pack->future.get();
+            _async_close_pack = nullptr;
+        }
+        return _st;
+    }
+    if (state() != State::ASYNC_CLOSING) {
+        return Status::NotSupported("S3FileWriter is not async closing");
+    }
+    CHECK(_async_close_pack != nullptr);
+    if (_async_close_pack->future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+        return Status::NeedSendAgain("async close is not finished");
+    }
+    _st = _async_close_pack->future.get();
+    _async_close_pack = nullptr;
+    _state = State::CLOSED;
     return _st;
 }
 
