@@ -312,7 +312,8 @@ Status BaseDeltaWriter::_write_directly_to_rowset(const Block* block,
     }
     auto clone_block = block->clone_without_columns(&_direct_write_column_offset);
     auto mutable_block = MutableBlock::build_mutable_block(&clone_block);
-    RETURN_IF_ERROR(mutable_block.add_rows(block, row_idxs.data(), row_idxs.data() + row_idxs.size(),
+    RETURN_IF_ERROR(mutable_block.add_rows(block, row_idxs.data(),
+                                           row_idxs.data() + row_idxs.size(),
                                            &_direct_write_column_offset));
     auto direct_write_block = mutable_block.to_block();
     RETURN_IF_ERROR(_rowset_builder->rowset_writer()->add_block(&direct_write_block));
