@@ -637,21 +637,24 @@ Status PushBrokerReader::_get_next_reader() {
                 _runtime_profile, _file_params, range, _runtime_state->query_options().batch_size,
                 &_runtime_state->timezone_obj(), _io_ctx.get(), _runtime_state.get());
 
-        init_status = parquet_reader->init_reader(
-                _all_col_names, &_col_name_to_block_idx, _push_down_exprs, _slot_id_to_predicates,
-                _real_tuple_desc, _default_val_row_desc.get(), _col_name_to_slot_id,
-                &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts,
-                TableSchemaChangeHelper::ConstNode::get_instance(), false);
+        ParquetInitContext ctx;
+        ctx.column_names = _all_col_names;
+        ctx.col_name_to_block_idx = &_col_name_to_block_idx;
+        ctx.conjuncts = &_push_down_exprs;
+        ctx.slot_id_to_predicates = &_slot_id_to_predicates;
+        ctx.tuple_descriptor = _real_tuple_desc;
+        ctx.row_descriptor = _default_val_row_desc.get();
+        ctx.colname_to_slot_id = _col_name_to_slot_id;
+        ctx.not_single_slot_filter_conjuncts = &_not_single_slot_filter_conjuncts;
+        ctx.slot_id_to_filter_conjuncts = &_slot_id_to_filter_conjuncts;
+
+        init_status = parquet_reader->init_reader(&ctx);
         _cur_reader = std::move(parquet_reader);
         if (!init_status.ok()) {
             return Status::InternalError("failed to init reader for file {}, err: {}", range.path,
                                          init_status.to_string());
         }
-        std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-                partition_columns;
-        std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-        RETURN_IF_ERROR(_cur_reader->get_columns(&_name_to_col_type, &_missing_cols));
-        RETURN_IF_ERROR(_cur_reader->set_fill_columns(partition_columns, missing_columns));
+        RETURN_IF_ERROR(_cur_reader->get_columns(&_name_to_col_type));
         break;
     }
     default:

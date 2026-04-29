@@ -615,6 +615,15 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         fi
     done
     unset _fs_mod
+    # Connector API, SPI, and plugin modules (loaded at runtime as plugins)
+    modules+=("fe-connector/fe-connector-api")
+    modules+=("fe-connector/fe-connector-spi")
+    for _conn_mod in es jdbc maxcompute trino hms hive paimon hudi iceberg; do
+        if [[ -d "${DORIS_HOME}/fe/fe-connector/fe-connector-${_conn_mod}" ]]; then
+            modules+=("fe-connector/fe-connector-${_conn_mod}")
+        fi
+    done
+    unset _conn_mod
     if [[ "${WITH_TDE_DIR}" != "" ]]; then
         modules+=("fe-${WITH_TDE_DIR}")
     fi
@@ -807,7 +816,7 @@ function build_fe_modules() {
     local -a user_settings_opts=()
     local -a mvn_cmd=(
         "${MVN_CMD}"
-        package
+        install
         -pl
         "${FE_MODULES}"
         -am
@@ -925,6 +934,24 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
             -d "${fs_plugin_target}/"
     done
     unset FS_PLUGIN_DIR fs_module fs_plugin_target fs_module_dir
+
+    # Deploy connector provider plugins as independent plugin directories.
+    # Each sub-directory is one connector backend loaded at runtime by ConnectorPluginManager.
+    CONN_PLUGIN_DIR="${DORIS_OUTPUT}/fe/plugins/connector"
+    for conn_module in es jdbc maxcompute trino hms hive paimon hudi iceberg; do
+        conn_plugin_target="${CONN_PLUGIN_DIR}/${conn_module}"
+        conn_module_dir="${DORIS_HOME}/fe/fe-connector/fe-connector-${conn_module}"
+        if [ ! -d "${conn_module_dir}" ]; then
+            continue
+        fi
+        conn_zip=$(find "${conn_module_dir}/target" -maxdepth 1 -name '*.zip' 2>/dev/null | head -1)
+        if [ -z "${conn_zip}" ]; then
+            continue
+        fi
+        mkdir -p "${conn_plugin_target}"
+        unzip -o "${conn_zip}" -d "${conn_plugin_target}/"
+    done
+    unset CONN_PLUGIN_DIR conn_module conn_plugin_target conn_module_dir conn_zip
 
     if [ "${TARGET_SYSTEM}" = "Darwin" ] || [ "${TARGET_SYSTEM}" = "Linux" ]; then
       mkdir -p "${DORIS_OUTPUT}/fe/arthas"

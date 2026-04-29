@@ -1,7 +1,10 @@
 use `default`;
 
 
-CREATE TABLE json_load_data_table (
+drop table if exists json_load_data_table;
+
+
+create table json_load_data_table (
     `id` int,
     `col1` int,
     `col2` struct< col2a:int, col2b:string>,
@@ -9,5 +12,3 @@ CREATE TABLE json_load_data_table (
 ) ROW FORMAT SERDE 'org.apache.hive.hcatalog.data.JsonSerDe'
 LOCATION
   '/user/doris/preinstalled_data/json/json_load_data_table';
-
-msck repair table json_load_data_table;

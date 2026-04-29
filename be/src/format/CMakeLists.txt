@@ -22,6 +22,13 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/format")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/format")
 
 file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS *.cpp)
+
+# Lance reader requires Rust static library (BUILD_RUST_READERS=ON)
+if (NOT BUILD_RUST_READERS)
+    file(GLOB_RECURSE LANCE_FILES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/lance/*.cpp)
+    list(REMOVE_ITEM SRC_FILES ${LANCE_FILES})
+endif()
+
 add_library(Format STATIC ${SRC_FILES})
 
 pch_reuse(Format)

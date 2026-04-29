@@ -21,7 +21,7 @@ import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
-import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.ToSqlParams;
@@ -30,6 +30,7 @@ import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.IndexToThriftConvertor;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
@@ -342,7 +343,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                 List<Index> indexList = indexMeta.getIndexes();
                 List<TOlapTableIndex> tIndexList = new ArrayList<TOlapTableIndex>();
                 for (Index idx : indexList) {
-                    TOlapTableIndex tIndex = idx.toThrift(idx.getColumnUniqueIds(columns));
+                    TOlapTableIndex tIndex = IndexToThriftConvertor.toThrift(idx, columns);
                     tIndexList.add(tIndex);
                 }
 
@@ -722,7 +723,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                     return null;
                 }
                 ColumnBound bound = ColumnBound.of(
-                        LiteralExpr.create(binaryPredicate.getChild(1).getStringValue(), type));
+                        LiteralExprUtils.createLiteral(binaryPredicate.getChild(1).getStringValue(), type));
                 switch (binaryPredicate.getOp()) {
                     case EQ:
                         result.add(Range.closed(bound, bound));
@@ -759,8 +760,8 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                     return null;
                 }
                 for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
-                    ColumnBound bound = ColumnBound.of(LiteralExpr
-                            .create(inPredicate.getChild(i).getStringValue(), type));
+                    ColumnBound bound = ColumnBound.of(LiteralExprUtils.createLiteral(
+                            inPredicate.getChild(i).getStringValue(), type));
                     result.add(Range.closed(bound, bound));
                 }
             } else {

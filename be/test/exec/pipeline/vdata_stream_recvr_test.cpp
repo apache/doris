@@ -616,6 +616,4 @@ TEST_F(DataStreamRecvrTest, transmit_block) {
     recvr->close();
 }
 
-// ./run-be-ut.sh --run --filter=DataStreamRecvrTest.*
-
 } // namespace doris

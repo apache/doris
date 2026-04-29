@@ -1667,6 +1667,7 @@ Status CloudMetaMgr::commit_tablet_job(const TabletJobInfoPB& job, FinishTabletJ
 
 Status CloudMetaMgr::abort_tablet_job(const TabletJobInfoPB& job) {
     VLOG_DEBUG << "abort_tablet_job: " << job.ShortDebugString();
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::abort_tablet_job", Status::OK(), job);
     FinishTabletJobRequest req;
     FinishTabletJobResponse res;
     req.mutable_job()->CopyFrom(job);

@@ -19,6 +19,7 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
@@ -34,6 +35,7 @@ import org.apache.doris.utframe.TestWithFeService;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -61,12 +63,18 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
     }
 
     @Test
+    @Timeout(60)
     public void testExpiredJobCancellation() throws Exception {
         InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
         Database database = Mockito.mock(Database.class);
         OlapTable olapTable = Mockito.mock(OlapTable.class);
 
-        try (MockedStatic<StatisticsUtil> mockedStatisticsUtil = Mockito.mockStatic(StatisticsUtil.class)) {
+        try (MockedStatic<StatisticsUtil> mockedStatisticsUtil = Mockito.mockStatic(StatisticsUtil.class);
+                MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
+            // Prevent the daemon thread "Expired Analysis Task Killer" from starting,
+            // so only the test thread calls tryToCancel() — eliminating the race condition.
+            mockedEnv.when(Env::isCheckpointThread).thenReturn(true);
+
             mockedStatisticsUtil.when(() -> StatisticsUtil.convertIdToObjects(
                     Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong()))
                     .thenReturn(new DBObjects(catalog, database, olapTable));

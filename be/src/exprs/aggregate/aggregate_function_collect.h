@@ -41,7 +41,6 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
-#include "util/io_helper.h"
 #include "util/var_int.h"
 
 namespace doris {
@@ -77,7 +76,9 @@ struct AggregateFunctionCollectSetData {
                 data_set.insert(rhs_elem);
             }
         } else {
-            data_set.merge(Set(rhs.data_set));
+            for (const auto& elem : rhs.data_set) {
+                data_set.insert(elem);
+            }
         }
     }
 
@@ -393,7 +394,7 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
 };
 
 template <typename Data, bool HasLimit>
-class AggregateFunctionCollect
+class AggregateFunctionCollect final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>, true>,
           VarargsExpression,
           NotNullableAggregateFunction {

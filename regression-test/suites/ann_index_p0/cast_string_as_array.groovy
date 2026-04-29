@@ -67,7 +67,7 @@ suite("cast_string_as_array") {
     // runtime of ANN topn. So here we will get null directly...
     test {
         sql "select id from ann_cast_rhs_l2 order by l2_distance_approximate(embedding, cast(NULL as array<float>)) limit 1;"
-        exception "Constant must be ArrayLiteral or CAST to array"
+        exception "Ann query vector cannot be NULL"
     }
     
         

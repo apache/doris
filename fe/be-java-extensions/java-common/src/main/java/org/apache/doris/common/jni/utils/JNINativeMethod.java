@@ -42,4 +42,9 @@ public class JNINativeMethod {
      * corresponds to one deallocation.
      */
     public static native void memoryTrackerFreeBatch(long[] addrs);
+
+    /**
+     * Request a MaxCompute block id from BE, which will forward the request to FE.
+     */
+    public static native long requestMaxComputeBlockId(long txnId, String writeSessionId);
 }

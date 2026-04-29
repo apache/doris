@@ -17,18 +17,13 @@
 
 package org.apache.doris.nereids.processor.post;
 
-import org.apache.doris.common.IdGenerator;
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.processor.post.RuntimeFilterPushDownVisitor.PushDownContext;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
@@ -38,144 +33,104 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlap
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.coercion.NumericType;
-import org.apache.doris.planner.RuntimeFilterId;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /**
- * push down rf
+ * Push down runtime filters using tree-traversal approach.
+ * Rewrites probeExpr through Projects and SetOperations, expands through join conditions,
+ * and creates RuntimeFilter at scan nodes when probeExpr resolves to a scan slot.
  */
 public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownContext> {
-    // the context to push down rf by join condition: probeExpr = srcExpr
 
     /**
-     * PushDownContext
+     * PushDownContext carries the information needed to push a runtime filter down the plan tree.
+     * The probeExpr is progressively rewritten as it passes through Projects/SetOps.
      */
     public static class PushDownContext {
         final Expression srcExpr;
         final Expression probeExpr;
-        final Slot probeSlot;
         final RuntimeFilterContext rfContext;
-        final IdGenerator<RuntimeFilterId> rfIdGen;
+        final AbstractPhysicalPlan builderNode;
         final TRuntimeFilterType type;
-        final AbstractPhysicalJoin<? extends Plan, ? extends Plan> builderNode;
+        final boolean isNot;
+        final TMinMaxRuntimeFilterType singleSideMinMax;
         final boolean hasUnknownColStats;
         final long buildSideNdv;
         final int exprOrder;
-        final Pair<PhysicalRelation, Slot> finalTarget;
-        //bitmap rf used only
-        final boolean isNot;
-        // only used for Min_Max runtime filter
-        final TMinMaxRuntimeFilterType singleSideMinMax;
 
-        /**
-         * push down context
-         */
-        // for hash join runtime filter
-        private PushDownContext(Expression srcExpr, Expression probeExpr, RuntimeFilterContext rfContext,
-                IdGenerator<RuntimeFilterId> rfIdGen, TRuntimeFilterType type,
-                AbstractPhysicalJoin<? extends Plan, ? extends Plan> builderNode,
-                boolean hasUnknownColStats, long buildSideNdv, int exprOrder, boolean isNot,
-                TMinMaxRuntimeFilterType singleSideMinMax) {
-            this.probeExpr = probeExpr;
+        private PushDownContext(RuntimeFilterContext rfContext,
+                AbstractPhysicalPlan builderNode, Expression srcExpr, Expression probeExpr,
+                TRuntimeFilterType type, boolean isNot,
+                TMinMaxRuntimeFilterType singleSideMinMax,
+                boolean hasUnknownColStats, long buildSideNdv, int exprOrder) {
             this.rfContext = rfContext;
-            this.srcExpr = srcExpr;
-            this.rfIdGen = rfIdGen;
-            this.type = type;
             this.builderNode = builderNode;
+            this.srcExpr = srcExpr;
+            this.probeExpr = probeExpr;
+            this.type = type;
+            this.isNot = isNot;
+            this.singleSideMinMax = singleSideMinMax;
             this.hasUnknownColStats = hasUnknownColStats;
             this.buildSideNdv = buildSideNdv;
             this.exprOrder = exprOrder;
-            this.isNot = isNot;
-            Expression expr = getSingleNumericSlotOrExpressionCoveredByCast(probeExpr);
-            /* finalTarget can be null if it is not a column from base table.
-            for example:
-            select * from T1 join (select 9 as x) T2 on T1.x=T2.x,
-            where the final target of T2.x is a constant
-            */
-            if (expr instanceof Slot) {
-                probeSlot = (Slot) expr;
-                finalTarget = rfContext.getAliasTransferPair(probeSlot);
-            } else {
-                finalTarget = null;
-                probeSlot = null;
-            }
-            this.singleSideMinMax = singleSideMinMax;
         }
 
-        // for BitMap runtime filter
-        public static PushDownContext createPushDownContextForBitMapFilter(Expression srcExpr, Expression probeExpr,
-                RuntimeFilterContext rfContext,
-                IdGenerator<RuntimeFilterId> rfIdGen,
-                AbstractPhysicalJoin<? extends Plan, ? extends Plan> builderNode,
-                long buildSideNdv, int exprOrder, boolean isNot) {
-            return new PushDownContext(srcExpr, probeExpr, rfContext, rfIdGen, TRuntimeFilterType.BITMAP, builderNode,
-                    false, buildSideNdv,
-                    exprOrder, isNot, TMinMaxRuntimeFilterType.MIN_MAX);
+        public static PushDownContext createPushDownContext(RuntimeFilterContext rfContext,
+                AbstractPhysicalPlan builderNode, Expression srcExpr, Expression probeExpr,
+                TRuntimeFilterType type, boolean isNot) {
+            return createPushDownContext(rfContext, builderNode, srcExpr, probeExpr,
+                    type, isNot, false, -1, -1);
         }
 
-        // for NLJ min-max runtime filter
-        public static PushDownContext createPushDownContextForNljMinMaxFilter(Expression srcExpr, Expression probeExpr,
-                RuntimeFilterContext rfContext,
-                IdGenerator<RuntimeFilterId> rfIdGen,
-                AbstractPhysicalJoin<? extends Plan, ? extends Plan> builderNode,
-                int exprOrder,
-                TMinMaxRuntimeFilterType singleSideMinMax) {
-            return new PushDownContext(srcExpr, probeExpr, rfContext, rfIdGen, TRuntimeFilterType.MIN_MAX, builderNode,
-                    false, -1,
-                    exprOrder, false, singleSideMinMax);
-        }
-
-        public static PushDownContext createPushDownContextForHashJoin(Expression srcExpr, Expression probeExpr,
-                RuntimeFilterContext rfContext,
-                IdGenerator<RuntimeFilterId> rfIdGen, TRuntimeFilterType type,
-                AbstractPhysicalJoin<? extends Plan, ? extends Plan> builderNode,
+        public static PushDownContext createPushDownContext(RuntimeFilterContext rfContext,
+                AbstractPhysicalPlan builderNode, Expression srcExpr, Expression probeExpr,
+                TRuntimeFilterType type, boolean isNot,
                 boolean hasUnknownColStats, long buildSideNdv, int exprOrder) {
-            return new PushDownContext(srcExpr, probeExpr, rfContext, rfIdGen, type, builderNode,
-                    hasUnknownColStats, buildSideNdv,
-                    exprOrder, false, TMinMaxRuntimeFilterType.MIN_MAX);
+            return createPushDownContext(rfContext, builderNode, srcExpr, probeExpr,
+                    type, isNot, TMinMaxRuntimeFilterType.MIN_MAX,
+                    hasUnknownColStats, buildSideNdv, exprOrder);
         }
 
+        /**
+         * singleSideMinMax is only meaningful for MIN_MAX runtime filters.
+         * Non-MIN_MAX callers should use the simplified overload above or pass
+         * TMinMaxRuntimeFilterType.MIN_MAX as a placeholder.
+         */
+        public static PushDownContext createPushDownContext(RuntimeFilterContext rfContext,
+                AbstractPhysicalPlan builderNode, Expression srcExpr, Expression probeExpr,
+                TRuntimeFilterType type, boolean isNot,
+                TMinMaxRuntimeFilterType singleSideMinMax,
+                boolean hasUnknownColStats, long buildSideNdv, int exprOrder) {
+            return new PushDownContext(rfContext, builderNode, srcExpr, probeExpr,
+                    type, isNot, singleSideMinMax, hasUnknownColStats, buildSideNdv, exprOrder);
+        }
+
+        /**
+         * A context is valid if probeExpr references exactly one input slot.
+         * Invalid when probeExpr is a constant (e.g., from OneRowRelation) or multi-slot.
+         */
         public boolean isValid() {
-            return finalTarget != null && probeSlot != null;
+            return probeExpr.getInputSlots().size() == 1;
         }
 
         public PushDownContext withNewProbeExpression(Expression newProbe) {
-            return new PushDownContext(srcExpr, newProbe, this.rfContext, rfIdGen, type, builderNode,
-                    hasUnknownColStats, buildSideNdv, exprOrder, isNot, singleSideMinMax);
-        }
-
-        private Expression getSingleNumericSlotOrExpressionCoveredByCast(Expression expression) {
-            if (expression.getInputSlots().size() == 1) {
-                Slot slot = expression.getInputSlots().iterator().next();
-                if (slot.getDataType() instanceof NumericType) {
-                    return expression.getInputSlots().iterator().next();
-                }
-            }
-            // for other datatype, only support cast.
-            // example: T1 join T2 on subStr(T1.a, 1,4) = subStr(T2.a, 1,4)
-            // the cost of subStr is too high, and hence we do not generate RF subStr(T2.a, 1,4)->subStr(T1.a, 1,4)
-            while (expression instanceof Cast) {
-                expression = ((Cast) expression).child();
-            }
-            return expression;
+            return new PushDownContext(rfContext, builderNode, srcExpr, newProbe,
+                    type, isNot, singleSideMinMax, hasUnknownColStats, buildSideNdv, exprOrder);
         }
     }
 
@@ -197,45 +152,67 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
     @Override
     public Boolean visitPhysicalRelation(PhysicalRelation scan, PushDownContext ctx) {
-        if (scan instanceof PhysicalSchemaScan) {
+        if (!scan.canPushDownRuntimeFilter()) {
             return false;
         }
-        Preconditions.checkArgument(ctx.isValid(),
-                "runtime filter pushDownContext is invalid");
-        PhysicalRelation relation = ctx.finalTarget.first;
-        Slot scanSlot = ctx.finalTarget.second;
-        Slot probeSlot = ctx.probeSlot;
 
-        if (!relation.equals(scan)) {
-            return Boolean.FALSE;
+        Set<Slot> inputSlots = ctx.probeExpr.getInputSlots();
+        if (inputSlots.size() != 1) {
+            return false;
+        }
+        Slot scanSlot = inputSlots.iterator().next();
+        if (!scan.getOutputSet().contains(scanSlot)) {
+            return false;
+        }
+
+        // For non-numeric types, reject function expressions (e.g. substring()) as RF targets
+        // because evaluating such functions at scan time is too expensive.
+        // Only bare slots or cast-wrapped slots are allowed for non-numeric types.
+        if (!isScanAcceptableProbeExpr(ctx.probeExpr, scanSlot)) {
+            return false;
         }
 
         TRuntimeFilterType type = ctx.type;
-        RuntimeFilter filter = ctx.rfContext.getRuntimeFilterBySrcAndType(ctx.srcExpr, type, ctx.builderNode);
-        if (filter != null) {
-            if (!filter.hasTargetScan(scan)) {
-                // A join B on A.a1=B.b and A.a1 = A.a2
-                // RF B.b->(A.a1, A.a2)
-                // however, RF(B.b->A.a2) is implied by RF(B.a->A.a1) and A.a1=A.a2
-                // we skip RF(B.b->A.a2)
-                scan.addAppliedRuntimeFilter(filter);
-                filter.addTargetSlot(scanSlot, ctx.probeExpr, scan);
-                ctx.rfContext.addJoinToTargetMap(ctx.builderNode, scanSlot.getExprId());
-                ctx.rfContext.setTargetExprIdToFilter(scanSlot.getExprId(), filter);
-                ctx.rfContext.setTargetsOnScanNode(ctx.rfContext.getAliasTransferPair(probeSlot).first, scanSlot);
-            }
-        } else {
-            filter = new RuntimeFilter(ctx.rfIdGen.getNextId(),
-                    ctx.srcExpr, ImmutableList.of(scanSlot), ImmutableList.of(ctx.probeExpr),
-                    type, ctx.exprOrder, ctx.builderNode, ctx.isNot, ctx.buildSideNdv,
-                    !ctx.hasUnknownColStats, ctx.singleSideMinMax, scan);
-            scan.addAppliedRuntimeFilter(filter);
-            ctx.rfContext.addJoinToTargetMap(ctx.builderNode, scanSlot.getExprId());
-            ctx.rfContext.setTargetExprIdToFilter(scanSlot.getExprId(), filter);
-            ctx.rfContext.setTargetsOnScanNode(ctx.rfContext.getAliasTransferPair(probeSlot).first, scanSlot);
-            ctx.rfContext.setRuntimeFilterIdentityToFilter(ctx.srcExpr, type, ctx.builderNode, filter);
+
+        // V2-style: always create a separate RF per target.
+        // Dedup: skip if this scan already has an RF from the same (src, type, builder).
+        boolean alreadyApplied = scan.getAppliedRuntimeFilters().stream()
+                .anyMatch(rf -> rf.getSrcExpr().equals(ctx.srcExpr)
+                        && rf.getType() == type
+                        && rf.getBuilderNode().equals(ctx.builderNode)
+                        && rf.getExprOrder() == ctx.exprOrder
+                        && rf.isBitmapFilterNotIn() == ctx.isNot
+                        && rf.gettMinMaxType() == ctx.singleSideMinMax);
+        if (alreadyApplied) {
+            return true;
         }
+
+        RuntimeFilter filter = new RuntimeFilter(ctx.rfContext.getRuntimeFilterIdGen().getNextId(),
+                ctx.srcExpr, scanSlot, ctx.probeExpr,
+                type, ctx.exprOrder, ctx.builderNode, ctx.isNot, ctx.buildSideNdv,
+                !ctx.hasUnknownColStats, ctx.singleSideMinMax, scan);
+        scan.addAppliedRuntimeFilter(filter);
+        ctx.rfContext.addJoinToTargetMap(ctx.builderNode, scanSlot.getExprId());
+        ctx.rfContext.setTargetExprIdToFilter(scanSlot.getExprId(), filter);
+        ctx.rfContext.setTargetsOnScanNode(scan, scanSlot);
         return true;
+    }
+
+    /**
+     * For non-numeric types, only bare slots or cast-wrapped slots are acceptable
+     * as RF probe expressions at scan level. Function calls like substring() are too
+     * expensive to evaluate per-row at scan time.
+     * For numeric types, any single-slot expression is acceptable.
+     */
+    private boolean isScanAcceptableProbeExpr(Expression probeExpr, Slot scanSlot) {
+        if (scanSlot.getDataType() instanceof NumericType) {
+            return true;
+        }
+        Expression unwrapped = probeExpr;
+        while (unwrapped instanceof Cast) {
+            unwrapped = ((Cast) unwrapped).child();
+        }
+        return unwrapped instanceof Slot;
     }
 
     @Override
@@ -248,8 +225,8 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         if (join.getJoinType().isAsofJoin()) {
             return false;
         }
-        boolean pushed = false;
 
+        // NullSafeEqual cannot be pushed through outer joins
         if (ctx.builderNode instanceof PhysicalHashJoin) {
             /*
              hashJoin( t1.A <=> t2.A )
@@ -259,61 +236,49 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
                 +---->t2
              RF(t1.A <=> t2.A) cannot be pushed down through left outer join
              */
-            EqualPredicate equal = (EqualPredicate) ctx.builderNode.getHashJoinConjuncts().get(ctx.exprOrder);
+            EqualPredicate equal = (EqualPredicate) ((AbstractPhysicalJoin<?, ?>) ctx.builderNode)
+                    .getHashJoinConjuncts().get(ctx.exprOrder);
             if (equal instanceof NullSafeEqual) {
                 if (join.getJoinType().isOuterJoin()) {
                     return false;
                 }
             }
         }
-        AbstractPhysicalPlan leftNode = (AbstractPhysicalPlan) join.child(0);
-        AbstractPhysicalPlan rightNode = (AbstractPhysicalPlan) join.child(1);
-        Set<Expression> probExprList = Sets.newLinkedHashSet();
-        probExprList.add(ctx.probeExpr);
-        Pair<PhysicalRelation, Slot> srcPair = ctx.rfContext.getAliasTransferMap().get(ctx.srcExpr);
-        PhysicalRelation srcNode = (srcPair == null) ? null : srcPair.first;
-        Pair<PhysicalRelation, Slot> targetPair = ctx.rfContext.getAliasTransferMap().get(ctx.probeSlot);
-        if (targetPair == null) {
-            /* cases for "targetPair is null"
-             when probeExpr is output slot of setOperator, targetPair is null
-            */
-            return false;
+
+        boolean pushed = false;
+        // Push to children whose output contains the probe slots
+        Plan leftNode = join.child(0);
+        Plan rightNode = join.child(1);
+        if (leftNode.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
+            pushed |= leftNode.accept(this, ctx);
         }
-        PhysicalRelation target1 = targetPair.first;
-        PhysicalRelation target2 = null;
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().expandRuntimeFilterByInnerJoin) {
-            if (!join.equals(ctx.builderNode)
-                    && (join.getJoinType() == JoinType.INNER_JOIN || join.getJoinType().isSemiJoin())) {
-                for (Expression expr : join.getHashJoinConjuncts()) {
-                    EqualPredicate equalTo = (EqualPredicate) expr;
-                    if (ctx.probeExpr.equals(equalTo.left())) {
-                        probExprList.add(equalTo.right());
-                        targetPair = ctx.rfContext.getAliasTransferMap().get(equalTo.right());
-                        target2 = (targetPair == null) ? null : targetPair.first;
-                    } else if (ctx.probeExpr.equals(equalTo.right())) {
-                        probExprList.add(equalTo.left());
-                        targetPair = ctx.rfContext.getAliasTransferMap().get(equalTo.left());
-                        target2 = (targetPair == null) ? null : targetPair.first;
+        if (rightNode.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
+            pushed |= rightNode.accept(this, ctx);
+        }
+
+        // Expand through join conditions at non-builder inner/semi joins
+        if (!join.equals(ctx.builderNode)
+                && ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().expandRuntimeFilterByInnerJoin
+                && (join.getJoinType() == JoinType.INNER_JOIN || join.getJoinType().isSemiJoin())) {
+            for (Expression expr : join.getHashJoinConjuncts()) {
+                EqualPredicate equalTo = (EqualPredicate) expr;
+                Expression newTarget = null;
+                if (ctx.probeExpr.equals(equalTo.left())) {
+                    newTarget = equalTo.right();
+                } else if (ctx.probeExpr.equals(equalTo.right())) {
+                    newTarget = equalTo.left();
+                }
+                if (newTarget != null && newTarget.getInputSlots().size() == 1
+                        && !newTarget.equals(ctx.srcExpr)) {
+                    PushDownContext expanded = ctx.withNewProbeExpression(newTarget);
+                    if (leftNode.getOutputSet().containsAll(newTarget.getInputSlots())) {
+                        pushed |= leftNode.accept(this, expanded);
                     }
-                    if (target2 != null) {
-                        ctx.rfContext.getExpandedRF().add(
-                                new RuntimeFilterContext.ExpandRF(join, srcNode, target1, target2, equalTo));
+                    if (rightNode.getOutputSet().containsAll(newTarget.getInputSlots())) {
+                        pushed |= rightNode.accept(this, expanded);
                     }
                 }
-                probExprList.remove(ctx.srcExpr);
-
-            }
-        }
-        for (Expression prob : probExprList) {
-            PushDownContext ctxForChild = prob.equals(ctx.probeExpr) ? ctx : ctx.withNewProbeExpression(prob);
-            if (!ctxForChild.isValid()) {
-                continue;
-            }
-            if (ctx.rfContext.isRelationUseByPlan(leftNode, ctxForChild.finalTarget.first)) {
-                pushed |= leftNode.accept(this, ctxForChild);
-            }
-            if (ctx.rfContext.isRelationUseByPlan(rightNode, ctxForChild.finalTarget.first)) {
-                pushed |= rightNode.accept(this, ctxForChild);
             }
         }
         return pushed;
@@ -334,7 +299,8 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
                 +---->t2
              RF(t1.A <=> t2.A) cannot be pushed down through left outer join
              */
-            EqualPredicate equal = (EqualPredicate) ctx.builderNode.getHashJoinConjuncts().get(ctx.exprOrder);
+            EqualPredicate equal = (EqualPredicate) ((AbstractPhysicalJoin<?, ?>) ctx.builderNode)
+                    .getHashJoinConjuncts().get(ctx.exprOrder);
             if (equal instanceof NullSafeEqual) {
                 if (join.getJoinType().isOuterJoin()) {
                     return false;
@@ -342,11 +308,13 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             }
         }
         boolean pushed = false;
-        if (ctx.rfContext.isRelationUseByPlan(join.left(), ctx.finalTarget.first)) {
-            pushed |= join.left().accept(this, ctx);
+        Plan left = join.left();
+        Plan right = join.right();
+        if (left.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
+            pushed |= left.accept(this, ctx);
         }
-        if (ctx.rfContext.isRelationUseByPlan(join.right(), ctx.finalTarget.first)) {
-            pushed |= join.right().accept(this, ctx);
+        if (right.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
+            pushed |= right.accept(this, ctx);
         }
         return pushed;
     }
@@ -356,44 +324,14 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         if (!project.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
             return false;
         }
-        // project ( A+1 as x)
-        // probeExpr: abs(x) => abs(A+1)
-        PushDownContext ctxProjectProbeExpr = ctx;
-        if (ctx.probeExpr instanceof SlotReference) {
-            for (NamedExpression namedExpression : project.getProjects()) {
-                if (namedExpression instanceof Alias
-                        && namedExpression.getExprId() == ((SlotReference) ctx.probeExpr).getExprId()) {
-                    if (((Alias) namedExpression).child().getInputSlots().size() > 1) {
-                        // only support one-slot probeExpr
-                        return false;
-                    }
-                    ctxProjectProbeExpr = ctx.withNewProbeExpression(((Alias) namedExpression).child());
-                    break;
-                }
-            }
-        } else {
-            for (NamedExpression namedExpression : project.getProjects()) {
-                if (namedExpression instanceof Alias
-                        && ctx.probeExpr.getInputSlots().contains(namedExpression.toSlot())) {
-                    if (((Alias) namedExpression).child().getInputSlots().size() > 1) {
-                        // only support one-slot probeExpr
-                        return false;
-                    }
-                    Map<Expression, Expression> map = Maps.newHashMap();
-                    // probeExpr only has one input slot
-                    map.put(ctx.probeExpr.getInputSlots().iterator().next(),
-                            ((Alias) namedExpression).child());
-                    Expression newProbeExpr = ctx.probeExpr.accept(ExpressionVisitors.EXPRESSION_MAP_REPLACER, map);
-                    ctxProjectProbeExpr = ctx.withNewProbeExpression(newProbeExpr);
-                    break;
-                }
-            }
+        // Rewrite probeExpr through project aliases using v2-style replaceMap
+        Map<Slot, Expression> replaceMap = ExpressionUtils.generateReplaceMap(project.getProjects());
+        Expression newProbeExpr = ctx.probeExpr.rewriteDownShortCircuit(
+                e -> replaceMap.getOrDefault(e, e));
+        if (newProbeExpr.getInputSlots().size() == 1) {
+            return project.child().accept(this, ctx.withNewProbeExpression(newProbeExpr));
         }
-        if (!ctxProjectProbeExpr.isValid()) {
-            return false;
-        } else {
-            return project.child().accept(this, ctxProjectProbeExpr);
-        }
+        return false;
     }
 
     @Override
@@ -401,42 +339,39 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         if (!setOperation.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
             return false;
         }
+        List<Slot> output = setOperation.getOutput();
+        List<List<SlotReference>> childrenOutputs = setOperation.getRegularChildrenOutputs();
+        if (childrenOutputs.isEmpty()) {
+            return false;
+        }
         boolean pushedDown = false;
-        int projIndex = -1;
-        Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(ctx.probeExpr);
-        if (probeSlot == null) {
-            return false;
-        }
-        List<NamedExpression> output = setOperation.getOutputs();
-        for (int j = 0; j < output.size(); j++) {
-            NamedExpression expr = output.get(j);
-            if (expr.getExprId().equals(probeSlot.getExprId())) {
-                projIndex = j;
-                break;
-            }
-        }
-        if (projIndex == -1) {
-            return false;
-        }
-        // probeExpr only has one input slot
         for (int i = 0; i < setOperation.children().size(); i++) {
-            Map<Expression, Expression> map = Maps.newHashMap();
-            map.put(probeSlot,
-                    setOperation.getRegularChildrenOutputs().get(i).get(projIndex));
-            Expression newProbeExpr = ctx.probeExpr.accept(ExpressionVisitors.EXPRESSION_MAP_REPLACER, map);
-            PushDownContext childPushDownContext = ctx.withNewProbeExpression(newProbeExpr);
-            if (childPushDownContext.isValid()) {
-                /*
-                 * childPushDownContext is not valid, for example:
-                 * setop
-                 *   +--->scan t1(A, B)
-                 *   +--->select 0, 0
-                 * push down context for "select 0, 0" is invalid
-                 */
-                pushedDown |= setOperation.child(i).accept(this, childPushDownContext);
+            Map<Slot, Expression> replaceMap = new HashMap<>();
+            for (int j = 0; j < output.size(); j++) {
+                replaceMap.put(output.get(j), childrenOutputs.get(i).get(j));
+            }
+            Expression newProbeExpr = ctx.probeExpr.rewriteDownShortCircuit(
+                    e -> replaceMap.getOrDefault(e, e));
+            if (newProbeExpr.getInputSlots().size() == 1) {
+                pushedDown |= setOperation.child(i).accept(this, ctx.withNewProbeExpression(newProbeExpr));
             }
         }
         return pushedDown;
+    }
+
+    @Override
+    public Boolean visitPhysicalRepeat(PhysicalRepeat<? extends Plan> repeat, PushDownContext ctx) {
+        if (!repeat.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
+            return false;
+        }
+        // Only push through Repeat if the probe slot appears in ALL grouping sets.
+        // A slot absent from a grouping set is erased to NULL for rows of that group,
+        // so filtering on it would incorrectly discard needed rows.
+        Set<Expression> commonGroupingExprs = repeat.getCommonGroupingSetExpressions();
+        if (!commonGroupingExprs.containsAll(ctx.probeExpr.getInputSlots())) {
+            return false;
+        }
+        return repeat.child().accept(this, ctx);
     }
 
     @Override

@@ -41,6 +41,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/data_type_serde/complex_type_deserialize_util.h"
 #include "core/field.h"
 #include "core/types.h"
 #include "storage/olap_common.h"
@@ -176,6 +177,62 @@ TEST_F(DataTypeMapSerDeTest, ArrowMemNotAligned) {
     auto serde_map = std::make_shared<DataTypeMapSerDe>(serde_str_key, serde_str_value);
     auto st = serde_map->read_column_from_arrow(*ser_col, arr.get(), 0, 1, tz);
     EXPECT_TRUE(st.ok());
+}
+
+// Stream Load JSON stores Map as String via to_json_string, then converts back
+// via from_string → split_by_delimiter. The splitter must handle '\' escapes
+// so that '\"' inside a value doesn't flip quote state and expose inner ':'/','.
+TEST_F(DataTypeMapSerDeTest, SplitByDelimiterHandlesBackslashEscape) {
+    DataTypeSerDe::FormatOptions opts;
+    opts.map_key_delim = ':';
+    opts.collection_delim = ',';
+
+    auto make_map_type = []() {
+        auto str = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+        return std::make_shared<DataTypeMap>(str, str);
+    };
+
+    // split_by_delimiter: '\"' must not toggle quote state
+    // Input (after stripping outer {}): "k":"[{\"a\":\"b\\nc:"
+    // Expected: 2 elements — key "k" and value "[{\"a\":\"b\\nc:"
+    {
+        std::string inner = "\"k\":\"[{\\\"a\\\":\\\"b\\\\nc:\"";
+        StringRef str(inner.data(), inner.size());
+        auto result = ComplexTypeDeserializeUtil::split_by_delimiter(
+                str, [&](char c) { return c == opts.map_key_delim || c == opts.collection_delim; });
+        EXPECT_EQ(result.size(), 2u);
+    }
+
+    // from_string: value ending with ':' (map_key_delim) must not cause split error
+    // Simulates to_json_string output: {"k":"[{\"a\":\"b\\nc:"}
+    {
+        auto map_type = make_map_type();
+        auto col = map_type->create_column();
+        std::string map_str = "{\"k\":\"[{\\\"a\\\":\\\"b\\\\nc:\"}";
+        StringRef ref(map_str.data(), map_str.size());
+        EXPECT_TRUE(map_type->get_serde()->from_string(ref, *col, opts).ok());
+        EXPECT_EQ(col->size(), 1u);
+    }
+
+    // from_string: value ending with ',' (collection_delim) — same class of bug
+    {
+        auto map_type = make_map_type();
+        auto col = map_type->create_column();
+        std::string map_str = "{\"k\":\"[{\\\"a\\\":\\\"b\\\\nc,\"}";
+        StringRef ref(map_str.data(), map_str.size());
+        EXPECT_TRUE(map_type->get_serde()->from_string(ref, *col, opts).ok());
+        EXPECT_EQ(col->size(), 1u);
+    }
+
+    // Control: value ending with ')' (not a delimiter) — always worked
+    {
+        auto map_type = make_map_type();
+        auto col = map_type->create_column();
+        std::string map_str = "{\"k\":\"[{\\\"a\\\":\\\"b\\\\nc)\"}";
+        StringRef ref(map_str.data(), map_str.size());
+        EXPECT_TRUE(map_type->get_serde()->from_string(ref, *col, opts).ok());
+        EXPECT_EQ(col->size(), 1u);
+    }
 }
 
 } // namespace doris

@@ -23,6 +23,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.persist.gson.GsonUtilsBase;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -174,7 +175,7 @@ public abstract class AbstractJob implements Writable {
     public static AbstractJob read(DataInput in) throws IOException {
         String json = Text.readString(in);
         if (COMPRESSED_JOB_ID.equals(json)) {
-            return GsonUtils.fromJsonCompressed(in, AbstractJob.class);
+            return GsonUtilsBase.fromJsonCompressed(in, AbstractJob.class, GsonUtils.GSON);
         } else {
             return GsonUtils.GSON.fromJson(json, AbstractJob.class);
         }
@@ -199,7 +200,7 @@ public abstract class AbstractJob implements Writable {
         if (!isDone() && ((type == JobType.BACKUP && Config.backup_job_compressed_serialization)
                 || (type == JobType.RESTORE && Config.restore_job_compressed_serialization))) {
             Text.writeString(out, COMPRESSED_JOB_ID);
-            GsonUtils.toJsonCompressed(out, this);
+            GsonUtilsBase.toJsonCompressed(out, this, GsonUtils.GSON);
         } else {
             Text.writeString(out, GsonUtils.GSON.toJson(this));
         }

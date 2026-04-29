@@ -436,3 +436,15 @@ github_utils__maybe_enable_external_stage_timer() {
 }
 
 github_utils__maybe_enable_external_stage_timer
+
+file_changed_thirdparty() {
+    local all_files
+    all_files=$(cat all_files)
+    if [[ -z ${all_files} ]]; then echo "Failed to get pr changed files." && return 0; fi
+    for af in ${all_files}; do
+        if [[ "${af}" == 'thirdparty/'* ]]; then
+            echo "thirdparty changed" && return 0
+        fi
+    done
+    echo "thirdparty not changed" && return 1
+}

@@ -25,6 +25,7 @@ import org.apache.doris.filesystem.spi.HadoopAuthenticator;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.RemoteIterator;
 
+import java.io.Closeable;
 import java.io.IOException;
 
 /**
@@ -36,6 +37,7 @@ class HdfsFileIterator implements FileIterator {
 
     private final RemoteIterator<FileStatus> delegate;
     private final HadoopAuthenticator authenticator;
+    private volatile boolean closed;
 
     HdfsFileIterator(RemoteIterator<FileStatus> delegate, HadoopAuthenticator authenticator) {
         this.delegate = delegate;
@@ -57,6 +59,15 @@ class HdfsFileIterator implements FileIterator {
 
     @Override
     public void close() throws IOException {
-        // RemoteIterator has no close(); listing completes on exhaustion.
+        if (closed) {
+            return;
+        }
+        closed = true;
+        // RemoteIterator itself has no close() method in the public Hadoop API, but some
+        // concrete implementations (e.g. DistributedFileSystem's listing iterator) also
+        // implement Closeable to release server-side cursors. Best-effort propagation.
+        if (delegate instanceof Closeable) {
+            ((Closeable) delegate).close();
+        }
     }
 }

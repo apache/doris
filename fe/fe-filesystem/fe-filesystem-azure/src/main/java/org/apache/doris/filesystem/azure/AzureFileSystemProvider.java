@@ -21,6 +21,8 @@ import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -29,9 +31,21 @@ import java.util.Map;
  * <p>Registered via META-INF/services/org.apache.doris.filesystem.spi.FileSystemProvider.
  *
  * <p>Identified by the presence of {@code AZURE_ACCOUNT_NAME}, {@code azure.account_name},
- * or an endpoint containing {@code blob.core.windows.net}.
+ * or an endpoint that contains a known Azure Blob Storage host suffix from one of the
+ * sovereign clouds.
  */
 public class AzureFileSystemProvider implements FileSystemProvider {
+
+    /**
+     * Recognised Azure Blob Storage host suffixes across sovereign clouds.
+     * Includes Azure Public, Azure China, Azure US Government, and the deprecated
+     * Azure Germany cloud (still spec'd for completeness).
+     */
+    private static final List<String> AZURE_BLOB_HOST_SUFFIXES = Arrays.asList(
+            "blob.core.windows.net",
+            "blob.core.chinacloudapi.cn",
+            "blob.core.usgovcloudapi.net",
+            "blob.core.cloudapi.de");
 
     @Override
     public boolean supports(Map<String, String> properties) {
@@ -45,7 +59,15 @@ public class AzureFileSystemProvider implements FileSystemProvider {
         if (endpoint == null) {
             endpoint = properties.get(AzureObjStorage.PROP_ENDPOINT_ALT);
         }
-        return endpoint != null && endpoint.contains("blob.core.windows.net");
+        if (endpoint == null) {
+            return false;
+        }
+        for (String suffix : AZURE_BLOB_HOST_SUFFIXES) {
+            if (endpoint.contains(suffix)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override

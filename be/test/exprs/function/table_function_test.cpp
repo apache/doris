@@ -66,9 +66,9 @@ protected:
             EXPECT_CALL(*_children[i], execute(_, _, _))
                     .WillRepeatedly(DoAll(SetArgPointee<2>(_column_ids[i]), Return(Status::OK())));
             const int col_id = _column_ids[i];
-            EXPECT_CALL(*_children[i], execute_column(_, _, _, _, _))
-                    .WillRepeatedly(Invoke([col_id](VExprContext*, const Block* block, Selector*,
-                                                    size_t, ColumnPtr& result) {
+            EXPECT_CALL(*_children[i], execute_column_impl(_, _, _, _, _))
+                    .WillRepeatedly(Invoke([col_id](VExprContext*, const Block* block,
+                                                    const Selector*, size_t, ColumnPtr& result) {
                         result = block->get_by_position(col_id).column;
                         return Status::OK();
                     }));

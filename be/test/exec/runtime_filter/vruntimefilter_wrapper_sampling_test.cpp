@@ -37,8 +37,8 @@ public:
 
     Status execute(VExprContext*, Block*, int*) const override { return Status::OK(); }
 
-    Status execute_column(VExprContext*, const Block*, Selector*, size_t,
-                          ColumnPtr&) const override {
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
         return Status::OK();
     }
 

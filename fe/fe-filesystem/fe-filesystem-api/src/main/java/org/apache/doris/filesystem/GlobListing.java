@@ -22,10 +22,10 @@ import java.util.List;
 /**
  * Result of a {@link FileSystem#globListWithLimit} operation.
  *
- * <p>Carries the matching file list plus the S3 bucket, prefix, and the maximum file key
- * (the last key seen in the full listing, possibly beyond the returned page).
- * {@code maxFile} allows callers to determine whether more files are available after the
- * returned page without issuing an additional listing request.
+ * <p>Carries the matching file list plus the S3 bucket, prefix, and the {@code maxFile}
+ * pagination cursor.  See {@link #getMaxFile()} for the precise cursor semantics:
+ * callers can pass it back as {@code startAfter} on a subsequent
+ * {@link FileSystem#globListWithLimit} call to fetch the next page.
  */
 public final class GlobListing {
 
@@ -35,8 +35,14 @@ public final class GlobListing {
     /** Key prefix used for the listing (longest non-glob prefix of the path pattern). */
     private final String prefix;
     /**
-     * The key of the last matching object observed in the listing, including objects
-     * beyond the page limit. Empty string if no objects were observed at all.
+     * Pagination cursor.
+     * <ul>
+     *   <li>When a page limit ({@code maxFiles} / {@code maxBytes}) was hit AND another
+     *       matching key exists past it: this is that next matching key. Pass back as
+     *       {@code startAfter} to fetch the subsequent page.</li>
+     *   <li>Otherwise (listing was exhaustive): this is the last matching key in the
+     *       returned page, or empty string if nothing matched at all.</li>
+     * </ul>
      */
     private final String maxFile;
 

@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <list>
+
 #include "exec/operator/scan_operator.h"
 
 #ifdef BE_TEST
@@ -80,6 +82,29 @@ class MockScanOperatorX final : public ScanOperatorX<MockScanLocalState> {
 public:
     friend class OlapScanLocalState;
     MockScanOperatorX() = default;
+
+    void set_output_block(Block block) {
+        _output_blocks.clear();
+        _output_blocks.push_back(std::move(block));
+    }
+
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override {
+        if (_output_blocks.empty()) {
+            *eos = true;
+            return Status::OK();
+        }
+
+        *eos = false;
+        block->swap(_output_blocks.front());
+        _output_blocks.pop_front();
+        if (_output_blocks.empty()) {
+            *eos = true;
+        }
+        return Status::OK();
+    }
+
+private:
+    std::list<Block> _output_blocks;
 };
 } // namespace doris
 #endif

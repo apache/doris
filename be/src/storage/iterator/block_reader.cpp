@@ -30,6 +30,7 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_nullable.h"
@@ -53,6 +54,8 @@ class ColumnPredicate;
 
 namespace doris {
 using namespace ErrorCode;
+
+static constexpr int32_t BLOCK_SIZE_CHECK_INTERVAL_ROWS = 64;
 
 BlockReader::~BlockReader() {
     for (int i = 0; i < _agg_functions.size(); ++i) {
@@ -165,7 +168,7 @@ Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
     }
 
     _stored_data_columns =
-            _next_row.block->create_same_struct_block(_reader_context.batch_size)->mutate_columns();
+            _next_row.block->create_same_struct_block(batch_max_rows())->mutate_columns();
 
     _stored_has_null_tag.resize(_stored_data_columns.size());
     _stored_has_variable_length_tag.resize(_stored_data_columns.size());
@@ -344,10 +347,10 @@ Status BlockReader::_replace_key_next_block(Block* block, bool* eof) {
     // currently seq mapping only support mor table
     // so this will not be executed for the time being
     if (UNLIKELY(_reader_context.record_rowids)) {
-        _block_row_locations.resize(batch_size());
+        _block_row_locations.resize(batch_max_rows());
     }
     auto merged_row = 0;
-    while (target_block_row < batch_size() && !_eof) {
+    while (target_block_row < batch_max_rows() && !_eof) {
         RETURN_IF_ERROR(_insert_data_normal(target_columns));
         // use the first line to init _seq_columns
         for (auto it = _seq_map_not_in_origin_block.cbegin();
@@ -385,9 +388,23 @@ Status BlockReader::_replace_key_next_block(Block* block, bool* eof) {
                 break;
             }
         }
+        // Byte-budget check: after the inner loop _next_row is either EOF or the next different
+        // key, so it is safe to stop accumulating here without repeating any row.
+        if (target_block_row % BLOCK_SIZE_CHECK_INTERVAL_ROWS == 0 &&
+            _reached_byte_budget(target_columns)) {
+            if (UNLIKELY(_reader_context.record_rowids)) {
+                _block_row_locations.resize(target_block_row);
+            }
+            break;
+        }
     }
     _merged_rows += merged_row;
     return Status::OK();
+}
+
+bool BlockReader::_reached_byte_budget(const MutableColumns& columns) const {
+    return config::enable_adaptive_batch_size && _reader_context.preferred_block_size_bytes > 0 &&
+           Block::columns_byte_size(columns) >= _reader_context.preferred_block_size_bytes;
 }
 
 void BlockReader::_compare_sequence_map_and_replace(MutableColumns& columns) {
@@ -476,9 +493,16 @@ Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
         }
 
         if (!_next_row.is_same) {
-            if (target_block_row == _reader_context.batch_size) {
+            if (target_block_row == batch_max_rows()) {
                 break;
             }
+            // Byte-budget check at group boundary: _next_row is the first row of the new group
+            // and is still pending (not yet inserted), so stopping here is safe.
+            if (target_block_row % BLOCK_SIZE_CHECK_INTERVAL_ROWS == 0 &&
+                _reached_byte_budget(target_columns)) {
+                break;
+            }
+
             _agg_data_counters.push_back(_last_agg_data_counter);
             _last_agg_data_counter = 0;
 
@@ -510,7 +534,7 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
     auto target_block_row = 0;
     auto target_columns = block->mutate_columns();
     if (UNLIKELY(_reader_context.record_rowids)) {
-        _block_row_locations.resize(_reader_context.batch_size);
+        _block_row_locations.resize(batch_max_rows());
     }
 
     do {
@@ -538,7 +562,15 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
             LOG(WARNING) << "next failed: " << res;
             return res;
         }
-    } while (target_block_row < _reader_context.batch_size);
+        // Byte-budget check: _next_row is already saved so stopping here is safe.
+        if (target_block_row % BLOCK_SIZE_CHECK_INTERVAL_ROWS == 0 &&
+            _reached_byte_budget(target_columns)) {
+            if (UNLIKELY(_reader_context.record_rowids)) {
+                _block_row_locations.resize(target_block_row);
+            }
+            break;
+        }
+    } while (target_block_row < batch_max_rows());
 
     if (_delete_sign_available) {
         int delete_sign_idx = _reader_context.tablet_schema->field_index(DELETE_SIGN);
@@ -602,9 +634,11 @@ void BlockReader::_append_agg_data(MutableColumns& columns) {
     _stored_row_ref.push_back(_next_row);
     _last_agg_data_counter++;
 
-    // execute aggregate when have `batch_size` column or some ref invalid soon
+    // execute aggregate when accumulated `batch_max_rows()` rows or some ref invalid soon
+    // `_stored_data_columns` is sized to `batch_max_rows()`,
+    // this flush keeps the number of rows in `_stored_row_ref` within `batch_max_rows()`.
     bool is_last = (_next_row.block->rows() == _next_row.row_pos + 1);
-    if (is_last || _stored_row_ref.size() == _reader_context.batch_size) {
+    if (is_last || _stored_row_ref.size() == batch_max_rows()) {
         _update_agg_data(columns);
     }
 }

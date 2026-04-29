@@ -31,7 +31,6 @@
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "exprs/function/cast/cast_to_string.h"
-#include "util/io_helper.h"
 
 namespace doris {
 
@@ -80,7 +79,9 @@ Status DataTypeDateV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     }
     auto& column_data = assert_cast<ColumnDateV2&>(column);
     DateV2Value<DateV2ValueType> val;
-    if (StringRef str(slice.data, slice.size); !read_date_v2_text_impl(val, str)) {
+    StringRef str(slice.data, slice.size);
+    CastParameters params;
+    if (!CastToDateV2::from_string_non_strict_mode(str, val, nullptr, params)) {
         return Status::InvalidArgument("parse date fail, string: '{}'", str.to_string());
     }
     column_data.insert_value(val);

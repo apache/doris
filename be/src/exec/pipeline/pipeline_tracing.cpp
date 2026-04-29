@@ -136,7 +136,7 @@ void PipelineTracerContext::_dump_query(TUniqueId query_id) {
 
     _last_dump_time = MonotonicSeconds();
 
-    _update([&](QueryTracesMap& new_map) { _data.load()->erase(QueryID {query_id}); });
+    _update([&](QueryTracesMap& new_map) { new_map.erase(QueryID {query_id}); });
 
     {
         std::unique_lock<std::mutex> l(_tg_lock);

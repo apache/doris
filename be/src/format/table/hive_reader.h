@@ -21,49 +21,24 @@
 
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
-#include "format/table/table_format_reader.h"
+#include "format/table/table_schema_change_helper.h"
 namespace doris {
 
-// By holding a parquet/orc reader, used to read the parquet/orc table of hive.
-class HiveReader : public TableFormatReader, public TableSchemaChangeHelper {
-public:
-    HiveReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
-               RuntimeState* state, const TFileScanRangeParams& params, const TFileRangeDesc& range,
-               io::IOContext* io_ctx, const std::set<TSlotId>* is_file_slot,
-               FileMetaCache* meta_cache)
-            : TableFormatReader(std::move(file_format_reader), state, profile, params, range,
-                                io_ctx, meta_cache),
-              _is_file_slot(is_file_slot) {};
-
-    ~HiveReader() override = default;
-
-    Status get_next_block_inner(Block* block, size_t* read_rows, bool* eof) final;
-
-    Status init_row_filters() final { return Status::OK(); };
-
-protected:
-    // https://github.com/apache/doris/pull/23369
-    const std::set<TSlotId>* _is_file_slot = nullptr;
-};
-
-class HiveOrcReader final : public HiveReader {
+class HiveOrcReader final : public OrcReader, public TableSchemaChangeHelper {
 public:
     ENABLE_FACTORY_CREATOR(HiveOrcReader);
-    HiveOrcReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
-                  RuntimeState* state, const TFileScanRangeParams& params,
-                  const TFileRangeDesc& range, io::IOContext* io_ctx,
-                  const std::set<TSlotId>* is_file_slot, FileMetaCache* meta_cache)
-            : HiveReader(std::move(file_format_reader), profile, state, params, range, io_ctx,
-                         is_file_slot, meta_cache) {};
+    HiveOrcReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
+                  const TFileRangeDesc& range, size_t batch_size, const std::string& ctz,
+                  io::IOContext* io_ctx, const std::set<TSlotId>* is_file_slot,
+                  FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true)
+            : OrcReader(profile, state, params, range, batch_size, ctz, io_ctx, meta_cache,
+                        enable_lazy_mat),
+              _is_file_slot(is_file_slot) {}
+
     ~HiveOrcReader() final = default;
 
-    Status init_reader(
-            const std::vector<std::string>& read_table_col_names,
-            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
-            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
-            const RowDescriptor* row_descriptor,
-            const VExprContextSPtrs* not_single_slot_filter_conjuncts,
-            const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
+protected:
+    Status on_before_init_reader(ReaderInitContext* ctx) override;
 
 private:
     static ColumnIdResult _create_column_ids(const orc::Type* orc_type,
@@ -71,29 +46,26 @@ private:
 
     static ColumnIdResult _create_column_ids_by_top_level_col_index(
             const orc::Type* orc_type, const TupleDescriptor* tuple_descriptor);
+
+    const std::set<TSlotId>* _is_file_slot = nullptr;
 };
 
-class HiveParquetReader final : public HiveReader {
+class HiveParquetReader final : public ParquetReader, public TableSchemaChangeHelper {
 public:
     ENABLE_FACTORY_CREATOR(HiveParquetReader);
-    HiveParquetReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
-                      RuntimeState* state, const TFileScanRangeParams& params,
-                      const TFileRangeDesc& range, io::IOContext* io_ctx,
-                      const std::set<TSlotId>* is_file_slot, FileMetaCache* meta_cache)
-            : HiveReader(std::move(file_format_reader), profile, state, params, range, io_ctx,
-                         is_file_slot, meta_cache) {};
+    HiveParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                      const TFileRangeDesc& range, size_t batch_size, const cctz::time_zone* ctz,
+                      io::IOContext* io_ctx, RuntimeState* state,
+                      const std::set<TSlotId>* is_file_slot, FileMetaCache* meta_cache = nullptr,
+                      bool enable_lazy_mat = true)
+            : ParquetReader(profile, params, range, batch_size, ctz, io_ctx, state, meta_cache,
+                            enable_lazy_mat),
+              _is_file_slot(is_file_slot) {}
+
     ~HiveParquetReader() final = default;
 
-    Status init_reader(
-            const std::vector<std::string>& read_table_col_names,
-            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
-            const VExprContextSPtrs& conjuncts,
-            phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
-                    slot_id_to_predicates,
-            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-            const std::unordered_map<std::string, int>* colname_to_slot_id,
-            const VExprContextSPtrs* not_single_slot_filter_conjuncts,
-            const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
+protected:
+    Status on_before_init_reader(ReaderInitContext* ctx) override;
 
 private:
     static ColumnIdResult _create_column_ids(const FieldDescriptor* field_desc,
@@ -101,5 +73,7 @@ private:
 
     static ColumnIdResult _create_column_ids_by_top_level_col_index(
             const FieldDescriptor* field_desc, const TupleDescriptor* tuple_descriptor);
+
+    const std::set<TSlotId>* _is_file_slot = nullptr;
 };
 } // namespace doris

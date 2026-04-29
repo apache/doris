@@ -42,6 +42,10 @@ struct JavaNativeMethods {
 
     // Batch free multiple addresses; addrs is a long[]
     static void memoryFreeBatch(JNIEnv* env, jclass clazz, jlongArray addrs);
+
+    // Request a MaxCompute block id from FE via BE.
+    static jlong requestMaxComputeBlockId(JNIEnv* env, jclass clazz, jlong txn_id,
+                                          jstring write_session_id);
 };
 
 } // namespace doris

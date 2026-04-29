@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS multi_catalog;
 USE multi_catalog;
 
-CREATE TABLE `orc_partitioned_one_column`(
+drop table if exists `orc_partitioned_one_column`;
+
+create table `orc_partitioned_one_column`(
   `t_float` float,
   `t_string` string,
   `t_timestamp` timestamp)

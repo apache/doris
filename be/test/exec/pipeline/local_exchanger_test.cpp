@@ -134,7 +134,8 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
         auto* get_block_failed_counter =
                 ADD_TIMER(profile, "_get_block_failed_counter" + std::to_string(i));
         auto* copy_data_timer = ADD_TIMER(profile, "_copy_data_timer" + std::to_string(i));
-        _local_states[i] = std::make_unique<LocalExchangeSourceLocalState>(nullptr, nullptr);
+        _local_states[i] =
+                std::make_unique<LocalExchangeSourceLocalState>(_runtime_state.get(), nullptr);
         _local_states[i]->_exchanger = shared_state->exchanger.get();
         _local_states[i]->_get_block_failed_counter = get_block_failed_counter;
         _local_states[i]->_copy_data_timer = copy_data_timer;
@@ -362,7 +363,8 @@ TEST_F(LocalExchangerTest, PassthroughExchanger) {
         auto* get_block_failed_counter =
                 ADD_TIMER(profile, "_get_block_failed_counter" + std::to_string(i));
         auto* copy_data_timer = ADD_TIMER(profile, "_copy_data_timer" + std::to_string(i));
-        _local_states[i] = std::make_unique<LocalExchangeSourceLocalState>(nullptr, nullptr);
+        _local_states[i] =
+                std::make_unique<LocalExchangeSourceLocalState>(_runtime_state.get(), nullptr);
         _local_states[i]->_exchanger = shared_state->exchanger.get();
         _local_states[i]->_get_block_failed_counter = get_block_failed_counter;
         _local_states[i]->_copy_data_timer = copy_data_timer;
@@ -562,7 +564,8 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
         auto* get_block_failed_counter =
                 ADD_TIMER(profile, "_get_block_failed_counter" + std::to_string(i));
         auto* copy_data_timer = ADD_TIMER(profile, "_copy_data_timer" + std::to_string(i));
-        _local_states[i] = std::make_unique<LocalExchangeSourceLocalState>(nullptr, nullptr);
+        _local_states[i] =
+                std::make_unique<LocalExchangeSourceLocalState>(_runtime_state.get(), nullptr);
         _local_states[i]->_exchanger = shared_state->exchanger.get();
         _local_states[i]->_get_block_failed_counter = get_block_failed_counter;
         _local_states[i]->_copy_data_timer = copy_data_timer;
@@ -770,7 +773,8 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
         auto* get_block_failed_counter =
                 ADD_TIMER(profile, "_get_block_failed_counter" + std::to_string(i));
         auto* copy_data_timer = ADD_TIMER(profile, "_copy_data_timer" + std::to_string(i));
-        _local_states[i] = std::make_unique<LocalExchangeSourceLocalState>(nullptr, nullptr);
+        _local_states[i] =
+                std::make_unique<LocalExchangeSourceLocalState>(_runtime_state.get(), nullptr);
         _local_states[i]->_exchanger = shared_state->exchanger.get();
         _local_states[i]->_get_block_failed_counter = get_block_failed_counter;
         _local_states[i]->_copy_data_timer = copy_data_timer;
@@ -973,7 +977,8 @@ TEST_F(LocalExchangerTest, AdaptivePassthroughExchanger) {
         auto* get_block_failed_counter =
                 ADD_TIMER(profile, "_get_block_failed_counter" + std::to_string(i));
         auto* copy_data_timer = ADD_TIMER(profile, "_copy_data_timer" + std::to_string(i));
-        _local_states[i] = std::make_unique<LocalExchangeSourceLocalState>(nullptr, nullptr);
+        _local_states[i] =
+                std::make_unique<LocalExchangeSourceLocalState>(_runtime_state.get(), nullptr);
         _local_states[i]->_exchanger = shared_state->exchanger.get();
         _local_states[i]->_get_block_failed_counter = get_block_failed_counter;
         _local_states[i]->_copy_data_timer = copy_data_timer;
@@ -1208,7 +1213,8 @@ TEST_F(LocalExchangerTest, TestShuffleExchangerWrongMap) {
         auto* get_block_failed_counter =
                 ADD_TIMER(profile, "_get_block_failed_counter" + std::to_string(i));
         auto* copy_data_timer = ADD_TIMER(profile, "_copy_data_timer" + std::to_string(i));
-        _local_states[i] = std::make_unique<LocalExchangeSourceLocalState>(nullptr, nullptr);
+        _local_states[i] =
+                std::make_unique<LocalExchangeSourceLocalState>(_runtime_state.get(), nullptr);
         _local_states[i]->_exchanger = shared_state->exchanger.get();
         _local_states[i]->_get_block_failed_counter = get_block_failed_counter;
         _local_states[i]->_copy_data_timer = copy_data_timer;
