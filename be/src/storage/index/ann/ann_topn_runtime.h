@@ -37,8 +37,6 @@
 
 #include "core/column/column.h"
 #include "core/data_type/primitive_type.h"
-#include "exprs/varray_literal.h"
-#include "exprs/vcast_expr.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
