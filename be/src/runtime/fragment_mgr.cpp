@@ -299,8 +299,11 @@ void ConcurrentContextMap<Key, Value, ValueType>::insert(const Key& query_id,
 template <typename Key, typename Value, typename ValueType>
 void ConcurrentContextMap<Key, Value, ValueType>::clear() {
     for (auto& pair : _internal_map) {
-        std::unique_lock lock(*pair.first);
-        auto& map = pair.second;
+        phmap::flat_hash_map<Key, Value> map;
+        {
+            std::unique_lock lock(*pair.first);
+            map.swap(pair.second);
+        }
         map.clear();
     }
 }

@@ -18,6 +18,8 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gtest/gtest.h>
 
+#include <cstdlib>
+
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -151,6 +153,37 @@ TEST_F(FragmentMgrCrossClusterCancelTest, CancelWorkerInvalidQueryDetectionSkips
                                            running_queries_on_all_fes, running_fes, ts);
     EXPECT_TRUE(queries_lost_coordinator.empty());
     EXPECT_TRUE(queries_pipeline_task_leak.empty());
+}
+
+TEST(FragmentMgrDelayDeleteMapTest, ClearShouldNotAbortWhenReleasingLastQueryContextRef) {
+    ASSERT_EXIT(
+            {
+                auto* exec_env = ExecEnv::GetInstance();
+                exec_env->_fragment_mgr = new FragmentMgr(exec_env);
+
+                TUniqueId query_id;
+                query_id.__set_hi(101);
+                query_id.__set_lo(202);
+
+                TQueryOptions query_options;
+                query_options.__set_query_type(TQueryType::SELECT);
+                query_options.__set_execution_timeout(60);
+                query_options.__set_mem_limit(64L * 1024 * 1024);
+
+                TNetworkAddress fe_addr;
+                fe_addr.hostname = "127.0.0.1";
+                fe_addr.port = 9030;
+
+                auto query_ctx = QueryContext::create(query_id, exec_env, query_options, fe_addr,
+                                                      /*is_nereids*/ true, fe_addr,
+                                                      QuerySource::INTERNAL_FRONTEND);
+                exec_env->_fragment_mgr->_query_ctx_map_delay_delete.insert(query_id, query_ctx);
+                query_ctx.reset();
+
+                exec_env->_fragment_mgr->_query_ctx_map_delay_delete.clear();
+                std::_Exit(0);
+            },
+            testing::ExitedWithCode(0), "");
 }
 
 } // namespace doris
