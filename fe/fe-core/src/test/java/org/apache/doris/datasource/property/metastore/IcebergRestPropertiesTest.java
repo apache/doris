@@ -24,9 +24,7 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
-import org.apache.iceberg.aws.AssumeRoleAwsClientFactory;
 import org.apache.iceberg.aws.AwsClientProperties;
-import org.apache.iceberg.aws.AwsProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 import org.junit.jupiter.api.Assertions;
@@ -478,7 +476,7 @@ public class IcebergRestPropertiesTest {
     }
 
     @Test
-    public void testGlueSigningNameValidWithIamRoleOnly() {
+    public void testGlueSigningNameWithIamRoleFails() {
         Map<String, String> props = new HashMap<>();
         props.put("iceberg.rest.uri", "http://localhost:8080");
         props.put("iceberg.rest.signing-name", "glue");
@@ -487,32 +485,13 @@ public class IcebergRestPropertiesTest {
         props.put("iceberg.rest.sigv4-enabled", "true");
 
         IcebergRestProperties restProps = new IcebergRestProperties(props);
-        Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
-
-        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
-        Assertions.assertEquals("glue", catalogProps.get("rest.signing-name"));
-        Assertions.assertEquals("us-east-1", catalogProps.get("rest.signing-region"));
-        Assertions.assertEquals(AssumeRoleAwsClientFactory.class.getName(),
-                catalogProps.get(AwsProperties.CLIENT_FACTORY));
-        Assertions.assertFalse(catalogProps.containsKey(S3FileIOProperties.CLIENT_FACTORY));
-        Assertions.assertEquals("arn:aws:iam::123456789012:role/MyGlueRole",
-                catalogProps.get("client.assume-role.arn"));
-        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
-        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider.s3.role_arn"));
-        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider.s3.region"));
-        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider.s3.credentials_provider_type"));
-        Assertions.assertFalse(catalogProps.containsKey(
-                "client.credentials-provider.assume-role.arn"));
-        Assertions.assertFalse(catalogProps.containsKey(
-                "client.credentials-provider.assume-role.source-credentials-provider"));
-        Assertions.assertFalse(catalogProps.containsKey(
-                "client.credentials-provider.assume-role.source-provider-type"));
-        Assertions.assertFalse(catalogProps.containsKey(
-                "client.credentials-provider.client.assume-role.arn"));
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                restProps::initNormalizeAndCheckProps);
+        Assertions.assertTrue(e.getMessage().contains("iceberg.rest.role_arn"));
     }
 
     @Test
-    public void testS3TablesSigningNameValidWithIamRoleOnly() {
+    public void testS3TablesSigningNameWithIamRoleFails() {
         Map<String, String> props = new HashMap<>();
         props.put("iceberg.rest.uri", "http://localhost:8080");
         props.put("iceberg.rest.signing-name", "s3tables");
@@ -521,22 +500,9 @@ public class IcebergRestPropertiesTest {
         props.put("iceberg.rest.sigv4-enabled", "true");
 
         IcebergRestProperties restProps = new IcebergRestProperties(props);
-        Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
-
-        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
-        Assertions.assertEquals("s3tables", catalogProps.get("rest.signing-name"));
-        Assertions.assertEquals(AssumeRoleAwsClientFactory.class.getName(),
-                catalogProps.get(AwsProperties.CLIENT_FACTORY));
-        Assertions.assertFalse(catalogProps.containsKey(S3FileIOProperties.CLIENT_FACTORY));
-        Assertions.assertEquals("arn:aws:iam::999999999999:role/S3TablesRole",
-                catalogProps.get("client.assume-role.arn"));
-        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
-        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider.s3.role_arn"));
-        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider.s3.region"));
-        Assertions.assertFalse(catalogProps.containsKey(
-                "client.credentials-provider.assume-role.arn"));
-        Assertions.assertFalse(catalogProps.containsKey(
-                "client.credentials-provider.client.assume-role.arn"));
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                restProps::initNormalizeAndCheckProps);
+        Assertions.assertTrue(e.getMessage().contains("iceberg.rest.role_arn"));
     }
 
     @Test
@@ -612,7 +578,7 @@ public class IcebergRestPropertiesTest {
     }
 
     @Test
-    public void testGlueWithIamRoleAndExternalId() {
+    public void testGlueWithIamRoleAndExternalIdFails() {
         Map<String, String> props = new HashMap<>();
         props.put("iceberg.rest.uri", "http://localhost:8080");
         props.put("iceberg.rest.signing-name", "glue");
@@ -622,13 +588,9 @@ public class IcebergRestPropertiesTest {
         props.put("iceberg.rest.sigv4-enabled", "true");
 
         IcebergRestProperties restProps = new IcebergRestProperties(props);
-        Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
-
-        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
-        Assertions.assertEquals("external-123", catalogProps.get("client.assume-role.external-id"));
-        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider.s3.external_id"));
-        Assertions.assertFalse(catalogProps.containsKey(
-                "client.credentials-provider.assume-role.external-id"));
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                restProps::initNormalizeAndCheckProps);
+        Assertions.assertTrue(e.getMessage().contains("iceberg.rest.role_arn"));
     }
 
     @Test
@@ -711,7 +673,7 @@ public class IcebergRestPropertiesTest {
     }
 
     @Test
-    public void testIamRolePriorityOverCredentialsProviderType() {
+    public void testIamRoleWithCredentialsProviderTypeFails() {
         Map<String, String> props = new HashMap<>();
         props.put("iceberg.rest.uri", "http://localhost:8080");
         props.put("iceberg.rest.signing-name", "s3tables");
@@ -721,23 +683,9 @@ public class IcebergRestPropertiesTest {
         props.put("iceberg.rest.credentials_provider_type", "INSTANCE_PROFILE");
 
         IcebergRestProperties restProps = new IcebergRestProperties(props);
-        Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
-
-        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
-        Assertions.assertEquals("arn:aws:iam::123456789012:role/MyRole",
-                catalogProps.get("client.assume-role.arn"));
-        Assertions.assertEquals(AssumeRoleAwsClientFactory.class.getName(),
-                catalogProps.get(AwsProperties.CLIENT_FACTORY));
-        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider"));
-        Assertions.assertFalse(catalogProps.containsKey(
-                "client.credentials-provider.s3.credentials_provider_type"));
-        Assertions.assertFalse(catalogProps.containsKey("client.credentials-provider.s3.role_arn"));
-        Assertions.assertFalse(catalogProps.containsKey(
-                "client.credentials-provider.assume-role.source-credentials-provider"));
-        Assertions.assertFalse(catalogProps.containsKey(
-                "client.credentials-provider.assume-role.source-provider-type"));
-        Assertions.assertFalse(catalogProps.containsKey(
-                "client.credentials-provider.client.credentials-provider"));
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                restProps::initNormalizeAndCheckProps);
+        Assertions.assertTrue(e.getMessage().contains("iceberg.rest.role_arn"));
     }
 
     @Test

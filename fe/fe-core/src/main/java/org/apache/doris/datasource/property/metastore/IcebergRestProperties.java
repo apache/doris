@@ -262,6 +262,12 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
                 new String[] {icebergRestSigningRegion, icebergRestSigV4Enabled},
                 "Rest Catalog requires signing-region and sigv4-enabled set to true when signing-name is s3tables");
 
+        if (Strings.isNotBlank(icebergRestIamRole)) {
+            throw new IllegalArgumentException("iceberg.rest.role_arn is not supported for Iceberg REST catalog. "
+                    + "Use iceberg.rest.access-key-id and iceberg.rest.secret-access-key, "
+                    + "or iceberg.rest.credentials_provider_type instead");
+        }
+
         // access-key-id and secret-access-key must be set together when either is set
         rules.requireTogether(new String[] {icebergRestAccessKeyId, icebergRestSecretAccessKey},
                 "iceberg.rest.access-key-id and iceberg.rest.secret-access-key must be set together");
@@ -354,8 +360,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     private boolean shouldUseS3PropertiesForRestCredentials() {
         return "glue".equals(icebergRestSigningName)
-                || "s3tables".equals(icebergRestSigningName)
-                || Strings.isNotBlank(icebergRestIamRole);
+                || "s3tables".equals(icebergRestSigningName);
     }
 
     public Map<String, String> getIcebergRestCatalogProperties() {
