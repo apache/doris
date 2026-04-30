@@ -479,7 +479,9 @@ int S3Accessor::delete_files(const std::vector<std::string>& paths) {
         keys.emplace_back(get_key(path));
     }
 
-    return obj_client_->delete_objects(conf_.bucket, std::move(keys), {.executor = worker_pool})
+    return obj_client_
+            ->delete_objects(conf_.bucket, std::move(keys),
+                             {.check_exists_before_delete = true, .executor = worker_pool})
             .ret;
 }
 
@@ -487,7 +489,7 @@ int S3Accessor::delete_file(const std::string& path) {
     LOG_INFO("delete file").tag("uri", to_uri(path));
     int ret = obj_client_->delete_object({.bucket = conf_.bucket, .key = get_key(path)}).ret;
     static_assert(ObjectStorageResponse::OK == 0);
-    if (ret == ObjectStorageResponse::OK || ret == ObjectStorageResponse::NOT_FOUND) {
+    if (ret == ObjectStorageResponse::OK) {
         return 0;
     }
     return ret;

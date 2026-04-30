@@ -56,6 +56,8 @@ public:
                                                  const std::string& upload_id) override;
 
 private:
+    ObjectStorageResponse delete_object_impl(ObjectStoragePathRef path);
+
     std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> client_;
 };
 

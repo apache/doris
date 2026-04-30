@@ -259,13 +259,23 @@ ObjectStorageResponse S3ObjClient::delete_objects(const std::string& bucket,
         return {0};
     }
 
+    if (option.check_exists_before_delete) {
+        ObjectMeta obj_meta;
+        for (const auto& key : keys) {
+            auto head_resp = head_object({.bucket = bucket, .key = key}, &obj_meta);
+            if (head_resp.ret != ObjectStorageResponse::OK) {
+                return head_resp;
+            }
+        }
+    }
+
     Aws::S3::Model::DeleteObjectsRequest delete_request;
     delete_request.SetBucket(bucket);
 
     auto issue_delete = [&bucket, &delete_request,
                          this](std::vector<Aws::S3::Model::ObjectIdentifier> objects) -> int {
         if (objects.size() == 1) {
-            return delete_object({.bucket = bucket, .key = objects[0].GetKey()}).ret;
+            return delete_object_impl({.bucket = bucket, .key = objects[0].GetKey()}).ret;
         }
 
         Aws::S3::Model::Delete del;
@@ -318,6 +328,16 @@ ObjectStorageResponse S3ObjClient::delete_objects(const std::string& bucket,
 }
 
 ObjectStorageResponse S3ObjClient::delete_object(ObjectStoragePathRef path) {
+    ObjectMeta obj_meta;
+    auto head_resp = head_object(path, &obj_meta);
+    if (head_resp.ret != ObjectStorageResponse::OK) {
+        return head_resp;
+    }
+
+    return delete_object_impl(path);
+}
+
+ObjectStorageResponse S3ObjClient::delete_object_impl(ObjectStoragePathRef path) {
     Aws::S3::Model::DeleteObjectRequest request;
     request.WithBucket(path.bucket).WithKey(path.key);
     auto outcome = s3_put_rate_limit([&]() {

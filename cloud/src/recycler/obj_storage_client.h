@@ -60,6 +60,7 @@ public:
 class SimpleThreadPool;
 struct ObjClientOptions {
     bool prefetch {true};
+    bool check_exists_before_delete {false};
     std::shared_ptr<SimpleThreadPool> executor;
 };
 

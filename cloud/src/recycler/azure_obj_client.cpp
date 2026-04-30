@@ -234,10 +234,20 @@ std::unique_ptr<ObjectListIterator> AzureObjClient::list_objects(ObjectStoragePa
 // You can find out the num in https://learn.microsoft.com/en-us/rest/api/storageservices/blob-batch?tabs=microsoft-entra-id
 // > Each batch request supports a maximum of 256 subrequests.
 ObjectStorageResponse AzureObjClient::delete_objects(const std::string& bucket,
-                                                     std::vector<std::string> keys,
-                                                     ObjClientOptions option) {
+                                                      std::vector<std::string> keys,
+                                                      ObjClientOptions option) {
     if (keys.empty()) {
         return {0};
+    }
+
+    if (option.check_exists_before_delete) {
+        ObjectMeta obj_meta;
+        for (const auto& key : keys) {
+            auto head_resp = head_object({.bucket = bucket, .key = key}, &obj_meta);
+            if (head_resp.ret != ObjectStorageResponse::OK) {
+                return head_resp;
+            }
+        }
     }
 
     // TODO(ByteYue) : use range to adate this code when compiler is ready
@@ -295,6 +305,16 @@ ObjectStorageResponse AzureObjClient::delete_objects(const std::string& bucket,
 }
 
 ObjectStorageResponse AzureObjClient::delete_object(ObjectStoragePathRef path) {
+    ObjectMeta obj_meta;
+    auto head_resp = head_object(path, &obj_meta);
+    if (head_resp.ret != ObjectStorageResponse::OK) {
+        return head_resp;
+    }
+
+    return delete_object_impl(path);
+}
+
+ObjectStorageResponse AzureObjClient::delete_object_impl(ObjectStoragePathRef path) {
     return do_azure_client_call(
             [&]() {
                 if (auto r = s3_put_rate_limit([&]() {
