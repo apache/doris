@@ -600,17 +600,21 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_t
 
     bthread::Mutex mu;
     bthread::ConditionVariable cv;
+    bool finished = false;
     std::unique_lock<bthread::Mutex> lock(mu);
     auto st = _thread_pool_token->submit_func([&, this]() {
-        std::unique_lock<bthread::Mutex> l(mu);
         _warm_up_rowset(rs_meta, sync_wait_timeout_ms);
+        std::unique_lock<bthread::Mutex> l(mu);
+        finished = true;
         cv.notify_one();
     });
     if (!st.ok()) {
         LOG(WARNING) << "Failed to submit warm up rowset task: " << st;
         file_cache_warm_up_failed_task_num << 1;
     } else {
-        cv.wait(lock);
+        while (!finished) {
+            cv.wait(lock);
+        }
     }
 }
 
