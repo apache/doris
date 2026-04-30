@@ -70,7 +70,8 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     };
 
     private static final String[] REGION_NAMES_FOR_GUESSING = {
-            "s3.region", "glue.region", "aws.glue.region", "iceberg.rest.signing-region", "client.region"
+            "s3.region", "glue.region", "aws.glue.region", "iceberg.rest.signing-region",
+            "rest.signing-region", "client.region"
     };
 
     @Setter
@@ -84,7 +85,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @Setter
     @Getter
     @ConnectorProperty(names = {REGION, "AWS_REGION", "region", "REGION", "aws.region", "glue.region",
-            "aws.glue.region", "iceberg.rest.signing-region", "client.region"},
+            "aws.glue.region", "iceberg.rest.signing-region", "rest.signing-region", "client.region"},
             required = false,
             isRegionField = true,
             description = "The region of S3.")
