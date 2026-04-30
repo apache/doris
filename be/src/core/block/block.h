@@ -183,12 +183,17 @@ public:
 
     Status check_type_and_column() const;
 
-    /// Approximate number of bytes in memory - for profiling and limits.
+    /// Approximate number of bytes used by column data in memory.
+    /// This reflects the actual data footprint (e.g. string contents, numeric arrays)
+    /// and is the metric used by adaptive batch size byte budgets.
     size_t bytes() const;
 
+    /// Returns per-column byte sizes as a comma-separated string (for debugging).
     std::string columns_bytes() const;
 
-    /// Approximate number of allocated bytes in memory - for profiling and limits.
+    /// Approximate number of allocated (reserved) bytes in memory.
+    /// This may be larger than bytes() due to pre-allocated capacity in vectors/arenas.
+    /// Used for memory tracking and profiling.
     MOCK_FUNCTION size_t allocated_bytes() const;
 
     /** Get a list of column names separated by commas. */
@@ -351,6 +356,17 @@ public:
 
     void clear_column_mem_not_keep(const std::vector<bool>& column_keep_flags,
                                    bool need_keep_first);
+
+    // Helper: sum byte_size() of all mutable columns.
+    // Unlike Block::bytes() which operates on immutable ColumnPtr,
+    // this works on MutableColumns during block construction (e.g. in BlockReader).
+    static inline size_t columns_byte_size(const MutableColumns& cols) {
+        size_t total = 0;
+        for (const auto& col : cols) {
+            total += col->byte_size();
+        }
+        return total;
+    }
 
 private:
     void erase_impl(size_t position);

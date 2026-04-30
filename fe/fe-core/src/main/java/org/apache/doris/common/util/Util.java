@@ -239,6 +239,32 @@ public class Util {
         }
     }
 
+    public static boolean getBooleanPropertyOrDefault(Map<String, String> properties,
+            String propertyName, boolean defaultValue) throws AnalysisException {
+        if (!properties.containsKey(propertyName)) {
+            return defaultValue;
+        }
+        return parseBooleanProperty(properties.get(propertyName), propertyName);
+    }
+
+    public static Boolean getOptionalBooleanProperty(Map<String, String> properties,
+            String propertyName) throws AnalysisException {
+        if (!properties.containsKey(propertyName)) {
+            return null;
+        }
+        return parseBooleanProperty(properties.get(propertyName), propertyName);
+    }
+
+    public static boolean parseBooleanProperty(String value, String propertyName) throws AnalysisException {
+        if ("true".equalsIgnoreCase(value)) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(value)) {
+            return false;
+        }
+        throw new AnalysisException(propertyName + " should be a boolean");
+    }
+
     // not support encode negative value now
     public static void encodeVarint64(long source, DataOutput out) throws IOException {
         assert source >= 0;

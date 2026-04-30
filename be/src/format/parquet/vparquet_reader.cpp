@@ -87,7 +87,7 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
-          _batch_size(std::max(batch_size, _MIN_BATCH_SIZE)),
+          _batch_size(std::max(batch_size, 1UL)),
           _range_start_offset(range.start_offset),
           _range_size(range.size),
           _ctz(ctz),
@@ -106,6 +106,13 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
     _init_file_description();
 }
 
+void ParquetReader::set_batch_size(size_t batch_size) {
+    if (_batch_size == batch_size) {
+        return;
+    }
+    _batch_size = batch_size;
+}
+
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                              const TFileRangeDesc& range, size_t batch_size,
                              const cctz::time_zone* ctz,
@@ -114,7 +121,7 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
-          _batch_size(std::max(batch_size, _MIN_BATCH_SIZE)),
+          _batch_size(std::max(batch_size, 1UL)),
           _range_start_offset(range.start_offset),
           _range_size(range.size),
           _ctz(ctz),
