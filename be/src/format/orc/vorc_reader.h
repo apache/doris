@@ -161,11 +161,11 @@ public:
               std::shared_ptr<io::IOContext> io_ctx_holder, FileMetaCache* meta_cache = nullptr,
               bool enable_lazy_mat = true);
 
-    OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+    OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range, size_t batch_size,
               const std::string& ctz, io::IOContext* io_ctx, FileMetaCache* meta_cache = nullptr,
               bool enable_lazy_mat = true);
 
-    OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+    OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range, size_t batch_size,
               const std::string& ctz, std::shared_ptr<io::IOContext> io_ctx_holder,
               FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true);
 
@@ -180,6 +180,8 @@ protected:
     // ---- Unified init_reader(ReaderInitContext*) overrides ----
     Status _open_file_reader(ReaderInitContext* ctx) override;
     Status _do_init_reader(ReaderInitContext* ctx) override;
+
+    void set_batch_size(size_t batch_size) override;
 
 public:
     int64_t size() const;
@@ -737,8 +739,7 @@ private:
     size_t _load_bytes_per_row = 0;
     int64_t _range_start_offset;
 
-protected:
-    size_t get_batch_size() const { return _batch_size; }
+    size_t get_batch_size() const override { return _batch_size; }
 
 private:
     int64_t _range_size;
@@ -796,7 +797,7 @@ private:
     bool _enable_filter_by_min_max = true;
 
     std::vector<DecimalScaleParams> _decimal_scale_params;
-    size_t _decimal_scale_params_index;
+    size_t _decimal_scale_params_index = 0;
 
 protected:
     bool _is_acid = false;
@@ -973,8 +974,8 @@ private:
     io::FileReaderSPtr _tracing_file_reader;
 
     bool _is_all_tiny_stripes = false;
-    int64_t _orc_once_max_read_bytes;
-    int64_t _orc_max_merge_distance_bytes;
+    int64_t _orc_once_max_read_bytes = 0;
+    int64_t _orc_max_merge_distance_bytes = 0;
 
     std::vector<std::shared_ptr<StripeStreamInputStream>> _stripe_streams;
 

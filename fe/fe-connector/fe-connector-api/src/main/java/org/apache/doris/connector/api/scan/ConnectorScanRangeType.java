@@ -25,9 +25,8 @@ package org.apache.doris.connector.api.scan;
  * execution layer. Connectors choose the appropriate type based on
  * their data access pattern:</p>
  * <ul>
- *   <li>{@link #FILE_SCAN} — for file-based connectors (Hive, Iceberg, Paimon, Hudi)</li>
+ *   <li>{@link #FILE_SCAN} — for file-based connectors (Hive, Iceberg, Paimon, Hudi, Elasticsearch)</li>
  *   <li>{@link #JDBC_SCAN} — for JDBC connectors</li>
- *   <li>{@link #ES_SCAN} — for Elasticsearch connectors</li>
  *   <li>{@link #REMOTE_OLAP_SCAN} — for remote Doris/OLAP federation</li>
  *   <li>{@link #CUSTOM} — for connectors with custom scan patterns</li>
  * </ul>
@@ -39,9 +38,6 @@ public enum ConnectorScanRangeType {
 
     /** JDBC scan: connection info + SQL query. */
     JDBC_SCAN,
-
-    /** Elasticsearch scan: shard routing + search context. */
-    ES_SCAN,
 
     /** Remote OLAP scan: tablet info for Doris federation. */
     REMOTE_OLAP_SCAN,

@@ -133,7 +133,7 @@ public:
         bool direct_mode = false;
         bool aggregation = false;
         // for compaction, schema_change, check_sum: we don't use page cache
-        // for query and config::disable_storage_page_cache is false, we use page cache
+        // for query, when the BE config disable_storage_page_cache is false, we use page cache
         bool use_page_cache = false;
         Version version = Version(-1, 0);
 
@@ -250,6 +250,17 @@ public:
     void set_batch_size(int batch_size) { _reader_context.batch_size = batch_size; }
 
     int batch_size() const { return _reader_context.batch_size; }
+
+    size_t batch_max_rows() const { return _reader_context.batch_size; }
+
+    void set_preferred_block_size_bytes(size_t bytes) {
+        _reader_context.preferred_block_size_bytes = bytes;
+    }
+
+    // Returns the preferred output block byte budget. Subclasses that support adaptive batch size
+    // should override this; the base returns 0 (disabled) so VCollectIterator degrades safely
+    // when called through a TabletReader* that has not been configured.
+    virtual size_t preferred_block_size_bytes() const { return 0; }
 
     const OlapReaderStatistics& stats() const { return _stats; }
     OlapReaderStatistics* mutable_stats() { return &_stats; }

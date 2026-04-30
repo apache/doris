@@ -436,7 +436,13 @@ public class SummaryProfile {
     private Map<Backend, Long> assignedWeightPerBackend;
 
     public SummaryProfile() {
-        init();
+        this(true);
+    }
+
+    public SummaryProfile(boolean isEnable) {
+        if (isEnable) {
+            init();
+        }
     }
 
     public static SummaryProfile read(DataInput input) throws IOException {

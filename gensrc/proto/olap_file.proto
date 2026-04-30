@@ -140,6 +140,11 @@ message RowsetMetaPB {
     // rows count for each segment
     repeated int64 num_segment_rows = 56;
 
+    // If true, `segments_key_bounds` contains a single aggregated
+    // [rowset_min_key, rowset_max_key] entry instead of per-segment bounds.
+    // Only applies to non-MOW rowsets to reduce meta size on cloud FDB.
+    optional bool segments_key_bounds_aggregated = 57;
+
     // For cloud
     // for data recycling
     optional int64 txn_expiration = 1000;
@@ -245,6 +250,11 @@ message RowsetMetaCloudPB {
 
     // rows count for each segment
     repeated int64 num_segment_rows = 56;
+
+    // If true, `segments_key_bounds` contains a single aggregated
+    // [rowset_min_key, rowset_max_key] entry instead of per-segment bounds.
+    // Only applies to non-MOW rowsets to reduce meta size on cloud FDB.
+    optional bool segments_key_bounds_aggregated = 57;
 
     // cloud
     // the field is a vector, rename it

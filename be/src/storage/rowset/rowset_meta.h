@@ -353,6 +353,17 @@ public:
         _rowset_meta_pb.set_segments_key_bounds_truncated(truncated);
     }
 
+    // When true, `segments_key_bounds` holds a single aggregated
+    // [rowset_min, rowset_max] entry instead of per-segment bounds.
+    bool is_segments_key_bounds_aggregated() const {
+        return _rowset_meta_pb.has_segments_key_bounds_aggregated() &&
+               _rowset_meta_pb.segments_key_bounds_aggregated();
+    }
+
+    void set_segments_key_bounds_aggregated(bool aggregated) {
+        _rowset_meta_pb.set_segments_key_bounds_aggregated(aggregated);
+    }
+
     bool get_first_segment_key_bound(KeyBoundsPB* key_bounds) {
         // for compatibility, old version has not segment key bounds
         if (_rowset_meta_pb.segments_key_bounds_size() == 0) {
@@ -370,7 +381,10 @@ public:
         return true;
     }
 
-    void set_segments_key_bounds(const std::vector<KeyBoundsPB>& segments_key_bounds);
+    // If `aggregate_into_single` is true, collapse per-segment bounds into a single
+    // [rowset_min, rowset_max] entry and mark this rowset as aggregated.
+    void set_segments_key_bounds(const std::vector<KeyBoundsPB>& segments_key_bounds,
+                                 bool aggregate_into_single = false);
 
     void add_segment_key_bounds(KeyBoundsPB segments_key_bounds) {
         *_rowset_meta_pb.add_segments_key_bounds() = std::move(segments_key_bounds);

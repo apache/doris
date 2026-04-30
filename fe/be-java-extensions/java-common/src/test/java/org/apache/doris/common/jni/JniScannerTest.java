@@ -61,4 +61,46 @@ public class JniScannerTest {
         scanner.releaseTable();
         scanner.close();
     }
+
+    @Test
+    public void testSetBatchSize() throws IOException {
+        OffHeap.setTesting();
+        MockJniScanner scanner = new MockJniScanner(16, new HashMap<String, String>() {
+            {
+                put("mock_rows", "64");
+                put("required_fields", "int");
+                put("columns_types", "int");
+            }
+        });
+        scanner.open();
+
+        // First batch: batchSize = 16
+        long metaAddress = scanner.getNextBatchMeta();
+        Assert.assertNotEquals(0, metaAddress);
+        Assert.assertEquals(16, OffHeap.getLong(null, metaAddress));
+        scanner.resetTable();
+
+        // Change batch size to 32
+        scanner.setBatchSize(32);
+        Assert.assertEquals(32, scanner.getBatchSize());
+
+        // Second batch: should read 32 rows with updated batchSize
+        metaAddress = scanner.getNextBatchMeta();
+        Assert.assertNotEquals(0, metaAddress);
+        Assert.assertEquals(32, OffHeap.getLong(null, metaAddress));
+        scanner.resetTable();
+
+        // Third batch: only 16 rows remaining
+        metaAddress = scanner.getNextBatchMeta();
+        Assert.assertNotEquals(0, metaAddress);
+        Assert.assertEquals(16, OffHeap.getLong(null, metaAddress));
+        scanner.resetTable();
+
+        // EOF
+        metaAddress = scanner.getNextBatchMeta();
+        Assert.assertEquals(0, metaAddress);
+
+        scanner.releaseTable();
+        scanner.close();
+    }
 }

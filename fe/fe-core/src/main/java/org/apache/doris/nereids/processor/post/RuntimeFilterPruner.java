@@ -38,12 +38,10 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Set;
@@ -149,22 +147,6 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         join.right().accept(this, context);
         RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
         if (rfContext.isEffectiveSrcNode(join.right())) {
-            boolean enableExpand = false;
-            if (ConnectContext.get() != null) {
-                enableExpand = ConnectContext.get().getSessionVariable().expandRuntimeFilterByInnerJoin;
-            }
-            if (enableExpand && rfContext.getEffectiveSrcType(join.right())
-                    == RuntimeFilterContext.EffectiveSrcType.REF) {
-                RuntimeFilterContext.ExpandRF expand = rfContext.getExpandRfByJoin(join);
-                if (expand != null) {
-                    Set<ExprId> outputExprIdOfExpandTargets = Sets.newHashSet();
-                    outputExprIdOfExpandTargets.addAll(expand.target1.getOutputExprIds());
-                    outputExprIdOfExpandTargets.addAll(expand.target2.getOutputExprIds());
-                    rfContext.getTargetExprIdByFilterJoin(join)
-                            .stream().filter(exprId -> outputExprIdOfExpandTargets.contains(exprId))
-                            .forEach(exprId -> rfContext.removeFilters(exprId, join));
-                }
-            }
             RuntimeFilterContext.EffectiveSrcType childType =
                     rfContext.getEffectiveSrcType(join.right());
             context.getRuntimeFilterContext().addEffectiveSrcNode(join, childType);

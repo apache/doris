@@ -118,7 +118,14 @@ Status HashJoinBuildSinkLocalState::terminate(RuntimeState* state) {
     if (_terminated) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(_runtime_filter_producer_helper->skip_process(state));
+    // Defensive null-guard: other paths in this file already gate on
+    // `_runtime_filter_producer_helper` because cancel / early wake-up may
+    // run terminate before the helper is attached. The terminate path used
+    // to be the only one missing the guard, which would NPE inside
+    // skip_process() and surface as a generic crash deep in the allocator.
+    if (_runtime_filter_producer_helper) {
+        RETURN_IF_ERROR(_runtime_filter_producer_helper->skip_process(state));
+    }
     return JoinBuildSinkLocalState::terminate(state);
 }
 

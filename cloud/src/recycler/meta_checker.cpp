@@ -38,11 +38,12 @@
 #include "meta-store/blob_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
+#include "snapshot/snapshot_manager_factory.h"
 
 namespace doris::cloud {
 
 MetaChecker::MetaChecker(std::shared_ptr<TxnKv> txn_kv) : txn_kv_(txn_kv) {
-    snapshot_manager_ = std::make_shared<SnapshotManager>(std::move(txn_kv));
+    snapshot_manager_ = create_snapshot_manager(std::move(txn_kv));
 }
 
 bool MetaChecker::scan_and_handle_kv(

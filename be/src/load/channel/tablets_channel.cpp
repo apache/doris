@@ -66,7 +66,9 @@ BaseTabletsChannel::BaseTabletsChannel(const TabletsChannelKey& key, const Uniqu
           _closed_senders(64),
           _is_high_priority(is_high_priority) {
     static std::once_flag once_flag;
-    _init_profile(profile);
+    if (profile != nullptr) {
+        _init_profile(profile);
+    }
     std::call_once(once_flag, [] {
         REGISTER_HOOK_METRIC(tablet_writer_count, [&]() { return _s_tablet_writer_count.load(); });
     });
@@ -102,6 +104,7 @@ Status BaseTabletsChannel::_get_current_seq(int64_t& cur_seq,
 }
 
 void BaseTabletsChannel::_init_profile(RuntimeProfile* profile) {
+    DCHECK(profile != nullptr);
     _profile =
             profile->create_child(fmt::format("TabletsChannel {}", _key.to_string()), true, true);
     _add_batch_number_counter = ADD_COUNTER(_profile, "NumberBatchAdded", TUnit::UNIT);
@@ -122,6 +125,7 @@ void BaseTabletsChannel::_init_profile(RuntimeProfile* profile) {
 }
 
 void TabletsChannel::_init_profile(RuntimeProfile* profile) {
+    DCHECK(profile != nullptr);
     BaseTabletsChannel::_init_profile(profile);
     _slave_replica_timer = ADD_TIMER(_profile, "SlaveReplicaTime");
 }
@@ -637,7 +641,9 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                                  PTabletWriterAddBlockResult* response) {
     SCOPED_TIMER(_add_batch_timer);
     int64_t cur_seq = 0;
-    _add_batch_number_counter->update(1);
+    if (_add_batch_number_counter) {
+        _add_batch_number_counter->update(1);
+    }
 
     auto status = _get_current_seq(cur_seq, request);
     if (UNLIKELY(!status.ok())) {

@@ -62,7 +62,6 @@
 #include "exec/operator/dict_sink_operator.h"
 #include "exec/operator/distinct_streaming_aggregation_operator.h"
 #include "exec/operator/empty_set_operator.h"
-#include "exec/operator/es_scan_operator.h"
 #include "exec/operator/exchange_sink_operator.h"
 #include "exec/operator/exchange_source_operator.h"
 #include "exec/operator/file_scan_operator.h"
@@ -1074,8 +1073,11 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
             return Status::InternalError("Missing data buffer sink.");
         }
 
-        _sink = std::make_shared<ResultSinkOperatorX>(next_sink_operator_id(), row_desc,
-                                                      output_exprs, thrift_sink.result_sink);
+        auto& pipeline = _pipelines[cur_pipeline_id];
+        int child_node_id = pipeline->operators().back()->node_id();
+        _sink = std::make_shared<ResultSinkOperatorX>(next_sink_operator_id(), child_node_id + 1,
+                                                      row_desc, output_exprs,
+                                                      thrift_sink.result_sink);
         break;
     }
     case TDataSinkType::DICTIONARY_SINK: {
@@ -1089,14 +1091,16 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
     }
     case TDataSinkType::GROUP_COMMIT_OLAP_TABLE_SINK:
     case TDataSinkType::OLAP_TABLE_SINK: {
+        auto& pipeline = _pipelines[cur_pipeline_id];
+        int child_node_id = pipeline->operators().back()->node_id();
         if (state->query_options().enable_memtable_on_sink_node &&
             !_has_inverted_index_v1_or_partial_update(thrift_sink.olap_table_sink) &&
             !config::is_cloud_mode()) {
-            _sink = std::make_shared<OlapTableSinkV2OperatorX>(pool, next_sink_operator_id(),
-                                                               row_desc, output_exprs);
+            _sink = std::make_shared<OlapTableSinkV2OperatorX>(
+                    pool, next_sink_operator_id(), child_node_id + 1, row_desc, output_exprs);
         } else {
-            _sink = std::make_shared<OlapTableSinkOperatorX>(pool, next_sink_operator_id(),
-                                                             row_desc, output_exprs);
+            _sink = std::make_shared<OlapTableSinkOperatorX>(
+                    pool, next_sink_operator_id(), child_node_id + 1, row_desc, output_exprs);
         }
         break;
     }
@@ -1333,14 +1337,6 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     case TPlanNodeType::FILE_SCAN_NODE: {
         op = std::make_shared<FileScanOperatorX>(pool, tnode, next_operator_id(), descs,
                                                  _num_instances);
-        RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
-        fe_with_old_version = !tnode.__isset.is_serial_operator;
-        break;
-    }
-    case TPlanNodeType::ES_SCAN_NODE:
-    case TPlanNodeType::ES_HTTP_SCAN_NODE: {
-        op = std::make_shared<EsScanOperatorX>(pool, tnode, next_operator_id(), descs,
-                                               _num_instances);
         RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
         fe_with_old_version = !tnode.__isset.is_serial_operator;
         break;

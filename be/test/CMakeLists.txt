@@ -30,6 +30,12 @@ file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS *.cpp)
 file(GLOB_RECURSE VECTOR_FILES CONFIGURE_DEPENDS storage/index/ann/*.cpp)
 list(REMOVE_ITEM UT_FILES ${VECTOR_FILES})
 
+# Lance reader tests require Rust static library (BUILD_RUST_READERS=ON)
+if (NOT BUILD_RUST_READERS)
+    file(GLOB_RECURSE LANCE_TEST_FILES CONFIGURE_DEPENDS format/lance/*.cpp)
+    list(REMOVE_ITEM UT_FILES ${LANCE_TEST_FILES})
+endif()
+
 if(NOT DEFINED DORIS_WITH_LZO)
     list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/exec/plain_text_line_reader_lzop_test.cpp)
 endif()

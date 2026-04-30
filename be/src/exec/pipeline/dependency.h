@@ -194,6 +194,13 @@ public:
 
     void sub() {
         std::unique_lock<std::mutex> l(_mtx);
+        // _counter is unsigned: a stray sub() when counter is already 0 would
+        // underflow to UINT32_MAX and the dependency would never become ready,
+        // hanging the query forever. Fail loudly instead.
+        if (_counter == 0) [[unlikely]] {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "CountedFinishDependency::sub() underflow on {}", debug_string());
+        }
         _counter--;
         if (!_counter) {
             set_ready();

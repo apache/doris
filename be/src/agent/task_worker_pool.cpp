@@ -1605,28 +1605,113 @@ void submit_table_compaction_callback(StorageEngine& engine, const TAgentTaskReq
     const auto& compaction_req = req.compaction_req;
 
     LOG(INFO) << "get compaction task. signature=" << req.signature
-              << ", compaction_type=" << compaction_req.type;
+              << ", compaction_type=" << compaction_req.type
+              << ", tablet_id=" << compaction_req.tablet_id;
 
     CompactionType compaction_type;
     if (compaction_req.type == "base") {
         compaction_type = CompactionType::BASE_COMPACTION;
-    } else {
+    } else if (compaction_req.type == "cumulative") {
         compaction_type = CompactionType::CUMULATIVE_COMPACTION;
+    } else if (compaction_req.type == "full") {
+        compaction_type = CompactionType::FULL_COMPACTION;
+    } else {
+        LOG(WARNING) << "unknown compaction type: " << compaction_req.type
+                     << ", tablet_id=" << compaction_req.tablet_id;
+        return;
     }
 
     auto tablet_ptr = engine.tablet_manager()->get_tablet(compaction_req.tablet_id);
-    if (tablet_ptr != nullptr) {
-        auto* data_dir = tablet_ptr->data_dir();
-        if (!tablet_ptr->can_do_compaction(data_dir->path_hash(), compaction_type)) {
-            LOG(WARNING) << "could not do compaction. tablet_id=" << tablet_ptr->tablet_id()
-                         << ", compaction_type=" << compaction_type;
-            return;
-        }
+    if (tablet_ptr == nullptr) {
+        LOG(WARNING) << "tablet not found. tablet_id=" << compaction_req.tablet_id;
+        return;
+    }
 
-        Status status = engine.submit_compaction_task(tablet_ptr, compaction_type, false);
+    if (compaction_type == CompactionType::FULL_COMPACTION) {
+        // Full compaction goes through the dedicated threadpool path (align with
+        // compaction_action.cpp _handle_run_compaction). `force=false` keeps the
+        // admission under permit limiter, matching the HTTP API default.
+        tablet_ptr->set_last_full_compaction_schedule_time(UnixMillis());
+        Status status = engine.submit_compaction_task(tablet_ptr, CompactionType::FULL_COMPACTION,
+                                                      /*force=*/false, /*eager=*/true,
+                                                      /*trigger_method=*/1);
         if (!status.ok()) {
-            LOG(WARNING) << "failed to submit table compaction task. error=" << status;
+            LOG(WARNING) << "failed to submit full compaction task. tablet_id="
+                         << tablet_ptr->tablet_id() << ", error=" << status;
         }
+        return;
+    }
+
+    // base / cumulative
+    auto* data_dir = tablet_ptr->data_dir();
+    if (!tablet_ptr->can_do_compaction(data_dir->path_hash(), compaction_type)) {
+        LOG(WARNING) << "could not do compaction. tablet_id=" << tablet_ptr->tablet_id()
+                     << ", compaction_type=" << compaction_type;
+        return;
+    }
+
+    Status status = engine.submit_compaction_task(tablet_ptr, compaction_type, false);
+    if (!status.ok()) {
+        LOG(WARNING) << "failed to submit table compaction task. error=" << status;
+    }
+}
+
+void cloud_submit_table_compaction_callback(CloudStorageEngine& engine,
+                                            const TAgentTaskRequest& req) {
+    const auto& compaction_req = req.compaction_req;
+
+    LOG(INFO) << "get cloud compaction task. signature=" << req.signature
+              << ", compaction_type=" << compaction_req.type
+              << ", tablet_id=" << compaction_req.tablet_id;
+
+    CompactionType compaction_type;
+    if (compaction_req.type == "base") {
+        compaction_type = CompactionType::BASE_COMPACTION;
+    } else if (compaction_req.type == "cumulative") {
+        compaction_type = CompactionType::CUMULATIVE_COMPACTION;
+    } else if (compaction_req.type == "full") {
+        compaction_type = CompactionType::FULL_COMPACTION;
+    } else {
+        LOG(WARNING) << "unknown cloud compaction type: " << compaction_req.type
+                     << ", tablet_id=" << compaction_req.tablet_id;
+        return;
+    }
+
+    // Mirror cloud_compaction_action::_handle_run_compaction: base/cumu needs the
+    // delete bitmap synced eagerly, full does not (FullCompaction re-syncs itself).
+    bool sync_delete_bitmap = compaction_type != CompactionType::FULL_COMPACTION;
+    auto tablet_res = engine.tablet_mgr().get_tablet(compaction_req.tablet_id,
+                                                     /*warmup_data=*/false, sync_delete_bitmap);
+    if (!tablet_res.has_value()) {
+        LOG(WARNING) << "failed to get cloud tablet. tablet_id=" << compaction_req.tablet_id
+                     << ", error=" << tablet_res.error();
+        return;
+    }
+    CloudTabletSPtr tablet = std::move(tablet_res).value();
+    if (tablet == nullptr) {
+        LOG(WARNING) << "cloud tablet not found. tablet_id=" << compaction_req.tablet_id;
+        return;
+    }
+
+    switch (compaction_type) {
+    case CompactionType::BASE_COMPACTION:
+        tablet->set_last_base_compaction_schedule_time(UnixMillis());
+        break;
+    case CompactionType::CUMULATIVE_COMPACTION:
+        tablet->set_last_cumu_compaction_schedule_time(UnixMillis());
+        break;
+    case CompactionType::FULL_COMPACTION:
+        tablet->set_last_full_compaction_schedule_time(UnixMillis());
+        break;
+    default:
+        break;
+    }
+
+    Status status = engine.submit_compaction_task(tablet, compaction_type,
+                                                  /*trigger_method=*/1);
+    if (!status.ok()) {
+        LOG(WARNING) << "failed to submit cloud compaction task. tablet_id=" << tablet->tablet_id()
+                     << ", type=" << compaction_req.type << ", error=" << status;
     }
 }
 

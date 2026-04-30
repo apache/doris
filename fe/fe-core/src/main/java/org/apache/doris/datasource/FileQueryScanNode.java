@@ -410,6 +410,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             if (inputSplits.isEmpty() && !isFileStreamType()) {
                 return;
             }
+            Set<String> distinctFilePaths = new HashSet<>();
             Multimap<Backend, Split> assignment =  backendPolicy.computeScanRangeAssignment(inputSplits);
             for (Backend backend : assignment.keySet()) {
                 Collection<Split> splits = assignment.get(backend);
@@ -417,9 +418,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
                     scanRangeLocations.add(splitToScanRange(backend, locationProperties, split, pathPartitionKeys,
                             admissionResult));
                     totalFileSize += split.getLength();
+                    if (split instanceof FileSplit) {
+                        distinctFilePaths.add(((FileSplit) split).getPathString());
+                    }
                 }
                 scanBackendIds.add(backend.getId());
             }
+            selectedFileNum = distinctFilePaths.size();
         }
 
         getSerializedTable().ifPresent(params::setSerializedTable);
@@ -539,8 +544,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
         // fileSize only be used when format is orc or parquet and TFileType is broker
         // When TFileType is other type, it is not necessary
         rangeDesc.setFileSize(fileSplit.getFileLength());
-        rangeDesc.setColumnsFromPath(columnsFromPath);
-        rangeDesc.setColumnsFromPathKeys(columnsFromPathKeys);
+        if (!columnsFromPathKeys.isEmpty()) {
+            rangeDesc.setColumnsFromPath(columnsFromPath);
+            rangeDesc.setColumnsFromPathKeys(columnsFromPathKeys);
+        }
 
         rangeDesc.setFileType(fileSplit.getLocationType());
         rangeDesc.setPath(fileSplit.getPath().toStorageLocation().toString());

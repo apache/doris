@@ -83,6 +83,61 @@ suite("test_es_query_predicate_correctness", "p0,external") {
         order_qt_es8_is_not_null """select count(*) from test1 where message is not null"""
         order_qt_es8_total_count """select count(*) from test1"""
 
+        // ======================================================================
+        // Limit pushdown / terminate_after tests (ES 7)
+        // Verifies that LIMIT queries push terminate_after to ES when all
+        // predicates are pushed down, and that EXPLAIN shows the optimization.
+        // ======================================================================
+        sql """switch es7_pred_test"""
+
+        // Case 1: Simple LIMIT without WHERE - all predicates trivially pushed
+        // EXPLAIN should show "ES terminate_after: 5"
+        explain {
+            sql("select * from test1 limit 5")
+            contains "ES terminate_after: 5"
+        }
+
+        // Case 2: LIMIT with fully-pushable predicate (equality on keyword field)
+        // After predicate pushdown, conjuncts should be empty → terminate_after active
+        explain {
+            sql("select * from test1 where test1 = 'string1' limit 3")
+            contains "ES terminate_after: 3"
+        }
+
+        // Case 3: No LIMIT → no terminate_after
+        explain {
+            sql("select * from test1")
+            notContains "ES terminate_after"
+        }
+
+        // Case 4: Verify data correctness with LIMIT
+        // The result count should be <= the limit value
+        def limitResult = sql """select count(*) from (select * from test1 limit 5) t"""
+        assertTrue(limitResult[0][0] as int <= 5, "LIMIT 5 should return at most 5 rows")
+
+        // ======================================================================
+        // Limit pushdown / terminate_after tests (ES 8)
+        // ======================================================================
+        sql """switch es8_pred_test"""
+
+        explain {
+            sql("select * from test1 limit 5")
+            contains "ES terminate_after: 5"
+        }
+
+        explain {
+            sql("select * from test1 where test1 = 'string1' limit 3")
+            contains "ES terminate_after: 3"
+        }
+
+        explain {
+            sql("select * from test1")
+            notContains "ES terminate_after"
+        }
+
+        def limitResult8 = sql """select count(*) from (select * from test1 limit 5) t"""
+        assertTrue(limitResult8[0][0] as int <= 5, "LIMIT 5 should return at most 5 rows")
+
         // cleanup
         sql """drop catalog if exists es7_pred_test;"""
         sql """drop catalog if exists es8_pred_test;"""
