@@ -71,6 +71,7 @@ public:
     }
 
     Status close(bool non_block = false) override;
+    Status try_finish_close() override;
 
 private:
     Status _close_impl();
@@ -84,6 +85,7 @@ private:
     void _upload_one_part(int part_num, UploadFileBuffer& buf);
     bool _complete_part_task_callback(Status s);
     Status _build_upload_buffer();
+    void _record_close_latency();
 
     ObjectStoragePathOptions _obj_storage_path_opts;
 
