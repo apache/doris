@@ -21,6 +21,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.DataTrait.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
@@ -616,12 +617,10 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         // Union propagation:
         // For INNER / CROSS / LEFT_OUTER / RIGHT_OUTER / FULL_OUTER joins, if the left side
         // is unique on U_L and the right side is unique on U_R, then the join output is unique
-        // on U_L ∪ U_R. This does NOT require the hash keys themselves to be unique, and also
-        // does NOT require U_L / U_R to contain the join keys.
+        // on U_L ∪ U_R.
         // Proof sketch (INNER): two output rows (l_a, r_a) and (l_b, r_b) agreeing on U_L ∪ U_R
         // must agree on U_L (so l_a = l_b by L's uniqueness on U_L) and on U_R (so r_a = r_b),
-        // hence the two rows are identical. OUTER variants follow by treating unmatched rows
-        // separately under the "NULL is distinct from NULL" UNIQUE-set semantics.
+        // hence the two rows are identical.
         if (joinType.isInnerJoin() || joinType.isCrossJoin()
                 || joinType.isLeftOuterJoin() || joinType.isRightOuterJoin()
                 || joinType.isFullOuterJoin()) {
@@ -630,12 +629,11 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             List<Set<Slot>> rightUniqueSets =
                     right().getLogicalProperties().getTrait().getAllUniqueSets();
             if (!leftUniqueSets.isEmpty() && !rightUniqueSets.isEmpty()) {
-                final int unionLimit = 16;
                 int count = 0;
                 outer:
                 for (Set<Slot> leftUnique : leftUniqueSets) {
                     for (Set<Slot> rightUnique : rightUniqueSets) {
-                        if (count >= unionLimit) {
+                        if (count >= DataTrait.UNIQUE_UNION_LIMIT) {
                             break outer;
                         }
                         builder.addUniqueSlot(ImmutableSet.<Slot>builder()

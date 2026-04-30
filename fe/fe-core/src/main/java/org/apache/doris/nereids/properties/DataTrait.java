@@ -48,7 +48,7 @@ import java.util.stream.Collectors;
  *                   then values in column 'b' must also be identical.
  */
 public class DataTrait {
-
+    public static int UNIQUE_UNION_LIMIT = 16;
     public static final DataTrait EMPTY_TRAIT
             = new DataTrait(new UniqueDescription().toImmutable(),
                     new UniformDescription().toImmutable(), new ImmutableSet.Builder<FdItem>().build(),
@@ -282,9 +282,9 @@ public class DataTrait {
 
         /**
          * Extends a unique slot using an equivalence set.
-         * Within slots, if any slot in the equivalence set is unique,
+         * Within uniqueSlots, if any slot in the equivalence set is unique,
          * then all slots in the set are considered unique.
-         * For slotSets, if there is an intersection with the equivalence set,
+         * For combinedUniqueSlotSet, if there is an intersection with the equivalence set,
          * the slotSet can be substituted with the equivalence set.
          * Example:
          *          Given an equivalence set {a1, a2, a3} and a uniqueSet {a1, b1, c1},
@@ -420,7 +420,7 @@ public class DataTrait {
         }
 
         /** replace uniqueSet.slotSets slot to root in equalSets */
-        public void rmDuplicateInUniqueSlotSetByEqualSet() {
+        public void normalizeUniqueSetsToEqualSetRoot() {
             ImmutableEqualSet<Slot> equalSet = equalSetBuilder.build();
             Set<ImmutableSet<Slot>> newSlotSets = new HashSet<>();
             for (ImmutableSet<Slot> uniqueSet : uniqueSet.combinedUniqueSlotSet) {

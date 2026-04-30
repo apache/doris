@@ -281,7 +281,7 @@ public interface Plan extends TreeNode<Plan> {
         computeEqualSet(fdBuilder);
         computeFd(fdBuilder);
 
-        fdBuilder.rmDuplicateInUniqueSlotSetByEqualSet();
+        fdBuilder.normalizeUniqueSetsToEqualSetRoot();
 
         for (Slot slot : getOutput()) {
             Set<Slot> o = ImmutableSet.of(slot);

@@ -66,6 +66,7 @@ public class ImmutableEqualSet<T> {
          * replace all key value according replace map
          */
         public void replace(Map<T, T> replaceMap) {
+            built = null;
             Map<T, T> newMap = new LinkedHashMap<>();
             for (Entry<T, T> entry : parent.entrySet()) {
                 newMap.put(replaceMap.getOrDefault(entry.getKey(), entry.getKey()),
@@ -79,6 +80,7 @@ public class ImmutableEqualSet<T> {
          * @param containSet the set to contain
          */
         public void removeNotContain(Set<T> containSet) {
+            built = null;
             List<Set<T>> equalSetList = calEqualSetList();
             this.parent.clear();
             for (Set<T> equalSet : equalSetList) {
@@ -99,6 +101,7 @@ public class ImmutableEqualSet<T> {
          * Add a equal pair
          */
         public void addEqualPair(T a, T b) {
+            built = null;
             if (!parent.containsKey(a)) {
                 parent.put(a, a);
             }
@@ -137,6 +140,7 @@ public class ImmutableEqualSet<T> {
         }
 
         public void addEqualSet(ImmutableEqualSet<T> equalSet) {
+            built = null;
             this.parent.putAll(equalSet.root);
         }
 
