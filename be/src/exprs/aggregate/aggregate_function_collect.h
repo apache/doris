@@ -396,7 +396,7 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
 };
 
 template <typename Data, bool HasLimit>
-class AggregateFunctionCollect
+class AggregateFunctionCollect final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>, true>,
           VarargsExpression,
           NotNullableAggregateFunction {

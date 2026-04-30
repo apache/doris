@@ -95,24 +95,47 @@ struct YearFloor;
 #define CEIL 1
 #endif
 
+// UTC to local time conversion - only depends on DateValueType, not all template params
+template <typename DateValueType>
+void convert_utc_to_local_impl(const DateValueType& utc_val, DateValueType& local_val,
+                               const cctz::time_zone& tz) {
+    cctz::time_point<cctz::sys_seconds> utc_tp =
+            cctz::convert(cctz::civil_second(utc_val.year(), utc_val.month(), utc_val.day(),
+                                             utc_val.hour(), utc_val.minute(), utc_val.second()),
+                          cctz::utc_time_zone());
+    auto local_cs = cctz::convert(utc_tp, tz);
+    local_val.unchecked_set_time(
+            static_cast<uint16_t>(local_cs.year()), static_cast<uint8_t>(local_cs.month()),
+            static_cast<uint8_t>(local_cs.day()), static_cast<uint8_t>(local_cs.hour()),
+            static_cast<uint8_t>(local_cs.minute()), static_cast<uint8_t>(local_cs.second()),
+            utc_val.microsecond());
+}
+
+// Base class: non-template overrides shared by all instantiations
+class FunctionDateTimeFloorCeilBase : public IFunction {
+public:
+    size_t get_number_of_arguments() const override { return 0; }
+    bool is_variadic() const override { return true; }
+    bool use_default_implementation_for_nulls() const override { return false; }
+};
+
+// Forward declaration of core computation struct (only depends on Flag + PType)
+template <typename Flag, PrimitiveType PType>
+struct DateTimeFloorCeilCore;
+
 template <typename Flag, PrimitiveType PType, int ArgNum, bool UseDelta = false>
-class FunctionDateTimeFloorCeil : public IFunction {
+class FunctionDateTimeFloorCeil : public FunctionDateTimeFloorCeilBase {
 public:
     using DateType = typename PrimitiveTypeTraits<PType>::DataType;
     using DateValueType = typename PrimitiveTypeTraits<PType>::CppType;
     using DeltaDataType = DataTypeInt32;
+    using Core = DateTimeFloorCeilCore<Flag, PType>;
     // return date type = DateType
     static constexpr auto name = Flag::name;
 
     static FunctionPtr create() { return std::make_shared<FunctionDateTimeFloorCeil>(); }
 
     String get_name() const override { return name; }
-
-    size_t get_number_of_arguments() const override { return 0; }
-
-    bool is_variadic() const override { return true; }
-
-    bool use_default_implementation_for_nulls() const override { return false; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return have_nullable(arguments) ? make_nullable(std::make_shared<DateType>())
@@ -178,7 +201,7 @@ public:
         col_to->resize(input_rows_count);
 
         if constexpr (ArgNum == 1) {
-            vector(sources->get_data(), col_to->get_data(), result_null_map, context);
+            Core::vector(sources->get_data(), col_to->get_data(), result_null_map, context);
         } else if constexpr (ArgNum == 2) {
             const IColumn& delta_column = *argument_columns[1];
             if (col_const[1]) {
@@ -191,25 +214,26 @@ public:
                     if (period < 1 && !period_is_null) [[unlikely]] {
                         throw_out_of_bound_int(Flag::name, period);
                     }
-                    vector_const_period(sources->get_data(), period, col_to->get_data(),
-                                        result_null_map, context);
+                    Core::vector_const_period(sources->get_data(), period, col_to->get_data(),
+                                              result_null_map, context);
                 } else {
                     // time_round(datetime, const(origin))
-                    vector_const_anchor(sources->get_data(), (*argument_columns[1])[0].get<PType>(),
-                                        col_to->get_data(), result_null_map, context);
+                    Core::vector_const_anchor(sources->get_data(),
+                                              (*argument_columns[1])[0].get<PType>(),
+                                              col_to->get_data(), result_null_map, context);
                 }
             } else {
                 if (const auto* delta_vec_column0 =
                             check_and_get_column<ColumnVector<PType>>(delta_column)) {
                     // time_round(datetime, origin)
-                    vector_vector_anchor(sources->get_data(), delta_vec_column0->get_data(),
-                                         col_to->get_data(), result_null_map, context);
+                    Core::vector_vector_anchor(sources->get_data(), delta_vec_column0->get_data(),
+                                               col_to->get_data(), result_null_map, context);
                 } else {
                     const auto* delta_vec_column1 = check_and_get_column<ColumnInt32>(delta_column);
                     DCHECK(delta_vec_column1 != nullptr);
                     // time_round(datetime, period)
-                    vector_vector_period(sources->get_data(), delta_vec_column1->get_data(),
-                                         col_to->get_data(), result_null_map, context);
+                    Core::vector_vector_period(sources->get_data(), delta_vec_column1->get_data(),
+                                               col_to->get_data(), result_null_map, context);
                 }
             }
         } else { // 3 arg, time_round(datetime, period, origin)
@@ -222,8 +246,8 @@ public:
                 if (period < 1 && !period_is_null) [[unlikely]] {
                     throw_out_of_bound_int(Flag::name, period);
                 }
-                vector_const_const(sources->get_data(), period, origin, col_to->get_data(),
-                                   result_null_map, context);
+                Core::vector_const_const(sources->get_data(), period, origin, col_to->get_data(),
+                                         result_null_map, context);
             } else if (col_const[1] && !col_const[2]) {
                 const auto arg2_column =
                         check_and_get_column<ColumnVector<PType>>(*argument_columns[2]);
@@ -234,14 +258,14 @@ public:
                 if (period < 1 && !period_is_null) [[unlikely]] {
                     throw_out_of_bound_int(Flag::name, period);
                 }
-                vector_const_vector(sources->get_data(), period, arg2_column->get_data(),
-                                    col_to->get_data(), result_null_map, context);
+                Core::vector_const_vector(sources->get_data(), period, arg2_column->get_data(),
+                                          col_to->get_data(), result_null_map, context);
             } else if (!col_const[1] && col_const[2]) {
                 const auto* arg1_column = check_and_get_column<ColumnInt32>(*argument_columns[1]);
                 // time_round(datetime, period, const(origin))
-                vector_vector_const(sources->get_data(), arg1_column->get_data(),
-                                    (*argument_columns[2])[0].get<PType>(), col_to->get_data(),
-                                    result_null_map, context);
+                Core::vector_vector_const(sources->get_data(), arg1_column->get_data(),
+                                          (*argument_columns[2])[0].get<PType>(),
+                                          col_to->get_data(), result_null_map, context);
             } else {
                 const auto* arg1_column = check_and_get_column<ColumnInt32>(*argument_columns[1]);
                 const auto arg2_column =
@@ -249,9 +273,9 @@ public:
                 DCHECK(arg1_column != nullptr);
                 DCHECK(arg2_column != nullptr);
                 // time_round(datetime, period, origin)
-                vector_vector_vector(sources->get_data(), arg1_column->get_data(),
-                                     arg2_column->get_data(), col_to->get_data(), result_null_map,
-                                     context);
+                Core::vector_vector_vector(sources->get_data(), arg1_column->get_data(),
+                                           arg2_column->get_data(), col_to->get_data(),
+                                           result_null_map, context);
             }
         }
 
@@ -265,8 +289,14 @@ public:
 
         return Status::OK();
     }
+};
 
-private:
+// Core computation struct - only depends on Flag + PType (not ArgNum/UseDelta).
+// This reduces template instantiations from 192 to 48 for all heavy computation functions.
+template <typename Flag, PrimitiveType PType>
+struct DateTimeFloorCeilCore {
+    using DateValueType = typename PrimitiveTypeTraits<PType>::CppType;
+
     static void vector(const PaddedPODArray<DateValueType>& dates,
                        PaddedPODArray<DateValueType>& res, const NullMap& result_null_map,
                        FunctionContext* context) {
@@ -532,12 +562,12 @@ private:
         const cctz::time_zone& tz = context->state()->timezone_obj();
 
         if constexpr (need_tz_conversion) {
-            convert_utc_to_local(ts_arg, local_arg, tz);
+            convert_utc_to_local_impl(ts_arg, local_arg, tz);
 
             if (ts_origin == TimestampTzValue::FIRST_DAY) {
                 local_origin = ts_origin;
             } else {
-                convert_utc_to_local(ts_origin, local_origin, tz);
+                convert_utc_to_local_impl(ts_origin, local_origin, tz);
             }
         }
 
@@ -890,20 +920,6 @@ private:
                 ts1.set_int_val(ts2.to_date_int_val() & MASK_SECOND_FLOOR);
             }
         }
-    }
-
-    static void convert_utc_to_local(const DateValueType& utc_val, DateValueType& local_val,
-                                     const cctz::time_zone& tz) {
-        cctz::time_point<cctz::sys_seconds> utc_tp = cctz::convert(
-                cctz::civil_second(utc_val.year(), utc_val.month(), utc_val.day(), utc_val.hour(),
-                                   utc_val.minute(), utc_val.second()),
-                cctz::utc_time_zone());
-        auto local_cs = cctz::convert(utc_tp, tz);
-        local_val.unchecked_set_time(
-                static_cast<uint16_t>(local_cs.year()), static_cast<uint8_t>(local_cs.month()),
-                static_cast<uint8_t>(local_cs.day()), static_cast<uint8_t>(local_cs.hour()),
-                static_cast<uint8_t>(local_cs.minute()), static_cast<uint8_t>(local_cs.second()),
-                utc_val.microsecond());
     }
 };
 

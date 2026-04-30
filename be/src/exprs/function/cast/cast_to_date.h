@@ -485,46 +485,5 @@ public:
         return Status::OK();
     }
 };
-
-namespace CastWrapper {
-
-template <typename ToDataType> // must datelike type
-WrapperType create_datelike_wrapper(FunctionContext* context, const DataTypePtr& from_type) {
-    std::shared_ptr<CastToBase> cast_to_datelike;
-
-    auto make_datelike_wrapper = [&](const auto& types) -> bool {
-        using Types = std::decay_t<decltype(types)>;
-        using FromDataType = typename Types::LeftType;
-        if constexpr (CastUtil::IsPureDigitType<FromDataType> || IsDatelikeTypes<FromDataType> ||
-                      IsStringType<FromDataType> ||
-                      std::is_same_v<FromDataType, DataTypeTimeStampTz>) {
-            if (context->enable_strict_mode()) {
-                cast_to_datelike = std::make_shared<
-                        CastToImpl<CastModeType::StrictMode, FromDataType, ToDataType>>();
-            } else {
-                cast_to_datelike = std::make_shared<
-                        CastToImpl<CastModeType::NonStrictMode, FromDataType, ToDataType>>();
-            }
-            return true;
-        } else {
-            return false;
-        }
-    };
-
-    if (!call_on_index_and_data_type<void>(from_type->get_primitive_type(),
-                                           make_datelike_wrapper)) {
-        return create_unsupport_wrapper(fmt::format(
-                "CAST AS {} not supported {}", ToDataType {}.get_name(), from_type->get_name()));
-    }
-
-    return [cast_to_datelike](FunctionContext* context, Block& block,
-                              const ColumnNumbers& arguments, const uint32_t result,
-                              size_t input_rows_count,
-                              const NullMap::value_type* null_map = nullptr) {
-        return cast_to_datelike->execute_impl(context, block, arguments, result, input_rows_count,
-                                              null_map);
-    };
-}
 #include "common/compile_check_end.h"
-}; // namespace CastWrapper
 } // namespace doris
