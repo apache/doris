@@ -16,6 +16,9 @@
 // under the License.
 
 #include <aws/s3/S3Client.h>
+#include <aws/s3/model/DeleteObjectRequest.h>
+#include <aws/s3/model/HeadObjectResult.h>
+#include <aws/s3/model/HeadObjectRequest.h>
 #include <aws/s3/model/ListObjectsV2Request.h>
 #include <butil/guid.h>
 #include <cpp/s3_rate_limiter.h>
@@ -33,6 +36,7 @@
 #include "cpp/sync_point.h"
 #include "recycler/recycler_service.h"
 #include "recycler/s3_accessor.h"
+#include "recycler/s3_obj_client.h"
 
 using namespace doris;
 
@@ -53,6 +57,72 @@ int main(int argc, char** argv) {
 }
 
 namespace doris::cloud {
+
+class MockDeleteS3Client : public Aws::S3::S3Client {
+public:
+    Aws::S3::Model::HeadObjectOutcome HeadObject(
+            const Aws::S3::Model::HeadObjectRequest& request) const override {
+        ++head_count;
+        last_head_key = request.GetKey();
+        if (exists) {
+            return Aws::S3::Model::HeadObjectOutcome(Aws::S3::Model::HeadObjectResult());
+        }
+
+        auto error = Aws::Client::AWSError<Aws::S3::S3Errors>(
+                Aws::S3::S3Errors::RESOURCE_NOT_FOUND, false);
+        error.SetResponseCode(Aws::Http::HttpResponseCode::NOT_FOUND);
+        return Aws::S3::Model::HeadObjectOutcome(error);
+    }
+
+    Aws::S3::Model::DeleteObjectOutcome DeleteObject(
+            const Aws::S3::Model::DeleteObjectRequest& request) const override {
+        ++delete_count;
+        last_delete_key = request.GetKey();
+        return Aws::S3::Model::DeleteObjectOutcome(Aws::S3::Model::DeleteObjectResult());
+    }
+
+    mutable int head_count {0};
+    mutable int delete_count {0};
+    mutable std::string last_head_key;
+    mutable std::string last_delete_key;
+    bool exists {true};
+};
+
+class S3ObjClientTest : public testing::Test {
+protected:
+    static void SetUpTestSuite() { Aws::InitAPI(options); }
+
+    static void TearDownTestSuite() { Aws::ShutdownAPI(options); }
+
+private:
+    static Aws::SDKOptions options;
+};
+
+Aws::SDKOptions S3ObjClientTest::options {};
+
+TEST_F(S3ObjClientTest, DeleteObjectCheckExistsConfigTest) {
+    auto mock_s3_client = std::make_shared<MockDeleteS3Client>();
+    S3ObjClient obj_client(mock_s3_client, "dummy-endpoint");
+    const bool original_check_exists = config::enable_delete_file_check_object_exists;
+
+    config::enable_delete_file_check_object_exists = true;
+    auto response = obj_client.delete_object({.bucket = "dummy-bucket", .key = "existing-key"});
+    EXPECT_EQ(response.ret, ObjectStorageResponse::OK);
+    EXPECT_EQ(mock_s3_client->head_count, 1);
+    EXPECT_EQ(mock_s3_client->delete_count, 1);
+    EXPECT_EQ(mock_s3_client->last_head_key, "existing-key");
+    EXPECT_EQ(mock_s3_client->last_delete_key, "existing-key");
+
+    mock_s3_client->exists = false;
+    config::enable_delete_file_check_object_exists = false;
+    response = obj_client.delete_object({.bucket = "dummy-bucket", .key = "missing-key"});
+    EXPECT_EQ(response.ret, ObjectStorageResponse::OK);
+    EXPECT_EQ(mock_s3_client->head_count, 1);
+    EXPECT_EQ(mock_s3_client->delete_count, 2);
+    EXPECT_EQ(mock_s3_client->last_delete_key, "missing-key");
+
+    config::enable_delete_file_check_object_exists = original_check_exists;
+}
 
 #define GET_ENV_IF_DEFINED(var)              \
     ([]() -> std::string {                   \
