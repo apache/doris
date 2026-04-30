@@ -21,6 +21,8 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.cloud.CacheHotspotManager;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.PrintableMap;
@@ -40,6 +42,8 @@ import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
+import org.apache.doris.thrift.TGetTabletReplicaInfosRequest;
+import org.apache.doris.thrift.TGetTabletReplicaInfosResult;
 import org.apache.doris.thrift.TMaxComputeBlockIdRequest;
 import org.apache.doris.thrift.TMaxComputeBlockIdResult;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
@@ -59,11 +63,13 @@ import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -341,6 +347,41 @@ public class FrontendServiceImplTest {
             Assert.assertEquals(rowValues.get(5), rowValues.get(7));
         } finally {
             Env.getCurrentEnv().getAuthenticationIntegrationMgr().dropAuthenticationIntegration(integrationName, true);
+        }
+    }
+
+    @Test
+    public void testGetTabletReplicaInfosNullJobReturnsCancelledWithoutNpe() {
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        Config.cloud_unique_id = "gettabletreplicainfostest";
+
+        CloudEnv cloudEnv = Mockito.mock(CloudEnv.class);
+        CacheHotspotManager cacheHotspotManager = Mockito.mock(CacheHotspotManager.class);
+        Mockito.when(cloudEnv.getCacheHotspotMgr()).thenReturn(cacheHotspotManager);
+        Mockito.when(cacheHotspotManager.getCloudWarmUpJob(123456L)).thenReturn(null);
+
+        MockedStatic<Env> envMock = Mockito.mockStatic(Env.class);
+        try {
+            envMock.when(Env::getCurrentEnv).thenReturn(cloudEnv);
+
+            FrontendServiceImpl frontendService = new FrontendServiceImpl(exeEnv);
+            TGetTabletReplicaInfosRequest request = new TGetTabletReplicaInfosRequest();
+            request.setTabletIds(Collections.singletonList(789L));
+            request.setWarmUpJobId(123456L);
+
+            TGetTabletReplicaInfosResult result;
+            try {
+                result = frontendService.getTabletReplicaInfos(request);
+            } catch (NullPointerException e) {
+                throw new AssertionError("getTabletReplicaInfos must not NPE when the "
+                        + "warm-up job has been removed from CacheHotspotManager", e);
+            }
+
+            Assert.assertNotNull(result.getStatus());
+            Assert.assertEquals(TStatusCode.CANCELLED, result.getStatus().getStatusCode());
+        } finally {
+            envMock.close();
+            Config.cloud_unique_id = originalCloudUniqueId;
         }
     }
 }
