@@ -211,8 +211,12 @@ Status DataQueue::push_block(std::unique_ptr<Block> block, int child_idx) {
         return Status::OK();
     }
     auto& sub = *_sub_queues[child_idx];
-    RETURN_IF_ERROR(sub.try_push(std::move(block)));
+    // Increment before publishing to blocks_in_queue so that any concurrent
+    // get_block_from_queue() always observes _cur_blocks_total_nums >= 1 when
+    // it successfully pops a block, preventing an underflow to UINT_MAX and the
+    // resulting missed set_source_block() call.
     _cur_blocks_total_nums++;
+    RETURN_IF_ERROR(sub.try_push(std::move(block)));
     set_source_ready();
     return Status::OK();
 }
