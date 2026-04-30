@@ -272,6 +272,9 @@ private:
 
     Dependency* _memory_sufficient_dependency;
     std::mutex _dependency_lock;
+    // Serializes forced dependency unblocking with task finalization. set_ready() may call back into
+    // wake_up() synchronously, so wake_up() must not take this lock.
+    std::mutex _forced_unblock_lock;
 
     std::atomic<bool> _running {false};
     std::atomic<bool> _eos {false};

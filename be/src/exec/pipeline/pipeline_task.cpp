@@ -346,11 +346,17 @@ bool PipelineTask::_is_blocked() {
 
 void PipelineTask::unblock_all_dependencies() {
     // We use a lock to assure all dependencies are not deconstructed here.
-    std::unique_lock<std::mutex> lc(_dependency_lock);
+    std::unique_lock<std::mutex> unblock_lock(_forced_unblock_lock);
+    std::unique_lock<std::mutex> dependency_lock(_dependency_lock);
     auto fragment = _fragment_context.lock();
     if (!is_finalized() && fragment) {
         try {
             DCHECK(_wake_up_early || fragment->is_canceled());
+            DBUG_EXECUTE_IF("PipelineTask::unblock_all_dependencies.before_set_ready", {
+                if (dp->callback.has_value()) {
+                    DBUG_RUN_CALLBACK();
+                }
+            });
             std::ranges::for_each(_write_dependencies,
                                   [&](Dependency* dep) { dep->set_always_ready(); });
             std::ranges::for_each(_finish_dependencies,
@@ -882,8 +888,9 @@ Status PipelineTask::finalize() {
         return Status::OK();
     }
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(fragment->get_query_ctx()->query_mem_tracker());
+    std::unique_lock<std::mutex> unblock_lock(_forced_unblock_lock);
     RETURN_IF_ERROR(_state_transition(State::FINALIZED));
-    std::unique_lock<std::mutex> lc(_dependency_lock);
+    std::unique_lock<std::mutex> dependency_lock(_dependency_lock);
     _sink_shared_state.reset();
     _op_shared_states.clear();
     _shared_state_map.clear();
@@ -920,6 +927,7 @@ Status PipelineTask::close(Status exec_status, bool close_sink) {
     }
 
     if (close_sink) {
+        std::unique_lock<std::mutex> unblock_lock(_forced_unblock_lock);
         RETURN_IF_ERROR(_state_transition(State::FINISHED));
     }
     return s;
@@ -1074,49 +1082,29 @@ void PipelineTask::wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* dep
 }
 
 Status PipelineTask::_state_transition(State new_state) {
-    // State transition is a read-check-write sequence: validate the current state, then publish
-    // the next one. Use CAS so a concurrent close()/finalize() cannot be overwritten by a stale
-    // wake_up(); the uncontended path succeeds once, and retries only revalidate real races.
-    while (true) {
-        auto old_state = _exec_state.load(std::memory_order_acquire);
-        const auto& table =
-                _wake_up_early ? WAKE_UP_EARLY_LEGAL_STATE_TRANSITION : LEGAL_STATE_TRANSITION;
-        if (!table[(int)new_state].contains(old_state)) {
-            return Status::InternalError(
-                    "Task state transition from {} to {} is not allowed! Task info: {}",
-                    _to_string(old_state), _to_string(new_state), debug_string());
-        }
-        // FINISHED/FINALIZED → RUNNABLE is legal under wake_up_early (delayed wake_up() arriving
-        // after the task already terminated), but it must be an atomic no-op because finalize()
-        // resets _sink/_operators.
-        if ((old_state == State::FINISHED || old_state == State::FINALIZED) &&
-            new_state == State::RUNNABLE) {
-            return Status::OK();
-        }
-        if (old_state == new_state) {
-            _task_profile->add_info_string("TaskState", _to_string(new_state));
-            _task_profile->add_info_string("BlockedByDependency",
-                                           _blocked_dep ? _blocked_dep->name() : "");
-            return Status::OK();
-        }
-
-        DBUG_EXECUTE_IF("PipelineTask::_state_transition.before_runnable_cas", {
-            if (new_state == State::RUNNABLE && old_state == State::BLOCKED &&
-                dp->callback.has_value()) {
-                DBUG_RUN_CALLBACK();
-            }
-        });
-
-        if (_exec_state.compare_exchange_strong(old_state, new_state, std::memory_order_acq_rel,
-                                                std::memory_order_acquire)) {
+    const auto& table =
+            _wake_up_early ? WAKE_UP_EARLY_LEGAL_STATE_TRANSITION : LEGAL_STATE_TRANSITION;
+    if (!table[(int)new_state].contains(_exec_state)) {
+        return Status::InternalError(
+                "Task state transition from {} to {} is not allowed! Task info: {}",
+                _to_string(_exec_state), _to_string(new_state), debug_string());
+    }
+    // FINISHED/FINALIZED -> RUNNABLE is legal under wake_up_early (delayed wake_up() arriving
+    // after the task already terminated), but we must not actually move the state backwards
+    // or update profile info (which would misleadingly show RUNNABLE for a terminated task).
+    bool need_move = !((_exec_state == State::FINISHED || _exec_state == State::FINALIZED) &&
+                       new_state == State::RUNNABLE);
+    if (need_move) {
+        if (_exec_state != new_state) {
             _state_change_watcher.reset();
             _state_change_watcher.start();
-            _task_profile->add_info_string("TaskState", _to_string(new_state));
-            _task_profile->add_info_string("BlockedByDependency",
-                                           _blocked_dep ? _blocked_dep->name() : "");
-            return Status::OK();
         }
+        _task_profile->add_info_string("TaskState", _to_string(new_state));
+        _task_profile->add_info_string("BlockedByDependency",
+                                       _blocked_dep ? _blocked_dep->name() : "");
+        _exec_state = new_state;
     }
+    return Status::OK();
 }
 
 } // namespace doris

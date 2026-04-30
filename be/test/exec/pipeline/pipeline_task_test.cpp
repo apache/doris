@@ -19,6 +19,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <functional>
 #include <future>
 #include <thread>
 
@@ -98,6 +99,19 @@ private:
 
 template class OperatorX<DummyOperatorLocalState>;
 template class DataSinkOperatorX<DummySinkLocalState>;
+
+class BlockableSubmitTaskScheduler : public MockTaskScheduler {
+public:
+    Status submit(PipelineTaskSPtr task) override {
+        if (on_submit) {
+            on_submit(task);
+        }
+        static_cast<void>(task->is_blockable());
+        return MockTaskScheduler::submit(task);
+    }
+
+    std::function<void(PipelineTaskSPtr)> on_submit;
+};
 
 TEST_F(PipelineTaskTest, TEST_CONSTRUCTOR) {
     auto num_instances = 1;
@@ -562,7 +576,11 @@ TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION) {
     }
 }
 
-TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION_KEEP_FINALIZED_ON_WAKE_UP_RACE) {
+TEST_F(PipelineTaskTest, TEST_WAKE_UP_SUBMIT_PROTECTED_FROM_FINALIZE) {
+    auto scheduler = std::make_unique<BlockableSubmitTaskScheduler>();
+    auto* scheduler_ptr = scheduler.get();
+    _query_ctx->_task_scheduler = scheduler_ptr;
+
     auto num_instances = 1;
     auto pip_id = 0;
     auto task_id = 0;
@@ -592,33 +610,53 @@ TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION_KEEP_FINALIZED_ON_WAKE_UP_RACE) {
     TDataSink tsink;
     EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
     task->_wake_up_early = true;
-    task->_exec_state = PipelineTask::State::BLOCKED;
+    auto dep = std::make_shared<Dependency>(0, 0, "test_dep", false);
+    task->_execution_dependencies.push_back(dep.get());
+    EXPECT_EQ(dep->is_blocked_by(task), dep.get());
+    EXPECT_EQ(task->_exec_state, PipelineTask::State::BLOCKED);
 
     auto origin_enable_debug_points = config::enable_debug_points;
     config::enable_debug_points = true;
     Defer debug_point_cleanup {[&]() {
-        DebugPoints::instance()->remove("PipelineTask::_state_transition.before_runnable_cas");
+        DebugPoints::instance()->remove("PipelineTask::unblock_all_dependencies.before_set_ready");
         config::enable_debug_points = origin_enable_debug_points;
+        _query_ctx->_task_scheduler = _task_scheduler.get();
     }};
 
     std::promise<void> wake_up_reached_promise;
-    std::future<void> wake_up_reached = wake_up_reached_promise.get_future();
+    auto wake_up_reached = wake_up_reached_promise.get_future();
     std::promise<void> release_wake_up_promise;
-    std::future<void> release_wake_up = release_wake_up_promise.get_future();
+    auto release_wake_up = release_wake_up_promise.get_future();
     DebugPoints::instance()->add_with_callback(
-            "PipelineTask::_state_transition.before_runnable_cas", std::function<void()>([&]() {
+            "PipelineTask::unblock_all_dependencies.before_set_ready", std::function<void()>([&]() {
                 wake_up_reached_promise.set_value();
                 release_wake_up.wait();
             }));
 
-    std::thread wake_up_thread(
-            [&]() { EXPECT_TRUE(task->_state_transition(PipelineTask::State::RUNNABLE).ok()); });
-    EXPECT_EQ(wake_up_reached.wait_for(std::chrono::seconds(10)), std::future_status::ready);
-    EXPECT_TRUE(task->close(Status::OK()).ok());
-    EXPECT_TRUE(task->finalize().ok());
-    release_wake_up_promise.set_value();
-    wake_up_thread.join();
+    scheduler_ptr->on_submit = [&](PipelineTaskSPtr submitted_task) {
+        EXPECT_EQ(submitted_task.get(), task.get());
+        EXPECT_NE(task->_sink, nullptr);
+        EXPECT_FALSE(task->_operators.empty());
+    };
 
+    std::thread unblock_thread([&]() { task->unblock_all_dependencies(); });
+    EXPECT_EQ(wake_up_reached.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+
+    std::promise<void> close_started_promise;
+    auto close_started = close_started_promise.get_future();
+    auto close_finalize = std::async(std::launch::async, [&]() {
+        close_started_promise.set_value();
+        EXPECT_TRUE(task->close(Status::OK()).ok());
+        EXPECT_TRUE(task->finalize().ok());
+    });
+    EXPECT_EQ(close_started.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+    EXPECT_EQ(close_finalize.wait_for(std::chrono::milliseconds(100)), std::future_status::timeout);
+
+    release_wake_up_promise.set_value();
+    unblock_thread.join();
+    close_finalize.wait();
+
+    EXPECT_EQ(scheduler_ptr->submit_count(), 1);
     EXPECT_EQ(task->_exec_state, PipelineTask::State::FINALIZED);
     EXPECT_EQ(task->_sink, nullptr);
     EXPECT_TRUE(task->_operators.empty());
