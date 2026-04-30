@@ -244,6 +244,9 @@ ObjectStorageResponse AzureObjClient::delete_objects(const std::string& bucket,
         ObjectMeta obj_meta;
         for (const auto& key : keys) {
             auto head_resp = head_object({.bucket = bucket, .key = key}, &obj_meta);
+            DCHECK_EQ(head_resp.ret, ObjectStorageResponse::OK)
+                    << "bucket=" << bucket << " key=" << key
+                    << " error=" << head_resp.error_msg;
             if (head_resp.ret != ObjectStorageResponse::OK) {
                 return head_resp;
             }
@@ -305,10 +308,15 @@ ObjectStorageResponse AzureObjClient::delete_objects(const std::string& bucket,
 }
 
 ObjectStorageResponse AzureObjClient::delete_object(ObjectStoragePathRef path) {
-    ObjectMeta obj_meta;
-    auto head_resp = head_object(path, &obj_meta);
-    if (head_resp.ret != ObjectStorageResponse::OK) {
-        return head_resp;
+    if (config::enable_delete_file_check_object_exists) {
+        ObjectMeta obj_meta;
+        auto head_resp = head_object(path, &obj_meta);
+        DCHECK_EQ(head_resp.ret, ObjectStorageResponse::OK)
+                << "bucket=" << path.bucket << " key=" << path.key
+                << " error=" << head_resp.error_msg;
+        if (head_resp.ret != ObjectStorageResponse::OK) {
+            return head_resp;
+        }
     }
 
     return delete_object_impl(path);
