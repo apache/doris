@@ -108,7 +108,7 @@ public abstract class Replica {
     private long localSegmentSize = 0L;
 
     // Number of binlog files retained on this replica.
-    @SerializedName(value = "bfn", alternate = {"binloFileNum"})
+    @SerializedName(value = "bfn", alternate = {"binlogFileNum"})
     private volatile long binlogFileNum = -1;
 
     public Replica() {
