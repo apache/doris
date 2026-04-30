@@ -60,7 +60,16 @@ suite("test_sql_block_rule_status") {
     // a stray non-zero counter on another FE makes the cross-FE SUM exceed 1 and flakes this test.
     sql "set fetch_all_fe_for_system_table=false"
     order_qt_count "SELECT count(*) FROM information_schema.sql_block_rule_status where name ='${blockRuleName}'"
-    order_qt_select "SELECT NAME,PATTERN,SQL_HASH,PARTITION_NUM,TABLET_NUM,CARDINALITY,GLOBAL,ENABLE,BLOCKS FROM information_schema.sql_block_rule_status where name ='${blockRuleName}'"
+    def statusRows = sql """
+        SELECT NAME, PATTERN, SQL_HASH, PARTITION_NUM, TABLET_NUM, CARDINALITY, GLOBAL, ENABLE,
+               REQUIRE_PARTITION_FILTER, BLOCKS
+        FROM information_schema.sql_block_rule_status
+        WHERE name ='${blockRuleName}'
+    """
+    assertEquals(1, statusRows.size())
+    assertEquals(blockRuleName, statusRows[0][0].toString())
+    assertEquals("false", statusRows[0][8].toString())
+    assertEquals("1", statusRows[0][9].toString())
      sql """
         drop SQL_BLOCK_RULE if exists ${blockRuleName};
     """
@@ -68,4 +77,3 @@ suite("test_sql_block_rule_status") {
         drop table if exists ${tableName};
     """
 }
-

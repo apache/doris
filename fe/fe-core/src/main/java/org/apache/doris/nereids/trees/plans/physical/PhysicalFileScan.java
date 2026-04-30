@@ -118,6 +118,10 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
         return selectedPartitions;
     }
 
+    public boolean hasPartitionPredicate() {
+        return selectedPartitions.hasPartitionPredicate;
+    }
+
     public Optional<TableSample> getTableSample() {
         return tableSample;
     }
