@@ -138,6 +138,20 @@ public class DataTrait {
         return equalSet.isEqual(l, r);
     }
 
+    /**
+     * Get all unique slot sets, including those containing nullable slots.
+     * Each returned set is a unique key of the relation (no two rows share the same value combination,
+     * under SQL's "NULL is distinct from NULL" semantics in the UNIQUE-set sense).
+     */
+    public List<Set<Slot>> getAllUniqueSets() {
+        List<Set<Slot>> res = new ArrayList<>(uniqueSet.uniqueSlots.size() + uniqueSet.combinedUniqueSlotSet.size());
+        for (Slot slot : uniqueSet.uniqueSlots) {
+            res.add(ImmutableSet.of(slot));
+        }
+        res.addAll(uniqueSet.combinedUniqueSlotSet);
+        return res;
+    }
+
     public FuncDeps getAllValidFuncDeps(Set<Slot> validSlots) {
         return fdDg.findValidFuncDeps(validSlots);
     }
@@ -277,14 +291,14 @@ public class DataTrait {
          *          the sets {a2, b1, c1} and {a3, b1, c1} are also treated as unique.
          */
         public void addUniqueByEqualSet(Set<Slot> equalSet) {
-            if (uniqueSet.isIntersect(equalSet, uniqueSet.slots)) {
-                uniqueSet.slots.addAll(equalSet);
+            if (uniqueSet.isIntersect(equalSet, uniqueSet.uniqueSlots)) {
+                uniqueSet.uniqueSlots.addAll(equalSet);
                 return;
             }
-            for (Set<Slot> slotSet : uniqueSet.slotSets) {
-                Set<Slot> intersection = Sets.intersection(equalSet, uniqueSet.slots);
+            for (Set<Slot> slotSet : uniqueSet.combinedUniqueSlotSet) {
+                Set<Slot> intersection = Sets.intersection(equalSet, uniqueSet.uniqueSlots);
                 if (intersection.size() > 2) {
-                    uniqueSet.slotSets.remove(slotSet);
+                    uniqueSet.combinedUniqueSlotSet.remove(slotSet);
                     slotSet.removeAll(intersection);
                     for (Slot slot : equalSet) {
                         ImmutableSet<Slot> uniqueSlotSet
@@ -330,12 +344,12 @@ public class DataTrait {
          */
         public List<Set<Slot>> getAllUniqueAndNotNull() {
             List<Set<Slot>> res = new ArrayList<>();
-            for (Slot slot : uniqueSet.slots) {
+            for (Slot slot : uniqueSet.uniqueSlots) {
                 if (!slot.nullable()) {
                     res.add(ImmutableSet.of(slot));
                 }
             }
-            for (Set<Slot> slotSet : uniqueSet.slotSets) {
+            for (Set<Slot> slotSet : uniqueSet.combinedUniqueSlotSet) {
                 boolean containsNullable = false;
                 for (Slot slot : slotSet) {
                     if (slot.nullable()) {
@@ -380,7 +394,7 @@ public class DataTrait {
 
         public void pruneSlots(Set<Slot> outputSlots) {
             uniformSet.removeNotContain(outputSlots);
-            uniqueSet.removeNotContain(outputSlots);
+            uniqueSet.removeNotContain(outputSlots, equalSetBuilder.build());
             equalSetBuilder.removeNotContain(outputSlots);
             fdDgBuilder.removeNotContain(outputSlots);
         }
@@ -404,65 +418,99 @@ public class DataTrait {
         public void replaceFuncDepsBy(Map<Slot, Slot> replaceMap) {
             fdDgBuilder.replace(replaceMap);
         }
+
+        /** replace uniqueSet.slotSets slot to root in equalSets */
+        public void rmDuplicateInUniqueSlotSetByEqualSet() {
+            ImmutableEqualSet<Slot> equalSet = equalSetBuilder.build();
+            Set<ImmutableSet<Slot>> newSlotSets = new HashSet<>();
+            for (ImmutableSet<Slot> uniqueSet : uniqueSet.combinedUniqueSlotSet) {
+                ImmutableSet.Builder<Slot> roots = ImmutableSet.builder();
+                for (Slot slot : uniqueSet) {
+                    Slot root = equalSet.getRoot(slot);
+                    if (root != null) {
+                        roots.add(root);
+                    } else {
+                        roots.add(slot);
+                    }
+                }
+                newSlotSets.add(roots.build());
+            }
+            uniqueSet.combinedUniqueSlotSet = newSlotSets;
+        }
     }
 
     static class UniqueDescription {
-        Set<Slot> slots;
-        Set<ImmutableSet<Slot>> slotSets;
+        Set<Slot> uniqueSlots;
+        Set<ImmutableSet<Slot>> combinedUniqueSlotSet;
 
         UniqueDescription() {
-            slots = new HashSet<>();
-            slotSets = new HashSet<>();
+            uniqueSlots = new HashSet<>();
+            combinedUniqueSlotSet = new HashSet<>();
         }
 
         UniqueDescription(UniqueDescription o) {
-            this.slots = new HashSet<>(o.slots);
-            this.slotSets = new HashSet<>(o.slotSets);
+            this.uniqueSlots = new HashSet<>(o.uniqueSlots);
+            this.combinedUniqueSlotSet = new HashSet<>(o.combinedUniqueSlotSet);
         }
 
         UniqueDescription(Set<Slot> slots, Set<ImmutableSet<Slot>> slotSets) {
-            this.slots = slots;
-            this.slotSets = slotSets;
+            this.uniqueSlots = slots;
+            this.combinedUniqueSlotSet = slotSets;
         }
 
         public boolean contains(Slot slot) {
-            return slots.contains(slot);
+            return uniqueSlots.contains(slot);
         }
 
         public boolean contains(Set<Slot> slotSet) {
             if (slotSet.size() == 1) {
-                return slots.contains(slotSet.iterator().next());
+                return uniqueSlots.contains(slotSet.iterator().next());
             }
-            return slotSets.contains(ImmutableSet.copyOf(slotSet));
+            return combinedUniqueSlotSet.contains(ImmutableSet.copyOf(slotSet));
         }
 
         public boolean containsAnySub(Set<Slot> slotSet) {
-            return slotSet.stream().anyMatch(s -> slots.contains(s))
-                    || slotSets.stream().anyMatch(slotSet::containsAll);
+            return slotSet.stream().anyMatch(s -> uniqueSlots.contains(s))
+                    || combinedUniqueSlotSet.stream().anyMatch(slotSet::containsAll);
         }
 
-        public void removeNotContain(Set<Slot> slotSet) {
-            if (!slotSet.isEmpty()) {
-                Set<Slot> newSlots = Sets.newLinkedHashSetWithExpectedSize(slots.size());
-                for (Slot slot : slots) {
-                    if (slotSet.contains(slot)) {
+        public void removeNotContain(Set<Slot> outputSlots, ImmutableEqualSet<Slot> equalSet) {
+            if (!outputSlots.isEmpty()) {
+                Set<Slot> newSlots = Sets.newLinkedHashSetWithExpectedSize(uniqueSlots.size());
+                for (Slot slot : uniqueSlots) {
+                    if (outputSlots.contains(slot)) {
                         newSlots.add(slot);
                     }
                 }
-                this.slots = newSlots;
+                this.uniqueSlots = newSlots;
 
-                Set<ImmutableSet<Slot>> newSlotSets = Sets.newLinkedHashSetWithExpectedSize(slots.size());
-                for (ImmutableSet<Slot> set : slotSets) {
-                    if (slotSet.containsAll(set)) {
-                        newSlotSets.add(set);
+                Set<ImmutableSet<Slot>> newCombinedUniqueSlotSet = Sets.newHashSetWithExpectedSize(uniqueSlots.size());
+                for (ImmutableSet<Slot> combinedUniqueSlots : combinedUniqueSlotSet) {
+                    ImmutableSet.Builder<Slot> builder = ImmutableSet.builder();
+                    boolean allCanFindReplacement = true;
+                    for (Slot slot : combinedUniqueSlots) {
+                        if (outputSlots.contains(slot)) {
+                            builder.add(slot);
+                        } else {
+                            Set<Slot> equalSlots = equalSet.calEqualSet(slot);
+                            Set<Slot> replaceSlots = Sets.intersection(outputSlots, equalSlots);
+                            if (!replaceSlots.isEmpty()) {
+                                builder.add(replaceSlots.iterator().next());
+                            } else {
+                                allCanFindReplacement = false;
+                            }
+                        }
+                    }
+                    if (allCanFindReplacement) {
+                        newCombinedUniqueSlotSet.add(builder.build());
                     }
                 }
-                this.slotSets = newSlotSets;
+                this.combinedUniqueSlotSet = newCombinedUniqueSlotSet;
             }
         }
 
         public void add(Slot slot) {
-            slots.add(slot);
+            uniqueSlots.add(slot);
         }
 
         public void add(ImmutableSet<Slot> slotSet) {
@@ -470,15 +518,15 @@ public class DataTrait {
                 return;
             }
             if (slotSet.size() == 1) {
-                slots.add(slotSet.iterator().next());
+                uniqueSlots.add(slotSet.iterator().next());
                 return;
             }
-            slotSets.add(slotSet);
+            combinedUniqueSlotSet.add(slotSet);
         }
 
         public void add(UniqueDescription uniqueDescription) {
-            slots.addAll(uniqueDescription.slots);
-            slotSets.addAll(uniqueDescription.slotSets);
+            uniqueSlots.addAll(uniqueDescription.uniqueSlots);
+            combinedUniqueSlotSet.addAll(uniqueDescription.combinedUniqueSlotSet);
         }
 
         public boolean isIntersect(Set<Slot> set1, Set<Slot> set2) {
@@ -496,26 +544,26 @@ public class DataTrait {
         }
 
         public boolean isEmpty() {
-            return slots.isEmpty() && slotSets.isEmpty();
+            return uniqueSlots.isEmpty() && combinedUniqueSlotSet.isEmpty();
         }
 
         @Override
         public String toString() {
-            return "{" + slots + slotSets + "}";
+            return "{" + uniqueSlots + combinedUniqueSlotSet + "}";
         }
 
         public void replace(Map<Slot, Slot> replaceMap) {
-            slots = slots.stream()
+            uniqueSlots = uniqueSlots.stream()
                     .map(s -> replaceMap.getOrDefault(s, s))
                     .collect(Collectors.toSet());
-            slotSets = slotSets.stream()
+            combinedUniqueSlotSet = combinedUniqueSlotSet.stream()
                     .map(set -> set.stream().map(s -> replaceMap.getOrDefault(s, s))
                             .collect(ImmutableSet.toImmutableSet()))
                     .collect(Collectors.toSet());
         }
 
         public UniqueDescription toImmutable() {
-            return new UniqueDescription(ImmutableSet.copyOf(slots), ImmutableSet.copyOf(slotSets));
+            return new UniqueDescription(ImmutableSet.copyOf(uniqueSlots), ImmutableSet.copyOf(combinedUniqueSlotSet));
         }
     }
 

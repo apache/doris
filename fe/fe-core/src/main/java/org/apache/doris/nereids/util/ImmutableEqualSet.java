@@ -48,6 +48,7 @@ public class ImmutableEqualSet<T> {
      */
     public static class Builder<T> {
         private Map<T, T> parent;
+        private ImmutableEqualSet<T> built;
 
         Builder(Map<T, T> parent) {
             this.parent = parent;
@@ -146,13 +147,21 @@ public class ImmutableEqualSet<T> {
             return findRoot(parent.get(a));
         }
 
+        /** compute if built is null */
         public ImmutableEqualSet<T> build() {
-            ImmutableMap.Builder<T, T> foldMapBuilder = new ImmutableMap.Builder<>();
-            for (T k : parent.keySet()) {
-                foldMapBuilder.put(k, findRoot(k));
+            if (built == null) {
+                ImmutableMap.Builder<T, T> foldMapBuilder = new ImmutableMap.Builder<>();
+                for (T k : parent.keySet()) {
+                    foldMapBuilder.put(k, findRoot(k));
+                }
+                built = new ImmutableEqualSet<>(foldMapBuilder.build());
             }
-            return new ImmutableEqualSet<>(foldMapBuilder.build());
+            return built;
         }
+    }
+
+    public T getRoot(T node) {
+        return root.get(node);
     }
 
     /**
