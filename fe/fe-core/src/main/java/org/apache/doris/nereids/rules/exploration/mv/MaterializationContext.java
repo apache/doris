@@ -24,7 +24,6 @@ import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
@@ -69,7 +68,6 @@ import java.util.stream.Collectors;
  */
 public abstract class MaterializationContext {
     private static final Logger LOG = LogManager.getLogger(MaterializationContext.class);
-    public final Map<RelationMapping, SlotMapping> queryToMaterializationSlotMappingCache = new HashMap<>();
     protected List<Table> baseTables;
     protected List<Table> baseViews;
     // The plan of materialization def sql
@@ -79,9 +77,6 @@ public abstract class MaterializationContext {
     // Should regenerate when materialization is already rewritten successfully because one query may hit repeatedly
     // make sure output is different in multi using
     protected Plan scanPlan;
-    // The materialization plan output shuttled expression, this is used by generate field
-    // exprToScanExprMapping
-    protected List<? extends Expression> planOutputShuttledExpressions;
     // Generated mapping from materialization plan out expr to materialization scan plan out slot mapping,
     // this is used for later
     protected Map<Expression, Expression> exprToScanExprMapping = new HashMap<>();
@@ -98,17 +93,24 @@ public abstract class MaterializationContext {
     // The materialization plan struct info, construct struct info is expensive,
     // this should be constructed once for all query for performance
     protected final StructInfo structInfo;
-    // Group id set that are rewritten unsuccessfully by this materialization for reducing rewrite times
+    // Coarse retry guard keyed only by (this materialization, query group).
+    // It does not distinguish which MV rule or which newly generated logical expression in the same group
+    // produced the failure, so it is only a practical cache for reducing retries under the current memo state.
     protected final Set<GroupId> matchedFailGroups = new HashSet<>();
-    // Group id set that are rewritten successfully by this materialization for reducing rewrite times
+    // Coarse success cache keyed only by (this materialization, query group).
+    // Once one rewrite path for this MV succeeds on the group, later alternatives from other MV rules on the
+    // same group may be skipped as an engineering tradeoff to reduce repeated work.
     protected final Set<GroupId> matchedSuccessGroups = new HashSet<>();
     // Record the reason, if rewrite by materialization fail. The failReason should be empty if success.
     // The key is the query belonged group expression objectId, the value is the fail reasons because
     // for one materialization query may be multi when nested materialized view.
     protected final Multimap<ObjectId, Pair<String, String>> failReason = HashMultimap.create();
     protected List<String> identifier;
-    // The common table id set which is used in materialization, added for performance consideration
-    private BitSet commonTableIdSet;
+    private final Map<RelationMapping, SlotMapping> queryToMaterializationSlotMappingCache = new HashMap<>();
+    // RelationMapping depends on the query relation-id set and this materialization's fixed view-side relations.
+    private final Map<BitSet, List<RelationMapping>> queryToMaterializationRelationMappingCache = new HashMap<>();
+    // Statement-scope table ids of relations directly used by this materialization, including normal tables and MVs.
+    private final BitSet baseTableIdSet;
 
     /**
      * MaterializationContext, this contains necessary info for query rewriting by materialization
@@ -120,14 +122,13 @@ public abstract class MaterializationContext {
         StatementBase parsedStatement = cascadesContext.getStatementContext().getParsedStatement();
         this.enableRecordFailureDetail = parsedStatement != null && parsedStatement.isExplain()
                 && ExplainLevel.MEMO_PLAN == parsedStatement.getExplainOptions().getExplainLevel();
-        // Construct materialization struct info, catch exception which may cause planner roll back
         this.structInfo = structInfo == null
-                ? constructStructInfo(plan, originalPlan, cascadesContext).orElseGet(() -> null)
+                ? constructStructInfo(plan, originalPlan, cascadesContext).orElse(null)
                 : structInfo;
         this.available = this.structInfo != null;
-        if (available) {
-            this.planOutputShuttledExpressions = this.structInfo.getPlanOutputShuttledExpressions();
-        }
+        this.baseTableIdSet = this.structInfo == null
+                ? new BitSet()
+                : constructBaseTableIdSet(this.structInfo, cascadesContext.getStatementContext());
     }
 
     /**
@@ -172,7 +173,8 @@ public abstract class MaterializationContext {
         // Materialization output expression shuttle, this will be used to expression rewrite
         List<Slot> scanPlanOutput = this.scanPlan.getOutput();
         // generate expression depend on the order of output
-        this.shuttledExprToScanExprMapping = ExpressionMapping.generate(this.planOutputShuttledExpressions,
+        this.shuttledExprToScanExprMapping = ExpressionMapping.generate(
+                this.structInfo.getPlanOutputShuttledExpressions(),
                 scanPlanOutput);
         // This is used by normalize statistics column expression
         Map<Expression, Expression> regeneratedMapping = new HashMap<>();
@@ -202,6 +204,13 @@ public abstract class MaterializationContext {
 
     public SlotMapping getSlotMappingFromCache(RelationMapping relationMapping) {
         return queryToMaterializationSlotMappingCache.get(relationMapping);
+    }
+
+    public List<RelationMapping> getRelationMappings(StructInfo queryStructInfo, int maxMappingCount) {
+        BitSet relationIdSet = queryStructInfo.getRelationBitSet();
+        return queryToMaterializationRelationMappingCache.computeIfAbsent((BitSet) relationIdSet.clone(),
+                ignored -> RelationMapping.generate(queryStructInfo.getRelations(),
+                        structInfo.getRelations(), maxMappingCount));
     }
 
     /**
@@ -343,11 +352,12 @@ public abstract class MaterializationContext {
      * Record fail reason when in rewriting by struct info
      */
     public void recordFailReason(StructInfo structInfo, String summary, Supplier<String> failureReasonSupplier) {
-        // record it's rewritten
-        if (structInfo.getTopPlan().getGroupExpression().isPresent()) {
-            this.addMatchedGroup(structInfo.getTopPlan().getGroupExpression().get().getOwnerGroup().getGroupId(),
-                    false);
-        }
+        // StructInfo may be built from a detached candidate plan whose top node no longer keeps the original
+        // groupExpression. For retry suppression we still need to mark the source memo group as failed, so use
+        // originalPlan here: it still points to the query group that should be skipped until nested-MV state changes.
+        structInfo.getOriginalPlan().getGroupExpression()
+                .ifPresent(groupExpression -> this.addMatchedGroup(groupExpression.getOwnerGroup().getGroupId(),
+                        false));
         // once success, do not record the fail reason
         if (this.success) {
             return;
@@ -370,24 +380,20 @@ public abstract class MaterializationContext {
             return;
         }
         this.failReason.put(queryGroupPlan.getGroupExpression()
-                        .map(GroupExpression::getId).orElseGet(() -> new ObjectId(-1)),
+                        .map(GroupExpression::getId).orElse(new ObjectId(-1)),
                 Pair.of(summary, this.isEnableRecordFailureDetail() ? failureReasonSupplier.get() : ""));
     }
 
-    /**
-     * get materialization context common table id by current currentQueryStatementContext
-     */
-    public BitSet getCommonTableIdSet(StatementContext currentQueryStatementContext) {
-        if (commonTableIdSet != null) {
-            return commonTableIdSet;
+    public BitSet getBaseTableIdSet() {
+        return baseTableIdSet;
+    }
+
+    private static BitSet constructBaseTableIdSet(StructInfo structInfo, StatementContext statementContext) {
+        BitSet baseTableIdSet = new BitSet();
+        for (CatalogRelation relation : structInfo.getRelations()) {
+            baseTableIdSet.set(statementContext.getTableId(relation.getTable()).asInt());
         }
-        commonTableIdSet = new BitSet();
-        for (StructInfoNode node : structInfo.getRelationIdStructInfoNodeMap().values()) {
-            for (CatalogRelation catalogRelation : node.getCatalogRelation()) {
-                commonTableIdSet.set(currentQueryStatementContext.getTableId(catalogRelation.getTable()).asInt());
-            }
-        }
-        return commonTableIdSet;
+        return baseTableIdSet;
     }
 
     @Override

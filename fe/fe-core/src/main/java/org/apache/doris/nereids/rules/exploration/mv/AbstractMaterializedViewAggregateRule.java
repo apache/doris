@@ -26,6 +26,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
 import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewAggregateRule.AggregateExpressionRewriteContext.ExpressionRewriteMode;
+import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PatternCheckResult;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanCheckContext;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanSplitContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
@@ -611,9 +612,10 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
      */
     @Override
     protected boolean checkQueryPattern(StructInfo structInfo, CascadesContext cascadesContext) {
-        PlanCheckContext checkContext = PlanCheckContext.of(SUPPORTED_JOIN_TYPE_SET);
+        PatternCheckResult checkResult = structInfo.getPlanPatternCheckResult(SUPPORTED_JOIN_TYPE_SET);
+        PlanCheckContext checkContext = checkResult.getCheckContext();
         // if query or mv contains more than one top aggregate, should fail
-        return structInfo.getTopPlan().accept(StructInfo.PLAN_PATTERN_CHECKER, checkContext)
+        return checkResult.isAccepted()
                 && checkContext.isContainsTopAggregate() && checkContext.getTopAggregateNum() <= 1
                 && !checkContext.isContainsTopLimit() && !checkContext.isContainsTopTopN()
                 && !checkContext.isContainsTopWindow();

@@ -67,6 +67,7 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
@@ -135,13 +136,18 @@ public class StructInfo {
     // this is for building LogicalCompatibilityContext later.
     private final Map<ExpressionPosition, Map<Expression, Expression>> expressionToShuttledExpressionToMap;
 
-    private final List<? extends Expression> planOutputShuttledExpressions;
+    // Candidate StructInfo may be built from a reconstructed plan while originalPlan keeps the memo group's output.
+    // Use this plan to shuttle original output expressions through the candidate tree when rewriting projections.
+    private final Plan outputLineageSourcePlan;
+    private List<? extends Expression> planOutputShuttledExpressions;
+    private final Map<Set<JoinType>, PatternCheckResult> planPatternCheckResults = new HashMap<>();
+    private PatternCheckResult scanPatternCheckResult;
 
     /**
      * The construct method for StructInfo
      */
-    private StructInfo(Plan originalPlan, ObjectId originalPlanId, HyperGraph hyperGraph, boolean valid, Plan topPlan,
-            Plan bottomPlan, List<CatalogRelation> relations,
+    private StructInfo(Plan originalPlan, ObjectId originalPlanId, HyperGraph hyperGraph,
+            boolean valid, Plan topPlan, Plan bottomPlan, List<CatalogRelation> relations,
             Map<RelationId, StructInfoNode> relationIdStructInfoNodeMap,
             @Nullable Predicates predicates,
             Optional<SlotReference> groupingId,
@@ -149,9 +155,7 @@ public class StructInfo {
                     shuttledExpressionsToExpressionsMap,
             Map<ExpressionPosition, Map<Expression, Expression>> expressionToShuttledExpressionToMap,
             BitSet relationIdSet,
-            SplitPredicate splitPredicate,
-            EquivalenceClass equivalenceClass,
-            List<? extends Expression> planOutputShuttledExpressions) {
+            Plan outputLineageSourcePlan) {
         this.originalPlan = originalPlan;
         this.originalPlanId = originalPlanId;
         this.hyperGraph = hyperGraph;
@@ -163,21 +167,19 @@ public class StructInfo {
         this.relationIdStructInfoNodeMap = relationIdStructInfoNodeMap;
         this.predicates = predicates;
         this.groupingId = groupingId;
-        this.splitPredicate = splitPredicate;
-        this.equivalenceClass = equivalenceClass;
         this.shuttledExpressionsToExpressionsMap = shuttledExpressionsToExpressionsMap;
         this.expressionToShuttledExpressionToMap = expressionToShuttledExpressionToMap;
-        this.planOutputShuttledExpressions = planOutputShuttledExpressions;
+        this.outputLineageSourcePlan = outputLineageSourcePlan;
     }
 
     /**
      * Construct StructInfo with new predicates
      */
     public StructInfo withPredicates(Predicates predicates) {
-        return new StructInfo(this.originalPlan, this.originalPlanId, this.hyperGraph, this.valid, this.topPlan,
-                this.bottomPlan, this.relations, this.relationIdStructInfoNodeMap, predicates, this.groupingId,
-                this.shuttledExpressionsToExpressionsMap, this.expressionToShuttledExpressionToMap,
-                this.relationBitSet, null, null, this.planOutputShuttledExpressions);
+        return new StructInfo(this.originalPlan, this.originalPlanId, this.hyperGraph,
+                this.valid, this.topPlan, this.bottomPlan, this.relations, this.relationIdStructInfoNodeMap,
+                predicates, this.groupingId, this.shuttledExpressionsToExpressionsMap,
+                this.expressionToShuttledExpressionToMap, this.relationBitSet, this.outputLineageSourcePlan);
     }
 
     private static boolean collectStructInfoFromGraph(HyperGraph hyperGraph,
@@ -329,13 +331,10 @@ public class StructInfo {
         topPlan.accept(PREDICATE_COLLECTOR, predicateCollectorContext);
         Predicates predicates = Predicates.of(predicateCollectorContext.getCouldPullUpPredicates(),
                 predicateCollectorContext.getCouldNotPullUpPredicates());
-        // this should use the output of originalPlan to make sure the output right order
-        List<? extends Expression> planOutputShuttledExpressions =
-                ExpressionUtils.shuttleExpressionWithLineage(originalPlan.getOutput(), originalPlan);
         return new StructInfo(originalPlan, originalPlanId, hyperGraph, valid, topPlan, bottomPlan,
                 relationList, relationIdStructInfoNodeMap, predicates, planSplitContext.getGroupingId(),
                 shuttledHashConjunctsToConjunctsMap, expressionToShuttledExpressionToMap,
-                relationBitSet, null, null, planOutputShuttledExpressions);
+                relationBitSet, derivedPlan);
     }
 
     public List<CatalogRelation> getRelations() {
@@ -388,6 +387,35 @@ public class StructInfo {
 
     public Plan getTopPlan() {
         return topPlan;
+    }
+
+    /**
+     * Get or build the cached plan-pattern check result for the given supported join types.
+     */
+    public PatternCheckResult getPlanPatternCheckResult(Set<JoinType> supportJoinTypes) {
+        Set<JoinType> cacheKey = ImmutableSet.copyOf(supportJoinTypes);
+        PatternCheckResult cachedResult = planPatternCheckResults.get(cacheKey);
+        if (cachedResult != null) {
+            return cachedResult;
+        }
+        PlanCheckContext checkContext = PlanCheckContext.of(cacheKey);
+        PatternCheckResult result = new PatternCheckResult(topPlan.accept(PLAN_PATTERN_CHECKER, checkContext),
+                checkContext);
+        planPatternCheckResults.put(cacheKey, result);
+        return result;
+    }
+
+    /**
+     * Get or build the cached scan-pattern check result for the current top plan.
+     */
+    public PatternCheckResult getScanPatternCheckResult() {
+        if (scanPatternCheckResult != null) {
+            return scanPatternCheckResult;
+        }
+        PlanCheckContext checkContext = PlanCheckContext.of(ImmutableSet.of());
+        scanPatternCheckResult = new PatternCheckResult(topPlan.accept(SCAN_PLAN_PATTERN_CHECKER, checkContext),
+                checkContext);
+        return scanPatternCheckResult;
     }
 
     public Plan getBottomPlan() {
@@ -443,7 +471,12 @@ public class StructInfo {
         return relationBitSet;
     }
 
+    /** Lazily derive the query output lineage on top of the current candidate plan. */
     public List<? extends Expression> getPlanOutputShuttledExpressions() {
+        if (planOutputShuttledExpressions == null) {
+            planOutputShuttledExpressions =
+                    ExpressionUtils.shuttleExpressionWithLineage(originalPlan.getOutput(), outputLineageSourcePlan);
+        }
         return planOutputShuttledExpressions;
     }
 
@@ -765,6 +798,25 @@ public class StructInfo {
 
         public static PlanCheckContext of(Set<JoinType> supportJoinTypes) {
             return new PlanCheckContext(supportJoinTypes);
+        }
+    }
+
+    /** The final checker verdict plus the collected top-level shape flags. */
+    public static class PatternCheckResult {
+        private final boolean accepted;
+        private final PlanCheckContext checkContext;
+
+        public PatternCheckResult(boolean accepted, PlanCheckContext checkContext) {
+            this.accepted = accepted;
+            this.checkContext = checkContext;
+        }
+
+        public boolean isAccepted() {
+            return accepted;
+        }
+
+        public PlanCheckContext getCheckContext() {
+            return checkContext;
         }
     }
 

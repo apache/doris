@@ -17,9 +17,9 @@
 
 package org.apache.doris.nereids.memo;
 
-import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.metrics.EventChannel;
@@ -52,7 +52,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.BitSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -61,7 +60,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
@@ -76,9 +74,7 @@ public class Memo {
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(GroupMergeEvent.class, EventChannel.LOG)));
     private static long stateId = 0;
     private final ConnectContext connectContext;
-    // The key is the query tableId, the value is the refresh version when last refresh, this is needed
-    // because struct info refresh base on target tableId.
-    private final Map<Integer, AtomicInteger> refreshVersion = new HashMap<>();
+    private final StatementContext statementContext;
     private final Map<Class<? extends AbstractMaterializedViewRule>, Set<Long>> materializationCheckSuccessMap =
             new LinkedHashMap<>();
     private final Map<Class<? extends AbstractMaterializedViewRule>, Set<Long>> materializationCheckFailMap =
@@ -93,11 +89,17 @@ public class Memo {
     public Memo() {
         this.root = null;
         this.connectContext = null;
+        this.statementContext = null;
     }
 
     public Memo(ConnectContext connectContext, Plan plan) {
+        this(connectContext == null ? null : connectContext.getStatementContext(), plan);
+    }
+
+    private Memo(StatementContext statementContext, Plan plan) {
+        this.statementContext = statementContext;
+        this.connectContext = statementContext == null ? null : statementContext.getConnectContext();
         this.root = init(plan);
-        this.connectContext = connectContext;
     }
 
     public static long getStateId() {
@@ -130,30 +132,6 @@ public class Memo {
 
     public int getGroupExpressionsSize() {
         return groupExpressions.size();
-    }
-
-    /** get the refresh version map*/
-    public Map<Integer, AtomicInteger> getRefreshVersion() {
-        return refreshVersion;
-    }
-
-    /** return the incremented refresh version for the given commonTableId*/
-    public long incrementAndGetRefreshVersion(int commonTableId) {
-        return refreshVersion.compute(commonTableId, (k, v) -> {
-            if (v == null) {
-                return new AtomicInteger(1);
-            }
-            v.incrementAndGet();
-            return v;
-        }).get();
-    }
-
-    /** return the incremented refresh version for the given relationId set*/
-    public void incrementAndGetRefreshVersion(BitSet commonTableIdSet) {
-        for (int i = commonTableIdSet.nextSetBit(0); i >= 0;
-                i = commonTableIdSet.nextSetBit(i + 1)) {
-            incrementAndGetRefreshVersion(i);
-        }
     }
 
     /**
@@ -379,6 +357,7 @@ public class Memo {
      */
     private Group init(Plan plan) {
         Preconditions.checkArgument(!(plan instanceof GroupPlan), "Cannot init memo by a GroupPlan");
+        registerRelationIdentity(plan);
 
         // initialize children recursively
         List<Group> childrenGroups = new ArrayList<>(plan.arity());
@@ -481,15 +460,7 @@ public class Memo {
                     plan.getLogicalProperties(), targetGroup.getLogicalProperties());
             throw new IllegalStateException("Insert a plan into targetGroup but differ in logicalproperties");
         }
-        if (connectContext != null
-                && connectContext.getSessionVariable().isEnableMaterializedViewNestRewrite()
-                && plan instanceof LogicalCatalogRelation
-                && ((CatalogRelation) plan).getTable() instanceof MTMV
-                && !plan.getGroupExpression().isPresent()) {
-            TableId mvCommonTableId
-                    = this.connectContext.getStatementContext().getTableId(((CatalogRelation) plan).getTable());
-            incrementAndGetRefreshVersion(mvCommonTableId.asInt());
-        }
+        registerRelationIdentity(plan);
         Optional<GroupExpression> groupExpr = plan.getGroupExpression();
         if (groupExpr.isPresent()) {
             Preconditions.checkState(groupExpressions.containsKey(groupExpr.get()));
@@ -511,6 +482,24 @@ public class Memo {
         GroupExpression newGroupExpression = new GroupExpression(plan, childrenGroups);
         return insertGroupExpression(newGroupExpression, targetGroup, plan.getLogicalProperties(), planTable);
         // TODO: need to derive logical property if generate new group. currently we not copy logical plan into
+    }
+
+    private void registerRelationIdentity(Plan plan) {
+        if (statementContext == null) {
+            return;
+        }
+        if (plan instanceof LogicalCatalogRelation) {
+            // StructInfoMap searches query alternatives by relation id, but each MV context starts from the
+            // table ids in the MV definition. Register both original scans and nested MV scans copied into memo
+            // so those table ids can be expanded back to the currently available relation ids.
+            CatalogRelation catalogRelation = (CatalogRelation) plan;
+            TableId tableId = statementContext.getTableId(catalogRelation.getTable());
+            boolean relationIdentityChanged = statementContext.getTableIdToRelationIds()
+                    .put(tableId.asInt(), catalogRelation.getRelationId().asInt());
+            if (relationIdentityChanged) {
+                groups.values().forEach(group -> group.getStructInfoMap().clearCandidateCache());
+            }
+        }
     }
 
     private List<Group> rewriteChildrenPlansToGroups(Plan plan, Group targetGroup) {

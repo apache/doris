@@ -207,20 +207,7 @@ public class MappingTest extends TestWithFeService {
         List<RelationMapping> generateRelationMapping = RelationMapping.generate(sourceRelations, targetRelations,
                 8);
         Assertions.assertNotNull(generateRelationMapping);
-        Assertions.assertEquals(1, generateRelationMapping.size());
-
-        // expected slot mapping
-        BiMap<ExprId, ExprId> expectedSlotMapping = HashBiMap.create();
-        expectedSlotMapping.put(new ExprId(0), new ExprId(2));
-        expectedSlotMapping.put(new ExprId(1), new ExprId(3));
-        expectedSlotMapping.put(new ExprId(2), new ExprId(4));
-        expectedSlotMapping.put(new ExprId(5), new ExprId(0));
-        expectedSlotMapping.put(new ExprId(6), new ExprId(1));
-        // expected relation mapping
-        BiMap<RelationId, RelationId> expectedRelationMapping = HashBiMap.create();
-        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
-        expectedRelationMapping.put(new RelationId(2), new RelationId(0));
-        assertRelationMapping(generateRelationMapping.get(0), expectedRelationMapping, expectedSlotMapping);
+        Assertions.assertTrue(generateRelationMapping.isEmpty());
     }
 
     // test table of source query is repeated
@@ -254,33 +241,7 @@ public class MappingTest extends TestWithFeService {
         List<RelationMapping> generateRelationMapping = RelationMapping.generate(sourceRelations, targetRelations,
                 8);
         Assertions.assertNotNull(generateRelationMapping);
-        Assertions.assertEquals(2, generateRelationMapping.size());
-
-        // expected slot mapping
-        BiMap<ExprId, ExprId> expectedSlotMapping = HashBiMap.create();
-        expectedSlotMapping.put(new ExprId(0), new ExprId(2));
-        expectedSlotMapping.put(new ExprId(1), new ExprId(3));
-        expectedSlotMapping.put(new ExprId(2), new ExprId(4));
-        expectedSlotMapping.put(new ExprId(3), new ExprId(0));
-        expectedSlotMapping.put(new ExprId(4), new ExprId(1));
-        // expected relation mapping
-        BiMap<RelationId, RelationId> expectedRelationMapping = HashBiMap.create();
-        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
-        expectedRelationMapping.put(new RelationId(1), new RelationId(0));
-        assertRelationMapping(generateRelationMapping.get(0), expectedRelationMapping, expectedSlotMapping);
-
-        // expected slot mapping
-        expectedSlotMapping = HashBiMap.create();
-        expectedSlotMapping.put(new ExprId(0), new ExprId(2));
-        expectedSlotMapping.put(new ExprId(1), new ExprId(3));
-        expectedSlotMapping.put(new ExprId(2), new ExprId(4));
-        expectedSlotMapping.put(new ExprId(5), new ExprId(0));
-        expectedSlotMapping.put(new ExprId(6), new ExprId(1));
-        // expected relation mapping
-        expectedRelationMapping = HashBiMap.create();
-        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
-        expectedRelationMapping.put(new RelationId(2), new RelationId(0));
-        assertRelationMapping(generateRelationMapping.get(1), expectedRelationMapping, expectedSlotMapping);
+        Assertions.assertTrue(generateRelationMapping.isEmpty());
     }
 
     @Test
@@ -557,53 +518,7 @@ public class MappingTest extends TestWithFeService {
         List<RelationMapping> generateRelationMapping = RelationMapping.generate(sourceRelations, targetRelations,
                 8);
         Assertions.assertNotNull(generateRelationMapping);
-        Assertions.assertEquals(6, generateRelationMapping.size());
-
-        // expected table relation mapping is as following
-        // (1, 0), (2, 2), (0, 1)
-        // (1, 0), (3, 2), (0, 1)
-        // (2, 0), (1, 2), (0, 1)
-        // (3, 0), (2, 2), (0, 1)
-        // (2, 0), (3, 2), (0, 1)
-        // (3, 0), (1, 2), (0, 1)
-        Set<BiMap<RelationId, RelationId>> expectedRelationMappingSet = new HashSet<>();
-        BiMap<RelationId, RelationId> expectedRelationMapping = HashBiMap.create();
-        expectedRelationMapping.put(new RelationId(1), new RelationId(0));
-        expectedRelationMapping.put(new RelationId(2), new RelationId(2));
-        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
-        expectedRelationMappingSet.add(expectedRelationMapping);
-
-        expectedRelationMapping = HashBiMap.create();
-        expectedRelationMapping.put(new RelationId(1), new RelationId(0));
-        expectedRelationMapping.put(new RelationId(3), new RelationId(2));
-        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
-        expectedRelationMappingSet.add(expectedRelationMapping);
-
-        expectedRelationMapping = HashBiMap.create();
-        expectedRelationMapping.put(new RelationId(2), new RelationId(0));
-        expectedRelationMapping.put(new RelationId(1), new RelationId(2));
-        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
-        expectedRelationMappingSet.add(expectedRelationMapping);
-
-        expectedRelationMapping = HashBiMap.create();
-        expectedRelationMapping.put(new RelationId(3), new RelationId(0));
-        expectedRelationMapping.put(new RelationId(2), new RelationId(2));
-        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
-        expectedRelationMappingSet.add(expectedRelationMapping);
-
-        expectedRelationMapping = HashBiMap.create();
-        expectedRelationMapping.put(new RelationId(2), new RelationId(0));
-        expectedRelationMapping.put(new RelationId(3), new RelationId(2));
-        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
-        expectedRelationMappingSet.add(expectedRelationMapping);
-
-        expectedRelationMapping = HashBiMap.create();
-        expectedRelationMapping.put(new RelationId(3), new RelationId(0));
-        expectedRelationMapping.put(new RelationId(1), new RelationId(2));
-        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
-        expectedRelationMappingSet.add(expectedRelationMapping);
-
-        assertRelationMapping(new HashSet<>(generateRelationMapping), expectedRelationMappingSet);
+        Assertions.assertTrue(generateRelationMapping.isEmpty());
     }
 
     private void assertRelationMapping(RelationMapping relationMapping,

@@ -274,8 +274,9 @@ public class StatementContext implements Closeable {
     // Record used table and it's used partitions
     private final Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap =
             HashMultimap.create();
-    // Record query common table id to relation id mapping, this is used for mv rewrite
-    private final Multimap<Integer, Integer> commonTableIdToRelationIdToMap = HashMultimap.create();
+    // Record statement-scope table ids to relation ids for MV rewrite.
+    // One table id may map to multiple relation ids because of aliases and nested MV scan alternatives.
+    private final Multimap<Integer, Integer> tableIdToRelationIds = HashMultimap.create();
 
     // Record mtmv and valid partitions map because this is time-consuming behavior
     private final Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = new HashMap<>();
@@ -303,8 +304,6 @@ public class StatementContext implements Closeable {
     private boolean needPreMvRewrite = false;
     // mark is rewritten in RBO phase, if rewritten in RBO phase should set true
     private boolean preMvRewritten = false;
-
-    private final Set<List<String>> materializationRewrittenSuccessSet = new HashSet<>();
 
     private boolean isInsert = false;
     private Optional<Map<TableIf, Set<Expression>>> mvRefreshPredicates = Optional.empty();
@@ -1109,20 +1108,12 @@ public class StatementContext implements Closeable {
         this.preMvRewritten = preMvRewritten;
     }
 
-    public Set<List<String>> getMaterializationRewrittenSuccessSet() {
-        return materializationRewrittenSuccessSet;
-    }
-
-    public void addMaterializationRewrittenSuccess(List<String> materializationQualifier) {
-        this.materializationRewrittenSuccessSet.add(materializationQualifier);
-    }
-
     public Multimap<List<String>, Pair<RelationId, Set<String>>> getTableUsedPartitionNameMap() {
         return tableUsedPartitionNameMap;
     }
 
-    public Multimap<Integer, Integer> getCommonTableIdToRelationIdMap() {
-        return commonTableIdToRelationIdToMap;
+    public Multimap<Integer, Integer> getTableIdToRelationIds() {
+        return tableIdToRelationIds;
     }
 
     public Map<BaseTableInfo, Collection<Partition>> getMvCanRewritePartitionsMap() {
