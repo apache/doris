@@ -166,13 +166,13 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     protected String s3StsRegion = "";
 
     @Getter
-    @ConnectorProperty(names = {ROLE_ARN, "AWS_ROLE_ARN", "glue.role_arn", "iceberg.rest.role_arn"},
+    @ConnectorProperty(names = {ROLE_ARN, "AWS_ROLE_ARN", "glue.role_arn"},
             required = false,
             description = "The iam role of S3.")
     protected String s3IAMRole = "";
 
     @Getter
-    @ConnectorProperty(names = {EXTERNAL_ID, "AWS_EXTERNAL_ID", "glue.external_id", "iceberg.rest.external-id"},
+    @ConnectorProperty(names = {EXTERNAL_ID, "AWS_EXTERNAL_ID", "glue.external_id"},
             required = false,
             description = "The external id of S3.")
     protected String s3ExternalId = "";

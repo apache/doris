@@ -594,6 +594,21 @@ public class IcebergRestPropertiesTest {
     }
 
     @Test
+    public void testGlueWithExternalIdFails() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "glue");
+        props.put("iceberg.rest.signing-region", "us-east-1");
+        props.put("iceberg.rest.external-id", "external-123");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                restProps::initNormalizeAndCheckProps);
+        Assertions.assertTrue(e.getMessage().contains("iceberg.rest.external-id"));
+    }
+
+    @Test
     public void testGlueWithCredentialsProviderTypeDefault() {
         Map<String, String> props = new HashMap<>();
         props.put("iceberg.rest.uri", "http://localhost:8080");

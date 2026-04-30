@@ -44,6 +44,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     private static final String PREFIX_PROPERTY = "prefix";
     private static final String VENDED_CREDENTIALS_HEADER = "header.X-Iceberg-Access-Delegation";
     private static final String VENDED_CREDENTIALS_VALUE = "vended-credentials";
+    private static final String ICEBERG_REST_ROLE_ARN = "iceberg.rest.role_arn";
+    private static final String ICEBERG_REST_EXTERNAL_ID = "iceberg.rest.external-id";
 
     private Map<String, String> icebergRestCatalogProperties;
     private S3Properties s3Properties;
@@ -159,17 +161,6 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             description = "The session-token for the iceberg rest catalog service.")
     private String icebergRestSessionToken = "";
 
-    @ConnectorProperty(names = {"iceberg.rest.role_arn"},
-            required = false,
-            description = "The aws role arn for the iceberg rest catalog service.")
-    private String icebergRestIamRole = "";
-
-    @ConnectorProperty(names = {"iceberg.rest.external-id"},
-            required = false,
-            sensitive = true,
-            description = "The aws external-id for the iceberg rest catalog service.")
-    private String icebergRestExternalId = "";
-
     @ConnectorProperty(names = {"iceberg.rest.credentials_provider_type"},
             required = false,
             description = "The credentials provider type for AWS authentication. "
@@ -262,17 +253,22 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
                 new String[] {icebergRestSigningRegion, icebergRestSigV4Enabled},
                 "Rest Catalog requires signing-region and sigv4-enabled set to true when signing-name is s3tables");
 
-        if (Strings.isNotBlank(icebergRestIamRole)) {
-            throw new IllegalArgumentException("iceberg.rest.role_arn is not supported for Iceberg REST catalog. "
-                    + "Use iceberg.rest.access-key-id and iceberg.rest.secret-access-key, "
-                    + "or iceberg.rest.credentials_provider_type instead");
-        }
+        rejectUnsupportedAwsAssumeRoleProperty(ICEBERG_REST_ROLE_ARN);
+        rejectUnsupportedAwsAssumeRoleProperty(ICEBERG_REST_EXTERNAL_ID);
 
         // access-key-id and secret-access-key must be set together when either is set
         rules.requireTogether(new String[] {icebergRestAccessKeyId, icebergRestSecretAccessKey},
                 "iceberg.rest.access-key-id and iceberg.rest.secret-access-key must be set together");
 
         return rules;
+    }
+
+    private void rejectUnsupportedAwsAssumeRoleProperty(String propertyName) {
+        if (Strings.isNotBlank(origProps.get(propertyName))) {
+            throw new IllegalArgumentException(propertyName + " is not supported for Iceberg REST catalog. "
+                    + "Use iceberg.rest.access-key-id and iceberg.rest.secret-access-key, "
+                    + "or iceberg.rest.credentials_provider_type instead");
+        }
     }
 
     private void initIcebergRestCatalogProperties() {
