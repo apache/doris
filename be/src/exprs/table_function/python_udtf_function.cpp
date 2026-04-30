@@ -138,8 +138,7 @@ Status PythonUDTFFunction::process_init(Block* block, RuntimeState* state) {
     RETURN_IF_ERROR(get_arrow_schema_from_block(input_block, &input_schema,
                                                 TimezoneUtils::default_time_zone));
     if (child_column_idxs.empty()) {
-        input_batch = arrow::RecordBatch::Make(input_schema, input_rows,
-                                               std::vector<std::shared_ptr<arrow::Array>> {});
+        RETURN_IF_ERROR(make_zero_column_arrow_batch(input_schema, input_rows, &input_batch));
     } else {
         RETURN_IF_ERROR(convert_to_arrow_batch(input_block, input_schema,
                                                arrow::default_memory_pool(), &input_batch,

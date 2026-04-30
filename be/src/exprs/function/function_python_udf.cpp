@@ -142,8 +142,7 @@ Status PythonFunctionCall::execute_impl(FunctionContext* context, Block& block,
     std::shared_ptr<arrow::RecordBatch> output_batch;
     cctz::time_zone _timezone_obj; // default UTC
     if (arguments.empty()) {
-        input_batch = arrow::RecordBatch::Make(schema, input_rows,
-                                               std::vector<std::shared_ptr<arrow::Array>> {});
+        RETURN_IF_ERROR(make_zero_column_arrow_batch(schema, input_rows, &input_batch));
     } else {
         RETURN_IF_ERROR(convert_to_arrow_batch(input_block, schema, arrow::default_memory_pool(),
                                                &input_batch, _timezone_obj));

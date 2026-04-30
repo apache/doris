@@ -61,6 +61,5 @@ def evaluate():
         assert rows.every { (it[1] as int) == 7 }
     } finally {
         try_sql(""" DROP FUNCTION IF EXISTS py_const_no_input(); """)
-        try_sql(""" DROP TABLE IF EXISTS ${table_name}; """)
     }
 }

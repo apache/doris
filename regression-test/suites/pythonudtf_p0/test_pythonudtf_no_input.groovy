@@ -65,6 +65,5 @@ def emit_values():
         ]
     } finally {
         try_sql(""" DROP FUNCTION IF EXISTS py_emit_no_input(); """)
-        try_sql(""" DROP TABLE IF EXISTS ${table_name}; """)
     }
 }
