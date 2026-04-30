@@ -67,7 +67,6 @@ TypeInfoPtr create_dynamic_type_info_ptr(const TypeInfo* type_info);
 class TypeInfo {
 public:
     virtual ~TypeInfo() = default;
-    virtual int cmp(const void* left, const void* right) const = 0;
 
     virtual void set_to_max(void* buf) const = 0;
     virtual void set_to_min(void* buf) const = 0;
@@ -79,8 +78,6 @@ public:
 
 class ScalarTypeInfo : public TypeInfo {
 public:
-    int cmp(const void* left, const void* right) const override { return _cmp(left, right); }
-
     void set_to_max(void* buf) const override { _set_to_max(buf); }
     void set_to_min(void* buf) const override { _set_to_min(buf); }
     size_t size() const override { return _size; }
@@ -89,15 +86,12 @@ public:
 
     template <typename TypeTraitsClass>
     ScalarTypeInfo(TypeTraitsClass t)
-            : _cmp(TypeTraitsClass::cmp),
-              _set_to_max(TypeTraitsClass::set_to_max),
+            : _set_to_max(TypeTraitsClass::set_to_max),
               _set_to_min(TypeTraitsClass::set_to_min),
               _size(TypeTraitsClass::size),
               _field_type(TypeTraitsClass::type) {}
 
 private:
-    int (*_cmp)(const void* left, const void* right);
-
     void (*_set_to_max)(void* buf);
     void (*_set_to_min)(void* buf);
 
@@ -112,51 +106,6 @@ public:
     explicit ArrayTypeInfo(TypeInfoPtr item_type_info)
             : _item_type_info(std::move(item_type_info)), _item_size(_item_type_info->size()) {}
     ~ArrayTypeInfo() override = default;
-
-    int cmp(const void* left, const void* right) const override {
-        auto l_value = reinterpret_cast<const CollectionValue*>(left);
-        auto r_value = reinterpret_cast<const CollectionValue*>(right);
-        size_t l_length = l_value->length();
-        size_t r_length = r_value->length();
-        size_t cur = 0;
-
-        if (!l_value->has_null() && !r_value->has_null()) {
-            while (cur < l_length && cur < r_length) {
-                int result = _item_type_info->cmp((uint8_t*)(l_value->data()) + cur * _item_size,
-                                                  (uint8_t*)(r_value->data()) + cur * _item_size);
-                if (result != 0) {
-                    return result;
-                }
-                ++cur;
-            }
-        } else {
-            while (cur < l_length && cur < r_length) {
-                if (l_value->is_null_at(cur)) {
-                    if (!r_value->is_null_at(cur)) { // left is null & right is not null
-                        return -1;
-                    }
-                } else if (r_value->is_null_at(cur)) { // left is not null & right is null
-                    return 1;
-                } else { // both are not null
-                    int result =
-                            _item_type_info->cmp((uint8_t*)(l_value->data()) + cur * _item_size,
-                                                 (uint8_t*)(r_value->data()) + cur * _item_size);
-                    if (result != 0) {
-                        return result;
-                    }
-                }
-                ++cur;
-            }
-        }
-
-        if (l_length < r_length) {
-            return -1;
-        } else if (l_length > r_length) {
-            return 1;
-        } else {
-            return 0;
-        }
-    }
 
     void set_to_max(void* buf) const override {
         DCHECK(false) << "set_to_max of list is not implemented.";
@@ -183,31 +132,6 @@ public:
             : _key_type_info(std::move(key_type_info)),
               _value_type_info(std::move(value_type_info)) {}
     ~MapTypeInfo() override = default;
-
-    int cmp(const void* left, const void* right) const override {
-        auto l_value = reinterpret_cast<const MapValue*>(left);
-        auto r_value = reinterpret_cast<const MapValue*>(right);
-        uint32_t l_size = l_value->size();
-        uint32_t r_size = r_value->size();
-        if (l_size < r_size) {
-            return -1;
-        } else if (l_size > r_size) {
-            return 1;
-        } else {
-            // now we use collection value in array to pack map k-v
-            auto l_k = reinterpret_cast<const CollectionValue*>(l_value->key_data());
-            auto l_v = reinterpret_cast<const CollectionValue*>(l_value->value_data());
-            auto r_k = reinterpret_cast<const CollectionValue*>(r_value->key_data());
-            auto r_v = reinterpret_cast<const CollectionValue*>(r_value->value_data());
-            auto key_arr = new ArrayTypeInfo(create_static_type_info_ptr(_key_type_info.get()));
-            auto val_arr = new ArrayTypeInfo(create_static_type_info_ptr(_value_type_info.get()));
-            if (int kc = key_arr->cmp(l_k, r_k) != 0) {
-                return kc;
-            } else {
-                return val_arr->cmp(l_v, r_v);
-            }
-        }
-    }
 
     void set_to_max(void* buf) const override {
         DCHECK(false) << "set_to_max of list is not implemented.";
@@ -237,50 +161,6 @@ public:
         }
     }
     ~StructTypeInfo() override = default;
-
-    int cmp(const void* left, const void* right) const override {
-        auto l_value = reinterpret_cast<const StructValue*>(left);
-        auto r_value = reinterpret_cast<const StructValue*>(right);
-        uint32_t l_size = l_value->size();
-        uint32_t r_size = r_value->size();
-        uint32_t cur = 0;
-
-        if (!l_value->has_null() && !r_value->has_null()) {
-            while (cur < l_size && cur < r_size) {
-                int result =
-                        _type_infos[cur]->cmp(l_value->child_value(cur), r_value->child_value(cur));
-                if (result != 0) {
-                    return result;
-                }
-                ++cur;
-            }
-        } else {
-            while (cur < l_size && cur < r_size) {
-                if (l_value->is_null_at(cur)) {
-                    if (!r_value->is_null_at(cur)) { // left is null & right is not null
-                        return -1;
-                    }
-                } else if (r_value->is_null_at(cur)) { // left is not null & right is null
-                    return 1;
-                } else { // both are not null
-                    int result = _type_infos[cur]->cmp(l_value->child_value(cur),
-                                                       r_value->child_value(cur));
-                    if (result != 0) {
-                        return result;
-                    }
-                }
-                ++cur;
-            }
-        }
-
-        if (l_size < r_size) {
-            return -1;
-        } else if (l_size > r_size) {
-            return 1;
-        } else {
-            return 0;
-        }
-    }
 
     void set_to_max(void* buf) const override {
         DCHECK(false) << "set_to_max of list is not implemented.";
@@ -487,20 +367,13 @@ template <FieldType field_type>
 struct BaseFieldTypeTraits : public CppTypeTraits<field_type> {
     using CppType = typename CppTypeTraits<field_type>::CppType;
 
-    static inline CppType get_cpp_type_value(const void* address) {
-        if constexpr (field_type == FieldType::OLAP_FIELD_TYPE_LARGEINT) {
-            return get_int128_from_unalign(address);
-        }
-        return *reinterpret_cast<const CppType*>(address);
-    }
-
     static inline void set_cpp_type_value(void* address, const CppType& value) {
-        memcpy(address, &value, sizeof(CppType));
+        unaligned_store<CppType>(address, value);
     }
 
     static inline int cmp(const void* left, const void* right) {
-        CppType left_value = get_cpp_type_value(left);
-        CppType right_value = get_cpp_type_value(right);
+        CppType left_value = unaligned_load<CppType>(left);
+        CppType right_value = unaligned_load<CppType>(right);
         if (left_value < right_value) {
             return -1;
         } else if (left_value > right_value) {

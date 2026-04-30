@@ -51,12 +51,4 @@ struct PackedUInt128 {
 
     uint128_t value;
 } __attribute__((packed));
-
-// unalign address directly casted to int128 will core dump
-inline int128_t get_int128_from_unalign(const void* address) {
-    int128_t value = 0;
-    memcpy(&value, address, sizeof(int128_t));
-    return value;
-}
-
 } // namespace doris
