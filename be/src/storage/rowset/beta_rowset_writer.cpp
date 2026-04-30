@@ -23,11 +23,13 @@
 #include <fmt/format.h>
 #include <stdio.h>
 
+#include <chrono>
 #include <ctime> // time
 #include <filesystem>
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -140,6 +142,16 @@ Status SegmentFileCollection::close() {
     }
 
     for (auto&& [_, writer] : _file_writers) {
+        DBUG_EXECUTE_IF("SegmentFileCollection.close.wait_dat_closed", {
+            auto before_state = writer->state();
+            for (int i = 0; i < 3000 && writer->state() != io::FileWriter::State::CLOSED; ++i) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+            LOG(INFO) << "SegmentFileCollection.close.wait_dat_closed path="
+                      << writer->path().native()
+                      << " before_state=" << static_cast<int>(before_state)
+                      << " after_state=" << static_cast<int>(writer->state());
+        });
         if (writer->state() != io::FileWriter::State::CLOSED) {
             RETURN_IF_ERROR(writer->close());
         }
