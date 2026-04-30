@@ -32,11 +32,10 @@ require 'thread'
 require 'java'
 require "#{File.dirname(__FILE__)}/../../logstash-output-doris_jars.rb"
 
-# Sync classic client imports — used only for the one-time BE URL probe in register()
+# Sync classic client imports — used for the per-batch BE URL probe
 java_import 'org.apache.hc.client5.http.impl.classic.HttpClients'
 java_import 'org.apache.hc.client5.http.classic.methods.HttpPut'
 java_import 'org.apache.hc.core5.http.io.entity.StringEntity'
-java_import 'org.apache.hc.core5.http.io.entity.EntityUtils'
 java_import 'java.nio.charset.StandardCharsets'
 
 class LogStash::Outputs::Doris < LogStash::Outputs::Base
@@ -133,13 +132,11 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
          .disableRedirectHandling
          .build
 
-      # TTL cache: { fe_url => { be_url: String, expires_at: Float } }
-      # Probes are expensive (extra round trip); cache the BE URL for 30s so that
-      # at high throughput virtually every batch hits cache and pays zero overhead.
-      # FE load-balancing is still respected: on TTL expiry we re-ask FE.
-      @be_url_cache = {}
-      @be_url_cache_mutex = Mutex.new
-      @be_url_cache_ttl = 30 # seconds
+      # No URL cache: FE routing is a per-request control-plane decision that
+      # depends on BE load, round-robin, group_commit mode, cloud cluster, and
+      # per-batch headers. Caching by fe_url alone would pin retries to a stale
+      # or dead BE. Each batch probes FE fresh; the probe is an empty-body PUT
+      # so the overhead is minimal compared with the data transfer.
 
       @init_time = Time.now.to_i # seconds
       @total_bytes = java.util.concurrent.atomic.AtomicLong.new(0)
@@ -192,53 +189,79 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       print_plugin_info
    end # def register
 
-   # Return the BE URL for the given FE URL, using a TTL cache.
-   # Cache hit  → return immediately, zero network cost.
-   # Cache miss → probe FE once, store result for @be_url_cache_ttl seconds.
+   # Return the BE URL for the given FE URL.
+   # Always probes FE fresh — no cache — so that FE's per-request routing
+   # decisions (load, round-robin, group_commit, cluster) are always respected
+   # and a dead BE never stays pinned across retries.
    # On probe failure → return nil (make_request falls back to fe_url).
    private
    def resolve_be_url(fe_url, headers)
-      now = Time.now.to_f
-      @be_url_cache_mutex.synchronize do
-         entry = @be_url_cache[fe_url]
-         return entry[:be_url] if entry && now < entry[:expires_at]
-      end
-
-      # Cache miss or expired — do the probe outside the lock so other threads
-      # are not blocked during the network call.
-      be_url = probe_be_url(fe_url, headers)
-
-      @be_url_cache_mutex.synchronize do
-         @be_url_cache[fe_url] = { be_url: be_url, expires_at: now + @be_url_cache_ttl }
-      end
-
-      be_url
+      probe_be_url(fe_url, headers)
    end
 
    # Send an empty-body PUT to FE with redirect handling disabled.
-   # FE replies 307; we read the Location header, strip userinfo, return clean BE URL.
+   # FE responds 307 with a Location pointing to the target BE.
+   # We read that Location, strip the embedded credentials, and return a clean BE URL
+   # that the async client can use directly without following any redirects.
    private
    def probe_be_url(fe_url, headers)
       begin
          request = HttpPut.new(fe_url)
          request.setEntity(StringEntity.new("", StandardCharsets::UTF_8))
-         # Send all headers except label — use a throwaway probe label so FE
-         # doesn't register the real batch label before the actual data request
-         headers.each { |k, v| request.addHeader(k, v) unless k == "label" }
-         request.addHeader("label", "probe-#{SecureRandom.uuid}")
 
-         response = @probe_client.execute(request)
-         if response.getCode == 307
-            location = response.getFirstHeader("Location")
-            EntityUtils.consume(response.getEntity) rescue nil
-            if location
-               uri = java.net.URI.new(location.getValue)
-               port_str = uri.getPort > 0 ? ":#{uri.getPort}" : ""
-               query_str = uri.getQuery ? "?#{uri.getQuery}" : ""
-               return "#{uri.getScheme}://#{uri.getHost}#{port_str}#{uri.getPath}#{query_str}"
-            end
+         # Mirror the real request headers faithfully so the probe is semantically
+         # equivalent. The label header needs special treatment: when group_commit is
+         # enabled, create_http_headers omits it intentionally (label is incompatible
+         # with group commit), so we must omit it here too. When group_commit is off,
+         # the real request carries a label, so we replace it with a throwaway uuid
+         # to avoid pre-registering the real batch label before the actual data upload.
+         # Filtering is case-insensitive because the header name can appear as
+         # "label", "Label", or "LABEL" depending on the source.
+         real_has_label = headers.any? { |k, _| k.casecmp("label") == 0 }
+
+         headers.each do |k, v|
+            request.addHeader(k, v) unless real_has_label && k.casecmp("label") == 0
          end
-         EntityUtils.consume(response.getEntity) rescue nil
+
+         request.addHeader("label", "probe-#{SecureRandom.uuid}") if real_has_label
+
+         # execute() returns a CloseableHttpResponse; we must close it explicitly
+         # to release the connection back to the pool regardless of what happens next.
+         response = @probe_client.execute(request)
+         begin
+            if response.getCode == 307
+               location = response.getFirstHeader("Location")
+               if location
+                  raw_location = java.net.URI.new(location.getValue)
+
+                  # Location may be relative; resolve it against the FE base URL.
+                  abs_uri = raw_location.isAbsolute ? raw_location : java.net.URI.new(fe_url).resolve(raw_location)
+
+                  # Doris FE embeds credentials in the authority component
+                  # (e.g. "writer:pass@172.16.1.62:8040"). Strip only the userinfo
+                  # prefix and leave the host and port exactly as-is. Working from
+                  # getRawAuthority means IPv6 bracket notation ("[::1]:8040") is
+                  # preserved without any special-casing.
+                  raw_auth = abs_uri.getRawAuthority
+                  clean_auth = raw_auth.sub(/\A[^@]*@/, "")
+
+                  # Reconstruct the URI from raw (percent-encoded) components so that
+                  # characters like %2F, %20, or %26 in the path or query are not decoded
+                  # and then re-encoded differently. toASCIIString produces the final
+                  # string in its correctly encoded form.
+                  clean_uri = java.net.URI.new(
+                     abs_uri.getScheme,
+                     clean_auth,
+                     abs_uri.getRawPath,
+                     abs_uri.getRawQuery,
+                     nil
+                  )
+                  return clean_uri.toASCIIString
+               end
+            end
+         ensure
+            response.close rescue nil
+         end
       rescue => e
          @logger.warn("FE probe failed: #{e.message}")
       end
@@ -410,8 +433,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
          end
          @logger.debug("doris stream load request body: #{table_events.documents}")
 
-         # Resolve BE URL via TTL cache (probe only on first call or every 30s).
-         # All other batches skip the probe entirely — zero extra overhead.
+         # Resolve BE URL by probing FE to get the correct routing target.
          be_url = resolve_be_url(fe_url, table_events.http_headers)
          target_url = be_url || fe_url
          @logger.debug("Routing to: #{target_url}") if be_url
