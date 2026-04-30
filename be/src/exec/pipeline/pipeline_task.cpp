@@ -347,7 +347,7 @@ bool PipelineTask::_is_blocked() {
 void PipelineTask::unblock_all_dependencies() {
     // We use a lock to assure all dependencies are not deconstructed here.
     std::unique_lock<std::mutex> unblock_lock(_forced_unblock_lock);
-    std::unique_lock<std::mutex> dependency_lock(_dependency_lock);
+    std::unique_lock<std::mutex> lc(_dependency_lock);
     auto fragment = _fragment_context.lock();
     if (!is_finalized() && fragment) {
         try {
@@ -890,7 +890,7 @@ Status PipelineTask::finalize() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(fragment->get_query_ctx()->query_mem_tracker());
     std::unique_lock<std::mutex> unblock_lock(_forced_unblock_lock);
     RETURN_IF_ERROR(_state_transition(State::FINALIZED));
-    std::unique_lock<std::mutex> dependency_lock(_dependency_lock);
+    std::unique_lock<std::mutex> lc(_dependency_lock);
     _sink_shared_state.reset();
     _op_shared_states.clear();
     _shared_state_map.clear();
