@@ -530,13 +530,13 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         for (Expression expr : expressions) {
             if (expr instanceof BinaryOperator) {
                 if (!(expr.child(0) instanceof UnboundSlot)) {
-                    throw new UserException(String.format("% is unsupported", expr));
+                    throw new UserException(String.format("%s is unsupported", expr));
                 }
                 columnExprDescs.descs
                         .add(new NereidsImportColumnDesc(((UnboundSlot) expr.child(0)).getName(), expr.child(1)));
             } else {
                 if (!(expr instanceof UnboundSlot)) {
-                    throw new UserException(String.format("% is unsupported", expr));
+                    throw new UserException(String.format("%s is unsupported", expr));
                 }
                 columnExprDescs.descs.add(new NereidsImportColumnDesc(((UnboundSlot) expr).getName()));
             }

@@ -18,7 +18,6 @@
 #include "exec/pipeline/task_scheduler.h"
 
 #include <fmt/format.h>
-#include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
 #include <sched.h>
@@ -32,7 +31,6 @@
 #include <mutex>
 #include <ostream>
 #include <string>
-#include <thread>
 #include <utility>
 
 #include "common/logging.h"
@@ -40,7 +38,6 @@
 #include "core/value/vdatetime_value.h"
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/pipeline/pipeline_task.h"
-#include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/thread_context.h"
 #include "util/thread.h"
@@ -149,24 +146,7 @@ void TaskScheduler::_do_work(int index) {
         }
 
         // Main logics of execution
-        ASSIGN_STATUS_IF_CATCH_EXCEPTION(
-                //TODO: use a better enclose to abstracting these
-                if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) {
-                    TUniqueId query_id = fragment_context->get_query_id();
-                    std::string task_name = task->task_name();
-
-                    std::thread::id tid = std::this_thread::get_id();
-                    uint64_t thread_id = *reinterpret_cast<uint64_t*>(&tid);
-                    uint64_t start_time = MonotonicMicros();
-
-                    status = task->execute(&done);
-
-                    uint64_t end_time = MonotonicMicros();
-                    ExecEnv::GetInstance()->pipeline_tracer_context()->record(
-                            {query_id, task_name, static_cast<uint32_t>(index), thread_id,
-                             start_time, end_time});
-                } else { status = task->execute(&done); },
-                status);
+        ASSIGN_STATUS_IF_CATCH_EXCEPTION(status = task->execute(&done), status);
         fragment_context->trigger_report_if_necessary();
     }
 }

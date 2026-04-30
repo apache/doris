@@ -97,6 +97,7 @@ Status LocalExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
             "PartitionExprsSize",
             std::to_string(_parent->cast<LocalExchangeSinkOperatorX>()._partitioned_exprs_num));
     _channel_id = info.task_idx;
+    _ins_idx = info.task_idx;
     return Status::OK();
 }
 
@@ -152,7 +153,8 @@ Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, Block* in_block, bo
     SinkInfo sink_info = {.channel_id = &local_state._channel_id,
                           .partitioner = local_state._partitioner.get(),
                           .local_state = &local_state,
-                          .shuffle_idx_to_instance_idx = &_shuffle_idx_to_instance_idx};
+                          .shuffle_idx_to_instance_idx = &_shuffle_idx_to_instance_idx,
+                          .ins_idx = local_state._ins_idx};
     RETURN_IF_ERROR(local_state._exchanger->sink(
             state, in_block, eos,
             {local_state._compute_hash_value_timer, local_state._distribute_timer, nullptr},

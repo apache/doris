@@ -443,6 +443,9 @@ struct OlapReaderStatistics {
     int64_t segment_create_column_readers_timer_ns = 0;
     int64_t segment_load_index_timer_ns = 0;
 
+    int64_t adaptive_batch_size_predict_min_rows = INT64_MAX;
+    int64_t adaptive_batch_size_predict_max_rows = 0;
+
     int64_t variant_scan_sparse_column_timer_ns = 0;
     int64_t variant_scan_sparse_column_bytes = 0;
     int64_t variant_fill_path_from_sparse_column_timer_ns = 0;

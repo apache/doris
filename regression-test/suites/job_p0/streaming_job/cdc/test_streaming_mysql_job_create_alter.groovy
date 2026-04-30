@@ -69,7 +69,7 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
                     "user" = "root",
                     "password" = "123456",
                     "database" = "${mysqlDb}",
-                    "include_tables" = "${table1}", 
+                    "include_tables" = "${table1}",
                     "offset" = "initial"
                 )
                 TO DATABASE ${currentDb} (
@@ -77,6 +77,27 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
                 )
             """
             exception "Not support target properties key table.create.properties1.replication_num"
+        }
+
+        // load.* keys outside the allow-list are silently dropped at runtime; reject at CREATE time
+        test {
+            sql """CREATE JOB ${jobName}
+                ON STREAMING
+                FROM MYSQL (
+                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "com.mysql.cj.jdbc.Driver",
+                    "user" = "root",
+                    "password" = "123456",
+                    "database" = "${mysqlDb}",
+                    "include_tables" = "${table1}",
+                    "offset" = "initial"
+                )
+                TO DATABASE ${currentDb} (
+                  "load.where" = "age > 0"
+                )
+            """
+            exception "Unsupported load property: 'load.where'"
         }
 
         //error jdbc url format
@@ -348,6 +369,18 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
                 )
             """
             exception "The exclude_tables property cannot be modified in ALTER JOB"
+        }
+
+        // alter schema (PG-only source identity; MySQL does not use it, but the
+        // from-to check is source-type agnostic and must reject any schema change)
+        test {
+            sql """ALTER JOB ${jobName}
+                FROM MYSQL (
+                    "schema" = "any_schema"
+                )
+                TO DATABASE ${currentDb}
+            """
+            exception "The schema property cannot be modified in ALTER JOB"
         }
 
         // snapshot_parallelism is cached in BE reader's pollExecutor on first initialize;

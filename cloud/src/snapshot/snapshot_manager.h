@@ -110,7 +110,7 @@ public:
     // Return 0 for success otherwise error.
     virtual int compact_snapshot_chains(InstanceChainCompactor* compactor);
 
-private:
+protected:
     SnapshotManager(const SnapshotManager&) = delete;
     SnapshotManager& operator=(const SnapshotManager&) = delete;
 

@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.thrift.TQueryOptions;
 
@@ -42,5 +43,28 @@ public class StmtExecutorInternalQueryTest {
             }
         }
         Assert.assertEquals("a8ec30e5ad0820f8c5bd16a82a4491ca", executor.getContext().getSqlHash());
+    }
+
+    @Test
+    public void testExecuteInternalQuerySetsErrorStateOnFailure() {
+        // Regression test for CIR-20019: when the internal SQL execution throws,
+        // ConnectContext state must be set to ERR so AuditLogHelper records the failure
+        // instead of misleadingly logging State=OK with empty error message.
+        ConnectContext ctx = new ConnectContext();
+        StmtExecutor executor = new StmtExecutor(ctx, "select * from table1");
+        try (MockedConstruction<NereidsPlanner> mocked = Mockito.mockConstruction(NereidsPlanner.class,
+                (mock, context) -> Mockito.doThrow(new RuntimeException("mock plan failure"))
+                        .when(mock).plan(Mockito.any(StatementBase.class), Mockito.any(TQueryOptions.class)))) {
+            Assert.assertThrows(RuntimeException.class, executor::executeInternalQuery);
+        }
+        Assert.assertEquals(QueryState.MysqlStateType.ERR, ctx.getState().getStateType());
+        Assert.assertEquals(ErrorCode.ERR_INTERNAL_ERROR, ctx.getState().getErrorCode());
+        Assert.assertNotNull(ctx.getState().getErrorMessage());
+        Assert.assertTrue("error message should mention root cause, got: " + ctx.getState().getErrorMessage(),
+                ctx.getState().getErrorMessage().contains("mock plan failure"));
+        Assert.assertTrue("internal query should be flagged as internal in audit state",
+                ctx.getState().isInternal());
+        Assert.assertTrue("internal query should be flagged as query in audit state",
+                ctx.getState().isQuery());
     }
 }

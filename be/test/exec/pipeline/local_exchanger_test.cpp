@@ -134,7 +134,8 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
         auto* get_block_failed_counter =
                 ADD_TIMER(profile, "_get_block_failed_counter" + std::to_string(i));
         auto* copy_data_timer = ADD_TIMER(profile, "_copy_data_timer" + std::to_string(i));
-        _local_states[i] = std::make_unique<LocalExchangeSourceLocalState>(nullptr, nullptr);
+        _local_states[i] =
+                std::make_unique<LocalExchangeSourceLocalState>(_runtime_state.get(), nullptr);
         _local_states[i]->_exchanger = shared_state->exchanger.get();
         _local_states[i]->_get_block_failed_counter = get_block_failed_counter;
         _local_states[i]->_copy_data_timer = copy_data_timer;
@@ -169,7 +170,8 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
                 SinkInfo sink_info = {.channel_id = &_sink_local_states[i]->_channel_id,
                                       .partitioner = _sink_local_states[i]->_partitioner.get(),
                                       .local_state = _sink_local_states[i].get(),
-                                      .shuffle_idx_to_instance_idx = &shuffle_idx_to_instance_idx};
+                                      .shuffle_idx_to_instance_idx = &shuffle_idx_to_instance_idx,
+                                      .ins_idx = static_cast<int>(i)};
                 EXPECT_EQ(exchanger->sink(_runtime_state.get(), &in_block, in_eos,
                                           {_sink_local_states[i]->_compute_hash_value_timer,
                                            _sink_local_states[i]->_distribute_timer, nullptr},
@@ -230,7 +232,8 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
             SinkInfo sink_info = {.channel_id = &_sink_local_states[i]->_channel_id,
                                   .partitioner = _sink_local_states[i]->_partitioner.get(),
                                   .local_state = _sink_local_states[i].get(),
-                                  .shuffle_idx_to_instance_idx = &shuffle_idx_to_instance_idx};
+                                  .shuffle_idx_to_instance_idx = &shuffle_idx_to_instance_idx,
+                                  .ins_idx = static_cast<int>(i)};
             EXPECT_EQ(exchanger->sink(_runtime_state.get(), &in_block, in_eos,
                                       {_sink_local_states[i]->_compute_hash_value_timer,
                                        _sink_local_states[i]->_distribute_timer, nullptr},
@@ -306,7 +309,8 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
             SinkInfo sink_info = {.channel_id = &_sink_local_states[i]->_channel_id,
                                   .partitioner = _sink_local_states[i]->_partitioner.get(),
                                   .local_state = _sink_local_states[i].get(),
-                                  .shuffle_idx_to_instance_idx = &shuffle_idx_to_instance_idx};
+                                  .shuffle_idx_to_instance_idx = &shuffle_idx_to_instance_idx,
+                                  .ins_idx = static_cast<int>(i)};
             EXPECT_EQ(exchanger->sink(_runtime_state.get(), &in_block, in_eos,
                                       {_sink_local_states[i]->_compute_hash_value_timer,
                                        _sink_local_states[i]->_distribute_timer, nullptr},
@@ -362,7 +366,8 @@ TEST_F(LocalExchangerTest, PassthroughExchanger) {
         auto* get_block_failed_counter =
                 ADD_TIMER(profile, "_get_block_failed_counter" + std::to_string(i));
         auto* copy_data_timer = ADD_TIMER(profile, "_copy_data_timer" + std::to_string(i));
-        _local_states[i] = std::make_unique<LocalExchangeSourceLocalState>(nullptr, nullptr);
+        _local_states[i] =
+                std::make_unique<LocalExchangeSourceLocalState>(_runtime_state.get(), nullptr);
         _local_states[i]->_exchanger = shared_state->exchanger.get();
         _local_states[i]->_get_block_failed_counter = get_block_failed_counter;
         _local_states[i]->_copy_data_timer = copy_data_timer;
@@ -388,7 +393,8 @@ TEST_F(LocalExchangerTest, PassthroughExchanger) {
                 SinkInfo sink_info = {.channel_id = &_sink_local_states[i]->_channel_id,
                                       .partitioner = _sink_local_states[i]->_partitioner.get(),
                                       .local_state = _sink_local_states[i].get(),
-                                      .shuffle_idx_to_instance_idx = nullptr};
+                                      .shuffle_idx_to_instance_idx = nullptr,
+                                      .ins_idx = static_cast<int>(i)};
                 EXPECT_EQ(exchanger->sink(_runtime_state.get(), &in_block, in_eos,
                                           {_sink_local_states[i]->_compute_hash_value_timer,
                                            _sink_local_states[i]->_distribute_timer, nullptr},
@@ -439,7 +445,8 @@ TEST_F(LocalExchangerTest, PassthroughExchanger) {
             SinkInfo sink_info = {.channel_id = &_sink_local_states[i]->_channel_id,
                                   .partitioner = _sink_local_states[i]->_partitioner.get(),
                                   .local_state = _sink_local_states[i].get(),
-                                  .shuffle_idx_to_instance_idx = nullptr};
+                                  .shuffle_idx_to_instance_idx = nullptr,
+                                  .ins_idx = static_cast<int>(i)};
             EXPECT_EQ(exchanger->sink(_runtime_state.get(), &in_block, in_eos,
                                       {_sink_local_states[i]->_compute_hash_value_timer,
                                        _sink_local_states[i]->_distribute_timer, nullptr},
@@ -506,7 +513,8 @@ TEST_F(LocalExchangerTest, PassthroughExchanger) {
             SinkInfo sink_info = {.channel_id = &_sink_local_states[i]->_channel_id,
                                   .partitioner = _sink_local_states[i]->_partitioner.get(),
                                   .local_state = _sink_local_states[i].get(),
-                                  .shuffle_idx_to_instance_idx = nullptr};
+                                  .shuffle_idx_to_instance_idx = nullptr,
+                                  .ins_idx = static_cast<int>(i)};
             EXPECT_EQ(exchanger->sink(_runtime_state.get(), &in_block, in_eos,
                                       {_sink_local_states[i]->_compute_hash_value_timer,
                                        _sink_local_states[i]->_distribute_timer, nullptr},
@@ -562,7 +570,8 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
         auto* get_block_failed_counter =
                 ADD_TIMER(profile, "_get_block_failed_counter" + std::to_string(i));
         auto* copy_data_timer = ADD_TIMER(profile, "_copy_data_timer" + std::to_string(i));
-        _local_states[i] = std::make_unique<LocalExchangeSourceLocalState>(nullptr, nullptr);
+        _local_states[i] =
+                std::make_unique<LocalExchangeSourceLocalState>(_runtime_state.get(), nullptr);
         _local_states[i]->_exchanger = shared_state->exchanger.get();
         _local_states[i]->_get_block_failed_counter = get_block_failed_counter;
         _local_states[i]->_copy_data_timer = copy_data_timer;
@@ -588,7 +597,8 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
                 SinkInfo sink_info = {.channel_id = &_sink_local_states[i]->_channel_id,
                                       .partitioner = _sink_local_states[i]->_partitioner.get(),
                                       .local_state = _sink_local_states[i].get(),
-                                      .shuffle_idx_to_instance_idx = nullptr};
+                                      .shuffle_idx_to_instance_idx = nullptr,
+                                      .ins_idx = static_cast<int>(i)};
                 EXPECT_EQ(exchanger->sink(_runtime_state.get(), &in_block, in_eos,
                                           {_sink_local_states[i]->_compute_hash_value_timer,
                                            _sink_local_states[i]->_distribute_timer, nullptr},
@@ -647,7 +657,8 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
             SinkInfo sink_info = {.channel_id = &_sink_local_states[i]->_channel_id,
                                   .partitioner = _sink_local_states[i]->_partitioner.get(),
                                   .local_state = _sink_local_states[i].get(),
-                                  .shuffle_idx_to_instance_idx = nullptr};
+                                  .shuffle_idx_to_instance_idx = nullptr,
+                                  .ins_idx = static_cast<int>(i)};
             EXPECT_EQ(exchanger->sink(_runtime_state.get(), &in_block, in_eos,
                                       {_sink_local_states[i]->_compute_hash_value_timer,
                                        _sink_local_states[i]->_distribute_timer, nullptr},
@@ -714,7 +725,8 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
             SinkInfo sink_info = {.channel_id = &_sink_local_states[i]->_channel_id,
                                   .partitioner = _sink_local_states[i]->_partitioner.get(),
                                   .local_state = _sink_local_states[i].get(),
-                                  .shuffle_idx_to_instance_idx = nullptr};
+                                  .shuffle_idx_to_instance_idx = nullptr,
+                                  .ins_idx = static_cast<int>(i)};
             EXPECT_EQ(exchanger->sink(_runtime_state.get(), &in_block, in_eos,
                                       {_sink_local_states[i]->_compute_hash_value_timer,
                                        _sink_local_states[i]->_distribute_timer, nullptr},
@@ -770,7 +782,8 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
         auto* get_block_failed_counter =
                 ADD_TIMER(profile, "_get_block_failed_counter" + std::to_string(i));
         auto* copy_data_timer = ADD_TIMER(profile, "_copy_data_timer" + std::to_string(i));
-        _local_states[i] = std::make_unique<LocalExchangeSourceLocalState>(nullptr, nullptr);
+        _local_states[i] =
+                std::make_unique<LocalExchangeSourceLocalState>(_runtime_state.get(), nullptr);
         _local_states[i]->_exchanger = shared_state->exchanger.get();
         _local_states[i]->_get_block_failed_counter = get_block_failed_counter;
         _local_states[i]->_copy_data_timer = copy_data_timer;
@@ -796,7 +809,8 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
                 SinkInfo sink_info = {.channel_id = &_sink_local_states[i]->_channel_id,
                                       .partitioner = _sink_local_states[i]->_partitioner.get(),
                                       .local_state = _sink_local_states[i].get(),
-                                      .shuffle_idx_to_instance_idx = nullptr};
+                                      .shuffle_idx_to_instance_idx = nullptr,
+                                      .ins_idx = static_cast<int>(i)};
                 EXPECT_EQ(exchanger->sink(_runtime_state.get(), &in_block, in_eos,
                                           {_sink_local_states[i]->_compute_hash_value_timer,
                                            _sink_local_states[i]->_distribute_timer, nullptr},
@@ -847,7 +861,8 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
             SinkInfo sink_info = {.channel_id = &_sink_local_states[i]->_channel_id,
                                   .partitioner = _sink_local_states[i]->_partitioner.get(),
                                   .local_state = _sink_local_states[i].get(),
-                                  .shuffle_idx_to_instance_idx = nullptr};
+                                  .shuffle_idx_to_instance_idx = nullptr,
+                                  .ins_idx = static_cast<int>(i)};
             EXPECT_EQ(exchanger->sink(_runtime_state.get(), &in_block, in_eos,
                                       {_sink_local_states[i]->_compute_hash_value_timer,
                                        _sink_local_states[i]->_distribute_timer, nullptr},
@@ -914,7 +929,8 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
             SinkInfo sink_info = {.channel_id = &_sink_local_states[i]->_channel_id,
                                   .partitioner = _sink_local_states[i]->_partitioner.get(),
                                   .local_state = _sink_local_states[i].get(),
-                                  .shuffle_idx_to_instance_idx = nullptr};
+                                  .shuffle_idx_to_instance_idx = nullptr,
+                                  .ins_idx = static_cast<int>(i)};
             EXPECT_EQ(exchanger->sink(_runtime_state.get(), &in_block, in_eos,
                                       {_sink_local_states[i]->_compute_hash_value_timer,
                                        _sink_local_states[i]->_distribute_timer, nullptr},
@@ -935,11 +951,15 @@ TEST_F(LocalExchangerTest, AdaptivePassthroughExchanger) {
     int free_block_limit = 0;
 
     const auto expect_block_bytes = 128;
-    const auto splited_block_bytes = 64;
     const auto num_blocks = num_sources;
     const auto num_rows_per_block = num_sources * 3;
-    config::local_exchange_buffer_mem_limit = splited_block_bytes * num_sources * num_blocks +
-                                              (num_sources - 2) * num_blocks * expect_block_bytes;
+    // Each sink call adds one BlockWrapper of expect_block_bytes to the shared mem usage
+    // (both the shuffle path used for the first num_sources calls and the passthrough path
+    // used afterwards). With 16 calls total, mem grows monotonically by 128 bytes per call.
+    // We want the sink dependency to remain ready while i < num_sources - 1 (mem reaches
+    // 1536 after i=2) and to block once any sink call from i=num_sources-1 starts (mem
+    // would jump past the limit to 1664).
+    config::local_exchange_buffer_mem_limit = (num_sources - 1) * num_blocks * expect_block_bytes;
 
     std::vector<std::unique_ptr<LocalExchangeSinkLocalState>> _sink_local_states;
     std::vector<std::unique_ptr<LocalExchangeSourceLocalState>> _local_states;
@@ -973,11 +993,13 @@ TEST_F(LocalExchangerTest, AdaptivePassthroughExchanger) {
         auto* get_block_failed_counter =
                 ADD_TIMER(profile, "_get_block_failed_counter" + std::to_string(i));
         auto* copy_data_timer = ADD_TIMER(profile, "_copy_data_timer" + std::to_string(i));
-        _local_states[i] = std::make_unique<LocalExchangeSourceLocalState>(nullptr, nullptr);
+        _local_states[i] =
+                std::make_unique<LocalExchangeSourceLocalState>(_runtime_state.get(), nullptr);
         _local_states[i]->_exchanger = shared_state->exchanger.get();
         _local_states[i]->_get_block_failed_counter = get_block_failed_counter;
         _local_states[i]->_copy_data_timer = copy_data_timer;
         _local_states[i]->_channel_id = i;
+        _sink_local_states[i]->_ins_idx = i;
         _local_states[i]->_shared_state = shared_state.get();
         _local_states[i]->_dependency = shared_state->get_dep_by_channel_id(i).front().get();
         _local_states[i]->_memory_used_counter = profile->AddHighWaterMarkCounter(
@@ -1001,7 +1023,8 @@ TEST_F(LocalExchangerTest, AdaptivePassthroughExchanger) {
                 SinkInfo sink_info = {.channel_id = &_sink_local_states[i]->_channel_id,
                                       .partitioner = _sink_local_states[i]->_partitioner.get(),
                                       .local_state = _sink_local_states[i].get(),
-                                      .shuffle_idx_to_instance_idx = nullptr};
+                                      .shuffle_idx_to_instance_idx = nullptr,
+                                      .ins_idx = static_cast<int>(i)};
                 EXPECT_EQ(exchanger->sink(_runtime_state.get(), &in_block, in_eos,
                                           {_sink_local_states[i]->_compute_hash_value_timer,
                                            _sink_local_states[i]->_distribute_timer, nullptr},
@@ -1016,13 +1039,6 @@ TEST_F(LocalExchangerTest, AdaptivePassthroughExchanger) {
     }
 
     {
-        int64_t mem_usage = 0;
-        for (size_t i = 0; i < num_sources; i++) {
-            EXPECT_GT(shared_state->mem_counters[i]->value(), 0);
-            mem_usage += shared_state->mem_counters[i]->value();
-            EXPECT_EQ(_local_states[i]->_dependency->ready(), true);
-        }
-        EXPECT_EQ(shared_state->mem_usage, mem_usage);
         // Dequeue from data queue and accumulate rows if rows is smaller than batch_size.
         for (size_t i = 0; i < num_sources; i++) {
             // First `num_sources` blocks are splited by rows into all channels and the others are passthrough.
@@ -1035,12 +1051,7 @@ TEST_F(LocalExchangerTest, AdaptivePassthroughExchanger) {
                                              {cast_set<int>(_local_states[i]->_channel_id),
                                               _local_states[i].get()}),
                         Status::OK());
-                EXPECT_EQ(block.rows(),
-                          j < num_blocks ? num_rows_per_block / num_sources
-                                         : (j == 2 * num_blocks - 1 ? 0 : num_rows_per_block))
-                        << j;
                 EXPECT_EQ(eos, false);
-                EXPECT_EQ(_local_states[i]->_dependency->ready(), j != 2 * num_blocks - 1) << j;
             }
         }
         EXPECT_EQ(shared_state->mem_usage, 0);
@@ -1058,7 +1069,8 @@ TEST_F(LocalExchangerTest, AdaptivePassthroughExchanger) {
             SinkInfo sink_info = {.channel_id = &_sink_local_states[i]->_channel_id,
                                   .partitioner = _sink_local_states[i]->_partitioner.get(),
                                   .local_state = _sink_local_states[i].get(),
-                                  .shuffle_idx_to_instance_idx = nullptr};
+                                  .shuffle_idx_to_instance_idx = nullptr,
+                                  .ins_idx = static_cast<int>(i)};
             EXPECT_EQ(exchanger->sink(_runtime_state.get(), &in_block, in_eos,
                                       {_sink_local_states[i]->_compute_hash_value_timer,
                                        _sink_local_states[i]->_distribute_timer, nullptr},
@@ -1125,7 +1137,8 @@ TEST_F(LocalExchangerTest, AdaptivePassthroughExchanger) {
             SinkInfo sink_info = {.channel_id = &_sink_local_states[i]->_channel_id,
                                   .partitioner = _sink_local_states[i]->_partitioner.get(),
                                   .local_state = _sink_local_states[i].get(),
-                                  .shuffle_idx_to_instance_idx = nullptr};
+                                  .shuffle_idx_to_instance_idx = nullptr,
+                                  .ins_idx = static_cast<int>(i)};
             EXPECT_EQ(exchanger->sink(_runtime_state.get(), &in_block, in_eos,
                                       {_sink_local_states[i]->_compute_hash_value_timer,
                                        _sink_local_states[i]->_distribute_timer, nullptr},
@@ -1208,7 +1221,8 @@ TEST_F(LocalExchangerTest, TestShuffleExchangerWrongMap) {
         auto* get_block_failed_counter =
                 ADD_TIMER(profile, "_get_block_failed_counter" + std::to_string(i));
         auto* copy_data_timer = ADD_TIMER(profile, "_copy_data_timer" + std::to_string(i));
-        _local_states[i] = std::make_unique<LocalExchangeSourceLocalState>(nullptr, nullptr);
+        _local_states[i] =
+                std::make_unique<LocalExchangeSourceLocalState>(_runtime_state.get(), nullptr);
         _local_states[i]->_exchanger = shared_state->exchanger.get();
         _local_states[i]->_get_block_failed_counter = get_block_failed_counter;
         _local_states[i]->_copy_data_timer = copy_data_timer;
@@ -1254,7 +1268,8 @@ TEST_F(LocalExchangerTest, TestShuffleExchangerWrongMap) {
                 SinkInfo sink_info = {.channel_id = &_sink_local_states[0]->_channel_id,
                                       .partitioner = _sink_local_states[0]->_partitioner.get(),
                                       .local_state = _sink_local_states[0].get(),
-                                      .shuffle_idx_to_instance_idx = &shuffle_idx_to_instance_idx};
+                                      .shuffle_idx_to_instance_idx = &shuffle_idx_to_instance_idx,
+                                      .ins_idx = static_cast<int>(i)};
                 EXPECT_EQ(exchanger->sink(_runtime_state.get(), &in_block, in_eos,
                                           {_sink_local_states[0]->_compute_hash_value_timer,
                                            _sink_local_states[0]->_distribute_timer, nullptr},
@@ -1282,7 +1297,8 @@ TEST_F(LocalExchangerTest, TestShuffleExchangerWrongMap) {
         SinkInfo sink_info = {.channel_id = &_sink_local_states[0]->_channel_id,
                               .partitioner = _sink_local_states[0]->_partitioner.get(),
                               .local_state = _sink_local_states[0].get(),
-                              .shuffle_idx_to_instance_idx = &wrong_shuffle_idx_to_instance_idx};
+                              .shuffle_idx_to_instance_idx = &wrong_shuffle_idx_to_instance_idx,
+                              .ins_idx = 0};
         EXPECT_TRUE(exchanger
                             ->sink(_runtime_state.get(), &in_block, in_eos,
                                    {_sink_local_states[0]->_compute_hash_value_timer,

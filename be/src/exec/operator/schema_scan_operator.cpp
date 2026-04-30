@@ -31,6 +31,12 @@ class RuntimeState;
 
 namespace doris {
 
+SchemaScanLocalState::SchemaScanLocalState(RuntimeState* state, OperatorXBase* parent)
+        : PipelineXLocalState<>(state, parent),
+          _data_dependency(std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
+                                                        parent->get_name() + "_DEPENDENCY", true)) {
+}
+
 Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
 
@@ -242,7 +248,7 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, Block* block, bool* e
                 break;
             }
 
-            if (src_block.rows() >= state->batch_size()) {
+            if (local_state.block_budget().exceeded(src_block.rows(), src_block.bytes())) {
                 break;
             }
         }

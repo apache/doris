@@ -18,9 +18,12 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.info.TableNameInfoUtils;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -72,8 +75,15 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
                     + "falling back to name-based lookup: {}", name, e.getMessage());
             tableNameInfo = extractTableNameFromPlan(ctx);
         }
-        Env.getCurrentEnv().getConstraintManager().dropConstraint(
-                tableNameInfo, name, false);
+        Constraint constraint = Env.getCurrentEnv().getConstraintManager().getConstraint(tableNameInfo, name);
+        if (constraint == null) {
+            throw new AnalysisException(
+                    String.format("Unknown constraint %s on table %s.", name, tableNameInfo));
+        }
+        List<MTMV> dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
+        Env.getCurrentEnv().getConstraintManager().dropConstraint(tableNameInfo, name, false);
+        MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
+                String.format("after drop constraint %s on table %s", constraint.getName(), tableNameInfo));
     }
 
     private TableNameInfo extractTableNameFromPlan(ConnectContext ctx) {
@@ -90,7 +100,8 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
         // Fill in default catalog/db from connect context if not specified
         if (parts.size() == 1) {
             return new TableNameInfo(ctl, db, parts.get(0));
-        } else if (parts.size() == 2) {
+        }
+        if (parts.size() == 2) {
             return new TableNameInfo(ctl, parts.get(0), parts.get(1));
         }
         return new TableNameInfo(parts);

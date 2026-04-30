@@ -2236,16 +2236,6 @@ public class Config extends ConfigBase {
     public static boolean enable_hms_events_incremental_sync = false;
 
     /**
-     * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
-     * otherwise it will throw an AnalysisException.
-     */
-    @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL, description = {
-            "Currently defaults to true. After this function is enabled, the load statement of "
-                    + "the new optimizer can be used to import data. If this function fails, "
-                    + "the system will fall back to the old load statement."})
-    public static boolean enable_nereids_load = false;
-
-    /**
      * the plan cache num which can be reused for the next query
      */
     @ConfField(

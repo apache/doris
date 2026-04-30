@@ -40,6 +40,7 @@ struct SinkInfo {
     PartitionerBase* partitioner;
     LocalExchangeSinkLocalState* local_state;
     std::map<int, int>* shuffle_idx_to_instance_idx;
+    int ins_idx;
 };
 
 struct SourceInfo {
@@ -351,14 +352,16 @@ public:
 
 //The code in AdaptivePassthroughExchanger is essentially
 // a copy of ShuffleExchanger and PassthroughExchanger.
-class AdaptivePassthroughExchanger : public Exchanger<BlockWrapperSPtr> {
+class AdaptivePassthroughExchanger : public Exchanger<PartitionedBlock> {
 public:
     ENABLE_FACTORY_CREATOR(AdaptivePassthroughExchanger);
     AdaptivePassthroughExchanger(int running_sink_operators, int num_partitions,
                                  int free_block_limit)
-            : Exchanger<BlockWrapperSPtr>(running_sink_operators, num_partitions,
+            : Exchanger<PartitionedBlock>(running_sink_operators, num_partitions,
                                           free_block_limit) {
         _partition_rows_histogram.resize(running_sink_operators);
+        _tmp_eos.resize(num_partitions);
+        _tmp_block.resize(num_partitions);
     }
     Status sink(RuntimeState* state, Block* in_block, bool eos, Profile&& profile,
                 SinkInfo& sink_info) override;
@@ -378,5 +381,8 @@ private:
     std::atomic_bool _is_pass_through = false;
     std::atomic_int32_t _total_block = 0;
     std::vector<std::vector<uint32_t>> _partition_rows_histogram;
+
+    std::vector<Block> _tmp_block;
+    std::vector<bool> _tmp_eos;
 };
 } // namespace doris

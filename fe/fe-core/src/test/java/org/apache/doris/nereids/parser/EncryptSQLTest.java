@@ -21,7 +21,6 @@ import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.datasource.InternalCatalog;
@@ -72,8 +71,6 @@ public class EncryptSQLTest extends ParserTestBase {
                 })) {
             ctx.setEnv(env);
             ctx.setCurrentUserIdentity(UserIdentity.ROOT);
-            Config.enable_nereids_load = true;
-
             String sql = "EXPORT TABLE export_table TO \"s3://abc/aaa\" "
                     + "PROPERTIES("
                     + " \"format\" = \"csv\","

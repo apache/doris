@@ -22,6 +22,8 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.cloud.CacheHotspotManager;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -46,6 +48,8 @@ import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
+import org.apache.doris.thrift.TGetTabletReplicaInfosRequest;
+import org.apache.doris.thrift.TGetTabletReplicaInfosResult;
 import org.apache.doris.thrift.TLoadTxnCommitRequest;
 import org.apache.doris.thrift.TLoadTxnRollbackRequest;
 import org.apache.doris.thrift.TMaxComputeBlockIdRequest;
@@ -534,6 +538,50 @@ public class FrontendServiceImplTest {
             assertInvalidToken(impl, "rollbackTxnImpl", request);
         } finally {
             closeTransactionValidationMock();
+        }
+    }
+
+    // Regression test for FrontendServiceImpl.getTabletReplicaInfos NPE:
+    // When a warm-up job has been removed from
+    // CacheHotspotManager.cloudWarmUpJobs (past
+    // history_cloud_warm_up_job_keep_max_second), getCloudWarmUpJob
+    // returns null. The previous code called job.getJobId() inside the
+    // log message, throwing NPE which bubbled up to BE as
+    // "Internal error processing getTabletReplicaInfos".
+    @Test
+    public void testGetTabletReplicaInfosNullJobReturnsCancelledWithoutNpe() {
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        Config.cloud_unique_id = "gettabletreplicainfostest";
+
+        CloudEnv cloudEnv = Mockito.mock(CloudEnv.class);
+        CacheHotspotManager cacheHotspotManager = Mockito.mock(CacheHotspotManager.class);
+        Mockito.when(cloudEnv.getCacheHotspotMgr()).thenReturn(cacheHotspotManager);
+        // Simulate job already removed from cloudWarmUpJobs.
+        Mockito.when(cacheHotspotManager.getCloudWarmUpJob(123456L)).thenReturn(null);
+
+        MockedStatic<Env> envMock = Mockito.mockStatic(Env.class);
+        try {
+            envMock.when(Env::getCurrentEnv).thenReturn(cloudEnv);
+
+            FrontendServiceImpl frontendService = new FrontendServiceImpl(exeEnv);
+            TGetTabletReplicaInfosRequest request = new TGetTabletReplicaInfosRequest();
+            request.setTabletIds(Collections.singletonList(789L));
+            request.setWarmUpJobId(123456L);
+
+            TGetTabletReplicaInfosResult result;
+            try {
+                result = frontendService.getTabletReplicaInfos(request);
+            } catch (NullPointerException e) {
+                throw new AssertionError("getTabletReplicaInfos must not NPE when the "
+                        + "warm-up job has been removed from CacheHotspotManager", e);
+            }
+
+            Assert.assertNotNull("result.status must be set", result.getStatus());
+            Assert.assertEquals("BE must be told to cancel its stale warm-up job entry",
+                    TStatusCode.CANCELLED, result.getStatus().getStatusCode());
+        } finally {
+            envMock.close();
+            Config.cloud_unique_id = originalCloudUniqueId;
         }
     }
 

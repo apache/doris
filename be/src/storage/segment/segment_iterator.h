@@ -53,6 +53,7 @@
 #include "storage/predicate/column_predicate.h"
 #include "storage/row_cursor.h"
 #include "storage/schema.h"
+#include "storage/segment/adaptive_block_size_predictor.h"
 #include "storage/segment/common.h"
 #include "storage/segment/segment.h"
 #include "util/slice.h"
@@ -406,6 +407,15 @@ private:
     bool _inited;
 
     StorageReadOptions _opts;
+    // Adaptive batch size predictor; null when the feature is disabled.
+    std::unique_ptr<AdaptiveBlockSizePredictor> _block_size_predictor;
+    // Build the AdaptiveBlockSizePredictor for this segment based on segment footer
+    // metadata for the projected output columns. Returns nullptr if the feature is
+    // disabled or the byte budget is non-positive.
+    std::unique_ptr<AdaptiveBlockSizePredictor> _make_block_size_predictor() const;
+    // Snapshot of _opts.block_row_max at init time; used as the hard upper bound so that
+    // dynamic adjustments never exceed the capacity of pre-allocated buffers.
+    uint32_t _initial_block_row_max = 0;
     // make a copy of `_opts.column_predicates` in order to make local changes
     std::vector<std::shared_ptr<ColumnPredicate>> _col_predicates;
     VExprContextSPtrs _common_expr_ctxs_push_down;
