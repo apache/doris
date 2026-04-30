@@ -39,8 +39,7 @@ suite("test_iceberg_s3tables_catalog_credentials_provider") {
     String partitionDbTableName = context.config.otherConfigs.get("icebergS3TablesPartitionDbTableName")
     String nonPartitionDbTableName = context.config.otherConfigs.get("icebergS3TablesNonPartitionDbTableName")
     String expectCounts = context.config.otherConfigs.get("icebergS3TablesExpectCounts")
-    String expectedWebIdentityError = "Either the environment variable AWS_WEB_IDENTITY_TOKEN_FILE "
-            + "or the javaproperty aws.webIdentityTokenFile must be set."
+    String expectedWebIdentityError = "Either the environment variable AWS_WEB_IDENTITY_TOKEN_FILE or the javaproperty aws.webIdentityTokenFile must be set."
 
     def createCatalogAndQueryTables = {
             catalogProps, catalogName, partitionQueryDbTableName, nonPartitionQueryDbTableName, expectedCounts ->
