@@ -264,8 +264,7 @@ ObjectStorageResponse S3ObjClient::delete_objects(const std::string& bucket,
         for (const auto& key : keys) {
             auto head_resp = head_object({.bucket = bucket, .key = key}, &obj_meta);
             DCHECK_EQ(head_resp.ret, ObjectStorageResponse::OK)
-                    << "bucket=" << bucket << " key=" << key
-                    << " error=" << head_resp.error_msg;
+                    << "bucket=" << bucket << " key=" << key << " error=" << head_resp.error_msg;
             if (head_resp.ret != ObjectStorageResponse::OK) {
                 return head_resp;
             }

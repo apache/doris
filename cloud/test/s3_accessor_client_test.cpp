@@ -17,8 +17,8 @@
 
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/DeleteObjectRequest.h>
-#include <aws/s3/model/HeadObjectResult.h>
 #include <aws/s3/model/HeadObjectRequest.h>
+#include <aws/s3/model/HeadObjectResult.h>
 #include <aws/s3/model/ListObjectsV2Request.h>
 #include <butil/guid.h>
 #include <cpp/s3_rate_limiter.h>
@@ -68,8 +68,8 @@ public:
             return Aws::S3::Model::HeadObjectOutcome(Aws::S3::Model::HeadObjectResult());
         }
 
-        auto error = Aws::Client::AWSError<Aws::S3::S3Errors>(
-                Aws::S3::S3Errors::RESOURCE_NOT_FOUND, false);
+        auto error = Aws::Client::AWSError<Aws::S3::S3Errors>(Aws::S3::S3Errors::RESOURCE_NOT_FOUND,
+                                                              false);
         error.SetResponseCode(Aws::Http::HttpResponseCode::NOT_FOUND);
         return Aws::S3::Model::HeadObjectOutcome(error);
     }

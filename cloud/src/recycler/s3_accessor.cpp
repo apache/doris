@@ -480,10 +480,10 @@ int S3Accessor::delete_files(const std::vector<std::string>& paths) {
     }
 
     return obj_client_
-            ->delete_objects(conf_.bucket, std::move(keys),
-                             {.check_exists_before_delete =
-                                      config::enable_delete_file_check_object_exists,
-                              .executor = worker_pool})
+            ->delete_objects(
+                    conf_.bucket, std::move(keys),
+                    {.check_exists_before_delete = config::enable_delete_file_check_object_exists,
+                     .executor = worker_pool})
             .ret;
 }
 
