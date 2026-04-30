@@ -30,6 +30,87 @@ public class DataSourceConfigValidatorTest {
 
     private static final int PG_MAX_IDENTIFIER_LENGTH = 63;
 
+    private static Map<String, String> sslModeInput(String value) {
+        Map<String, String> input = new HashMap<>();
+        input.put(DataSourceConfigKeys.SSL_MODE, value);
+        return input;
+    }
+
+    @Test
+    public void testSslModeLegalValues() {
+        DataSourceConfigValidator.validateSource(
+                sslModeInput(DataSourceConfigKeys.SSL_MODE_DISABLE), DataSourceType.MYSQL.name());
+        DataSourceConfigValidator.validateSource(
+                sslModeInput(DataSourceConfigKeys.SSL_MODE_REQUIRE), DataSourceType.MYSQL.name());
+        // verify-ca additionally requires ssl_rootcert; covered by testVerifyCaWithRootcertPasses.
+    }
+
+    @Test
+    public void testSslModeRejectsMysqlUnderscoreSpelling() {
+        assertReject(sslModeInput("verify_ca"));
+    }
+
+    @Test
+    public void testSslModeRejectsVerifyFull() {
+        assertReject(sslModeInput("verify-full"));
+    }
+
+    @Test
+    public void testSslModeRejectsPreferredAndAllow() {
+        assertReject(sslModeInput("preferred"));
+        assertReject(sslModeInput("prefer"));
+        assertReject(sslModeInput("allow"));
+    }
+
+    @Test
+    public void testSslModeRejectsUppercaseVariants() {
+        assertReject(sslModeInput("DISABLE"));
+        assertReject(sslModeInput("Verify-CA"));
+    }
+
+    @Test
+    public void testSslModeRejectsEmpty() {
+        assertReject(sslModeInput(""));
+    }
+
+    @Test
+    public void testSslModeOptional() {
+        // ssl_mode is not required; validateSource should pass when absent
+        Map<String, String> input = new HashMap<>();
+        input.put(DataSourceConfigKeys.JDBC_URL, "jdbc:mysql://host/db");
+        DataSourceConfigValidator.validateSource(input, DataSourceType.MYSQL.name());
+    }
+
+    @Test
+    public void testVerifyCaRequiresRootcert() {
+        Map<String, String> input = sslModeInput(DataSourceConfigKeys.SSL_MODE_VERIFY_CA);
+        assertReject(input);
+    }
+
+    @Test
+    public void testVerifyCaWithRootcertPasses() {
+        Map<String, String> input = sslModeInput(DataSourceConfigKeys.SSL_MODE_VERIFY_CA);
+        input.put(DataSourceConfigKeys.SSL_ROOTCERT, "FILE:ca.pem");
+        DataSourceConfigValidator.validateSource(input, DataSourceType.MYSQL.name());
+    }
+
+    @Test
+    public void testDisableWithoutRootcertPasses() {
+        DataSourceConfigValidator.validateSource(
+                sslModeInput(DataSourceConfigKeys.SSL_MODE_DISABLE), DataSourceType.MYSQL.name());
+        DataSourceConfigValidator.validateSource(
+                sslModeInput(DataSourceConfigKeys.SSL_MODE_REQUIRE), DataSourceType.MYSQL.name());
+    }
+
+    private static void assertReject(Map<String, String> input) {
+        try {
+            DataSourceConfigValidator.validateSource(input, DataSourceType.MYSQL.name());
+            Assert.fail("expected IllegalArgumentException for input: " + input);
+        } catch (IllegalArgumentException ignored) {
+            // expected
+        }
+    }
+
     @Test
     public void testSlotNameAndPublicationNameAllowed() {
         Map<String, String> props = new HashMap<>();
