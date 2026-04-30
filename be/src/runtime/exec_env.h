@@ -30,7 +30,6 @@
 #include "common/config.h"
 #include "common/multi_version.h"
 #include "common/status.h"
-#include "exec/pipeline/pipeline_tracing.h"
 #include "information_schema/schema_routine_load_job_scanner.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "load/memtable/memtable_memory_limiter.h"
@@ -403,8 +402,6 @@ public:
 
     DictionaryFactory* dict_factory() { return _dict_factory; }
 
-    PipelineTracerContext* pipeline_tracer_context() { return _pipeline_tracer_ctx.get(); }
-
     segment_v2::TmpFileDirs* get_tmp_file_dirs() { return _tmp_file_dirs.get(); }
     io::FDCache* file_cache_open_fd_cache() const { return _file_cache_open_fd_cache.get(); }
 
@@ -562,7 +559,6 @@ private:
 
     RuntimeQueryStatisticsMgr* _runtime_query_statistics_mgr = nullptr;
 
-    std::unique_ptr<PipelineTracerContext> _pipeline_tracer_ctx;
     std::unique_ptr<segment_v2::TmpFileDirs> _tmp_file_dirs;
 
     SpillFileManager* _spill_file_mgr = nullptr;

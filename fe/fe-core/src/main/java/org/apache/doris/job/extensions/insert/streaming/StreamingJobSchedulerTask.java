@@ -75,7 +75,6 @@ public class StreamingJobSchedulerTask extends AbstractTask {
         streamingInsertJob.createStreamingTask();
         streamingInsertJob.setSampleStartTime(System.currentTimeMillis());
         streamingInsertJob.updateJobStatus(JobStatus.RUNNING);
-        streamingInsertJob.setAutoResumeCount(0);
     }
 
     private void handleRunningState() throws JobException {
@@ -85,25 +84,37 @@ public class StreamingJobSchedulerTask extends AbstractTask {
 
     private void autoResumeHandler() throws JobException {
         final FailureReason failureReason = streamingInsertJob.getFailureReason();
-        final long latestAutoResumeTimestamp = streamingInsertJob.getLatestAutoResumeTimestamp();
-        final long autoResumeCount = streamingInsertJob.getAutoResumeCount();
-        final long current = System.currentTimeMillis();
+        if (failureReason == null
+                || failureReason.getCode() == InternalErrorCode.MANUAL_PAUSE_ERR
+                || failureReason.getCode() == InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR
+                || failureReason.getCode() == InternalErrorCode.CANNOT_RESUME_ERR) {
+            return;
+        }
 
-        if (failureReason != null
-                && failureReason.getCode() != InternalErrorCode.MANUAL_PAUSE_ERR
-                && failureReason.getCode() != InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR
-                && failureReason.getCode() != InternalErrorCode.CANNOT_RESUME_ERR) {
-            long autoResumeIntervalTimeSec = autoResumeCount < 5
-                        ? Math.min((long) Math.pow(2, autoResumeCount) * BACK_OFF_BASIC_TIME_SEC,
-                                MAX_BACK_OFF_TIME_SEC) : MAX_BACK_OFF_TIME_SEC;
-            if (current - latestAutoResumeTimestamp > autoResumeIntervalTimeSec * 1000L) {
-                streamingInsertJob.setLatestAutoResumeTimestamp(current);
-                if (autoResumeCount < Long.MAX_VALUE) {
-                    streamingInsertJob.setAutoResumeCount(autoResumeCount + 1);
-                }
-                streamingInsertJob.updateJobStatus(JobStatus.PENDING);
-                return;
+        final long autoResumeCount = streamingInsertJob.getAutoResumeCount();
+        final long maxAutoResumeCount = streamingInsertJob.getMaxAutoResumeCount();
+        // Retry budget exhausted: rewrite the failure reason so this handler
+        // short-circuits on subsequent ticks and the job effectively requires
+        // manual RESUME to try again.
+        if (autoResumeCount >= maxAutoResumeCount) {
+            streamingInsertJob.setFailureReason(new FailureReason(
+                    InternalErrorCode.CANNOT_RESUME_ERR,
+                    "Auto resume failed after " + autoResumeCount
+                            + " attempts. Last error: " + failureReason.getMsg()));
+            return;
+        }
+
+        final long latestAutoResumeTimestamp = streamingInsertJob.getLatestAutoResumeTimestamp();
+        final long current = System.currentTimeMillis();
+        long autoResumeIntervalTimeSec = autoResumeCount < 5
+                    ? Math.min((long) Math.pow(2, autoResumeCount) * BACK_OFF_BASIC_TIME_SEC,
+                            MAX_BACK_OFF_TIME_SEC) : MAX_BACK_OFF_TIME_SEC;
+        if (current - latestAutoResumeTimestamp > autoResumeIntervalTimeSec * 1000L) {
+            streamingInsertJob.setLatestAutoResumeTimestamp(current);
+            if (autoResumeCount < Long.MAX_VALUE) {
+                streamingInsertJob.setAutoResumeCount(autoResumeCount + 1);
             }
+            streamingInsertJob.updateJobStatus(JobStatus.PENDING);
         }
     }
 

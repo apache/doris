@@ -356,4 +356,125 @@ suite("string_length_column_pruning") {
         notContains "OFFSET"
         notContains "bigint"
     }
+
+    // ─── Array<Struct> mixed field access (Bug fix: OFFSET dedup per field, not per slot) ──
+
+    sql """ DROP TABLE IF EXISTS slcp_arr_struct_tbl """
+    sql """
+        CREATE TABLE slcp_arr_struct_tbl (
+            id       INT,
+            arr_struct ARRAY<STRUCT<str_field: STRING, int_field: INT>>
+        ) ENGINE = OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    sql """
+        INSERT INTO slcp_arr_struct_tbl SELECT 1,
+            array(named_struct('str_field', 'hello', 'int_field', 10),
+                  named_struct('str_field', 'world', 'int_field', 20))
+    """
+    sql """
+        INSERT INTO slcp_arr_struct_tbl SELECT 2,
+            array(named_struct('str_field', 'foo', 'int_field', 30))
+    """
+    sql """
+        INSERT INTO slcp_arr_struct_tbl SELECT 3, NULL
+    """
+
+    // LENGTH on one struct field + direct access on a sibling field.
+    // The OFFSET path for str_field must NOT be stripped by the non-OFFSET path for int_field.
+    order_qt_arr_struct_mixed """
+        SELECT id,
+               array_match_all(x -> length(struct_element(x, 'str_field')) > 0, arr_struct),
+               struct_element(element_at(arr_struct, 1), 'int_field')
+        FROM slcp_arr_struct_tbl ORDER BY id
+    """
+
+    // Verify the OFFSET path is preserved in the explain plan
+    explain {
+        sql """
+            SELECT id,
+                   array_match_all(x -> length(struct_element(x, 'str_field')) > 0, arr_struct),
+                   struct_element(element_at(arr_struct, 1), 'int_field')
+            FROM slcp_arr_struct_tbl
+        """
+        contains "OFFSET"
+    }
+
+    // ─── Nested array/map under STRUCT root slot ──────────────────────────────────
+
+    sql """ DROP TABLE IF EXISTS slcp_struct_root_tbl """
+    sql """
+        CREATE TABLE slcp_struct_root_tbl (
+            id INT,
+            s STRUCT<
+                arr: ARRAY<STRUCT<str_field: STRING, int_field: INT>>,
+                m: MAP<STRING, STRING>
+            >
+        ) ENGINE = OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    sql """
+        INSERT INTO slcp_struct_root_tbl VALUES (
+            1,
+            named_struct(
+                'arr', array(
+                    named_struct('str_field', 'hello', 'int_field', 10),
+                    named_struct('str_field', 'world', 'int_field', 20)
+                ),
+                'm', {'a': 'x', 'b': 'y'}
+            )
+        )
+    """
+
+    explain {
+        sql """
+            SELECT cardinality(struct_element(s, 'arr')),
+                   struct_element(element_at(struct_element(s, 'arr'), 1), 'int_field')
+            FROM slcp_struct_root_tbl
+        """
+        contains "s.arr.*.int_field"
+        notContains "s.arr.OFFSET"
+    }
+
+    explain {
+        sql """
+            SELECT length(element_at(struct_element(s, 'm'), 'a')),
+                   element_at(map_values(struct_element(s, 'm')), 1)
+            FROM slcp_struct_root_tbl
+        """
+        contains "s.m.KEYS"
+        contains "s.m.VALUES"
+        notContains "OFFSET"
+    }
+
+    // ─── Map element_at + map_values mixed access ─────────────────────────────────
+
+    // length(map_col['a']) needs keys for the element_at lookup and value offsets for length().
+    // map_values(map_col)[1] needs full value data. The mixed query must therefore keep a KEYS
+    // path for element_at lookup while dropping the redundant value-side OFFSET path.
+    order_qt_map_element_with_map_values """
+        select length(map_col['a']), map_values(map_col)[1] from slcp_str_tbl
+    """
+
+    explain {
+        sql "select length(map_col['a']), map_values(map_col)[1] from slcp_str_tbl"
+        contains "nested columns"
+        contains "KEYS"
+        contains "VALUES"
+        notContains "OFFSET"
+        notContains "bigint"
+    }
+
+    // Reverse direction: length(map_values(map_col)[1]) produces [map_col, VALUES, OFFSET]
+    // while map_col['a'] produces [map_col, *]. The * path reads full values, so OFFSET
+    // must be suppressed here as well.
+    explain {
+        sql "select length(map_values(map_col)[1]), map_col['a'] from slcp_str_tbl"
+        notContains "OFFSET"
+        notContains "bigint"
+    }
 }

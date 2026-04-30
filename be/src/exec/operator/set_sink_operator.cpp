@@ -31,7 +31,13 @@ Status SetSinkLocalState<is_intersect>::terminate(RuntimeState* state) {
     if (_terminated) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(_runtime_filter_producer_helper->skip_process(state));
+    // Defensive null-guard, mirroring the close()/sink() paths in this
+    // file which already gate on `_runtime_filter_producer_helper`.
+    // terminate() may run on a cancel / early-wake path before the helper
+    // is attached, in which case skip_process() would NPE.
+    if (_runtime_filter_producer_helper) {
+        RETURN_IF_ERROR(_runtime_filter_producer_helper->skip_process(state));
+    }
     return Base::terminate(state);
 }
 

@@ -183,6 +183,21 @@ Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
     _runtime_filter_partition_pruned_range_counter =
             ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
                                    "RuntimeFilterPartitionPrunedRangeNum", TUnit::UNIT, 1);
+    // Keep the current file's adaptive state while also preserving the peak value across all
+    // files handled by this scanner instance.
+    _adaptive_batch_predicted_rows_counter =
+            _local_state->scanner_profile()->AddHighWaterMarkCounter(
+                    "AdaptiveBatchPredictedRows", TUnit::UNIT, RuntimeProfile::ROOT_COUNTER, 1);
+    _adaptive_batch_actual_bytes_before_truncate_counter =
+            _local_state->scanner_profile()->AddHighWaterMarkCounter(
+                    "AdaptiveBatchActualBytesBeforeTruncate", TUnit::BYTES,
+                    RuntimeProfile::ROOT_COUNTER, 1);
+    _adaptive_batch_actual_bytes_after_truncate_counter =
+            _local_state->scanner_profile()->AddHighWaterMarkCounter(
+                    "AdaptiveBatchActualBytesAfterTruncate", TUnit::BYTES,
+                    RuntimeProfile::ROOT_COUNTER, 1);
+    _adaptive_batch_probe_count_counter = ADD_COUNTER_WITH_LEVEL(
+            _local_state->scanner_profile(), "AdaptiveBatchProbeCount", TUnit::UNIT, 1);
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
     _file_reader_stats.reset(new io::FileReaderStats());
@@ -218,6 +233,98 @@ Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
             new RowDescriptor(_state->desc_tbl(), std::vector<TupleId>({_real_tuple_desc->id()})));
 
     return Status::OK();
+}
+
+bool FileScanner::_should_enable_adaptive_batch_size(TFileFormatType::type format_type) const {
+    // Only enable for readers that support set_batch_size().
+    // Table-format wrappers are covered because they delegate to native readers.
+    if (!config::enable_adaptive_batch_size) {
+        return false;
+    }
+    switch (format_type) {
+    case TFileFormatType::FORMAT_PARQUET:
+    case TFileFormatType::FORMAT_ORC:
+    case TFileFormatType::FORMAT_CSV_PLAIN:
+    case TFileFormatType::FORMAT_CSV_GZ:
+    case TFileFormatType::FORMAT_CSV_BZ2:
+    case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+    case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
+    case TFileFormatType::FORMAT_CSV_LZOP:
+    case TFileFormatType::FORMAT_CSV_DEFLATE:
+    case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
+    case TFileFormatType::FORMAT_PROTO:
+    case TFileFormatType::FORMAT_TEXT:
+    case TFileFormatType::FORMAT_JSON:
+    case TFileFormatType::FORMAT_JNI:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool FileScanner::_should_run_adaptive_batch_size() const {
+    // Skip adaptive batch sizing for pushed-down COUNT(*): the reader is wrapped by CountReader
+    // and only emits a single aggregated row count instead of materializing real columns, so
+    // there is no per-row byte cost to learn from and no benefit in tuning the batch size.
+    return _block_size_predictor != nullptr && _get_push_down_agg_type() != TPushAggOp::type::COUNT;
+}
+
+void FileScanner::_reset_adaptive_batch_size_state() {
+    _block_size_predictor.reset();
+    COUNTER_SET(_adaptive_batch_predicted_rows_counter, int64_t(0));
+    COUNTER_SET(_adaptive_batch_actual_bytes_before_truncate_counter, int64_t(0));
+    COUNTER_SET(_adaptive_batch_actual_bytes_after_truncate_counter, int64_t(0));
+}
+
+void FileScanner::_init_adaptive_batch_size_state(TFileFormatType::type format_type) {
+    _reset_adaptive_batch_size_state();
+    if (!_should_enable_adaptive_batch_size(format_type)) {
+        return;
+    }
+
+    // External file readers do not provide reliable memory-size metadata hints. Use a small probe
+    // batch so the predictor can learn from real FileScanner output quickly.
+    _block_size_predictor = std::make_unique<AdaptiveBlockSizePredictor>(
+            _state->preferred_block_size_bytes(), 0.0, ADAPTIVE_BATCH_INITIAL_PROBE_ROWS,
+            _state->batch_size());
+}
+
+size_t FileScanner::_predict_reader_batch_rows() {
+    DCHECK(_block_size_predictor != nullptr);
+    size_t predicted_rows = _block_size_predictor->predict_next_rows();
+    COUNTER_SET(_adaptive_batch_predicted_rows_counter, static_cast<int64_t>(predicted_rows));
+    return predicted_rows;
+}
+
+void FileScanner::_update_adaptive_batch_size_before_truncate(const Block& block) {
+    if (!_should_run_adaptive_batch_size()) {
+        return;
+    }
+
+    // Learn from the logical bytes before CHAR/VARCHAR truncation. The truncated block can be
+    // much smaller than the data the reader and FileScanner have already materialized.
+    COUNTER_SET(_adaptive_batch_actual_bytes_before_truncate_counter,
+                static_cast<int64_t>(block.bytes()));
+    if (block.rows() == 0) {
+        return;
+    }
+
+    // Count a probe only when we actually obtain the first non-empty sample that seeds history.
+    if (!_block_size_predictor->has_history()) {
+        COUNTER_UPDATE(_adaptive_batch_probe_count_counter, 1);
+    }
+    _block_size_predictor->update(block);
+}
+
+void FileScanner::_update_adaptive_batch_size_after_truncate(const Block& block) {
+    if (!_should_run_adaptive_batch_size()) {
+        return;
+    }
+
+    // Keep the post-truncate size only for observability. It should not affect the next batch
+    // because truncation happens after the upstream memory cost has already been paid.
+    COUNTER_SET(_adaptive_batch_actual_bytes_after_truncate_counter,
+                static_cast<int64_t>(block.bytes()));
 }
 
 // check if the expr is a partition pruning expr
@@ -483,6 +590,10 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
         // For query job, simply set _src_block_ptr to block.
         size_t read_rows = 0;
         RETURN_IF_ERROR(_init_src_block(block));
+
+        if (_should_run_adaptive_batch_size()) {
+            _cur_reader->set_batch_size(_predict_reader_batch_rows());
+        }
         {
             SCOPED_TIMER(_get_block_timer);
 
@@ -774,9 +885,13 @@ Status FileScanner::_process_src_block_after_read(Block* block) {
 }
 
 Status FileScanner::_process_src_block_after_read_for_query(Block* block) {
+    _update_adaptive_batch_size_before_truncate(*block);
+
     // Truncate CHAR/VARCHAR columns when target size is smaller than file schema.
     // This is needed for external table queries with truncate_char_or_varchar_columns=true.
     RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
+
+    _update_adaptive_batch_size_after_truncate(*block);
     return Status::OK();
 }
 
@@ -801,8 +916,13 @@ Status FileScanner::_process_src_block_after_read_for_load(Block* block) {
 
     // Convert src block to output block (dest block), then apply filters.
     RETURN_IF_ERROR(_convert_to_output_block(block));
+
+    _update_adaptive_batch_size_before_truncate(*block);
+
     // Truncate CHAR/VARCHAR columns when target size is smaller than file schema.
     RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
+
+    _update_adaptive_batch_size_after_truncate(*block);
     return Status::OK();
 }
 
@@ -900,6 +1020,7 @@ Status FileScanner::_get_next_reader() {
             _state->update_num_finished_scan_range(1);
         }
         _cur_reader.reset(nullptr);
+        _reset_adaptive_batch_size_state();
         _src_block_init = false;
         bool has_next = _first_scan_range;
         if (!_first_scan_range) {
@@ -1071,8 +1192,9 @@ Status FileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_CSV_DEFLATE:
         case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
         case TFileFormatType::FORMAT_PROTO: {
-            auto reader = CsvReader::create_unique(_state, _profile, &_counter, *_params, range,
-                                                   _file_slot_descs, _io_ctx.get());
+            auto reader =
+                    CsvReader::create_unique(_state, _profile, &_counter, *_params, range,
+                                             _file_slot_descs, _state->batch_size(), _io_ctx.get());
             CsvInitContext csv_ctx;
             _fill_base_init_context(&csv_ctx);
             csv_ctx.is_load = _is_load;
@@ -1082,7 +1204,8 @@ Status FileScanner::_get_next_reader() {
         }
         case TFileFormatType::FORMAT_TEXT: {
             auto reader = TextReader::create_unique(_state, _profile, &_counter, *_params, range,
-                                                    _file_slot_descs, _io_ctx.get());
+                                                    _file_slot_descs, _state->batch_size(),
+                                                    _io_ctx.get());
             CsvInitContext text_ctx;
             _fill_base_init_context(&text_ctx);
             text_ctx.is_load = _is_load;
@@ -1091,9 +1214,9 @@ Status FileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
-            _cur_reader =
-                    NewJsonReader::create_unique(_state, _profile, &_counter, *_params, range,
-                                                 _file_slot_descs, &_scanner_eof, _io_ctx.get());
+            _cur_reader = NewJsonReader::create_unique(_state, _profile, &_counter, *_params, range,
+                                                       _file_slot_descs, &_scanner_eof,
+                                                       _state->batch_size(), _io_ctx.get());
             JsonInitContext json_ctx;
             _fill_base_init_context(&json_ctx);
             json_ctx.col_default_value_ctx = &_col_default_value_ctx;
@@ -1218,12 +1341,13 @@ Status FileScanner::_get_next_reader() {
                 total_rows = _cur_reader->get_total_rows();
             }
             if (total_rows >= 0) {
-                auto batch_size = _state->query_options().batch_size;
+                auto batch_size = _state->batch_size();
                 _cur_reader = std::make_unique<CountReader>(total_rows, batch_size,
                                                             std::move(_cur_reader));
             }
         }
         _cur_reader_eof = false;
+        _init_adaptive_batch_size_state(format_type);
         break;
     }
     return Status::OK();
@@ -1252,8 +1376,8 @@ Status FileScanner::_init_parquet_reader(FileMetaCache* file_meta_cache_ptr,
         range.table_format_params.table_format_type == "iceberg") {
         // IcebergParquetReader IS-A ParquetReader (CRTP mixin), no wrapping needed
         std::unique_ptr<IcebergParquetReader> iceberg_reader = IcebergParquetReader::create_unique(
-                _kv_cache, _profile, *_params, range, _state->query_options().batch_size,
-                &_state->timezone_obj(), _io_ctx.get(), _state, file_meta_cache_ptr);
+                _kv_cache, _profile, *_params, range, _state->batch_size(), &_state->timezone_obj(),
+                _io_ctx.get(), _state, file_meta_cache_ptr);
         iceberg_reader->set_create_row_id_column_iterator_func(
                 [this]() -> std::shared_ptr<segment_v2::RowIdColumnIteratorV2> {
                     return _create_row_id_column_iterator();
@@ -1264,22 +1388,22 @@ Status FileScanner::_init_parquet_reader(FileMetaCache* file_meta_cache_ptr,
                range.table_format_params.table_format_type == "paimon") {
         // PaimonParquetReader IS-A ParquetReader, no wrapping needed
         auto paimon_reader = PaimonParquetReader::create_unique(
-                _profile, *_params, range, _state->query_options().batch_size,
-                &_state->timezone_obj(), _kv_cache, _io_ctx.get(), _state, file_meta_cache_ptr);
+                _profile, *_params, range, _state->batch_size(), &_state->timezone_obj(), _kv_cache,
+                _io_ctx.get(), _state, file_meta_cache_ptr);
         init_status = static_cast<GenericReader*>(paimon_reader.get())->init_reader(&pctx);
         _cur_reader = std::move(paimon_reader);
     } else if (range.__isset.table_format_params &&
                range.table_format_params.table_format_type == "hudi") {
         // HudiParquetReader IS-A ParquetReader, no wrapping needed
         auto hudi_reader = HudiParquetReader::create_unique(
-                _profile, *_params, range, _state->query_options().batch_size,
-                &_state->timezone_obj(), _io_ctx.get(), _state, file_meta_cache_ptr);
+                _profile, *_params, range, _state->batch_size(), &_state->timezone_obj(),
+                _io_ctx.get(), _state, file_meta_cache_ptr);
         init_status = static_cast<GenericReader*>(hudi_reader.get())->init_reader(&pctx);
         _cur_reader = std::move(hudi_reader);
     } else if (range.table_format_params.table_format_type == "hive") {
         auto hive_reader = HiveParquetReader::create_unique(
-                _profile, *_params, range, _state->query_options().batch_size,
-                &_state->timezone_obj(), _io_ctx.get(), _state, &_is_file_slot, file_meta_cache_ptr,
+                _profile, *_params, range, _state->batch_size(), &_state->timezone_obj(),
+                _io_ctx.get(), _state, &_is_file_slot, file_meta_cache_ptr,
                 _state->query_options().enable_parquet_lazy_mat);
         hive_reader->set_create_row_id_column_iterator_func(
                 [this]() -> std::shared_ptr<segment_v2::RowIdColumnIteratorV2> {
@@ -1290,8 +1414,8 @@ Status FileScanner::_init_parquet_reader(FileMetaCache* file_meta_cache_ptr,
     } else if (range.table_format_params.table_format_type == "tvf") {
         if (!parquet_reader) {
             parquet_reader = ParquetReader::create_unique(
-                    _profile, *_params, range, _state->query_options().batch_size,
-                    &_state->timezone_obj(), _io_ctx.get(), _state, file_meta_cache_ptr,
+                    _profile, *_params, range, _state->batch_size(), &_state->timezone_obj(),
+                    _io_ctx.get(), _state, file_meta_cache_ptr,
                     _state->query_options().enable_parquet_lazy_mat);
         }
         parquet_reader->set_create_row_id_column_iterator_func(
@@ -1303,8 +1427,8 @@ Status FileScanner::_init_parquet_reader(FileMetaCache* file_meta_cache_ptr,
     } else if (_is_load) {
         if (!parquet_reader) {
             parquet_reader = ParquetReader::create_unique(
-                    _profile, *_params, range, _state->query_options().batch_size,
-                    &_state->timezone_obj(), _io_ctx.get(), _state, file_meta_cache_ptr,
+                    _profile, *_params, range, _state->batch_size(), &_state->timezone_obj(),
+                    _io_ctx.get(), _state, file_meta_cache_ptr,
                     _state->query_options().enable_parquet_lazy_mat);
         }
         init_status = static_cast<GenericReader*>(parquet_reader.get())->init_reader(&pctx);
@@ -1330,8 +1454,8 @@ Status FileScanner::_init_orc_reader(FileMetaCache* file_meta_cache_ptr,
         range.table_format_params.table_format_type == "transactional_hive") {
         // TransactionalHiveReader IS-A OrcReader, no wrapping needed
         auto tran_orc_reader = TransactionalHiveReader::create_unique(
-                _profile, _state, *_params, range, _state->query_options().batch_size,
-                _state->timezone(), _io_ctx.get(), file_meta_cache_ptr);
+                _profile, _state, *_params, range, _state->batch_size(), _state->timezone(),
+                _io_ctx.get(), file_meta_cache_ptr);
         tran_orc_reader->set_create_row_id_column_iterator_func(
                 [this]() -> std::shared_ptr<segment_v2::RowIdColumnIteratorV2> {
                     return _create_row_id_column_iterator();
@@ -1343,7 +1467,7 @@ Status FileScanner::_init_orc_reader(FileMetaCache* file_meta_cache_ptr,
                range.table_format_params.table_format_type == "iceberg") {
         // IcebergOrcReader IS-A OrcReader (CRTP mixin), no wrapping needed
         std::unique_ptr<IcebergOrcReader> iceberg_reader = IcebergOrcReader::create_unique(
-                _kv_cache, _profile, _state, *_params, range, _state->query_options().batch_size,
+                _kv_cache, _profile, _state, *_params, range, _state->batch_size(),
                 _state->timezone(), _io_ctx.get(), file_meta_cache_ptr);
         iceberg_reader->set_create_row_id_column_iterator_func(
                 [this]() -> std::shared_ptr<segment_v2::RowIdColumnIteratorV2> {
@@ -1356,25 +1480,25 @@ Status FileScanner::_init_orc_reader(FileMetaCache* file_meta_cache_ptr,
                range.table_format_params.table_format_type == "paimon") {
         // PaimonOrcReader IS-A OrcReader, no wrapping needed
         auto paimon_reader = PaimonOrcReader::create_unique(
-                _profile, _state, *_params, range, _state->query_options().batch_size,
-                _state->timezone(), _kv_cache, _io_ctx.get(), file_meta_cache_ptr);
+                _profile, _state, *_params, range, _state->batch_size(), _state->timezone(),
+                _kv_cache, _io_ctx.get(), file_meta_cache_ptr);
         init_status = static_cast<GenericReader*>(paimon_reader.get())->init_reader(&octx);
 
         _cur_reader = std::move(paimon_reader);
     } else if (range.__isset.table_format_params &&
                range.table_format_params.table_format_type == "hudi") {
         // HudiOrcReader IS-A OrcReader, no wrapping needed
-        auto hudi_reader = HudiOrcReader::create_unique(
-                _profile, _state, *_params, range, _state->query_options().batch_size,
-                _state->timezone(), _io_ctx.get(), file_meta_cache_ptr);
+        auto hudi_reader = HudiOrcReader::create_unique(_profile, _state, *_params, range,
+                                                        _state->batch_size(), _state->timezone(),
+                                                        _io_ctx.get(), file_meta_cache_ptr);
         init_status = static_cast<GenericReader*>(hudi_reader.get())->init_reader(&octx);
 
         _cur_reader = std::move(hudi_reader);
     } else if (range.__isset.table_format_params &&
                range.table_format_params.table_format_type == "hive") {
         auto hive_reader = HiveOrcReader::create_unique(
-                _profile, _state, *_params, range, _state->query_options().batch_size,
-                _state->timezone(), _io_ctx.get(), &_is_file_slot, file_meta_cache_ptr,
+                _profile, _state, *_params, range, _state->batch_size(), _state->timezone(),
+                _io_ctx.get(), &_is_file_slot, file_meta_cache_ptr,
                 _state->query_options().enable_orc_lazy_mat);
         hive_reader->set_create_row_id_column_iterator_func(
                 [this]() -> std::shared_ptr<segment_v2::RowIdColumnIteratorV2> {
@@ -1386,10 +1510,10 @@ Status FileScanner::_init_orc_reader(FileMetaCache* file_meta_cache_ptr,
     } else if (range.__isset.table_format_params &&
                range.table_format_params.table_format_type == "tvf") {
         if (!orc_reader) {
-            orc_reader = OrcReader::create_unique(
-                    _profile, _state, *_params, range, _state->query_options().batch_size,
-                    _state->timezone(), _io_ctx.get(), file_meta_cache_ptr,
-                    _state->query_options().enable_orc_lazy_mat);
+            orc_reader = OrcReader::create_unique(_profile, _state, *_params, range,
+                                                  _state->batch_size(), _state->timezone(),
+                                                  _io_ctx.get(), file_meta_cache_ptr,
+                                                  _state->query_options().enable_orc_lazy_mat);
         }
         orc_reader->set_create_row_id_column_iterator_func(
                 [this]() -> std::shared_ptr<segment_v2::RowIdColumnIteratorV2> {
@@ -1399,10 +1523,10 @@ Status FileScanner::_init_orc_reader(FileMetaCache* file_meta_cache_ptr,
         _cur_reader = std::move(orc_reader);
     } else if (_is_load) {
         if (!orc_reader) {
-            orc_reader = OrcReader::create_unique(
-                    _profile, _state, *_params, range, _state->query_options().batch_size,
-                    _state->timezone(), _io_ctx.get(), file_meta_cache_ptr,
-                    _state->query_options().enable_orc_lazy_mat);
+            orc_reader = OrcReader::create_unique(_profile, _state, *_params, range,
+                                                  _state->batch_size(), _state->timezone(),
+                                                  _io_ctx.get(), file_meta_cache_ptr,
+                                                  _state->query_options().enable_orc_lazy_mat);
         }
         init_status = static_cast<GenericReader*>(orc_reader.get())->init_reader(&octx);
         _cur_reader = std::move(orc_reader);

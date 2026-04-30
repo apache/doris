@@ -55,7 +55,8 @@ class TextReader : public CsvReader {
 public:
     TextReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                const TFileScanRangeParams& params, const TFileRangeDesc& range,
-               const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx);
+               const std::vector<SlotDescriptor*>& file_slot_descs, size_t batch_size,
+               io::IOContext* io_ctx);
 
     ~TextReader() override = default;
 

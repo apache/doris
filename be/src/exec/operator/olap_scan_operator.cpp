@@ -389,6 +389,11 @@ Status OlapScanLocalState::_init_profile() {
     _variant_doc_value_column_iter_count =
             ADD_COUNTER(_segment_profile, "VariantDocValueColumnIterCount", TUnit::UNIT);
 
+    _adaptive_batch_predict_min_rows_counter =
+            ADD_COUNTER(_segment_profile, "AdaptiveBatchPredictMinRows", TUnit::UNIT);
+    _adaptive_batch_predict_max_rows_counter =
+            ADD_COUNTER(_segment_profile, "AdaptiveBatchPredictMaxRows", TUnit::UNIT);
+
     return Status::OK();
 }
 

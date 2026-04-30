@@ -41,6 +41,7 @@
 #include "runtime/runtime_profile.h"
 #include "storage/olap_common.h"
 #include "storage/olap_scan_common.h"
+#include "storage/segment/adaptive_block_size_predictor.h"
 #include "storage/segment/condition_cache.h"
 
 namespace doris {
@@ -61,6 +62,7 @@ class FileScanner : public Scanner {
 
 public:
     static constexpr const char* NAME = "FileScanner";
+    static constexpr size_t ADAPTIVE_BATCH_INITIAL_PROBE_ROWS = 32;
 
     // sub profile name (for parquet/orc)
     static const std::string FileReadBytesProfile;
@@ -216,6 +218,10 @@ private:
     RuntimeProfile::Counter* _file_read_calls_counter = nullptr;
     RuntimeProfile::Counter* _file_read_time_counter = nullptr;
     RuntimeProfile::Counter* _runtime_filter_partition_pruned_range_counter = nullptr;
+    RuntimeProfile::Counter* _adaptive_batch_predicted_rows_counter = nullptr;
+    RuntimeProfile::Counter* _adaptive_batch_actual_bytes_before_truncate_counter = nullptr;
+    RuntimeProfile::Counter* _adaptive_batch_actual_bytes_after_truncate_counter = nullptr;
+    RuntimeProfile::Counter* _adaptive_batch_probe_count_counter = nullptr;
 
     const std::unordered_map<std::string, int>* _col_name_to_slot_id = nullptr;
     // single slot filter conjuncts
@@ -247,6 +253,7 @@ private:
     std::shared_ptr<std::vector<bool>> _condition_cache;
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
     int64_t _condition_cache_hit_count = 0;
+    std::unique_ptr<AdaptiveBlockSizePredictor> _block_size_predictor;
 
     void _configure_file_scan_handlers();
 
@@ -305,8 +312,15 @@ private:
     bool _should_push_down_predicates_for_query(TFileFormatType::type format_type) const;
     void _init_reader_condition_cache();
     void _finalize_reader_condition_cache();
+    void _reset_adaptive_batch_size_state();
+    void _init_adaptive_batch_size_state(TFileFormatType::type format_type);
+    bool _should_enable_adaptive_batch_size(TFileFormatType::type format_type) const;
+    bool _should_run_adaptive_batch_size() const;
+    size_t _predict_reader_batch_rows();
+    void _update_adaptive_batch_size_before_truncate(const Block& block);
+    void _update_adaptive_batch_size_after_truncate(const Block& block);
 
-    TPushAggOp::type _get_push_down_agg_type() {
+    TPushAggOp::type _get_push_down_agg_type() const {
         return _local_state == nullptr ? TPushAggOp::type::NONE
                                        : _local_state->get_push_down_agg_type();
     }

@@ -74,6 +74,19 @@ public:
 
     bool enable_use_hybrid_sort() const override { return false; }
 
+    // Bypass the [1MB, 512MB] clamping in RuntimeState so tests can use tiny
+    // byte budgets (e.g. 1 or 50) to exercise block-splitting logic.
+    // When adaptive is disabled, fall back to RuntimeState's behavior (kMax)
+    // so the value is always a legal byte budget; tests should gate on
+    // config::enable_adaptive_batch_size directly to detect the disabled state.
+    size_t preferred_block_size_bytes() const override {
+        if (config::enable_adaptive_batch_size &&
+            _query_options.__isset.preferred_block_size_bytes) {
+            return _query_options.preferred_block_size_bytes;
+        }
+        return RuntimeState::preferred_block_size_bytes();
+    }
+
     // default batch size
     int _batch_size = 4096;
     bool _enable_shared_exchange_sink_buffer = true;

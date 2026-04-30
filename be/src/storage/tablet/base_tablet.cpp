@@ -463,7 +463,18 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
         std::vector<KeyBoundsPB> segments_key_bounds;
         rs->rowset_meta()->get_segments_key_bounds(&segments_key_bounds);
         int num_segments = cast_set<int>(rs->num_segments());
-        DCHECK_EQ(segments_key_bounds.size(), num_segments);
+        // MOW lookup requires per-segment bounds. Aggregation must be disabled
+        // for MOW writers, but enforce at runtime too — indexing segments_key_bounds[j]
+        // below would be out-of-bounds otherwise.
+        if (UNLIKELY(rs->rowset_meta()->is_segments_key_bounds_aggregated() ||
+                     static_cast<int>(segments_key_bounds.size()) != num_segments)) {
+            return Status::InternalError(
+                    "MOW lookup got rowset with inconsistent segments_key_bounds, rowset_id={}, "
+                    "aggregated={}, bounds_size={}, num_segments={}",
+                    rs->rowset_id().to_string(),
+                    rs->rowset_meta()->is_segments_key_bounds_aggregated(),
+                    segments_key_bounds.size(), num_segments);
+        }
         std::vector<uint32_t> picked_segments;
         for (int j = num_segments - 1; j >= 0; j--) {
             if (_key_is_not_in_segment(key_without_seq, segments_key_bounds[j],

@@ -87,6 +87,7 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -342,10 +343,9 @@ public class OlapScanNode extends ScanNode {
             if (isPointQuery() && partitionInfo.getPartitionColumns().size() == 1) {
                 // short circuit, a quick path to find partition
                 ColumnRange filterRange = columnNameToRange.get(partitionInfo.getPartitionColumns().get(0).getName());
-                LiteralExpr lowerBound = filterRange.getRangeSet().get().asRanges().stream()
-                        .findFirst().get().lowerEndpoint().getValue();
-                LiteralExpr upperBound = filterRange.getRangeSet().get().asRanges().stream()
-                        .findFirst().get().upperEndpoint().getValue();
+                Range<ColumnBound> range = filterRange.getRangeSet().get().span();
+                LiteralExpr lowerBound = range.lowerEndpoint().getValue();
+                LiteralExpr upperBound = range.upperEndpoint().getValue();
                 cachedPartitionPruner.update(keyItemMap);
                 return cachedPartitionPruner.prune(lowerBound, upperBound);
             }
@@ -655,10 +655,16 @@ public class OlapScanNode extends ScanNode {
             scanRange.setPaloScanRange(paloRange);
             locations.setScanRange(scanRange);
 
+            addBucketSeqStatsIfNeeded(tabletId, locations, oneReplicaBytes);
+            scanRangeLocations.add(locations);
+        }
+    }
+
+    private void addBucketSeqStatsIfNeeded(long tabletId, TScanRangeLocations locations, long oneReplicaBytes) {
+        if (!isPointQuery()) {
             Integer bucketSeq = tabletId2BucketSeq.get(tabletId);
             bucketSeq2locations.put(bucketSeq, locations);
             bucketSeq2Bytes.merge(bucketSeq, oneReplicaBytes, Long::sum);
-            scanRangeLocations.add(locations);
         }
     }
 
@@ -900,8 +906,10 @@ public class OlapScanNode extends ScanNode {
                 scanTabletIds.addAll(allTabletIds);
             }
 
-            for (int i = 0; i < allTabletIds.size(); i++) {
-                tabletId2BucketSeq.put(allTabletIds.get(i), i);
+            if (!isPointQuery()) {
+                for (int i = 0; i < allTabletIds.size(); i++) {
+                    tabletId2BucketSeq.put(allTabletIds.get(i), i);
+                }
             }
 
             totalTabletsNum += selectedTable.getTablets().size();
@@ -928,7 +936,9 @@ public class OlapScanNode extends ScanNode {
         computePartitionInfo();
         scanBackendIds.clear();
         scanTabletIds.clear();
+        tabletId2BucketSeq.clear();
         bucketSeq2locations.clear();
+        bucketSeq2Bytes.clear();
         scanReplicaIds.clear();
         sampleTabletIds.clear();
         try {

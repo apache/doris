@@ -320,7 +320,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
     }
 
     private void recordLoadJob(UserIdentity userIdentity) {
-        if (!Config.enable_nereids_load && jobId != -1) {
+        if (jobId != -1) {
             try {
                 ctx.getEnv().getLoadManager()
                         .recordFinishedLoadJob(labelName, txnId, database.getFullName(),

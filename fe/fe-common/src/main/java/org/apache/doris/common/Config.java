@@ -1521,6 +1521,20 @@ public class Config extends ConfigBase {
     public static int grpc_keep_alive_second = 10;
 
     /**
+     * Whether to use gRPC directExecutor() for BackendServiceClient.
+     *
+     * WARNING: When enabled, gRPC client call listeners (including protobuf parsing/completion) may run on
+     * Netty EventLoop threads. If response messages are large, this can block transport threads and delay
+     * unrelated RPCs on the same channel.
+     *
+     * This option should only be enabled when you are sure responses are small and the risk is acceptable.
+     * Takes effect after FE restart.
+     */
+    @ConfField(description = {"是否为 BackendServiceClient 使用 gRPC directExecutor",
+            "Whether to use gRPC directExecutor for BackendServiceClient"})
+    public static boolean grpc_backend_client_use_direct_executor = false;
+
+    /**
      * Used to set minimal number of replication per tablet.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1881,6 +1895,12 @@ public class Config extends ConfigBase {
                     + "old records will be discarded."})
     public static int max_streaming_task_show_count = 100;
 
+    @ConfField(masterOnly = true, mutable = true, description = {
+            "Max auto resume retry count for streaming jobs. "
+                    + "After exceeding, the failure reason is rewritten to CANNOT_RESUME_ERR "
+                    + "and the job requires manual intervention."})
+    public static int streaming_job_max_auto_resume_count = 10;
+
     /* job test config */
     /**
      * If set to true, we will allow the interval unit to be set to second, when creating a recurring job.
@@ -2214,16 +2234,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(masterOnly = true)
     public static boolean enable_hms_events_incremental_sync = false;
-
-    /**
-     * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
-     * otherwise it will throw an AnalysisException.
-     */
-    @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL, description = {
-            "Currently defaults to true. After this function is enabled, the load statement of "
-                    + "the new optimizer can be used to import data. If this function fails, "
-                    + "the system will fall back to the old load statement."})
-    public static boolean enable_nereids_load = false;
 
     /**
      * the plan cache num which can be reused for the next query

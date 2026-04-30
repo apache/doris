@@ -163,6 +163,9 @@ Status OlapScanner::prepare() {
     // value (e.g. select a from t where a .. and b ... limit 1),
     // it will be very slow when reading data in segment iterator
     _tablet_reader->set_batch_size(_state->batch_size());
+    // Adaptive batch size: pass byte-budget settings to the storage reader.
+    // The reader still uses batch_size() as the row ceiling.
+    _tablet_reader->set_preferred_block_size_bytes(_state->preferred_block_size_bytes());
     {
         TOlapScanNode& olap_scan_node = local_state->olap_scan_node();
 
@@ -817,6 +820,13 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.variant_subtree_sparse_iter_count);
     COUNTER_UPDATE(local_state->_variant_doc_value_column_iter_count,
                    stats.variant_doc_value_column_iter_count);
+
+    if (stats.adaptive_batch_size_predict_max_rows > 0) {
+        local_state->_adaptive_batch_predict_min_rows_counter->set(
+                stats.adaptive_batch_size_predict_min_rows);
+        local_state->_adaptive_batch_predict_max_rows_counter->set(
+                stats.adaptive_batch_size_predict_max_rows);
+    }
 
     InvertedIndexProfileReporter inverted_index_profile;
     inverted_index_profile.update(local_state->_index_filter_profile.get(),

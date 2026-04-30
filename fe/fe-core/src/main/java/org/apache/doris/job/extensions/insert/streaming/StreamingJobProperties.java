@@ -44,8 +44,9 @@ public class StreamingJobProperties implements JobProperties {
     public static final String SESSION_VAR_PREFIX = "session.";
     public static final String INTERNAL_KEY_PREFIX = "__";
     public static final String OFFSET_PROPERTY = "offset";
+    public static final String COMPUTE_GROUP_PROPERTY = "compute_group";
     public static final List<String> SUPPORT_STREAM_JOB_PROPS = Arrays.asList(MAX_INTERVAL_SECOND_PROPERTY,
-            S3_MAX_BATCH_FILES_PROPERTY, S3_MAX_BATCH_BYTES_PROPERTY, OFFSET_PROPERTY);
+            S3_MAX_BATCH_FILES_PROPERTY, S3_MAX_BATCH_BYTES_PROPERTY, OFFSET_PROPERTY, COMPUTE_GROUP_PROPERTY);
 
     public static final long DEFAULT_MAX_INTERVAL_SECOND = 10;
     public static final long DEFAULT_MAX_S3_BATCH_FILES = 256;
@@ -194,5 +195,9 @@ public class StreamingJobProperties implements JobProperties {
 
     public String getOffsetProperty() {
         return properties.get(OFFSET_PROPERTY);
+    }
+
+    public String getComputeGroup() {
+        return properties.get(COMPUTE_GROUP_PROPERTY);
     }
 }

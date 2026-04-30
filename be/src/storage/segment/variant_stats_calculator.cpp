@@ -28,10 +28,12 @@ namespace doris::segment_v2 {
 
 VariantStatsCaculator::VariantStatsCaculator(SegmentFooterPB* footer,
                                              TabletSchemaSPtr tablet_schema,
-                                             const std::vector<uint32_t>& column_ids)
+                                             const std::vector<uint32_t>& column_ids,
+                                             int footer_column_offset)
         : _footer(footer), _tablet_schema(tablet_schema), _column_ids(column_ids) {
-    // Build the path to footer index mapping during initialization
-    for (int i = 0; i < _footer->columns_size(); ++i) {
+    // Only walk this init()'s slice of footer entries; earlier init() calls (vertical compaction's previous
+    // column groups) are not addressable via `column_ids` and would only inflate this scan.
+    for (int i = footer_column_offset; i < _footer->columns_size(); ++i) {
         const auto& column = _footer->columns(i);
         // path that need to record stats
         if (column.has_column_path_info() &&

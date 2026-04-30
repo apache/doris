@@ -33,6 +33,7 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
+import org.apache.doris.job.extensions.insert.streaming.StreamingJobStatistic;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
@@ -84,6 +85,12 @@ public final class MetricRepo {
     public static final String TABLET_MAX_COMPACTION_SCORE = "tablet_max_compaction_score";
     public static final String TABLET_ACCESS_RECENT = "tablet_access_recent";
     public static final String TABLET_ACCESS_TOTAL = "tablet_access_total";
+
+    public static final String STREAMING_JOB_PER_JOB_SCANNED_ROWS = "streaming_job_per_job_scanned_rows";
+    public static final String STREAMING_JOB_PER_JOB_LOAD_BYTES = "streaming_job_per_job_load_bytes";
+    public static final String STREAMING_JOB_PER_JOB_FILTERED_ROWS = "streaming_job_per_job_filtered_rows";
+    public static final String STREAMING_JOB_PER_JOB_SUCCEED_TASK_COUNT = "streaming_job_per_job_succeed_task_count";
+    public static final String STREAMING_JOB_PER_JOB_FAILED_TASK_COUNT = "streaming_job_per_job_failed_task_count";
     public static final String CLOUD_TAG = "cloud";
 
     public static LongCounterMetric COUNTER_REQUEST_ALL;
@@ -1226,6 +1233,107 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.addMetrics(gauge);
     }
 
+    // Generate per-job metrics for streaming insert jobs.
+    // Called on every /metrics request to keep labels (including offset) up-to-date.
+    // Pattern follows generateBackendsTabletMetrics(): remove all previous metrics, then re-register.
+    public static void updateStreamingJobPerJobMetrics() {
+        if (!Env.getCurrentEnv().isMaster()) {
+            return;
+        }
+
+        DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_SCANNED_ROWS);
+        DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_LOAD_BYTES);
+        DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_FILTERED_ROWS);
+        DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_SUCCEED_TASK_COUNT);
+        DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_FAILED_TASK_COUNT);
+
+        try {
+            List<org.apache.doris.job.base.AbstractJob> jobs =
+                    Env.getCurrentEnv().getJobManager().queryJobs(org.apache.doris.job.common.JobType.INSERT);
+
+            for (org.apache.doris.job.base.AbstractJob job : jobs) {
+                if (!(job instanceof StreamingInsertJob)) {
+                    continue;
+                }
+                StreamingInsertJob sJob = (StreamingInsertJob) job;
+                String jobId = String.valueOf(sJob.getJobId());
+                String jobName = sJob.getJobName();
+
+                // tvfType != null: TVF mode, uses jobStatistic
+                // tvfType == null: multi-table mode (FROM...TO), uses nonTxnJobStatistic
+                final StreamingJobStatistic stat;
+                if (sJob.getTvfType() != null) {
+                    stat = sJob.getJobStatistic() != null ? sJob.getJobStatistic() : new StreamingJobStatistic();
+                } else {
+                    stat = sJob.getNonTxnJobStatistic() != null
+                            ? sJob.getNonTxnJobStatistic() : new StreamingJobStatistic();
+                }
+
+                GaugeMetric<Long> scannedRows = new GaugeMetric<Long>(
+                        STREAMING_JOB_PER_JOB_SCANNED_ROWS, MetricUnit.ROWS,
+                        "per job scanned rows of streaming job") {
+                    @Override
+                    public Long getValue() {
+                        return stat.getScannedRows();
+                    }
+                };
+                scannedRows.addLabel(new MetricLabel("job_id", jobId))
+                        .addLabel(new MetricLabel("job_name", jobName));
+                DORIS_METRIC_REGISTER.addMetrics(scannedRows);
+
+                GaugeMetric<Long> loadBytes = new GaugeMetric<Long>(
+                        STREAMING_JOB_PER_JOB_LOAD_BYTES, MetricUnit.BYTES,
+                        "per job load bytes of streaming job") {
+                    @Override
+                    public Long getValue() {
+                        return stat.getLoadBytes();
+                    }
+                };
+                loadBytes.addLabel(new MetricLabel("job_id", jobId))
+                        .addLabel(new MetricLabel("job_name", jobName));
+                DORIS_METRIC_REGISTER.addMetrics(loadBytes);
+
+                GaugeMetric<Long> filteredRows = new GaugeMetric<Long>(
+                        STREAMING_JOB_PER_JOB_FILTERED_ROWS, MetricUnit.ROWS,
+                        "per job filtered rows of streaming job") {
+                    @Override
+                    public Long getValue() {
+                        return stat.getFilteredRows();
+                    }
+                };
+                filteredRows.addLabel(new MetricLabel("job_id", jobId))
+                        .addLabel(new MetricLabel("job_name", jobName));
+                DORIS_METRIC_REGISTER.addMetrics(filteredRows);
+
+                GaugeMetric<Long> succeedTaskCount = new GaugeMetric<Long>(
+                        STREAMING_JOB_PER_JOB_SUCCEED_TASK_COUNT, MetricUnit.NOUNIT,
+                        "per job succeed task count of streaming job") {
+                    @Override
+                    public Long getValue() {
+                        return sJob.getSucceedTaskCount().get();
+                    }
+                };
+                succeedTaskCount.addLabel(new MetricLabel("job_id", jobId))
+                        .addLabel(new MetricLabel("job_name", jobName));
+                DORIS_METRIC_REGISTER.addMetrics(succeedTaskCount);
+
+                GaugeMetric<Long> failedTaskCount = new GaugeMetric<Long>(
+                        STREAMING_JOB_PER_JOB_FAILED_TASK_COUNT, MetricUnit.NOUNIT,
+                        "per job failed task count of streaming job") {
+                    @Override
+                    public Long getValue() {
+                        return sJob.getFailedTaskCount().get();
+                    }
+                };
+                failedTaskCount.addLabel(new MetricLabel("job_id", jobId))
+                        .addLabel(new MetricLabel("job_name", jobName));
+                DORIS_METRIC_REGISTER.addMetrics(failedTaskCount);
+            }
+        } catch (Throwable t) {
+            LOG.warn("failed to update streaming job per-job metrics", t);
+        }
+    }
+
     private static void initSystemMetrics() {
         // TCP retransSegs
         GaugeMetric<Long> tcpRetransSegs = (GaugeMetric<Long>) new GaugeMetric<Long>(
@@ -1385,6 +1493,9 @@ public final class MetricRepo {
 
         // update load job metrics
         updateLoadJobMetrics();
+
+        // update per-job streaming job metrics
+        updateStreamingJobPerJobMetrics();
 
         // jvm
         JvmService jvmService = new JvmService();

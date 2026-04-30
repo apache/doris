@@ -624,11 +624,11 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     }
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     auto request = std::make_shared<PTabletWriterOpenRequest>();
-    request->set_allocated_id(&_parent->_load_id);
+    request->mutable_id()->CopyFrom(_parent->_load_id);
     request->set_index_id(_index_channel->_index_id);
     request->set_txn_id(_parent->_txn_id);
     request->set_sender_id(_parent->_sender_id);
-    request->set_allocated_schema(_parent->_schema->to_protobuf());
+    request->mutable_schema()->CopyFrom(*_parent->_schema->to_protobuf());
     if (_parent->_t_sink.olap_table_sink.__isset.storage_vault_id) {
         request->set_storage_vault_id(_parent->_t_sink.olap_table_sink.storage_vault_id);
     }
@@ -676,9 +676,6 @@ void VNodeChannel::_open_internal(bool is_incremental) {
                               open_closure->response_.get(), open_closure.get());
     open_closure.release();
     _open_callbacks.push_back(open_callback);
-
-    static_cast<void>(request->release_id());
-    static_cast<void>(request->release_schema());
 }
 
 void VNodeChannel::open() {
@@ -1218,7 +1215,7 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
     }
 
     auto request = std::make_shared<PTabletWriterCancelRequest>();
-    request->set_allocated_id(&_parent->_load_id);
+    request->mutable_id()->CopyFrom(_parent->_load_id);
     request->set_index_id(_index_channel->_index_id);
     request->set_sender_id(_parent->_sender_id);
     request->set_cancel_reason(cancel_msg);
@@ -1240,7 +1237,6 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
     _stub->tablet_writer_cancel(closure->cntl_.get(), closure->request_.get(),
                                 closure->response_.get(), closure.get());
     closure.release();
-    static_cast<void>(request->release_id());
 }
 
 Status VNodeChannel::close_wait(RuntimeState* state, bool* is_closed) {
