@@ -199,5 +199,6 @@ github:
     - ixzc
     - deardeng
     - wyxxxcat
+    - linrrarity
 notifications:
   pullrequests_status:  commits@doris.apache.org
