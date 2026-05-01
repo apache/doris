@@ -406,7 +406,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             Table table = tableInfo.getTable();
             if (table.isManagedTable()) {
-                Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, false);
+                Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false);
             }
             iterator.remove();
             idToRecycleTime.remove(table.getId());
@@ -469,7 +469,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                     }
                     Table table = tableInfo.getTable();
                     if (table.isManagedTable()) {
-                        Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, false);
+                        Env.getCurrentEnv().onEraseOlapTable(tableInfo.getDbId(), (OlapTable) table, false);
                     }
 
                     idToRecycleTime.remove(tableId);
@@ -527,7 +527,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 }
                 Table table = tableInfo.getTable();
                 if (table.isManagedTable()) {
-                    Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, false);
+                    Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false);
                 }
 
                 idToTable.remove(tableId);
@@ -566,7 +566,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             Table table = tableInfo.getTable();
             if (table.isManagedTable()) {
-                Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, true);
+                Env.getCurrentEnv().onEraseOlapTable(tableInfo.getDbId(), (OlapTable) table, true);
             }
             LOG.info("replay erase table[{}]", tableId);
         } finally {
@@ -1226,7 +1226,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 long dbId = tableInfo.getDbId();
                 Table table = tableInfo.getTable();
                 if (table.getType() == TableType.OLAP || table.getType() == TableType.MATERIALIZED_VIEW) {
-                    Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, false);
+                    Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false);
                 }
 
                 idToTable.remove(tableId);
