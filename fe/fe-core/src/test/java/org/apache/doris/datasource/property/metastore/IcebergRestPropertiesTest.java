@@ -84,6 +84,23 @@ public class IcebergRestPropertiesTest {
     }
 
     @Test
+    public void testRestViewEnabled() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+
+        IcebergRestProperties defaultProps = new IcebergRestProperties(props);
+        defaultProps.initNormalizeAndCheckProps();
+        Assertions.assertTrue(defaultProps.isIcebergRestViewEnabled());
+
+        props.put("iceberg.rest.view-enabled", "false");
+        IcebergRestProperties disabledProps = new IcebergRestProperties(props);
+        disabledProps.initNormalizeAndCheckProps();
+        Assertions.assertFalse(disabledProps.isIcebergRestViewEnabled());
+        Assertions.assertFalse(disabledProps.getIcebergRestCatalogProperties()
+                .containsKey("iceberg.rest.view-enabled"));
+    }
+
+    @Test
     public void testOAuth2CredentialFlow() {
         Map<String, String> props = new HashMap<>();
         props.put("iceberg.rest.uri", "http://localhost:8080");
