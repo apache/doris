@@ -106,6 +106,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
             .add(new Column("ErrorMsg", ScalarType.createStringType()))
             .add(new Column("JobRuntimeMsg", ScalarType.createStringType()))
             .add(new Column("Lag", ScalarType.createStringType()))
+            .add(new Column("LastTaskSuccessTime", ScalarType.createStringType()))
             .build();
 
     public static final ShowResultSetMetaData TASK_META_DATA =
@@ -571,6 +572,8 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
         trow.addToColumnValue(new TCell().setStringVal(failMsg == null ? FeConstants.null_string : failMsg.getMsg()));
         trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
         trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+        trow.addToColumnValue(new TCell().setStringVal(lastTaskSuccessTime > 0
+                ? TimeUtils.longToTimeString(lastTaskSuccessTime) : FeConstants.null_string));
         return trow;
     }
 
