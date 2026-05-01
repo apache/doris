@@ -513,7 +513,11 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 SlotReference.class::isInstance);
         List<SlotReference> usedSlotInTable = (List<SlotReference>) Project.findProject(aggUsedSlots, outPutSlots);
         for (SlotReference slot : usedSlotInTable) {
-            Column column = slot.getOriginalColumn().get();
+            Optional<Column> optionalColumn = slot.getOriginalColumn();
+            if (!optionalColumn.isPresent()) {
+                return false;
+            }
+            Column column = optionalColumn.get();
             PrimitiveType colType = column.getType().getPrimitiveType();
             if (colType.isComplexType() || colType.isHllType() || colType.isBitmapType()) {
                 return false;
@@ -687,7 +691,13 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 logicalScan.getOutput());
 
         for (SlotReference slot : usedSlotInTable) {
-            Column column = slot.getOriginalColumn().get();
+            Optional<Column> optionalColumn = slot.getOriginalColumn();
+            if (!optionalColumn.isPresent()) {
+                // virtual columns (e.g., generated from MATCH_ALL expressions) do not have
+                // an original column and cannot be pushed down to storage layer aggregate
+                return canNotPush;
+            }
+            Column column = optionalColumn.get();
             if (column.isAggregated()) {
                 return canNotPush;
             }
