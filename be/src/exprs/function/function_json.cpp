@@ -64,7 +64,6 @@
 #include "exprs/function/function_totype.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/json_functions.h"
-#include "util/io_helper.h"
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
 

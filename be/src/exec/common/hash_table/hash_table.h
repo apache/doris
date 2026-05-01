@@ -30,7 +30,6 @@
 #include "common/status.h"
 #include "core/types.h"
 #include "runtime/runtime_profile.h"
-#include "util/io_helper.h"
 
 /** NOTE HashTable could only be used for memmoveable (position independent) types.
   * Example: std::string is not position independent in libstdc++ with C++11 ABI or in libc++.
