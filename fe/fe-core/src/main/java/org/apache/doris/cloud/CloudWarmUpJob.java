@@ -227,6 +227,22 @@ public class CloudWarmUpJob implements Writable {
         }
     }
 
+    void refreshEventDrivenBeToThriftAddress() {
+        if (!isEventDriven()) {
+            return;
+        }
+        Map<Long, String> previousBeToThriftAddress = this.beToThriftAddress;
+        fetchBeToThriftAddress();
+        if (previousBeToThriftAddress != null && !previousBeToThriftAddress.equals(this.beToThriftAddress)) {
+            LOG.info("refresh event-driven warm up job {} BE address count from {} to {}",
+                    jobId, previousBeToThriftAddress.size(), this.beToThriftAddress.size());
+            LOG.debug("refresh event-driven warm up job {} BE addresses from {} to {}",
+                    jobId, previousBeToThriftAddress, this.beToThriftAddress);
+        }
+        this.beToClient = null;
+        this.beToAddr = null;
+    }
+
     public CloudWarmUpJob(long jobId, String srcClusterName, String dstClusterName,
                                 Map<Long, List<List<Long>>> beToTabletIdBatches, JobType jobType) {
         this.jobId = jobId;
@@ -689,6 +705,7 @@ public class CloudWarmUpJob implements Writable {
 
     private void runEventDrivenJob() throws Exception {
         try {
+            refreshEventDrivenBeToThriftAddress();
             initClients();
             for (Map.Entry<Long, Client> entry : beToClient.entrySet()) {
                 TWarmUpTabletsRequest request = new TWarmUpTabletsRequest();
