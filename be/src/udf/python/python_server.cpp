@@ -163,7 +163,7 @@ Status PythonServerManager::ensure_pool_initialized(const PythonVersion& version
 
 Status PythonServerManager::get_process(const PythonVersion& version, ProcessPtr* process) {
     auto versioned_pool = _get_process_pool(version);
-    if (!versioned_pool) {
+    if (!versioned_pool) [[unlikely]] {
         return Status::InternalError("Python process pool is empty for version {}",
                                      version.to_string());
     }
@@ -185,9 +185,6 @@ Status PythonServerManager::get_process(const PythonVersion& version, ProcessPtr
                                                if (a_alive != b_alive) {
                                                    return a_alive > b_alive;
                                                }
-                                               if (!a_alive) {
-                                                   return false;
-                                               }
                                                return a.use_count() < b.use_count();
                                            });
 
@@ -196,32 +193,20 @@ Status PythonServerManager::get_process(const PythonVersion& version, ProcessPtr
         return Status::OK();
     }
 
-    // Only reach here when the pool has no alive process at all. In that fallback path we
-    // rebuild one process so the caller can still make progress instead of waiting
-    // for the next health-check round.
-    for (size_t i = 0; i < pool.size(); ++i) {
-        auto& candidate = pool[i];
-        ProcessPtr replacement;
-        Status status = fork(version, &replacement);
-        if (!status.ok()) {
-            if (candidate) {
-                LOG(WARNING) << "Failed to recreate unavailable Python process (pid="
-                             << candidate->get_child_pid() << ", version=" << version.to_string()
-                             << "): " << status.to_string();
-            } else {
-                LOG(WARNING) << "Failed to create Python process for empty slot, version="
-                             << version.to_string() << ": " << status.to_string();
-            }
-            continue;
-        }
-
-        pool[i] = replacement;
-        *process = std::move(replacement);
-        return Status::OK();
+    // Only reach here when the pool has no alive process at all. Try one foreground
+    // recovery so the caller has a chance to proceed; leave batch repair to health check.
+    auto& candidate = pool.front();
+    ProcessPtr replacement;
+    Status status = fork(version, &replacement);
+    if (!status.ok()) {
+        return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
+                "Python process pool has no available process for version {}, reason: {}",
+                version.to_string(), status.to_string());
     }
 
-    return Status::InternalError("Python process pool has no available process for version {}",
-                                 version.to_string());
+    candidate = std::move(replacement);
+    *process = candidate;
+    return Status::OK();
 }
 
 Status PythonServerManager::fork(const PythonVersion& version, ProcessPtr* process) {
