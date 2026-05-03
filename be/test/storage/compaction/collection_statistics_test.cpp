@@ -821,9 +821,12 @@ TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantFieldPatternGlobInd
     ASSERT_TRUE(tablet_schema->inverted_indexs(tablet_schema->column(/*ordinal=*/1)).empty());
     ASSERT_TRUE(tablet_schema->inverted_index_by_field_pattern(kVariantUid, "user.name").empty());
     ASSERT_EQ(tablet_schema->inverted_index_by_field_pattern(kVariantUid, "user.*").size(), 1u);
-    EXPECT_EQ(variant_util::find_matching_sub_column_pattern(tablet_schema->column(/*ordinal=*/0),
-                                                             "user.name"),
-              "user.*");
+    TabletSchema::SubColumnInfo sub_column_info;
+    ASSERT_TRUE(variant_util::generate_sub_column_info(*tablet_schema, kVariantUid, "user.name",
+                                                       &sub_column_info));
+    ASSERT_EQ(sub_column_info.indexes.size(), 1u);
+    EXPECT_EQ(sub_column_info.column.suffix_path(), "meta.user.name");
+    EXPECT_EQ(sub_column_info.indexes[0]->index_name(), "variant_field_pattern_glob_idx");
 
     constexpr int kSlotId = 44;
     runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), kVariantUid,

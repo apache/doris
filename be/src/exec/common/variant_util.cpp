@@ -1487,12 +1487,6 @@ const TabletColumn* find_matching_sub_column_template(const TabletColumn& parent
 
 } // namespace
 
-std::string find_matching_sub_column_pattern(const TabletColumn& parent_column,
-                                             const std::string& relative_path) {
-    const auto* sub_column = find_matching_sub_column_template(parent_column, relative_path);
-    return sub_column == nullptr ? "" : sub_column->name();
-}
-
 bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
                               const std::string& path,
                               TabletSchema::SubColumnInfo* sub_column_info) {

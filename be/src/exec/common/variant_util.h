@@ -185,13 +185,6 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
                               const std::string& path,
                               TabletSchema::SubColumnInfo* sub_column_info);
 
-// Find the matching sub-column pattern (MATCH_NAME / MATCH_NAME_GLOB) for the
-// given relative path among the parent variant column's templated sub-columns.
-// Returns the matched pattern string (which is also the field_pattern key used
-// by inverted_index_by_field_pattern), or empty if no template matches.
-std::string find_matching_sub_column_pattern(const TabletColumn& parent_column,
-                                             const std::string& relative_path);
-
 class VariantCompactionUtil {
 public:
     // get the subpaths and sparse paths for the variant column
