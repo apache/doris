@@ -25,6 +25,7 @@
 #include <string>
 
 #include "common/exception.h"
+#include "exec/common/variant_util.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
@@ -43,7 +44,11 @@ namespace collection_statistics {
 
 class MockVExpr : public VExpr {
 public:
-    MockVExpr(TExprNodeType::type node_type) : _mock_node_type(node_type) {}
+    MockVExpr(TExprNodeType::type node_type) : _mock_node_type(node_type) {
+        if (node_type == TExprNodeType::MATCH_PRED) {
+            _opcode = TExprOpcode::MATCH_PHRASE;
+        }
+    }
 
     TExprNodeType::type node_type() const override { return _mock_node_type; }
 
@@ -100,6 +105,7 @@ public:
     MockVLiteral(const std::string& value) : _value(value) {}
 
     std::string value() const override { return _value; }
+    std::string value(const DataTypeSerDe::FormatOptions& options) const override { return _value; }
     const std::string& expr_name() const override { return _value; }
     std::string debug_string() const override { return "MockVLiteral: " + _value; }
 
@@ -268,6 +274,7 @@ protected:
         index._col_unique_ids.push_back(1);
         std::map<std::string, std::string> properties;
         properties["parser"] = "standard";
+        properties["support_phrase"] = "true";
         index._properties = properties;
 
         tablet_schema->append_index(std::move(index));
@@ -612,6 +619,237 @@ TEST_F(CollectionStatisticsTest, CollectWithDoubleCastWrappedSlotRef) {
     auto status =
             stats_->collect(runtime_state_.get(), empty_splits, tablet_schema, contexts, nullptr);
     EXPECT_TRUE(status.ok()) << status.msg();
+}
+
+// Regression for AIR-36: match score collection must resolve indexes for
+// variant sub-columns whose indexes live in _path_set_info_map (typed paths or
+// inherited sub-column indexes). The previous simple lookup using
+// inverted_indexs(col_unique_id, suffix_path) missed those indexes.
+TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantSubcolumnIndex) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    constexpr int32_t kVariantUid = 9001;
+
+    TabletColumn variant_col;
+    variant_col.set_unique_id(kVariantUid);
+    variant_col.set_name("v");
+    variant_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    tablet_schema->append_column(variant_col);
+
+    TabletColumn sub_col;
+    sub_col.set_unique_id(-1);
+    sub_col.set_name("v.host");
+    sub_col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    sub_col.set_parent_unique_id(kVariantUid);
+    PathInData path("v.host");
+    sub_col.set_path_info(path);
+    tablet_schema->append_column(sub_col);
+
+    auto sub_index = std::make_shared<TabletIndex>();
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(2001);
+    index_pb.set_index_name("variant_subcolumn_idx");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(kVariantUid);
+    auto* props = index_pb.mutable_properties();
+    (*props)["parser"] = "standard";
+    (*props)["support_phrase"] = "true";
+    sub_index->init_from_pb(index_pb);
+
+    TabletSchema::PathsSetInfo path_set_info;
+    TabletIndexes sub_indexes = {sub_index};
+    path_set_info.subcolumn_indexes["host"] = sub_indexes;
+    std::unordered_map<int32_t, TabletSchema::PathsSetInfo> path_set_info_map;
+    path_set_info_map[kVariantUid] = std::move(path_set_info);
+    tablet_schema->set_path_set_info(std::move(path_set_info_map));
+
+    EXPECT_TRUE(tablet_schema->inverted_indexs(kVariantUid, "host").empty());
+
+    auto found = tablet_schema->inverted_indexs(tablet_schema->column(/*ordinal=*/1));
+    ASSERT_EQ(found.size(), 1u);
+    EXPECT_EQ(found[0]->index_name(), "variant_subcolumn_idx");
+
+    constexpr int kSlotId = 42;
+    runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), kVariantUid);
+
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    auto slot_ref =
+            std::make_shared<collection_statistics::MockVSlotRef>("v.host", SlotId(kSlotId));
+    auto literal = std::make_shared<collection_statistics::MockVLiteral>("foo");
+    match_expr->_children.push_back(slot_ref);
+    match_expr->_children.push_back(literal);
+
+    VExprContextSPtrs contexts;
+    contexts.push_back(std::make_shared<VExprContext>(match_expr));
+
+    std::unordered_map<std::wstring, CollectInfo> collect_infos;
+    auto status = stats_->extract_collect_info(runtime_state_.get(), contexts, tablet_schema,
+                                               &collect_infos);
+    ASSERT_TRUE(status.ok()) << status.msg();
+    ASSERT_EQ(collect_infos.size(), 1u);
+    auto it = collect_infos.find(StringHelper::to_wstring(std::to_string(kVariantUid) + ".v.host"));
+    ASSERT_NE(it, collect_infos.end());
+    ASSERT_NE(it->second.index_meta, nullptr);
+    EXPECT_EQ(it->second.index_meta->index_name(), "variant_subcolumn_idx");
+}
+
+namespace {
+
+// Build a sub-column template for the parent variant column. pattern_type has no
+// public setter on TabletColumn, so construct through ColumnPB.
+TabletColumn make_subcolumn_template(const std::string& pattern, PatternTypePB pattern_type) {
+    ColumnPB column_pb;
+    column_pb.set_unique_id(-1);
+    column_pb.set_name(pattern);
+    column_pb.set_type("STRING");
+    column_pb.set_is_nullable(true);
+    column_pb.set_pattern_type(pattern_type);
+
+    TabletColumn templ;
+    templ.init_from_pb(column_pb);
+    return templ;
+}
+
+} // namespace
+
+TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantFieldPatternIndex) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    constexpr int32_t kVariantUid = 9002;
+
+    TabletColumn variant_col;
+    variant_col.set_unique_id(kVariantUid);
+    variant_col.set_name("meta");
+    variant_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    TabletColumn host_template = make_subcolumn_template("host", PatternTypePB::MATCH_NAME);
+    variant_col.add_sub_column(host_template);
+    tablet_schema->append_column(variant_col);
+
+    TabletColumn sub_col;
+    sub_col.set_unique_id(-1);
+    sub_col.set_name("meta.host");
+    sub_col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    sub_col.set_parent_unique_id(kVariantUid);
+    PathInData path("meta.host");
+    sub_col.set_path_info(path);
+    tablet_schema->append_column(sub_col);
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(2002);
+    index_pb.set_index_name("variant_field_pattern_idx");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(kVariantUid);
+    auto* props = index_pb.mutable_properties();
+    (*props)["parser"] = "standard";
+    (*props)["support_phrase"] = "true";
+    (*props)["field_pattern"] = "host";
+
+    TabletIndex index;
+    index.init_from_pb(index_pb);
+    tablet_schema->append_index(std::move(index));
+
+    ASSERT_TRUE(tablet_schema->inverted_indexs(tablet_schema->column(/*ordinal=*/1)).empty());
+    ASSERT_EQ(tablet_schema->inverted_index_by_field_pattern(kVariantUid, "host").size(), 1u);
+
+    constexpr int kSlotId = 43;
+    runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), kVariantUid, "meta.host",
+                                                        {"host"});
+
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    auto slot_ref =
+            std::make_shared<collection_statistics::MockVSlotRef>("meta.host", SlotId(kSlotId));
+    auto literal = std::make_shared<collection_statistics::MockVLiteral>("alpha");
+    match_expr->_children.push_back(slot_ref);
+    match_expr->_children.push_back(literal);
+
+    VExprContextSPtrs contexts;
+    contexts.push_back(std::make_shared<VExprContext>(match_expr));
+
+    std::unordered_map<std::wstring, CollectInfo> collect_infos;
+    auto status = stats_->extract_collect_info(runtime_state_.get(), contexts, tablet_schema,
+                                               &collect_infos);
+    ASSERT_TRUE(status.ok()) << status.msg();
+    ASSERT_EQ(collect_infos.size(), 1u);
+    auto it = collect_infos.find(
+            StringHelper::to_wstring(std::to_string(kVariantUid) + ".meta.host"));
+    ASSERT_NE(it, collect_infos.end());
+    ASSERT_NE(it->second.index_meta, nullptr);
+    ASSERT_NE(it->second.owned_index_meta, nullptr);
+    EXPECT_EQ(it->second.index_meta->index_name(), "variant_field_pattern_idx");
+}
+
+// Regression: field_pattern="user.*" is registered under the pattern string,
+// while the query slot resolves to column_paths=["user", "name"]. The fallback
+// must match the parent variant's sub-column template first, then use the
+// matched pattern to fetch the index, and collect under the actual Lucene field.
+TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantFieldPatternGlobIndex) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    constexpr int32_t kVariantUid = 9003;
+
+    TabletColumn variant_col;
+    variant_col.set_unique_id(kVariantUid);
+    variant_col.set_name("meta");
+    variant_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    TabletColumn glob_template = make_subcolumn_template("user.*", PatternTypePB::MATCH_NAME_GLOB);
+    variant_col.add_sub_column(glob_template);
+    tablet_schema->append_column(variant_col);
+
+    TabletColumn sub_col;
+    sub_col.set_unique_id(-1);
+    sub_col.set_name("meta.user.name");
+    sub_col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    sub_col.set_parent_unique_id(kVariantUid);
+    PathInData path("meta.user.name");
+    sub_col.set_path_info(path);
+    tablet_schema->append_column(sub_col);
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(2003);
+    index_pb.set_index_name("variant_field_pattern_glob_idx");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(kVariantUid);
+    auto* props = index_pb.mutable_properties();
+    (*props)["parser"] = "standard";
+    (*props)["support_phrase"] = "true";
+    (*props)["field_pattern"] = "user.*";
+
+    TabletIndex index;
+    index.init_from_pb(index_pb);
+    tablet_schema->append_index(std::move(index));
+
+    ASSERT_TRUE(tablet_schema->inverted_indexs(tablet_schema->column(/*ordinal=*/1)).empty());
+    ASSERT_TRUE(tablet_schema->inverted_index_by_field_pattern(kVariantUid, "user.name").empty());
+    ASSERT_EQ(tablet_schema->inverted_index_by_field_pattern(kVariantUid, "user.*").size(), 1u);
+    EXPECT_EQ(variant_util::find_matching_sub_column_pattern(tablet_schema->column(/*ordinal=*/0),
+                                                             "user.name"),
+              "user.*");
+
+    constexpr int kSlotId = 44;
+    runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), kVariantUid,
+                                                        "meta.user.name", {"user", "name"});
+
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    auto slot_ref = std::make_shared<collection_statistics::MockVSlotRef>("meta.user.name",
+                                                                          SlotId(kSlotId));
+    auto literal = std::make_shared<collection_statistics::MockVLiteral>("alice");
+    match_expr->_children.push_back(slot_ref);
+    match_expr->_children.push_back(literal);
+
+    VExprContextSPtrs contexts;
+    contexts.push_back(std::make_shared<VExprContext>(match_expr));
+
+    std::unordered_map<std::wstring, CollectInfo> collect_infos;
+    auto status = stats_->extract_collect_info(runtime_state_.get(), contexts, tablet_schema,
+                                               &collect_infos);
+    ASSERT_TRUE(status.ok()) << status.msg();
+    ASSERT_EQ(collect_infos.size(), 1u);
+    auto it = collect_infos.find(
+            StringHelper::to_wstring(std::to_string(kVariantUid) + ".meta.user.name"));
+    ASSERT_NE(it, collect_infos.end());
+    ASSERT_NE(it->second.index_meta, nullptr);
+    ASSERT_NE(it->second.owned_index_meta, nullptr);
+    EXPECT_EQ(it->second.index_meta->index_name(), "variant_field_pattern_glob_idx");
 }
 
 TEST(TermInfoComparerTest, OrdersByTermAndDedups) {

@@ -19,6 +19,9 @@
 
 #include <glog/logging.h>
 
+#include <vector>
+
+#include "exec/common/variant_util.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
@@ -33,6 +36,36 @@
 namespace doris {
 
 using namespace segment_v2;
+
+namespace {
+
+std::string join_path_parts(const std::vector<std::string>& parts) {
+    std::string path;
+    for (const auto& part : parts) {
+        if (part.empty()) {
+            continue;
+        }
+        if (!path.empty()) {
+            path += ".";
+        }
+        path += part;
+    }
+    return path;
+}
+
+std::string build_variant_full_path(const TabletColumn& parent_column,
+                                    const std::vector<std::string>& column_paths) {
+    const auto relative_path = join_path_parts(column_paths);
+    if (relative_path.empty()) {
+        return "";
+    }
+    if (parent_column.name_lower_case().empty()) {
+        return relative_path;
+    }
+    return parent_column.name_lower_case() + "." + relative_path;
+}
+
+} // namespace
 
 VSlotRef* PredicateCollector::find_slot_ref(const VExprSPtr& expr) const {
     if (!expr) {
@@ -91,7 +124,50 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
     }
 
     const auto& column = tablet_schema->column(col_idx);
-    auto index_metas = tablet_schema->inverted_indexs(sd->col_unique_id(), column.suffix_path());
+    // Use the column-aware overload so variant sub-column indexes from
+    // _path_set_info_map (typed paths / inherited sub-column indexes) are
+    // resolved correctly. The simple (col_unique_id, suffix_path) lookup misses
+    // those.
+    auto index_metas = tablet_schema->inverted_indexs(column);
+    std::vector<std::shared_ptr<const TabletIndex>> owned_index_metas;
+    std::string index_suffix_path = column.suffix_path();
+
+    if (index_metas.empty() && !sd->column_paths().empty()) {
+        // Variant sub-column with a field_pattern-based index. The index is
+        // registered under the pattern string (for example "user.*"), not the
+        // resolved relative path (for example "user.name"). Resolve the parent
+        // variant column and run the same MATCH_NAME / MATCH_NAME_GLOB matching
+        // used by variant_util::generate_sub_column_info, then look up by the
+        // matched pattern.
+        int32_t parent_unique_id = sd->col_unique_id();
+        const TabletColumn* parent_column = nullptr;
+        if (auto direct_idx = tablet_schema->field_index(parent_unique_id); direct_idx != -1) {
+            parent_column = &tablet_schema->column(direct_idx);
+        } else if (column.is_extracted_column()) {
+            parent_unique_id = column.parent_unique_id();
+            if (auto inherited_idx = tablet_schema->field_index(parent_unique_id);
+                inherited_idx != -1) {
+                parent_column = &tablet_schema->column(inherited_idx);
+            }
+        }
+
+        if (parent_column != nullptr) {
+            const auto relative_path = join_path_parts(sd->column_paths());
+            const auto matched_pattern =
+                    variant_util::find_matching_sub_column_pattern(*parent_column, relative_path);
+            if (!matched_pattern.empty()) {
+                index_suffix_path = build_variant_full_path(*parent_column, sd->column_paths());
+                const auto field_pattern_indexes = tablet_schema->inverted_index_by_field_pattern(
+                        parent_unique_id, matched_pattern);
+                for (const auto& index : field_pattern_indexes) {
+                    auto index_ptr = std::make_shared<TabletIndex>(*index);
+                    index_ptr->set_escaped_escaped_index_suffix_path(index_suffix_path);
+                    index_metas.push_back(index_ptr.get());
+                    owned_index_metas.push_back(std::move(index_ptr));
+                }
+            }
+        }
+    }
 
 #ifndef BE_TEST
     if (index_metas.empty()) {
@@ -117,7 +193,7 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
                                                                     index_meta->properties());
 
         std::string field_name =
-                build_field_name(index_meta->col_unique_ids()[0], column.suffix_path());
+                build_field_name(index_meta->col_unique_ids()[0], index_suffix_path);
         std::wstring ws_field_name = StringHelper::to_wstring(field_name);
 
         auto iter = collect_infos->find(ws_field_name);
@@ -125,6 +201,12 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
             CollectInfo collect_info;
             collect_info.term_infos.insert(term_infos.begin(), term_infos.end());
             collect_info.index_meta = index_meta;
+            for (const auto& owned_index_meta : owned_index_metas) {
+                if (owned_index_meta.get() == index_meta) {
+                    collect_info.owned_index_meta = owned_index_meta;
+                    break;
+                }
+            }
             (*collect_infos)[ws_field_name] = std::move(collect_info);
         } else {
             iter->second.term_infos.insert(term_infos.begin(), term_infos.end());
