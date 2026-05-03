@@ -25,6 +25,7 @@
 #include <string>
 
 #include "common/exception.h"
+#include "core/data_type/data_type_string.h"
 #include "exec/common/variant_util.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -691,6 +692,77 @@ TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantSubcolumnIndex) {
     ASSERT_NE(it, collect_infos.end());
     ASSERT_NE(it->second.index_meta, nullptr);
     EXPECT_EQ(it->second.index_meta->index_name(), "variant_subcolumn_idx");
+}
+
+// Regression for score on a dynamic variant sub-column inherited from a parent
+// variant inverted index. There is no sub-column template in this case, so
+// generate_sub_column_info() returns false and the collector must still inherit
+// the parent index for the actual Lucene field v.key.
+TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantParentIndexWithoutTemplate) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    constexpr int32_t kVariantUid = 9004;
+
+    TabletColumn variant_col;
+    variant_col.set_unique_id(kVariantUid);
+    variant_col.set_name("v");
+    variant_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    tablet_schema->append_column(variant_col);
+
+    TabletColumn sub_col;
+    sub_col.set_unique_id(-1);
+    sub_col.set_name("v.key");
+    sub_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    sub_col.set_parent_unique_id(kVariantUid);
+    PathInData path("v.key");
+    sub_col.set_path_info(path);
+    tablet_schema->append_column(sub_col);
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(2004);
+    index_pb.set_index_name("variant_parent_idx");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(kVariantUid);
+    auto* props = index_pb.mutable_properties();
+    (*props)["parser"] = "english";
+    (*props)["support_phrase"] = "true";
+
+    TabletIndex index;
+    index.init_from_pb(index_pb);
+    tablet_schema->append_index(std::move(index));
+
+    ASSERT_TRUE(tablet_schema->inverted_indexs(tablet_schema->column(/*ordinal=*/1)).empty());
+    ASSERT_EQ(tablet_schema->inverted_indexs(kVariantUid).size(), 1u);
+    TabletSchema::SubColumnInfo sub_column_info;
+    ASSERT_FALSE(variant_util::generate_sub_column_info(*tablet_schema, kVariantUid, "key",
+                                                        &sub_column_info));
+
+    constexpr int kSlotId = 45;
+    runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), kVariantUid, "v.key",
+                                                        {"key"});
+
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    auto cast_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::CAST_EXPR);
+    cast_expr->_data_type = std::make_shared<DataTypeString>();
+    auto slot_ref = std::make_shared<collection_statistics::MockVSlotRef>("v.key", SlotId(kSlotId));
+    auto literal = std::make_shared<collection_statistics::MockVLiteral>("abc");
+    cast_expr->_children.push_back(slot_ref);
+    match_expr->_children.push_back(cast_expr);
+    match_expr->_children.push_back(literal);
+
+    VExprContextSPtrs contexts;
+    contexts.push_back(std::make_shared<VExprContext>(match_expr));
+
+    std::unordered_map<std::wstring, CollectInfo> collect_infos;
+    auto status = stats_->extract_collect_info(runtime_state_.get(), contexts, tablet_schema,
+                                               &collect_infos);
+    ASSERT_TRUE(status.ok()) << status.msg();
+    ASSERT_EQ(collect_infos.size(), 1u);
+    auto it = collect_infos.find(StringHelper::to_wstring(std::to_string(kVariantUid) + ".v.key"));
+    ASSERT_NE(it, collect_infos.end());
+    ASSERT_NE(it->second.index_meta, nullptr);
+    ASSERT_NE(it->second.owned_index_meta, nullptr);
+    EXPECT_EQ(it->second.index_meta->index_name(), "variant_parent_idx");
 }
 
 namespace {

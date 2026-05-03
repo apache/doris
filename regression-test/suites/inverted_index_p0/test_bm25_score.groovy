@@ -264,7 +264,7 @@ suite("test_bm25_score", "p0") {
                 select id, score() as score
                 from test_variant_field_pattern_score
                 where cast(meta["user"]["name"] as string) match_phrase "alice"
-                order by score() desc, id
+                order by score() desc
                 limit 10;
             """
             assertEquals(1, res.size())
