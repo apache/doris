@@ -1461,32 +1461,6 @@ void get_field_info(const Field& field, FieldInfo* info) {
     }
 }
 
-namespace {
-
-const TabletColumn* find_matching_sub_column_template(const TabletColumn& parent_column,
-                                                      const std::string& relative_path) {
-    for (const auto& sub_column : parent_column.get_sub_columns()) {
-        const std::string& pattern = sub_column->name();
-        switch (sub_column->pattern_type()) {
-        case PatternTypePB::MATCH_NAME:
-            if (pattern == relative_path) {
-                return sub_column.get();
-            }
-            break;
-        case PatternTypePB::MATCH_NAME_GLOB:
-            if (glob_match_re2(pattern, relative_path)) {
-                return sub_column.get();
-            }
-            break;
-        default:
-            break;
-        }
-    }
-    return nullptr;
-}
-
-} // namespace
-
 bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
                               const std::string& path,
                               TabletSchema::SubColumnInfo* sub_column_info) {
@@ -1534,13 +1508,31 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
         }
     };
 
-    const TabletColumn* sub_column = find_matching_sub_column_template(parent_column, path);
-    if (sub_column == nullptr) {
-        return false;
+    const auto& sub_columns = parent_column.get_sub_columns();
+    for (const auto& sub_column : sub_columns) {
+        const char* pattern = sub_column->name().c_str();
+        switch (sub_column->pattern_type()) {
+        case PatternTypePB::MATCH_NAME: {
+            if (strcmp(pattern, path.c_str()) == 0) {
+                generate_result_column(*sub_column, &sub_column_info->column);
+                generate_index(sub_column->name());
+                return true;
+            }
+            break;
+        }
+        case PatternTypePB::MATCH_NAME_GLOB: {
+            if (glob_match_re2(pattern, path)) {
+                generate_result_column(*sub_column, &sub_column_info->column);
+                generate_index(sub_column->name());
+                return true;
+            }
+            break;
+        }
+        default:
+            break;
+        }
     }
-    generate_result_column(*sub_column, &sub_column_info->column);
-    generate_index(sub_column->name());
-    return true;
+    return false;
 }
 
 TabletSchemaSPtr VariantCompactionUtil::calculate_variant_extended_schema(
