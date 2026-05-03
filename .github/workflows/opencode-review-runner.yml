@@ -1,0 +1,254 @@
+name: Code Review Runner
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        required: true
+        type: string
+      head_sha:
+        required: true
+        type: string
+      base_sha:
+        required: true
+        type: string
+      review_focus:
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  pull-requests: write
+  contents: read
+  issues: write
+
+jobs:
+  code-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.head_sha }}
+
+      - name: Install ripgrep
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+
+      - name: Install OpenCode
+        run: |
+          for attempt in 1 2 3; do
+            if curl -fsSL https://opencode.ai/install | bash; then
+              echo "$HOME/.opencode/bin" >> $GITHUB_PATH
+              exit 0
+            fi
+            echo "Install attempt $attempt failed, retrying in 10s..."
+            sleep 10
+          done
+          echo "All install attempts failed"
+          exit 1
+
+      - name: Configure OpenCode auth
+        run: |
+          mkdir -p ~/.local/share/opencode
+          cat > ~/.local/share/opencode/auth.json <<EOF
+          {
+            "github-copilot": {
+              "type": "oauth",
+              "refresh": "${CODE_REVIEW_ZCLLL_COPILOT_OPENCODE_KEY}",
+              "access": "${CODE_REVIEW_ZCLLL_COPILOT_OPENCODE_KEY}",
+              "expires": 0
+            }
+          }
+          EOF
+        env:
+          CODE_REVIEW_ZCLLL_COPILOT_OPENCODE_KEY: ${{ secrets.CODE_REVIEW_ZCLLL_COPILOT_OPENCODE_KEY }}
+
+      - name: Prepare review context directory
+        run: |
+          review_context_dir="$(mktemp -d "$GITHUB_WORKSPACE/.opencode-review.XXXXXX")"
+          review_context_rel="$(basename "$review_context_dir")"
+          printf 'REVIEW_CONTEXT_DIR=%s\n' "$review_context_dir" >> "$GITHUB_ENV"
+          printf 'REVIEW_CONTEXT_REL=%s\n' "$review_context_rel" >> "$GITHUB_ENV"
+
+      - name: Fetch existing PR review threads
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          MAX_THREADS=30
+          MAX_BODY_CHARS=1200
+
+          if gh api --paginate --slurp repos/${REPO}/pulls/${PR_NUMBER}/comments > "$REVIEW_CONTEXT_DIR/pr_review_comments_pages.json" 2>"$REVIEW_CONTEXT_DIR/pr_review_comments_error.log" \
+            && jq 'add | sort_by((.in_reply_to_id // .id), .id)' "$REVIEW_CONTEXT_DIR/pr_review_comments_pages.json" > "$REVIEW_CONTEXT_DIR/pr_review_comments.json" 2>>"$REVIEW_CONTEXT_DIR/pr_review_comments_error.log" \
+            && jq -r '
+              def shorten($limit):
+                if (. // "" | length) > $limit then
+                  .[0:$limit] + "...(truncated)"
+                else
+                  . // ""
+                end;
+              if length == 0 then
+                "No existing inline review comments or replies were found for this PR."
+              else
+                group_by(.in_reply_to_id // .id)
+                | sort_by(.[0].created_at // "")
+                | reverse
+                | .[:$max_threads]
+                | map(
+                    . as $thread
+                    | $thread[0] as $root
+                    | "### " + ($root.path // "(unknown path)") + ":" + (($root.line // $root.original_line // "n/a") | tostring)
+                    + "\nURL: " + ($root.html_url // "")
+                    + "\nComments:\n"
+                    + (
+                        $thread
+                        | map(
+                            "- " + (.user.login // "unknown")
+                            + " at " + (.created_at // "")
+                            + (if .in_reply_to_id then " (reply):" else " (original comment):" end)
+                            + "\n"
+                            + ((.body | shorten($max_body_chars)) | split("\n") | map("    " + .) | join("\n"))
+                          )
+                        | join("\n")
+                      )
+                )
+                | join("\n\n")
+              end
+            ' --argjson max_threads "$MAX_THREADS" --argjson max_body_chars "$MAX_BODY_CHARS" "$REVIEW_CONTEXT_DIR/pr_review_comments.json" > "$REVIEW_CONTEXT_DIR/pr_review_threads.md" 2>>"$REVIEW_CONTEXT_DIR/pr_review_comments_error.log"; then
+            echo "Fetched existing PR review threads successfully."
+          else
+            printf '%s\n\n' \
+              'Existing PR review threads could not be fetched or formatted for this run.' \
+              'Proceed with the automated review without this auxiliary context.' \
+              > "$REVIEW_CONTEXT_DIR/pr_review_threads.md"
+            if [ -s "$REVIEW_CONTEXT_DIR/pr_review_comments_error.log" ]; then
+              {
+                printf '\n%s\n' 'Fetch/format error details:'
+                sed 's/^/    /' "$REVIEW_CONTEXT_DIR/pr_review_comments_error.log"
+              } >> "$REVIEW_CONTEXT_DIR/pr_review_threads.md"
+            fi
+          fi
+
+      - name: Prepare user review focus
+        env:
+          REVIEW_FOCUS: ${{ inputs.review_focus }}
+        run: |
+          if [ -n "$(printf '%s' "$REVIEW_FOCUS" | tr -d '[:space:]')" ]; then
+            printf '%s\n' "$REVIEW_FOCUS" > "$REVIEW_CONTEXT_DIR/review_focus.txt"
+          else
+            printf 'No additional user-provided review focus.\n' > "$REVIEW_CONTEXT_DIR/review_focus.txt"
+          fi
+
+      - name: Prepare review prompt
+        run: |
+          cat > "$REVIEW_CONTEXT_DIR/review_prompt.txt" <<'PROMPT'
+          You are performing an automated code review inside a GitHub Actions runner. The gh CLI is available and authenticated via GH_TOKEN. 
+          The current directory is the code repository for the PR to be reviewed.
+          You MUST NOT attempt to access any files outside the current directory. and you DO NOT need to. But this does not prevent you from normally using any skill or web fetch tools.
+          You can comment on the pull request.
+          Proceed with all subsequent research at the HIGHEST level of thought, aiming to identify all issues and submit all comments in JSON format.
+
+          Context:
+          - Repository: PLACEHOLDER_REPO
+          - PR number: PLACEHOLDER_PR_NUMBER
+          - PR Head SHA: PLACEHOLDER_HEAD_SHA
+          - PR Base SHA: PLACEHOLDER_BASE_SHA
+          - Existing inline review threads: PLACEHOLDER_CONTEXT_DIR/pr_review_threads.md
+          - Raw inline review comments JSON: PLACEHOLDER_CONTEXT_DIR/pr_review_comments.json
+          - User review focus: PLACEHOLDER_CONTEXT_DIR/review_focus.txt
+
+          Before reviewing any code, you MUST read and follow the code review skill in this repository. During review, you must strictly follow those instructions.
+          Before proposing any new issue, you MUST read PLACEHOLDER_CONTEXT_DIR/pr_review_threads.md and treat every existing inline comment thread and reply as already-known review context.
+          Do NOT submit the same or substantially similar issue again if it has already been raised in the existing review threads, even if you would phrase it differently.
+          Only raise a similar concern when the PR introduces a genuinely different instance in another location that is not already covered by the existing thread, and explain why it is distinct.
+          You MUST also read PLACEHOLDER_CONTEXT_DIR/review_focus.txt. Perform a complete review of the whole PR as usual, and additionally pay special attention to the user-provided focus points from that file.
+          In the final summary, include a short response to the user focus points, including when no additional issue was found for them.
+          In addition, you can perform any desired review operations to observe suspicious code and details in order to identify issues as much as possible.
+
+          ## Final response format
+          - After completing the review, you MUST provide a final summary opinion based on the rules defined in AGENTS.md and the code-review skill. The summary must include conclusions for each applicable critical checkpoint.
+          - If the overall quality of PR is good and there are no critical blocking issues (even if there are some tolerable minor issues), submit an opinion on approval using: gh pr review PLACEHOLDER_PR_NUMBER --comment --body "<summary>"
+          - If issues found, submit a review with inline comments plus a comprehensive summary body. Use GitHub Reviews API to ensure comments are inline:
+              - Inline comment bodies may include GitHub suggested changes blocks when you can propose a precise patch.
+              - Prefer suggested changes for small, self-contained fixes (for example typos, trivial refactors, or narrowly scoped code corrections).
+              - Do not force suggested changes for broad, architectural, or multi-file issues; explain those normally.
+              - Build a JSON array of comments like: [{ "path": "<file>", "position": <diff_position>, "body": "..." }]
+              - Submit via: gh api repos/PLACEHOLDER_REPO/pulls/PLACEHOLDER_PR_NUMBER/reviews --input <json_file>
+              - The JSON file should contain: {"event":"REQUEST_CHANGES","body":"<summary>","comments":[...]}
+          - A complete and detailed review of the entire PR must be conducted, identifying all potential issues and submitting corresponding comments. Only then can the review work be considered finished. If this standard is not strictly met, the review of the remaining parts must continue.
+          PROMPT
+          sed -i "s|PLACEHOLDER_REPO|${REPO}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
+          sed -i "s|PLACEHOLDER_PR_NUMBER|${PR_NUMBER}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
+          sed -i "s|PLACEHOLDER_HEAD_SHA|${HEAD_SHA}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
+          sed -i "s|PLACEHOLDER_BASE_SHA|${BASE_SHA}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
+          sed -i "s|PLACEHOLDER_CONTEXT_DIR|${REVIEW_CONTEXT_REL}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
+        env:
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          BASE_SHA: ${{ inputs.base_sha }}
+
+      - name: Run automated code review
+        id: review
+        timeout-minutes: 115
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PROMPT=$(cat "$REVIEW_CONTEXT_DIR/review_prompt.txt")
+
+          set +e
+          opencode run "$PROMPT" -m "github-copilot/gpt-5.5" 2>&1 | tee "$REVIEW_CONTEXT_DIR/opencode-review.log"
+          status=${PIPESTATUS[0]}
+          set -e
+
+          last_log_line=$(awk 'NF { line = $0 } END { print line }' "$REVIEW_CONTEXT_DIR/opencode-review.log")
+
+          failure_reason=""
+          if printf '%s\n' "$last_log_line" | rg -q -i '^Error:|SSE read timed out'; then
+            failure_reason="$last_log_line"
+          elif [ "$status" -ne 0 ]; then
+            failure_reason="OpenCode exited with status $status"
+          fi
+
+          if [ -n "$failure_reason" ]; then
+            {
+              echo "failure_reason<<EOF"
+              printf '%s\n' "$failure_reason"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+      - name: Comment PR on review failure
+        if: ${{ always() && steps.review.outcome != 'success' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REVIEW_FAILURE_REASON: ${{ steps.review.outputs.failure_reason }}
+          REVIEW_OUTCOME: ${{ steps.review.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          error_msg="${REVIEW_FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
+          gh pr comment "${{ inputs.pr_number }}" --body "$(cat <<EOF
+          OpenCode automated review failed and did not complete.
+
+          Error: ${error_msg}
+          Workflow run: ${RUN_URL}
+
+          Please inspect the workflow logs and rerun the review after the underlying issue is resolved.
+          EOF
+          )"
+
+      - name: Fail workflow if review failed
+        if: ${{ always() && steps.review.outcome != 'success' }}
+        env:
+          REVIEW_FAILURE_REASON: ${{ steps.review.outputs.failure_reason }}
+          REVIEW_OUTCOME: ${{ steps.review.outcome }}
+        run: |
+          error_msg="${REVIEW_FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
+          echo "OpenCode automated review failed: ${error_msg}"
+          exit 1

@@ -20,7 +20,6 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 std::unique_ptr<MaxMinValueBase> create_max_min_value(const DataTypePtr& type, int be_version) {
     switch (type->get_primitive_type()) {
     case PrimitiveType::TYPE_BOOLEAN:
@@ -84,5 +83,3 @@ void register_aggregate_function_max_min_by(AggregateFunctionSimpleFactory& fact
 }
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

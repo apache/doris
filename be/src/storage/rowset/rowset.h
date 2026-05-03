@@ -305,6 +305,10 @@ public:
         return _rowset_meta->is_segments_key_bounds_truncated();
     }
 
+    bool is_segments_key_bounds_aggregated() const {
+        return _rowset_meta->is_segments_key_bounds_aggregated();
+    }
+
     bool check_rowset_segment();
 
     [[nodiscard]] virtual Status add_to_binlog() { return Status::OK(); }

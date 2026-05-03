@@ -28,7 +28,6 @@
 #include "exprs/function/function_helpers.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 enum class MapOperation { INTERSECT, UNION };
 
@@ -201,5 +200,4 @@ private:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

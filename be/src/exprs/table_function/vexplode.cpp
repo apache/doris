@@ -36,7 +36,6 @@
 #include "exprs/vexpr_context.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 VExplodeTableFunction::VExplodeTableFunction() {
     _fn_name = "vexplode";
@@ -171,5 +170,4 @@ int VExplodeTableFunction::get_value(MutableColumnPtr& column, int max_step) {
     return max_step;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

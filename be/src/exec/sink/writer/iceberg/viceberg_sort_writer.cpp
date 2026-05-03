@@ -20,11 +20,12 @@
 #include "exec/spill/spill_file_manager.h"
 #include "exec/spill/spill_file_reader.h"
 #include "exec/spill/spill_file_writer.h"
+#include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status VIcebergSortWriter::open(RuntimeState* state, RuntimeProfile* profile,
                                 const RowDescriptor* row_desc) {
@@ -35,13 +36,13 @@ Status VIcebergSortWriter::open(RuntimeState* state, RuntimeProfile* profile,
     _row_desc = row_desc;
 
     // Initialize sort expressions from sort_info (contains ordering columns, asc/desc, nulls first/last)
-    RETURN_IF_ERROR(_vsort_exec_exprs.init(_sort_info, &_pool));
-    RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, *row_desc, *row_desc));
-    RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(_sort_info.ordering_exprs, _ordering_expr_ctxs));
+    RETURN_IF_ERROR(VExpr::prepare(_ordering_expr_ctxs, state, *row_desc));
+    RETURN_IF_ERROR(VExpr::open(_ordering_expr_ctxs, state));
 
     // Create FullSorter for in-memory sorting with spill support enabled.
     // Parameters: limit=-1 (no limit), offset=0 (no offset)
-    _sorter = FullSorter::create_unique(_vsort_exec_exprs, -1, 0, &_pool, _sort_info.is_asc_order,
+    _sorter = FullSorter::create_unique(_ordering_expr_ctxs, -1, 0, &_pool, _sort_info.is_asc_order,
                                         _sort_info.nulls_first, *row_desc, state, _profile);
     _sorter->init_profile(_profile);
     // Enable spill support so the sorter can be used with the spill framework
@@ -377,5 +378,4 @@ void VIcebergSortWriter::_cleanup_spill_streams() {
     _current_merging_spill_files.clear();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

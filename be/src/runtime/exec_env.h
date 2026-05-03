@@ -30,7 +30,6 @@
 #include "common/config.h"
 #include "common/multi_version.h"
 #include "common/status.h"
-#include "exec/pipeline/pipeline_tracing.h"
 #include "information_schema/schema_routine_load_job_scanner.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "load/memtable/memtable_memory_limiter.h"
@@ -119,7 +118,6 @@ class CdcClientMgr;
 class TabletSchemaCache;
 class TabletColumnObjectPool;
 class UserFunctionCache;
-class SchemaCache;
 class StoragePageCache;
 class AnnIndexIVFListCache;
 class SegmentLoader;
@@ -379,7 +377,6 @@ public:
 
     TabletSchemaCache* get_tablet_schema_cache() { return _tablet_schema_cache; }
     TabletColumnObjectPool* get_tablet_column_object_pool() { return _tablet_column_object_pool; }
-    SchemaCache* schema_cache() { return _schema_cache; }
     StoragePageCache* get_storage_page_cache() { return _storage_page_cache; }
     AnnIndexIVFListCache* get_ann_index_ivf_list_cache() { return _ann_index_ivf_list_cache; }
     SegmentLoader* segment_loader() { return _segment_loader; }
@@ -404,8 +401,6 @@ public:
     RuntimeFilterTimerQueue* runtime_filter_timer_queue() { return _runtime_filter_timer_queue; }
 
     DictionaryFactory* dict_factory() { return _dict_factory; }
-
-    PipelineTracerContext* pipeline_tracer_context() { return _pipeline_tracer_ctx.get(); }
 
     segment_v2::TmpFileDirs* get_tmp_file_dirs() { return _tmp_file_dirs.get(); }
     io::FDCache* file_cache_open_fd_cache() const { return _file_cache_open_fd_cache.get(); }
@@ -539,7 +534,6 @@ private:
     TabletSchemaCache* _tablet_schema_cache = nullptr;
     TabletColumnObjectPool* _tablet_column_object_pool = nullptr;
     std::unique_ptr<BaseStorageEngine> _storage_engine;
-    SchemaCache* _schema_cache = nullptr;
     StoragePageCache* _storage_page_cache = nullptr;
     AnnIndexIVFListCache* _ann_index_ivf_list_cache = nullptr;
     SegmentLoader* _segment_loader = nullptr;
@@ -565,7 +559,6 @@ private:
 
     RuntimeQueryStatisticsMgr* _runtime_query_statistics_mgr = nullptr;
 
-    std::unique_ptr<PipelineTracerContext> _pipeline_tracer_ctx;
     std::unique_ptr<segment_v2::TmpFileDirs> _tmp_file_dirs;
 
     SpillFileManager* _spill_file_mgr = nullptr;

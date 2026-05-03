@@ -58,7 +58,7 @@ public class ExprToStringValueVisitor extends ExprVisitor<String, StringValueCon
             try {
                 ZoneId dorisZone = DateUtils.getTimeZone();
                 String offset = dorisZone.getRules().getOffset(java.time.Instant.now()).toString();
-                DateLiteral dateLiteral = new DateLiteral(expr.getStringValue(),
+                DateLiteral dateLiteral = DateLiteralUtils.createDateLiteral(expr.getStringValue(),
                         ScalarType.createDatetimeV2Type(((ScalarType) expr.getType()).getScalarScale()));
                 value = dateLiteral.getStringValue() + offset;
             } catch (Exception e) {

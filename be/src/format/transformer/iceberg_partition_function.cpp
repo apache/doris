@@ -30,7 +30,6 @@
 #include "util/string_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 using HashValType = PartitionerBase::HashValType;
 
@@ -395,5 +394,4 @@ Status IcebergDeletePartitionFunction::_clone_expr_ctxs(RuntimeState* state,
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

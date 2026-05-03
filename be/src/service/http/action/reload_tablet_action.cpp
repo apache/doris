@@ -33,7 +33,6 @@
 #include "storage/storage_engine.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 const std::string PATH = "path";
 const std::string TABLET_ID = "tablet_id";
@@ -109,5 +108,4 @@ void ReloadTabletAction::reload(const std::string& path, int64_t tablet_id, int3
     }
 }
 
-#include "common/compile_check_end.h"
 } // end namespace doris

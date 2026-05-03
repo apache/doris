@@ -805,6 +805,8 @@ public class SchemaTable extends Table {
                                     .column("CARDINALITY", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("GLOBAL", ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .column("ENABLE", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .column("REQUIRE_PARTITION_FILTER",
+                                            ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .column("BLOCKS", ScalarType.createType(PrimitiveType.BIGINT),
                                             SchemaTableAggregateType.SUM, false)
                                     .column("AVERAGE_DURATION", ScalarType.createType(PrimitiveType.BIGINT),
@@ -841,6 +843,17 @@ public class SchemaTable extends Table {
                         builder().column("NAME", ScalarType.createVarchar(256))
                             .column("TYPE", ScalarType.createVarchar(64))
                             .column("PROPERTIES", ScalarType.createStringType())
+                            .column("COMMENT", ScalarType.createStringType())
+                            .column("CREATE_USER", ScalarType.createStringType())
+                            .column("CREATE_TIME", ScalarType.createStringType())
+                            .column("ALTER_USER", ScalarType.createStringType())
+                            .column("MODIFY_TIME", ScalarType.createStringType())
+                            .build()))
+            .put("role_mappings",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "role_mappings", TableType.SCHEMA,
+                        builder().column("NAME", ScalarType.createVarchar(256))
+                            .column("INTEGRATION_NAME", ScalarType.createVarchar(256))
+                            .column("RULES", ScalarType.createStringType())
                             .column("COMMENT", ScalarType.createStringType())
                             .column("CREATE_USER", ScalarType.createStringType())
                             .column("CREATE_TIME", ScalarType.createStringType())

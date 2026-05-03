@@ -87,13 +87,16 @@ Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool
         } else {
             _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
             const auto min_batch_size = std::max(state->batch_size() / 2, 1);
-            while (_padding_block.rows() < min_batch_size && !*eos) {
+            const auto block_max_bytes = state->preferred_block_size_bytes();
+            while (_padding_block.rows() < min_batch_size &&
+                   _padding_block.bytes() < block_max_bytes && !*eos) {
                 RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
                 if (_origin_block.rows() >= min_batch_size) {
                     break;
                 }
 
-                if (_origin_block.rows() + _padding_block.rows() <= state->batch_size()) {
+                if (_origin_block.rows() + _padding_block.rows() <= state->batch_size() &&
+                    _origin_block.bytes() + _padding_block.bytes() <= block_max_bytes) {
                     RETURN_IF_ERROR(_merge_padding_block());
                     _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
                 } else {
@@ -242,6 +245,7 @@ Status Scanner::try_append_late_arrival_runtime_filter() {
     // avoid conjunct destroy in used by storage layer
     _conjuncts.clear();
     RETURN_IF_ERROR(_local_state->clone_conjunct_ctxs(_conjuncts));
+    _applied_rf_num = arrived_rf_num;
     return Status::OK();
 }
 

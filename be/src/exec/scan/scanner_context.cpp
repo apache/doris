@@ -51,7 +51,6 @@
 namespace doris {
 
 using namespace std::chrono_literals;
-#include "common/compile_check_begin.h"
 
 // ==================== ScannerContext ====================
 ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_state,
@@ -491,10 +490,14 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
         std::stringstream scanner_rows_read;
         std::stringstream scanner_wait_worker_time;
         std::stringstream scanner_projection;
+        std::stringstream scanner_prepare_time;
+        std::stringstream scanner_open_time;
         scanner_statistics << "[";
         scanner_rows_read << "[";
         scanner_wait_worker_time << "[";
         scanner_projection << "[";
+        scanner_prepare_time << "[";
+        scanner_open_time << "[";
         // Scanners can in 3 state
         //  state 1: in scanner context, not scheduled
         //  state 2: in scanner worker pool's queue, scheduled but not running
@@ -518,6 +521,13 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
                     << PrettyPrinter::print(scanner->_scanner->get_scanner_wait_worker_timer(),
                                             TUnit::TIME_NS)
                     << ", ";
+            scanner_prepare_time << PrettyPrinter::print(
+                                            scanner->_scanner->get_prepare_time_cost_ns(),
+                                            TUnit::TIME_NS)
+                                 << ", ";
+            scanner_open_time << PrettyPrinter::print(scanner->_scanner->get_open_time_cost_ns(),
+                                                      TUnit::TIME_NS)
+                              << ", ";
             // since there are all scanners, some scanners is running, so that could not call scanner
             // close here.
         }
@@ -525,10 +535,14 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
         scanner_rows_read << "]";
         scanner_wait_worker_time << "]";
         scanner_projection << "]";
+        scanner_prepare_time << "]";
+        scanner_open_time << "]";
         _scanner_profile->add_info_string("PerScannerRunningTime", scanner_statistics.str());
         _scanner_profile->add_info_string("PerScannerRowsRead", scanner_rows_read.str());
         _scanner_profile->add_info_string("PerScannerWaitTime", scanner_wait_worker_time.str());
         _scanner_profile->add_info_string("PerScannerProjectionTime", scanner_projection.str());
+        _scanner_profile->add_info_string("PerScannerPrepareTime", scanner_prepare_time.str());
+        _scanner_profile->add_info_string("PerScannerOpenTime", scanner_open_time.str());
     }
 }
 
@@ -760,5 +774,4 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
 bool ScannerContext::low_memory_mode() const {
     return _local_state->low_memory_mode();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

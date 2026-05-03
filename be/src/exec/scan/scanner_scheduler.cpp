@@ -68,7 +68,10 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
     }
 
     scan_task->set_state(ScanTask::State::IN_FLIGHT);
-    scanner_delegate->_scanner->pause();
+    // Only starts the wait timer without touching the CPU timer, because the CPU
+    // timer uses CLOCK_THREAD_CPUTIME_ID which must be read on the same thread
+    // that started it.
+    scanner_delegate->_scanner->start_wait_worker_timer();
     TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
     auto sumbit_task = [&]() {
         auto work_func = [scanner_ref = scan_task, ctx]() {
@@ -164,13 +167,9 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     max_run_time_watch.start();
     scanner->resume();
 
-    bool need_update_profile = true;
     auto update_scanner_profile = [&]() {
-        if (need_update_profile) {
-            scanner->pause();
-            scanner->update_realtime_counters();
-            need_update_profile = false;
-        }
+        scanner->pause();
+        scanner->update_realtime_counters();
     };
 
     Status status = Status::OK();
@@ -301,10 +300,11 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         eos = true;
     }
 
+    // Always update scanner profile to properly account for CPU time on the same
+    // thread that started the CPU timer (CLOCK_THREAD_CPUTIME_ID is per-thread).
+    update_scanner_profile();
+
     if (eos) {
-        // If eos, scanner will call _collect_profile_before_close to update profile,
-        // so we need update_scanner_profile here
-        update_scanner_profile();
         scanner->mark_to_need_to_close();
         scan_task->set_state(ScanTask::State::EOS);
     } else {

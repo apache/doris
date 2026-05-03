@@ -25,7 +25,6 @@
 #include "exprs/function/cast/cast_to_time_impl.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status DataTypeTimeV2SerDe::write_column_to_mysql_binary(const IColumn& column,
                                                          MysqlRowBinaryBuffer& result,

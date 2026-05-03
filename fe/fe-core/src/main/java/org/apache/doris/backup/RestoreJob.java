@@ -71,6 +71,7 @@ import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.persist.gson.GsonUtilsBase;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.task.AgentBatchTask;
@@ -446,7 +447,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     continue;
                 }
                 ((DownloadTask) task).updateBrokerProperties(
-                        repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties());
+                        repo.getFileSystemDescriptor().getBackendConfigProperties());
                 AgentTaskQueue.updateTask(beId, TTaskType.DOWNLOAD, signature, task);
             }
             LOG.info("finished to update download job properties. {}", this);
@@ -2003,8 +2004,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     protected DownloadTask createDownloadTask(long beId, long signature, long jobId, long dbId,
                                               Map<String, String> srcToDest, FsBroker brokerAddr) {
         return new DownloadTask(null, beId, signature, jobId, dbId, srcToDest,
-            brokerAddr, repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties(),
-            repo.getRemoteFileSystem().getStorageType(), repo.getLocation(), "");
+            brokerAddr, repo.getFileSystemDescriptor().getBackendConfigProperties(),
+            repo.getFileSystemDescriptor().getThriftStorageType(), repo.getLocation(), "");
     }
 
     // Get the id mapping for snapshot, user should hold the lock of table.
@@ -2753,7 +2754,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     public static RestoreJob read(DataInput in) throws IOException {
         String json = Text.readString(in);
         if (AbstractJob.COMPRESSED_JOB_ID.equals(json)) {
-            return GsonUtils.fromJsonCompressed(in, RestoreJob.class);
+            return GsonUtilsBase.fromJsonCompressed(in, RestoreJob.class, GsonUtils.GSON);
         } else {
             return GsonUtils.GSON.fromJson(json, RestoreJob.class);
         }

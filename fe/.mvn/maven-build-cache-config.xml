@@ -30,6 +30,10 @@ under the License.
             <glob>{*.java,*.g4,*.xml,*.properties}</glob>
             <includes>
                 <include>src/</include>
+                <!-- Checkstyle configuration files affect all modules' style checks.
+                     Include them globally so any change to checkstyle rules invalidates
+                     all cached checkstyle results. -->
+                <include glob="{*.xml,*.txt}" recursive="true">check/checkstyle</include>
                 <!-- External source directories under gensrc/ are referenced by plugins via
                      Maven properties (e.g. ${project.parent.basedir}/../gensrc/thrift).
                      The cache extension's tagScanConfig cannot resolve these Maven properties,
@@ -43,5 +47,42 @@ under the License.
                 <include glob="{*.sh,*.py,Makefile}" recursive="true">../../gensrc/script</include>
             </includes>
         </global>
+        <plugins>
+            <plugin groupId="org.codehaus.mojo" artifactId="exec-maven-plugin">
+                <dirScan>
+                    <excludes>
+                        <!-- DORIS_HOME points at the repository root in fe-core. Treating it as an
+                             input directory pulls unrelated top-level files (for example local large
+                             tarballs) into the checksum. Keep tracking env.sh and gensrc/script via
+                             their dedicated tags/global includes, but skip this broad directory tag. -->
+                        <exclude tagName="DORIS_HOME" />
+                    </excludes>
+                </dirScan>
+            </plugin>
+        </plugins>
     </input>
+    <executionControl>
+        <runAlways>
+            <!-- Checkstyle is a quality gate that must always execute; never use a cached result. -->
+            <executions>
+                <execution artifactId="maven-checkstyle-plugin">
+                    <execIds>
+                        <execId>validate</execId>
+                    </execIds>
+                </execution>
+                <!-- dependency:copy-dependencies writes JARs to target/lib/ which the build
+                     scripts later copy into the output directory. The cache extension only
+                     restores the primary JAR artifact on a hit, not the target/lib/ tree.
+                     When combined with a clean build, target/lib/ is
+                     deleted by the clean phase and never recreated, causing "cp: cannot stat
+                     target/lib/*" failures. Force this goal to always run so that the lib
+                     directory is always populated regardless of cache state. -->
+                <execution artifactId="maven-dependency-plugin">
+                    <execIds>
+                        <execId>copy-dependencies</execId>
+                    </execIds>
+                </execution>
+            </executions>
+        </runAlways>
+    </executionControl>
 </cache>

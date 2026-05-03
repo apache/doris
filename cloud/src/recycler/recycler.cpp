@@ -76,6 +76,7 @@
 #include "recycler/recycler_service.h"
 #include "recycler/sync_executor.h"
 #include "recycler/util.h"
+#include "snapshot/snapshot_manager_factory.h"
 
 namespace doris::cloud {
 
@@ -231,7 +232,7 @@ Recycler::Recycler(std::shared_ptr<TxnKv> txn_kv) : txn_kv_(std::move(txn_kv)) {
 
     auto resource_mgr = std::make_shared<ResourceManager>(txn_kv_);
     txn_lazy_committer_ = std::make_shared<TxnLazyCommitter>(txn_kv_, std::move(resource_mgr));
-    snapshot_manager_ = std::make_shared<SnapshotManager>(txn_kv_);
+    snapshot_manager_ = create_snapshot_manager(txn_kv_);
 }
 
 Recycler::~Recycler() {
@@ -591,7 +592,8 @@ InstanceRecycler::InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const Instance
           resource_mgr_(std::make_shared<ResourceManager>(txn_kv_)) {
     delete_bitmap_lock_white_list_->init();
     resource_mgr_->init();
-    snapshot_manager_ = std::make_shared<SnapshotManager>(txn_kv_);
+
+    snapshot_manager_ = create_snapshot_manager(txn_kv_);
 
     // Since the recycler's resource manager could not be notified when instance info changes,
     // we need to refresh the instance info here to ensure the resource manager has the latest info.
@@ -833,18 +835,21 @@ int InstanceRecycler::recycle_deleted_instance() {
     };
     if (recycle_tmp_rowsets_with_mark_delete_enabled() != 0) {
         LOG_WARNING("failed to recycle tmp rowsets").tag("instance_id", instance_id_);
+        ret = -1;
         return -1;
     }
 
     // Step 2: Recycle versioned rowsets in recycle space (already marked for deletion)
     if (recycle_versioned_rowsets() != 0) {
         LOG_WARNING("failed to recycle versioned rowsets").tag("instance_id", instance_id_);
+        ret = -1;
         return -1;
     }
 
     // Step 3: Recycle operation logs (can recycle logs not referenced by snapshots)
     if (recycle_operation_logs() != 0) {
         LOG_WARNING("failed to recycle operation logs").tag("instance_id", instance_id_);
+        ret = -1;
         return -1;
     }
 
@@ -852,6 +857,7 @@ int InstanceRecycler::recycle_deleted_instance() {
     bool has_snapshots = false;
     if (has_cluster_snapshots(&has_snapshots) != 0) {
         LOG(WARNING) << "check instance cluster snapshots failed, instance_id=" << instance_id_;
+        ret = -1;
         return -1;
     } else if (has_snapshots) {
         LOG(INFO) << "instance has cluster snapshots, skip recycling, instance_id=" << instance_id_;
@@ -865,6 +871,7 @@ int InstanceRecycler::recycle_deleted_instance() {
         bool has_unrecycled_rowsets = false;
         if (recycle_ref_rowsets(&has_unrecycled_rowsets) != 0) {
             LOG_WARNING("failed to recycle ref rowsets").tag("instance_id", instance_id_);
+            ret = -1;
             return -1;
         } else if (has_unrecycled_rowsets) {
             LOG_INFO("instance has referenced rowsets, skip recycling")
@@ -891,6 +898,36 @@ int InstanceRecycler::recycle_deleted_instance() {
         if (ret != 0) {
             LOG(WARNING) << "failed to delete all data of deleted instance=" << instance_id_;
             return ret;
+        }
+    }
+
+    // Check successor instance, if exists, skip deleting kv because successor instance may still need the data in kv
+    if (instance_info_.has_successor_instance_id() &&
+        !instance_info_.successor_instance_id().empty()) {
+        std::string key = instance_key(instance_info_.successor_instance_id());
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn, instance_id=" << instance_id_
+                         << " successor_instance_id=" << instance_info_.successor_instance_id()
+                         << " err=" << err;
+            ret = -1;
+            return -1;
+        }
+
+        std::string value;
+        err = txn->get(key, &value);
+        if (err == TxnErrorCode::TXN_OK) {
+            LOG(INFO) << "instance successor instance is still exist, skip deleting kv,"
+                      << " instance_id=" << instance_id_
+                      << " successor_instance_id=" << instance_info_.successor_instance_id();
+            return 0;
+        } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            LOG(WARNING) << "failed to get successor instance, instance_id=" << instance_id_
+                         << " successor_instance_id=" << instance_info_.successor_instance_id()
+                         << " err=" << err;
+            ret = -1;
+            return -1;
         }
     }
 
@@ -5725,11 +5762,11 @@ int InstanceRecycler::scan_and_recycle(
     };
 
     std::unique_ptr<RangeGetIterator> it;
-    do {
+    while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
         if (get_range_retried > 1000) {
-            err = "txn_get exceeds max retry, may not scan all keys";
-            ret = -1;
-            return -1;
+            err = "txn_get exceeds max retry(1000), may not scan all keys";
+            ret = -3;
+            return ret;
         }
         int get_ret = txn_get(txn_kv_.get(), begin, end, it);
         if (get_ret != 0) { // txn kv may complain "Request for future version"
@@ -5752,19 +5789,19 @@ int InstanceRecycler::scan_and_recycle(
                 begin = k;
                 VLOG_DEBUG << "iterator has no more kvs. key=" << hex(k);
             }
-            // if we want to continue scanning, the recycle_func should not return non-zero
+            // FIXME(gavin): if we want to continue scanning, the recycle_func should not return non-zero
             if (recycle_func(k, v) != 0) {
                 err = "recycle_func error";
                 ret = -1;
             }
         }
         begin.push_back('\x00'); // Update to next smallest key for iteration
-        // if we want to continue scanning, the recycle_func should not return non-zero
+        // FIXME(gavin): if we want to continue scanning, the loop_done should not return non-zero
         if (loop_done && loop_done() != 0) {
             err = "loop_done error";
             ret = -1;
         }
-    } while (it->more() && !stopped());
+    }
     return ret;
 }
 

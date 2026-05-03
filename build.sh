@@ -509,10 +509,10 @@ else
 fi
 export DISABLE_BUILD_JINDOFS
 
-if [[ "$(echo "${DISABLE_BUILD_JUICEFS}" | tr '[:lower:]' '[:upper:]')" == "OFF" ]]; then
-    BUILD_JUICEFS='ON'
-else
+if [[ "$(echo "${DISABLE_BUILD_JUICEFS}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
     BUILD_JUICEFS='OFF'
+else
+    BUILD_JUICEFS='ON'
 fi
 export DISABLE_BUILD_JUICEFS
 
@@ -606,6 +606,24 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     modules+=("fe-extension-spi")
     modules+=("fe-extension-loader")
     modules+=("fe-core")
+    # Filesystem API and SPI plugin modules (loaded at runtime as plugins)
+    modules+=("fe-filesystem/fe-filesystem-api")
+    modules+=("fe-filesystem/fe-filesystem-spi")
+    for _fs_mod in s3 oss cos obs azure hdfs local broker; do
+        if [[ -d "${DORIS_HOME}/fe/fe-filesystem/fe-filesystem-${_fs_mod}" ]]; then
+            modules+=("fe-filesystem/fe-filesystem-${_fs_mod}")
+        fi
+    done
+    unset _fs_mod
+    # Connector API, SPI, and plugin modules (loaded at runtime as plugins)
+    modules+=("fe-connector/fe-connector-api")
+    modules+=("fe-connector/fe-connector-spi")
+    for _conn_mod in es jdbc maxcompute trino hms hive paimon hudi iceberg; do
+        if [[ -d "${DORIS_HOME}/fe/fe-connector/fe-connector-${_conn_mod}" ]]; then
+            modules+=("fe-connector/fe-connector-${_conn_mod}")
+        fi
+    done
+    unset _conn_mod
     if [[ "${WITH_TDE_DIR}" != "" ]]; then
         modules+=("fe-${WITH_TDE_DIR}")
     fi
@@ -711,6 +729,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DBUILD_AZURE="${BUILD_AZURE}" \
         -DENABLE_DYNAMIC_ARCH="${ENABLE_DYNAMIC_ARCH}" \
         -DWITH_TDE_DIR="${WITH_TDE_DIR}" \
+        -DFAISS_ENABLE_GPU="${FAISS_ENABLE_GPU:-OFF}" \
         "${DORIS_HOME}/be"
 
     if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
@@ -797,7 +816,7 @@ function build_fe_modules() {
     local -a user_settings_opts=()
     local -a mvn_cmd=(
         "${MVN_CMD}"
-        package
+        install
         -pl
         "${FE_MODULES}"
         -am
@@ -828,8 +847,9 @@ function build_fe_modules() {
         rm -f "${log_file}"
         return 0
     fi
-    if [[ "${thread_count}" != "${retry_thread_count}" ]] && grep -Fq "Could not acquire lock(s)" "${log_file}"; then
-        echo "FE Maven build hit Maven resolver lock contention. Retrying with -T ${retry_thread_count}."
+    if [[ "${thread_count}" != "${retry_thread_count}" ]] && \
+            grep -Eq "Could not acquire lock\(s\)|isn't a file" "${log_file}"; then
+        echo "FE Maven build hit parallel build issue (lock contention or reactor artifact race). Retrying with -T ${retry_thread_count}."
         mvn_cmd=("${mvn_cmd[@]:0:${#mvn_cmd[@]}-2}" -T "${retry_thread_count}")
         "${mvn_cmd[@]}"
         rm -f "${log_file}"
@@ -896,6 +916,42 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/connectors/"
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/hadoop_conf/"
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/java_extensions/"
+
+    # Deploy filesystem provider plugins as independent plugin directories
+    # Each sub-directory is one storage backend loaded at runtime by FileSystemPluginManager.
+    FS_PLUGIN_DIR="${DORIS_OUTPUT}/fe/plugins/filesystem"
+    for fs_module in s3 azure oss cos obs hdfs local broker; do
+        fs_plugin_target="${FS_PLUGIN_DIR}/${fs_module}"
+        fs_module_dir="${DORIS_HOME}/fe/fe-filesystem/fe-filesystem-${fs_module}"
+        if [ ! -d "${fs_module_dir}" ]; then
+            continue
+        fi
+        mkdir -p "${fs_plugin_target}"
+        # Unpack the self-contained plugin zip produced by maven-assembly-plugin.
+        # Layout inside the zip: <plugin>.jar at root + lib/*.jar for runtime deps.
+        # DirectoryPluginRuntimeManager picks up both root and lib/ jars automatically.
+        unzip -o "${fs_module_dir}/target/doris-fe-filesystem-${fs_module}.zip" \
+            -d "${fs_plugin_target}/"
+    done
+    unset FS_PLUGIN_DIR fs_module fs_plugin_target fs_module_dir
+
+    # Deploy connector provider plugins as independent plugin directories.
+    # Each sub-directory is one connector backend loaded at runtime by ConnectorPluginManager.
+    CONN_PLUGIN_DIR="${DORIS_OUTPUT}/fe/plugins/connector"
+    for conn_module in es jdbc maxcompute trino hms hive paimon hudi iceberg; do
+        conn_plugin_target="${CONN_PLUGIN_DIR}/${conn_module}"
+        conn_module_dir="${DORIS_HOME}/fe/fe-connector/fe-connector-${conn_module}"
+        if [ ! -d "${conn_module_dir}" ]; then
+            continue
+        fi
+        conn_zip=$(find "${conn_module_dir}/target" -maxdepth 1 -name '*.zip' 2>/dev/null | head -1)
+        if [ -z "${conn_zip}" ]; then
+            continue
+        fi
+        mkdir -p "${conn_plugin_target}"
+        unzip -o "${conn_zip}" -d "${conn_plugin_target}/"
+    done
+    unset CONN_PLUGIN_DIR conn_module conn_plugin_target conn_module_dir conn_zip
 
     if [ "${TARGET_SYSTEM}" = "Darwin" ] || [ "${TARGET_SYSTEM}" = "Linux" ]; then
       mkdir -p "${DORIS_OUTPUT}/fe/arthas"
@@ -1062,7 +1118,6 @@ EOF
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
     copy_common_files "${DORIS_OUTPUT}/be/"
     mkdir -p "${DORIS_OUTPUT}/be/log"
-    mkdir -p "${DORIS_OUTPUT}/be/log/pipe_tracing"
     mkdir -p "${DORIS_OUTPUT}/be/storage"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/jdbc_drivers/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/java_udf/"

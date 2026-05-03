@@ -63,7 +63,6 @@
 #include "util/time.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 namespace {
 
@@ -301,6 +300,12 @@ public:
  * Thread-safety: cache lookups / inserts are lock-free (the LRU cache is
  * internally sharded).  Disk reads are serialised by _io_mutex because
  * the CLucene IndexInput is stateful (seek + readBytes).
+ *
+ * Stampede protection: when multiple threads concurrently miss the cache
+ * for the same key, borrow() acquires _io_mutex and re-checks the cache
+ * (double-check pattern).  The first thread reads from disk and inserts
+ * into the cache; subsequent threads find the entry on re-check and skip
+ * the redundant disk I/O.
  */
 struct CachedRandomAccessReader : faiss::RandomAccessReader {
     CachedRandomAccessReader(lucene::store::IndexInput* input, std::string cache_key_prefix,
@@ -352,8 +357,25 @@ struct CachedRandomAccessReader : faiss::RandomAccessReader {
             return _make_pinned_ref(std::move(handle), nbytes);
         }
 
-        // Slow path: cache miss — read from disk, then insert.
-        auto page = _fetch_from_disk(offset, nbytes, cache->mem_tracker());
+        // Slow path: cache miss — acquire I/O lock, then double-check cache.
+        //
+        // Multiple threads may concurrently miss the fast-path lookup for the
+        // same key.  Since _io_mutex already serialises all CLucene reads for
+        // this reader (IndexInput is stateful), we simply re-check the cache
+        // after acquiring the lock.  If a preceding thread loaded this key
+        // while we were waiting, we get a cache hit and skip the redundant
+        // disk I/O entirely (stampede protection).
+        std::lock_guard<std::mutex> lock(_io_mutex);
+
+        // Double-check: a preceding thread may have loaded this key while
+        // we waited on _io_mutex.
+        if (cache->lookup(key, &handle)) {
+            ++g_ivf_on_disk_cache_stats.hit_cnt;
+            return _make_pinned_ref(std::move(handle), nbytes);
+        }
+
+        // Still a miss — we are the first thread to reach here; read from disk.
+        auto page = _fetch_from_disk_locked(offset, nbytes, cache->mem_tracker());
         cache->insert(key, page.get(), &handle);
         page.release(); // ownership transferred to cache
         return _make_pinned_ref(std::move(handle), nbytes);
@@ -382,15 +404,13 @@ private:
     // ---- Disk I/O + metrics ----
 
     /// Read a region from CLucene, wrapped in a DataPage, and record fetch metrics.
-    std::unique_ptr<DataPage> _fetch_from_disk(
+    /// Caller must already hold _io_mutex.
+    std::unique_ptr<DataPage> _fetch_from_disk_locked(
             size_t offset, size_t nbytes, std::shared_ptr<MemTrackerLimiter> mem_tracker) const {
         auto page = std::make_unique<DataPage>(nbytes, std::move(mem_tracker));
 
         const int64_t start_ns = MonotonicNanos();
-        {
-            std::lock_guard<std::mutex> lock(_io_mutex);
-            _read_clucene(offset, page->data(), nbytes);
-        }
+        _read_clucene(offset, page->data(), nbytes);
         const int64_t cost_ns = MonotonicNanos() - start_ns;
 
         ++g_ivf_on_disk_cache_stats.miss_cnt;
@@ -705,8 +725,8 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
         result.roaring = std::make_shared<roaring::Roaring>();
         update_roaring(labels, k, *result.roaring);
         size_t roaring_cardinality = result.roaring->cardinality();
-        result.distances = std::make_unique<float[]>(roaring_cardinality);
-        result.row_ids = std::make_unique<std::vector<uint64_t>>();
+        result.distances = std::shared_ptr<float[]>(new float[roaring_cardinality]);
+        result.row_ids = std::make_shared<std::vector<uint64_t>>();
         result.row_ids->resize(roaring_cardinality);
 
         if (_metric == AnnIndexMetric::L2) {
@@ -816,17 +836,17 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
 
     size_t begin = native_search_result.lims[0];
     size_t end = native_search_result.lims[1];
-    auto row_ids = std::make_unique<std::vector<uint64_t>>();
+    auto row_ids = std::make_shared<std::vector<uint64_t>>();
     row_ids->resize(end - begin);
     if (params.is_le_or_lt) {
         if (_metric == AnnIndexMetric::L2) {
-            std::unique_ptr<float[]> distances_ptr;
+            std::shared_ptr<float[]> distances_ptr;
             float* distances = nullptr;
             auto roaring = std::make_shared<roaring::Roaring>();
             {
                 // Engine convert: build roaring, row_ids, distances from FAISS result
                 SCOPED_RAW_TIMER(&result.engine_convert_ns);
-                distances_ptr = std::make_unique<float[]>(end - begin);
+                distances_ptr = std::shared_ptr<float[]>(new float[end - begin]);
                 distances = distances_ptr.get();
                 // The distance returned by Faiss is actually the squared distance.
                 // So we need to take the square root of the squared distance.
@@ -836,8 +856,8 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
                     distances[i - begin] = sqrt(native_search_result.distances[i]);
                 }
             }
-            result.distances = std::move(distances_ptr);
-            result.row_ids = std::move(row_ids);
+            result.distances = distances_ptr;
+            result.row_ids = row_ids;
             result.roaring = roaring;
 
             DCHECK(result.row_ids->size() == result.roaring->cardinality())
@@ -887,7 +907,7 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
             // For inner product, we can use the distance directly.
             // range search on ip gets all vectors with inner product greater than or equal to the radius.
             // when query condition is not le_or_lt, we can use the roaring and distance directly.
-            std::unique_ptr<float[]> distances_ptr = std::make_unique<float[]>(end - begin);
+            std::shared_ptr<float[]> distances_ptr(new float[end - begin]);
             float* distances = distances_ptr.get();
             auto roaring = std::make_shared<roaring::Roaring>();
             // The distance returned by Faiss is actually the squared distance.
@@ -897,8 +917,8 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
                 roaring->add(cast_set<UInt32>(native_search_result.labels[i]));
                 distances[i - begin] = native_search_result.distances[i];
             }
-            result.distances = std::move(distances_ptr);
-            result.row_ids = std::move(row_ids);
+            result.distances = distances_ptr;
+            result.row_ids = row_ids;
             result.roaring = roaring;
 
             DCHECK(result.row_ids->size() == result.roaring->cardinality())

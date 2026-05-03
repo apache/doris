@@ -75,16 +75,38 @@ suite("test_insert_statistic", "p0") {
        "replication_num"="1"
      );
     """
-    sql """ 
-    INSERT INTO ${insert_tbl}_2 select * from ${insert_tbl}_1
-    """
-    result = sql "SHOW LOAD FROM ${dbName}"
+    def selectLabel = "label_insert_select_" + System.currentTimeMillis()
+    sql """ INSERT INTO ${insert_tbl}_2 WITH LABEL ${selectLabel} select * from ${insert_tbl}_1 """
+    result = sql "SHOW LOAD FROM ${dbName} WHERE LABEL = '${selectLabel}'"
+    assertEquals(1, result.size())
+    assertEquals("FINISHED", result[0][2])
     logger.info("JobDetails: " + result[0][14])
     def json = parseJson(result[0][14])
     assertEquals(json.ScannedRows, 3)
     assertEquals(json.FileNumber, 0)
     assertEquals(json.FileSize, 0)
     assertTrue(json.LoadBytes > 0)
+
+    // failed insert into select → job should be CANCELLED
+    sql """ DROP TABLE IF EXISTS ${insert_tbl}_fail"""
+    sql """
+     CREATE TABLE ${insert_tbl}_fail (
+       `k1` varchar(3) NOT NULL
+     ) ENGINE=OLAP
+     DUPLICATE KEY(`k1`)
+     DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+     PROPERTIES ("replication_num"="1");
+    """
+    sql """ set enable_insert_strict = true """
+    try {
+        sql """ INSERT INTO ${insert_tbl}_fail SELECT 'this_value_is_too_long_for_varchar3' """
+    } catch (Exception e) {
+        logger.info("Expected insert failure: " + e.getMessage())
+    }
+    sql """ set enable_insert_strict = false """
+    result = sql "SHOW LOAD FROM ${dbName}"
+    def cancelledJob = result.find { it[2] == "CANCELLED" }
+    assertNotNull(cancelledJob, "Expected a CANCELLED load job for failed insert")
 
     // insert into s3 tvf
     String ak = getS3AK()
@@ -107,7 +129,8 @@ suite("test_insert_statistic", "p0") {
         DISTRIBUTED BY HASH(`k1`) BUCKETS 3
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
-    sql """ insert into ${insert_tbl}_3 select * from S3 (
+    def s3Label = "label_insert_s3_" + System.currentTimeMillis()
+    sql """ insert into ${insert_tbl}_3 WITH LABEL ${s3Label} select * from S3 (
                         "uri" = "http://${bucket}.${s3_endpoint}/regression/load/data/empty_field_as_null.csv",
                         "ACCESS_KEY"= "${ak}",
                         "SECRET_KEY" = "${sk}",
@@ -117,12 +140,13 @@ suite("test_insert_statistic", "p0") {
                         "region" = "${region}"
                         );
                     """
-    result = sql "SHOW LOAD FROM ${dbName}"
-    logger.info("JobDetails: " + result[1][14])
-    json = parseJson(result[1][14])
+    result = sql "SHOW LOAD FROM ${dbName} WHERE LABEL = '${s3Label}'"
+    assertEquals(1, result.size())
+    assertEquals("FINISHED", result[0][2])
+    logger.info("JobDetails: " + result[0][14])
+    json = parseJson(result[0][14])
     assertEquals(json.ScannedRows, 2)
     assertEquals(json.FileNumber, 1)
     assertEquals(json.FileSize, 86)
-    assertEquals(result.size(), 2)
     assertTrue(json.LoadBytes > 0)
 }

@@ -34,6 +34,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -41,6 +42,7 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AddRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
 import org.apache.doris.qe.ConnectContext;
@@ -53,8 +55,6 @@ import org.apache.doris.transaction.FakeTransactionIDGenerator;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 
 import com.google.common.collect.Lists;
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -114,23 +114,33 @@ public class RollupJobV2Test {
         FeConstants.runningUnitTest = true;
         AgentTaskQueue.clearAllTasks();
 
-        new MockUp<Env>() {
-            @Mock
-            public Env getCurrentEnv() {
-                return masterEnv;
-            }
-        };
+        FakeEnv.setEnv(masterEnv);
     }
 
     @After
     public void tearDown() {
         File file = new File(fileName);
         file.delete();
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        if (fakeTransactionIDGenerator != null) {
+            fakeTransactionIDGenerator.close();
+        }
     }
 
     @Test
     public void testRunRollupJobConcurrentLimit() throws UserException {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
         fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
@@ -151,7 +161,13 @@ public class RollupJobV2Test {
 
     @Test
     public void testAddSchemaChange() throws UserException {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
         fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
@@ -165,10 +181,47 @@ public class RollupJobV2Test {
         Assert.assertEquals(OlapTableState.ROLLUP, olapTable.getState());
     }
 
+    @Test
+    public void testCancelRollupWithEmptyJobIdList() throws Exception {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
+
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(op);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDb1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        materializedViewHandler.process(alterOps, db, olapTable);
+        Map<Long, AlterJobV2> alterJobsV2 = materializedViewHandler.getAlterJobsV2();
+        Assert.assertEquals(1, alterJobsV2.size());
+
+        RollupJobV2 rollupJob = (RollupJobV2) alterJobsV2.values().stream().findAny().get();
+        CancelAlterTableCommand cancelAlterTableCommand = new CancelAlterTableCommand(
+                new TableNameInfo(db.getFullName(), olapTable.getName()),
+                CancelAlterTableCommand.AlterType.ROLLUP,
+                Lists.newArrayList());
+        materializedViewHandler.cancel(cancelAlterTableCommand);
+
+        Assert.assertEquals(JobState.CANCELLED, rollupJob.getJobState());
+    }
+
     // start a schema change, then finished
     @Test
     public void testSchemaChange1() throws Exception {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
         fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
@@ -218,7 +271,13 @@ public class RollupJobV2Test {
 
     @Test
     public void testSchemaChangeWhileTabletNotStable() throws Exception {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
         fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
@@ -337,7 +396,13 @@ public class RollupJobV2Test {
 
     @Test
     public void testAddRollupForDupTable() throws UserException {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
         fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();

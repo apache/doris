@@ -17,14 +17,23 @@
 
 package org.apache.doris.extension.loader;
 
+import java.io.IOException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Enumeration;
 import java.util.List;
 
 /**
  * Child-first classloader with parent-first allowlist.
+ *
+ * <p>Both class loading and resource lookup are child-first: the plugin's own JARs are
+ * searched first, and the parent classloader is consulted only when the child has no
+ * result.  This prevents third-party service-registration files in the FE parent
+ * classloader (e.g. {@code software/amazon/awssdk/.../execution.interceptors} from
+ * {@code s3-transfer-manager.jar}) from leaking into the plugin's view and triggering
+ * classloader split-brain errors.
  */
 public class ChildFirstClassLoader extends URLClassLoader {
 
@@ -39,6 +48,7 @@ public class ChildFirstClassLoader extends URLClassLoader {
         packages.add("org.slf4j.");
         packages.add("org.apache.logging.");
         packages.add("org.apache.doris.extension.spi.");
+        packages.add("org.apache.doris.connector.api.");
         DEFAULT_PARENT_FIRST_PACKAGES = Collections.unmodifiableList(packages);
     }
 
@@ -80,5 +90,24 @@ public class ChildFirstClassLoader extends URLClassLoader {
             }
         }
         return false;
+    }
+
+    /**
+     * Override resource lookup to be child-first: return only this classloader's own
+     * resources.  Fall back to the parent only when the child has none.
+     *
+     * <p>The standard {@link URLClassLoader#getResources} returns resources from
+     * <em>both</em> child and parent.  That causes problems when the parent has
+     * service-registration files (e.g. AWS SDK {@code execution.interceptors}) whose
+     * implementation classes cannot be cast to the corresponding interfaces loaded by
+     * the child classloader.
+     */
+    @Override
+    public Enumeration<URL> getResources(String name) throws IOException {
+        Enumeration<URL> childResources = findResources(name);
+        if (childResources.hasMoreElements()) {
+            return childResources;
+        }
+        return super.getResources(name);
     }
 }

@@ -19,6 +19,7 @@ package org.apache.doris.task;
 
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.DescriptorToThriftConverter;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.SlotRef;
@@ -175,7 +176,7 @@ public class AlterReplicaTask extends AgentTask {
                 req.addToMaterializedViewParams(mvParam);
             }
         }
-        req.setDescTbl(descTable.toThrift());
+        req.setDescTbl(DescriptorToThriftConverter.toThrift(descTable));
 
         if (baseSchemaColumns != null) {
             Object value = objectPool.get(baseSchemaColumns);

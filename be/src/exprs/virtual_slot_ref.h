@@ -20,7 +20,6 @@
 #include "exprs/vexpr.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class VirtualSlotRef MOCK_REMOVE(final) : public VExpr {
     ENABLE_FACTORY_CREATOR(VirtualSlotRef);
 
@@ -31,8 +30,8 @@ public:
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override;
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override;
     const std::string& expr_name() const override;
     std::string expr_label() override;
     std::string debug_string() const override;
@@ -129,5 +128,4 @@ private:
     std::shared_ptr<VExpr> _virtual_column_expr; ///< Underlying virtual expression
     DataTypePtr _column_data_type;               ///< Data type of the column
 };
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -36,7 +36,6 @@
 #include "util/trace.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 IndexBuilder::IndexBuilder(StorageEngine& engine, TabletSharedPtr tablet,
                            const std::vector<TColumn>& columns,
@@ -308,7 +307,10 @@ Status IndexBuilder::update_inverted_index_info() {
         RETURN_IF_ERROR(input_rowset->get_segments_key_bounds(&key_bounds));
         rowset_meta->set_segments_key_bounds_truncated(
                 input_rowset_meta->is_segments_key_bounds_truncated());
-        rowset_meta->set_segments_key_bounds(key_bounds);
+        // preserve aggregated layout via the setter so the aggregated flag is not
+        // clobbered by set_segments_key_bounds's default reset path.
+        rowset_meta->set_segments_key_bounds(
+                key_bounds, input_rowset_meta->is_segments_key_bounds_aggregated());
         std::vector<uint32_t> num_segment_rows;
         input_rowset_meta->get_num_segment_rows(&num_segment_rows);
         rowset_meta->set_num_segment_rows(num_segment_rows);
@@ -981,5 +983,4 @@ void IndexBuilder::gc_output_rowset() {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

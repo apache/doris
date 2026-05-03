@@ -138,12 +138,13 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
     }
     auto p_reader =
             new ParquetReader(nullptr, scan_params, scan_range, 992, &ctz, nullptr, nullptr);
-    std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> iterator_pair;
-    iterator_pair =
-            std::make_pair(std::make_shared<RowIdColumnIteratorV2>(
-                                   IdManager::ID_VERSION, BackendOptions::get_backend_id(), 10),
-                           tuple_desc->slots().size());
-    p_reader->set_row_id_column_iterator(iterator_pair);
+
+    auto iter = std::make_shared<RowIdColumnIteratorV2>(IdManager::ID_VERSION,
+                                                        BackendOptions::get_backend_id(), 10);
+    p_reader->register_synthesized_column_handler(
+            "row_id", [&](Block* block, size_t rows) -> Status {
+                return p_reader->fill_topn_row_id(iter, "row_id", block, rows);
+            });
     p_reader->set_file_reader(reader);
     static_cast<void>(p_reader->read_by_rows(read_lines));
 
@@ -151,13 +152,14 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
     runtime_state.set_desc_tbl(desc_tbl);
 
     std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
-    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-    static_cast<void>(p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr,
-                                            nullptr, nullptr, nullptr, nullptr));
-    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-            partition_columns;
-    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-    static_cast<void>(p_reader->set_fill_columns(partition_columns, missing_columns));
+    ParquetInitContext pq_ctx;
+    pq_ctx.column_names = column_names;
+    pq_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+    pq_ctx.params = &scan_params;
+    pq_ctx.range = &scan_range;
+    static_cast<void>(p_reader->init_reader(&pq_ctx));
+    // set_fill_columns logic is now inlined in _do_init_reader,
+    // so no separate call is needed.
     BlockUPtr block = Block::create_unique();
     for (const auto& slot_desc : tuple_desc->slots()) {
         auto data_type = make_nullable(slot_desc->type());

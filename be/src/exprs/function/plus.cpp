@@ -22,7 +22,6 @@
 #include "exprs/function/simple_function_factory.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 template <PrimitiveType Type>
 struct PlusImpl {
     static constexpr auto name = "add";
@@ -117,5 +116,4 @@ void register_function_plus(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionPlusMinus<PlusMinusIntegralImpl<PlusImpl<TYPE_DOUBLE>>>>();
     factory.register_function<FunctionPlusMinus<PlusMinusIntegralImpl<PlusImpl<TYPE_FLOAT>>>>();
 }
-#include "common/compile_check_end.h"
 } // namespace doris

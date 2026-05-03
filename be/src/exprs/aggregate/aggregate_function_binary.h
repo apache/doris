@@ -31,7 +31,6 @@
 #include "exprs/aggregate/aggregate_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <PrimitiveType T, template <PrimitiveType> typename Moments>
 struct StatFunc {
@@ -42,7 +41,7 @@ struct StatFunc {
 };
 
 template <typename StatFunc>
-struct AggregateFunctionBinary
+struct AggregateFunctionBinary final
         : public IAggregateFunctionDataHelper<typename StatFunc::Data,
                                               AggregateFunctionBinary<StatFunc>>,
           MultiExpression,
@@ -97,5 +96,3 @@ struct AggregateFunctionBinary
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

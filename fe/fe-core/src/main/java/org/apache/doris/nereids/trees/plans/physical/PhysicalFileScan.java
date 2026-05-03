@@ -119,6 +119,10 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
         return selectedPartitions;
     }
 
+    public boolean hasPartitionPredicate() {
+        return selectedPartitions.hasPartitionPredicate;
+    }
+
     public Optional<TableSample> getTableSample() {
         return tableSample;
     }
@@ -133,16 +137,18 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
 
     @Override
     public String toString() {
-        String rfV2 = "";
-        if (!runtimeFiltersV2.isEmpty()) {
-            rfV2 = runtimeFiltersV2.toString();
+        String rfs = "";
+        if (!runtimeFilters.isEmpty()) {
+            rfs = runtimeFilters.toString();
         }
-        return Utils.toSqlString("PhysicalFileScan[" + table.getName() + "]" + getGroupIdWithPrefix(),
-            "stats", statistics,
+        return Utils.toSqlString("PhysicalFileScan[" + id.asInt() + "]" + getGroupIdWithPrefix(),
+                "table", table.getName(),
+                "stats", statistics,
                 "qualified", Utils.qualifiedName(qualifier, table.getName()),
                 "selected partitions num",
                 selectedPartitions.isPruned ? selectedPartitions.selectedPartitions.size() : "unknown",
-                "operativeCols", getOperativeSlots(), "RFV2", rfV2
+                "operativeCols", getOperativeSlots(),
+                "RF", rfs
         );
     }
 

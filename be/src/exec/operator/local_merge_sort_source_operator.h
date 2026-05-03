@@ -22,9 +22,9 @@
 #include "common/status.h"
 #include "exec/operator/operator.h"
 #include "exec/pipeline/dependency.h"
+#include "exprs/vexpr_fwd.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 // The LocalMergeSortSourceOperatorX is an operator that performs merge sort locally.
@@ -102,7 +102,7 @@ private:
     const bool _merge_by_exchange;
     std::vector<bool> _is_asc_order;
     std::vector<bool> _nulls_first;
-    VSortExecExprs _vsort_exec_exprs;
+    VExprContextSPtrs _ordering_expr_ctxs;
     const int64_t _offset;
 
     std::vector<DependencySPtr> _other_source_deps;
@@ -110,5 +110,4 @@ private:
     std::vector<std::shared_ptr<Sorter>> _sorters;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

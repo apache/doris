@@ -27,6 +27,7 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.IndexToPbConvertor;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -52,13 +53,13 @@ import org.apache.doris.cloud.proto.Cloud.FinishCopyRequest.Action;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.proto.Cloud.ObjectFilePB;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
-import org.apache.doris.cloud.storage.ObjectFile;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.ColumnsUtil;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.proto.OlapCommon;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.proto.OlapFile.EncryptionAlgorithmPB;
@@ -354,7 +355,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
         if (indexes != null) {
             for (Index index : indexes) {
-                schemaBuilder.addIndex(index.toPb(columnMap, index.getColumnUniqueIds(schemaColumns)));
+                schemaBuilder.addIndex(
+                        IndexToPbConvertor.toPb(index, columnMap, index.getColumnUniqueIds(schemaColumns)));
             }
         }
 
@@ -1536,13 +1538,13 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
     }
 
-    public List<ObjectFilePB> filterCopyFiles(String stageId, long tableId, List<ObjectFile> objectFiles)
+    public List<ObjectFilePB> filterCopyFiles(String stageId, long tableId, List<RemoteObject> objectFiles)
             throws DdlException {
         Cloud.FilterCopyFilesRequest.Builder builder = Cloud.FilterCopyFilesRequest.newBuilder()
                 .setCloudUniqueId(Config.cloud_unique_id)
                 .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                 .setStageId(stageId).setTableId(tableId);
-        for (ObjectFile objectFile : objectFiles) {
+        for (RemoteObject objectFile : objectFiles) {
             builder.addObjectFiles(
                     ObjectFilePB.newBuilder().setRelativePath(objectFile.getRelativePath())
                             .setEtag(objectFile.getEtag()).setSize(objectFile.getSize()).build());

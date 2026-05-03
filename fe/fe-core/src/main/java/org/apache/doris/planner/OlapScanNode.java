@@ -29,13 +29,13 @@ import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.IndexToThriftConvertor;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -46,7 +46,6 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
-import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -63,6 +62,7 @@ import org.apache.doris.planner.normalize.PartitionRangePredicateNormalizer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TAggregationType;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
@@ -87,6 +87,7 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -334,30 +335,17 @@ public class OlapScanNode extends ScanNode {
     }
 
 
-    private Collection<Long> partitionPrune(PartitionInfo partitionInfo,
-            PartitionNamesInfo partitionNamesInfo) throws AnalysisException {
+    private Collection<Long> partitionPrune(PartitionInfo partitionInfo) throws AnalysisException {
         PartitionPruner partitionPruner = null;
         Map<Long, PartitionItem> keyItemMap;
-        if (partitionNamesInfo != null) {
-            keyItemMap = Maps.newHashMap();
-            for (String partName : partitionNamesInfo.getPartitionNames()) {
-                Partition partition = olapTable.getPartition(partName, partitionNamesInfo.isTemp());
-                if (partition == null) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_SUCH_PARTITION, partName);
-                }
-                keyItemMap.put(partition.getId(), partitionInfo.getItem(partition.getId()));
-            }
-        } else {
-            keyItemMap = partitionInfo.getIdToItem(false);
-        }
+        keyItemMap = partitionInfo.getIdToItem(false);
         if (partitionInfo.getType() == PartitionType.RANGE) {
             if (isPointQuery() && partitionInfo.getPartitionColumns().size() == 1) {
                 // short circuit, a quick path to find partition
                 ColumnRange filterRange = columnNameToRange.get(partitionInfo.getPartitionColumns().get(0).getName());
-                LiteralExpr lowerBound = filterRange.getRangeSet().get().asRanges().stream()
-                        .findFirst().get().lowerEndpoint().getValue();
-                LiteralExpr upperBound = filterRange.getRangeSet().get().asRanges().stream()
-                        .findFirst().get().upperEndpoint().getValue();
+                Range<ColumnBound> range = filterRange.getRangeSet().get().span();
+                LiteralExpr lowerBound = range.lowerEndpoint().getValue();
+                LiteralExpr upperBound = range.upperEndpoint().getValue();
                 cachedPartitionPruner.update(keyItemMap);
                 return cachedPartitionPruner.prune(lowerBound, upperBound);
             }
@@ -667,10 +655,16 @@ public class OlapScanNode extends ScanNode {
             scanRange.setPaloScanRange(paloRange);
             locations.setScanRange(scanRange);
 
+            addBucketSeqStatsIfNeeded(tabletId, locations, oneReplicaBytes);
+            scanRangeLocations.add(locations);
+        }
+    }
+
+    private void addBucketSeqStatsIfNeeded(long tabletId, TScanRangeLocations locations, long oneReplicaBytes) {
+        if (!isPointQuery()) {
             Integer bucketSeq = tabletId2BucketSeq.get(tabletId);
             bucketSeq2locations.put(bucketSeq, locations);
             bucketSeq2Bytes.merge(bucketSeq, oneReplicaBytes, Long::sum);
-            scanRangeLocations.add(locations);
         }
     }
 
@@ -698,11 +692,13 @@ public class OlapScanNode extends ScanNode {
     private void computePartitionInfo() throws AnalysisException {
         long start = System.currentTimeMillis();
         // Step1: compute partition ids
-        PartitionNamesInfo partitionNames = desc.getRef().getPartitionNamesInfo();
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
-            selectedPartitionIds = partitionPrune(partitionInfo, partitionNames);
+            setHasPartitionPredicate(ScanNode.containsPartitionPredicate(
+                    partitionInfo.getPartitionColumns(), desc, conjuncts, partitionInfo));
+            selectedPartitionIds = partitionPrune(partitionInfo);
         } else {
+            setHasPartitionPredicate(false);
             selectedPartitionIds = olapTable.getPartitionIds();
         }
         selectedPartitionIds = olapTable.selectNonEmptyPartitionIds(selectedPartitionIds);
@@ -913,8 +909,10 @@ public class OlapScanNode extends ScanNode {
                 scanTabletIds.addAll(allTabletIds);
             }
 
-            for (int i = 0; i < allTabletIds.size(); i++) {
-                tabletId2BucketSeq.put(allTabletIds.get(i), i);
+            if (!isPointQuery()) {
+                for (int i = 0; i < allTabletIds.size(); i++) {
+                    tabletId2BucketSeq.put(allTabletIds.get(i), i);
+                }
             }
 
             totalTabletsNum += selectedTable.getTablets().size();
@@ -941,7 +939,9 @@ public class OlapScanNode extends ScanNode {
         computePartitionInfo();
         scanBackendIds.clear();
         scanTabletIds.clear();
+        tabletId2BucketSeq.clear();
         bucketSeq2locations.clear();
+        bucketSeq2Bytes.clear();
         scanReplicaIds.clear();
         sampleTabletIds.clear();
         try {
@@ -1107,7 +1107,7 @@ public class OlapScanNode extends ScanNode {
                 TColumn tColumn = new TColumn();
                 tColumn.setColumnName(Column.ROWID_COL);
                 tColumn.setColumnType(ScalarType.createStringType().toColumnTypeThrift());
-                tColumn.setAggregationType(AggregateType.REPLACE.toThrift());
+                tColumn.setAggregationType(TAggregationType.REPLACE);
                 tColumn.setIsKey(false);
                 tColumn.setIsAllowNull(false);
                 // keep compatibility
@@ -1127,7 +1127,7 @@ public class OlapScanNode extends ScanNode {
         }
 
         for (Index index : olapTable.getIndexes()) {
-            TOlapTableIndex tIndex = index.toThrift(index.getColumnUniqueIds(olapTable.getBaseSchema()));
+            TOlapTableIndex tIndex = IndexToThriftConvertor.toThrift(index, olapTable.getBaseSchema());
             indexDesc.add(tIndex);
         }
 

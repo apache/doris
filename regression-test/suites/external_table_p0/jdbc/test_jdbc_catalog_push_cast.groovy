@@ -52,7 +52,7 @@ suite("test_jdbc_catalog_push_cast", "p0,external") {
 
         explain {
             sql("select * from test_cast where datetime_c = cast(cast('2022-01-01 00:00:01' as datetime) as string);")
-            contains("QUERY: SELECT `id`, `int_c`, `date_c`, `datetime_c` FROM `doris_test`.`test_cast` WHERE ((`datetime_c` = '2022-01-01 00:00:01'))")
+            contains("QUERY: SELECT `id`, `int_c`, `date_c`, `datetime_c` FROM `doris_test`.`test_cast` WHERE (`datetime_c` = '2022-01-01 00:00:01')")
         }
 
         explain {
@@ -82,7 +82,7 @@ suite("test_jdbc_catalog_push_cast", "p0,external") {
 
         explain {
             sql("select * from test_cast where datetime_c != '2022-01-01 00:00:01';")
-            contains("QUERY: SELECT `id`, `int_c`, `date_c`, `datetime_c` FROM `doris_test`.`test_cast` WHERE ((`datetime_c` != '2022-01-01 00:00:01'))")
+            contains("QUERY: SELECT `id`, `int_c`, `date_c`, `datetime_c` FROM `doris_test`.`test_cast` WHERE (`datetime_c` != '2022-01-01 00:00:01')")
         }
 
         explain {
@@ -92,7 +92,7 @@ suite("test_jdbc_catalog_push_cast", "p0,external") {
 
         explain {
             sql("select * from test_cast where date_c = cast(cast('2022-01-01 00:00:01' as datetime) as date) and id = 1;")
-            contains("QUERY: SELECT `id`, `int_c`, `date_c`, `datetime_c` FROM `doris_test`.`test_cast` WHERE ((`id` = 1))")
+            contains("QUERY: SELECT `id`, `int_c`, `date_c`, `datetime_c` FROM `doris_test`.`test_cast` WHERE (`id` = 1)")
         }
 
         sql "set enable_jdbc_cast_predicate_push_down = true;"

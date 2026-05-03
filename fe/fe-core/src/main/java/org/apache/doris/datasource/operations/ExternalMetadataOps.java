@@ -28,8 +28,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 
-import org.apache.iceberg.view.View;
-
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -323,12 +321,12 @@ public interface ExternalMetadataOps {
     void close();
 
     /**
-     * load an iceberg view.
+     * load an external view.
      * @param dbName
      * @param viewName
-     * @return
+     * @return an opaque view object, connector-specific
      */
-    default View loadView(String dbName, String viewName) {
+    default Object loadView(String dbName, String viewName) {
         throw new UnsupportedOperationException("Load view is not supported.");
     }
 

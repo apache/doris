@@ -24,7 +24,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 TabletSinkHashPartitioner::TabletSinkHashPartitioner(uint32_t partition_count, int64_t txn_id,
                                                      TOlapTableSchemaParam tablet_sink_schema,
                                                      TOlapTablePartitionParam tablet_sink_partition,

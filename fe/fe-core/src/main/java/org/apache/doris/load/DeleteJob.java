@@ -21,7 +21,7 @@ import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
-import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.ToSqlParams;
@@ -30,6 +30,7 @@ import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.IndexToThriftConvertor;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
@@ -342,7 +343,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                 List<Index> indexList = indexMeta.getIndexes();
                 List<TOlapTableIndex> tIndexList = new ArrayList<TOlapTableIndex>();
                 for (Index idx : indexList) {
-                    TOlapTableIndex tIndex = idx.toThrift(idx.getColumnUniqueIds(columns));
+                    TOlapTableIndex tIndex = IndexToThriftConvertor.toThrift(idx, columns);
                     tIndexList.add(tIndex);
                 }
 
@@ -397,13 +398,16 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
         long timeoutMs = getTimeoutMs();
         boolean ok = countDownLatch.await(timeoutMs, TimeUnit.MILLISECONDS);
         if (ok) {
+            checkAndUpdateQuorum();
+            if (state == DeleteState.QUORUM_FINISHED || state == DeleteState.FINISHED) {
+                return;
+            }
             if (!countDownLatch.getStatus().ok()) {
                 // encounter some errors that don't need to retry, abort directly
                 LOG.warn("delete job failed, errmsg={}", countDownLatch.getStatus().getErrorMsg());
                 throw new UserException(String.format("delete job failed, errmsg:%s",
                         countDownLatch.getStatus().getErrorMsg()));
             }
-            return;
         }
 
         //handle failure
@@ -423,19 +427,6 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                 throw new UserException(String.format("delete job timeout, timeout(ms):%s, msg:%s", timeoutMs, errMsg));
             case QUORUM_FINISHED:
             case FINISHED:
-                long nowQuorumTimeMs = System.currentTimeMillis();
-                long endQuorumTimeoutMs = nowQuorumTimeMs + timeoutMs / 2;
-                // if job's state is quorum_finished then wait for a period of time and commit it.
-                while (state == DeleteState.QUORUM_FINISHED
-                        && endQuorumTimeoutMs > nowQuorumTimeMs) {
-                    checkAndUpdateQuorum();
-                    Thread.sleep(1000);
-                    nowQuorumTimeMs = System.currentTimeMillis();
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("wait for quorum finished delete job: {}, txn id: {}",
-                                id, transactionId);
-                    }
-                }
                 break;
             default:
                 throw new IllegalStateException("wrong delete job state: " + state.name());
@@ -732,7 +723,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                     return null;
                 }
                 ColumnBound bound = ColumnBound.of(
-                        LiteralExpr.create(binaryPredicate.getChild(1).getStringValue(), type));
+                        LiteralExprUtils.createLiteral(binaryPredicate.getChild(1).getStringValue(), type));
                 switch (binaryPredicate.getOp()) {
                     case EQ:
                         result.add(Range.closed(bound, bound));
@@ -769,8 +760,8 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                     return null;
                 }
                 for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
-                    ColumnBound bound = ColumnBound.of(LiteralExpr
-                            .create(inPredicate.getChild(i).getStringValue(), type));
+                    ColumnBound bound = ColumnBound.of(LiteralExprUtils.createLiteral(
+                            inPredicate.getChild(i).getStringValue(), type));
                     result.add(Range.closed(bound, bound));
                 }
             } else {

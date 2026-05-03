@@ -41,11 +41,10 @@ import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Optional;
@@ -56,16 +55,11 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
     private Env env;
     private CatalogMgr mgr;
 
-    @Mocked
-    private HMSExternalTable tbl;
-    @Mocked
-    private HMSExternalTable view1;
-    @Mocked
-    private HMSExternalTable view2;
-    @Mocked
-    private HMSExternalTable view3;
-    @Mocked
-    private HMSExternalTable view4;
+    private HMSExternalTable tbl = Mockito.mock(HMSExternalTable.class);
+    private HMSExternalTable view1 = Mockito.mock(HMSExternalTable.class);
+    private HMSExternalTable view2 = Mockito.mock(HMSExternalTable.class);
+    private HMSExternalTable view3 = Mockito.mock(HMSExternalTable.class);
+    private HMSExternalTable view4 = Mockito.mock(HMSExternalTable.class);
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -117,61 +111,19 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(tbl, "dlaTable", new HiveDlaTable(tbl));
         Deencapsulation.setField(tbl, "dlaType", DLAType.HIVE);
         long now = System.currentTimeMillis();
-        new Expectations(tbl) {
-            {
-                tbl.getId();
-                minTimes = 0;
-                result = 10001;
-
-                tbl.getName();
-                minTimes = 0;
-                result = "hms_tbl";
-
-                tbl.getDbName();
-                minTimes = 0;
-                result = "hms_db";
-
-                tbl.getFullSchema();
-                minTimes = 0;
-                result = schema;
-
-                tbl.isSupportedHmsTable();
-                minTimes = 0;
-                result = true;
-
-                tbl.isView();
-                minTimes = 0;
-                result = false;
-
-                tbl.getType();
-                minTimes = 0;
-                result = TableIf.TableType.HMS_EXTERNAL_TABLE;
-
-                tbl.getCatalog();
-                minTimes = 0;
-                result = hmsCatalog;
-
-                tbl.getSchemaCacheValue();
-                minTimes = 0;
-                result = Optional.of(schemaCacheValue);
-
-                tbl.initSchemaAndUpdateTime((SchemaCacheKey) any);
-                minTimes = 0;
-                result = Optional.of(schemaCacheValue);
-
-                tbl.getDatabase();
-                minTimes = 0;
-                result = db;
-
-                tbl.getDlaType();
-                minTimes = 0;
-                result = DLAType.HIVE;
-
-                tbl.getNewestUpdateVersionOrTime();
-                minTimes = 0;
-                result = now;
-            }
-        };
+        Mockito.when(tbl.getId()).thenReturn(10001L);
+        Mockito.when(tbl.getName()).thenReturn("hms_tbl");
+        Mockito.when(tbl.getDbName()).thenReturn("hms_db");
+        Mockito.when(tbl.getFullSchema()).thenReturn(schema);
+        Mockito.when(tbl.isSupportedHmsTable()).thenReturn(true);
+        Mockito.when(tbl.isView()).thenReturn(false);
+        Mockito.when(tbl.getType()).thenReturn(TableIf.TableType.HMS_EXTERNAL_TABLE);
+        Mockito.when(tbl.getCatalog()).thenReturn(hmsCatalog);
+        Mockito.when(tbl.getSchemaCacheValue()).thenReturn(Optional.of(schemaCacheValue));
+        Mockito.when(tbl.initSchemaAndUpdateTime(Mockito.any(SchemaCacheKey.class))).thenReturn(Optional.of(schemaCacheValue));
+        Mockito.when(tbl.getDatabase()).thenReturn(db);
+        Mockito.when(tbl.getDlaType()).thenReturn(DLAType.HIVE);
+        Mockito.when(tbl.getNewestUpdateVersionOrTime()).thenReturn(now);
 
         Deencapsulation.setField(view1, "objectCreated", true);
         Deencapsulation.setField(view1, "updateTime", NOW);
@@ -180,49 +132,16 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(view1, "name", "hms_view1");
         Deencapsulation.setField(view1, "dlaType", DLAType.HIVE);
 
-        new Expectations(view1) {
-            {
-                view1.getId();
-                minTimes = 0;
-                result = 10002;
-
-                view1.getName();
-                minTimes = 0;
-                result = "hms_view1";
-
-                view1.getDbName();
-                minTimes = 0;
-                result = "hms_db";
-
-                view1.isView();
-                minTimes = 0;
-                result = true;
-
-                view1.getCatalog();
-                minTimes = 0;
-                result = hmsCatalog;
-
-                view1.getType();
-                minTimes = 0;
-                result = TableIf.TableType.HMS_EXTERNAL_TABLE;
-
-                view1.getFullSchema();
-                minTimes = 0;
-                result = schema;
-
-                view1.getViewText();
-                minTimes = 0;
-                result = "SELECT * FROM hms_db.hms_tbl";
-
-                view1.isSupportedHmsTable();
-                minTimes = 0;
-                result = true;
-
-                view1.getDatabase();
-                minTimes = 0;
-                result = db;
-            }
-        };
+        Mockito.when(view1.getId()).thenReturn(10002L);
+        Mockito.when(view1.getName()).thenReturn("hms_view1");
+        Mockito.when(view1.getDbName()).thenReturn("hms_db");
+        Mockito.when(view1.isView()).thenReturn(true);
+        Mockito.when(view1.getCatalog()).thenReturn(hmsCatalog);
+        Mockito.when(view1.getType()).thenReturn(TableIf.TableType.HMS_EXTERNAL_TABLE);
+        Mockito.when(view1.getFullSchema()).thenReturn(schema);
+        Mockito.when(view1.getViewText()).thenReturn("SELECT * FROM hms_db.hms_tbl");
+        Mockito.when(view1.isSupportedHmsTable()).thenReturn(true);
+        Mockito.when(view1.getDatabase()).thenReturn(db);
 
         Deencapsulation.setField(view2, "objectCreated", true);
         Deencapsulation.setField(view2, "updateTime", NOW);
@@ -231,50 +150,16 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(view2, "name", "hms_view2");
         Deencapsulation.setField(view2, "dlaType", DLAType.HIVE);
 
-        new Expectations(view2) {
-            {
-
-                view2.getId();
-                minTimes = 0;
-                result = 10003;
-
-                view2.getName();
-                minTimes = 0;
-                result = "hms_view2";
-
-                view2.getDbName();
-                minTimes = 0;
-                result = "hms_db";
-
-                view2.getCatalog();
-                minTimes = 0;
-                result = hmsCatalog;
-
-                view2.isView();
-                minTimes = 0;
-                result = true;
-
-                view2.getType();
-                minTimes = 0;
-                result = TableIf.TableType.HMS_EXTERNAL_TABLE;
-
-                view2.getFullSchema();
-                minTimes = 0;
-                result = schema;
-
-                view2.getViewText();
-                minTimes = 0;
-                result = "SELECT * FROM (SELECT * FROM hms_db.hms_view1) t1";
-
-                view2.isSupportedHmsTable();
-                minTimes = 0;
-                result = true;
-
-                view2.getDatabase();
-                minTimes = 0;
-                result = db;
-            }
-        };
+        Mockito.when(view2.getId()).thenReturn(10003L);
+        Mockito.when(view2.getName()).thenReturn("hms_view2");
+        Mockito.when(view2.getDbName()).thenReturn("hms_db");
+        Mockito.when(view2.getCatalog()).thenReturn(hmsCatalog);
+        Mockito.when(view2.isView()).thenReturn(true);
+        Mockito.when(view2.getType()).thenReturn(TableIf.TableType.HMS_EXTERNAL_TABLE);
+        Mockito.when(view2.getFullSchema()).thenReturn(schema);
+        Mockito.when(view2.getViewText()).thenReturn("SELECT * FROM (SELECT * FROM hms_db.hms_view1) t1");
+        Mockito.when(view2.isSupportedHmsTable()).thenReturn(true);
+        Mockito.when(view2.getDatabase()).thenReturn(db);
 
         Deencapsulation.setField(view3, "objectCreated", true);
         Deencapsulation.setField(view3, "updateTime", NOW);
@@ -283,50 +168,16 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(view3, "name", "hms_view3");
         Deencapsulation.setField(view3, "dlaType", DLAType.HIVE);
 
-        new Expectations(view3) {
-            {
-
-                view3.getId();
-                minTimes = 0;
-                result = 10004;
-
-                view3.getName();
-                minTimes = 0;
-                result = "hms_view3";
-
-                view3.getDbName();
-                minTimes = 0;
-                result = "hms_db";
-
-                view3.getCatalog();
-                minTimes = 0;
-                result = hmsCatalog;
-
-                view3.isView();
-                minTimes = 0;
-                result = true;
-
-                view3.getType();
-                minTimes = 0;
-                result = TableIf.TableType.HMS_EXTERNAL_TABLE;
-
-                view3.getFullSchema();
-                minTimes = 0;
-                result = schema;
-
-                view3.getViewText();
-                minTimes = 0;
-                result = "SELECT * FROM hms_db.hms_view1 UNION ALL SELECT * FROM hms_db.hms_view2";
-
-                view3.isSupportedHmsTable();
-                minTimes = 0;
-                result = true;
-
-                view3.getDatabase();
-                minTimes = 0;
-                result = db;
-            }
-        };
+        Mockito.when(view3.getId()).thenReturn(10004L);
+        Mockito.when(view3.getName()).thenReturn("hms_view3");
+        Mockito.when(view3.getDbName()).thenReturn("hms_db");
+        Mockito.when(view3.getCatalog()).thenReturn(hmsCatalog);
+        Mockito.when(view3.isView()).thenReturn(true);
+        Mockito.when(view3.getType()).thenReturn(TableIf.TableType.HMS_EXTERNAL_TABLE);
+        Mockito.when(view3.getFullSchema()).thenReturn(schema);
+        Mockito.when(view3.getViewText()).thenReturn("SELECT * FROM hms_db.hms_view1 UNION ALL SELECT * FROM hms_db.hms_view2");
+        Mockito.when(view3.isSupportedHmsTable()).thenReturn(true);
+        Mockito.when(view3.getDatabase()).thenReturn(db);
 
         Deencapsulation.setField(view4, "objectCreated", true);
         Deencapsulation.setField(view4, "updateTime", NOW);
@@ -335,50 +186,16 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(view4, "name", "hms_view4");
         Deencapsulation.setField(view4, "dlaType", DLAType.HIVE);
 
-        new Expectations(view4) {
-            {
-
-                view4.getId();
-                minTimes = 0;
-                result = 10005;
-
-                view4.getName();
-                minTimes = 0;
-                result = "hms_view4";
-
-                view4.getDbName();
-                minTimes = 0;
-                result = "hms_db";
-
-                view4.getCatalog();
-                minTimes = 0;
-                result = hmsCatalog;
-
-                view4.isView();
-                minTimes = 0;
-                result = true;
-
-                view4.getType();
-                minTimes = 0;
-                result = TableIf.TableType.HMS_EXTERNAL_TABLE;
-
-                view4.getFullSchema();
-                minTimes = 0;
-                result = schema;
-
-                view4.getViewText();
-                minTimes = 0;
-                result = "SELECT not_exists_func(k1) FROM hms_db.hms_tbl";
-
-                view4.isSupportedHmsTable();
-                minTimes = 0;
-                result = true;
-
-                view4.getDatabase();
-                minTimes = 0;
-                result = db;
-            }
-        };
+        Mockito.when(view4.getId()).thenReturn(10005L);
+        Mockito.when(view4.getName()).thenReturn("hms_view4");
+        Mockito.when(view4.getDbName()).thenReturn("hms_db");
+        Mockito.when(view4.getCatalog()).thenReturn(hmsCatalog);
+        Mockito.when(view4.isView()).thenReturn(true);
+        Mockito.when(view4.getType()).thenReturn(TableIf.TableType.HMS_EXTERNAL_TABLE);
+        Mockito.when(view4.getFullSchema()).thenReturn(schema);
+        Mockito.when(view4.getViewText()).thenReturn("SELECT not_exists_func(k1) FROM hms_db.hms_tbl");
+        Mockito.when(view4.isSupportedHmsTable()).thenReturn(true);
+        Mockito.when(view4.getDatabase()).thenReturn(db);
 
         db.addTableForTest(tbl);
         db.addTableForTest(view1);

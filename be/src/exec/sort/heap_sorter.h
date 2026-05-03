@@ -20,15 +20,15 @@
 #include "exec/sort/sorter.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class HeapSorter final : public Sorter {
     ENABLE_FACTORY_CREATOR(HeapSorter);
 
 public:
-    HeapSorter(VSortExecExprs& vsort_exec_exprs, RuntimeState* state, int64_t limit, int64_t offset,
-               ObjectPool* pool, std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first,
-               const RowDescriptor& row_desc, bool have_runtime_predicate = true);
+    HeapSorter(const VExprContextSPtrs& ordering_expr_ctxs, RuntimeState* state, int64_t limit,
+               int64_t offset, ObjectPool* pool, std::vector<bool>& is_asc_order,
+               std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
+               bool have_runtime_predicate = true);
 
     ~HeapSorter() override = default;
 
@@ -50,7 +50,7 @@ public:
 
 private:
     void _do_filter(MergeSortCursorImpl& block, size_t num_rows);
-    size_t _data_size = 0;
+    int64_t _data_size = 0;
     size_t _heap_size = 0;
     size_t _queue_row_num = 0;
     MergeSorterQueue _queue;
@@ -61,5 +61,4 @@ private:
     RuntimeProfile::Counter* _topn_filter_rows_counter = nullptr;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -31,7 +31,6 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 NestedLoopJoinProbeLocalState::NestedLoopJoinProbeLocalState(RuntimeState* state,
                                                              OperatorXBase* parent)
         : JoinProbeLocalState<NestedLoopJoinSharedState, NestedLoopJoinProbeLocalState>(state,
@@ -335,8 +334,6 @@ Status NestedLoopJoinProbeLocalState::generate_inner_join_block_data(RuntimeStat
     RETURN_IF_ERROR(
             (_do_filtering_and_update_visited_flags<false, false, false>(&_join_block, true)));
     _update_additional_flags(&_join_block);
-
-    COUNTER_UPDATE(_probe_rows_counter, _join_block.rows());
     return Status::OK();
 }
 
@@ -393,7 +390,6 @@ Status NestedLoopJoinProbeLocalState::generate_other_join_block_data(RuntimeStat
                     _join_block, state->batch_size());
         }
     }
-    COUNTER_UPDATE(_probe_rows_counter, _join_block.rows());
     return Status::OK();
 }
 
@@ -529,7 +525,7 @@ void NestedLoopJoinProbeLocalState::_append_probe_data_with_null(Block& block) c
             assert_cast<ColumnNullable*>(dst_columns[i].get())
                     ->get_null_map_column()
                     .get_data()
-                    .resize_fill(origin_sz + 1, 0);
+                    .resize_fill(origin_sz + _probe_side_process_count, 0);
         } else {
             dst_columns[i]->insert_range_from(*src_column.column, _probe_block_start_pos,
                                               _probe_side_process_count);

@@ -25,7 +25,6 @@
 #include "exprs/bloom_filter_func_adaptor.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 struct fixed_len_to_uint32_v2 {
     template <typename T>
     uint32_t operator()(const T& value) {
@@ -127,5 +126,4 @@ uint16_t find_batch_olap(const BloomFilterAdaptor& bloom_filter, const char* dat
     }
     return new_size;
 }
-#include "common/compile_check_end.h"
 } // namespace doris

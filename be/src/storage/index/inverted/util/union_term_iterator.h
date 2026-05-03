@@ -25,7 +25,6 @@
 namespace doris::segment_v2 {
 
 using namespace inverted_index;
-#include "common/compile_check_begin.h"
 
 template <typename T>
 class DocsQueue : public PriorityQueue<T*> {
@@ -157,4 +156,3 @@ private:
 using UnionTermIterPtr = std::shared_ptr<UnionTermIterator<TermPositionsIterator>>;
 
 } // namespace doris::segment_v2
-#include "common/compile_check_end.h"

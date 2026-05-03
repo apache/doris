@@ -51,7 +51,6 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
-#include "storage/cache/schema_cache.h"
 #include "storage/id_manager.h"
 #include "storage/index/inverted/inverted_index_profile.h"
 #include "storage/iterator/block_reader.h"
@@ -127,7 +126,7 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
     return read_columns_string;
 }
 
-Status OlapScanner::prepare() {
+Status OlapScanner::_prepare_impl() {
     auto* local_state = static_cast<OlapScanLocalState*>(_local_state);
     auto& tablet = _tablet_reader_params.tablet;
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
@@ -164,68 +163,27 @@ Status OlapScanner::prepare() {
     // value (e.g. select a from t where a .. and b ... limit 1),
     // it will be very slow when reading data in segment iterator
     _tablet_reader->set_batch_size(_state->batch_size());
-    TabletSchemaSPtr cached_schema;
-    std::string schema_key;
+    // Adaptive batch size: pass byte-budget settings to the storage reader.
+    // The reader still uses batch_size() as the row ceiling.
+    _tablet_reader->set_preferred_block_size_bytes(_state->preferred_block_size_bytes());
     {
         TOlapScanNode& olap_scan_node = local_state->olap_scan_node();
 
-        const auto check_can_use_cache = [&]() {
-            if (!(olap_scan_node.__isset.schema_version && olap_scan_node.__isset.columns_desc &&
-                  !olap_scan_node.columns_desc.empty() &&
-                  olap_scan_node.columns_desc[0].col_unique_id >= 0 && // Why check first column?
-                  tablet->tablet_schema()->num_variant_columns() == 0 &&
-                  tablet->tablet_schema()->num_virtual_columns() == 0)) {
-                return false;
+        // Each scanner builds its own TabletSchema to avoid concurrent modification.
+        tablet_schema = std::make_shared<TabletSchema>();
+        tablet_schema->copy_from(*tablet->tablet_schema());
+        if (olap_scan_node.__isset.columns_desc && !olap_scan_node.columns_desc.empty() &&
+            olap_scan_node.columns_desc[0].col_unique_id >= 0) {
+            tablet_schema->clear_columns();
+            for (const auto& column_desc : olap_scan_node.columns_desc) {
+                tablet_schema->append_column(TabletColumn(column_desc));
             }
-
-            // If `delete_predicates` is not empty, will merge the columns in delete predicate into current tablet schema
-            if (!_tablet_reader_params.delete_predicates.empty()) {
-                return false;
+            if (olap_scan_node.__isset.schema_version) {
+                tablet_schema->set_schema_version(olap_scan_node.schema_version);
             }
-
-            const bool has_pruned_column =
-                    std::ranges::any_of(_output_tuple_desc->slots(), [](const auto& slot) {
-                        if ((slot->type()->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
-                             slot->type()->get_primitive_type() == PrimitiveType::TYPE_MAP ||
-                             slot->type()->get_primitive_type() == PrimitiveType::TYPE_ARRAY) &&
-                            !slot->all_access_paths().empty()) {
-                            return true;
-                        }
-                        return false;
-                    });
-            return !has_pruned_column;
-        }();
-
-        if (check_can_use_cache) {
-            schema_key =
-                    SchemaCache::get_schema_key(tablet->tablet_id(), olap_scan_node.columns_desc,
-                                                olap_scan_node.schema_version);
-            cached_schema = SchemaCache::instance()->get_schema(schema_key);
         }
-        if (cached_schema && cached_schema->num_virtual_columns() == 0) {
-            tablet_schema = cached_schema;
-        } else {
-            // If schema is not cached or cached schema has virtual columns,
-            // we need to create a new TabletSchema.
-            tablet_schema = std::make_shared<TabletSchema>();
-            tablet_schema->copy_from(*tablet->tablet_schema());
-            if (olap_scan_node.__isset.columns_desc && !olap_scan_node.columns_desc.empty() &&
-                olap_scan_node.columns_desc[0].col_unique_id >= 0) {
-                // Originally scanner get TabletSchema from tablet object in BE.
-                // To support lightweight schema change for adding / dropping columns,
-                // tabletschema is bounded to rowset and tablet's schema maybe outdated,
-                //  so we have to use schema from a query plan witch FE puts it in query plans.
-                tablet_schema->clear_columns();
-                for (const auto& column_desc : olap_scan_node.columns_desc) {
-                    tablet_schema->append_column(TabletColumn(column_desc));
-                }
-                if (olap_scan_node.__isset.schema_version) {
-                    tablet_schema->set_schema_version(olap_scan_node.schema_version);
-                }
-            }
-            if (olap_scan_node.__isset.indexes_desc) {
-                tablet_schema->update_indexes_from_thrift(olap_scan_node.indexes_desc);
-            }
+        if (olap_scan_node.__isset.indexes_desc) {
+            tablet_schema->update_indexes_from_thrift(olap_scan_node.indexes_desc);
         }
 
         if (_tablet_reader_params.rs_splits.empty()) {
@@ -281,12 +239,6 @@ Status OlapScanner::prepare() {
     if (_state->enable_profile()) {
         _profile->add_info_string("ReadColumns",
                                   read_columns_to_string(tablet_schema, _return_columns));
-    }
-
-    // Add newly created tablet schema to schema cache if it does not have virtual columns.
-    if (cached_schema == nullptr && !schema_key.empty() &&
-        tablet_schema->num_virtual_columns() == 0 && !tablet_schema->has_pruned_columns()) {
-        SchemaCache::instance()->insert_schema(schema_key, tablet_schema);
     }
 
     if (_tablet_reader_params.score_runtime) {
@@ -624,7 +576,8 @@ Status OlapScanner::_init_return_columns() {
         }
 
         const auto& column = tablet_schema->column(index);
-        int32_t unique_id = column.unique_id() > 0 ? column.unique_id() : column.parent_unique_id();
+        int32_t unique_id =
+                column.unique_id() >= 0 ? column.unique_id() : column.parent_unique_id();
         if (!slot->all_access_paths().empty()) {
             _tablet_reader_params.all_access_paths.insert({unique_id, slot->all_access_paths()});
         }
@@ -868,6 +821,13 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_variant_doc_value_column_iter_count,
                    stats.variant_doc_value_column_iter_count);
 
+    if (stats.adaptive_batch_size_predict_max_rows > 0) {
+        local_state->_adaptive_batch_predict_min_rows_counter->set(
+                stats.adaptive_batch_size_predict_min_rows);
+        local_state->_adaptive_batch_predict_max_rows_counter->set(
+                stats.adaptive_batch_size_predict_max_rows);
+    }
+
     InvertedIndexProfileReporter inverted_index_profile;
     inverted_index_profile.update(local_state->_index_filter_profile.get(),
                                   &stats.inverted_index_stats);
@@ -921,6 +881,8 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.segment_iterator_init_return_column_iterators_timer_ns);
     COUNTER_UPDATE(local_state->_segment_iterator_init_index_iterators_timer,
                    stats.segment_iterator_init_index_iterators_timer_ns);
+    COUNTER_UPDATE(local_state->_segment_iterator_init_segment_prefetchers_timer,
+                   stats.segment_iterator_init_segment_prefetchers_timer_ns);
 
     COUNTER_UPDATE(local_state->_segment_create_column_readers_timer,
                    stats.segment_create_column_readers_timer_ns);

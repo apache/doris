@@ -27,7 +27,6 @@
 #include "runtime/fragment_mgr.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 SpillSortSinkLocalState::SpillSortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
         : Base(parent, state) {}
 
@@ -242,5 +241,4 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state) {
     _shared_state->sorted_spill_groups.emplace_back(_spilling_file);
     return _execute_spill_sort(state);
 }
-#include "common/compile_check_end.h"
 } // namespace doris

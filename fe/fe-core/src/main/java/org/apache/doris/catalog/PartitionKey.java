@@ -23,6 +23,7 @@ import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.analysis.MaxLiteral;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PartitionValue;
@@ -98,7 +99,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             throws AnalysisException {
         PartitionKey partitionKey = new PartitionKey();
         for (Column column : columns) {
-            partitionKey.keys.add(LiteralExpr.createInfinity(column.getType(), isMax));
+            partitionKey.keys.add(LiteralExprUtils.createInfinity(column.getType(), isMax));
             partitionKey.types.add(column.getDataType());
         }
         return partitionKey;
@@ -131,7 +132,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
 
         // fill the vacancy with MIN
         for (; i < columns.size(); ++i) {
-            partitionKey.keys.add(LiteralExpr.createInfinity(columns.get(i).getType(), false));
+            partitionKey.keys.add(LiteralExprUtils.createInfinity(columns.get(i).getType(), false));
             partitionKey.types.add(columns.get(i).getDataType());
         }
 
@@ -209,7 +210,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         }
         if (values.isEmpty()) {
             for (int i = 0; i < types.size(); ++i) {
-                partitionKey.keys.add(LiteralExpr.createInfinity(types.get(i), false));
+                partitionKey.keys.add(LiteralExprUtils.createInfinity(types.get(i), false));
                 partitionKey.types.add(types.get(i).getPrimitiveType());
             }
             partitionKey.setDefaultListPartition(true);

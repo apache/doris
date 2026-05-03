@@ -37,7 +37,6 @@
 #include "util/slice.h" // for Slice
 
 namespace doris {
-#include "common/compile_check_begin.h"
 struct StringRef;
 
 namespace segment_v2 {
@@ -99,11 +98,6 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
         uint32_t value_code = -1;
         auto* actual_builder = dynamic_cast<BitshufflePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>*>(
                 _data_page_builder.get());
-
-        if (_data_page_builder->count() == 0) {
-            _first_value.assign_copy(reinterpret_cast<const uint8_t*>(src->get_data()),
-                                     src->get_size());
-        }
 
         for (int i = 0; i < *count; ++i, ++src) {
             if (is_page_full()) {
@@ -217,32 +211,6 @@ Status BinaryDictPageBuilder::get_dictionary_page(OwnedSlice* dictionary_page) {
 
 Status BinaryDictPageBuilder::get_dictionary_page_encoding(EncodingTypePB* encoding) const {
     *encoding = _dict_word_page_encoding_type;
-    return Status::OK();
-}
-
-Status BinaryDictPageBuilder::get_first_value(void* value) const {
-    DCHECK(_finished);
-    if (_data_page_builder->count() == 0) {
-        return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
-    }
-    if (_encoding_type != DICT_ENCODING) {
-        return _data_page_builder->get_first_value(value);
-    }
-    *reinterpret_cast<Slice*>(value) = Slice(_first_value);
-    return Status::OK();
-}
-
-Status BinaryDictPageBuilder::get_last_value(void* value) const {
-    DCHECK(_finished);
-    if (_data_page_builder->count() == 0) {
-        return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
-    }
-    if (_encoding_type != DICT_ENCODING) {
-        return _data_page_builder->get_last_value(value);
-    }
-    uint32_t value_code;
-    RETURN_IF_ERROR(_data_page_builder->get_last_value(&value_code));
-    RETURN_IF_ERROR(_dict_builder->get_dict_word(value_code, reinterpret_cast<Slice*>(value)));
     return Status::OK();
 }
 
@@ -405,6 +373,5 @@ Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t pa
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

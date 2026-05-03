@@ -20,7 +20,6 @@
 #include "exec/operator/operator.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class RuntimeState;
 
 Status PartitionSortSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
@@ -103,5 +102,4 @@ Status PartitionSortSourceOperatorX::get_sorted_block(RuntimeState* state, Block
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

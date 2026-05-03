@@ -68,7 +68,6 @@
 #include "util/string_parser.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 using int128_t = __int128;
 struct JsonbParser {
     // According to https://github.com/simdjson/simdjson/pull/2139
@@ -334,5 +333,4 @@ private:
         return Status::OK();
     }
 };
-#include "common/compile_check_end.h"
 } // namespace doris

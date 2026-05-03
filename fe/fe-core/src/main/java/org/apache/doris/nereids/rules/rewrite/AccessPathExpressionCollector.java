@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.analysis.ColumnAccessPathType;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.rewrite.AccessPathExpressionCollector.CollectorContext;
 import org.apache.doris.nereids.rules.rewrite.NestedColumnPruning.DataTypeAccessTree;
@@ -40,12 +41,15 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReverseS
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortBy;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySplit;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsEntry;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKey;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsValue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapKeys;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapSize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapValues;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -58,7 +62,6 @@ import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.thrift.TAccessPathType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
@@ -118,7 +121,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             path.addAll(context.accessPathBuilder.getPathList());
             int slotId = slotReference.getExprId().asInt();
             slotToAccessPaths.put(slotId, new CollectAccessPathResult(
-                    path, context.bottomFilter, TAccessPathType.DATA));
+                    path, context.bottomFilter, ColumnAccessPathType.DATA));
             return null;
         }
         if (dataType instanceof NestedColumnPrunable) {
@@ -127,7 +130,86 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             int slotId = slotReference.getExprId().asInt();
             slotToAccessPaths.put(slotId, new CollectAccessPathResult(path, context.bottomFilter, context.type));
         }
+        if (dataType.isStringLikeType()) {
+            int slotId = slotReference.getExprId().asInt();
+            if (!context.accessPathBuilder.isEmpty()) {
+                // Accessed via an offset-only function (e.g. length()).
+                // Builder already has "offset" at the tail; add the column name as prefix.
+                context.accessPathBuilder.addPrefix(slotReference.getName());
+                ImmutableList<String> path = ImmutableList.copyOf(context.accessPathBuilder.accessPath);
+                slotToAccessPaths.put(slotId,
+                        new CollectAccessPathResult(path, context.bottomFilter, ColumnAccessPathType.DATA));
+            } else {
+                // Direct access to the string column → record a DATA path so that any
+                // concurrent offset-only path for the same slot is suppressed.
+                List<String> path = ImmutableList.of(slotReference.getName());
+                slotToAccessPaths.put(slotId,
+                        new CollectAccessPathResult(path, context.bottomFilter, ColumnAccessPathType.DATA));
+            }
+        }
         return null;
+    }
+
+    @Override
+    public Void visitLength(Length length, CollectorContext context) {
+        Expression arg = length.child(0);
+        // length() only needs the offset array, not the chars data.
+        // Add ACCESS_STRING_OFFSET as a suffix so the path builder accumulates
+        // e.g. ["str_col", "OFFSET"] or ["c_struct", "f3", "OFFSET"].
+        //
+        // CHAR is excluded: CHAR(N) is stored padded to N bytes per row (see BE
+        // OlapColumnDataConvertorChar::clone_and_padding), so the per-row length
+        // information available without reading the chars buffer is the padded
+        // length (always N), not the logical post-trim length expected by
+        // length(). There is no way to recover the logical length from offsets
+        // alone — the chars buffer must be scanned with strnlen() (BE
+        // shrink_padding_chars). Falling through to the default visit causes
+        // length() to read the column normally, which is correct.
+        // NOTE: arg.getDataType() is the resolved type at the leaf of any
+        // chained access (struct field, map subscript, array index), so this
+        // single check covers nested CHAR cases too.
+        if (arg.getDataType().isStringLikeType() && !arg.getDataType().isCharType()
+                && context.accessPathBuilder.isEmpty()) {
+            CollectorContext offsetContext =
+                    new CollectorContext(context.statementContext, context.bottomFilter);
+            offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_STRING_OFFSET);
+            return arg.accept(this, offsetContext);
+        }
+        // fall through to default (recurse into children with fresh contexts)
+        return visit(length, context);
+    }
+
+    @Override
+    public Void visitMapSize(MapSize mapSize, CollectorContext context) {
+        Expression arg = mapSize.child();
+        DataType argType = arg.getDataType();
+        if (argType.isMapType() && context.accessPathBuilder.isEmpty()) {
+            CollectorContext offsetContext =
+                    new CollectorContext(context.statementContext, context.bottomFilter);
+            offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_STRING_OFFSET);
+            return arg.accept(this, offsetContext);
+        }
+        return visit(mapSize, context);
+    }
+
+    @Override
+    public Void visitCardinality(Cardinality cardinality, CollectorContext context) {
+        Expression arg = cardinality.child(0);
+        // cardinality(arr) / cardinality(map) only needs the offset array, not element data.
+        // Arrays and maps share the same offset-array + data storage layout as strings on the BE.
+        DataType argType = arg.getDataType();
+        if ((argType.isArrayType() || argType.isMapType()) && context.accessPathBuilder.isEmpty()) {
+            CollectorContext offsetContext =
+                    new CollectorContext(context.statementContext, context.bottomFilter);
+            offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_STRING_OFFSET);
+            // cardinality(map_keys(m)) == cardinality(m) == cardinality(map_values(m)):
+            // all three count map entries, so emit the same [map_col, OFFSET] path.
+            Expression effectiveArg = (arg instanceof MapKeys || arg instanceof MapValues)
+                    ? arg.child(0) : arg;
+            return effectiveArg.accept(this, offsetContext);
+        }
+        // fall through to default
+        return visit(cardinality, context);
     }
 
     @Override
@@ -155,8 +237,10 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
                 && cast.child().getDataType() instanceof NestedColumnPrunable
                 && !mapTypeIsChanged(cast.child().getDataType(), cast.getDataType(), false)) {
 
-            DataTypeAccessTree castTree = DataTypeAccessTree.of(cast.getDataType(), TAccessPathType.DATA);
-            DataTypeAccessTree originTree = DataTypeAccessTree.of(cast.child().getDataType(), TAccessPathType.DATA);
+            DataTypeAccessTree castTree = DataTypeAccessTree.of(
+                    cast.getDataType(), ColumnAccessPathType.DATA);
+            DataTypeAccessTree originTree = DataTypeAccessTree.of(
+                    cast.child().getDataType(), ColumnAccessPathType.DATA);
 
             List<String> replacePath = new ArrayList<>(context.accessPathBuilder.getPathList());
             if (originTree.replacePathByAnotherTree(castTree, replacePath, 0)) {
@@ -425,7 +509,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     // @Override
     // public Void visitIsNull(IsNull isNull, CollectorContext context) {
     //     if (context.accessPathBuilder.isEmpty()) {
-    //         context.setType(TAccessPathType.META);
+    //         context.setType(ColumnAccessPathType.META);
     //         return continueCollectAccessPath(isNull.child(), context);
     //     }
     //     return visit(isNull, context);
@@ -459,20 +543,20 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         private StatementContext statementContext;
         private AccessPathBuilder accessPathBuilder;
         private boolean bottomFilter;
-        private TAccessPathType type;
+        private ColumnAccessPathType type;
 
         public CollectorContext(StatementContext statementContext, boolean bottomFilter) {
             this.statementContext = statementContext;
             this.accessPathBuilder = new AccessPathBuilder();
             this.bottomFilter = bottomFilter;
-            this.type = TAccessPathType.DATA;
+            this.type = ColumnAccessPathType.DATA;
         }
 
-        public TAccessPathType getType() {
+        public ColumnAccessPathType getType() {
             return type;
         }
 
-        public void setType(TAccessPathType type) {
+        public void setType(ColumnAccessPathType type) {
             this.type = type;
         }
 
@@ -527,15 +611,15 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     public static class CollectAccessPathResult {
         private final List<String> path;
         private final boolean isPredicate;
-        private final TAccessPathType type;
+        private final ColumnAccessPathType type;
 
-        public CollectAccessPathResult(List<String> path, boolean isPredicate, TAccessPathType type) {
+        public CollectAccessPathResult(List<String> path, boolean isPredicate, ColumnAccessPathType type) {
             this.path = path;
             this.isPredicate = isPredicate;
             this.type = type;
         }
 
-        public TAccessPathType getType() {
+        public ColumnAccessPathType getType() {
             return type;
         }
 

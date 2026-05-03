@@ -56,8 +56,6 @@ class Block;
 class PathInData;
 class IDataType;
 
-#include "common/compile_check_begin.h"
-
 struct OlapTableIndexSchema;
 class TColumn;
 class TOlapTableIndex;
@@ -193,7 +191,7 @@ public:
     const PathInDataPtr& path_info_ptr() const { return _column_path; }
     // If it is an extracted column from variant column
     bool is_extracted_column() const {
-        return _column_path != nullptr && !_column_path->empty() && _parent_col_unique_id > 0;
+        return _column_path != nullptr && !_column_path->empty() && _parent_col_unique_id >= 0;
     };
     std::string suffix_path() const {
         return is_extracted_column() ? _column_path->get_path() : "";
@@ -860,5 +858,4 @@ bool operator!=(const TabletSchema& a, const TabletSchema& b);
 
 using TabletSchemaSPtr = std::shared_ptr<TabletSchema>;
 
-#include "common/compile_check_end.h"
 } // namespace doris

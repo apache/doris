@@ -19,6 +19,7 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LimitElement;
@@ -164,7 +165,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                     default:
                         throw new AnalysisException("Invalid date type: " + subExpr.getChild(1).getType());
                 }
-                leftVal = (new DateLiteral((String) element, type)).getLongValue();
+                leftVal = (DateLiteralUtils.createDateLiteral((String) element, type)).getLongValue();
                 rightVal = ((DateLiteral) subExpr.getChild(1)).getLongValue();
             } else {
                 leftVal = Long.parseLong(element.toString());

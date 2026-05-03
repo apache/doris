@@ -32,7 +32,6 @@
 #include "exprs/json_functions.h"
 #include "util/jsonb_parser_simd.h"
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status DataTypeJsonbSerDe::write_column_to_mysql_binary(const IColumn& column,
                                                         MysqlRowBinaryBuffer& result,
@@ -133,10 +132,9 @@ Status DataTypeJsonbSerDe::read_column_from_arrow(IColumn& column, const arrow::
         JsonBinaryValue value;
         for (auto offset_i = start; offset_i < end; ++offset_i) {
             if (!concrete_array->IsNull(offset_i)) {
-                int32_t start_offset = 0;
-                int32_t end_offset = 0;
-                memcpy(&start_offset, offsets_data + offset_i * offset_size, offset_size);
-                memcpy(&end_offset, offsets_data + (offset_i + 1) * offset_size, offset_size);
+                auto start_offset = unaligned_load<int32_t>(offsets_data + offset_i * offset_size);
+                auto end_offset =
+                        unaligned_load<int32_t>(offsets_data + (offset_i + 1) * offset_size);
 
                 int32_t length = end_offset - start_offset;
                 const auto* raw_data = buffer->data() + start_offset;

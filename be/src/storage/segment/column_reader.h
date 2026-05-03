@@ -53,7 +53,6 @@
 #include "util/once.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class BlockCompressionCodec;
 class AndBlockColumnPredicate;
@@ -485,6 +484,11 @@ public:
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;
 
+protected:
+    // Exposed to derived iterators (e.g. StringFileColumnIterator) so they can
+    // query column metadata such as the storage field type.
+    const std::shared_ptr<ColumnReader>& get_reader() const { return _reader; }
+
 private:
     Status _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const;
     Status _load_next_page(bool* eos);
@@ -861,5 +865,4 @@ private:
 };
 
 } // namespace segment_v2
-#include "common/compile_check_end.h"
 } // namespace doris

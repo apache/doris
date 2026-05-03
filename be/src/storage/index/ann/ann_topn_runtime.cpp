@@ -27,11 +27,10 @@
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/array/function_array_distance.h"
-#include "exprs/varray_literal.h"
-#include "exprs/vcast_expr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
 #include "exprs/virtual_slot_ref.h"
@@ -42,26 +41,12 @@
 #include "storage/index/inverted/inverted_index_query_type.h"
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 Result<IColumn::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr) {
     if (arg_expr->is_constant() == false) {
         return ResultError(Status::InvalidArgument("Ann topn expr must be constant, got\n{}",
                                                    arg_expr->debug_string()));
     }
-
-    // Accept either ArrayLiteral([..]) or CAST('..' AS Nullable(Array(Nullable(Float32))))
-    // First, check the expr node type for clarity.
-
-    bool is_array_literal = std::dynamic_pointer_cast<VArrayLiteral>(arg_expr) != nullptr;
-    bool is_cast_expr = std::dynamic_pointer_cast<VCastExpr>(arg_expr) != nullptr;
-    if (!is_array_literal && !is_cast_expr) {
-        return ResultError(
-                Status::InvalidArgument("Constant must be ArrayLiteral or CAST to array, got\n{}",
-                                        arg_expr->debug_string()));
-    }
-
-    // We'll validate shape by inspecting the materialized constant column below.
 
     std::shared_ptr<ColumnPtrWrapper> column_wrapper;
     auto st = arg_expr->get_const_col(nullptr, &column_wrapper);
@@ -70,8 +55,11 @@ Result<IColumn::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr) {
                                                    st.to_string()));
     }
 
-    // Execute the constant array literal and extract its float elements into _query_array
-    IColumn::Ptr col_ptr = column_wrapper->column_ptr->convert_to_full_column_if_const();
+    // Unwrap ColumnConst without copy to get the underlying single-row column
+    IColumn::Ptr col_ptr = column_wrapper->column_ptr;
+    if (const auto* const_col = check_and_get_column<ColumnConst>(*col_ptr)) {
+        col_ptr = const_col->get_data_column_ptr();
+    }
 
     // The expected runtime column layout for the literal is:
     // Nullable(ColumnArray(Nullable(ColumnFloat32))) with exactly 1 row (one array literal)
@@ -127,7 +115,7 @@ Status AnnTopNRuntime::prepare(RuntimeState* state, const RowDescriptor& row_des
         |----------------
         |               |
         |               |
-        SlotRef         CAST(String as Nullable<ArrayFloat>) OR ArrayLiteral
+        SlotRef         Constant Array Expression
     */
     std::shared_ptr<VirtualSlotRef> vir_slot_ref =
             std::dynamic_pointer_cast<VirtualSlotRef>(_order_by_expr_ctx->root());
@@ -194,7 +182,7 @@ Status AnnTopNRuntime::prepare(RuntimeState* state, const RowDescriptor& row_des
 Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::AnnIndexIterator* ann_index_iterator,
                                                   roaring::Roaring* roaring, size_t rows_of_segment,
                                                   IColumn::MutablePtr& result_column,
-                                                  std::unique_ptr<std::vector<uint64_t>>& row_ids,
+                                                  std::shared_ptr<std::vector<uint64_t>>& row_ids,
                                                   segment_v2::AnnIndexStats& ann_index_stats) {
     DCHECK(ann_index_iterator != nullptr);
     DCHECK(_order_by_expr_ctx != nullptr);
@@ -231,13 +219,13 @@ Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::AnnIndexIterator* 
     DCHECK(ann_query_params.distance != nullptr);
     DCHECK(ann_query_params.row_ids != nullptr);
 
-    size_t num_results = ann_query_params.distance->size();
+    size_t num_results = ann_query_params.row_ids->size();
     auto result_column_float = ColumnFloat32::create(num_results);
     for (size_t i = 0; i < num_results; ++i) {
-        result_column_float->get_data()[i] = (*ann_query_params.distance)[i];
+        result_column_float->get_data()[i] = ann_query_params.distance[i];
     }
     result_column = std::move(result_column_float);
-    row_ids = std::move(ann_query_params.row_ids);
+    row_ids = ann_query_params.row_ids;
     ann_index_stats = *ann_query_params.stats;
     return Status::OK();
 }

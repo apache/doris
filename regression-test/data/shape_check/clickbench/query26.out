@@ -5,6 +5,6 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------PhysicalProject
-----------filter(( not (SearchPhrase = '')))
+----------filter(( not (length(SearchPhrase) = 0)))
 ------------PhysicalOlapScan[hits]
 

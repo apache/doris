@@ -26,8 +26,8 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import org.apache.hadoop.util.Lists;
 
 import java.util.List;
 import java.util.Set;

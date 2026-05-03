@@ -32,7 +32,6 @@
 #include "exprs/function/simple_function_factory.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class FunctionArrayContainsAll : public IFunction {
 public:
@@ -194,5 +193,4 @@ void register_function_array_contains_all(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayContainsAll>();
     factory.register_alias("array_contains_all", "hasSubstr");
 }
-#include "common/compile_check_end.h"
 } // namespace doris

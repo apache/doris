@@ -33,7 +33,6 @@
 #include "util/string_parser.hpp"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 // NOLINTBEGIN(readability-function-size)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
@@ -134,7 +133,9 @@ struct CastToDateOrDatetime {
 
         static_cast<void>(to_scale);
         if constexpr (is_datelike_target_datetime(TargetType)) {
+#include "common/compile_check_avoid_begin.h"
             int ms_part_7 = (float_value - (double)int_part) * common::exp10_i32(7);
+#include "common/compile_check_avoid_end.h"
             if (!microsecond_carry_on<ParseMode>(ms_part_7, 7, val, params)) [[unlikely]] {
                 return false; // status set in microsecond_carry_on
             }
@@ -355,6 +356,44 @@ inline bool CastToDateOrDatetime::from_string_strict_mode(const StringRef& str,
 
     uint32_t part[4];
     bool has_second = false;
+
+    if (auto fast_parse_result = try_parse_fixed_canonical_datelike_prefix(ptr, str.size, res);
+        fast_parse_result != DatelikeFastParseResult::FAIL) {
+        if constexpr (!IsDatetime) {
+            if (fast_parse_result == DatelikeFastParseResult::DATE_ONLY) {
+                if (str.size == 10) {
+                    cast_to_type<TargetType>(res);
+                    return true;
+                }
+            } else {
+                has_second = true;
+                if (str.size == 19) {
+                    cast_to_type<TargetType>(res);
+                    return true;
+                }
+                ptr += 19;
+                goto FRAC;
+            }
+        } else {
+            if (fast_parse_result == DatelikeFastParseResult::DATE_ONLY) {
+                res.template unchecked_set_time_unit<TimeUnit::HOUR>(0);
+                res.template unchecked_set_time_unit<TimeUnit::MINUTE>(0);
+                res.template unchecked_set_time_unit<TimeUnit::SECOND>(0);
+                if (str.size == 10) {
+                    cast_to_type<TargetType>(res);
+                    return true;
+                }
+            } else {
+                has_second = true;
+                if (str.size == 19) {
+                    cast_to_type<TargetType>(res);
+                    return true;
+                }
+                ptr += 19;
+                goto FRAC;
+            }
+        }
+    }
 
     // special `date` and `time` part format: 14-length digits string. parse it as YYYYMMDDHHMMSS
     if (ptr + 13 < end && is_digit_range(ptr, ptr + 14)) {
@@ -907,5 +946,4 @@ inline bool CastToDateOrDatetime::from_string_non_strict_mode_impl(
 
 // NOLINTEND(readability-function-cognitive-complexity)
 // NOLINTEND(readability-function-size)
-#include "common/compile_check_end.h"
 } // namespace doris

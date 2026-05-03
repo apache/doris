@@ -26,7 +26,6 @@
 #include "storage/tablet/tablet_schema.h"
 #include "util/once.h"
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 struct AnnTopNParam;
 struct AnnRangeSearchParams;
@@ -41,9 +40,6 @@ public:
     AnnIndexReader(const TabletIndex* index_meta,
                    std::shared_ptr<IndexFileReader> index_file_reader);
     ~AnnIndexReader() override = default;
-
-    static void update_result(const IndexSearchResult&, std::vector<float>& distance,
-                              roaring::Roaring& row_id);
 
     Status load_index(io::IOContext* io_ctx);
 
@@ -85,5 +81,4 @@ private:
 };
 
 using AnnIndexReaderPtr = std::shared_ptr<AnnIndexReader>;
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

@@ -37,9 +37,9 @@ import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import mockit.Injectable;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -64,7 +64,9 @@ public class MergeProjectPostProcessTest {
      *
      */
     @Test
-    public void testMergeProj(@Injectable LogicalProperties placeHolder, @Injectable CascadesContext ctx) {
+    public void testMergeProj() {
+        LogicalProperties placeHolder = Mockito.mock(LogicalProperties.class);
+        CascadesContext ctx = Mockito.mock(CascadesContext.class);
         OlapTable t1 = PlanConstructor.newOlapTable(0, "t1", 0, KeysType.AGG_KEYS);
         List<String> qualifier = new ArrayList<>();
         qualifier.add("test");

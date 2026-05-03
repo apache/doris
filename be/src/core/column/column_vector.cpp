@@ -44,7 +44,6 @@
 #include "util/unaligned.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
 size_t ColumnVector<T>::serialize_impl(char* pos, const size_t row) const {

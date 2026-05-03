@@ -40,7 +40,6 @@ class IOBufAsZeroCopyInputStream;
 }
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class PPublishFilterRequestV2;
 class PMergeFilterRequest;
 class RuntimeFilterMerger;
@@ -53,6 +52,9 @@ class RuntimeFilterWrapper;
 class QueryContext;
 class ExecEnv;
 class RuntimeProfile;
+template <typename Response>
+class HandleErrorBrpcCallback;
+class SyncSizeCallback;
 
 struct LocalMergeContext {
     std::mutex mtx;
@@ -73,6 +75,9 @@ struct GlobalMergeContext {
     std::vector<TRuntimeFilterTargetParamsV2> targetv2_info;
     std::unordered_set<UniqueId> arrive_id;
     std::vector<PNetworkAddress> source_addrs;
+    std::vector<std::shared_ptr<HandleErrorBrpcCallback<PSyncFilterSizeResponse>>>
+            sync_size_callbacks;
+    std::vector<std::shared_ptr<HandleErrorBrpcCallback<PPublishFilterResponse>>> publish_callbacks;
     std::atomic<bool> done = false;
 
     // for represent the round number of recursive cte
@@ -191,5 +196,4 @@ private:
 
     std::map<int, GlobalMergeContext> _filter_map;
 };
-#include "common/compile_check_end.h"
 } // namespace doris

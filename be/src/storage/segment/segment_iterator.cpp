@@ -113,8 +113,6 @@ namespace doris {
 using namespace ErrorCode;
 namespace segment_v2 {
 
-#include "common/compile_check_begin.h"
-
 SegmentIterator::~SegmentIterator() = default;
 
 void SegmentIterator::_init_row_bitmap_by_condition_cache() {
@@ -347,6 +345,39 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     return status;
 }
 
+std::unique_ptr<AdaptiveBlockSizePredictor> SegmentIterator::_make_block_size_predictor() const {
+    if (!config::enable_adaptive_batch_size || _opts.preferred_block_size_bytes == 0) {
+        return nullptr;
+    }
+
+    // Collect per-column raw byte metadata from the segment footer for the columns
+    // this iterator will actually output (defined by _schema, which is built from
+    // _opts.return_columns).
+    std::vector<AdaptiveBlockSizePredictor::ColumnMetadata> col_metadata;
+    uint32_t seg_rows = _segment->num_rows();
+    uint64_t total_raw_bytes = 0;
+    double metadata_hint_bytes_per_row = 0.0;
+    if (seg_rows > 0) {
+        const auto& ts = _segment->tablet_schema();
+        if (ts) {
+            for (ColumnId cid : _schema->column_ids()) {
+                if (static_cast<size_t>(cid) < ts->num_columns()) {
+                    int32_t uid = ts->column(cid).unique_id();
+                    uint64_t raw_bytes = _segment->column_raw_data_bytes(uid);
+                    if (uid >= 0 && raw_bytes > 0) {
+                        total_raw_bytes += raw_bytes;
+                    }
+                }
+            }
+            metadata_hint_bytes_per_row = total_raw_bytes / static_cast<double>(seg_rows);
+        }
+    }
+
+    return std::make_unique<AdaptiveBlockSizePredictor>(
+            _opts.preferred_block_size_bytes, metadata_hint_bytes_per_row,
+            AdaptiveBlockSizePredictor::kDefaultProbeRows, _opts.block_row_max);
+}
+
 Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     // get file handle from file descriptor of segment
     if (_inited) {
@@ -368,6 +399,10 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     _tablet_id = opts.tablet_id;
     // Read options will not change, so that just resize here
     _block_rowids.resize(_opts.block_row_max);
+
+    // Adaptive batch size: snapshot the initial row limit and create predictor if enabled.
+    _initial_block_row_max = _opts.block_row_max;
+    _block_size_predictor = _make_block_size_predictor();
 
     _remaining_conjunct_roots = opts.remaining_conjunct_roots;
 
@@ -492,10 +527,14 @@ Status SegmentIterator::_lazy_init(Block* block) {
         _range_iter.reset(new BitmapRangeIterator(_row_bitmap));
     }
 
-    // If the row bitmap size is smaller than block_row_max, there's no need to reserve that many column rows.
-    auto nrows_reserve_limit = std::min(_row_bitmap.cardinality(), uint64_t(_opts.block_row_max));
+    // Reserve columns for _initial_block_row_max (the original max before any adaptive
+    // prediction) because the predictor may increase block_row_max on subsequent batches
+    // up to this ceiling. Using the current (possibly reduced) _opts.block_row_max would
+    // cause heap-buffer-overflow if a later prediction is larger.
+    auto nrows_reserve_limit =
+            std::min(_row_bitmap.cardinality(), uint64_t(_initial_block_row_max));
     if (_lazy_materialization_read || _opts.record_rowids || _is_need_expr_eval) {
-        _block_rowids.resize(_opts.block_row_max);
+        _block_rowids.resize(_initial_block_row_max);
     }
     _current_return_columns.resize(_schema->columns().size());
 
@@ -918,7 +957,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
         return Status::OK();
     }
     IColumn::MutablePtr result_column;
-    std::unique_ptr<std::vector<uint64_t>> result_row_ids;
+    std::shared_ptr<std::vector<uint64_t>> result_row_ids;
     segment_v2::AnnIndexStats ann_index_stats;
 
     // Try to load ANN index before search
@@ -976,8 +1015,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
             "Virtual column iterator, column_idx {}, is materialized with {} rows", dst_col_idx,
             result_row_ids->size());
     // reference count of result_column should be 1, so move will not issue any data copy.
-    virtual_column_iter->prepare_materialization(std::move(result_column),
-                                                 std::move(result_row_ids));
+    virtual_column_iter->prepare_materialization(std::move(result_column), result_row_ids);
 
     _need_read_data_indices[src_cid] = false;
     VLOG_DEBUG << fmt::format(
@@ -2511,6 +2549,28 @@ Status SegmentIterator::next_batch(Block* block) {
     _init_virtual_columns(block);
     auto status = [&]() {
         RETURN_IF_CATCH_EXCEPTION({
+            // Adaptive batch size: predict how many rows this batch should read.
+            if (_block_size_predictor) {
+                auto predicted = static_cast<uint32_t>(_block_size_predictor->predict_next_rows());
+                _opts.block_row_max = std::min(predicted, _initial_block_row_max);
+                _opts.stats->adaptive_batch_size_predict_min_rows =
+                        std::min(_opts.stats->adaptive_batch_size_predict_min_rows,
+                                 static_cast<int64_t>(predicted));
+                _opts.stats->adaptive_batch_size_predict_max_rows =
+                        std::max(_opts.stats->adaptive_batch_size_predict_max_rows,
+                                 static_cast<int64_t>(predicted));
+            } else {
+                // No predictor — record the fixed batch size using min/max so we don't
+                // clobber values already accumulated by other segment iterators that
+                // share the same OlapReaderStatistics.
+                _opts.stats->adaptive_batch_size_predict_min_rows =
+                        std::min(_opts.stats->adaptive_batch_size_predict_min_rows,
+                                 static_cast<int64_t>(_opts.block_row_max));
+                _opts.stats->adaptive_batch_size_predict_max_rows =
+                        std::max(_opts.stats->adaptive_batch_size_predict_max_rows,
+                                 static_cast<int64_t>(_opts.block_row_max));
+            }
+
             auto res = _next_batch_internal(block);
 
             if (res.is<END_OF_FILE>()) {
@@ -2555,6 +2615,13 @@ Status SegmentIterator::next_batch(Block* block) {
             }
 
             RETURN_IF_ERROR(block->check_type_and_column());
+
+            // Adaptive batch size: update EWMA estimate from the completed batch.
+            // block->bytes() is accurate here: predicates have been applied and non-predicate
+            // columns have been filled for surviving rows by _next_batch_internal.
+            if (_block_size_predictor && block->rows() > 0) {
+                _block_size_predictor->update(*block);
+            }
 
             return Status::OK();
         });

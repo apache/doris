@@ -41,7 +41,6 @@
 template <typename T>
 struct HashCRC32;
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class Arena;
 class BufferReadable;
@@ -260,5 +259,3 @@ public:
 };
 
 } // namespace doris
-
-#include "common/compile_check_end.h"

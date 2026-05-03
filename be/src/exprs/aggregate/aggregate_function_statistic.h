@@ -33,7 +33,6 @@
 #include "exprs/aggregate/moments.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 enum class STATISTICS_FUNCTION_KIND : uint8_t { SKEW_POP, KURT_POP };
 
@@ -56,7 +55,7 @@ struct StatFuncOneArg {
 };
 
 template <typename StatFunc, bool NullableInput>
-class AggregateFunctionVarianceSimple
+class AggregateFunctionVarianceSimple final
         : public IAggregateFunctionDataHelper<
                   typename StatFunc::Data,
                   AggregateFunctionVarianceSimple<StatFunc, NullableInput>> {
@@ -164,4 +163,3 @@ private:
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

@@ -21,7 +21,7 @@ suite("test_pythonudf_forbidden_module") {
 
     def pyPath = """${context.file.parent}/udf_scripts/python_udf_forbidden_module.zip"""
     scp_udf_file_to_all_be(pyPath)
-    def runtime_version = "3.8.10"
+    def runtime_version = getPythonUdfRuntimeVersion()
     def forbiddenCases = [
         [name: "threading", function: "py_forbidden_threading", symbol: "threading.evaluate"],
         [name: "json", function: "py_forbidden_json", symbol: "json.evaluate"],

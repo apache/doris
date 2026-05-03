@@ -29,7 +29,6 @@
 #include "io/file_factory.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class HiveTextFieldSplitter : public BaseCsvTextFieldSplitter<HiveTextFieldSplitter> {
 public:
@@ -56,7 +55,8 @@ class TextReader : public CsvReader {
 public:
     TextReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                const TFileScanRangeParams& params, const TFileRangeDesc& range,
-               const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx);
+               const std::vector<SlotDescriptor*>& file_slot_descs, size_t batch_size,
+               io::IOContext* io_ctx);
 
     ~TextReader() override = default;
 
@@ -68,5 +68,4 @@ private:
     Status _deserialize_nullable_string(IColumn& column, Slice& slice) override;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

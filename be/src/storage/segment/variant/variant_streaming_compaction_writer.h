@@ -36,8 +36,6 @@ namespace doris {
 class ColumnVariant;
 namespace segment_v2 {
 
-#include "common/compile_check_begin.h"
-
 class VariantStreamingCompactionWriter {
 public:
     enum class Phase : uint8_t {
@@ -98,8 +96,6 @@ private:
     NestedGroupStreamingWritePlan _streaming_plan;
     std::vector<StreamingRegularSubcolumnWriter> _streaming_regular_subcolumn_writers;
 };
-
-#include "common/compile_check_end.h"
 
 } // namespace segment_v2
 } // namespace doris

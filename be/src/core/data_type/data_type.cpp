@@ -40,7 +40,6 @@ class BufferWritable;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 IDataType::IDataType() = default;
 

@@ -22,63 +22,44 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.VariableMgr;
 
-import mockit.Expectations;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 public class MockedAuth {
 
     public static void mockedAccess(AccessControllerManager accessManager) {
-        new Expectations() {
-            {
-                accessManager.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
-                minTimes = 0;
-                result = true;
+        Mockito.when(accessManager.checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.any(PrivPredicate.class)))
+                .thenReturn(true);
 
-                accessManager.checkDbPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
-                minTimes = 0;
-                result = true;
+        Mockito.when(accessManager.checkDbPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.anyString(),
+                Mockito.anyString(), Mockito.any(PrivPredicate.class)))
+                .thenReturn(true);
 
-                accessManager.checkDbPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
-                minTimes = 0;
-                result = true;
-
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
-                minTimes = 0;
-                result = true;
-
-                // auth.checkHasPriv((ConnectContext) any,, priv, levels)
-            }
-        };
+        Mockito.when(accessManager.checkTblPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.anyString(),
+                Mockito.anyString(), Mockito.anyString(), Mockito.any(PrivPredicate.class)))
+                .thenReturn(true);
     }
 
-    public static void mockedConnectContext(ConnectContext ctx, String user, String ip) {
-        new Expectations() {
-            {
-                ConnectContext.get();
-                minTimes = 0;
-                result = ctx;
+    // NOTE: API change - now returns MockedStatic<ConnectContext> that callers must close
+    // (e.g., store in a field and call close() in @After / @AfterEach, or use try-with-resources).
+    // Callers also need to create ctx with Mockito.mock(ConnectContext.class) instead of @Mocked.
+    public static MockedStatic<ConnectContext> mockedConnectContext(ConnectContext ctx, String user, String ip) {
+        MockedStatic<ConnectContext> mockedStatic = Mockito.mockStatic(ConnectContext.class);
+        mockedStatic.when(ConnectContext::get).thenReturn(ctx);
 
-                ctx.getQualifiedUser();
-                minTimes = 0;
-                result = user;
+        Mockito.when(ctx.getQualifiedUser()).thenReturn(user);
+        Mockito.when(ctx.getRemoteIP()).thenReturn(ip);
+        Mockito.when(ctx.getState()).thenReturn(new QueryState());
 
-                ctx.getRemoteIP();
-                minTimes = 0;
-                result = ip;
+        UserIdentity userIdentity = new UserIdentity(user, ip);
+        userIdentity.setIsAnalyzed();
+        Mockito.when(ctx.getCurrentUserIdentity()).thenReturn(userIdentity);
 
-                ctx.getState();
-                minTimes = 0;
-                result = new QueryState();
+        Mockito.when(ctx.getSessionVariable()).thenReturn(VariableMgr.newSessionVariable());
 
-                ctx.getCurrentUserIdentity();
-                minTimes = 0;
-                UserIdentity userIdentity = new UserIdentity(user, ip);
-                userIdentity.setIsAnalyzed();
-                result = userIdentity;
-
-                ctx.getSessionVariable();
-                minTimes = 0;
-                result = VariableMgr.newSessionVariable();
-            }
-        };
+        return mockedStatic;
     }
 }

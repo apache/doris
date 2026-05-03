@@ -25,7 +25,6 @@
 #include "core/types.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 constexpr auto SIZE_OF_UINT = sizeof(uint32_t);
 
@@ -114,5 +113,4 @@ private:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

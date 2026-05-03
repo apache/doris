@@ -671,10 +671,19 @@ public class LoadAction extends RestBaseController {
         Enumeration<String> headerNames = request.getHeaderNames();
         while (headerNames.hasMoreElements()) {
             String headerName = headerNames.nextElement();
-            String headerValue = request.getHeader(headerName);
+            String headerValue = isSensitiveHeader(headerName) ? "***MASKED***" : request.getHeader(headerName);
             headers.append(headerName).append(":").append(headerValue).append(", ");
         }
         return headers.toString();
+    }
+
+    private boolean isSensitiveHeader(String headerName) {
+        return "Authorization".equalsIgnoreCase(headerName)
+                || "Proxy-Authorization".equalsIgnoreCase(headerName)
+                || "Cookie".equalsIgnoreCase(headerName)
+                || "Set-Cookie".equalsIgnoreCase(headerName)
+                || "token".equalsIgnoreCase(headerName)
+                || "Auth-Token".equalsIgnoreCase(headerName);
     }
 
     private Backend selectBackendForGroupCommit(String clusterName, HttpServletRequest req, long tableId)

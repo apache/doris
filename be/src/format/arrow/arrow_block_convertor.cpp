@@ -51,7 +51,6 @@ class Array;
 } // namespace arrow
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBatch>* out) {
     int num_fields = _schema->num_fields();
@@ -155,5 +154,4 @@ Status convert_from_arrow_batch(const std::shared_ptr<arrow::RecordBatch>& batch
     return converter.convert(block);
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -33,7 +33,6 @@
 #include "exprs/aggregate/aggregate_function.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 class Arena;
 class BufferReadable;
@@ -138,7 +137,7 @@ struct SampData : BaseData<T> {
 };
 
 template <typename Data>
-class AggregateFunctionSampCovariance
+class AggregateFunctionSampCovariance final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionSampCovariance<Data>>,
           MultiExpression,
           NullableAggregateFunction {
@@ -177,5 +176,4 @@ public:
     }
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

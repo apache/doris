@@ -18,6 +18,7 @@
 package org.apache.doris.common;
 
 import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
@@ -154,7 +155,7 @@ public class PropertyAnalyzerTest {
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, tomorrowTimeStr);
         DataProperty dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.SSD));
         // avoid UT fail because time zone different
-        DateLiteral dateLiteral = new DateLiteral(tomorrowTimeStr, Type.DATETIME);
+        DateLiteral dateLiteral = DateLiteralUtils.createDateLiteral(tomorrowTimeStr, Type.DATETIME);
         Assert.assertEquals(dateLiteral.unixTimestamp(TimeUtils.getTimeZone()), dataProperty.getCooldownTimeMs());
     }
 

@@ -68,7 +68,6 @@
 #include "util/thrift_rpc_helper.h"
 
 namespace doris::cloud {
-#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 void* run_bthread_work(void* arg) {
@@ -1668,6 +1667,7 @@ Status CloudMetaMgr::commit_tablet_job(const TabletJobInfoPB& job, FinishTabletJ
 
 Status CloudMetaMgr::abort_tablet_job(const TabletJobInfoPB& job) {
     VLOG_DEBUG << "abort_tablet_job: " << job.ShortDebugString();
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::abort_tablet_job", Status::OK(), job);
     FinishTabletJobRequest req;
     FinishTabletJobResponse res;
     req.mutable_job()->CopyFrom(job);
@@ -2375,5 +2375,4 @@ Status CloudMetaMgr::get_cluster_status(
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::cloud

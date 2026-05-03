@@ -47,7 +47,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 static constexpr int64_t MAX_ROWSET_ID = 1L << 56;
 static constexpr int64_t LOW_56_BITS = 0x00ffffffffffffff;
 
@@ -444,6 +443,9 @@ struct OlapReaderStatistics {
     int64_t segment_create_column_readers_timer_ns = 0;
     int64_t segment_load_index_timer_ns = 0;
 
+    int64_t adaptive_batch_size_predict_min_rows = INT64_MAX;
+    int64_t adaptive_batch_size_predict_max_rows = 0;
+
     int64_t variant_scan_sparse_column_timer_ns = 0;
     int64_t variant_scan_sparse_column_bytes = 0;
     int64_t variant_fill_path_from_sparse_column_timer_ns = 0;
@@ -608,7 +610,6 @@ struct VersionWithTime {
         }
     }
 };
-#include "common/compile_check_end.h"
 } // namespace doris
 
 // This intended to be a "good" hash function.  It may change from time to time.

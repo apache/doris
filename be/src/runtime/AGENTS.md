@@ -11,6 +11,7 @@ Two levels: `MemTrackerLimiter` (heavyweight, with limits) and `MemTracker` (lig
 - [ ] Temporary limiter switching uses `SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER`, not manual save/restore?
 - [ ] Thread-pool callbacks attach at callback entry, not deeper in the call chain?
 - [ ] Large allocations use `try_reserve()` with `DEFER_RELEASE_RESERVED()` for balanced accounting on every exit?
+- [ ] For BE-owned buffers or containers whose memory should be tracked by Doris accounting, prefer allocator-aware types from `be/src/core/custom_allocator.h` such as `DorisVector`, `DorisMap`, and `DorisUniqueBufferPtr` instead of the corresponding standard library ownership types
 - [ ] Code reachable from `ThreadMemTrackerMgr::consume` avoids operations that may allocate recursively?
 
 ## Object Lifecycle

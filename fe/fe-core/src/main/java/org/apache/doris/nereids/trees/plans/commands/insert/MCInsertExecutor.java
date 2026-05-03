@@ -64,9 +64,9 @@ public class MCInsertExecutor extends BaseExternalTableInsertExecutor {
         MCTransaction transaction = (MCTransaction) transactionManager.getTransaction(txnId);
         transaction.beginInsert((MaxComputeExternalTable) table, insertCtx);
 
-        // 2. Inject writeSessionId into the Thrift sink before fragments are sent to BE
+        // 2. Inject write context into the Thrift sink before fragments are sent to BE
         if (mcTableSink != null) {
-            mcTableSink.setWriteSessionId(transaction.getWriteSessionId());
+            mcTableSink.setWriteContext(txnId, transaction.getWriteSessionId());
         }
     }
 

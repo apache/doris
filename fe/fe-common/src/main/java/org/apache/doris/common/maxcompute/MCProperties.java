@@ -60,8 +60,11 @@ public class MCProperties {
     public static final String MAX_FIELD_SIZE = "mc.max_field_size_bytes";
     public static final String DEFAULT_MAX_FIELD_SIZE = "8388608"; // 8 * 1024 * 1024 = 8MB
 
-    public static final String MAX_WRITE_BATCH_ROWS = "mc.max_write_batch_rows";
-    public static final String DEFAULT_MAX_WRITE_BATCH_ROWS = "4096";
+    // Approximate upper bound in bytes for a single MaxCompute write block.
+    // Once a writer block is estimated to exceed this threshold, Doris will
+    // switch to a new block_id before continuing the write.
+    public static final String WRITE_MAX_BLOCK_BYTES = "mc.write_max_block_bytes";
+    public static final String DEFAULT_WRITE_MAX_BLOCK_BYTES = "67108864"; // 64 * 1024 * 1024
 
     //withCrossPartition(true):
     //      Very friendly to scenarios where there are many partitions but each partition is very small.

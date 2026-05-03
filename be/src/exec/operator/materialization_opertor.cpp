@@ -416,6 +416,12 @@ Status MaterializationOperator::push(RuntimeState* state, Block* in_block, bool 
                         " target_backend_id:" + std::to_string(backend_id);
                 return Status::InternalError(error_text);
             }
+            if (rpc_struct.response.status().status_code() != 0) {
+                Status st = Status::create(rpc_struct.response.status());
+                st.append(fmt::format(", Backend:{}, Materialization Sink node id:{}", backend_id,
+                                      node_id()));
+                return st;
+            }
             rpc_struct.cntl->Reset();
         }
 

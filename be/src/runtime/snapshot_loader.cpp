@@ -61,7 +61,6 @@
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 struct LocalFileStat {
     uint64_t size;
@@ -1477,6 +1476,5 @@ Status BaseSnapshotLoader::_list_with_checksum(const std::string& dir,
 
     return Status::OK();
 }
-#include "common/compile_check_end.h"
 
 } // end namespace doris

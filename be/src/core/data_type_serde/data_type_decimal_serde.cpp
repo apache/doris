@@ -25,6 +25,7 @@
 #include <type_traits>
 
 #include "arrow/type.h"
+#include "common/cast_set.h"
 #include "common/consts.h"
 #include "core/column/column.h"
 #include "core/column/column_decimal.h"
@@ -36,13 +37,12 @@
 #include "exprs/function/cast/cast_to_string.h"
 #include "orc/Int128.hh"
 #include "storage/tablet/tablet_schema.h"
-#include "util/io_helper.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_writer.h"
+#include "util/string_parser.hpp"
 
 namespace doris {
-// #include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::from_string_batch(const ColumnString& str, ColumnNullable& column,
@@ -140,7 +140,7 @@ Status DataTypeDecimalSerDe<T>::from_olap_string(const std::string& str, Field& 
     // DecimalV2: zonemap stores "integer.fraction" with 9 zero-padded fractional digits.
     //   E.g., DecimalV2 value 123.456 → to_olap_string() → "123.456000000".
     //   Caller sets ignore_scale=false → parse with scale=9 → correctly restores the value.
-    //   Note: read_decimal_text_impl() currently hardcodes DecimalV2Value::SCALE=9 for
+    //   Note: CastToDecimal::from_string() currently hardcodes DecimalV2Value::SCALE=9 for
     //   DecimalV2, so the passed-in scale is effectively ignored. But callers should still
     //   set ignore_scale=false for semantic correctness.
     if (!CastToDecimal::from_string(StringRef(str), to, static_cast<UInt32>(precision),
@@ -207,9 +207,16 @@ Status DataTypeDecimalSerDe<T>::deserialize_one_cell_from_json(IColumn& column, 
     auto& column_data = assert_cast<ColumnDecimal<T>&>(column).get_data();
     FieldType val = {};
     StringRef str_ref(slice.data, slice.size);
-    StringParser::ParseResult res =
-            read_decimal_text_impl<get_primitive_type(), FieldType>(val, str_ref, precision, scale);
-    if (res == StringParser::PARSE_SUCCESS || res == StringParser::PARSE_UNDERFLOW) {
+    StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+    if constexpr (T == TYPE_DECIMALV2) {
+        val = DecimalV2Value(StringParser::string_to_decimal<TYPE_DECIMALV2>(
+                str_ref.data, cast_set<Int32>(str_ref.size), DecimalV2Value::PRECISION,
+                DecimalV2Value::SCALE, &result));
+    } else {
+        val.value = StringParser::string_to_decimal<T>(str_ref.data, cast_set<Int32>(str_ref.size),
+                                                       precision, scale, &result);
+    }
+    if (result == StringParser::PARSE_SUCCESS || result == StringParser::PARSE_UNDERFLOW) {
         column_data.emplace_back(val);
         return Status::OK();
     }
@@ -334,7 +341,7 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
         const auto arrow_scale = arrow_decimal_type->scale();
         // TODO check precision
         for (auto value_i = start; value_i < end; ++value_i) {
-            auto value = *reinterpret_cast<const Decimal128V2*>(concrete_array->Value(value_i));
+            auto value = unaligned_load<Decimal128V2>(concrete_array->Value(value_i));
             // convert scale to 9;
             if (9 > arrow_scale) {
                 using MaxNativeType = typename Decimal128V2::NativeType;
@@ -358,15 +365,14 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
         const auto* concrete_array = dynamic_cast<const arrow::DecimalArray*>(arrow_array);
         for (auto value_i = start; value_i < end; ++value_i) {
             const auto* value = concrete_array->Value(value_i);
-            FieldType decimal_value = FieldType {};
-            memcpy(&decimal_value, value, sizeof(FieldType));
+            auto decimal_value = unaligned_load<FieldType>(value);
             column_data.emplace_back(decimal_value);
         }
     } else if constexpr (T == TYPE_DECIMAL256) {
         const auto* concrete_array = dynamic_cast<const arrow::Decimal256Array*>(arrow_array);
         for (auto value_i = start; value_i < end; ++value_i) {
-            column_data.emplace_back(
-                    *reinterpret_cast<const FieldType*>(concrete_array->Value(value_i)));
+            auto decimal_value = unaligned_load<FieldType>(concrete_array->Value(value_i));
+            column_data.emplace_back(decimal_value);
         }
     } else {
         return Status::Error(ErrorCode::NOT_IMPLEMENTED_ERROR,
@@ -741,14 +747,11 @@ const uint8_t* DataTypeDecimalSerDe<T>::deserialize_binary_to_field(const uint8_
     } else if constexpr (T == TYPE_DECIMAL128I) {
         // Because __int128 in memory is not aligned, but GCC7 will generate SSE instruction
         // for __int128 load/store. This will cause segment fault.
-        PackedInt128 pack;
-        // use memcpy to avoid unaligned access
-        memcpy(&pack, data, sizeof(PackedInt128));
+        auto pack = unaligned_load<PackedInt128>(data);
         field = Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(pack.value));
         data += sizeof(PackedInt128);
     } else if constexpr (T == TYPE_DECIMAL256) {
-        wide::Int256 v;
-        memcpy(&v, data, sizeof(wide::Int256));
+        auto v = unaligned_load<wide::Int256>(data);
         field = Field::create_field<TYPE_DECIMAL256>(Decimal256(v));
         data += sizeof(wide::Int256);
     } else {

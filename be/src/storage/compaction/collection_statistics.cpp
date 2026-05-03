@@ -35,7 +35,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 Status CollectionStatistics::collect(RuntimeState* state,
                                      const std::vector<RowSetSplits>& rs_splits,
@@ -288,5 +287,4 @@ float CollectionStatistics::get_or_calculate_idf(const std::wstring& lucene_col_
     return idf;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

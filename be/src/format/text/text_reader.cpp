@@ -39,7 +39,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 void HiveTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
     if (_value_sep_len == 1) {
@@ -113,8 +112,9 @@ void HiveTextFieldSplitter::_split_field_multi_char(const Slice& line,
 
 TextReader::TextReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                        const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                       const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx)
-        : CsvReader(state, profile, counter, params, range, file_slot_descs, io_ctx) {}
+                       const std::vector<SlotDescriptor*>& file_slot_descs, size_t batch_size,
+                       io::IOContext* io_ctx)
+        : CsvReader(state, profile, counter, params, range, file_slot_descs, batch_size, io_ctx) {}
 
 Status TextReader::_init_options() {
     // get column_separator and line_delimiter
@@ -182,5 +182,4 @@ Status TextReader::_deserialize_nullable_string(IColumn& column, Slice& slice) {
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -27,6 +27,7 @@
 #include <ostream>
 #include <vector>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/block/block.h"
@@ -57,7 +58,6 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
 PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
                            std::shared_ptr<PipelineFragmentContext> fragment_context,
@@ -418,14 +418,7 @@ bool PipelineTask::_should_trigger_revoking(const size_t reserve_size) const {
     }
 
     if (is_high_memory_pressure) {
-        const auto revocable_size = [&]() {
-            size_t total = _sink->revocable_mem_size(_state);
-            for (const auto& op : _operators) {
-                total += op->revocable_mem_size(_state);
-            }
-            return total;
-        }();
-
+        const auto revocable_size = _get_revocable_size();
         const auto total_estimated_revocable = revocable_size * parallelism;
         return total_estimated_revocable >= int64_t(double(query_limit) * 0.2);
     }
@@ -1007,18 +1000,29 @@ std::string PipelineTask::debug_string() {
     return fmt::to_string(debug_string_buffer);
 }
 
+size_t PipelineTask::_get_revocable_size() const {
+    // Sum revocable memory from every operator in the pipeline + the sink.
+    // Each operator reports only its own revocable memory (no child recursion).
+    size_t total = 0;
+    size_t sink_revocable_size = _sink->revocable_mem_size(_state);
+    if (sink_revocable_size >= SpillFile::MIN_SPILL_WRITE_BATCH_MEM) {
+        total += sink_revocable_size;
+    }
+    for (const auto& op : _operators) {
+        size_t ops_revocable_size = op->revocable_mem_size(_state);
+        if (ops_revocable_size >= SpillFile::MIN_SPILL_WRITE_BATCH_MEM) {
+            total += ops_revocable_size;
+        }
+    }
+    return total;
+}
+
 size_t PipelineTask::get_revocable_size() const {
     if (!_opened || is_finalized() || _running || (_eos && !_spilling)) {
         return 0;
     }
 
-    // Sum revocable memory from every operator in the pipeline + the sink.
-    // Each operator reports only its own revocable memory (no child recursion).
-    size_t total = _sink->revocable_mem_size(_state);
-    for (const auto& op : _operators) {
-        total += op->revocable_mem_size(_state);
-    }
-    return total;
+    return _get_revocable_size();
 }
 
 Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_context) {
@@ -1044,25 +1048,32 @@ Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_co
     return Status::OK();
 }
 
-Status PipelineTask::wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* dep_lock */) {
+void PipelineTask::wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* dep_lock */) {
+    auto cancel_if_error = [&](const Status& st) {
+        if (!st.ok()) {
+            if (auto frag = fragment_context().lock()) {
+                frag->cancel(st);
+            }
+        }
+    };
     // call by dependency
     DCHECK_EQ(_blocked_dep, dep) << "dep : " << dep->debug_string(0) << "task: " << debug_string();
     _blocked_dep = nullptr;
     auto holder = std::dynamic_pointer_cast<PipelineTask>(shared_from_this());
-    RETURN_IF_ERROR(_state_transition(PipelineTask::State::RUNNABLE));
-    if (auto f = _fragment_context.lock(); f) {
-        RETURN_IF_ERROR(_state->get_query_ctx()->get_pipe_exec_scheduler()->submit(holder));
+    cancel_if_error(_state_transition(PipelineTask::State::RUNNABLE));
+    // Under _wake_up_early, FINISHED/FINALIZED → RUNNABLE is a legal no-op
+    // (_state_transition returns OK but state stays unchanged). We must not
+    // resubmit a terminated task: finalize() clears _sink/_operators, and
+    // submit() → is_blockable() would dereference them → SIGSEGV.
+    if (_exec_state == State::FINISHED || _exec_state == State::FINALIZED) {
+        return;
     }
-    return Status::OK();
+    if (auto f = _fragment_context.lock(); f) {
+        cancel_if_error(_state->get_query_ctx()->get_pipe_exec_scheduler()->submit(holder));
+    }
 }
 
 Status PipelineTask::_state_transition(State new_state) {
-    if (_exec_state != new_state) {
-        _state_change_watcher.reset();
-        _state_change_watcher.start();
-    }
-    _task_profile->add_info_string("TaskState", _to_string(new_state));
-    _task_profile->add_info_string("BlockedByDependency", _blocked_dep ? _blocked_dep->name() : "");
     const auto& table =
             _wake_up_early ? WAKE_UP_EARLY_LEGAL_STATE_TRANSITION : LEGAL_STATE_TRANSITION;
     if (!table[(int)new_state].contains(_exec_state)) {
@@ -1071,14 +1082,21 @@ Status PipelineTask::_state_transition(State new_state) {
                 _to_string(_exec_state), _to_string(new_state), debug_string());
     }
     // FINISHED/FINALIZED → RUNNABLE is legal under wake_up_early (delayed wake_up() arriving
-    // after the task already terminated), but we must not actually move the state backwards.
+    // after the task already terminated), but we must not actually move the state backwards
+    // or update profile info (which would misleadingly show RUNNABLE for a terminated task).
     bool need_move = !((_exec_state == State::FINISHED || _exec_state == State::FINALIZED) &&
                        new_state == State::RUNNABLE);
     if (need_move) {
+        if (_exec_state != new_state) {
+            _state_change_watcher.reset();
+            _state_change_watcher.start();
+        }
+        _task_profile->add_info_string("TaskState", _to_string(new_state));
+        _task_profile->add_info_string("BlockedByDependency",
+                                       _blocked_dep ? _blocked_dep->name() : "");
         _exec_state = new_state;
     }
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris

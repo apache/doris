@@ -25,7 +25,6 @@
 #include "util/time.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class PipelineTask;
 
 class ResourceContext;
@@ -156,5 +155,4 @@ protected:
     std::atomic<int> revoking_tasks_count_ = 0;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

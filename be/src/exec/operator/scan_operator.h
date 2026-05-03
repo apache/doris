@@ -37,7 +37,6 @@
 #include "storage/predicate/filter_olap_param.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 class ScannerDelegate;
 class OlapScanner;
 } // namespace doris
@@ -348,11 +347,7 @@ public:
     Status get_block_after_projects(RuntimeState* state, Block* block, bool* eos) override {
         Status status = get_block(state, block, eos);
         if (status.ok()) {
-            if (auto rows = block->rows()) {
-                auto* local_state = state->get_local_state(operator_id());
-                COUNTER_UPDATE(local_state->_rows_returned_counter, rows);
-                COUNTER_UPDATE(local_state->_blocks_returned_counter, 1);
-            }
+            state->get_local_state(operator_id())->update_output_block_counters(*block);
         }
         return status;
     }
@@ -443,5 +438,4 @@ protected:
     std::shared_ptr<MemLimiter> _mem_limiter = nullptr;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -42,7 +42,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 template <CastModeType CastMode, typename FromDataType, typename ToDataType>
     requires(IsStringType<FromDataType> && IsDatelikeTypes<ToDataType>)
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
@@ -485,5 +484,4 @@ public:
         return Status::OK();
     }
 };
-#include "common/compile_check_end.h"
 } // namespace doris

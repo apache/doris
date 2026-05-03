@@ -37,7 +37,6 @@
 
 namespace doris {
 #include "common/compile_check_avoid_begin.h"
-#include "common/compile_check_begin.h"
 
 bvar::Adder<uint64_t> g_file_cache_get_by_peer_num("file_cache_get_by_peer_num");
 bvar::Adder<uint64_t> g_file_cache_get_by_peer_blocks_num("file_cache_get_by_peer_blocks_num");
@@ -347,8 +346,6 @@ void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* 
     }
 }
 
-#include "common/compile_check_end.h"
-
 bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_submitted_segment_num(
         "file_cache_event_driven_warm_up_submitted_segment_num");
 bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_finished_segment_num(
@@ -533,7 +530,8 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                                                    /* local_only = */ local_only);
         if (!res.has_value()) {
             LOG_WARNING("Warm up error ").tag("tablet_id", tablet_id).error(res.error());
-            if (res.error().msg().find("local_only=true") != std::string::npos) {
+            if (res.error().msg().find("local_only=true") != std::string::npos ||
+                res.error().msg().find("force_use_only_cached=true") != std::string::npos) {
                 res.error().set_code(ErrorCode::TABLE_NOT_FOUND);
             }
             res.error().to_protobuf(response->mutable_status());

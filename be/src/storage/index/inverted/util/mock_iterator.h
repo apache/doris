@@ -25,7 +25,6 @@
 #include "storage/index/inverted/util/term_position_iterator.h"
 
 namespace doris::segment_v2::inverted_index {
-#include "common/compile_check_begin.h"
 
 class MockIterator : public TermPositionsIterator {
 public:
@@ -167,4 +166,3 @@ private:
 using MockIterPtr = std::shared_ptr<MockIterator>;
 
 } // namespace doris::segment_v2::inverted_index
-#include "common/compile_check_end.h"

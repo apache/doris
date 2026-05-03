@@ -154,11 +154,58 @@ suite("test_streaming_mysql_job_metrics",
                         metricCount++
                     }
 
+                    // check per-job metrics with job_id and job_name labels
+                    def perJobScannedRows = result.find {
+                        it.tags?.metric == "doris_fe_streaming_job_per_job_scanned_rows" &&
+                        it.tags?.job_name == "${jobName}"
+                    }
+                    if (perJobScannedRows != null) {
+                        log.info("per-job scanned_rows: ${perJobScannedRows}".toString())
+                        metricCount++
+                    }
+
+                    def perJobLoadBytes = result.find {
+                        it.tags?.metric == "doris_fe_streaming_job_per_job_load_bytes" &&
+                        it.tags?.job_name == "${jobName}"
+                    }
+                    if (perJobLoadBytes != null) {
+                        log.info("per-job load_bytes: ${perJobLoadBytes}".toString())
+                        metricCount++
+                    }
+
+                    def perJobFilteredRows = result.find {
+                        it.tags?.metric == "doris_fe_streaming_job_per_job_filtered_rows" &&
+                        it.tags?.job_name == "${jobName}"
+                    }
+                    if (perJobFilteredRows != null) {
+                        log.info("per-job filtered_rows: ${perJobFilteredRows}".toString())
+                        metricCount++
+                    }
+
+                    def perJobSucceedTaskCount = result.find {
+                        it.tags?.metric == "doris_fe_streaming_job_per_job_succeed_task_count" &&
+                        it.tags?.job_name == "${jobName}"
+                    }
+                    if (perJobSucceedTaskCount != null) {
+                        log.info("per-job succeed_task_count: ${perJobSucceedTaskCount}".toString())
+                        metricCount++
+                    }
+
+                    def perJobFailedTaskCount = result.find {
+                        it.tags?.metric == "doris_fe_streaming_job_per_job_failed_task_count" &&
+                        it.tags?.job_name == "${jobName}"
+                    }
+                    if (perJobFailedTaskCount != null) {
+                        log.info("per-job failed_task_count: ${perJobFailedTaskCount}".toString())
+                        metricCount++
+                    }
+
+
                 }
             }
 
-            // 9 streaming_job_* counters + 1 doris_fe_job RUNNING gauge
-            if (metricCount >= 10) {
+            // 9 streaming_job_* counters + 1 doris_fe_job RUNNING gauge + 5 per-job metrics
+            if (metricCount >= 15) {
                 break
             }
 

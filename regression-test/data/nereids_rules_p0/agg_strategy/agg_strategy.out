@@ -60,40 +60,40 @@
 1
 
 -- !agg_distinct_with_gby_key_with_other_func --
-1	1	27	27.0
-1	2	76	76.0
-1	3	42	42.0
-1	4	64	64.0
-1	5	18	18.0
-1	6	91	91.0
-1	7	13	13.0
-1	8	33	33.0
-1	9	55	55.0
-1	10	100	100.0
+1	1	27	27
+1	2	76	76
+1	3	42	42
+1	4	64	64
+1	5	18	18
+1	6	91	91
+1	7	13	13
+1	8	33	33
+1	9	55	55
+1	10	100	100
 
 -- !agg_distinct_satisfy_gby_key_with_other_func --
-1	1	42	42.0
-1	2	18	18.0
-1	3	76	76.0
-1	4	33	33.0
-1	5	91	91.0
-1	6	27	27.0
-1	7	64	64.0
-1	8	55	55.0
-1	9	13	13.0
-1	10	100	100.0
+1	1	42	42
+1	2	18	18
+1	3	76	76
+1	4	33	33
+1	5	91	91
+1	6	27	27
+1	7	64	64
+1	8	55	55
+1	9	13	13
+1	10	100	100
 
 -- !agg_distinct_satisfy_dst_key_with_other_func --
-1	13	13.0
-1	18	18.0
-1	27	27.0
-1	33	33.0
-1	42	42.0
-1	55	55.0
-1	64	64.0
-1	76	76.0
-1	91	91.0
-1	100	100.0
+1	13	13
+1	18	18
+1	27	27
+1	33	33
+1	42	42
+1	55	55
+1	64	64
+1	76	76
+1	91	91
+1	100	100
 
 -- !agg_distinct_without_gby_key --
 10
@@ -279,40 +279,40 @@ PhysicalResultSink
 1
 
 -- !agg_distinct_with_gby_key_with_other_func --
-1	1	27	27.0
-1	2	76	76.0
-1	3	42	42.0
-1	4	64	64.0
-1	5	18	18.0
-1	6	91	91.0
-1	7	13	13.0
-1	8	33	33.0
-1	9	55	55.0
-1	10	100	100.0
+1	1	27	27
+1	2	76	76
+1	3	42	42
+1	4	64	64
+1	5	18	18
+1	6	91	91
+1	7	13	13
+1	8	33	33
+1	9	55	55
+1	10	100	100
 
 -- !agg_distinct_satisfy_gby_key_with_other_func --
-1	1	42	42.0
-1	2	18	18.0
-1	3	76	76.0
-1	4	33	33.0
-1	5	91	91.0
-1	6	27	27.0
-1	7	64	64.0
-1	8	55	55.0
-1	9	13	13.0
-1	10	100	100.0
+1	1	42	42
+1	2	18	18
+1	3	76	76
+1	4	33	33
+1	5	91	91
+1	6	27	27
+1	7	64	64
+1	8	55	55
+1	9	13	13
+1	10	100	100
 
 -- !agg_distinct_satisfy_dst_key_with_other_func --
-1	13	13.0
-1	18	18.0
-1	27	27.0
-1	33	33.0
-1	42	42.0
-1	55	55.0
-1	64	64.0
-1	76	76.0
-1	91	91.0
-1	100	100.0
+1	13	13
+1	18	18
+1	27	27
+1	33	33
+1	42	42
+1	55	55
+1	64	64
+1	76	76
+1	91	91
+1	100	100
 
 -- !agg_distinct_without_gby_key --
 10
@@ -492,16 +492,16 @@ PhysicalResultSink
 2
 
 -- !agg_distinct_with_gby_key_with_other_func_low_ndv --
-2	0	60	4.0
-2	1	75	5.0
+2	0	60	4
+2	1	75	5
 
 -- !agg_distinct_satisfy_gby_key_with_other_func_low_ndv --
 2	0	69	4.3125
 2	1	66	4.714285714285714
 
 -- !agg_distinct_satisfy_dst_key_with_other_func_low_ndv --
-2	60	4.0
-2	75	5.0
+2	60	4
+2	75	5
 
 -- !agg_distinct_without_gby_key_low_ndv --
 2
@@ -647,16 +647,16 @@ PhysicalResultSink
 2
 
 -- !agg_distinct_with_gby_key_with_other_func_low_ndv --
-2	0	60	4.0
-2	1	75	5.0
+2	0	60	4
+2	1	75	5
 
 -- !agg_distinct_satisfy_gby_key_with_other_func_low_ndv --
 2	0	69	4.3125
 2	1	66	4.714285714285714
 
 -- !agg_distinct_satisfy_dst_key_with_other_func_low_ndv --
-2	60	4.0
-2	75	5.0
+2	60	4
+2	75	5
 
 -- !agg_distinct_without_gby_key_low_ndv --
 2
@@ -804,16 +804,16 @@ PhysicalResultSink
 1
 
 -- !with_gby_split_in_cascades --
-1	13.0
-1	18.0
-1	27.0
-1	33.0
-1	42.0
-1	55.0
-1	64.0
-1	76.0
-1	91.0
-1	100.0
+1	13
+1	18
+1	27
+1	33
+1	42
+1	55
+1	64
+1	76
+1	91
+1	100
 
 -- !without_gby --
 10

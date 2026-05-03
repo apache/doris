@@ -73,7 +73,11 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApprox
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileReservoir;
 import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrAvgx;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrAvgy;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrIntercept;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrR2;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSlope;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSxx;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSxy;
@@ -325,8 +329,24 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitAggregateFunction(quantileUnion, context);
     }
 
+    default R visitRegrAvgx(RegrAvgx regrAvgx, C context) {
+        return visitAggregateFunction(regrAvgx, context);
+    }
+
+    default R visitRegrAvgy(RegrAvgy regrAvgy, C context) {
+        return visitAggregateFunction(regrAvgy, context);
+    }
+
+    default R visitRegrCount(RegrCount regrCount, C context) {
+        return visitAggregateFunction(regrCount, context);
+    }
+
     default R visitRegrIntercept(RegrIntercept regrIntercept, C context) {
         return visitAggregateFunction(regrIntercept, context);
+    }
+
+    default R visitRegrR2(RegrR2 regrR2, C context) {
+        return visitAggregateFunction(regrR2, context);
     }
 
     default R visitRegrSlope(RegrSlope regrSlope, C context) {

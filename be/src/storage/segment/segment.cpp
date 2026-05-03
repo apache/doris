@@ -29,6 +29,7 @@
 #include <utility>
 
 #include "cloud/config.h"
+#include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -79,7 +80,6 @@
 #include "util/slice.h" // Slice
 
 namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
 
 class InvertedIndexIterator;
 
@@ -624,6 +624,22 @@ Status Segment::_create_column_meta(const SegmentFooterPB& footer) {
     // Initialize column meta accessor which internally maintains uid -> column_ordinal mapping.
     _column_meta_accessor = std::make_unique<ColumnMetaAccessor>();
     RETURN_IF_ERROR(_column_meta_accessor->init(footer, _file_reader));
+
+    if (config::enable_adaptive_batch_size) {
+        // Cache raw_data_bytes per column uid for adaptive batch size prediction.
+        // This runs under call_once, so no thread-safety concerns.
+        auto st = _column_meta_accessor->traverse_metas(footer, [this](const ColumnMetaPB& meta) {
+            if (meta.has_unique_id() && meta.unique_id() != -1 && meta.has_raw_data_bytes()) {
+                _column_uid_to_raw_bytes[meta.unique_id()] = meta.raw_data_bytes();
+            }
+        });
+
+        if (!st.ok()) {
+            LOG(WARNING) << "Failed to traverse column metas to cache raw_data_bytes, error: "
+                         << st.to_string();
+        }
+    }
+
     _column_reader_cache = std::make_unique<ColumnReaderCache>(
             _column_meta_accessor.get(), _tablet_schema, _file_reader, _num_rows,
             [this](std::shared_ptr<SegmentFooterPB>& footer_pb, OlapReaderStatistics* stats) {
@@ -1041,5 +1057,4 @@ StoragePageCache::CacheKey Segment::get_segment_footer_cache_key(
             static_cast<int64_t>(file_reader->size() - 12)};
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

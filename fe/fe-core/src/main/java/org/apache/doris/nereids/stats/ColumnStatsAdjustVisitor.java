@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -69,10 +70,10 @@ public class ColumnStatsAdjustVisitor extends DefaultExpressionVisitor<ColumnSta
                 DataType childNereidsType = cast.child().getDataType();
                 if (childNereidsType instanceof CharacterType) {
                     Type childCatalogType = childNereidsType.toCatalogDataType();
-                    LiteralExpr childMinExpr = LiteralExpr.create(colStats.minExpr.getStringValue(),
+                    LiteralExpr childMinExpr = LiteralExprUtils.createLiteral(colStats.minExpr.getStringValue(),
                             childCatalogType);
                     double childMinValue = Literal.of(childMinExpr.getStringValue()).getDouble();
-                    LiteralExpr childMaxExpr = LiteralExpr.create(colStats.maxExpr.getStringValue(),
+                    LiteralExpr childMaxExpr = LiteralExprUtils.createLiteral(colStats.maxExpr.getStringValue(),
                             childCatalogType);
                     double childMaxValue = Literal.of(childMaxExpr.getStringValue()).getDouble();
                     ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
