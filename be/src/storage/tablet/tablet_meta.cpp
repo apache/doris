@@ -426,6 +426,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
 
         schema->set_integer_type_default_use_plain_encoding(true);
         _schema->set_integer_type_default_use_plain_encoding(true);
+        schema->set_float_type_default_use_plain_encoding(true);
+        _schema->set_float_type_default_use_plain_encoding(true);
         schema->set_binary_plain_encoding_default_impl(
                 BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2);
         _schema->set_binary_plain_encoding_default_impl(

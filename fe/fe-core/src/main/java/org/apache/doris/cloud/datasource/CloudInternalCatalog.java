@@ -336,6 +336,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             case V3:
                 schemaBuilder.setIsExternalSegmentColumnMetaUsed(true);
                 schemaBuilder.setIntegerTypeDefaultUsePlainEncoding(true);
+                schemaBuilder.setFloatTypeDefaultUsePlainEncoding(true);
                 schemaBuilder.setBinaryPlainEncodingDefaultImpl(
                         OlapFile.BinaryPlainEncodingTypePB.BINARY_PLAIN_ENCODING_V2);
                 break;
