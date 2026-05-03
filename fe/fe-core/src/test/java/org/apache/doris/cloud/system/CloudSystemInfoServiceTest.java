@@ -19,19 +19,28 @@ package org.apache.doris.cloud.system;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.ComputeGroup;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class CloudSystemInfoServiceTest {
     private CloudSystemInfoService infoService;
@@ -40,6 +49,7 @@ public class CloudSystemInfoServiceTest {
     public void setUp() {
         // Enable cloud mode for testing
         Config.cloud_unique_id = "test_cloud_unique_id";
+        Config.meta_service_endpoint = "127.0.0.1:5000";
     }
 
     @Test
@@ -971,6 +981,52 @@ public class CloudSystemInfoServiceTest {
             // Clean up ConnectContext
             ConnectContext.remove();
         }
+    }
+
+    @Test
+    public void testAddBackendsGenerateUniqueCloudUniqueIdPerBackend() throws Exception {
+        infoService = new CloudSystemInfoService();
+
+        CloudEnv cloudEnv = Mockito.mock(CloudEnv.class);
+        MetaServiceProxy metaServiceProxy = Mockito.mock(MetaServiceProxy.class);
+        AtomicReference<Cloud.AlterClusterRequest> addNodeRequestRef = new AtomicReference<>();
+
+        Mockito.when(cloudEnv.getCloudInstanceId()).thenReturn("instance-test");
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                MockedStatic<MetaServiceProxy> mockedMetaServiceProxy = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(cloudEnv);
+            mockedMetaServiceProxy.when(MetaServiceProxy::getInstance).thenReturn(metaServiceProxy);
+
+            Mockito.when(metaServiceProxy.alterCluster(Mockito.any())).thenAnswer(invocation -> {
+                Cloud.AlterClusterRequest request = invocation.getArgument(0);
+                if (request.getOp() == Cloud.AlterClusterRequest.Operation.ADD_NODE) {
+                    addNodeRequestRef.set(request);
+                }
+                return Cloud.AlterClusterResponse.newBuilder()
+                        .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                                .setCode(Cloud.MetaServiceCode.OK)
+                                .setMsg("OK"))
+                        .build();
+            });
+
+            Map<String, String> tagMap = Tag.DEFAULT_BACKEND_TAG.toMap();
+            tagMap.put(Tag.COMPUTE_GROUP_NAME, "test_compute_group");
+
+            List<HostInfo> hostInfos = new ArrayList<>();
+            hostInfos.add(new HostInfo("192.168.1.189", 9050));
+            hostInfos.add(new HostInfo("192.168.1.189", 9052));
+
+            infoService.addBackends(hostInfos, tagMap);
+        }
+
+        Cloud.AlterClusterRequest addNodeRequest = addNodeRequestRef.get();
+        Assert.assertNotNull(addNodeRequest);
+        Assert.assertEquals(2, addNodeRequest.getCluster().getNodesCount());
+
+        Set<String> cloudUniqueIds = new HashSet<>();
+        addNodeRequest.getCluster().getNodesList().forEach(node -> cloudUniqueIds.add(node.getCloudUniqueId()));
+        Assert.assertEquals(2, cloudUniqueIds.size());
     }
 
     /**

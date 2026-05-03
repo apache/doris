@@ -603,8 +603,6 @@ public class CloudSystemInfoService extends SystemInfoService {
         String instanceId = Config.cluster_id == -1 ? ((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId()
                 : String.valueOf(Config.cluster_id);
 
-        String cloudUniqueId = "1:" + instanceId + ":" + RandomIdentifierGenerator.generateRandomIdentifier(8);
-
         String publicEndpoint = tagMap.getOrDefault(Tag.PUBLIC_ENDPOINT, "");
         String privateEndpoint = tagMap.getOrDefault(Tag.PRIVATE_ENDPOINT, "");
 
@@ -614,6 +612,7 @@ public class CloudSystemInfoService extends SystemInfoService {
                 .build();
 
         for (HostInfo hostInfo : hostInfos) {
+            String cloudUniqueId = "1:" + instanceId + ":" + RandomIdentifierGenerator.generateRandomIdentifier(8);
             Cloud.NodeInfoPB nodeInfoPB = Cloud.NodeInfoPB.newBuilder()
                     .setCloudUniqueId(cloudUniqueId)
                     .setIp(hostInfo.getHost())
