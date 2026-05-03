@@ -19,6 +19,10 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -61,6 +65,14 @@ public class AddColumnsClause extends AlterTableClause {
             throw new AnalysisException("Columns is empty in add columns clause.");
         }
         for (ColumnDef colDef : columnDefs) {
+            if (tableName != null) {
+                Table table = Env.getCurrentInternalCatalog().getDbOrAnalysisException(tableName.getDb())
+                        .getTableOrAnalysisException(tableName.getTbl());
+                if (table instanceof OlapTable && ((OlapTable) table).getKeysType() == KeysType.AGG_KEYS
+                        && colDef.getAggregateType() == null) {
+                    colDef.setIsKey(true);
+                }
+            }
             colDef.analyze(true);
 
             if (!colDef.isAllowNull() && colDef.getDefaultValue() == null) {
