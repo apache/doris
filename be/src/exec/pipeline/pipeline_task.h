@@ -271,10 +271,11 @@ private:
     Dependency* _blocked_dep = nullptr;
 
     Dependency* _memory_sufficient_dependency;
-    std::mutex _dependency_lock;
-    // Serializes forced dependency unblocking with task finalization. set_ready() may call back into
-    // wake_up() synchronously, so wake_up() must not take this lock.
-    std::mutex _forced_unblock_lock;
+    // Protects dependency containers and the raw Dependency pointers they contain. It also
+    // serializes forced dependency unblocking with close()/finalize(): set_ready() may synchronously
+    // call wake_up() and submit this task, so close()/finalize() must not clear operator/shared
+    // state until forced unblocking finishes. wake_up() must not take this lock.
+    std::mutex _dependency_lifecycle_lock;
 
     std::atomic<bool> _running {false};
     std::atomic<bool> _eos {false};

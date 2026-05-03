@@ -154,7 +154,7 @@ Status PipelineTask::prepare(const std::vector<TScanRangeParams>& scan_range, co
     {
         const auto& deps =
                 _state->get_local_state(_source->operator_id())->execution_dependencies();
-        std::unique_lock<std::mutex> lc(_dependency_lock);
+        std::unique_lock<std::mutex> lc(_dependency_lifecycle_lock);
         std::copy(deps.begin(), deps.end(),
                   std::inserter(_execution_dependencies, _execution_dependencies.end()));
     }
@@ -200,7 +200,7 @@ Status PipelineTask::_extract_dependencies() {
         }
     }
     {
-        std::unique_lock<std::mutex> lc(_dependency_lock);
+        std::unique_lock<std::mutex> lc(_dependency_lifecycle_lock);
         read_dependencies.swap(_read_dependencies);
         write_dependencies.swap(_write_dependencies);
         finish_dependencies.swap(_finish_dependencies);
@@ -345,9 +345,9 @@ bool PipelineTask::_is_blocked() {
 }
 
 void PipelineTask::unblock_all_dependencies() {
-    // We use a lock to assure all dependencies are not deconstructed here.
-    std::unique_lock<std::mutex> unblock_lock(_forced_unblock_lock);
-    std::unique_lock<std::mutex> lc(_dependency_lock);
+    // Keep dependency pointers and task-owned operator/shared state stable because set_ready() may
+    // synchronously call wake_up() and submit this task.
+    std::unique_lock<std::mutex> lock(_dependency_lifecycle_lock);
     auto fragment = _fragment_context.lock();
     if (!is_finalized() && fragment) {
         try {
@@ -888,9 +888,9 @@ Status PipelineTask::finalize() {
         return Status::OK();
     }
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(fragment->get_query_ctx()->query_mem_tracker());
-    std::unique_lock<std::mutex> unblock_lock(_forced_unblock_lock);
+    // Synchronize with unblock_all_dependencies() before clearing state used by wake_up()->submit().
+    std::unique_lock<std::mutex> lock(_dependency_lifecycle_lock);
     RETURN_IF_ERROR(_state_transition(State::FINALIZED));
-    std::unique_lock<std::mutex> lc(_dependency_lock);
     _sink_shared_state.reset();
     _op_shared_states.clear();
     _shared_state_map.clear();
@@ -927,7 +927,8 @@ Status PipelineTask::close(Status exec_status, bool close_sink) {
     }
 
     if (close_sink) {
-        std::unique_lock<std::mutex> unblock_lock(_forced_unblock_lock);
+        // Synchronize FINISHED with forced unblocking so delayed wake_up() sees a stable state.
+        std::unique_lock<std::mutex> lock(_dependency_lifecycle_lock);
         RETURN_IF_ERROR(_state_transition(State::FINISHED));
     }
     return s;
@@ -947,7 +948,7 @@ std::string PipelineTask::debug_string() {
                    _index, _opened, _eos, _to_string(_exec_state), _dry_run, _wake_up_early.load(),
                    _wake_by, _state_change_watcher.elapsed_time() / NANOS_PER_SEC, _spilling,
                    is_running());
-    std::unique_lock<std::mutex> lc(_dependency_lock);
+    std::unique_lock<std::mutex> lc(_dependency_lifecycle_lock);
     auto* cur_blocked_dep = _blocked_dep;
     auto fragment = _fragment_context.lock();
     if (is_finalized() || !fragment) {
@@ -1084,10 +1085,16 @@ void PipelineTask::wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* dep
 Status PipelineTask::_state_transition(State new_state) {
     const auto& table =
             _wake_up_early ? WAKE_UP_EARLY_LEGAL_STATE_TRANSITION : LEGAL_STATE_TRANSITION;
-    if (!table[(int)new_state].contains(_exec_state)) {
+    auto current_state = _exec_state.load();
+    if (!table[(int)new_state].contains(current_state)) {
         return Status::InternalError(
-                "Task state transition from {} to {} is not allowed! Task info: {}",
-                _to_string(_exec_state), _to_string(new_state), debug_string());
+                "Task state transition from {} to {} is not allowed! Task: query_id={}, "
+                "instance_id={}, id={}, pipeline={}, open={}, eos={}, dry_run={}, "
+                "wake_up_early={}, wake_by={}, spilling={}, running={}",
+                _to_string(current_state), _to_string(new_state), print_id(_query_id),
+                print_id(_state->fragment_instance_id()), _index, _pipeline_name, _opened,
+                _eos.load(), _dry_run, _wake_up_early.load(), _wake_by.load(), _spilling.load(),
+                is_running());
     }
     // FINISHED/FINALIZED -> RUNNABLE is legal under wake_up_early (delayed wake_up() arriving
     // after the task already terminated), but we must not actually move the state backwards
