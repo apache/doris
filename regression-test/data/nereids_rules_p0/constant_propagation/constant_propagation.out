@@ -188,7 +188,7 @@ PhysicalResultSink
 
 -- !join_9_shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.x = t3.a)) otherCondition=() build RFs:RF0 a->[x]
+--hashJoin[INNER_JOIN] hashCondition=((t2.x = t3.a)) otherCondition=() build RFs:RF0 a->x
 ----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalProject[t1.a]
 --------filter((t1.a = 10))
@@ -205,7 +205,7 @@ PhysicalResultSink
 
 -- !join_10_shape --
 PhysicalResultSink
---hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.a = t3.a)) otherCondition=() build RFs:RF0 a->[a]
+--hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.a = t3.a)) otherCondition=() build RFs:RF0 a->a
 ----PhysicalProject[t1.a]
 ------PhysicalOlapScan[t1] apply RFs: RF0
 ----PhysicalProject[t3.a]
@@ -426,13 +426,13 @@ PhysicalResultSink
 -- !subquery_9_shape --
 PhysicalResultSink
 --NestedLoopJoin[CROSS_JOIN]
-----PhysicalExcept RFV2: RF0[b->y]
+----PhysicalExcept build RFs:RF0 b->y 
 ------PhysicalProject[(cast(a as BIGINT) * 10) AS `k`, t1.b]
 --------filter(((cast(a as BIGINT) * 10) = 10))
 ----------PhysicalOlapScan[t1]
 ------PhysicalProject[cast(x as BIGINT) AS `k`, y AS `b`]
 --------filter((t2.x = 10))
-----------PhysicalOlapScan[t2] RFV2: RF0
+----------PhysicalOlapScan[t2] apply RFs: RF0
 ----PhysicalProject[t3.a]
 ------filter((t3.__DORIS_DELETE_SIGN__ = 0) and (t3.a = 2))
 --------PhysicalOlapScan[t3]
@@ -443,13 +443,13 @@ PhysicalResultSink
 -- !subquery_10_shape --
 PhysicalResultSink
 --NestedLoopJoin[CROSS_JOIN]
-----PhysicalIntersect RFV2: RF0[b->y]
+----PhysicalIntersect build RFs:RF0 b->y 
 ------PhysicalProject[(cast(a as BIGINT) * 10) AS `k`, t1.b]
 --------filter(((cast(a as BIGINT) * 10) = 10))
 ----------PhysicalOlapScan[t1]
 ------PhysicalProject[cast(x as BIGINT) AS `k`, y AS `b`]
 --------filter((t2.x = 10))
-----------PhysicalOlapScan[t2] RFV2: RF0
+----------PhysicalOlapScan[t2] apply RFs: RF0
 ----PhysicalProject[t3.a]
 ------filter((t3.__DORIS_DELETE_SIGN__ = 0) and (t3.a = 2))
 --------PhysicalOlapScan[t3]

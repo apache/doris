@@ -233,6 +233,57 @@ TEST_F(PackedFileSystemTest, CreateFileWrapsWithPackedFileWriter) {
     EXPECT_TRUE(st.ok());
 }
 
+TEST_F(PackedFileSystemTest, FirstSegmentDataFileUsesPackedWriter) {
+    PackedFileSystem merge_fs(_inner_fs, _append_info);
+
+    Path file_path("rowset_1_0.dat");
+    FileWriterPtr writer;
+    ASSERT_TRUE(merge_fs.create_file(file_path, &writer, nullptr).ok());
+    ASSERT_NE(writer, nullptr);
+
+    std::string data = "test";
+    Slice slice(data);
+    ASSERT_TRUE(writer->appendv(&slice, 1).ok());
+
+    ASSERT_NE(_inner_fs->last_writer(), nullptr);
+    EXPECT_EQ(_inner_fs->last_writer()->bytes_appended(), 0);
+    EXPECT_TRUE(writer->is_in_packed_file());
+}
+
+TEST_F(PackedFileSystemTest, LaterSegmentDataFileUsesDirectWriter) {
+    PackedFileSystem merge_fs(_inner_fs, _append_info);
+
+    Path file_path("rowset_1_1.dat");
+    FileWriterPtr writer;
+    ASSERT_TRUE(merge_fs.create_file(file_path, &writer, nullptr).ok());
+    ASSERT_NE(writer, nullptr);
+
+    std::string data = "test";
+    Slice slice(data);
+    ASSERT_TRUE(writer->appendv(&slice, 1).ok());
+
+    ASSERT_NE(_inner_fs->last_writer(), nullptr);
+    EXPECT_EQ(_inner_fs->last_writer()->bytes_appended(), data.size());
+    EXPECT_FALSE(writer->is_in_packed_file());
+}
+
+TEST_F(PackedFileSystemTest, LaterSegmentIndexFileUsesDirectWriter) {
+    PackedFileSystem merge_fs(_inner_fs, _append_info);
+
+    Path file_path("rowset_1_2.idx");
+    FileWriterPtr writer;
+    ASSERT_TRUE(merge_fs.create_file(file_path, &writer, nullptr).ok());
+    ASSERT_NE(writer, nullptr);
+
+    std::string data = "idx";
+    Slice slice(data);
+    ASSERT_TRUE(writer->appendv(&slice, 1).ok());
+
+    ASSERT_NE(_inner_fs->last_writer(), nullptr);
+    EXPECT_EQ(_inner_fs->last_writer()->bytes_appended(), data.size());
+    EXPECT_FALSE(writer->is_in_packed_file());
+}
+
 TEST_F(PackedFileSystemTest, OpenFileNotInMergeFile) {
     PackedFileSystem merge_fs(_inner_fs, _append_info);
 

@@ -93,11 +93,9 @@ public:
             while (iter->has_next()) {
                 const auto* value = (const StringRef*)(iter->get_value());
                 if constexpr (Type == TYPE_CHAR) {
-                    _temp_datas.emplace_back("");
-                    _temp_datas.back().resize(std::max(char_length, value->size));
-                    memcpy(_temp_datas.back().data(), value->data, value->size);
-                    const std::string& str = _temp_datas.back();
-                    _values->insert((void*)str.data(), str.length());
+                    std::string padded(std::max(char_length, value->size), '\0');
+                    memcpy(padded.data(), value->data, value->size);
+                    _values->insert((void*)padded.data(), padded.length());
                 } else {
                     _values->insert((void*)value->data, value->size);
                 }
@@ -128,7 +126,6 @@ public:
         _values = other._values;
         _min_value = other._min_value;
         _max_value = other._max_value;
-        _temp_datas = other._temp_datas;
         DCHECK(_segment_id_to_value_in_dict_flags.empty());
     }
     InListPredicateBase(const InListPredicateBase<Type, PT, N>& other) = delete;
@@ -658,8 +655,5 @@ private:
             _segment_id_to_value_in_dict_flags;
     T _min_value;
     T _max_value;
-
-    // temp string for char type column
-    std::list<std::string> _temp_datas;
 };
 } //namespace doris

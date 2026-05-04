@@ -21,6 +21,7 @@ import org.apache.doris.filesystem.DorisInputFile;
 import org.apache.doris.filesystem.DorisInputStream;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.thrift.TBrokerFD;
+import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TBrokerOpenReaderRequest;
 import org.apache.doris.thrift.TBrokerOpenReaderResponse;
 import org.apache.doris.thrift.TBrokerOperationStatus;
@@ -31,7 +32,9 @@ import org.apache.doris.thrift.TPaloBrokerService;
 
 import org.apache.thrift.TException;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -42,6 +45,7 @@ import java.util.Map;
  */
 class BrokerInputFile implements DorisInputFile {
 
+    private final BrokerSpiFileSystem fs;
     private final Location location;
     /** Known file length, or -1 if not yet determined. */
     private long knownLength;
@@ -50,8 +54,9 @@ class BrokerInputFile implements DorisInputFile {
     private final Map<String, String> brokerParams;
     private final BrokerClientPool clientPool;
 
-    BrokerInputFile(Location location, long knownLength, TNetworkAddress endpoint,
+    BrokerInputFile(BrokerSpiFileSystem fs, Location location, long knownLength, TNetworkAddress endpoint,
             String clientId, Map<String, String> brokerParams, BrokerClientPool clientPool) {
+        this.fs = fs;
         this.location = location;
         this.knownLength = knownLength;
         this.endpoint = endpoint;
@@ -70,12 +75,16 @@ class BrokerInputFile implements DorisInputFile {
         if (knownLength >= 0) {
             return knownLength;
         }
-        // Resolve length by opening and immediately closing a reader.
-        // The openReader response does not include file size; use a small seek approach:
-        // open reader and let caller discover length via sequential reads (EOF detection).
-        // For now, throw UOE unless length was provided at construction.
-        throw new UnsupportedOperationException(
-                "File length not provided; use newInputFile(location, length) overload.");
+        List<TBrokerFileStatus> statuses = fs.listPath(location.uri(), false);
+        if (statuses.isEmpty()) {
+            throw new FileNotFoundException("File does not exist: " + location);
+        }
+        TBrokerFileStatus status = statuses.get(0);
+        if (status.isIsDir()) {
+            throw new IOException("Not a file: " + location);
+        }
+        knownLength = status.getSize();
+        return knownLength;
     }
 
     @Override
@@ -88,12 +97,17 @@ class BrokerInputFile implements DorisInputFile {
             TBrokerOpenReaderResponse rep = client.openReader(req);
             TBrokerOperationStatus opst = rep.getOpStatus();
             if (opst.getStatusCode() != TBrokerOperationStatusCode.OK) {
+                // Application-level failure: the Thrift client itself is healthy, so it
+                // remains eligible to be returned to the pool by the finally block.
                 throw new IOException("Failed to open broker reader for [" + location + "]: " + opst.getMessage());
             }
             TBrokerFD fd = new TBrokerFD(rep.getFd().getHigh(), rep.getFd().getLow());
             returnToPool = false; // BrokerInputStream takes ownership of the client
             return new BrokerInputStream(endpoint, clientPool, client, fd);
         } catch (TException e) {
+            // Transport-level failure: the client is broken and must not be returned to the pool.
+            returnToPool = false;
+            clientPool.invalidate(endpoint, client);
             throw new IOException("Broker openReader RPC failed for [" + location + "]: " + e.getMessage(), e);
         } finally {
             if (returnToPool) {

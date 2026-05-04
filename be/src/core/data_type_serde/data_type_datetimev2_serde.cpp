@@ -32,7 +32,6 @@
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "exprs/function/cast/cast_to_string.h"
-#include "util/io_helper.h"
 
 enum {
     DIVISOR_FOR_SECOND = 1,
@@ -345,7 +344,9 @@ Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_json(IColumn& column, 
         slice.trim_quote();
     }
     DateV2Value<DateTimeV2ValueType> val;
-    if (StringRef str(slice.data, slice.size); !read_datetime_v2_text_impl(val, str, _scale)) {
+    StringRef str(slice.data, slice.size);
+    CastParameters params;
+    if (!CastToDatetimeV2::from_string_non_strict_mode(str, val, nullptr, _scale, params)) {
         return Status::InvalidArgument("parse date fail, string: '{}'", str.to_string());
     }
     column_data.insert_value(val);
@@ -421,9 +422,8 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
         const auto* base_ptr = reinterpret_cast<const uint8_t*>(concrete_array->raw_values());
         const size_t element_size = sizeof(int64_t);
         for (auto value_i = start; value_i < end; ++value_i) {
-            int64_t date_value = 0;
             const uint8_t* raw_byte_ptr = base_ptr + value_i * element_size;
-            memcpy(&date_value, raw_byte_ptr, element_size);
+            auto date_value = unaligned_load<int64_t>(raw_byte_ptr);
             auto utc_epoch = static_cast<UInt64>(date_value);
 
             DateV2Value<DateTimeV2ValueType> v;

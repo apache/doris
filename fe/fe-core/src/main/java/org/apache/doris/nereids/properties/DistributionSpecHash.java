@@ -238,6 +238,38 @@ public class DistributionSpecHash extends DistributionSpec {
     }
 
     /**
+     * Drops unused hash-shuffle slots and keeps some of the original slots. The list you pass is the new
+     * shuffle column order. Each ExprId must already be in exprIdToEquivalenceSet, and you must not pick
+     * two ExprIds that belong to the same original slot.
+     * Example: orderedShuffledColumns(e1, e2, e3), with equivalenceExprIds (e1,e4), (e2,e5), (e3,e6).
+     * exprIdToEquivalenceSet is(e1:0,e4:0,e2:1,e5:1,e3:2,e6:2)
+     * prunedOrderedColumns is (e2) yields
+     * orderedShuffledColumns(e2),with equivalenceExprIds(e2,e5).
+     * exprIdToEquivalenceSet is(e2:0,e5:0)
+     */
+    public DistributionSpecHash withShuffleExprs(List<ExprId> prunedOrderedColumns) {
+        Objects.requireNonNull(prunedOrderedColumns, "prunedOrderedColumns");
+        int k = prunedOrderedColumns.size();
+        List<Integer> origIndices = Lists.newArrayListWithCapacity(k);
+        for (ExprId exprId : prunedOrderedColumns) {
+            origIndices.add(exprIdToEquivalenceSet.get(exprId));
+        }
+        ImmutableList.Builder<Set<ExprId>> equivBuilder = ImmutableList.builderWithExpectedSize(k);
+        ImmutableMap.Builder<ExprId, Integer> mapBuilder = ImmutableMap.builder();
+        for (int newIdx = 0; newIdx < k; newIdx++) {
+            int origIdx = origIndices.get(newIdx);
+            Set<ExprId> equiv = equivalenceExprIds.get(origIdx);
+            equivBuilder.add(ImmutableSet.copyOf(equiv));
+            for (ExprId id : equiv) {
+                mapBuilder.put(id, newIdx);
+            }
+        }
+        return new DistributionSpecHash(ImmutableList.copyOf(prunedOrderedColumns),
+                shuffleType, tableId, selectedIndexId, partitionIds, equivBuilder.build(),
+                mapBuilder.buildKeepingLast());
+    }
+
+    /**
      * generate a new DistributionSpec after projection.
      */
     public DistributionSpec project(Map<ExprId, ExprId> projections,

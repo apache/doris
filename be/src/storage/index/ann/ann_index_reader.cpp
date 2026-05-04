@@ -35,19 +35,6 @@
 #include "util/once.h"
 
 namespace doris::segment_v2 {
-void AnnIndexReader::update_result(const IndexSearchResult& search_result,
-                                   std::vector<float>& distance, roaring::Roaring& roaring) {
-    DCHECK(search_result.distances != nullptr);
-    DCHECK(search_result.roaring != nullptr);
-    size_t limit = search_result.roaring->cardinality();
-    // Use search result to update distance and row_id
-    distance.resize(limit);
-    for (size_t i = 0; i < limit; ++i) {
-        distance[i] = search_result.distances[i];
-    }
-    roaring = *search_result.roaring;
-}
-
 AnnIndexReader::AnnIndexReader(const TabletIndex* index_meta,
                                std::shared_ptr<IndexFileReader> index_file_reader)
         : _index_meta(*index_meta), _index_file_reader(index_file_reader) {
@@ -175,12 +162,12 @@ Status AnnIndexReader::query(io::IOContext* io_ctx, AnnTopNParam* param, AnnInde
         DORIS_CHECK(index_search_result.roaring != nullptr);
         DORIS_CHECK(index_search_result.distances != nullptr);
         DORIS_CHECK(index_search_result.row_ids != nullptr);
-        param->distance = std::make_unique<std::vector<float>>();
         {
             SCOPED_TIMER(&(stats->result_process_costs_ns));
-            update_result(index_search_result, *param->distance, *param->roaring);
+            param->distance = index_search_result.distances;
+            *param->roaring = *index_search_result.roaring;
         }
-        param->row_ids = std::move(index_search_result.row_ids);
+        param->row_ids = index_search_result.row_ids;
     }
 
     double search_costs_ms = static_cast<double>(stats->search_costs_ns.value()) / 1000.0;
@@ -266,13 +253,13 @@ Status AnnIndexReader::range_search(const AnnRangeSearchParams& params,
                 DCHECK(search_result.row_ids->size() == search_result.roaring->cardinality())
                         << "Row ids size: " << search_result.row_ids->size()
                         << ", roaring size: " << search_result.roaring->cardinality();
-                result->row_ids = std::move(search_result.row_ids);
+                result->row_ids = search_result.row_ids;
             } else {
                 result->row_ids = nullptr;
             }
 
             if (search_result.distances != nullptr) {
-                result->distance = std::move(search_result.distances);
+                result->distance = search_result.distances;
             } else {
                 result->distance = nullptr;
             }

@@ -105,7 +105,7 @@ struct RetentionState {
     }
 };
 
-class AggregateFunctionRetention
+class AggregateFunctionRetention final
         : public IAggregateFunctionDataHelper<RetentionState, AggregateFunctionRetention>,
           VarargsExpression,
           NullableAggregateFunction {

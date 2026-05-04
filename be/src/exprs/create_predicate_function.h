@@ -50,6 +50,9 @@ public:
     static BasePtr get_function(bool null_aware) {
         if constexpr (is_string_type(type)) {
             return new StringSet<>(null_aware);
+        } else if constexpr (type == TYPE_TINYINT || type == TYPE_SMALLINT) {
+            using CppType = typename PrimitiveTypeTraits<type>::CppType;
+            return new HybridSet<type, BitSetContainer<CppType>>(null_aware);
         } else if constexpr (N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE) {
             using CppType = typename PrimitiveTypeTraits<type>::CppType;
             return new HybridSet<type, FixedContainer<CppType, N>>(null_aware);

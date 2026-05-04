@@ -21,6 +21,7 @@ import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
@@ -29,11 +30,14 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.rules.OneListPartitionEvaluator;
 import org.apache.doris.nereids.rules.expression.rules.OnePartitionEvaluator;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner;
+import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionPruneResult;
+import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionTableType;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -49,6 +53,7 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -56,6 +61,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -565,6 +571,43 @@ public class PartitionPrunerTest extends TestWithFeService {
         Assertions.assertEquals(1, prunedFilter.getConjuncts().size());
         Assertions.assertTrue(prunedFilter.getConjuncts().contains(orPredicate));
     }
-}
 
+    @Test
+    public void testPruneWithResultIgnoresNonPruningPartitionPredicate() throws AnalysisException {
+        Map<String, PartitionItem> idToPartitions = ImmutableMap.of(
+                "p1", createListPartitionItem("1"),
+                "p2", createListPartitionItem("2"));
+
+        PartitionPruneResult<String> result = PartitionPruner.pruneWithResult(
+                ImmutableList.of(slotA), new Not(new IsNull(slotA)), idToPartitions, cascadesContext,
+                PartitionTableType.OLAP, Optional.empty());
+
+        Assertions.assertEquals(2, result.partitions.size());
+        Assertions.assertFalse(result.hasPartitionPredicate);
+    }
+
+    @Test
+    public void testPruneWithResultMarksEffectivePartitionPredicate() throws AnalysisException {
+        Map<String, PartitionItem> idToPartitions = ImmutableMap.of(
+                "p1", createListPartitionItem("1"),
+                "p2", createListPartitionItem("2"));
+
+        PartitionPruneResult<String> result = PartitionPruner.pruneWithResult(
+                ImmutableList.of(slotA), new EqualTo(slotA, Literal.of(1)), idToPartitions, cascadesContext,
+                PartitionTableType.OLAP, Optional.empty());
+
+        Assertions.assertEquals(1, result.partitions.size());
+        Assertions.assertTrue(result.hasPartitionPredicate);
+    }
+
+    private ListPartitionItem createListPartitionItem(String... values) throws AnalysisException {
+        ImmutableList.Builder<PartitionKey> partitionKeys = ImmutableList.builder();
+        for (String value : values) {
+            PartitionValue partitionValue = new PartitionValue(value);
+            partitionKeys.add(PartitionKey.createPartitionKey(
+                    ImmutableList.of(partitionValue), ImmutableList.of(partitionColumn)));
+        }
+        return new ListPartitionItem(partitionKeys.build());
+    }
+}
 

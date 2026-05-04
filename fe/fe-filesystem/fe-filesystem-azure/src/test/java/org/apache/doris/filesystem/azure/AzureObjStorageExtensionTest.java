@@ -277,6 +277,39 @@ class AzureObjStorageExtensionTest {
                 "Error message should mention the failed key");
     }
 
+    // ------------------------------------------------------------------
+    // listObjects empty-iterator tests (F15)
+    // ------------------------------------------------------------------
+
+    @Test
+    void listObjects_emptyPagedResponseIterator_returnsEmptyResultsAndDoesNotThrow() throws Exception {
+        // PagedIterable whose iterableByPage().iterator() reports no elements.
+        @SuppressWarnings("unchecked")
+        com.azure.core.http.rest.PagedIterable<com.azure.storage.blob.models.BlobItem> emptyPaged =
+                Mockito.mock(com.azure.core.http.rest.PagedIterable.class);
+        Iterable<com.azure.core.http.rest.PagedResponse<com.azure.storage.blob.models.BlobItem>>
+                emptyIterable = Collections::emptyIterator;
+        Mockito.when(emptyPaged.iterableByPage()).thenReturn(emptyIterable);
+
+        BlobContainerClient mockContainerClient = Mockito.mock(BlobContainerClient.class);
+        Mockito.when(mockContainerClient.listBlobs(
+                Mockito.any(com.azure.storage.blob.models.ListBlobsOptions.class),
+                Mockito.any(), Mockito.any())).thenReturn(emptyPaged);
+
+        BlobServiceClient mockServiceClient = Mockito.mock(BlobServiceClient.class);
+        Mockito.when(mockServiceClient.getBlobContainerClient("mycontainer"))
+                .thenReturn(mockContainerClient);
+
+        Map<String, String> props = buildBasicProps();
+        TestableAzureObjStorage storage = new TestableAzureObjStorage(props, mockServiceClient);
+
+        // Must not throw NoSuchElementException; must return an empty result.
+        RemoteObjects result = storage.listObjects(
+                "wasb://mycontainer@myaccount.blob.core.windows.net/empty/", null);
+        Assertions.assertFalse(result.isTruncated());
+        Assertions.assertEquals(0, result.getObjectList().size());
+    }
+
     @Test
     void deleteObjectsByKeys_notFoundIgnored() throws Exception {
         BlobClient mockBlobClient = Mockito.mock(BlobClient.class);
@@ -297,6 +330,102 @@ class AzureObjStorageExtensionTest {
 
         // 404 on delete is idempotent and should not throw
         storage.deleteObjectsByKeys("mycontainer", Collections.singletonList("stage/gone.parquet"));
+    }
+
+    // ------------------------------------------------------------------
+    // F19 — deleteObjectsByKeys attaches per-key exceptions as suppressed
+    // ------------------------------------------------------------------
+
+    @Test
+    void deleteObjectsByKeys_attachesPerKeyExceptionsAsSuppressed() throws Exception {
+        BlobClient failClient1 = Mockito.mock(BlobClient.class);
+        BlobStorageException ex1 = Mockito.mock(BlobStorageException.class);
+        Mockito.when(ex1.getStatusCode()).thenReturn(500);
+        Mockito.when(ex1.getMessage()).thenReturn("server boom");
+        Mockito.doThrow(ex1).when(failClient1).delete();
+
+        BlobClient failClient2 = Mockito.mock(BlobClient.class);
+        RuntimeException ex2 = new RuntimeException("network timeout");
+        Mockito.doThrow(ex2).when(failClient2).delete();
+
+        BlobContainerClient mockContainerClient = Mockito.mock(BlobContainerClient.class);
+        Mockito.when(mockContainerClient.getBlobClient("stage/a.parquet")).thenReturn(failClient1);
+        Mockito.when(mockContainerClient.getBlobClient("stage/b.parquet")).thenReturn(failClient2);
+
+        BlobServiceClient mockServiceClient = Mockito.mock(BlobServiceClient.class);
+        Mockito.when(mockServiceClient.getBlobContainerClient("mycontainer"))
+                .thenReturn(mockContainerClient);
+
+        TestableAzureObjStorage storage = new TestableAzureObjStorage(buildBasicProps(), mockServiceClient);
+
+        IOException composed = Assertions.assertThrows(IOException.class,
+                () -> storage.deleteObjectsByKeys("mycontainer",
+                        Arrays.asList("stage/a.parquet", "stage/b.parquet")));
+
+        Throwable[] suppressed = composed.getSuppressed();
+        Assertions.assertEquals(2, suppressed.length,
+                "both per-key causes must be attached as suppressed exceptions");
+        Assertions.assertSame(ex1, suppressed[0]);
+        Assertions.assertSame(ex2, suppressed[1]);
+    }
+
+    // ------------------------------------------------------------------
+    // F20 — abortMultipartUpload safe-noop / commit-empty behaviour
+    // ------------------------------------------------------------------
+
+    @Test
+    void abortMultipartUpload_safeNoopWhenCommittedBlobExists() throws Exception {
+        com.azure.storage.blob.models.BlobProperties props =
+                Mockito.mock(com.azure.storage.blob.models.BlobProperties.class);
+        Mockito.when(props.getBlobSize()).thenReturn(1024L);
+
+        com.azure.storage.blob.specialized.BlockBlobClient blockClient =
+                Mockito.mock(com.azure.storage.blob.specialized.BlockBlobClient.class);
+        Mockito.when(blockClient.getProperties()).thenReturn(props);
+
+        BlobClient blobClient = Mockito.mock(BlobClient.class);
+        Mockito.when(blobClient.getBlockBlobClient()).thenReturn(blockClient);
+
+        BlobContainerClient containerClient = Mockito.mock(BlobContainerClient.class);
+        Mockito.when(containerClient.getBlobClient("stage/blob")).thenReturn(blobClient);
+
+        BlobServiceClient serviceClient = Mockito.mock(BlobServiceClient.class);
+        Mockito.when(serviceClient.getBlobContainerClient("mycontainer")).thenReturn(containerClient);
+
+        TestableAzureObjStorage storage = new TestableAzureObjStorage(buildBasicProps(), serviceClient);
+
+        storage.abortMultipartUpload(
+                "wasb://mycontainer@myaccount.blob.core.windows.net/stage/blob", "uploadId");
+
+        // The committed blob must NOT be touched (no commitBlockList, no delete).
+        Mockito.verify(blockClient, Mockito.never()).commitBlockList(Mockito.anyList());
+        Mockito.verify(blockClient, Mockito.never()).delete();
+    }
+
+    @Test
+    void abortMultipartUpload_commitsEmptyAndDeletesWhenNoCommittedBlob() throws Exception {
+        com.azure.storage.blob.specialized.BlockBlobClient blockClient =
+                Mockito.mock(com.azure.storage.blob.specialized.BlockBlobClient.class);
+        BlobStorageException notFoundEx = Mockito.mock(BlobStorageException.class);
+        Mockito.when(notFoundEx.getStatusCode()).thenReturn(404);
+        Mockito.when(blockClient.getProperties()).thenThrow(notFoundEx);
+
+        BlobClient blobClient = Mockito.mock(BlobClient.class);
+        Mockito.when(blobClient.getBlockBlobClient()).thenReturn(blockClient);
+
+        BlobContainerClient containerClient = Mockito.mock(BlobContainerClient.class);
+        Mockito.when(containerClient.getBlobClient("stage/blob")).thenReturn(blobClient);
+
+        BlobServiceClient serviceClient = Mockito.mock(BlobServiceClient.class);
+        Mockito.when(serviceClient.getBlobContainerClient("mycontainer")).thenReturn(containerClient);
+
+        TestableAzureObjStorage storage = new TestableAzureObjStorage(buildBasicProps(), serviceClient);
+
+        storage.abortMultipartUpload(
+                "wasb://mycontainer@myaccount.blob.core.windows.net/stage/blob", "uploadId");
+
+        Mockito.verify(blockClient).commitBlockList(Collections.emptyList());
+        Mockito.verify(blockClient).delete();
     }
 
     // ------------------------------------------------------------------

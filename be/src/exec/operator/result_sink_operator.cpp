@@ -93,11 +93,11 @@ Status ResultSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
-ResultSinkOperatorX::ResultSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
+ResultSinkOperatorX::ResultSinkOperatorX(int operator_id, int node_id,
+                                         const RowDescriptor& row_desc,
                                          const std::vector<TExpr>& t_output_expr,
                                          const TResultSink& sink)
-        : DataSinkOperatorX(operator_id, std::numeric_limits<int>::max(),
-                            std::numeric_limits<int>::max()),
+        : DataSinkOperatorX(operator_id, node_id, node_id),
           _sink_type(!sink.__isset.type || sink.type == TResultSinkType::MYSQL_PROTOCOL
                              ? TResultSinkType::MYSQL_PROTOCOL
                              : sink.type),

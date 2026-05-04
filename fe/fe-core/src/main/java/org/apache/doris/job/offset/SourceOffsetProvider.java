@@ -89,6 +89,12 @@ public interface SourceOffsetProvider {
     void updateOffset(Offset offset);
 
     /**
+     * Bind the compute group that should route FE-initiated RPCs.
+     * Default: no-op for providers that do not make BE RPCs.
+     */
+    default void setCloudCluster(String cloudCluster) {}
+
+    /**
      * Fetch remote meta information, such as listing files in S3 or getting latest offsets in Kafka.
      */
     void fetchRemoteMeta(Map<String, String> properties) throws Exception;
@@ -115,6 +121,13 @@ public interface SourceOffsetProvider {
     Offset deserializeOffsetProperty(String offset);
 
     /**
+     * Validate the offset format for ALTER JOB.
+     * Each provider defines its own rules (e.g. CDC only allows JSON specific offset).
+     */
+    default void validateAlterOffset(String offset) throws Exception {
+    }
+
+    /**
      * Replaying OffsetProvider is currently only required by JDBC.
      *
      * @return
@@ -124,6 +137,14 @@ public interface SourceOffsetProvider {
 
     default String getPersistInfo() {
         return null;
+    }
+
+    /**
+     * Restore offset from persisted string during image load (gsonPostProcess).
+     * Called immediately after the provider is created so that even PAUSED jobs
+     * have the correct offset state.
+     */
+    default void restoreFromPersistInfo(String persistInfo) {
     }
 
     /**
@@ -157,6 +178,16 @@ public interface SourceOffsetProvider {
      */
     default boolean hasReachedEnd() {
         return false;
+    }
+
+    /**
+     * Get the lag of the data source in seconds.
+     * For CDC sources, lag = (now - last consumed event timestamp) in seconds.
+     *
+     * @return lag in seconds as string, empty string if not applicable
+     */
+    default String getLag() {
+        return "";
     }
 
 }

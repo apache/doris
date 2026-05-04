@@ -27,7 +27,6 @@
 #include "core/string_buffer.hpp"
 #include "core/string_ref.h"
 #include "core/value/bitmap_value.h"
-#include "util/io_helper.h"
 
 namespace doris {
 // binary: const flag| row num | real saved num | size array | bitmap array

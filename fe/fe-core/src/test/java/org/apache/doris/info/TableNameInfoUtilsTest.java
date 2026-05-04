@@ -38,7 +38,7 @@ public class TableNameInfoUtilsTest {
         Mockito.when(catalog.getName()).thenReturn("test_catalog");
         Mockito.when(db.getFullName()).thenReturn("test_db");
 
-        TableNameInfo info = TableNameInfoUtils.fromDb(db, "test_table");
+        org.apache.doris.catalog.info.TableNameInfo info = TableNameInfoUtils.fromDb(db, "test_table");
         Assertions.assertEquals("test_catalog", info.getCtl());
         Assertions.assertEquals("test_db", info.getDb());
         Assertions.assertEquals("test_table", info.getTbl());
@@ -51,7 +51,7 @@ public class TableNameInfoUtilsTest {
         Mockito.when(db.getCatalog()).thenReturn(null);
         Mockito.when(db.getFullName()).thenReturn("test_db");
 
-        TableNameInfo info = TableNameInfoUtils.fromDb(db, "test_table");
+        org.apache.doris.catalog.info.TableNameInfo info = TableNameInfoUtils.fromDb(db, "test_table");
         Assertions.assertEquals(NameSpaceContext.INTERNAL_CATALOG_NAME, info.getCtl());
         Assertions.assertEquals("test_db", info.getDb());
         Assertions.assertEquals("test_table", info.getTbl());
@@ -65,7 +65,7 @@ public class TableNameInfoUtilsTest {
         Mockito.when(catalog.getName()).thenReturn("my_catalog");
         Mockito.when(db.getFullName()).thenReturn("my_db");
 
-        TableNameInfo info = TableNameInfoUtils.fromCatalogDb(catalog, db, "my_table");
+        org.apache.doris.catalog.info.TableNameInfo info = TableNameInfoUtils.fromCatalogDb(catalog, db, "my_table");
         Assertions.assertEquals("my_catalog", info.getCtl());
         Assertions.assertEquals("my_db", info.getDb());
         Assertions.assertEquals("my_table", info.getTbl());
@@ -81,7 +81,7 @@ public class TableNameInfoUtilsTest {
         Mockito.when(db.getFullName()).thenReturn("db1");
         Mockito.when(table.getName()).thenReturn("tbl1");
 
-        TableNameInfo info = TableNameInfoUtils.fromCatalogDb(catalog, db, table);
+        org.apache.doris.catalog.info.TableNameInfo info = TableNameInfoUtils.fromCatalogDb(catalog, db, table);
         Assertions.assertEquals("cat1", info.getCtl());
         Assertions.assertEquals("db1", info.getDb());
         Assertions.assertEquals("tbl1", info.getTbl());
@@ -99,7 +99,7 @@ public class TableNameInfoUtilsTest {
         Mockito.when(db.getFullName()).thenReturn("ext_db");
         Mockito.when(table.getName()).thenReturn("ext_table");
 
-        TableNameInfo info = TableNameInfoUtils.fromTableOrNull(table);
+        org.apache.doris.catalog.info.TableNameInfo info = TableNameInfoUtils.fromTableOrNull(table);
         Assertions.assertNotNull(info);
         Assertions.assertEquals("ext_catalog", info.getCtl());
         Assertions.assertEquals("ext_db", info.getDb());
@@ -113,7 +113,7 @@ public class TableNameInfoUtilsTest {
         Mockito.when(table.getName()).thenReturn("some_table");
         Mockito.when(table.getDatabase()).thenReturn(null);
 
-        TableNameInfo info = TableNameInfoUtils.fromTableOrNull(table);
+        org.apache.doris.catalog.info.TableNameInfo info = TableNameInfoUtils.fromTableOrNull(table);
         Assertions.assertNull(info);
     }
 
@@ -126,13 +126,13 @@ public class TableNameInfoUtilsTest {
         Mockito.when(table.getDatabase()).thenReturn(db);
         Mockito.when(db.getCatalog()).thenReturn(null);
 
-        TableNameInfo info = TableNameInfoUtils.fromTableOrNull(table);
+        org.apache.doris.catalog.info.TableNameInfo info = TableNameInfoUtils.fromTableOrNull(table);
         Assertions.assertNull(info);
     }
 
     @Test
     public void testFromTableOrNullWithNullTable() {
-        TableNameInfo info = TableNameInfoUtils.fromTableOrNull(null);
+        org.apache.doris.catalog.info.TableNameInfo info = TableNameInfoUtils.fromTableOrNull(null);
         Assertions.assertNull(info);
     }
 
@@ -142,7 +142,7 @@ public class TableNameInfoUtilsTest {
 
         Mockito.when(table.getName()).thenReturn("");
 
-        TableNameInfo info = TableNameInfoUtils.fromTableOrNull(table);
+        org.apache.doris.catalog.info.TableNameInfo info = TableNameInfoUtils.fromTableOrNull(table);
         Assertions.assertNull(info);
     }
 }

@@ -34,6 +34,7 @@ suite("test_hive_migrate_iceberg", "p2,external,iceberg,external_remote,external
     sql """create catalog if not exists ${catalog_name} properties (
         "type" = "iceberg",
         "iceberg.catalog.type" = "hms",
+        'hive.version' = '3.1.3',
         ${props}
     );"""
     logger.info("catalog " + catalog_name + " created")

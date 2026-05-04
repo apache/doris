@@ -340,6 +340,108 @@ TEST_F(VSequenceMatchTest, testMatchReverseSortedSerializeMerge) {
     agg_function_sequence_match->destroy(place3);
 }
 
+TEST_F(VSequenceMatchTest, testMatchTimeConditionSerialize) {
+    const int NUM_CONDS = 3;
+    auto column_pattern = ColumnString::create();
+    for (int i = 0; i < NUM_CONDS; i++) {
+        column_pattern->insert(Field::create_field<TYPE_STRING>("(?1)(?t<=2)(?2)"));
+    }
+
+    auto column_timestamp = ColumnDateTimeV2::create();
+    for (int i = 0; i < NUM_CONDS; i++) {
+        VecDateTimeValue time_value;
+        time_value.unchecked_set_time(2022, 11, 2, 0, 0, i);
+        column_timestamp->insert_data((char*)&time_value, 0);
+    }
+
+    auto column_event1 = ColumnUInt8::create();
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    auto column_event2 = ColumnUInt8::create();
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+
+    auto column_event3 = ColumnUInt8::create();
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    std::unique_ptr<char[]> memory(new char[agg_function_sequence_match->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_function_sequence_match->create(place);
+    const IColumn* column[5] = {column_pattern.get(), column_timestamp.get(), column_event1.get(),
+                                column_event2.get(), column_event3.get()};
+    for (int i = 0; i < NUM_CONDS; i++) {
+        agg_function_sequence_match->add(place, column, i, arena);
+    }
+
+    ColumnString buf;
+    VectorBufferWriter buf_writer(buf);
+    agg_function_sequence_match->serialize(place, buf_writer);
+    buf_writer.commit();
+
+    std::unique_ptr<char[]> memory2(new char[agg_function_sequence_match->size_of_data()]);
+    AggregateDataPtr place2 = memory2.get();
+    agg_function_sequence_match->create(place2);
+
+    VectorBufferReader buf_reader(buf.get_data_at(0));
+    agg_function_sequence_match->deserialize(place2, buf_reader, arena);
+
+    ColumnUInt8 column_result;
+    agg_function_sequence_match->insert_result_into(place, column_result);
+    EXPECT_EQ(column_result.get_data()[0], 1);
+    agg_function_sequence_match->destroy(place);
+
+    ColumnUInt8 column_result2;
+    agg_function_sequence_match->insert_result_into(place2, column_result2);
+    EXPECT_EQ(column_result2.get_data()[0], 1);
+    agg_function_sequence_match->destroy(place2);
+}
+
+TEST_F(VSequenceMatchTest, testMatchMalformedTimeConditionNumber) {
+    const int NUM_CONDS = 2;
+    auto column_pattern = ColumnString::create();
+    for (int i = 0; i < NUM_CONDS; i++) {
+        column_pattern->insert(Field::create_field<TYPE_STRING>("(?1)(?t<=x)(?2)"));
+    }
+
+    auto column_timestamp = ColumnDateTimeV2::create();
+    for (int i = 0; i < NUM_CONDS; i++) {
+        VecDateTimeValue time_value;
+        time_value.unchecked_set_time(2022, 11, 2, 0, 0, i);
+        column_timestamp->insert_data((char*)&time_value, 0);
+    }
+
+    auto column_event1 = ColumnUInt8::create();
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    auto column_event2 = ColumnUInt8::create();
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+
+    auto column_event3 = ColumnUInt8::create();
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    std::unique_ptr<char[]> memory(new char[agg_function_sequence_match->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_function_sequence_match->create(place);
+    const IColumn* column[5] = {column_pattern.get(), column_timestamp.get(), column_event1.get(),
+                                column_event2.get(), column_event3.get()};
+    for (int i = 0; i < NUM_CONDS; i++) {
+        agg_function_sequence_match->add(place, column, i, arena);
+    }
+
+    ColumnUInt8 column_result;
+    agg_function_sequence_match->insert_result_into(place, column_result);
+    EXPECT_EQ(column_result.get_data()[0], 0);
+    agg_function_sequence_match->destroy(place);
+}
+
 TEST_F(VSequenceMatchTest, testCountReverseSortedSerializeMerge) {
     AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
     DataTypes data_types = {std::make_shared<DataTypeString>(),

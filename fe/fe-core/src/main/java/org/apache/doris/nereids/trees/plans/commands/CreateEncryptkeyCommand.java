@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -52,8 +53,8 @@ public class CreateEncryptkeyCommand extends Command implements ForwardWithSync 
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
-
-        encryptKeyName.analyze(ctx);
+        FeNameFormat.checkCommonName("EncryptKey", encryptKeyName.getKeyName());
+        encryptKeyName.analyze(ctx.getDatabase());
         if (Strings.isNullOrEmpty(keyString)) {
             throw new AnalysisException("keyString can not be null or empty string.");
         }

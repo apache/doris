@@ -31,7 +31,6 @@ import org.apache.doris.datasource.hudi.HudiExternalMetaCache;
 import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.metacache.CacheSpec;
-import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractHiveProperties;
 import org.apache.doris.fs.SpiSwitchingFileSystem;
 import org.apache.doris.transaction.TransactionManagerFactory;
@@ -138,7 +137,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     protected void initLocalObjectsImpl() {
         this.hmsProperties = (AbstractHiveProperties) catalogProperty.getMetastoreProperties();
         initPreExecutionAuthenticator();
-        HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(hmsProperties.getHiveConf(), this);
+        HiveMetadataOps hiveOps = new HiveMetadataOps(hmsProperties.getHiveConf(), this);
         threadPoolWithPreAuth = ThreadPoolManager.newDaemonFixedThreadPoolWithPreAuth(
                 ICEBERG_CATALOG_EXECUTOR_THREAD_NUM,
                 Integer.MAX_VALUE,
@@ -244,7 +243,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         makeSureInitialized();
         if (icebergMetadataOps == null) {
             HiveCatalog icebergHiveCatalog = IcebergUtils.createIcebergHiveCatalog(this, getName());
-            icebergMetadataOps = ExternalMetadataOperations.newIcebergMetadataOps(this, icebergHiveCatalog);
+            icebergMetadataOps = new IcebergMetadataOps(this, icebergHiveCatalog);
         }
         return icebergMetadataOps;
     }

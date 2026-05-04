@@ -56,12 +56,17 @@ Status SegmentLoader::load_segment(const BetaRowsetSharedPtr& rowset, int64_t se
                                    SegmentCacheHandle* cache_handle, bool use_cache,
                                    bool need_load_pk_index_and_bf,
                                    OlapReaderStatistics* index_load_stats) {
+    auto start = MonotonicMicros();
     SegmentCache::CacheKey cache_key(rowset->rowset_id(), segment_id);
     if (_segment_cache->lookup(cache_key, cache_handle)) {
         // Has to check the segment status here, because the segment in cache may has something wrong during
         // load index or create column reader.
         // Not merge this if logic with previous to make the logic more clear.
         if (cache_handle->pop_unhealthy_segment() == nullptr) {
+            if (index_load_stats != nullptr) {
+                index_load_stats->rowset_reader_load_segments_timer_ns +=
+                        (MonotonicMicros() - start) * 1000;
+            }
             return Status::OK();
         }
     }
@@ -78,6 +83,10 @@ Status SegmentLoader::load_segment(const BetaRowsetSharedPtr& rowset, int64_t se
         _segment_cache->insert(cache_key, *cache_value, cache_handle);
     } else {
         cache_handle->push_segment(std::move(segment));
+    }
+    if (index_load_stats != nullptr) {
+        index_load_stats->rowset_reader_load_segments_timer_ns +=
+                (MonotonicMicros() - start) * 1000;
     }
 
     return Status::OK();

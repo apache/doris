@@ -156,7 +156,20 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         // length() only needs the offset array, not the chars data.
         // Add ACCESS_STRING_OFFSET as a suffix so the path builder accumulates
         // e.g. ["str_col", "OFFSET"] or ["c_struct", "f3", "OFFSET"].
-        if (arg.getDataType().isStringLikeType() && context.accessPathBuilder.isEmpty()) {
+        //
+        // CHAR is excluded: CHAR(N) is stored padded to N bytes per row (see BE
+        // OlapColumnDataConvertorChar::clone_and_padding), so the per-row length
+        // information available without reading the chars buffer is the padded
+        // length (always N), not the logical post-trim length expected by
+        // length(). There is no way to recover the logical length from offsets
+        // alone — the chars buffer must be scanned with strnlen() (BE
+        // shrink_padding_chars). Falling through to the default visit causes
+        // length() to read the column normally, which is correct.
+        // NOTE: arg.getDataType() is the resolved type at the leaf of any
+        // chained access (struct field, map subscript, array index), so this
+        // single check covers nested CHAR cases too.
+        if (arg.getDataType().isStringLikeType() && !arg.getDataType().isCharType()
+                && context.accessPathBuilder.isEmpty()) {
             CollectorContext offsetContext =
                     new CollectorContext(context.statementContext, context.bottomFilter);
             offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_STRING_OFFSET);

@@ -33,7 +33,6 @@
 #include "core/types.h"
 #include "core/value/decimalv2_value.h"
 #include "exprs/aggregate/aggregate_function.h"
-#include "util/io_helper.h"
 
 namespace doris {
 class Arena;

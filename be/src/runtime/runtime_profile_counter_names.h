@@ -34,6 +34,9 @@ inline constexpr char FAKER_PROFILE[] = "faker profile";
 // ============================================================
 inline constexpr char ROWS_PRODUCED[] = "RowsProduced";
 inline constexpr char BLOCKS_PRODUCED[] = "BlocksProduced";
+inline constexpr char OUTPUT_BLOCK_BYTES[] = "OutputBlockBytes";
+inline constexpr char MAX_OUTPUT_BLOCK_BYTES[] = "MaxOutputBlockBytes";
+inline constexpr char MIN_OUTPUT_BLOCK_BYTES[] = "MinOutputBlockBytes";
 
 // ============================================================
 // Sink operator common counters (PipelineXSinkLocalState::init)

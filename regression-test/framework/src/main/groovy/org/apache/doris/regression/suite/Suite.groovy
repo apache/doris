@@ -2408,6 +2408,37 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    /**
+     * Set the given global variables for the duration of {@code actionSupplier},
+     * restoring their original values on exit. The variable values are read via
+     * {@code SHOW GLOBAL VARIABLES} before being changed, so any kind of
+     * exception inside {@code actionSupplier} still triggers the restore.
+     */
+    void setGlobalVarTemporary(Map<String, Object> tempVars, Closure actionSupplier) {
+        def quote = { Object v ->
+            if (v == null) {
+                return "''"
+            }
+            if (v instanceof Boolean || v instanceof Number) {
+                return v.toString()
+            }
+            return "'" + v.toString().replace("'", "''") + "'"
+        }
+        Map<String, String> origin = [:]
+        tempVars.keySet().each { key ->
+            def rows = sql_return_maparray "show global variables like '${key}'"
+            if (!rows.isEmpty()) {
+                origin.put(key, rows[0].Value as String)
+            }
+        }
+        try {
+            tempVars.each { key, value -> sql "set global ${key} = ${quote(value)}" }
+            actionSupplier()
+        } finally {
+            origin.each { key, value -> sql "set global ${key} = ${quote(value)}" }
+        }
+    }
+
     void setBeConfigTemporary(Map<String, Object> tempConfig, Closure actionSupplier) {
         Map<String, Map<String, String>> originConf = Maps.newHashMap()
         tempConfig.each{ k, v ->

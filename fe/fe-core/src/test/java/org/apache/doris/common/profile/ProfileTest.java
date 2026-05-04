@@ -67,6 +67,15 @@ public class ProfileTest {
     }
 
     @Test
+    public void testDisableProfileSkipSummaryInitialization() {
+        Profile disabledProfile = new Profile(false, 1, -1);
+
+        Assertions.assertTrue(disabledProfile.isQueryFinished);
+        Assertions.assertTrue(disabledProfile.getSummaryProfile().getSummary().getInfoStrings().isEmpty());
+        Assertions.assertTrue(disabledProfile.getSummaryProfile().getExecutionSummary().getInfoStrings().isEmpty());
+    }
+
+    @Test
     public void testUpdateSummary() {
         Map<String, String> summaryInfo = new HashMap<>();
         summaryInfo.put("TestKey", "TestValue");

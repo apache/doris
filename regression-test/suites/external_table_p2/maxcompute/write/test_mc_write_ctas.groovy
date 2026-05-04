@@ -44,6 +44,8 @@ suite("test_mc_write_ctas", "p2,external") {
 
     def uuid = UUID.randomUUID().toString().replace("-", "").substring(0, 8)
     String db = "mc_write_ctas_${uuid}"
+    String internal_db = "mc_ctas_internal_${uuid}"
+    String internal_tb = "ctas_internal_src_${uuid}"
 
     sql """drop database if exists ${db}"""
     sql """create database ${db}"""
@@ -99,8 +101,6 @@ suite("test_mc_write_ctas", "p2,external") {
         order_qt_ctas_agg """ SELECT * FROM ${tb5} """
 
         // Test 6: CTAS from internal catalog (cross-catalog)
-        String internal_db = "mc_ctas_internal_${uuid}"
-        String internal_tb = "ctas_internal_src_${uuid}"
         sql """CREATE DATABASE IF NOT EXISTS internal.${internal_db}"""
         sql """DROP TABLE IF EXISTS internal.${internal_db}.${internal_tb}"""
         sql """

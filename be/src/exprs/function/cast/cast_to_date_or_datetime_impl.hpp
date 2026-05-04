@@ -357,6 +357,44 @@ inline bool CastToDateOrDatetime::from_string_strict_mode(const StringRef& str,
     uint32_t part[4];
     bool has_second = false;
 
+    if (auto fast_parse_result = try_parse_fixed_canonical_datelike_prefix(ptr, str.size, res);
+        fast_parse_result != DatelikeFastParseResult::FAIL) {
+        if constexpr (!IsDatetime) {
+            if (fast_parse_result == DatelikeFastParseResult::DATE_ONLY) {
+                if (str.size == 10) {
+                    cast_to_type<TargetType>(res);
+                    return true;
+                }
+            } else {
+                has_second = true;
+                if (str.size == 19) {
+                    cast_to_type<TargetType>(res);
+                    return true;
+                }
+                ptr += 19;
+                goto FRAC;
+            }
+        } else {
+            if (fast_parse_result == DatelikeFastParseResult::DATE_ONLY) {
+                res.template unchecked_set_time_unit<TimeUnit::HOUR>(0);
+                res.template unchecked_set_time_unit<TimeUnit::MINUTE>(0);
+                res.template unchecked_set_time_unit<TimeUnit::SECOND>(0);
+                if (str.size == 10) {
+                    cast_to_type<TargetType>(res);
+                    return true;
+                }
+            } else {
+                has_second = true;
+                if (str.size == 19) {
+                    cast_to_type<TargetType>(res);
+                    return true;
+                }
+                ptr += 19;
+                goto FRAC;
+            }
+        }
+    }
+
     // special `date` and `time` part format: 14-length digits string. parse it as YYYYMMDDHHMMSS
     if (ptr + 13 < end && is_digit_range(ptr, ptr + 14)) {
         // if the string is all digits, treat it as a date in YYYYMMDD format.

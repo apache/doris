@@ -362,6 +362,27 @@ inline bool CastToDatetimeV2::from_string_strict_mode_internal(
     uint32_t part[4];
     bool has_second = false;
 
+    if (auto fast_parse_result = try_parse_fixed_canonical_datelike_prefix(ptr, str.size, res);
+        fast_parse_result != DatelikeFastParseResult::FAIL) {
+        if (fast_parse_result == DatelikeFastParseResult::DATE_ONLY) {
+            res.unchecked_set_time_unit<TimeUnit::HOUR>(0);
+            res.unchecked_set_time_unit<TimeUnit::MINUTE>(0);
+            res.unchecked_set_time_unit<TimeUnit::SECOND>(0);
+            res.unchecked_set_time_unit<TimeUnit::MICROSECOND>(0);
+            if (str.size == 10) {
+                goto POST_PROCESS;
+            }
+        } else {
+            has_second = true;
+            if (str.size == 19) {
+                res.unchecked_set_time_unit<TimeUnit::MICROSECOND>(0);
+                goto POST_PROCESS;
+            }
+            ptr += 19;
+            goto FRAC;
+        }
+    }
+
     // special `date` and `time` part format: 14-length digits string. parse it as YYYYMMDDHHMMSS
     if (ptr + 13 < end && is_digit_range(ptr, ptr + 14)) {
         // if the string is all digits, treat it as a date in YYYYMMDD format.

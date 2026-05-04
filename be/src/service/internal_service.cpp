@@ -78,6 +78,9 @@
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "format/text/text_reader.h"
+#ifdef BUILD_RUST_READERS
+#include "format/lance/lance_rust_reader.h"
+#endif
 #include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/io_common.h"
@@ -828,6 +831,7 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         auto file_reader_stats = std::make_shared<io::FileReaderStats>();
         io_ctx->file_cache_stats = file_cache_statis.get();
         io_ctx->file_reader_stats = file_reader_stats.get();
+        constexpr size_t fetch_schema_batch_size = 4064;
         // file_slots is no use, but the lifetime should be longer than reader
         std::vector<SlotDescriptor*> file_slots;
         switch (params.format_type) {
@@ -840,12 +844,13 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         case TFileFormatType::FORMAT_CSV_LZOP:
         case TFileFormatType::FORMAT_CSV_DEFLATE: {
             reader = CsvReader::create_unique(nullptr, profile.get(), nullptr, params, range,
-                                              file_slots, io_ctx.get(), io_ctx);
+                                              file_slots, fetch_schema_batch_size, io_ctx.get(),
+                                              io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_TEXT: {
             reader = TextReader::create_unique(nullptr, profile.get(), nullptr, params, range,
-                                               file_slots, io_ctx.get());
+                                               file_slots, fetch_schema_batch_size, io_ctx.get());
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {
@@ -853,7 +858,7 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
-            reader = OrcReader::create_unique(params, range, "", io_ctx);
+            reader = OrcReader::create_unique(params, range, fetch_schema_batch_size, "", io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_NATIVE: {
@@ -863,9 +868,15 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         }
         case TFileFormatType::FORMAT_JSON: {
             reader = NewJsonReader::create_unique(profile.get(), params, range, file_slots,
-                                                  io_ctx.get(), io_ctx);
+                                                  fetch_schema_batch_size, io_ctx.get(), io_ctx);
             break;
         }
+#ifdef BUILD_RUST_READERS
+        case TFileFormatType::FORMAT_LANCE: {
+            reader = LanceRustReader::create_unique(params, range, io_ctx.get());
+            break;
+        }
+#endif
         default:
             st = Status::InternalError("Not supported file format in fetch table schema: {}",
                                        params.format_type);

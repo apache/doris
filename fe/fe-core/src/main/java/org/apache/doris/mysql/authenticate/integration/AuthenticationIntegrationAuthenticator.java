@@ -225,10 +225,12 @@ public class AuthenticationIntegrationAuthenticator implements Authenticator {
             return "";
         }
         String detailMessage = Strings.nullToEmpty(exception.getMessage());
-        if (detailMessage.startsWith("OIDC token signature validation failed")) {
-            return "OIDC token signature validation failed";
+        if (detailMessage.startsWith("OIDC access token signature validation failed")) {
+            return "OIDC access token signature validation failed";
         }
-        if (detailMessage.startsWith("OIDC token ")
+        if (detailMessage.startsWith("OIDC access token ")
+                || detailMessage.startsWith("OIDC token ")
+                || "Authentication request username does not match OIDC access token username".equals(detailMessage)
                 || "Authentication request username does not match OIDC token username".equals(detailMessage)) {
             return detailMessage;
         }
