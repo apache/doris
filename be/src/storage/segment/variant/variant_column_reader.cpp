@@ -1369,7 +1369,8 @@ TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const TabletCol
                                               .path_info = index_path});
 
     return variant_util::resolve_subcolumn_indexes_inheritance(
-            *_tablet_schema, column.parent_unique_id(), relative_path.get_path(), inheritance_column);
+            *_tablet_schema, column.parent_unique_id(), relative_path.get_path(),
+            inheritance_column);
 }
 
 void VariantColumnReader::get_subcolumns_types(
