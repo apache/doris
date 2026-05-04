@@ -71,13 +71,15 @@ public:
     }
 
     virtual Status init(RuntimeState* state, const VExprContextSPtrs& conjuncts);
-    virtual Status prepare() {
-        _has_prepared = true;
-        return Status::OK();
+    Status prepare() {
+        SCOPED_RAW_TIMER(&_per_scanner_timer);
+        SCOPED_RAW_TIMER(&_per_scanner_prepare_timer);
+        return _prepare_impl();
     }
 
     Status open(RuntimeState* state) {
         SCOPED_RAW_TIMER(&_per_scanner_timer);
+        SCOPED_RAW_TIMER(&_per_scanner_open_timer);
         return _open_impl(state);
     }
 
@@ -96,6 +98,11 @@ public:
     virtual std::string get_current_scan_range_name() { return "not implemented"; }
 
 protected:
+    virtual Status _prepare_impl() {
+        _has_prepared = true;
+        return Status::OK();
+    }
+
     virtual Status _open_impl(RuntimeState* state) {
         _block_avg_bytes = state->batch_size() * 8;
         return Status::OK();
@@ -153,6 +160,8 @@ public:
         start_wait_worker_timer();
     }
     int64_t get_time_cost_ns() const { return _per_scanner_timer; }
+    int64_t get_prepare_time_cost_ns() const { return _per_scanner_prepare_timer; }
+    int64_t get_open_time_cost_ns() const { return _per_scanner_open_timer; }
 
     int64_t projection_time() const { return _projection_timer; }
     int64_t get_rows_read() const { return _num_rows_read; }
@@ -260,6 +269,8 @@ protected:
 
     ScannerCounter _counter;
     int64_t _per_scanner_timer = 0;
+    int64_t _per_scanner_prepare_timer = 0;
+    int64_t _per_scanner_open_timer = 0;
     int64_t _projection_timer = 0;
 
     bool _should_stop = false;

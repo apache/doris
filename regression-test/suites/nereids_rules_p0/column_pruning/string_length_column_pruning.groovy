@@ -477,4 +477,104 @@ suite("string_length_column_pruning") {
         notContains "OFFSET"
         notContains "bigint"
     }
+
+    // ─── CHAR(N) correctness ────────────────────────────────────────────────────
+    //
+    // CHAR(N) is stored padded to N bytes per row on BE
+    // (OlapColumnDataConvertorChar::clone_and_padding). The per-row length recorded
+    // in dict word info / page headers is therefore always the padded length N,
+    // never the logical post-trim length expected by length(). Also, when the BE
+    // SegmentIterator runs shrink_char_type_column_suffix_zero on a CHAR column
+    // that was read in OFFSET_ONLY mode, it scans the (only-resized, never-
+    // initialized) chars buffer with strnlen() and corrupts the offsets with
+    // non-deterministic values.
+    //
+    // Therefore the FE must NOT emit the OFFSET access path for CHAR columns,
+    // top-level or nested (struct.char_field, map<X, char>['k'], array<char>[i]).
+    // The BE additionally hard-fails (Status::InternalError) if a CHAR column
+    // ever receives an OFFSET access path, to catch planner regressions.
+
+    sql """ DROP TABLE IF EXISTS slcp_char_tbl """
+    sql """
+        CREATE TABLE slcp_char_tbl (
+            id        INT,
+            char_col  CHAR(25) NOT NULL,
+            str_col   STRING,
+            struct_col STRUCT<f1: INT, f3: CHAR(10)>,
+            arr_char  ARRAY<CHAR(8)>,
+            map_col_char MAP<STRING, CHAR(12)>
+        ) ENGINE = OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    sql """
+        INSERT INTO slcp_char_tbl VALUES
+            (1, 'a',     'a',     named_struct('f1', 10, 'f3', 'aa'),   ['x',   'yy'],   {'k1': 'v1'}),
+            (2, 'bb',    'bb',    named_struct('f1', 20, 'f3', 'bbb'),  ['xxx', 'yy'],   {'k2': 'vv2'}),
+            (3, 'ccc',   'ccc',   named_struct('f1', 30, 'f3', 'cccc'), ['x'],           {'k3': 'vvv'}),
+            (4, 'dddd',  'dddd',  named_struct('f1', 40, 'f3', 'ddd'),  ['xx',  'y'],    {'k4': 'v4'}),
+            (5, 'eeeee', 'eeeee', named_struct('f1', 50, 'f3', 'ee'),   ['xxxx'],        {'k5': 'vv'})
+    """
+
+    // Top-level CHAR: length() must NOT use the OFFSET path (FE source-level filter).
+    explain {
+        sql "select length(char_col) from slcp_char_tbl"
+        notContains "OFFSET"
+    }
+    // Top-level CHAR: result must equal the logical post-trim length, not the
+    // padded length 25. Compare against length() applied to the equivalent
+    // STRING column to exercise the same rows.
+    order_qt_length_top_char "select length(char_col), length(str_col) from slcp_char_tbl"
+    order_qt_length_top_char_only "select length(char_col) from slcp_char_tbl"
+    order_qt_length_top_char_groupby """
+        select length(char_col), count(*) from slcp_char_tbl group by length(char_col)
+    """
+
+    // Nested CHAR inside a STRUCT: length(struct.char_field) must also skip OFFSET.
+    explain {
+        sql "select length(struct_element(struct_col, 'f3')) from slcp_char_tbl"
+        notContains "OFFSET"
+    }
+    order_qt_length_struct_char """
+        select length(struct_element(struct_col, 'f3')) from slcp_char_tbl
+    """
+
+    // Nested CHAR as MAP value: length(map<X, char>['k']) must also skip OFFSET.
+    explain {
+        sql "select length(map_col_char['k1']) from slcp_char_tbl"
+        notContains "OFFSET"
+    }
+    order_qt_length_map_char_value """
+        select length(map_col_char[concat('k', cast(id as string))]) from slcp_char_tbl
+    """
+
+    // Nested CHAR as ARRAY element: length(array<char>[i]) must also skip OFFSET.
+    explain {
+        sql "select length(arr_char[1]) from slcp_char_tbl"
+        notContains "OFFSET"
+    }
+    order_qt_length_array_char_element """
+        select length(arr_char[1]) from slcp_char_tbl
+    """
+
+    // VARCHAR / STRING are not padded; the OFFSET optimization remains active and
+    // results stay correct. (Existing tests above already cover plain STRING; this
+    // case asserts they still produce the right values alongside the CHAR fix.)
+    sql """ DROP TABLE IF EXISTS slcp_varchar_tbl """
+    sql """
+        CREATE TABLE slcp_varchar_tbl (
+            id  INT,
+            v   VARCHAR(25) NOT NULL
+        ) ENGINE = OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    sql """ INSERT INTO slcp_varchar_tbl VALUES (1,'a'), (2,'bb'), (3,'ccc'), (4,'dddd'), (5,'eeeee') """
+    explain {
+        sql "select length(v) from slcp_varchar_tbl"
+        contains "OFFSET"
+    }
+    order_qt_length_varchar "select length(v) from slcp_varchar_tbl"
 }

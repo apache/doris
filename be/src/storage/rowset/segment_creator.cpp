@@ -19,9 +19,11 @@
 
 // IWYU pragma: no_include <bthread/errno.h>
 #include <cerrno> // IWYU pragma: keep
+#include <chrono>
 #include <filesystem>
 #include <memory>
 #include <sstream>
+#include <thread>
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -45,6 +47,7 @@
 #include "storage/segment/vertical_segment_writer.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
+#include "util/debug_points.h"
 #include "util/json/json_parser.h"
 #include "util/pretty_printer.h"
 #include "util/stopwatch.hpp"
@@ -203,6 +206,9 @@ Status SegmentFlusher::_flush_segment_writer(
         return Status::Error(s.code(), "failed to finalize segment: {}", s.to_string());
     }
 
+    DBUG_EXECUTE_IF("SegmentFlusher._flush_segment_writer.after_finalize.sleep",
+                    { std::this_thread::sleep_for(std::chrono::milliseconds(1000)); });
+
     MonotonicStopWatch inverted_index_timer;
     inverted_index_timer.start();
     int64_t inverted_index_file_size = 0;
@@ -277,6 +283,9 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
     if (!s.ok()) {
         return Status::Error(s.code(), "failed to finalize segment: {}", s.to_string());
     }
+
+    DBUG_EXECUTE_IF("SegmentFlusher._flush_segment_writer.after_finalize.sleep",
+                    { std::this_thread::sleep_for(std::chrono::milliseconds(1000)); });
 
     MonotonicStopWatch inverted_index_timer;
     inverted_index_timer.start();

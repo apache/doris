@@ -117,7 +117,7 @@ public:
     Status evaluate_vector_ann_search(segment_v2::AnnIndexIterator* ann_index_iterator,
                                       roaring::Roaring* row_bitmap, size_t rows_of_segment,
                                       IColumn::MutablePtr& result_column,
-                                      std::unique_ptr<std::vector<uint64_t>>& row_ids,
+                                      std::shared_ptr<std::vector<uint64_t>>& row_ids,
                                       segment_v2::AnnIndexStats& ann_index_stats);
 
     /**

@@ -69,7 +69,7 @@ public:
 
     OlapScanner(ScanLocalStateBase* parent, Params&& params);
 
-    Status prepare() override;
+    Status _prepare_impl() override;
 
     Status _open_impl(RuntimeState* state) override;
 

@@ -41,6 +41,7 @@
 #include "io/fs/s3_file_system.h"
 #include "io/fs/s3_obj_storage_client.h"
 #include "runtime/exec_env.h"
+#include "util/debug_points.h"
 #include "util/s3_util.h"
 #include "util/stopwatch.hpp"
 
@@ -125,48 +126,10 @@ void S3FileWriter::_wait_until_finish(std::string_view task_name) {
 }
 
 Status S3FileWriter::close(bool non_block) {
-    auto record_close_latency = [this]() {
-        if (_close_latency_recorded || !_first_append_timestamp.has_value()) {
-            return;
-        }
-        auto now = std::chrono::steady_clock::now();
-        auto latency_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                  now - *_first_append_timestamp)
-                                  .count();
-        s3_file_writer_first_append_to_close_ms_recorder << latency_ms;
-        if (auto* sampler = s3_file_writer_first_append_to_close_ms_recorder.get_sampler()) {
-            sampler->take_sample();
-        }
-        _close_latency_recorded = true;
-    };
-
     if (state() == State::CLOSED) {
-        if (_async_close_pack != nullptr) {
-            _st = _async_close_pack->future.get();
-            _async_close_pack = nullptr;
-            // Return the final close status so that a blocking close issued after
-            // an async close observes the real result just like the legacy behavior.
-            if (!non_block && _st.ok()) {
-                record_close_latency();
-            }
-            return _st;
-        }
-        if (non_block) {
-            if (_st.ok()) {
-                record_close_latency();
-                return Status::Error<ErrorCode::ALREADY_CLOSED>(
-                        "S3FileWriter already closed, file path {}, file key {}",
-                        _obj_storage_path_opts.path.native(), _obj_storage_path_opts.key);
-            }
-            return _st;
-        }
-        if (_st.ok()) {
-            record_close_latency();
-            return Status::Error<ErrorCode::ALREADY_CLOSED>(
-                    "S3FileWriter already closed, file path {}, file key {}",
-                    _obj_storage_path_opts.path.native(), _obj_storage_path_opts.key);
-        }
-        return _st;
+        return Status::InternalError("S3FileWriter already closed, file path {}, file key {}",
+                                     _obj_storage_path_opts.path.native(),
+                                     _obj_storage_path_opts.key);
     }
     if (state() == State::ASYNC_CLOSING) {
         if (non_block) {
@@ -180,7 +143,7 @@ Status S3FileWriter::close(bool non_block) {
         // The next time we call close() with no matter non_block true or false, it would always return the
         // '_st' value because this writer is already closed.
         if (!non_block && _st.ok()) {
-            record_close_latency();
+            _record_close_latency();
         }
         return _st;
     }
@@ -193,7 +156,6 @@ Status S3FileWriter::close(bool non_block) {
             s3_file_writer_async_close_queuing << -1;
             s3_file_writer_async_close_processing << 1;
             _st = _close_impl();
-            _state = State::CLOSED;
             _async_close_pack->promise.set_value(_st);
             s3_file_writer_async_close_processing << -1;
         });
@@ -201,7 +163,42 @@ Status S3FileWriter::close(bool non_block) {
     _st = _close_impl();
     _state = State::CLOSED;
     if (!non_block && _st.ok()) {
-        record_close_latency();
+        _record_close_latency();
+    }
+    return _st;
+}
+
+void S3FileWriter::_record_close_latency() {
+    if (_close_latency_recorded || !_first_append_timestamp.has_value()) {
+        return;
+    }
+    auto now = std::chrono::steady_clock::now();
+    auto latency_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(now - *_first_append_timestamp)
+                    .count();
+    s3_file_writer_first_append_to_close_ms_recorder << latency_ms;
+    if (auto* sampler = s3_file_writer_first_append_to_close_ms_recorder.get_sampler()) {
+        sampler->take_sample();
+    }
+    _close_latency_recorded = true;
+}
+
+Status S3FileWriter::try_finish_close() {
+    if (state() == State::CLOSED) {
+        return _st;
+    }
+    if (state() != State::ASYNC_CLOSING) {
+        return Status::NotSupported("S3FileWriter is not async closing");
+    }
+    CHECK(_async_close_pack != nullptr);
+    if (_async_close_pack->future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+        return Status::NeedSendAgain("async close is not finished");
+    }
+    _st = _async_close_pack->future.get();
+    _async_close_pack = nullptr;
+    _state = State::CLOSED;
+    if (_st.ok()) {
+        _record_close_latency();
     }
     return _st;
 }
@@ -254,6 +251,12 @@ Status S3FileWriter::_build_upload_buffer() {
 
 Status S3FileWriter::_close_impl() {
     VLOG_DEBUG << "S3FileWriter::close, path: " << _obj_storage_path_opts.path.native();
+
+    DBUG_EXECUTE_IF("S3FileWriter._close_impl.inject_error", {
+        if (_obj_storage_path_opts.key.ends_with(".dat")) {
+            return Status::IOError("S3FileWriter._close_impl.inject_error");
+        }
+    });
 
     if (_cur_part_num == 1 && _pending_buf) { // data size is less than config::s3_write_buffer_size
         RETURN_IF_ERROR(_set_upload_to_remote_less_than_buffer_size());

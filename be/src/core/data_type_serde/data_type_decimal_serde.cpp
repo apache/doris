@@ -341,8 +341,7 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
         const auto arrow_scale = arrow_decimal_type->scale();
         // TODO check precision
         for (auto value_i = start; value_i < end; ++value_i) {
-            Decimal128V2 value {};
-            memcpy(&value, concrete_array->Value(value_i), sizeof(Decimal128V2));
+            auto value = unaligned_load<Decimal128V2>(concrete_array->Value(value_i));
             // convert scale to 9;
             if (9 > arrow_scale) {
                 using MaxNativeType = typename Decimal128V2::NativeType;
@@ -366,15 +365,13 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
         const auto* concrete_array = dynamic_cast<const arrow::DecimalArray*>(arrow_array);
         for (auto value_i = start; value_i < end; ++value_i) {
             const auto* value = concrete_array->Value(value_i);
-            FieldType decimal_value = FieldType {};
-            memcpy(&decimal_value, value, sizeof(FieldType));
+            auto decimal_value = unaligned_load<FieldType>(value);
             column_data.emplace_back(decimal_value);
         }
     } else if constexpr (T == TYPE_DECIMAL256) {
         const auto* concrete_array = dynamic_cast<const arrow::Decimal256Array*>(arrow_array);
         for (auto value_i = start; value_i < end; ++value_i) {
-            FieldType decimal_value {};
-            memcpy(&decimal_value, concrete_array->Value(value_i), sizeof(FieldType));
+            auto decimal_value = unaligned_load<FieldType>(concrete_array->Value(value_i));
             column_data.emplace_back(decimal_value);
         }
     } else {
@@ -750,14 +747,11 @@ const uint8_t* DataTypeDecimalSerDe<T>::deserialize_binary_to_field(const uint8_
     } else if constexpr (T == TYPE_DECIMAL128I) {
         // Because __int128 in memory is not aligned, but GCC7 will generate SSE instruction
         // for __int128 load/store. This will cause segment fault.
-        PackedInt128 pack;
-        // use memcpy to avoid unaligned access
-        memcpy(&pack, data, sizeof(PackedInt128));
+        auto pack = unaligned_load<PackedInt128>(data);
         field = Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(pack.value));
         data += sizeof(PackedInt128);
     } else if constexpr (T == TYPE_DECIMAL256) {
-        wide::Int256 v;
-        memcpy(&v, data, sizeof(wide::Int256));
+        auto v = unaligned_load<wide::Int256>(data);
         field = Field::create_field<TYPE_DECIMAL256>(Decimal256(v));
         data += sizeof(wide::Int256);
     } else {

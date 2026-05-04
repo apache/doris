@@ -134,7 +134,7 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeEvaluate_DimensionMismatch) {
 
     roaring::Roaring bitmap;
     IColumn::MutablePtr result_col = ColumnFloat32::create(0);
-    std::unique_ptr<std::vector<uint64_t>> row_ids;
+    std::shared_ptr<std::vector<uint64_t>> row_ids;
     doris::segment_v2::AnnIndexStats stats;
     Status st = runtime->evaluate_vector_ann_search(_ann_index_iterator.get(), &bitmap, 10,
                                                     result_col, row_ids, stats);

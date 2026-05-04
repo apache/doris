@@ -25,9 +25,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.security.KeyStore;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -37,6 +41,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -374,5 +379,119 @@ class SmallFileMgrTest {
             pool.shutdown();
             server.stop(0);
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // PKCS12 truststore conversion
+    // -------------------------------------------------------------------------
+
+    private static final String CA_PEM =
+            "-----BEGIN CERTIFICATE-----\n"
+                    + "MIIDDzCCAfegAwIBAgIULswy9ovSHXeKSxoEen2Y3xEZqBgwDQYJKoZIhvcNAQEL\n"
+                    + "BQAwFzEVMBMGA1UEAwwMTG9jYWwtRGV2LUNBMB4XDTI2MDMwMzA4MjMxM1oXDTM2\n"
+                    + "MDIyOTA4MjMxM1owFzEVMBMGA1UEAwwMTG9jYWwtRGV2LUNBMIIBIjANBgkqhkiG\n"
+                    + "9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsVFJhj3Y7zamNZiq9SefnnKAKaOXXUbXo/Fq\n"
+                    + "V6VNzMSkZuwDfRo/RKjvVaUru/JSd7QoV5zGyUYb+oHx/R233R1M0sd23+eR1mRQ\n"
+                    + "w771DmXthbdpIPBEwlmh0LMsiH9cJ7R2iRigCzfd2/SbJC3cvX6CtzyNqSkZboVO\n"
+                    + "fswkotF4ZaJgOiBile4A/zWWqeA07QVd8tusdxaoOJv0E/pjcLi5peGXtQA6SSj4\n"
+                    + "tp20K/tlrRS1Zc0dKgxU7YohxNBwW4QF0uOVR/QBmfzEpMdxKlwcEnHubPAemgt1\n"
+                    + "bp9g9Buwo7oWMvDJuS40xMPOlDhshrzNM8CoWIihgndMPG/LsQIDAQABo1MwUTAd\n"
+                    + "BgNVHQ4EFgQUHBKhmdKPD+b1xDjzzkQVaVETSfUwHwYDVR0jBBgwFoAUHBKhmdKP\n"
+                    + "D+b1xDjzzkQVaVETSfUwDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOC\n"
+                    + "AQEAnueVOIAk/XLQx3msDY58Reo+D1f/AUy/WTPzxeXCxXLScrjFCLXjrIDzgslN\n"
+                    + "WnP7E5xNJxdrWgskS36IJxVg0+cUfy5kQYYfmWo1vOYdW/AMNBdQwmK5ve3r3Z/3\n"
+                    + "dE2cV4uvL6n0iZZMxnsL5KXwLeSQeTtJepvWi27Z0t8P23lJHJKfl/Ek49ILIDgB\n"
+                    + "zZIMKPgm6w7/U3jUWMUyQ+iI/XiEPrnn4url1FNViC8ucoIm8EU4ZE01j1mbZO8M\n"
+                    + "JSa6InQEIx/1P675qYtuKWF75Tq/qU7+uX7/07AiTyYSrHMT+024TfbRCi1PF/Ka\n"
+                    + "cx+pSJLima+3GHhK2Rj437yx1Q==\n"
+                    + "-----END CERTIFICATE-----\n";
+
+    private String preloadPem(String fileId, byte[] pemBytes) throws IOException {
+        String md5 = DigestUtils.md5Hex(pemBytes);
+        File cachedFile = tempDir.resolve(fileId + "." + md5).toFile();
+        Files.write(cachedFile.toPath(), pemBytes);
+        return "FILE:" + fileId + ":" + md5;
+    }
+
+    private KeyStore loadPkcs12(String p12Path) throws Exception {
+        KeyStore keyStore = KeyStore.getInstance("PKCS12");
+        try (InputStream in = Files.newInputStream(Paths.get(p12Path))) {
+            keyStore.load(in, SmallFileMgr.TRUSTSTORE_PASSWORD.toCharArray());
+        }
+        return keyStore;
+    }
+
+    @Test
+    void testPkcs12SingleCertConversion() throws Exception {
+        String filePath = preloadPem("40001", CA_PEM.getBytes());
+        String p12Path = SmallFileMgr.getPkcs12TruststorePath(
+                "host:8030", filePath, "token", tempDir.toString());
+
+        assertTrue(p12Path.endsWith(".p12"));
+        assertTrue(new File(p12Path).exists());
+
+        KeyStore keyStore = loadPkcs12(p12Path);
+        assertEquals(1, keyStore.size());
+        assertTrue(keyStore.containsAlias("ca0"));
+    }
+
+    /**
+     * PEM with a chain (intermediate + root) must produce one keystore entry per certificate.
+     * Using the same cert twice here is sufficient to prove alias uniqueness - without distinct
+     * aliases the second entry would silently overwrite the first.
+     */
+    @Test
+    void testPkcs12MultipleCertsPreserveAllEntries() throws Exception {
+        String chainPem = CA_PEM + CA_PEM;
+        String filePath = preloadPem("40002", chainPem.getBytes());
+        String p12Path = SmallFileMgr.getPkcs12TruststorePath(
+                "host:8030", filePath, "token", tempDir.toString());
+
+        KeyStore keyStore = loadPkcs12(p12Path);
+        assertEquals(2, keyStore.size(), "chain with 2 certs must produce 2 entries");
+        assertTrue(keyStore.containsAlias("ca0"));
+        assertTrue(keyStore.containsAlias("ca1"));
+    }
+
+    @Test
+    void testPkcs12SecondCallUsesMemoryCacheWhenFilePresent() throws Exception {
+        String filePath = preloadPem("40003", CA_PEM.getBytes());
+        String first = SmallFileMgr.getPkcs12TruststorePath(
+                "host:8030", filePath, "token", tempDir.toString());
+
+        long firstMtime = new File(first).lastModified();
+        String second = SmallFileMgr.getPkcs12TruststorePath(
+                "host:8030", filePath, "token", tempDir.toString());
+        assertEquals(first, second);
+        assertEquals(firstMtime, new File(second).lastModified(),
+                "second call should hit memory cache and not regenerate .p12");
+    }
+
+    @Test
+    void testPkcs12RegeneratesWhenCachedFileMissing() throws Exception {
+        String filePath = preloadPem("40005", CA_PEM.getBytes());
+        String first = SmallFileMgr.getPkcs12TruststorePath(
+                "host:8030", filePath, "token", tempDir.toString());
+
+        // Simulate external deletion after the cache entry was stored.
+        assertTrue(new File(first).delete());
+
+        String second = SmallFileMgr.getPkcs12TruststorePath(
+                "host:8030", filePath, "token", tempDir.toString());
+        assertEquals(first, second);
+        assertTrue(new File(second).exists(),
+                "cached path whose file disappeared should be regenerated on next call");
+    }
+
+    @Test
+    void testPkcs12InvalidPemThrows() throws Exception {
+        byte[] invalid = ("-----BEGIN CERTIFICATE-----\n"
+                + "this-is-not-valid-base64!!!\n"
+                + "-----END CERTIFICATE-----\n").getBytes();
+        String filePath = preloadPem("40004", invalid);
+
+        assertThrows(RuntimeException.class,
+                () -> SmallFileMgr.getPkcs12TruststorePath(
+                        "host:8030", filePath, "token", tempDir.toString()));
     }
 }

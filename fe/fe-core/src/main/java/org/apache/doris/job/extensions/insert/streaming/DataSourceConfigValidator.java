@@ -56,6 +56,12 @@ public class DataSourceConfigValidator {
             DataSourceConfigKeys.PUBLICATION_NAME
     );
 
+    private static final Set<String> ALLOW_SSL_MODES = Sets.newHashSet(
+            DataSourceConfigKeys.SSL_MODE_DISABLE,
+            DataSourceConfigKeys.SSL_MODE_REQUIRE,
+            DataSourceConfigKeys.SSL_MODE_VERIFY_CA
+    );
+
     // Known suffixes for per-table config keys (format: "table.<tableName>.<suffix>")
     private static final Set<String> ALLOW_TABLE_LEVEL_SUFFIXES = Sets.newHashSet(
             DataSourceConfigKeys.TABLE_TARGET_TABLE_SUFFIX,
@@ -102,6 +108,16 @@ public class DataSourceConfigValidator {
                 throw new IllegalArgumentException("Invalid value for key '" + key + "': " + value);
             }
         }
+
+        // Cross-field: verify-ca must be paired with a CA cert; otherwise the reader will
+        // silently fall back to the JVM default truststore and likely fail to connect.
+        if (DataSourceConfigKeys.SSL_MODE_VERIFY_CA.equals(input.get(DataSourceConfigKeys.SSL_MODE))
+                && (input.get(DataSourceConfigKeys.SSL_ROOTCERT) == null
+                        || input.get(DataSourceConfigKeys.SSL_ROOTCERT).trim().isEmpty())) {
+            throw new IllegalArgumentException(
+                    "ssl_mode '" + DataSourceConfigKeys.SSL_MODE_VERIFY_CA
+                            + "' requires ssl_rootcert to be set");
+        }
     }
 
     public static void validateTarget(Map<String, String> input) throws IllegalArgumentException {
@@ -143,6 +159,9 @@ public class DataSourceConfigValidator {
                 || key.equals(DataSourceConfigKeys.PUBLICATION_NAME)) {
             return value.length() <= PG_MAX_IDENTIFIER_LENGTH
                     && PG_IDENTIFIER_PATTERN.matcher(value).matches();
+        }
+        if (key.equals(DataSourceConfigKeys.SSL_MODE) && !ALLOW_SSL_MODES.contains(value)) {
+            return false;
         }
         return true;
     }
