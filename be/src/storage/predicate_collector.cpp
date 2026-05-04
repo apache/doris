@@ -98,35 +98,15 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
     std::vector<std::shared_ptr<const TabletIndex>> owned_index_metas;
     std::string index_suffix_path = column.suffix_path();
 
-    // Defensive fallback for variant sub-columns whose index was not registered
-    // in _col_id_suffix_to_index. Covers field_pattern indexes (resolved via
-    // generate_sub_column_info) and parent-only indexes whose inheritance has
-    // not been propagated by inherit_column_attributes. Uses column.type()
-    // directly rather than the post-cast expr type to avoid mis-routing
-    // inherit_index into the numeric branch (which would strip parser/analyzer
-    // from a text parent index).
     if (index_metas.empty() && column.is_extracted_column()) {
-        const int32_t parent_unique_id = column.parent_unique_id();
-        const std::string relative_path = column.path_info_ptr()->copy_pop_front().get_path();
-
-        TabletSchema::SubColumnInfo sub_column_info;
-        if (variant_util::generate_sub_column_info(*tablet_schema, parent_unique_id, relative_path,
-                                                   &sub_column_info) &&
-            !sub_column_info.indexes.empty()) {
-            index_suffix_path = sub_column_info.column.suffix_path();
-            for (auto& index : sub_column_info.indexes) {
-                index_metas.push_back(index.get());
-                owned_index_metas.emplace_back(std::move(index));
-            }
-        } else {
-            TabletIndexes inherited_indexes;
-            if (variant_util::inherit_index(tablet_schema->inverted_indexs(parent_unique_id),
-                                            inherited_indexes, column)) {
-                index_suffix_path = column.suffix_path();
-                for (auto& index : inherited_indexes) {
-                    index_metas.push_back(index.get());
-                    owned_index_metas.emplace_back(std::move(index));
-                }
+        auto inherited = variant_util::resolve_subcolumn_indexes_inheritance(
+                *tablet_schema, column.parent_unique_id(),
+                column.path_info_ptr()->copy_pop_front().get_path(), column);
+        if (!inherited.empty()) {
+            index_suffix_path = column.suffix_path();
+            for (auto& idx : inherited) {
+                index_metas.push_back(idx.get());
+                owned_index_metas.emplace_back(std::move(idx));
             }
         }
     }

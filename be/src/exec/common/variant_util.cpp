@@ -2180,4 +2180,19 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
     return Status::OK();
 }
 
+TabletIndexes resolve_subcolumn_indexes_inheritance(const TabletSchema& schema,
+                                                    int32_t parent_unique_id,
+                                                    const std::string& relative_path,
+                                                    const TabletColumn& inheritance_column) {
+    TabletSchema::SubColumnInfo sub_column_info;
+    if (generate_sub_column_info(schema, parent_unique_id, relative_path, &sub_column_info) &&
+        !sub_column_info.indexes.empty()) {
+        return std::move(sub_column_info.indexes);
+    }
+
+    TabletIndexes inherited;
+    inherit_index(schema.inverted_indexs(parent_unique_id), inherited, inheritance_column);
+    return inherited;
+}
+
 } // namespace doris::variant_util

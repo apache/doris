@@ -185,6 +185,19 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
                               const std::string& path,
                               TabletSchema::SubColumnInfo* sub_column_info);
 
+// Resolve inverted indexes for an extracted variant sub-column by trying:
+//   1. generate_sub_column_info (field_pattern MATCH_NAME / MATCH_NAME_GLOB)
+//   2. inherit_index from parent variant indexes
+// inheritance_column drives inherit_index's slice/numeric branch decision:
+//   - collector side: pass the schema column directly.
+//   - segment side: pass a TabletColumn synthesized from inferred storage
+//     type with nested-group-aware path.
+// Returns cloned TabletIndex shared_ptrs (caller keeps them alive).
+TabletIndexes resolve_subcolumn_indexes_inheritance(const TabletSchema& schema,
+                                                    int32_t parent_unique_id,
+                                                    const std::string& relative_path,
+                                                    const TabletColumn& inheritance_column);
+
 class VariantCompactionUtil {
 public:
     // get the subpaths and sparse paths for the variant column
