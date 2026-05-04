@@ -48,13 +48,6 @@ PythonServerManager::_get_or_create_process_pool(const PythonVersion& version) {
     return pool;
 }
 
-std::shared_ptr<PythonServerManager::VersionedProcessPool> PythonServerManager::_get_process_pool(
-        const PythonVersion& version) {
-    std::lock_guard<std::mutex> lock(_pools_mutex);
-    auto it = _process_pools.find(version);
-    return it == _process_pools.end() ? nullptr : it->second;
-}
-
 std::vector<std::pair<PythonVersion, std::shared_ptr<PythonServerManager::VersionedProcessPool>>>
 PythonServerManager::_snapshot_process_pools() {
     std::lock_guard<std::mutex> lock(_pools_mutex);
@@ -82,31 +75,32 @@ std::vector<ProcessPtr>& PythonServerManager::process_pool_for_test(const Python
 }
 #endif
 
-template <typename T>
+template <typename ClientType>
 Status PythonServerManager::get_client(const PythonUDFMeta& func_meta, const PythonVersion& version,
-                                       std::shared_ptr<T>* client,
+                                       std::shared_ptr<ClientType>* client,
                                        const std::shared_ptr<arrow::Schema>& data_schema) {
-    // Ensure process pool is initialized for this version
-    RETURN_IF_ERROR(ensure_pool_initialized(version));
+    std::shared_ptr<VersionedProcessPool> versioned_pool =
+            DORIS_TRY(_ensure_pool_initialized(version));
 
     ProcessPtr process;
-    RETURN_IF_ERROR(get_process(version, &process));
+    RETURN_IF_ERROR(_get_process(version, versioned_pool, &process));
 
-    if constexpr (std::is_same_v<T, PythonUDAFClient>) {
-        RETURN_IF_ERROR(T::create(func_meta, std::move(process), data_schema, client));
+    if constexpr (std::is_same_v<ClientType, PythonUDAFClient>) {
+        RETURN_IF_ERROR(ClientType::create(func_meta, std::move(process), data_schema, client));
     } else {
-        RETURN_IF_ERROR(T::create(func_meta, std::move(process), client));
+        RETURN_IF_ERROR(ClientType::create(func_meta, std::move(process), client));
     }
 
     return Status::OK();
 }
 
-Status PythonServerManager::ensure_pool_initialized(const PythonVersion& version) {
+Result<std::shared_ptr<PythonServerManager::VersionedProcessPool>>
+PythonServerManager::_ensure_pool_initialized(const PythonVersion& version) {
     auto versioned_pool = _get_or_create_process_pool(version);
     std::lock_guard<std::mutex> lock(versioned_pool->mutex);
 
     // Check if already initialized
-    if (versioned_pool->initialized) return Status::OK();
+    if (versioned_pool->initialized) return versioned_pool;
 
     // 0 means use CPU core count as default, otherwise use the specified value
     int max_pool_size = config::max_python_process_num > 0 ? config::max_python_process_num
@@ -146,9 +140,9 @@ Status PythonServerManager::ensure_pool_initialized(const PythonVersion& version
     }
 
     if (versioned_pool->processes.empty()) {
-        return Status::InternalError(
+        return ResultError(Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
                 "Failed to initialize Python process pool: all {} process creation attempts failed",
-                max_pool_size);
+                max_pool_size));
     }
 
     LOG(INFO) << "Python process pool initialized for version " << version.to_string()
@@ -158,15 +152,12 @@ Status PythonServerManager::ensure_pool_initialized(const PythonVersion& version
     versioned_pool->initialized = true;
     _start_health_check_thread();
 
-    return Status::OK();
+    return versioned_pool;
 }
 
-Status PythonServerManager::get_process(const PythonVersion& version, ProcessPtr* process) {
-    auto versioned_pool = _get_process_pool(version);
-    if (!versioned_pool) [[unlikely]] {
-        return Status::InternalError("Python process pool is empty for version {}",
-                                     version.to_string());
-    }
+Status PythonServerManager::_get_process(
+        const PythonVersion& version, const std::shared_ptr<VersionedProcessPool>& versioned_pool,
+        ProcessPtr* process) {
     std::lock_guard<std::mutex> lock(versioned_pool->mutex);
     std::vector<ProcessPtr>& pool = versioned_pool->processes;
 

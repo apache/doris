@@ -49,12 +49,8 @@ public:
 
     Status fork(const PythonVersion& version, ProcessPtr* process);
 
-    Status get_process(const PythonVersion& version, ProcessPtr* process);
-
     // Clear Python module cache for a specific UDF location across all processes
     Status clear_module_cache(const std::string& location);
-
-    Status ensure_pool_initialized(const PythonVersion& version);
 
     void shutdown();
 
@@ -74,6 +70,19 @@ private:
         std::vector<ProcessPtr> processes;
         bool initialized = false;
     };
+
+    /** 
+     * Lazily initialize and return the process pool for specific Python version. 
+     */
+    Result<std::shared_ptr<VersionedProcessPool>> _ensure_pool_initialized(
+            const PythonVersion& version);
+
+    /**
+     * Pick an available process from specific pool, recreating one on demand if needed.
+     */
+    Status _get_process(const PythonVersion& version,
+                        const std::shared_ptr<VersionedProcessPool>& versioned_pool,
+                        ProcessPtr* process);
 
     /**
      * Start health check background thread (called once by ensure_pool_initialized)
@@ -97,7 +106,6 @@ private:
     void _refresh_memory_stats();
 
     std::shared_ptr<VersionedProcessPool> _get_or_create_process_pool(const PythonVersion& version);
-    std::shared_ptr<VersionedProcessPool> _get_process_pool(const PythonVersion& version);
     std::vector<std::pair<PythonVersion, std::shared_ptr<VersionedProcessPool>>>
     _snapshot_process_pools();
 
