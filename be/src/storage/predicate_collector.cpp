@@ -98,33 +98,19 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
     std::vector<std::shared_ptr<const TabletIndex>> owned_index_metas;
     std::string index_suffix_path = column.suffix_path();
 
-    if (index_metas.empty()) {
-        int32_t parent_unique_id = -1;
-        std::string relative_path;
-        std::string suffix_path;
-
-        if (column.is_extracted_column()) {
-            parent_unique_id = column.parent_unique_id();
-            relative_path = column.path_info_ptr()->copy_pop_front().get_path();
-            suffix_path = column.suffix_path();
-        } else if (sd->col_unique_id() >= 0 && !sd->column_paths().empty() &&
-                   tablet_schema->has_column_unique_id(sd->col_unique_id())) {
-            const auto& parent_column = tablet_schema->column_by_uid(sd->col_unique_id());
-            if (parent_column.is_variant_type()) {
-                parent_unique_id = parent_column.unique_id();
-                for (size_t i = 0; i < sd->column_paths().size(); ++i) {
-                    if (i > 0) {
-                        relative_path += ".";
-                    }
-                    relative_path += sd->column_paths()[i];
-                }
-                suffix_path = parent_column.name_lower_case() + "." + relative_path;
-            }
-        }
+    // Defensive fallback for variant sub-columns whose index was not registered
+    // in _col_id_suffix_to_index. Covers field_pattern indexes (resolved via
+    // generate_sub_column_info) and parent-only indexes whose inheritance has
+    // not been propagated by inherit_column_attributes. Uses column.type()
+    // directly rather than the post-cast expr type to avoid mis-routing
+    // inherit_index into the numeric branch (which would strip parser/analyzer
+    // from a text parent index).
+    if (index_metas.empty() && column.is_extracted_column()) {
+        const int32_t parent_unique_id = column.parent_unique_id();
+        const std::string relative_path = column.path_info_ptr()->copy_pop_front().get_path();
 
         TabletSchema::SubColumnInfo sub_column_info;
-        if (parent_unique_id >= 0 &&
-            variant_util::generate_sub_column_info(*tablet_schema, parent_unique_id, relative_path,
+        if (variant_util::generate_sub_column_info(*tablet_schema, parent_unique_id, relative_path,
                                                    &sub_column_info) &&
             !sub_column_info.indexes.empty()) {
             index_suffix_path = sub_column_info.column.suffix_path();
@@ -132,21 +118,11 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
                 index_metas.push_back(index.get());
                 owned_index_metas.emplace_back(std::move(index));
             }
-        } else if (parent_unique_id >= 0) {
+        } else {
             TabletIndexes inherited_indexes;
-            const TabletColumn* inherit_column = &column;
-            TabletColumn typed_column;
-            if (!suffix_path.empty() && expr->children()[0]->data_type() != nullptr) {
-                typed_column = variant_util::get_column_by_type(
-                        expr->children()[0]->data_type(), left_slot_ref->column_name(),
-                        {.unique_id = -1,
-                         .parent_unique_id = parent_unique_id,
-                         .path_info = PathInData(suffix_path)});
-                inherit_column = &typed_column;
-            }
             if (variant_util::inherit_index(tablet_schema->inverted_indexs(parent_unique_id),
-                                            inherited_indexes, *inherit_column)) {
-                index_suffix_path = inherit_column->suffix_path();
+                                            inherited_indexes, column)) {
+                index_suffix_path = column.suffix_path();
                 for (auto& index : inherited_indexes) {
                     index_metas.push_back(index.get());
                     owned_index_metas.emplace_back(std::move(index));
