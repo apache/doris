@@ -192,6 +192,10 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
 //   - collector side: pass the schema column directly.
 //   - segment side: pass a TabletColumn synthesized from inferred storage
 //     type with nested-group-aware path.
+// If the collector only has a scan-time materialized VARIANT placeholder for a
+// dynamic path, clone plain parent indexes with that path suffix instead of
+// using the post-cast expression type. field_pattern template indexes must have
+// matched in step 1; unmatched templates are not inherited as plain indexes.
 // Returns cloned TabletIndex shared_ptrs (caller keeps them alive).
 TabletIndexes resolve_subcolumn_indexes_inheritance(const TabletSchema& schema,
                                                     int32_t parent_unique_id,

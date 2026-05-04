@@ -694,13 +694,11 @@ TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantSubcolumnIndex) {
     EXPECT_EQ(it->second.index_meta->index_name(), "variant_subcolumn_idx");
 }
 
-// Synthetic defensive case for the inherit_index fallback. The schema state
-// here does NOT match production: _init_variant_columns keeps extracted
-// sub-columns at OLAP_FIELD_TYPE_VARIANT and inherit_column_attributes does
-// not mutate column.type(). The sub-column is set to STRING here purely so
-// the inherit_index slice_type branch is exercised. The CAST(slot AS STRING)
-// wrapper is intentionally preserved to validate that the new collector does
-// not consult the cast result type when resolving indexes.
+// Regression for score on a dynamic variant sub-column inherited from a parent
+// variant inverted index. This matches the scan-time schema shape:
+// _init_variant_columns materializes the accessed path as an extracted VARIANT
+// placeholder, so the collector must not depend on the post-cast expression type
+// to recover the parent text index for the concrete Lucene field.
 TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantParentIndexWithoutTemplate) {
     auto tablet_schema = std::make_shared<TabletSchema>();
 
@@ -715,7 +713,7 @@ TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantParentIndexWithoutT
     TabletColumn sub_col;
     sub_col.set_unique_id(-1);
     sub_col.set_name("v.key");
-    sub_col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    sub_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
     sub_col.set_parent_unique_id(kVariantUid);
     PathInData path("v.key");
     sub_col.set_path_info(path);

@@ -2191,7 +2191,22 @@ TabletIndexes resolve_subcolumn_indexes_inheritance(const TabletSchema& schema,
     }
 
     TabletIndexes inherited;
-    inherit_index(schema.inverted_indexs(parent_unique_id), inherited, inheritance_column);
+    const auto parent_indexes = schema.inverted_indexs(parent_unique_id);
+    if (inherit_index(parent_indexes, inherited, inheritance_column)) {
+        return inherited;
+    }
+
+    if (inheritance_column.is_extracted_column() && inheritance_column.is_variant_type()) {
+        for (const auto* index : parent_indexes) {
+            if (!index->field_pattern().empty()) {
+                continue;
+            }
+            auto index_ptr = std::make_shared<TabletIndex>(*index);
+            index_ptr->set_escaped_escaped_index_suffix_path(
+                    inheritance_column.path_info_ptr()->get_path());
+            inherited.emplace_back(std::move(index_ptr));
+        }
+    }
     return inherited;
 }
 
