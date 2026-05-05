@@ -1239,6 +1239,49 @@ TEST_F(CollectionStatisticsTest, CollectMergesTermsForSameFieldName) {
     EXPECT_GE(it->second.term_infos.size(), 2u); // both "alpha" and "beta" present
 }
 
+// Test-only subclass that exposes the protected helpers of PredicateCollector.
+class TestablePredicateCollector : public MatchPredicateCollector {
+public:
+    using MatchPredicateCollector::build_field_name;
+    using MatchPredicateCollector::find_slot_ref;
+};
+
+// find_slot_ref: null shared_ptr returns nullptr (early-return branch).
+TEST_F(CollectionStatisticsTest, FindSlotRefHandlesNullExpr) {
+    TestablePredicateCollector collector;
+    VExprSPtr null_expr;
+    EXPECT_EQ(collector.find_slot_ref(null_expr), nullptr);
+}
+
+// find_slot_ref: when expr is a non-CAST wrapper containing a SLOT_REF in its
+// children, the recursive descent finds the slot via the for-loop body.
+TEST_F(CollectionStatisticsTest, FindSlotRefRecursesIntoChildren) {
+    TestablePredicateCollector collector;
+    auto wrapper = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::FUNCTION_CALL);
+    auto slot_ref = std::make_shared<collection_statistics::MockVSlotRef>("c", SlotId(99));
+    wrapper->_children.push_back(slot_ref);
+    EXPECT_EQ(collector.find_slot_ref(wrapper), slot_ref.get());
+}
+
+// find_slot_ref: leaf non-slot (no children) returns nullptr after for-loop.
+TEST_F(CollectionStatisticsTest, FindSlotRefReturnsNullForLeafNonSlot) {
+    TestablePredicateCollector collector;
+    auto literal = std::make_shared<collection_statistics::MockVLiteral>("x");
+    EXPECT_EQ(collector.find_slot_ref(literal), nullptr);
+}
+
+// build_field_name: non-empty suffix is appended with a dot separator.
+TEST_F(CollectionStatisticsTest, BuildFieldNameWithSuffix) {
+    TestablePredicateCollector collector;
+    EXPECT_EQ(collector.build_field_name(42, "a.b"), "42.a.b");
+}
+
+// build_field_name: empty suffix returns just the unique id as string.
+TEST_F(CollectionStatisticsTest, BuildFieldNameWithoutSuffix) {
+    TestablePredicateCollector collector;
+    EXPECT_EQ(collector.build_field_name(42, ""), "42");
+}
+
 TEST(TermInfoComparerTest, OrdersByTermAndDedups) {
     using doris::TermInfoComparer;
     using doris::segment_v2::TermInfo;
