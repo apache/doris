@@ -1251,6 +1251,81 @@ TEST_F(HashJoinProbeOperatorTest, LeftAntiJoinMarkOtherConjuncts) {
                          Field::create_field<TYPE_BOOLEAN>(1)});
 }
 
+// Regression for the build-side filtering in ProcessHashTableProbe::_init_probe_side:
+// LEFT_SEMI joins do not output build columns, so the byte budget pre-estimate must
+// not include the build-side bytes-per-row contribution. Verify the LEFT_SEMI output
+// is still correct under a tight byte budget that exercises the new code path.
+TEST_F(HashJoinProbeOperatorTest, LeftSemiJoinWithAdaptiveBatchSize) {
+    auto saved = config::enable_adaptive_batch_size;
+    config::enable_adaptive_batch_size = true;
+    _helper.runtime_state->_query_options.__set_preferred_block_size_bytes(64);
+    _helper.runtime_state->_query_options.__set_batch_size(65535);
+
+    auto sink_block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 5});
+    sink_block.insert(ColumnHelper::create_nullable_column_with_name<DataTypeString>(
+            {"a", "b", "c", "d", "e"}, {1, 0, 0, 0, 1}));
+
+    auto probe_block =
+            ColumnHelper::create_nullable_block<DataTypeInt32>({1, 2, 3, 4, 5}, {0, 1, 0, 0, 1});
+    probe_block.insert(
+            ColumnHelper::create_column_with_name<DataTypeString>({"a", "b", "c", "d", "e"}));
+
+    Block output_block;
+    std::vector<Block> build_blocks = {sink_block};
+    std::vector<Block> probe_blocks = {probe_block};
+    run_test({TJoinOp::LEFT_SEMI_JOIN}, {TPrimitiveType::INT, TPrimitiveType::STRING},
+             {true, false}, {false, true}, build_blocks, probe_blocks, output_block);
+
+    config::enable_adaptive_batch_size = saved;
+
+    // Same expected matches as the LeftSemiJoin test: probe rows (3,"c") and (4,"d").
+    auto sorted_block = sort_block_by_columns(output_block);
+    ASSERT_EQ(sorted_block.rows(), 2);
+    check_column_values(*sorted_block.get_by_position(0).column,
+                        {Field::create_field<TYPE_INT>(3), Field::create_field<TYPE_INT>(4)});
+    check_column_values(
+            *sorted_block.get_by_position(1).column,
+            {Field::create_field<TYPE_STRING>("c"), Field::create_field<TYPE_STRING>("d")});
+}
+
+// Symmetric coverage for the probe-side filter under a tight byte budget: RIGHT_SEMI
+// joins do not output probe columns, so the pre-estimate path runs without the
+// probe-side bytes-per-row contribution.
+TEST_F(HashJoinProbeOperatorTest, RightSemiJoinWithAdaptiveBatchSize) {
+    auto saved = config::enable_adaptive_batch_size;
+    config::enable_adaptive_batch_size = true;
+    _helper.runtime_state->_query_options.__set_preferred_block_size_bytes(64);
+    _helper.runtime_state->_query_options.__set_batch_size(65535);
+
+    auto sink_block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4});
+    sink_block.insert(ColumnHelper::create_nullable_column_with_name<DataTypeString>(
+            {"a", "b", "c", "d"}, {0, 0, 0, 0}));
+
+    auto probe_block = ColumnHelper::create_nullable_block<DataTypeInt32>({1, 1, 2, 3, 4, 5},
+                                                                          {0, 0, 0, 0, 0, 0});
+    probe_block.insert(
+            ColumnHelper::create_column_with_name<DataTypeString>({"a", "a", "b", "c", "d", "e"}));
+
+    Block output_block;
+    std::vector<Block> build_blocks = {sink_block};
+    std::vector<Block> probe_blocks = {probe_block};
+    run_test({TJoinOp::RIGHT_SEMI_JOIN}, {TPrimitiveType::INT, TPrimitiveType::STRING},
+             {true, false}, {false, true}, build_blocks, probe_blocks, output_block);
+
+    config::enable_adaptive_batch_size = saved;
+
+    // RIGHT_SEMI returns build-side rows that have at least one probe match.
+    auto sorted_block = sort_block_by_columns(output_block);
+    ASSERT_EQ(sorted_block.rows(), 4);
+    check_column_values(*sorted_block.get_by_position(0).column,
+                        {Field::create_field<TYPE_INT>(1), Field::create_field<TYPE_INT>(2),
+                         Field::create_field<TYPE_INT>(3), Field::create_field<TYPE_INT>(4)});
+    check_column_values(
+            *sorted_block.get_by_position(1).column,
+            {Field::create_field<TYPE_STRING>("a"), Field::create_field<TYPE_STRING>("b"),
+             Field::create_field<TYPE_STRING>("c"), Field::create_field<TYPE_STRING>("d")});
+}
+
 TEST_F(HashJoinProbeOperatorTest, InnerJoinWithAdaptiveBatchSize) {
     // Enable adaptive batch size with a small byte budget to exercise the batch adjustment code.
     auto saved = config::enable_adaptive_batch_size;
