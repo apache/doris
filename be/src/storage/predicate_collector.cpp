@@ -98,12 +98,20 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
     std::vector<std::shared_ptr<const TabletIndex>> owned_index_metas;
     std::string index_suffix_path = column.suffix_path();
 
-    // Schema-only fallback for variant sub-column field_pattern templates.
-    // Collector runs at tablet level without segment context, so it cannot do
-    // nested-group inference or inherit_index runtime-type dispatch — those
-    // need segment data_type and _subcolumns_meta_info. Plain inherited
-    // sub-column indexes are already resolved by inverted_indexs(column) above
-    // (populated by inherit_column_attributes during _init_variant_columns).
+    // Schema-only fallback for variant sub-columns. Collector runs at tablet
+    // level without segment context, so we cannot do nested-group inference
+    // or inherit_index runtime-type dispatch. Two paths cover what is
+    // resolvable from schema alone:
+    //   1. field_pattern templates (MATCH_NAME / MATCH_NAME_GLOB) via
+    //      generate_sub_column_info.
+    //   2. Plain parent inverted index when the schema column is the dynamic
+    //      path's VARIANT placeholder produced by _init_variant_columns. In
+    //      that state inverted_indexs(column) misses because
+    //      _path_set_info_map.subcolumn_indexes is only populated for typed
+    //      paths / field_pattern outputs, not for plain parent indexes added
+    //      by ALTER. Clone the parent's non-field-pattern indexes with the
+    //      variant path as suffix so segment-side BM25 statistics can be
+    //      collected.
     if (index_metas.empty() && column.is_extracted_column()) {
         TabletSchema::SubColumnInfo sub_column_info;
         const std::string relative_path =
@@ -115,6 +123,18 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
             for (auto& idx : sub_column_info.indexes) {
                 index_metas.push_back(idx.get());
                 owned_index_metas.emplace_back(std::move(idx));
+            }
+        } else if (column.is_variant_type()) {
+            const auto parent_indexes = tablet_schema->inverted_indexs(column.parent_unique_id());
+            for (const auto* index : parent_indexes) {
+                if (!index->field_pattern().empty()) {
+                    continue;
+                }
+                auto index_ptr = std::make_shared<TabletIndex>(*index);
+                index_ptr->set_escaped_escaped_index_suffix_path(
+                        column.path_info_ptr()->get_path());
+                index_metas.push_back(index_ptr.get());
+                owned_index_metas.emplace_back(std::move(index_ptr));
             }
         }
     }
