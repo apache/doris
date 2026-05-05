@@ -19,6 +19,7 @@
 
 #include <absl/strings/escaping.h>
 #include <absl/strings/str_split.h>
+#include <boost/algorithm/string.hpp>
 
 #include <algorithm>
 #include <fstream>

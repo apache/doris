@@ -220,8 +220,6 @@ public:
 
     /** Replace columns in a block */
     void set_columns(MutableColumns&& columns);
-    Block clone_with_columns(MutableColumns&& columns) const;
-
     void clear();
     void swap(Block& other) noexcept;
     void swap(Block&& other) noexcept;

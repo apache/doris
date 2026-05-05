@@ -1147,8 +1147,6 @@ TEST(BlockTest, check_number_of_rows) {
     block.insert(ColumnHelper::create_column_with_name<DataTypeString>({"abc"}));
     EXPECT_ANY_THROW(block.check_number_of_rows(true));
 
-    EXPECT_ANY_THROW(block.columns_bytes());
-
     ASSERT_GT(block.allocated_bytes(), 0);
 }
 
