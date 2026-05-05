@@ -2180,34 +2180,4 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
     return Status::OK();
 }
 
-TabletIndexes resolve_subcolumn_indexes_inheritance(const TabletSchema& schema,
-                                                    int32_t parent_unique_id,
-                                                    const std::string& relative_path,
-                                                    const TabletColumn& inheritance_column) {
-    TabletSchema::SubColumnInfo sub_column_info;
-    if (generate_sub_column_info(schema, parent_unique_id, relative_path, &sub_column_info) &&
-        !sub_column_info.indexes.empty()) {
-        return std::move(sub_column_info.indexes);
-    }
-
-    TabletIndexes inherited;
-    const auto parent_indexes = schema.inverted_indexs(parent_unique_id);
-    if (inherit_index(parent_indexes, inherited, inheritance_column)) {
-        return inherited;
-    }
-
-    if (inheritance_column.is_extracted_column() && inheritance_column.is_variant_type()) {
-        for (const auto* index : parent_indexes) {
-            if (!index->field_pattern().empty()) {
-                continue;
-            }
-            auto index_ptr = std::make_shared<TabletIndex>(*index);
-            index_ptr->set_escaped_escaped_index_suffix_path(
-                    inheritance_column.path_info_ptr()->get_path());
-            inherited.emplace_back(std::move(index_ptr));
-        }
-    }
-    return inherited;
-}
-
 } // namespace doris::variant_util
