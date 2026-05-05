@@ -98,13 +98,21 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
     std::vector<std::shared_ptr<const TabletIndex>> owned_index_metas;
     std::string index_suffix_path = column.suffix_path();
 
+    // Schema-only fallback for variant sub-column field_pattern templates.
+    // Collector runs at tablet level without segment context, so it cannot do
+    // nested-group inference or inherit_index runtime-type dispatch — those
+    // need segment data_type and _subcolumns_meta_info. Plain inherited
+    // sub-column indexes are already resolved by inverted_indexs(column) above
+    // (populated by inherit_column_attributes during _init_variant_columns).
     if (index_metas.empty() && column.is_extracted_column()) {
-        auto inherited = variant_util::resolve_subcolumn_indexes_inheritance(
-                *tablet_schema, column.parent_unique_id(),
-                column.path_info_ptr()->copy_pop_front().get_path(), column);
-        if (!inherited.empty()) {
-            index_suffix_path = column.suffix_path();
-            for (auto& idx : inherited) {
+        TabletSchema::SubColumnInfo sub_column_info;
+        const std::string relative_path =
+                column.path_info_ptr()->copy_pop_front().get_path();
+        if (variant_util::generate_sub_column_info(*tablet_schema, column.parent_unique_id(),
+                                                   relative_path, &sub_column_info) &&
+            !sub_column_info.indexes.empty()) {
+            index_suffix_path = sub_column_info.column.suffix_path();
+            for (auto& idx : sub_column_info.indexes) {
                 index_metas.push_back(idx.get());
                 owned_index_metas.emplace_back(std::move(idx));
             }

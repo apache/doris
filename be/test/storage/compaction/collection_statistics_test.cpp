@@ -694,12 +694,12 @@ TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantSubcolumnIndex) {
     EXPECT_EQ(it->second.index_meta->index_name(), "variant_subcolumn_idx");
 }
 
-// Regression for score on a dynamic variant sub-column inherited from a parent
-// variant inverted index. This matches the scan-time schema shape:
-// _init_variant_columns materializes the accessed path as an extracted VARIANT
-// placeholder, so the collector must not depend on the post-cast expression type
-// to recover the parent text index for the concrete Lucene field.
-TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantParentIndexWithoutTemplate) {
+// Schema state where neither inverted_indexs(column) nor generate_sub_column_info
+// resolves any index for the variant sub-column. Collector runs at tablet level
+// and intentionally has no segment-side fallback (no inherit_index, no
+// nested-group inference). In BE_TEST builds the empty-index check is bypassed,
+// so collect() returns OK and emits no CollectInfo for this expression.
+TEST_F(CollectionStatisticsTest, ExtractCollectInfoEmptyWhenSchemaResolvesNoIndex) {
     auto tablet_schema = std::make_shared<TabletSchema>();
 
     constexpr int32_t kVariantUid = 9004;
@@ -732,6 +732,9 @@ TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantParentIndexWithoutT
     index.init_from_pb(index_pb);
     tablet_schema->append_index(std::move(index));
 
+    // Pre-conditions for the schema-only resolution path:
+    //  (1) column-aware lookup empty (no inheritance pre-populated)
+    //  (2) generate_sub_column_info returns false (no field_pattern template)
     ASSERT_TRUE(tablet_schema->inverted_indexs(tablet_schema->column(/*ordinal=*/1)).empty());
     ASSERT_EQ(tablet_schema->inverted_indexs(kVariantUid).size(), 1u);
     TabletSchema::SubColumnInfo sub_column_info;
@@ -758,12 +761,7 @@ TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantParentIndexWithoutT
     auto status = stats_->extract_collect_info(runtime_state_.get(), contexts, tablet_schema,
                                                &collect_infos);
     ASSERT_TRUE(status.ok()) << status.msg();
-    ASSERT_EQ(collect_infos.size(), 1u);
-    auto it = collect_infos.find(StringHelper::to_wstring(std::to_string(kVariantUid) + ".v.key"));
-    ASSERT_NE(it, collect_infos.end());
-    ASSERT_NE(it->second.index_meta, nullptr);
-    ASSERT_NE(it->second.owned_index_meta, nullptr);
-    EXPECT_EQ(it->second.index_meta->index_name(), "variant_parent_idx");
+    EXPECT_TRUE(collect_infos.empty());
 }
 
 namespace {
