@@ -213,14 +213,25 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_sid
         COUNTER_SET(_parent->_probe_arena_memory_usage, arena_memory_usage);
         COUNTER_UPDATE(_parent->_memory_used_counter, arena_memory_usage);
 
-        // Pre-estimate bytes per row from both build and probe sides to limit batch size.
+        // Pre-estimate bytes per row to limit batch size. Only include sides that
+        // actually contribute columns to the output: left-semi/anti joins do not
+        // output build columns, right-semi/anti joins do not output probe columns.
+        // Without this filtering, the first batch can be substantially smaller than
+        // _block_max_bytes allows. Subsequent batches are further adjusted by
+        // process() based on the observed output bytes-per-row.
         {
+            constexpr bool outputs_build_side = JoinOpType != TJoinOp::LEFT_SEMI_JOIN &&
+                                                JoinOpType != TJoinOp::LEFT_ANTI_JOIN &&
+                                                JoinOpType != TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN &&
+                                                JoinOpType != TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN;
+            constexpr bool outputs_probe_side = JoinOpType != TJoinOp::RIGHT_SEMI_JOIN &&
+                                                JoinOpType != TJoinOp::RIGHT_ANTI_JOIN;
             size_t total_bytes_per_row = 0;
-            if (_build_block && _build_block->rows() > 0) {
+            if (outputs_build_side && _build_block && _build_block->rows() > 0) {
                 total_bytes_per_row += _build_block->bytes() / _build_block->rows();
             }
             auto& probe_block = _parent->_probe_block;
-            if (probe_block.rows() > 0) {
+            if (outputs_probe_side && probe_block.rows() > 0) {
                 total_bytes_per_row += probe_block.bytes() / probe_block.rows();
             }
             if (total_bytes_per_row > 0) {

@@ -415,18 +415,18 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(Block& block) {
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
     auto dst_columns = block.mutate_columns();
     DCHECK_GT(dst_columns.size(), 0);
-    auto column_size = dst_columns[0]->size();
+    auto current_row_count = dst_columns[0]->size();
     // Precompute effective batch size from estimated bytes per row to avoid per-iteration byte sum
     size_t effective_batch_size = _budget.max_rows;
-    if (column_size > 0) {
+    if (current_row_count > 0) {
         const size_t current_bytes = Block::columns_byte_size(dst_columns);
-        effective_batch_size = _budget.effective_max_rows(current_bytes / column_size);
+        effective_batch_size = _budget.effective_max_rows(current_bytes / current_row_count);
     }
     if constexpr (BuildSide) {
         DCHECK(!p._is_mark_join);
         auto build_block_sz = _shared_state->build_blocks.size();
         size_t i = _output_null_idx_build_side;
-        for (; i < build_block_sz && column_size < effective_batch_size; i++) {
+        for (; i < build_block_sz && current_row_count < effective_batch_size; i++) {
             const auto& cur_block = _shared_state->build_blocks[i];
             const auto* __restrict cur_visited_flags =
                     assert_cast<ColumnUInt8*>(_shared_state->build_side_visited_flags[i].get())
@@ -448,7 +448,7 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(Block& block) {
                 }
             }
 
-            column_size += selector_idx;
+            current_row_count += selector_idx;
             for (size_t j = 0; j < p._num_probe_side_columns; ++j) {
                 DCHECK(p._join_op == TJoinOp::RIGHT_OUTER_JOIN ||
                        p._join_op == TJoinOp::FULL_OUTER_JOIN ||
@@ -468,7 +468,7 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(Block& block) {
                     assert_cast<ColumnNullable*>(dst_columns[p._num_probe_side_columns + j].get())
                             ->get_null_map_column()
                             .get_data()
-                            .resize_fill(column_size, 0);
+                            .resize_fill(current_row_count, 0);
                 } else {
                     dst_columns[p._num_probe_side_columns + j]->insert_indices_from(
                             *src_column.column.get(), selector.data(),
@@ -479,7 +479,7 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(Block& block) {
         _output_null_idx_build_side = i;
     } else {
         if (!p._is_mark_join) {
-            auto new_size = column_size;
+            auto new_size = current_row_count;
             DCHECK_LE(_probe_block_start_pos + _probe_side_process_count, _child_block->rows());
             for (int j = _probe_block_start_pos;
                  j < _probe_block_start_pos + _probe_side_process_count; ++j) {
@@ -502,10 +502,10 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(Block& block) {
                     }
                 }
             }
-            if (new_size > column_size) {
+            if (new_size > current_row_count) {
                 for (size_t i = 0; i < p._num_build_side_columns; ++i) {
-                    dst_columns[p._num_probe_side_columns + i]->insert_many_defaults(new_size -
-                                                                                     column_size);
+                    dst_columns[p._num_probe_side_columns + i]->insert_many_defaults(
+                            new_size - current_row_count);
                 }
             }
         } else {

@@ -156,7 +156,11 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
             current->block_ptr()->swap(*output_block);
         } else {
             // Build output block from cut columns without modifying the supplier block.
-            // This preserves remaining rows for subsequent get_next calls.
+            // The cursor (and its underlying block) is intentionally left in the priority
+            // queue so that the next get_next() call can continue slicing the remaining
+            // rows. MergeSortBlockCursor wraps a shared impl pointer, so advancing the
+            // cursor below via current->next(output_rows) updates the queue's view of
+            // the same cursor in place.
             auto* src_block = current->block_ptr();
             output_block->clear();
             for (int i = 0; i < src_block->columns(); i++) {

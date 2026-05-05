@@ -311,6 +311,12 @@ Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, size_t
         }
     }
 
+    // Two thresholds intentionally coexist:
+    //   - _budget caps the *target* output block size (rows + bytes), shaping the
+    //     average serialized batch sent downstream.
+    //   - _buffer_mem_limit is the dynamic back-pressure cap propagated from
+    //     Channel::set_buffer_mem_limit(); when the in-flight buffer grows past it
+    //     we must flush regardless of the budget, to keep memory bounded.
     if (_budget.exceeded(_mutable_block->rows(), _mutable_block->bytes()) || eos ||
         (_mutable_block->rows() > 0 && _mutable_block->allocated_bytes() > _buffer_mem_limit)) {
         if (!_is_local) {
