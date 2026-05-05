@@ -926,6 +926,311 @@ TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantFieldPatternGlobInd
     EXPECT_EQ(it->second.index_meta->index_name(), "variant_field_pattern_glob_idx");
 }
 
+// E1: Match predicate whose left subtree contains no VSlotRef.
+// find_slot_ref recurses through children; when it returns nullptr the
+// collector reports INVERTED_INDEX_NOT_SUPPORTED.
+TEST_F(CollectionStatisticsTest, CollectMissingSlotRefReturnsError) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    TabletColumn col;
+    col.set_unique_id(1001);
+    col.set_name("c");
+    col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    tablet_schema->append_column(col);
+
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    auto literal_left = std::make_shared<collection_statistics::MockVLiteral>("foo");
+    auto literal_right = std::make_shared<collection_statistics::MockVLiteral>("bar");
+    match_expr->_children.push_back(literal_left);
+    match_expr->_children.push_back(literal_right);
+
+    VExprContextSPtrs contexts;
+    contexts.push_back(std::make_shared<VExprContext>(match_expr));
+
+    std::unordered_map<std::wstring, CollectInfo> collect_infos;
+    auto status = stats_->extract_collect_info(runtime_state_.get(), contexts, tablet_schema,
+                                               &collect_infos);
+    ASSERT_FALSE(status.ok());
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
+    EXPECT_TRUE(status.msg().find("Cannot find slot reference") != std::string::npos);
+}
+
+// E2: SlotRef points to a slot_id absent from the runtime descriptor table.
+TEST_F(CollectionStatisticsTest, CollectMissingSlotDescriptorReturnsError) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    TabletColumn col;
+    col.set_unique_id(1002);
+    col.set_name("c");
+    col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    tablet_schema->append_column(col);
+
+    constexpr int kAbsentSlotId = 99999;
+
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    auto slot_ref = std::make_shared<collection_statistics::MockVSlotRef>("c", SlotId(kAbsentSlotId));
+    auto literal = std::make_shared<collection_statistics::MockVLiteral>("v");
+    match_expr->_children.push_back(slot_ref);
+    match_expr->_children.push_back(literal);
+
+    VExprContextSPtrs contexts;
+    contexts.push_back(std::make_shared<VExprContext>(match_expr));
+
+    std::unordered_map<std::wstring, CollectInfo> collect_infos;
+    auto status = stats_->extract_collect_info(runtime_state_.get(), contexts, tablet_schema,
+                                               &collect_infos);
+    ASSERT_FALSE(status.ok());
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
+    EXPECT_TRUE(status.msg().find("Cannot find slot descriptor") != std::string::npos);
+}
+
+// E3: SlotRef name does not exist in tablet_schema (field_index returns -1).
+TEST_F(CollectionStatisticsTest, CollectUnknownColumnNameReturnsError) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    TabletColumn col;
+    col.set_unique_id(1003);
+    col.set_name("declared");
+    col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    tablet_schema->append_column(col);
+
+    constexpr int kSlotId = 50;
+    runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), 1003, "missing", {});
+
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    auto slot_ref = std::make_shared<collection_statistics::MockVSlotRef>("missing", SlotId(kSlotId));
+    auto literal = std::make_shared<collection_statistics::MockVLiteral>("v");
+    match_expr->_children.push_back(slot_ref);
+    match_expr->_children.push_back(literal);
+
+    VExprContextSPtrs contexts;
+    contexts.push_back(std::make_shared<VExprContext>(match_expr));
+
+    std::unordered_map<std::wstring, CollectInfo> collect_infos;
+    auto status = stats_->extract_collect_info(runtime_state_.get(), contexts, tablet_schema,
+                                               &collect_infos);
+    ASSERT_FALSE(status.ok());
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
+    EXPECT_TRUE(status.msg().find("Cannot find column index") != std::string::npos);
+}
+
+// I1 + L3 + O1: Plain string column with a direct inverted index.
+// Direct hit produces a CollectInfo whose owned_index_meta is null
+// (the meta lives in the schema and is not cloned).
+TEST_F(CollectionStatisticsTest, CollectDirectIndexHitFromSchema) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    constexpr int32_t kColUid = 1100;
+    TabletColumn col;
+    col.set_unique_id(kColUid);
+    col.set_name("note");
+    col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    tablet_schema->append_column(col);
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(2100);
+    index_pb.set_index_name("note_idx");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(kColUid);
+    auto* props = index_pb.mutable_properties();
+    (*props)["parser"] = "english";
+    (*props)["support_phrase"] = "true";
+    TabletIndex index;
+    index.init_from_pb(index_pb);
+    tablet_schema->append_index(std::move(index));
+
+    constexpr int kSlotId = 60;
+    runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), kColUid, "note", {});
+
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    auto slot_ref = std::make_shared<collection_statistics::MockVSlotRef>("note", SlotId(kSlotId));
+    auto literal = std::make_shared<collection_statistics::MockVLiteral>("hello world");
+    match_expr->_children.push_back(slot_ref);
+    match_expr->_children.push_back(literal);
+
+    VExprContextSPtrs contexts;
+    contexts.push_back(std::make_shared<VExprContext>(match_expr));
+
+    std::unordered_map<std::wstring, CollectInfo> collect_infos;
+    auto status = stats_->extract_collect_info(runtime_state_.get(), contexts, tablet_schema,
+                                               &collect_infos);
+    ASSERT_TRUE(status.ok()) << status.msg();
+    ASSERT_EQ(collect_infos.size(), 1u);
+    auto it = collect_infos.find(StringHelper::to_wstring(std::to_string(kColUid)));
+    ASSERT_NE(it, collect_infos.end());
+    EXPECT_NE(it->second.index_meta, nullptr);
+    EXPECT_EQ(it->second.owned_index_meta, nullptr);   // O1: schema-direct meta is not owned
+    EXPECT_FALSE(it->second.term_infos.empty());
+}
+
+// I2: Plain string column with no index and not an extracted variant
+// sub-column. Fallback path does not apply (column.is_extracted_column()
+// is false). In BE_TEST builds the empty-index check is skipped, so
+// collect returns OK with no CollectInfo emitted.
+TEST_F(CollectionStatisticsTest, CollectNotExtractedColumnSkipsFallback) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    constexpr int32_t kColUid = 1200;
+    TabletColumn col;
+    col.set_unique_id(kColUid);
+    col.set_name("plain");
+    col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    tablet_schema->append_column(col);
+    // no index appended
+
+    constexpr int kSlotId = 70;
+    runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), kColUid, "plain", {});
+
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    auto slot_ref = std::make_shared<collection_statistics::MockVSlotRef>("plain", SlotId(kSlotId));
+    auto literal = std::make_shared<collection_statistics::MockVLiteral>("v");
+    match_expr->_children.push_back(slot_ref);
+    match_expr->_children.push_back(literal);
+
+    VExprContextSPtrs contexts;
+    contexts.push_back(std::make_shared<VExprContext>(match_expr));
+
+    std::unordered_map<std::wstring, CollectInfo> collect_infos;
+    auto status = stats_->extract_collect_info(runtime_state_.get(), contexts, tablet_schema,
+                                               &collect_infos);
+    ASSERT_TRUE(status.ok()) << status.msg();
+    EXPECT_TRUE(collect_infos.empty());
+}
+
+// L1: Index whose properties do not request an analyzer
+// (should_analyzer returns false). The matching index_meta is iterated
+// but skipped before insertion.
+TEST_F(CollectionStatisticsTest, CollectSkipsIndexWithoutAnalyzer) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    constexpr int32_t kColUid = 1300;
+    TabletColumn col;
+    col.set_unique_id(kColUid);
+    col.set_name("kw");
+    col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    tablet_schema->append_column(col);
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(2300);
+    index_pb.set_index_name("kw_idx");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(kColUid);
+    // No "parser" property -> should_analyzer returns false
+    TabletIndex index;
+    index.init_from_pb(index_pb);
+    tablet_schema->append_index(std::move(index));
+
+    constexpr int kSlotId = 80;
+    runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), kColUid, "kw", {});
+
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    auto slot_ref = std::make_shared<collection_statistics::MockVSlotRef>("kw", SlotId(kSlotId));
+    auto literal = std::make_shared<collection_statistics::MockVLiteral>("v");
+    match_expr->_children.push_back(slot_ref);
+    match_expr->_children.push_back(literal);
+
+    VExprContextSPtrs contexts;
+    contexts.push_back(std::make_shared<VExprContext>(match_expr));
+
+    std::unordered_map<std::wstring, CollectInfo> collect_infos;
+    auto status = stats_->extract_collect_info(runtime_state_.get(), contexts, tablet_schema,
+                                               &collect_infos);
+    ASSERT_TRUE(status.ok()) << status.msg();
+    EXPECT_TRUE(collect_infos.empty());
+}
+
+// L2: Index whose analyzer is set (should_analyzer returns true) but does
+// not declare "support_phrase=true". MockVExpr drives MATCH_PHRASE opcode,
+// so is_need_similarity_score returns false and the index is skipped.
+TEST_F(CollectionStatisticsTest, CollectSkipsIndexWithoutSimilarityScore) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    constexpr int32_t kColUid = 1350;
+    TabletColumn col;
+    col.set_unique_id(kColUid);
+    col.set_name("body");
+    col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    tablet_schema->append_column(col);
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(2350);
+    index_pb.set_index_name("body_idx");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(kColUid);
+    auto* props = index_pb.mutable_properties();
+    (*props)["parser"] = "english";  // should_analyzer == true
+    // Intentionally omit "support_phrase" -> is_need_similarity_score == false
+    TabletIndex index;
+    index.init_from_pb(index_pb);
+    tablet_schema->append_index(std::move(index));
+
+    constexpr int kSlotId = 85;
+    runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), kColUid, "body", {});
+
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    auto slot_ref = std::make_shared<collection_statistics::MockVSlotRef>("body", SlotId(kSlotId));
+    auto literal = std::make_shared<collection_statistics::MockVLiteral>("hello");
+    match_expr->_children.push_back(slot_ref);
+    match_expr->_children.push_back(literal);
+
+    VExprContextSPtrs contexts;
+    contexts.push_back(std::make_shared<VExprContext>(match_expr));
+
+    std::unordered_map<std::wstring, CollectInfo> collect_infos;
+    auto status = stats_->extract_collect_info(runtime_state_.get(), contexts, tablet_schema,
+                                               &collect_infos);
+    ASSERT_TRUE(status.ok()) << status.msg();
+    EXPECT_TRUE(collect_infos.empty());
+}
+
+// L4: Two MATCH predicates on the same column produce CollectInfo entries
+// keyed on the same field_name; the second insertion merges term_infos
+// into the first entry.
+TEST_F(CollectionStatisticsTest, CollectMergesTermsForSameFieldName) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    constexpr int32_t kColUid = 1400;
+    TabletColumn col;
+    col.set_unique_id(kColUid);
+    col.set_name("doc");
+    col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    tablet_schema->append_column(col);
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(2400);
+    index_pb.set_index_name("doc_idx");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(kColUid);
+    auto* props = index_pb.mutable_properties();
+    (*props)["parser"] = "english";
+    (*props)["support_phrase"] = "true";
+    TabletIndex index;
+    index.init_from_pb(index_pb);
+    tablet_schema->append_index(std::move(index));
+
+    constexpr int kSlotId = 90;
+    runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), kColUid, "doc", {});
+
+    auto build_match = [&](const std::string& term) {
+        auto m = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+        auto s = std::make_shared<collection_statistics::MockVSlotRef>("doc", SlotId(kSlotId));
+        auto l = std::make_shared<collection_statistics::MockVLiteral>(term);
+        m->_children.push_back(s);
+        m->_children.push_back(l);
+        return m;
+    };
+
+    VExprContextSPtrs contexts;
+    contexts.push_back(std::make_shared<VExprContext>(build_match("alpha")));
+    contexts.push_back(std::make_shared<VExprContext>(build_match("beta")));
+
+    std::unordered_map<std::wstring, CollectInfo> collect_infos;
+    auto status = stats_->extract_collect_info(runtime_state_.get(), contexts, tablet_schema,
+                                               &collect_infos);
+    ASSERT_TRUE(status.ok()) << status.msg();
+    ASSERT_EQ(collect_infos.size(), 1u);
+    auto it = collect_infos.find(StringHelper::to_wstring(std::to_string(kColUid)));
+    ASSERT_NE(it, collect_infos.end());
+    EXPECT_GE(it->second.term_infos.size(), 2u);   // both "alpha" and "beta" present
+}
+
 TEST(TermInfoComparerTest, OrdersByTermAndDedups) {
     using doris::TermInfoComparer;
     using doris::segment_v2::TermInfo;
