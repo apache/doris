@@ -1325,52 +1325,55 @@ Status VariantColumnReader::load_external_meta_once() {
 
 TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const TabletColumn& column,
                                                                  const DataTypePtr& data_type) {
+    TabletSchema::SubColumnInfo sub_column_info;
+    const auto& parent_index = _tablet_schema->inverted_indexs(column.parent_unique_id());
     auto relative_path = column.path_info_ptr()->copy_pop_front();
-
-    // Sparse columns (VARIANT/MAP) only resolve via field_pattern templates;
-    // no parent index inheritance.
-    if (data_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT ||
-        data_type->get_primitive_type() == PrimitiveType::TYPE_MAP) {
-        TabletSchema::SubColumnInfo sub_column_info;
-        if (variant_util::generate_sub_column_info(*_tablet_schema, column.parent_unique_id(),
-                                                   relative_path.get_path(), &sub_column_info) &&
-            !sub_column_info.indexes.empty()) {
-            return std::move(sub_column_info.indexes);
-        }
-        return {};
+    // if subcolumn has index, add index to _variant_subcolumns_indexes
+    if (variant_util::generate_sub_column_info(*_tablet_schema, column.parent_unique_id(),
+                                               relative_path.get_path(), &sub_column_info) &&
+        !sub_column_info.indexes.empty()) {
+        return sub_column_info.indexes;
     }
 
-    // Build inheritance column from inferred type + nested-group-aware path.
-    // type in column maynot be real type, so use data_type to get the real type.
-    PathInData index_path {*column.path_info_ptr()};
-    DataTypePtr index_data_type = data_type;
-    if (!relative_path.empty()) {
-        auto [nested_reader, _] = find_nested_group_for_path(relative_path.get_path());
-        const std::string root_path(kRootNestedGroupPath);
-        if (nested_reader != nullptr) {
-            const bool is_root_ng = nested_reader->array_path == root_path;
-            if (!is_root_ng) {
-                index_path = relative_path;
-            } else {
-                index_path = PathInData(root_path + "." + relative_path.get_path());
-            }
-            if (data_type->is_nullable()) {
-                auto base = variant_util::get_base_type_of_array(remove_nullable(data_type));
-                index_data_type = base->is_nullable() ? base : make_nullable(base);
-            } else {
-                index_data_type = variant_util::get_base_type_of_array(data_type);
-            }
-        }
-    }
-    TabletColumn inheritance_column =
-            variant_util::get_column_by_type(index_data_type, column.name(),
-                                             {.unique_id = -1,
-                                              .parent_unique_id = column.parent_unique_id(),
-                                              .path_info = index_path});
+    // Otherwise, inherit index from the VARIANT parent column.
+    if (!parent_index.empty() && data_type->get_primitive_type() != PrimitiveType::TYPE_VARIANT &&
+        data_type->get_primitive_type() != PrimitiveType::TYPE_MAP /*SPARSE COLUMN*/) {
+        // type in column maynot be real type, so use data_type to get the real type
+        PathInData index_path {*column.path_info_ptr()};
+        DataTypePtr index_data_type = data_type;
+        if (!relative_path.empty()) {
+            auto [nested_reader, _] = find_nested_group_for_path(relative_path.get_path());
+            const std::string root_path(kRootNestedGroupPath);
 
-    return variant_util::resolve_subcolumn_indexes_inheritance(
-            *_tablet_schema, column.parent_unique_id(), relative_path.get_path(),
-            inheritance_column);
+            if (nested_reader != nullptr) {
+                const bool is_root_ng = nested_reader->array_path == root_path;
+                if (!is_root_ng) {
+                    // Named NG — use variant-relative path (consistent with write path)
+                    index_path = relative_path;
+                } else {
+                    // $root NG — prefix path with __D0_root__
+                    index_path = PathInData(root_path + "." + relative_path.get_path());
+                }
+
+                // Unwrap Nullable(Array(...)) → element type for NG subcolumns
+                if (data_type->is_nullable()) {
+                    auto base = variant_util::get_base_type_of_array(remove_nullable(data_type));
+                    index_data_type = base->is_nullable() ? base : make_nullable(base);
+                } else {
+                    index_data_type = variant_util::get_base_type_of_array(data_type);
+                }
+            }
+            // else: non-NG scalar field — keep index_path and index_data_type unchanged
+        }
+        TabletColumn target_column =
+                variant_util::get_column_by_type(index_data_type, column.name(),
+                                                 {.unique_id = -1,
+                                                  .parent_unique_id = column.parent_unique_id(),
+                                                  .path_info = index_path});
+        variant_util::inherit_index(parent_index, sub_column_info.indexes, target_column);
+    }
+    // Return shared_ptr directly to maintain object lifetime
+    return sub_column_info.indexes;
 }
 
 void VariantColumnReader::get_subcolumns_types(
