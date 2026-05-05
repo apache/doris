@@ -28,7 +28,7 @@
 
 namespace doris {
 
-Status SubQueue::try_pop(std::unique_ptr<Block>* output_block) {
+void SubQueue::try_pop(std::unique_ptr<Block>* output_block) {
     bool need_notify_sink_ready = false;
     {
         LockGuard l(queue_lock);
@@ -44,16 +44,16 @@ Status SubQueue::try_pop(std::unique_ptr<Block>* output_block) {
     if (need_notify_sink_ready) {
         sink_dependency->set_ready();
     }
-    return Status::OK();
 }
 
-Status SubQueue::try_push(std::unique_ptr<Block> block) {
+bool SubQueue::try_push(std::unique_ptr<Block> block, std::atomic_uint32_t& total_counter) {
     bool need_block_sink = false;
     {
         LockGuard l(queue_lock);
         if (is_finished) {
-            return Status::EndOfFile("Already finish");
+            return false;
         }
+        total_counter++;
         bytes_in_queue += block->allocated_bytes();
         blocks.emplace_back(std::move(block));
         blocks_in_queue += 1;
@@ -63,7 +63,7 @@ Status SubQueue::try_push(std::unique_ptr<Block> block) {
     if (need_block_sink) {
         sink_dependency->block();
     }
-    return Status::OK();
+    return true;
 }
 
 bool SubQueue::mark_finished(std::atomic_uint32_t& unfinished_counter,
@@ -193,7 +193,7 @@ Status DataQueue::get_block_from_queue(std::unique_ptr<Block>* output_block, int
     const int idx = _flag_queue_idx;
     auto& sub = *_sub_queues[idx];
 
-    RETURN_IF_ERROR(sub.try_pop(output_block));
+    sub.try_pop(output_block);
     if (*output_block) {
         if (child_idx) {
             *child_idx = idx;
@@ -211,12 +211,13 @@ Status DataQueue::push_block(std::unique_ptr<Block> block, int child_idx) {
         return Status::OK();
     }
     auto& sub = *_sub_queues[child_idx];
-    // Increment before publishing to blocks_in_queue so that any concurrent
-    // get_block_from_queue() always observes _cur_blocks_total_nums >= 1 when
-    // it successfully pops a block, preventing an underflow to UINT_MAX and the
-    // resulting missed set_source_block() call.
-    _cur_blocks_total_nums++;
-    RETURN_IF_ERROR(sub.try_push(std::move(block)));
+    // total_counter is incremented inside try_push under queue_lock, only when the
+    // block is actually enqueued. This ensures get_block_from_queue() always observes
+    // _cur_blocks_total_nums >= 1 when it successfully pops a block, with no risk of
+    // underflow or the need for a rollback on failure.
+    if (!sub.try_push(std::move(block), _cur_blocks_total_nums)) {
+        return Status::EndOfFile("SubQueue already finished");
+    }
     set_source_ready();
     return Status::OK();
 }

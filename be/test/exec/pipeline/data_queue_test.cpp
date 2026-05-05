@@ -59,23 +59,24 @@ public:
 
     std::shared_ptr<Dependency> dep;
     std::unique_ptr<SubQueue> sub;
+    std::atomic_uint32_t counter_ {0};
 };
 
 // Pop from an empty queue returns OK with null output.
 TEST_F(SubQueueTest, TryPopEmpty) {
     std::unique_ptr<Block> out;
-    EXPECT_TRUE(sub->try_pop(&out).ok());
+    sub->try_pop(&out);
     EXPECT_EQ(out, nullptr);
     EXPECT_EQ(sub->blocks_in_queue.load(), 0u);
 }
 
 // Basic push then pop returns the block.
 TEST_F(SubQueueTest, TryPushPop_Basic) {
-    EXPECT_TRUE(sub->try_push(make_block()).ok());
+    EXPECT_TRUE(sub->try_push(make_block(), counter_));
     EXPECT_EQ(sub->blocks_in_queue.load(), 1u);
 
     std::unique_ptr<Block> out;
-    EXPECT_TRUE(sub->try_pop(&out).ok());
+    sub->try_pop(&out);
     EXPECT_NE(out, nullptr);
     EXPECT_EQ(sub->blocks_in_queue.load(), 0u);
 }
@@ -86,8 +87,7 @@ TEST_F(SubQueueTest, TryPushAfterFinished) {
     std::atomic_bool all_done {false};
     sub->mark_finished(counter, all_done);
 
-    auto st = sub->try_push(make_block());
-    EXPECT_TRUE(st.is<ErrorCode::END_OF_FILE>());
+    EXPECT_FALSE(sub->try_push(make_block(), counter_));
 }
 
 // When blocks.size() exceeds max_blocks_in_queue, sink is blocked.
@@ -96,12 +96,12 @@ TEST_F(SubQueueTest, SinkBlockedWhenFull) {
     dep->set_ready(); // start ready
 
     // Push up to the limit — sink should stay ready.
-    EXPECT_TRUE(sub->try_push(make_block()).ok());
-    EXPECT_TRUE(sub->try_push(make_block()).ok());
+    EXPECT_TRUE(sub->try_push(make_block(), counter_));
+    EXPECT_TRUE(sub->try_push(make_block(), counter_));
     EXPECT_TRUE(dep->ready());
 
     // Push one over the limit — sink should be blocked.
-    EXPECT_TRUE(sub->try_push(make_block()).ok());
+    EXPECT_TRUE(sub->try_push(make_block(), counter_));
     EXPECT_FALSE(dep->ready());
 }
 
@@ -110,23 +110,23 @@ TEST_F(SubQueueTest, SinkReadyWhenQueueEmpty) {
     sub->max_blocks_in_queue = 2;
 
     // Fill to 3 (one over limit) → sink blocked.
-    EXPECT_TRUE(sub->try_push(make_block()).ok());
-    EXPECT_TRUE(sub->try_push(make_block()).ok());
-    EXPECT_TRUE(sub->try_push(make_block()).ok());
+    EXPECT_TRUE(sub->try_push(make_block(), counter_));
+    EXPECT_TRUE(sub->try_push(make_block(), counter_));
+    EXPECT_TRUE(sub->try_push(make_block(), counter_));
     EXPECT_FALSE(dep->ready());
 
     // Pop 1 & 2: queue not empty yet → sink still blocked.
     std::unique_ptr<Block> out;
-    EXPECT_TRUE(sub->try_pop(&out).ok());
+    sub->try_pop(&out);
     EXPECT_NE(out, nullptr);
     EXPECT_FALSE(dep->ready());
 
-    EXPECT_TRUE(sub->try_pop(&out).ok());
+    sub->try_pop(&out);
     EXPECT_NE(out, nullptr);
     EXPECT_FALSE(dep->ready());
 
     // Pop 3: queue empty → set_ready().
-    EXPECT_TRUE(sub->try_pop(&out).ok());
+    sub->try_pop(&out);
     EXPECT_NE(out, nullptr);
     EXPECT_TRUE(dep->ready());
 }
@@ -154,8 +154,8 @@ TEST_F(SubQueueTest, MarkFinishedSetsAllFinished) {
 
 // clear_blocks empties the queue and calls set_always_ready on sink.
 TEST_F(SubQueueTest, ClearBlocksEmptiesQueue) {
-    EXPECT_TRUE(sub->try_push(make_block()).ok());
-    EXPECT_TRUE(sub->try_push(make_block()).ok());
+    EXPECT_TRUE(sub->try_push(make_block(), counter_));
+    EXPECT_TRUE(sub->try_push(make_block(), counter_));
     EXPECT_EQ(sub->blocks_in_queue.load(), 2u);
 
     sub->clear_blocks();
@@ -177,14 +177,14 @@ TEST_F(SubQueueTest, BytesInQueueTracking) {
     auto block = make_block(10);
     int64_t expected_bytes = block->allocated_bytes();
 
-    EXPECT_TRUE(sub->try_push(std::move(block)).ok());
+    EXPECT_TRUE(sub->try_push(std::move(block), counter_));
     {
         LockGuard l(sub->queue_lock);
         EXPECT_EQ(sub->bytes_in_queue, expected_bytes);
     }
 
     std::unique_ptr<Block> out;
-    EXPECT_TRUE(sub->try_pop(&out).ok());
+    sub->try_pop(&out);
     {
         LockGuard l(sub->queue_lock);
         EXPECT_EQ(sub->bytes_in_queue, 0);

@@ -58,14 +58,14 @@ struct SubQueue {
     Dependency* sink_dependency = nullptr;
 
     // Pop a block under queue_lock.
-    // Notifies sink_dependency->set_ready() (outside the lock) if the queue drops below max_blocks_in_queue.
-    // output_block is null if the queue was empty (not an error).
-    Status try_pop(std::unique_ptr<Block>* output_block);
+    // Notifies sink_dependency->set_ready() (outside the lock) if the queue becomes empty.
+    // output_block is null if the queue was empty.
+    void try_pop(std::unique_ptr<Block>* output_block);
 
-    // Push a block under queue_lock.
-    // Returns Status::EndOfFile if already finished.
+    // Push a block under queue_lock and atomically increment total_counter.
+    // Returns false (without incrementing) if already finished.
     // Calls sink_dependency->block() (outside the lock) if the queue exceeds max_blocks_in_queue.
-    Status try_push(std::unique_ptr<Block> block);
+    bool try_push(std::unique_ptr<Block> block, std::atomic_uint32_t& total_counter);
 
     // Mark this sub-queue finished. Returns false if already finished (idempotent).
     // Decrements unfinished_counter and may set all_finished within queue_lock.
