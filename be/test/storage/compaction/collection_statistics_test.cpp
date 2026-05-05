@@ -972,7 +972,8 @@ TEST_F(CollectionStatisticsTest, CollectMissingSlotDescriptorReturnsError) {
     constexpr int kAbsentSlotId = 99999;
 
     auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
-    auto slot_ref = std::make_shared<collection_statistics::MockVSlotRef>("c", SlotId(kAbsentSlotId));
+    auto slot_ref =
+            std::make_shared<collection_statistics::MockVSlotRef>("c", SlotId(kAbsentSlotId));
     auto literal = std::make_shared<collection_statistics::MockVLiteral>("v");
     match_expr->_children.push_back(slot_ref);
     match_expr->_children.push_back(literal);
@@ -1001,7 +1002,8 @@ TEST_F(CollectionStatisticsTest, CollectUnknownColumnNameReturnsError) {
     runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), 1003, "missing", {});
 
     auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
-    auto slot_ref = std::make_shared<collection_statistics::MockVSlotRef>("missing", SlotId(kSlotId));
+    auto slot_ref =
+            std::make_shared<collection_statistics::MockVSlotRef>("missing", SlotId(kSlotId));
     auto literal = std::make_shared<collection_statistics::MockVLiteral>("v");
     match_expr->_children.push_back(slot_ref);
     match_expr->_children.push_back(literal);
@@ -1062,7 +1064,7 @@ TEST_F(CollectionStatisticsTest, CollectDirectIndexHitFromSchema) {
     auto it = collect_infos.find(StringHelper::to_wstring(std::to_string(kColUid)));
     ASSERT_NE(it, collect_infos.end());
     EXPECT_NE(it->second.index_meta, nullptr);
-    EXPECT_EQ(it->second.owned_index_meta, nullptr);   // O1: schema-direct meta is not owned
+    EXPECT_EQ(it->second.owned_index_meta, nullptr); // O1: schema-direct meta is not owned
     EXPECT_FALSE(it->second.term_infos.empty());
 }
 
@@ -1161,7 +1163,7 @@ TEST_F(CollectionStatisticsTest, CollectSkipsIndexWithoutSimilarityScore) {
     index_pb.set_index_type(IndexType::INVERTED);
     index_pb.add_col_unique_id(kColUid);
     auto* props = index_pb.mutable_properties();
-    (*props)["parser"] = "english";  // should_analyzer == true
+    (*props)["parser"] = "english"; // should_analyzer == true
     // Intentionally omit "support_phrase" -> is_need_similarity_score == false
     TabletIndex index;
     index.init_from_pb(index_pb);
@@ -1234,7 +1236,7 @@ TEST_F(CollectionStatisticsTest, CollectMergesTermsForSameFieldName) {
     ASSERT_EQ(collect_infos.size(), 1u);
     auto it = collect_infos.find(StringHelper::to_wstring(std::to_string(kColUid)));
     ASSERT_NE(it, collect_infos.end());
-    EXPECT_GE(it->second.term_infos.size(), 2u);   // both "alpha" and "beta" present
+    EXPECT_GE(it->second.term_infos.size(), 2u); // both "alpha" and "beta" present
 }
 
 TEST(TermInfoComparerTest, OrdersByTermAndDedups) {

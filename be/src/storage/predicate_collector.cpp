@@ -114,8 +114,7 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
     //      collected.
     if (index_metas.empty() && column.is_extracted_column()) {
         TabletSchema::SubColumnInfo sub_column_info;
-        const std::string relative_path =
-                column.path_info_ptr()->copy_pop_front().get_path();
+        const std::string relative_path = column.path_info_ptr()->copy_pop_front().get_path();
         if (variant_util::generate_sub_column_info(*tablet_schema, column.parent_unique_id(),
                                                    relative_path, &sub_column_info) &&
             !sub_column_info.indexes.empty()) {
