@@ -78,11 +78,20 @@ public:
 private:
     // Whether to generate data based on the build side
     bool use_generate_block_base_build() const;
-    Status _generate_lazy_block_base_probe(RuntimeState* state, Block* probe_block);
+    Status _advance_lazy_probe_row(RuntimeState* state, const Block& probe_block);
+    Status _generate_lazy_block_base_probe(RuntimeState* state, Block* probe_block,
+                                           bool ignore_null);
     Status _generate_lazy_block_base_build(RuntimeState* state, Block* probe_block);
+    bool _should_delay_lazy_probe_build_block(size_t candidate_rows, size_t batch_size) const;
+    Status _process_lazy_probe_build_block(Block* probe_block, const Block& build_block,
+                                           bool ignore_null);
     Status _append_lazy_rows(const IColumn::Filter& filter, size_t selected_rows,
                              bool fixed_side_probe, int64_t fixed_side_pos,
                              const Block& probe_block, const Block& build_block);
+    Status _append_lazy_probe_row_with_build_defaults(const Block& probe_block,
+                                                      int64_t probe_row_pos);
+    Status _finalize_lazy_probe_row(RuntimeState* state, const Block& probe_block,
+                                    int64_t probe_row_pos);
     void _replace_lazy_placeholder_columns(size_t rows);
     void _append_lazy_probe_eval_columns(ColumnsWithTypeAndName& eval_columns,
                                          const Block& probe_block, bool fixed_side_probe,
@@ -274,6 +283,7 @@ private:
     bool _has_materialized_slot_ids = false;
     std::vector<SlotId> _materialized_slot_ids;
     bool _enable_lazy_materialize = false;
+    bool _enable_lazy_probe_finalize = false;
     std::set<int> _lazy_eval_column_ids;
     std::set<int> _materialize_column_ids;
     const bool _old_version_flag;
