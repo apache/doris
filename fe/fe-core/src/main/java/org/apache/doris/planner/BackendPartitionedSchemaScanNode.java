@@ -48,10 +48,8 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * The BackendSchemaScanNode used for those SchemaTable which data are need to
- * acquire from backends.
- * BackendSchemaScanNode create dynamic `List` type Partition for BACKEND_ID
- * field,
+ * The BackendSchemaScanNode used for those SchemaTable which data are need to acquire from backends.
+ * BackendSchemaScanNode create dynamic `List` type Partition for BACKEND_ID field,
  * it will create partitionItems for each alive be node.
  * So, we can use partitionInfo to select the necessary `be` to send query.
  */
@@ -81,7 +79,6 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
 
         BACKEND_TABLE.add("column_data_sizes");
         BACKEND_TABLE.add("be_compaction_tasks");
-        BACKEND_TABLE.add("backend_ms_rpc_table_throttlers");
     }
 
     public static boolean isBackendPartitionedSchemaTable(String tableName) {
@@ -92,10 +89,8 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
     }
 
     // backendPartitionInfo is set in generatePartitionInfo().
-    // `backendPartitionInfo` is `List Partition` of Backend_ID, one PartitionItem
-    // only have one partitionKey
-    // for example: if the alive be are: 10001, 10002, 10003, `backendPartitionInfo`
-    // like
+    // `backendPartitionInfo` is `List Partition` of Backend_ID, one PartitionItem only have one partitionKey
+    // for example: if the alive be are: 10001, 10002, 10003, `backendPartitionInfo` like
     // partition_0: ["10001"]
     // partition_1: ["10002"]
     // partition_2: ["10003"]
@@ -161,7 +156,6 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
 
     /**
      * create PartitionInfo for partitionColumn
-     * 
      * @param partitionColumns The Columns we want to create partitionInfo
      * @throws AnalysisException
      */
