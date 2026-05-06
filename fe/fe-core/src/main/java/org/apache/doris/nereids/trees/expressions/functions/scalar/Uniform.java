@@ -72,7 +72,7 @@ public class Uniform extends ScalarFunction
 
     @Override
     public void checkLegalityAfterRewrite() {
-        if (child(2).isLiteral()) {
+        if (getArgument(2).isLiteral()) {
             throw new AnalysisException("The third parameter (gen) of uniform function must not be literal");
         }
     }
