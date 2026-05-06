@@ -30,7 +30,7 @@
 #include "io/fs/hdfs.h"
 #include "io/fs/path.h"
 
-namespace cloud {
+namespace doris::cloud {
 class HdfsVaultInfo;
 }
 
