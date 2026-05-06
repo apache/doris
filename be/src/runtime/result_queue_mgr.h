@@ -49,8 +49,6 @@ public:
 
     Status cancel(const TUniqueId& fragment_id);
 
-    void update_queue_status(const TUniqueId& fragment_id, const Status& status);
-
 private:
     std::mutex _lock;
     std::unordered_map<TUniqueId, BlockQueueSharedPtr> _fragment_queue_map;

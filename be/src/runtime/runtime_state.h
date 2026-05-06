@@ -113,9 +113,6 @@ public:
                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
     // for ut and non-query.
-    void set_exec_env(ExecEnv* exec_env) { _exec_env = exec_env; }
-
-    // for ut and non-query.
     void init_mem_trackers(const std::string& name = "ut", const TUniqueId& id = TUniqueId());
 
     const TQueryOptions& query_options() const { return _query_options; }
@@ -168,7 +165,6 @@ public:
     }
 
     int query_parallel_instance_num() const { return _query_options.parallel_instance; }
-    int max_errors() const { return _query_options.max_errors; }
     int execution_timeout() const {
         return _query_options.__isset.execution_timeout ? _query_options.execution_timeout
                                                         : _query_options.query_timeout;
@@ -213,7 +209,6 @@ public:
         TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
     }
     const std::string& lc_time_names() const { return _lc_time_names; }
-    const std::string& user() const { return _user; }
     const TUniqueId& query_id() const { return _query_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
     // should only be called in pipeline engine
@@ -248,12 +243,6 @@ public:
                _query_options.enable_common_expr_pushdown;
     }
 
-    bool enable_common_expr_pushdown_for_inverted_index() const {
-        return enable_common_expr_pushdown() &&
-               _query_options.__isset.enable_common_expr_pushdown_for_inverted_index &&
-               _query_options.enable_common_expr_pushdown_for_inverted_index;
-    };
-
     bool mysql_row_binary_format() const {
         return _query_options.__isset.mysql_row_binary_format &&
                _query_options.mysql_row_binary_format;
@@ -266,12 +255,6 @@ public:
 
     // Appends error to the _error_log if there is space
     bool log_error(const std::string& error);
-
-    // Returns true if the error log has not reached _max_errors.
-    bool log_has_space() {
-        std::lock_guard<std::mutex> l(_error_log_lock);
-        return _error_log.size() < _query_options.max_errors;
-    }
 
     // Append all _error_log[_unreported_error_idx+] to new_errors and set
     // _unreported_error_idx to _errors_log.size()
@@ -306,11 +289,7 @@ public:
 
     const std::vector<std::string>& export_output_files() const { return _export_output_files; }
 
-    void add_export_output_file(const std::string& file) { _export_output_files.push_back(file); }
-
     void set_db_name(const std::string& db_name) { _db_name = db_name; }
-
-    const std::string& db_name() { return _db_name; }
 
     void set_wal_id(int64_t wal_id) { _wal_id = wal_id; }
 
@@ -321,8 +300,6 @@ public:
     size_t content_length() const { return _content_length; }
 
     const std::string& import_label() { return _import_label; }
-
-    const std::string& load_dir() const { return _load_dir; }
 
     void set_load_job_id(int64_t job_id) { _load_job_id = job_id; }
 

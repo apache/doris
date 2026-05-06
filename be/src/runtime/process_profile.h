@@ -32,13 +32,6 @@ public:
 
     void refresh_profile();
 
-    std::string print_process_profile() const {
-        auto version_ptr = _process_profile.get();
-        std::stringstream ss;
-        version_ptr->pretty_print(&ss);
-        return ss.str();
-    }
-
     std::string print_process_profile_no_root() const {
         std::stringstream ss;
         std::vector<RuntimeProfile*> profiles;

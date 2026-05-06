@@ -104,16 +104,4 @@ Status ResultQueueMgr::cancel(const TUniqueId& fragment_instance_id) {
     return Status::OK();
 }
 
-void ResultQueueMgr::update_queue_status(const TUniqueId& fragment_instance_id,
-                                         const Status& status) {
-    if (status.ok()) {
-        return;
-    }
-    std::lock_guard<std::mutex> l(_lock);
-    auto iter = _fragment_queue_map.find(fragment_instance_id);
-    if (iter != _fragment_queue_map.end()) {
-        iter->second->update_status(status);
-    }
-}
-
 } // namespace doris
