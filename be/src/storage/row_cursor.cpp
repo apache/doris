@@ -28,7 +28,6 @@
 #include "core/data_type/primitive_type.h"
 #include "core/field.h"
 #include "storage/field.h"
-#include "storage/field_key_encoder.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/tablet/tablet_schema.h"
