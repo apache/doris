@@ -220,6 +220,22 @@ public class VariableMgrTest {
     }
 
     @Test
+    public void testCommonExprPushdownAliasSetsSegmentPushdown() throws Exception {
+        SessionVariable var = new SessionVariable();
+        var.enableSegmentFilterAndLimitPushdown = false;
+
+        VariableMgr.setVar(var, new SetVar(SetType.SESSION, SessionVariable.ENABLE_COMMON_EXPR_PUSHDOWN,
+                new StringLiteral("true")));
+        Assert.assertTrue(var.enableCommonExprPushdown);
+        Assert.assertTrue(var.enableSegmentFilterAndLimitPushdown);
+
+        VariableMgr.setVar(var, new SetVar(SetType.SESSION, SessionVariable.ENABLE_COMMON_EXPR_PUSHDOWN,
+                new StringLiteral("false")));
+        Assert.assertFalse(var.enableCommonExprPushdown);
+        Assert.assertFalse(var.enableSegmentFilterAndLimitPushdown);
+    }
+
+    @Test
     public void testAdaptiveBatchSizeRejectsTinyNonZeroBytes() {
         SessionVariable var = new SessionVariable();
         DdlException exception = Assert.assertThrows(DdlException.class, () -> VariableMgr.setVar(var,
