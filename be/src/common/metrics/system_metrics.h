@@ -22,6 +22,7 @@
 
 #include <map>
 #include <memory>
+#include <mutex>
 #include <set>
 #include <string>
 #include <vector>
@@ -59,6 +60,7 @@ public:
                              int64_t interval_sec, int64_t* send_rate, int64_t* rcv_rate);
 
     double get_load_average_1_min();
+    bool get_aggregate_cpu_time(int64_t* total_time, int64_t* idle_time) const;
 
     void update_max_disk_io_util_percent(const std::map<std::string, int64_t>& lst_value,
                                          int64_t interval_sec);
@@ -99,6 +101,12 @@ private:
     void get_cpu_name();
 
 private:
+    struct AggregateCpuTime {
+        int64_t total_time = 0;
+        int64_t idle_time = 0;
+        bool initialized = false;
+    };
+
     static const char* _s_hook_name;
 
     std::map<std::string, CpuMetrics*> _cpu_metrics;
@@ -117,6 +125,9 @@ private:
     size_t _line_buf_size = 0;
     MetricRegistry* _registry = nullptr;
     std::shared_ptr<MetricEntity> _server_entity;
+
+    mutable std::mutex _aggregate_cpu_time_mutex;
+    AggregateCpuTime _aggregate_cpu_time;
 
     IntGauge* max_disk_io_util_percent = nullptr;
     IntGauge* max_network_send_bytes_rate = nullptr;

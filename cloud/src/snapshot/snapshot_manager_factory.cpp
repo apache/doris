@@ -15,21 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include "snapshot/snapshot_manager_factory.h"
 
-#include "service/http/http_handler_with_auth.h"
+namespace doris::cloud {
 
-namespace doris {
+std::shared_ptr<SnapshotManager> create_snapshot_manager(std::shared_ptr<TxnKv> txn_kv) {
+    return std::make_shared<SnapshotManager>(std::move(txn_kv));
+}
 
-class HttpRequest;
-class ExecEnv;
-
-class AdjustTracingDump : public HttpHandlerWithAuth {
-public:
-    AdjustTracingDump(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
-
-    ~AdjustTracingDump() override = default;
-
-    void handle(HttpRequest* req) override;
-};
-} // namespace doris
+} // namespace doris::cloud

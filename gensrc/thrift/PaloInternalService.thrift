@@ -474,6 +474,7 @@ struct TQueryOptions {
 
   210: optional double max_scan_mem_ratio = 0.3;
   211: optional bool enable_adaptive_scan = false;
+
   212: optional bool enable_local_exchange_before_agg = true;
 
   213: optional i64 file_presigned_url_ttl_seconds = 3600;
@@ -483,6 +484,11 @@ struct TQueryOptions {
   // Use Rust-based Lance reader for FORMAT_LANCE scan ranges
   216: optional bool enable_rust_lance_reader = false;
   217: optional bool new_version_percentile = false
+
+  // Adaptive batch size: target output block size in bytes. Valid range [1MB, 512MB].
+  // Default 8MB. Sent by FE session variable preferred_block_size_bytes.
+  218: optional i64 preferred_block_size_bytes = 8388608
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

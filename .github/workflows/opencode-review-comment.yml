@@ -15,7 +15,12 @@ jobs:
     runs-on: ubuntu-latest
     if: >-
       github.event.issue.pull_request &&
-      startsWith(github.event.comment.body, '/review')
+      startsWith(github.event.comment.body, '/review') &&
+      (
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'COLLABORATOR'
+      )
     outputs:
       pr_number: ${{ steps.pr.outputs.pr_number }}
       head_sha: ${{ steps.pr.outputs.head_sha }}
@@ -48,7 +53,12 @@ jobs:
       - mark-review-pending
     if: >-
       github.event.issue.pull_request &&
-      startsWith(github.event.comment.body, '/review')
+      startsWith(github.event.comment.body, '/review') &&
+      (
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'COLLABORATOR'
+      )
     uses: ./.github/workflows/opencode-review-runner.yml
     secrets: inherit
     with:
@@ -62,7 +72,12 @@ jobs:
     runs-on: ubuntu-latest
     if: >-
       github.event.issue.pull_request &&
-      startsWith(github.event.comment.body, '/review')
+      startsWith(github.event.comment.body, '/review') &&
+      (
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'COLLABORATOR'
+      )
     steps:
       - name: Mark Code Review status as pending
         env:

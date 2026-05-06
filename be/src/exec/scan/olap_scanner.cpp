@@ -126,7 +126,7 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
     return read_columns_string;
 }
 
-Status OlapScanner::prepare() {
+Status OlapScanner::_prepare_impl() {
     auto* local_state = static_cast<OlapScanLocalState*>(_local_state);
     auto& tablet = _tablet_reader_params.tablet;
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
@@ -163,6 +163,9 @@ Status OlapScanner::prepare() {
     // value (e.g. select a from t where a .. and b ... limit 1),
     // it will be very slow when reading data in segment iterator
     _tablet_reader->set_batch_size(_state->batch_size());
+    // Adaptive batch size: pass byte-budget settings to the storage reader.
+    // The reader still uses batch_size() as the row ceiling.
+    _tablet_reader->set_preferred_block_size_bytes(_state->preferred_block_size_bytes());
     {
         TOlapScanNode& olap_scan_node = local_state->olap_scan_node();
 
@@ -818,6 +821,13 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_variant_doc_value_column_iter_count,
                    stats.variant_doc_value_column_iter_count);
 
+    if (stats.adaptive_batch_size_predict_max_rows > 0) {
+        local_state->_adaptive_batch_predict_min_rows_counter->set(
+                stats.adaptive_batch_size_predict_min_rows);
+        local_state->_adaptive_batch_predict_max_rows_counter->set(
+                stats.adaptive_batch_size_predict_max_rows);
+    }
+
     InvertedIndexProfileReporter inverted_index_profile;
     inverted_index_profile.update(local_state->_index_filter_profile.get(),
                                   &stats.inverted_index_stats);
@@ -871,6 +881,8 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.segment_iterator_init_return_column_iterators_timer_ns);
     COUNTER_UPDATE(local_state->_segment_iterator_init_index_iterators_timer,
                    stats.segment_iterator_init_index_iterators_timer_ns);
+    COUNTER_UPDATE(local_state->_segment_iterator_init_segment_prefetchers_timer,
+                   stats.segment_iterator_init_segment_prefetchers_timer_ns);
 
     COUNTER_UPDATE(local_state->_segment_create_column_readers_timer,
                    stats.segment_create_column_readers_timer_ns);

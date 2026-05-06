@@ -525,7 +525,7 @@ void NestedLoopJoinProbeLocalState::_append_probe_data_with_null(Block& block) c
             assert_cast<ColumnNullable*>(dst_columns[i].get())
                     ->get_null_map_column()
                     .get_data()
-                    .resize_fill(origin_sz + 1, 0);
+                    .resize_fill(origin_sz + _probe_side_process_count, 0);
         } else {
             dst_columns[i]->insert_range_from(*src_column.column, _probe_block_start_pos,
                                               _probe_side_process_count);

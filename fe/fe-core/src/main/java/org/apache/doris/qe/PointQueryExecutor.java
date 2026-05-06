@@ -307,80 +307,63 @@ public class PointQueryExecutor implements CoordInterface {
         long timeoutTs = System.currentTimeMillis() + timeoutMs;
         RowBatch rowBatch = new RowBatch();
         InternalService.PTabletKeyLookupResponse pResult = null;
+        boolean includeQueryContext = true;
         try {
             Preconditions.checkNotNull(shortCircuitQueryContext.serializedDescTable);
 
-            InternalService.PTabletKeyLookupRequest.Builder requestBuilder
-                    = InternalService.PTabletKeyLookupRequest.newBuilder()
-                    .setTabletId(tabletID)
-                    .setDescTbl(shortCircuitQueryContext.serializedDescTable)
-                    .setOutputExpr(shortCircuitQueryContext.serializedOutputExpr)
-                    .setQueryOptions(shortCircuitQueryContext.serializedQueryOptions)
-                    .setIsBinaryRow(ConnectContext.get().command == MysqlCommand.COM_STMT_EXECUTE);
-            // Set timezone for functions like from_unixtime
-            String timeZone = ConnectContext.get().getSessionVariable().getTimeZone();
-            if ("CST".equals(timeZone)) {
-                timeZone = "Asia/Shanghai";
-            }
-            requestBuilder.setTimeZone(timeZone);
-            if (snapshotVisibleVersions != null && !snapshotVisibleVersions.isEmpty()) {
-                requestBuilder.setVersion(snapshotVisibleVersions.get(0));
-            }
-            // Only set cacheID for prepared statement excute phase,
-            // otherwise leading to many redundant cost in BE side
-            if (shortCircuitQueryContext.cacheID != null
-                        && ConnectContext.get().command == MysqlCommand.COM_STMT_EXECUTE) {
-                InternalService.UUID.Builder uuidBuilder = InternalService.UUID.newBuilder();
-                uuidBuilder.setUuidHigh(shortCircuitQueryContext.cacheID.getMostSignificantBits());
-                uuidBuilder.setUuidLow(shortCircuitQueryContext.cacheID.getLeastSignificantBits());
-                requestBuilder.setUuid(uuidBuilder);
-            }
-            addKeyTuples(requestBuilder);
+            boolean allowLightweight = Config.enable_lightweight_lookup_request
+                    && ConnectContext.get().command == MysqlCommand.COM_STMT_EXECUTE
+                    && shortCircuitQueryContext.cacheID != null;
 
-            InternalService.PTabletKeyLookupRequest request = requestBuilder.build();
-            Future<InternalService.PTabletKeyLookupResponse> futureResponse =
-                    BackendServiceProxy.getInstance().fetchTabletDataAsync(backend.getBrpcAddress(), request);
-            long currentTs = System.currentTimeMillis();
-            if (currentTs >= timeoutTs) {
-                LOG.warn("fetch result timeout {}", backend.getBrpcAddress());
-                status.updateStatus(TStatusCode.INTERNAL_ERROR, "query request timeout");
+            includeQueryContext = !allowLightweight;
+
+            // First try: lightweight request (omit desc_tbl/output_expr/query_options) when enabled.
+            InternalService.PTabletKeyLookupRequest request = buildLookupRequest(includeQueryContext);
+            pResult = fetchTabletData(status, backend, request, timeoutTs);
+            if (pResult == null) {
                 return null;
             }
-            try {
-                pResult = futureResponse.get(timeoutTs - currentTs, TimeUnit.MILLISECONDS);
-            } catch (InterruptedException e) {
-                // continue to get result
-                LOG.warn("future get interrupted Exception");
-                if (isCancel) {
-                    status.updateStatus(TStatusCode.CANCELLED, "cancelled");
-                    return null;
-                }
-            } catch (TimeoutException e) {
-                futureResponse.cancel(true);
-                LOG.warn("fetch result timeout {}, addr {}", timeoutTs - currentTs, backend.getBrpcAddress());
-                status.updateStatus(TStatusCode.INTERNAL_ERROR, "query fetch result timeout");
-                return null;
-            }
-        } catch (RpcException e) {
-            LOG.warn("query fetch rpc exception {}, e {}", backend.getBrpcAddress(), e);
-            status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, e.getMessage());
-            SimpleScheduler.addToBlacklist(backend.getId(), e.getMessage());
-            return null;
-        } catch (ExecutionException e) {
-            LOG.warn("query fetch execution exception {}, addr {}", e, backend.getBrpcAddress());
-            if (e.getMessage().contains("time out")) {
-                // if timeout, we set error code to TIMEOUT, and it will not retry querying.
-                status.updateStatus(TStatusCode.TIMEOUT, e.getMessage());
-            } else {
-                status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, e.getMessage());
-                SimpleScheduler.addToBlacklist(backend.getId(), e.getMessage());
-            }
-            return null;
+        } catch (TException e) {
+            throw e;
         }
+
         Status resultStatus = new Status(pResult.getStatus());
         if (resultStatus.getErrorCode() != TStatusCode.OK) {
             status.updateStatus(resultStatus.getErrorCode(), resultStatus.getErrorMsg());
             return null;
+        }
+
+        // Lightweight request miss: resend a full request with query context.
+        if (pResult.hasNeedResendQueryContext() && pResult.getNeedResendQueryContext()) {
+            if (includeQueryContext) {
+                LOG.warn("backend {} requests query context resend for a full point-query request, tablet_id={}",
+                        backend.getBrpcAddress(), tabletID);
+                status.updateStatus(TStatusCode.INTERNAL_ERROR,
+                        "backend requests query context resend but request already contains query context");
+                return null;
+            }
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("lookup query context miss on backend {}, resend full request, tablet_id={}",
+                        backend.getBrpcAddress(), tabletID);
+            }
+            InternalService.PTabletKeyLookupRequest fullRequest = buildLookupRequest(true);
+            pResult = fetchTabletData(status, backend, fullRequest, timeoutTs);
+            if (pResult == null) {
+                return null;
+            }
+            resultStatus = new Status(pResult.getStatus());
+            if (resultStatus.getErrorCode() != TStatusCode.OK) {
+                status.updateStatus(resultStatus.getErrorCode(), resultStatus.getErrorMsg());
+                return null;
+            }
+            if (pResult.hasNeedResendQueryContext() && pResult.getNeedResendQueryContext()) {
+                LOG.warn("backend {} still requests query context resend after full point-query request, "
+                                + "tablet_id={}",
+                        backend.getBrpcAddress(), tabletID);
+                status.updateStatus(TStatusCode.INTERNAL_ERROR,
+                        "backend still requests query context resend after full request");
+                return null;
+            }
         }
 
         if (pResult.hasEmptyBatch() && pResult.getEmptyBatch()) {
@@ -414,6 +397,91 @@ public class PointQueryExecutor implements CoordInterface {
             status.updateStatus(TStatusCode.CANCELLED, "cancelled");
         }
         return rowBatch;
+    }
+
+    private InternalService.PTabletKeyLookupRequest buildLookupRequest(boolean includeQueryContext)
+            throws TException {
+        InternalService.PTabletKeyLookupRequest.Builder requestBuilder
+                = InternalService.PTabletKeyLookupRequest.newBuilder()
+                .setTabletId(tabletID)
+                .setIsBinaryRow(ConnectContext.get().command == MysqlCommand.COM_STMT_EXECUTE);
+
+        if (includeQueryContext) {
+            requestBuilder.setDescTbl(shortCircuitQueryContext.serializedDescTable)
+                    .setOutputExpr(shortCircuitQueryContext.serializedOutputExpr)
+                    .setQueryOptions(shortCircuitQueryContext.serializedQueryOptions);
+        }
+
+        // Set timezone for functions like from_unixtime
+        String timeZone = ConnectContext.get().getSessionVariable().getTimeZone();
+        if ("CST".equals(timeZone)) {
+            timeZone = "Asia/Shanghai";
+        }
+        requestBuilder.setTimeZone(timeZone);
+
+        if (snapshotVisibleVersions != null && !snapshotVisibleVersions.isEmpty()) {
+            requestBuilder.setVersion(snapshotVisibleVersions.get(0));
+        }
+
+        // Only set cacheID for prepared statement execute phase,
+        // otherwise leading to many redundant cost in BE side
+        if (shortCircuitQueryContext.cacheID != null
+                && ConnectContext.get().command == MysqlCommand.COM_STMT_EXECUTE) {
+            InternalService.UUID.Builder uuidBuilder = InternalService.UUID.newBuilder();
+            uuidBuilder.setUuidHigh(shortCircuitQueryContext.cacheID.getMostSignificantBits());
+            uuidBuilder.setUuidLow(shortCircuitQueryContext.cacheID.getLeastSignificantBits());
+            requestBuilder.setUuid(uuidBuilder);
+        }
+
+        addKeyTuples(requestBuilder);
+        return requestBuilder.build();
+    }
+
+    private InternalService.PTabletKeyLookupResponse fetchTabletData(
+            Status status, Backend backend, InternalService.PTabletKeyLookupRequest request, long timeoutTs) {
+        Future<InternalService.PTabletKeyLookupResponse> futureResponse;
+        try {
+            futureResponse = BackendServiceProxy.getInstance()
+                    .fetchTabletDataAsync(backend.getBrpcAddress(), request);
+        } catch (RpcException e) {
+            LOG.warn("query fetch rpc exception {}, e {}", backend.getBrpcAddress(), e);
+            status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, e.getMessage());
+            SimpleScheduler.addToBlacklist(backend.getId(), e.getMessage());
+            return null;
+        }
+        long currentTs = System.currentTimeMillis();
+        if (currentTs >= timeoutTs) {
+            LOG.warn("fetch result timeout {}", backend.getBrpcAddress());
+            status.updateStatus(TStatusCode.INTERNAL_ERROR, "query request timeout");
+            return null;
+        }
+        try {
+            return futureResponse.get(timeoutTs - currentTs, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            futureResponse.cancel(true);
+            Thread.currentThread().interrupt();
+            if (isCancel) {
+                status.updateStatus(TStatusCode.CANCELLED, "cancelled");
+            } else {
+                status.updateStatus(TStatusCode.INTERNAL_ERROR, "interrupted while waiting for point query result");
+            }
+            return null;
+        } catch (TimeoutException e) {
+            futureResponse.cancel(true);
+            LOG.warn("fetch result timeout {}, addr {}", timeoutTs - currentTs, backend.getBrpcAddress());
+            status.updateStatus(TStatusCode.INTERNAL_ERROR, "query fetch result timeout");
+            return null;
+        } catch (ExecutionException e) {
+            LOG.warn("query fetch execution exception {}, addr {}", e, backend.getBrpcAddress());
+            if (e.getMessage() != null && e.getMessage().contains("time out")) {
+                // if timeout, we set error code to TIMEOUT, and it will not retry querying.
+                status.updateStatus(TStatusCode.TIMEOUT, e.getMessage());
+            } else {
+                status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, e.getMessage());
+                SimpleScheduler.addToBlacklist(backend.getId(), e.getMessage());
+            }
+            return null;
+        }
     }
 
     public void cancel() {

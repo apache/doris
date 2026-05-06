@@ -629,8 +629,12 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         for (PlanFragment fragment : planner.getFragments()) {
             if (fragment.getPlanRoot() instanceof FileScanNode) {
                 FileScanNode fileScanNode = (FileScanNode) fragment.getPlanRoot();
+                // Prefer distinct file count; fall back to split count for batch-mode scans.
+                int fileNum = fileScanNode.getSelectedFileNum() >= 0
+                        ? fileScanNode.getSelectedFileNum()
+                        : (int) fileScanNode.getSelectedSplitNum();
                 Env.getCurrentEnv().getLoadManager().getLoadJob(getJobId())
-                        .addLoadFileInfo((int) fileScanNode.getSelectedSplitNum(), fileScanNode.getTotalFileSize());
+                        .addLoadFileInfo(fileNum, fileScanNode.getTotalFileSize());
             }
         }
     }

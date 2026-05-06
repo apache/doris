@@ -67,7 +67,6 @@ import org.apache.doris.thrift.TTransactionalHiveDesc;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import lombok.Setter;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.logging.log4j.LogManager;
@@ -94,7 +93,6 @@ public class HiveScanNode extends FileQueryScanNode {
     private HiveTransaction hiveTransaction = null;
 
     // will only be set in Nereids, for lagency planner, it should be null
-    @Setter
     protected SelectedPartitions selectedPartitions = null;
 
     private DirectoryLister directoryLister;
@@ -125,6 +123,11 @@ public class HiveScanNode extends FileQueryScanNode {
         hmsTable = (HMSExternalTable) desc.getTable();
         brokerName = hmsTable.getCatalog().bindBrokerName();
         this.directoryLister = directoryLister;
+    }
+
+    public void setSelectedPartitions(SelectedPartitions selectedPartitions) {
+        this.selectedPartitions = selectedPartitions;
+        setHasPartitionPredicate(selectedPartitions != null && selectedPartitions.hasPartitionPredicate);
     }
 
     @Override

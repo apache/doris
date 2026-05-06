@@ -418,6 +418,7 @@ message StreamingTaskCommitAttachmentPB {
     optional int64 load_bytes = 4;
     optional int64 num_files = 5;
     optional int64 file_bytes = 6;
+    optional int64 filtered_rows = 7;
 }
 
 message TxnCommitAttachmentPB {

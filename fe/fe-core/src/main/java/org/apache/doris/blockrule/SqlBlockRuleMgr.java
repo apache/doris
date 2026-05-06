@@ -161,6 +161,9 @@ public class SqlBlockRuleMgr implements Writable {
             if (sqlBlockRule.getEnable() == null) {
                 sqlBlockRule.setEnable(originRule.getEnable());
             }
+            if (sqlBlockRule.getRequirePartitionFilter() == null) {
+                sqlBlockRule.setRequirePartitionFilter(originRule.getRequirePartitionFilter());
+            }
             sqlBlockRule.setSqlPattern(Pattern.compile(sqlBlockRule.getSql()));
             verifyLimitations(sqlBlockRule);
             SqlBlockUtil.checkAlterValidate(sqlBlockRule);
@@ -269,13 +272,22 @@ public class SqlBlockRuleMgr implements Writable {
      **/
     public void checkLimitations(Long partitionNum, Long tabletNum, Long cardinality, String user)
             throws AnalysisException {
+        checkLimitations(partitionNum, tabletNum, cardinality, false, false, user);
+    }
+
+    /**
+     * Check scan limitations whether legal by user.
+     **/
+    public void checkLimitations(Long partitionNum, Long tabletNum, Long cardinality,
+            boolean isPartitionedTable, boolean hasPartitionPredicate, String user) throws AnalysisException {
         if (ConnectContext.get().getState().isInternal()) {
             return;
         }
         // match global rule
         for (SqlBlockRule rule : nameToSqlBlockRuleMap.values()) {
             if (rule.getGlobal()) {
-                checkLimitations(rule, partitionNum, tabletNum, cardinality);
+                checkLimitations(rule, partitionNum, tabletNum, cardinality,
+                        isPartitionedTable, hasPartitionPredicate);
             }
         }
         // match user rule
@@ -285,33 +297,42 @@ public class SqlBlockRuleMgr implements Writable {
             if (rule == null) {
                 continue;
             }
-            checkLimitations(rule, partitionNum, tabletNum, cardinality);
+            checkLimitations(rule, partitionNum, tabletNum, cardinality,
+                    isPartitionedTable, hasPartitionPredicate);
         }
     }
 
     /**
      * Check number whether legal by SqlBlockRule.
      **/
-    private void checkLimitations(SqlBlockRule rule, Long partitionNum, Long tabletNum, Long cardinality)
+    @VisibleForTesting
+    void checkLimitations(SqlBlockRule rule, Long partitionNum, Long tabletNum, Long cardinality,
+            boolean isPartitionedTable, boolean hasPartitionPredicate)
             throws AnalysisException {
+        if (!rule.getEnable()) {
+            return;
+        }
+        if (Boolean.TRUE.equals(rule.getRequirePartitionFilter()) && isPartitionedTable && !hasPartitionPredicate) {
+            MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
+            throw new AnalysisException("sql hits sql block rule: " + rule.getName() + ", missing partition filter");
+        }
         if (rule.getPartitionNum() == 0 && rule.getTabletNum() == 0 && rule.getCardinality() == 0) {
             return;
-        } else if (rule.getEnable()) {
-            if ((rule.getPartitionNum() != 0 && rule.getPartitionNum() < partitionNum) || (rule.getTabletNum() != 0
-                    && rule.getTabletNum() < tabletNum) || (rule.getCardinality() != 0
-                    && rule.getCardinality() < cardinality)) {
-                MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
-                if (rule.getPartitionNum() < partitionNum && rule.getPartitionNum() != 0) {
-                    throw new AnalysisException(
-                            "sql hits sql block rule: " + rule.getName() + ", reach partition_num : "
-                                    + rule.getPartitionNum());
-                } else if (rule.getTabletNum() < tabletNum && rule.getTabletNum() != 0) {
-                    throw new AnalysisException("sql hits sql block rule: " + rule.getName() + ", reach tablet_num : "
-                            + rule.getTabletNum());
-                } else if (rule.getCardinality() < cardinality && rule.getCardinality() != 0) {
-                    throw new AnalysisException("sql hits sql block rule: " + rule.getName() + ", reach cardinality : "
-                            + rule.getCardinality());
-                }
+        }
+        if ((rule.getPartitionNum() != 0 && rule.getPartitionNum() < partitionNum) || (rule.getTabletNum() != 0
+                && rule.getTabletNum() < tabletNum) || (rule.getCardinality() != 0
+                && rule.getCardinality() < cardinality)) {
+            MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
+            if (rule.getPartitionNum() < partitionNum && rule.getPartitionNum() != 0) {
+                throw new AnalysisException(
+                        "sql hits sql block rule: " + rule.getName() + ", reach partition_num : "
+                                + rule.getPartitionNum());
+            } else if (rule.getTabletNum() < tabletNum && rule.getTabletNum() != 0) {
+                throw new AnalysisException("sql hits sql block rule: " + rule.getName() + ", reach tablet_num : "
+                        + rule.getTabletNum());
+            } else if (rule.getCardinality() < cardinality && rule.getCardinality() != 0) {
+                throw new AnalysisException("sql hits sql block rule: " + rule.getName() + ", reach cardinality : "
+                        + rule.getCardinality());
             }
         }
     }

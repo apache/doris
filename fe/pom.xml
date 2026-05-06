@@ -317,8 +317,8 @@ under the License.
         <hikaricp.version>6.0.0</hikaricp.version>
         <thrift.version>0.16.0</thrift.version>
         <tomcat-embed.version>9.0.104</tomcat-embed.version>
-        <log4j2.version>2.25.3</log4j2.version>
-        <log4j-1.2.version>2.25.3</log4j-1.2.version>
+        <log4j2.version>2.25.4</log4j2.version>
+        <log4j-1.2.version>2.25.4</log4j-1.2.version>
         <mqtt.version>1.2.5</mqtt.version>
         <slf4j.version>2.0.17</slf4j.version>
         <metrics-core.version>4.0.2</metrics-core.version>
@@ -402,8 +402,8 @@ under the License.
         <antlr4.version>4.13.1</antlr4.version>
         <joda.version>2.8.1</joda.version>
         <project.scm.id>github</project.scm.id>
-        <spring.version>3.5.13</spring.version>
-        <spring-framework.version>6.2.12</spring-framework.version>
+        <spring.version>3.5.14</spring.version>
+        <spring-framework.version>6.2.18</spring-framework.version>
         <orc.version>1.8.4</orc.version>
         <zookeeper.version>3.9.3</zookeeper.version>
         <velocity-engine-core.version>2.4</velocity-engine-core.version>
@@ -960,6 +960,11 @@ under the License.
             <dependency>
                 <groupId>org.apache.logging.log4j</groupId>
                 <artifactId>log4j-core</artifactId>
+                <version>${log4j2.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-web</artifactId>
                 <version>${log4j2.version}</version>
             </dependency>
             <dependency>
