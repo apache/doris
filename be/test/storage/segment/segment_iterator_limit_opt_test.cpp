@@ -18,6 +18,9 @@
 // Use #define private public to access private members for white-box testing
 // of SegmentIterator::_can_opt_limit_reads() and its dependent state. Mirrors
 // the convention in segment_iterator_apply_index_expr_test.cpp.
+#include "core/block/block.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_number.h"
 #include "gtest/gtest.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/block_column_predicate.h"
@@ -38,6 +41,15 @@
 #endif
 
 namespace doris::segment_v2 {
+
+static MutableColumnPtr make_int_column(size_t rows) {
+    auto column = ColumnVector<TYPE_INT>::create();
+    column->reserve(rows);
+    for (size_t i = 0; i < rows; ++i) {
+        column->insert_value(1);
+    }
+    return column;
+}
 
 class SegmentIteratorLimitOptTest : public ::testing::Test {
 protected:
@@ -104,6 +116,22 @@ TEST_F(SegmentIteratorLimitOptTest, pushed_conjunct_requires_post_filter_limit) 
     iter->_opts.read_limit = 100;
     iter->_is_need_short_eval = true;
     EXPECT_FALSE(iter->_can_opt_limit_reads());
+}
+
+TEST_F(SegmentIteratorLimitOptTest, read_limit_shrinks_materialized_columns) {
+    auto iter = make_iter();
+    iter->_opts.read_limit = 20;
+    iter->_rows_returned = 0;
+
+    Block block;
+    block.insert({make_int_column(0), std::make_shared<DataTypeInt32>(), "not_materialized"});
+    block.insert({make_int_column(100), std::make_shared<DataTypeInt32>(), "delete_sign"});
+    uint16_t selected_size = 100;
+
+    ASSERT_TRUE(iter->_apply_read_limit_to_selected_rows(&block, selected_size).ok());
+    EXPECT_EQ(20, selected_size);
+    EXPECT_EQ(0, block.get_by_position(0).column->size());
+    EXPECT_EQ(20, block.get_by_position(1).column->size());
 }
 
 // Has delete condition predicates → should return false even with limit set.

@@ -2483,6 +2483,14 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
     return selected_size;
 }
 
+static void shrink_materialized_block_columns(Block* block, size_t rows) {
+    for (auto& entry : *block) {
+        if (entry.column && entry.column->size() > rows) {
+            entry.column = entry.column->shrink(rows);
+        }
+    }
+}
+
 Status SegmentIterator::_apply_read_limit_to_selected_rows(Block* block, uint16_t& selected_size) {
     if (_opts.read_limit == 0) {
         return Status::OK();
@@ -2491,14 +2499,12 @@ Status SegmentIterator::_apply_read_limit_to_selected_rows(Block* block, uint16_
     size_t remaining = _opts.read_limit - _rows_returned;
     if (remaining == 0) {
         selected_size = 0;
-        block->set_num_rows(0);
+        shrink_materialized_block_columns(block, 0);
         return Status::OK();
     }
     if (selected_size > remaining) {
         selected_size = cast_set<uint16_t>(remaining);
-        if (block->rows() > selected_size) {
-            block->set_num_rows(selected_size);
-        }
+        shrink_materialized_block_columns(block, selected_size);
     }
     return Status::OK();
 }
