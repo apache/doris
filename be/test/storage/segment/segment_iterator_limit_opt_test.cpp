@@ -87,6 +87,25 @@ TEST_F(SegmentIteratorLimitOptTest, topn_limit_no_predicates) {
     EXPECT_TRUE(iter->_can_opt_limit_reads());
 }
 
+// If SegmentIterator still needs to evaluate a pushed conjunct, raw reads cannot
+// be capped by LIMIT. The limit must be applied after filtering selected rows.
+TEST_F(SegmentIteratorLimitOptTest, pushed_conjunct_requires_post_filter_limit) {
+    auto iter = make_iter();
+    iter->_opts.read_limit = 100;
+    iter->_is_need_expr_eval = true;
+    EXPECT_FALSE(iter->_can_opt_limit_reads());
+
+    iter = make_iter();
+    iter->_opts.read_limit = 100;
+    iter->_is_need_vec_eval = true;
+    EXPECT_FALSE(iter->_can_opt_limit_reads());
+
+    iter = make_iter();
+    iter->_opts.read_limit = 100;
+    iter->_is_need_short_eval = true;
+    EXPECT_FALSE(iter->_can_opt_limit_reads());
+}
+
 // Has delete condition predicates → should return false even with limit set.
 TEST_F(SegmentIteratorLimitOptTest, delete_predicates_returns_false) {
     auto iter = make_iter();

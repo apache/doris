@@ -473,16 +473,28 @@ Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* f
 }
 
 bool OlapScanLocalState::_should_push_down_common_expr(const VExprSPtr& expr) {
+    // This switch controls both pushed filter execution and LIMIT accounting in SegmentIterator.
+    // Only expressions that actually reference slots can reduce storage reads.
     if (!state()->enable_segment_filter_and_limit_pushdown() ||
         !VExpr::is_acting_on_a_slot(*expr)) {
         return false;
     }
+
+    // Runtime filters may arrive after scanner initialization. If LIMIT is also pushed into
+    // SegmentIterator, a late filter could make the segment stop before enough post-filter rows are
+    // produced, so keep LIMIT+RF cases above storage.
     if (_parent->limit() >= 0 && _helper.runtime_filter_nums() > 0) {
         return false;
     }
+
+    // DUP and UNIQUE-MOW/MOR-as-DUP do not need storage aggregation/merge, so any slot-based common
+    // expression can be evaluated together with SegmentIterator lazy materialization.
     if (_storage_no_merge()) {
         return true;
     }
+
+    // AGG and UNIQUE-MOR may still merge value columns above SegmentIterator. Push only key-column
+    // expressions so filtering does not observe pre-merge values.
     return _expr_only_refs_key_columns(expr);
 }
 

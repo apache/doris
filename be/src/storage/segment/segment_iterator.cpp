@@ -2705,7 +2705,9 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
     uint32_t nrows_read_limit =
             std::min(cast_set<uint32_t>(_row_bitmap.cardinality()), _opts.block_row_max);
     if (_can_opt_limit_reads()) {
-        // Cap each batch by the remaining budget; emit EOF naturally when 0.
+        // No SegmentIterator-side conjunct remains to be evaluated, so LIMIT is equivalent before
+        // and after filtering. Cap the first read directly; this is the no-conjunct fast path that
+        // avoids reading rows past the pushed-down local LIMIT.
         size_t cap = (_opts.read_limit > _rows_returned) ? (_opts.read_limit - _rows_returned) : 0;
         if (cap < nrows_read_limit) {
             nrows_read_limit = static_cast<uint32_t>(cap);
@@ -3273,6 +3275,9 @@ bool SegmentIterator::_can_opt_limit_reads() {
         return false;
     }
 
+    // If SegmentIterator still needs to evaluate predicates/common exprs, LIMIT must be applied to
+    // post-filter rows by _apply_read_limit_to_selected_rows(); capping the raw read here could
+    // return fewer rows than the query LIMIT.
     if (_is_need_vec_eval || _is_need_short_eval || _is_need_expr_eval) {
         return false;
     }
