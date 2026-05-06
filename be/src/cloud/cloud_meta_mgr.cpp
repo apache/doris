@@ -154,6 +154,7 @@ Status bthread_fork_join(std::vector<std::function<Status()>>&& tasks, int concu
 
 namespace {
 constexpr int kBrpcRetryTimes = 3;
+constexpr std::string_view kSupportMsTooBusyField = "support_ms_too_busy";
 
 bvar::LatencyRecorder _get_rowset_latency("doris_cloud_meta_mgr_get_rowset");
 bvar::LatencyRecorder g_cloud_commit_txn_resp_redirect_latency("cloud_table_stats_report_latency");
@@ -163,6 +164,13 @@ bvar::Window<bvar::Adder<uint64_t>> g_cloud_ms_rpc_timeout_count_window(
 bvar::LatencyRecorder g_cloud_be_mow_get_dbm_lock_backoff_sleep_time(
         "cloud_be_mow_get_dbm_lock_backoff_sleep_time");
 bvar::Adder<uint64_t> g_cloud_version_hole_filled_count("cloud_version_hole_filled_count");
+
+void set_support_ms_too_busy(::google::protobuf::Message* req) {
+    const auto* field = req->GetDescriptor()->FindFieldByName(std::string(kSupportMsTooBusyField));
+    DORIS_CHECK(field != nullptr);
+    DORIS_CHECK(field->cpp_type() == ::google::protobuf::FieldDescriptor::CPPTYPE_BOOL);
+    req->GetReflection()->SetBool(req, field, true);
+}
 
 class MetaServiceProxy {
 public:
@@ -460,7 +468,9 @@ Status retry_rpc(MetaServiceRPC rpc, const Request& req, Response* res,
     std::string_view op_name = meta_service_rpc_display_name(rpc);
 
     // Applies only to the current file, and all req are non-const, but passed as const types.
-    const_cast<Request&>(req).set_request_ip(BackendOptions::get_be_endpoint());
+    auto* mutable_req = const_cast<Request*>(&req);
+    mutable_req->set_request_ip(BackendOptions::get_be_endpoint());
+    set_support_ms_too_busy(mutable_req);
 
     int retry_times = 0;
     uint32_t duration_ms = 0;
@@ -682,6 +692,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
         int64_t table_id = tablet->table_id();
         int64_t index_id = tablet->index_id();
         req.set_cloud_unique_id(config::cloud_unique_id);
+        set_support_ms_too_busy(&req);
         auto* idx = req.mutable_idx();
         idx->set_tablet_id(tablet_id);
         idx->set_table_id(table_id);

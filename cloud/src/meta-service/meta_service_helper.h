@@ -19,6 +19,8 @@
 
 #include <brpc/controller.h>
 #include <gen_cpp/cloud.pb.h>
+#include <google/protobuf/descriptor.h>
+#include <google/protobuf/message.h>
 #include <openssl/md5.h>
 
 #include <iomanip>
@@ -41,6 +43,15 @@
 #include "resource-manager/resource_manager.h"
 
 namespace doris::cloud {
+inline bool support_ms_too_busy(const google::protobuf::Message* request) {
+    constexpr std::string_view field_name = "support_ms_too_busy";
+    const auto* field = request->GetDescriptor()->FindFieldByName(std::string(field_name));
+    if (field == nullptr || field->cpp_type() != google::protobuf::FieldDescriptor::CPPTYPE_BOOL) {
+        return false;
+    }
+    return request->GetReflection()->GetBool(*request, field);
+}
+
 inline std::string md5(const std::string& str) {
     unsigned char digest[MD5_DIGEST_LENGTH];
     MD5_CTX context;
@@ -320,7 +331,8 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
         RpcRateLimitWhitelist::instance().should_rate_limit(#func_name) &&                    \
         ms_stress_decision.under_great_stress()) {                                            \
         drop_request = true;                                                                  \
-        code = MetaServiceCode::MS_TOO_BUSY;                                                  \
+        code = support_ms_too_busy(request) ? MetaServiceCode::MS_TOO_BUSY                    \
+                                            : MetaServiceCode::KV_TXN_CONFLICT;               \
         msg = ms_stress_decision.debug_string();                                              \
         response->mutable_status()->set_code(code);                                           \
         response->mutable_status()->set_msg(msg);                                             \

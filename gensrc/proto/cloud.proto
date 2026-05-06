@@ -992,6 +992,7 @@ message PrecommitTxnRequest {
     optional TxnCommitAttachmentPB commit_attachment = 4;
     optional int64 precommit_timeout_ms = 5;
     optional string request_ip = 6;
+    optional bool support_ms_too_busy = 7;
 }
 
 message PrecommitTxnResponse {
@@ -1014,6 +1015,7 @@ message CommitTxnRequest {
     repeated SubTxnInfo sub_txn_infos = 10;
     optional bool enable_txn_lazy_commit = 11;
     optional string request_ip = 12;
+    optional bool support_ms_too_busy = 13;
 }
 
 message SubTxnInfo {
@@ -1049,6 +1051,7 @@ message AbortTxnRequest {
     optional string reason = 5;
     optional TxnCommitAttachmentPB commit_attachment = 6;
     optional string request_ip = 7;
+    optional bool support_ms_too_busy = 8;
 }
 
 message AbortTxnResponse {
@@ -1228,6 +1231,7 @@ message GetVersionResponse {
 message GetObjStoreInfoRequest {
     optional string cloud_unique_id = 1; // For auth
     optional string request_ip = 2;
+    optional bool support_ms_too_busy = 3;
 };
 
 message AlterObjStoreInfoRequest {
@@ -1329,6 +1333,7 @@ message GetTabletRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 tablet_id = 2;
     optional string request_ip = 3;
+    optional bool support_ms_too_busy = 4;
     // TODO: There are more fields TBD
 }
 
@@ -1344,6 +1349,7 @@ message CreateRowsetRequest {
     optional int64 txn_id = 4;
     optional string tablet_job_id = 5;
     optional string request_ip = 6;
+    optional bool support_ms_too_busy = 7;
 }
 
 message CreateRowsetResponse {
@@ -1369,6 +1375,7 @@ message GetRowsetRequest {
     optional SchemaOp schema_op = 8  [default = FILL_WITH_DICT];
     optional string request_ip = 9;
     optional int64 full_compaction_cnt = 10;
+    optional bool support_ms_too_busy = 11;
 }
 
 message GetRowsetResponse {
@@ -1443,6 +1450,7 @@ message RestoreJobRequest {
     optional Action action = 6;
     // 50: used for delete bitmap storage v2
     optional int64 store_version = 50;
+    optional bool support_ms_too_busy = 51;
 }
 
 message RestoreJobResponse {
@@ -1510,6 +1518,7 @@ message GetInstanceRequest {
     optional string instance_id = 1;
     optional string cloud_unique_id = 2;
     optional string request_ip = 3;
+    optional bool support_ms_too_busy = 4;
 }
 
 message GetInstanceResponse {
@@ -1560,6 +1569,7 @@ message GetClusterStatusRequest {
     repeated string cloud_unique_ids = 2;
     optional ClusterStatus status = 3;
     optional string request_ip = 4;
+    optional bool support_ms_too_busy = 5;
 }
 
 message GetClusterStatusResponse {
@@ -1664,6 +1674,7 @@ message StartTabletJobRequest {
     optional string cloud_unique_id = 1; // For auth
     optional TabletJobInfoPB job = 2;
     optional string request_ip = 3;
+    optional bool support_ms_too_busy = 4;
 }
 
 message StartTabletJobResponse {
@@ -1683,6 +1694,7 @@ message FinishTabletJobRequest {
     optional Action action = 2;
     optional TabletJobInfoPB job = 3;
     optional string request_ip = 4;
+    optional bool support_ms_too_busy = 5;
 }
 
 message FinishTabletJobResponse {
@@ -1915,6 +1927,7 @@ message UpdateDeleteBitmapRequest {
     repeated string delta_rowset_ids = 50;
     repeated DeleteBitmapStoragePB delete_bitmap_storages = 51;
     optional int64 store_version = 52;
+    optional bool support_ms_too_busy = 53;
 }
 
 message UpdateDeleteBitmapResponse {
@@ -1934,6 +1947,7 @@ message GetDeleteBitmapRequest {
     optional string request_ip = 10;
     optional int64 dbm_bytes_threshold = 11;
     optional int64 store_version = 50;
+    optional bool support_ms_too_busy = 51;
 }
 
 message GetDeleteBitmapResponse {
@@ -1993,6 +2007,7 @@ message GetDeleteBitmapUpdateLockRequest {
     repeated TabletIndexPB tablet_indexes = 8;
     optional string request_ip = 9;
     optional bool urgent = 10;
+    optional bool support_ms_too_busy = 11;
 }
 
 message GetDeleteBitmapUpdateLockResponse {
@@ -2010,6 +2025,7 @@ message RemoveDeleteBitmapUpdateLockRequest {
     optional int64 lock_id = 4;
     optional int64 initiator = 5;
     optional string request_ip = 6;
+    optional bool support_ms_too_busy = 7;
 }
 
 message RemoveDeleteBitmapUpdateLockResponse {
@@ -2181,6 +2197,7 @@ message ListSnapshotRequest {
     optional bool include_aborted = 3;
     optional string request_ip = 4;
     optional string instance_id = 5;
+    optional bool support_ms_too_busy = 6;
 }
 
 message ListSnapshotResponse {
@@ -2273,6 +2290,7 @@ message UpdatePackedFileInfoRequest {
     optional string request_ip = 2;
     optional string packed_file_path = 3; // The path of the packed file
     optional PackedFileInfoPB packed_file_info = 4;
+    optional bool support_ms_too_busy = 5;
 }
 
 message UpdatePackedFileInfoResponse {
