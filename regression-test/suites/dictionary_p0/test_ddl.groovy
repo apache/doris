@@ -125,7 +125,7 @@ suite("test_ddl") {
         )LAYOUT(HASH_MAP)
         properties('data_lifetime'='600');
         """
-        exception "Key column k1 cannot be complex type"
+        exception "cannot be Map or Struct type"
     }
 
     // nullable column test base table
