@@ -60,6 +60,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * In PostgreSQL/MySQL, multi-table writes are performed by tasks that only make calls.
@@ -137,9 +139,9 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         InternalService.PRequestCdcClientResult result = null;
         try {
-            Future<PRequestCdcClientResult> future =
-                    BackendServiceProxy.getInstance().requestCdcClient(address, request);
-            result = future.get();
+            Future<PRequestCdcClientResult> future = BackendServiceProxy.getInstance()
+                    .requestCdcClient(address, request, Config.streaming_cdc_heavy_rpc_timeout_sec);
+            result = future.get(Config.streaming_cdc_heavy_rpc_timeout_sec, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
                 log.error("Failed to send write records request, {}", result.getStatus().getErrorMsgs(0));
@@ -163,6 +165,11 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
                 throw new JobException("Failed to parse write records response: " + response);
             }
             throw new JobException("Failed to send write records request , error message: " + response);
+        } catch (TimeoutException te) {
+            log.warn("cdc_client RPC timeout api=/api/writeRecords taskId={} jobId={} backend={}:{} timeout_sec={}",
+                    taskId, getJobId(), backend.getHost(), backend.getBrpcPort(),
+                    Config.streaming_cdc_heavy_rpc_timeout_sec);
+            throw new JobException("cdc_client RPC timeout: /api/writeRecords taskId=" + taskId);
         } catch (ExecutionException | InterruptedException ex) {
             log.error("Send write request failed: ", ex);
             throw new JobException(ex);
@@ -334,20 +341,20 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
      * such as a data quality error, and needs to expose it to the user.
      */
     public String getTimeoutReason() {
+        if (runningBackendId <= 0) {
+            log.info("No running backend for task {}", runningBackendId);
+            return "";
+        }
+        Backend backend = Env.getCurrentSystemInfo().getBackend(runningBackendId);
         try {
-            if (runningBackendId <= 0) {
-                log.info("No running backend for task {}", runningBackendId);
-                return "";
-            }
-            Backend backend = Env.getCurrentSystemInfo().getBackend(runningBackendId);
             InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                     .setApi("/api/getFailReason/" + getTaskId())
                     .build();
             TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
             InternalService.PRequestCdcClientResult result = null;
-            Future<PRequestCdcClientResult> future =
-                    BackendServiceProxy.getInstance().requestCdcClient(address, request);
-            result = future.get();
+            Future<PRequestCdcClientResult> future = BackendServiceProxy.getInstance()
+                    .requestCdcClient(address, request, Config.streaming_cdc_light_rpc_timeout_sec);
+            result = future.get(Config.streaming_cdc_light_rpc_timeout_sec, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
                 log.warn("Failed to get task timeout reason, {}", result.getStatus().getErrorMsgs(0));
@@ -366,6 +373,11 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
             } catch (JsonProcessingException e) {
                 log.warn("Failed to get task timeout reason, response: {}", response);
             }
+        } catch (TimeoutException te) {
+            log.warn("cdc_client RPC timeout api=/api/getFailReason jobId={} taskId={} backend={}:{} "
+                            + "timeout_sec={}",
+                    getJobId(), getTaskId(), backend.getHost(), backend.getBrpcPort(),
+                    Config.streaming_cdc_light_rpc_timeout_sec);
         } catch (ExecutionException | InterruptedException ex) {
             log.warn("Send get task fail reason request failed: ", ex);
         }
