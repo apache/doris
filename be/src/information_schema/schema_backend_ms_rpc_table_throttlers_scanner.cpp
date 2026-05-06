@@ -21,6 +21,7 @@
 
 #include <string>
 
+#include "cloud/cloud_ms_rpc_rate_limit_services.h"
 #include "cloud/cloud_throttle_state_machine.h"
 #include "core/block/block.h"
 #include "core/data_type/define_primitive_type.h"
@@ -46,8 +47,9 @@ SchemaBackendMsRpcTableThrottlersScanner::SchemaBackendMsRpcTableThrottlersScann
 SchemaBackendMsRpcTableThrottlersScanner::~SchemaBackendMsRpcTableThrottlersScanner() = default;
 
 Status SchemaBackendMsRpcTableThrottlersScanner::start(RuntimeState* state) {
-    auto* throttler = ExecEnv::GetInstance()->table_rpc_throttler();
-    if (throttler) {
+    auto* services = ExecEnv::GetInstance()->ms_rpc_rate_limit_services();
+    if (services != nullptr) {
+        auto* throttler = services->table_rpc_throttler();
         _entries = throttler->get_all_throttled_entries();
     }
     return Status::OK();
@@ -67,7 +69,8 @@ Status SchemaBackendMsRpcTableThrottlersScanner::get_next_block_internal(Block* 
         return Status::OK();
     }
 
-    auto* registry = ExecEnv::GetInstance()->table_rpc_qps_registry();
+    auto* services = ExecEnv::GetInstance()->ms_rpc_rate_limit_services();
+    auto* registry = services != nullptr ? services->table_rpc_qps_registry() : nullptr;
 
     size_t row_num = _entries.size();
     for (size_t col_idx = 0; col_idx < _s_tbls_columns.size(); ++col_idx) {

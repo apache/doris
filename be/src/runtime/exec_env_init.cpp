@@ -33,7 +33,7 @@
 
 #include "cloud/cloud_cluster_info.h"
 #include "cloud/cloud_meta_mgr.h"
-#include "cloud/cloud_ms_backpressure_handler.h"
+#include "cloud/cloud_ms_rpc_rate_limit_services.h"
 #include "cloud/cloud_ms_rpc_rate_limiters.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_stream_load_executor.h"
@@ -434,20 +434,16 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
         // Start cluster info background worker for compaction read-write separation
         static_cast<CloudClusterInfo*>(_cluster_info)->start_bg_worker();
 
-        // Initialize host-level MS RPC rate limiters for cloud mode
-        _host_level_ms_rpc_rate_limiters = std::make_unique<cloud::HostLevelMSRpcRateLimiters>();
+        // Initialize MS RPC rate limiters and table-level backpressure handling.
+        _ms_rpc_rate_limit_services = std::make_unique<MSRpcRateLimitServices>();
         static_cast<CloudStorageEngine*>(_storage_engine.get())
                 ->meta_mgr()
-                .set_host_level_ms_rpc_rate_limiters(_host_level_ms_rpc_rate_limiters.get());
-
-        // Initialize table-level backpressure handling components
-        _table_rpc_qps_registry = std::make_unique<cloud::TableRpcQpsRegistry>();
-        _table_rpc_throttler = std::make_unique<cloud::TableRpcThrottler>();
-        _ms_backpressure_handler = std::make_unique<cloud::MSBackpressureHandler>(
-                _table_rpc_qps_registry.get(), _table_rpc_throttler.get());
+                .set_host_level_ms_rpc_rate_limiters(
+                        _ms_rpc_rate_limit_services->host_level_ms_rpc_rate_limiters());
         static_cast<CloudStorageEngine*>(_storage_engine.get())
                 ->meta_mgr()
-                .set_ms_backpressure_handler(_ms_backpressure_handler.get());
+                .set_ms_backpressure_handler(
+                        _ms_rpc_rate_limit_services->ms_backpressure_handler());
     }
 
     _index_policy_mgr = new IndexPolicyMgr();
@@ -1009,30 +1005,26 @@ namespace doris::config {
 namespace {
 
 void refresh_ms_rpc_rate_limiters() {
-    auto* rate_limiters = ExecEnv::GetInstance()->host_level_ms_rpc_rate_limiters();
-    if (rate_limiters != nullptr) {
-        rate_limiters->reset_all();
+    auto* services = ExecEnv::GetInstance()->ms_rpc_rate_limit_services();
+    if (services != nullptr) {
+        services->reset_host_level_rate_limiters();
     }
 }
 
 void refresh_ms_backpressure_throttle_params() {
-    auto* handler = ExecEnv::GetInstance()->ms_backpressure_handler();
-    if (handler != nullptr) {
-        handler->update_throttle_params({
-                .top_k = ms_backpressure_upgrade_top_k,
-                .ratio = ms_backpressure_throttle_ratio,
-                .floor_qps = ms_rpc_table_qps_limit_floor,
-        });
+    auto* services = ExecEnv::GetInstance()->ms_rpc_rate_limit_services();
+    if (services != nullptr) {
+        services->update_backpressure_throttle_params(ms_backpressure_upgrade_top_k,
+                                                      ms_backpressure_throttle_ratio,
+                                                      ms_rpc_table_qps_limit_floor);
     }
 }
 
 void refresh_ms_backpressure_coordinator_params() {
-    auto* handler = ExecEnv::GetInstance()->ms_backpressure_handler();
-    if (handler != nullptr) {
-        handler->update_coordinator_params({
-                .upgrade_cooldown_ticks = ms_backpressure_upgrade_interval_ms,
-                .downgrade_after_ticks = ms_backpressure_downgrade_interval_ms,
-        });
+    auto* services = ExecEnv::GetInstance()->ms_rpc_rate_limit_services();
+    if (services != nullptr) {
+        services->update_backpressure_coordinator_params(ms_backpressure_upgrade_interval_ms,
+                                                         ms_backpressure_downgrade_interval_ms);
     }
 }
 
