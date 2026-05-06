@@ -87,13 +87,17 @@ private:
     Status _process_lazy_probe_build_block(Block* probe_block, const Block& build_block,
                                            size_t build_block_idx, bool ignore_null);
     void _mark_lazy_build_rows_visited(size_t build_block_idx, const IColumn::Filter& filter);
+    void _update_lazy_mark_join_state(const IColumn::Filter& mark_filter,
+                                      const ColumnUInt8& mark_null_map,
+                                      const IColumn::Filter& other_filter);
     Status _append_lazy_rows(const IColumn::Filter& filter, size_t selected_rows,
                              bool fixed_side_probe, int64_t fixed_side_pos,
                              const Block& probe_block, const Block& build_block);
     Status _append_lazy_probe_row_with_build_defaults(const Block& probe_block,
                                                       int64_t probe_row_pos);
     Status _append_lazy_mark_probe_row_with_build_defaults(const Block& probe_block,
-                                                           int64_t probe_row_pos, bool mark_value);
+                                                           int64_t probe_row_pos,
+                                                           int8_t mark_value);
     Status _finalize_lazy_probe_row(RuntimeState* state, const Block& probe_block,
                                     int64_t probe_row_pos);
     Status _append_lazy_build_rows_with_probe_defaults(const Block& build_block,
@@ -235,6 +239,7 @@ private:
     bool _need_more_input_data = true;
     // Visited flags for current row in probe side.
     std::vector<int8_t> _cur_probe_row_visited_flags;
+    std::vector<int8_t> _cur_probe_row_mark_flags;
     size_t _current_build_pos = 0;
     size_t _current_build_row_pos =
             0; // current row pos in build block, used by _generate_block_base_build
@@ -244,6 +249,7 @@ private:
     uint64_t _output_null_idx_build_side = 0;
     uint64_t _output_null_row_idx_build_side = 0;
     VExprContextSPtrs _join_conjuncts;
+    VExprContextSPtrs _mark_join_conjuncts;
 
     RuntimeProfile::Counter* _loop_join_timer = nullptr;
     RuntimeProfile::Counter* _output_temp_blocks_timer = nullptr;
@@ -290,10 +296,10 @@ private:
     friend class NestedLoopJoinProbeLocalState;
     bool _is_output_probe_side_only;
     VExprContextSPtrs _join_conjuncts;
+    VExprContextSPtrs _mark_join_conjuncts;
     size_t _num_probe_side_columns = 0;
     size_t _num_build_side_columns = 0;
     bool _has_materialized_slot_ids = false;
-    bool _has_mark_join_conjuncts = false;
     std::vector<SlotId> _materialized_slot_ids;
     bool _enable_lazy_materialize = false;
     bool _enable_lazy_probe_finalize = false;
