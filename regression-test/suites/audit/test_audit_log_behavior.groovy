@@ -16,16 +16,8 @@
 // under the License.
 
 suite("test_audit_log_behavior","nonConcurrent") {
-    try {
-        sql "set global enable_audit_plugin = true"
-        sql "set global audit_plugin_max_sql_length = 58"
-        // sql "set global audit_plugin_max_batch_interval_sec = 1"
-    } catch (Exception e) {
-        log.warn("skip this case, because " + e.getMessage())
-        assertTrue(e.getMessage().toUpperCase().contains("ADMIN"))
-        return
-    }
 
+ setGlobalVarTemporary([enable_audit_plugin: true, audit_plugin_max_sql_length: 58], {
     sql "drop table if exists audit_log_behavior"
     sql """
         CREATE TABLE `audit_log_behavior` (
@@ -99,8 +91,6 @@ suite("test_audit_log_behavior","nonConcurrent") {
         assertEquals(tuple2[1].toString(), res[0][0].toString())
     }
 
-    // do not turn off
-    sql "set global enable_audit_plugin = false"
-    sql "set global audit_plugin_max_sql_length = 4096"
-    sql "set global audit_plugin_max_batch_interval_sec = 60"
+  }
+
 }

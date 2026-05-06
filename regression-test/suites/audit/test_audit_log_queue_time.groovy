@@ -16,14 +16,8 @@
 // under the License.
 
 suite("test_audit_log_queue_time", "nonConcurrent") {
-    // Check admin privilege
-    try {
-        sql "set global enable_audit_plugin = true"
-    } catch (Exception e) {
-        log.warn("skip this case, because " + e.getMessage())
-        assertTrue(e.getMessage().toUpperCase().contains("ADMIN"))
-        return
-    }
+
+ setGlobalVarTemporary([enable_audit_plugin: true], {
 
     def tableName = "audit_queue_time_test"
     def wgName = "test_queue_time_wg"
@@ -125,5 +119,5 @@ suite("test_audit_log_queue_time", "nonConcurrent") {
     // Cleanup
     sql "drop table if exists ${tableName}"
     sql "drop workload group if exists ${wgName}"
-    sql "set global enable_audit_plugin = false"
+  }
 }
