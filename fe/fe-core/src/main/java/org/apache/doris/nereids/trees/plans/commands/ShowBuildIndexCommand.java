@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -100,7 +101,8 @@ public class ShowBuildIndexCommand extends ShowCommand {
         this.filterMap = new HashMap<String, Expression>();
     }
 
-    private void validate(ConnectContext ctx) throws UserException {
+    @VisibleForTesting
+    protected void validate(ConnectContext ctx) throws UserException {
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = ctx.getDatabase();
             if (Strings.isNullOrEmpty(dbName)) {
@@ -157,6 +159,7 @@ public class ShowBuildIndexCommand extends ShowCommand {
                 throw new AnalysisException("Where clause : TableName = \"table1\" or "
                         + "State = \"FINISHED|CANCELLED|RUNNING|PENDING|WAITING_TXN\"");
             }
+            filterMap.put(leftKey, isNotExpr ? new Not(subExpr) : subExpr);
         } else if (leftKey.equalsIgnoreCase(CREATE_TIME) || leftKey.equalsIgnoreCase(FINISH_TIME)) {
             if (!(subExpr.child(1) instanceof StringLikeLiteral)) {
                 throw new AnalysisException("Where clause : CreateTime/FinishTime =|>=|<=|>|<|!= "
@@ -166,11 +169,17 @@ public class ShowBuildIndexCommand extends ShowCommand {
             Expression right = subExpr.child(1).castTo(Config.enable_date_conversion
                     ? DateTimeV2Type.MAX : DateTimeType.INSTANCE);
             subExpr = subExpr.withChildren(left, right);
+            Expression filterExpr = isNotExpr ? new Not(subExpr) : subExpr;
+            Expression existingExpr = filterMap.get(leftKey);
+            if (existingExpr == null) {
+                filterMap.put(leftKey, filterExpr);
+            } else {
+                filterMap.put(leftKey, ExpressionUtils.and(existingExpr, filterExpr));
+            }
         } else {
             throw new AnalysisException(
                     "The columns of TableName/PartitionName/CreateTime/FinishTime/State are supported.");
         }
-        filterMap.put(leftKey.toLowerCase(), isNotExpr ? new Not(subExpr) : subExpr);
     }
 
     private void analyze(ConnectContext ctx) throws UserException {
