@@ -18,7 +18,6 @@
 #include <gtest/gtest.h>
 
 #include <memory>
-#include <string>
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
@@ -40,130 +39,22 @@
 namespace doris {
 namespace {
 
-struct DefaultCase {
-    std::string name;
-    DataTypePtr data_type;
-    Field expected;
-};
-
-void assert_field_equals(const Field& actual, const Field& expected);
-
-void assert_string_field_equals(const Field& actual, const Field& expected) {
-    EXPECT_EQ(actual.get<TYPE_STRING>(), expected.get<TYPE_STRING>());
-}
-
-void assert_array_field_equals(const Field& actual, const Field& expected) {
-    const auto& actual_array = actual.get<TYPE_ARRAY>();
-    const auto& expected_array = expected.get<TYPE_ARRAY>();
-    ASSERT_EQ(actual_array.size(), expected_array.size());
-    for (size_t i = 0; i < actual_array.size(); ++i) {
-        assert_field_equals(actual_array[i], expected_array[i]);
+Field get_default_field(const DataTypePtr& data_type) {
+    auto column = data_type->create_column();
+    if (column->size() != 0) {
+        ADD_FAILURE() << "column should be empty before insert_default";
+        return Field();
     }
-}
-
-void assert_map_field_equals(const Field& actual, const Field& expected) {
-    const auto& actual_fields = actual.get<TYPE_MAP>();
-    const auto& expected_fields = expected.get<TYPE_MAP>();
-    ASSERT_EQ(actual_fields.size(), expected_fields.size());
-    for (size_t i = 0; i < actual_fields.size(); ++i) {
-        assert_field_equals(actual_fields[i], expected_fields[i]);
-    }
-}
-
-void assert_struct_field_equals(const Field& actual, const Field& expected) {
-    const auto& actual_fields = actual.get<TYPE_STRUCT>();
-    const auto& expected_fields = expected.get<TYPE_STRUCT>();
-    ASSERT_EQ(actual_fields.size(), expected_fields.size());
-    for (size_t i = 0; i < actual_fields.size(); ++i) {
-        assert_field_equals(actual_fields[i], expected_fields[i]);
-    }
-}
-
-void assert_empty_jsonb_field(const Field& actual) {
-    EXPECT_EQ(actual.get<TYPE_JSONB>().get_size(), 0);
-}
-
-void assert_empty_complex_state(const Field& actual) {
-    switch (actual.get_type()) {
-    case TYPE_BITMAP:
-        EXPECT_EQ(actual.get<TYPE_BITMAP>().cardinality(), 0);
-        return;
-    case TYPE_HLL:
-        EXPECT_EQ(actual.get<TYPE_HLL>().estimate_cardinality(), 0);
-        return;
-    case TYPE_QUANTILE_STATE: {
-        QuantileState empty_state;
-        EXPECT_EQ(actual.get<TYPE_QUANTILE_STATE>().get_serialized_size(),
-                  empty_state.get_serialized_size());
-        return;
-    }
-    default:
-        FAIL() << "unexpected complex type: " << actual.get_type_name();
-    }
-}
-
-void assert_field_equals(const Field& actual, const Field& expected) {
-    if (expected.get_type() == TYPE_JSONB) {
-        ASSERT_TRUE(actual.get_type() == TYPE_JSONB || is_string_type(actual.get_type()));
-        if (actual.get_type() == TYPE_JSONB) {
-            assert_empty_jsonb_field(actual);
-        } else {
-            EXPECT_TRUE(actual.get<TYPE_STRING>().empty());
-        }
-        return;
-    }
-
-    if (is_string_type(actual.get_type()) && is_string_type(expected.get_type())) {
-        assert_string_field_equals(actual, expected);
-        return;
-    }
-
-    ASSERT_EQ(actual.get_type(), expected.get_type());
-
-    if (actual.get_type() == TYPE_NULL) {
-        EXPECT_TRUE(actual.is_null());
-        return;
-    }
-
-    if (actual.get_type() == TYPE_ARRAY) {
-        assert_array_field_equals(actual, expected);
-        return;
-    }
-
-    if (actual.get_type() == TYPE_MAP) {
-        assert_map_field_equals(actual, expected);
-        return;
-    }
-
-    if (actual.get_type() == TYPE_STRUCT) {
-        assert_struct_field_equals(actual, expected);
-        return;
-    }
-
-    if (actual.get_type() == TYPE_VARIANT) {
-        EXPECT_TRUE(actual.get<TYPE_VARIANT>().empty());
-        return;
-    }
-
-    if (actual.get_type() == TYPE_BITMAP || actual.get_type() == TYPE_HLL ||
-        actual.get_type() == TYPE_QUANTILE_STATE) {
-        assert_empty_complex_state(actual);
-        return;
-    }
-
-    EXPECT_EQ(actual, expected);
-}
-
-void assert_insert_default(const DefaultCase& test_case) {
-    auto column = test_case.data_type->create_column();
-    ASSERT_EQ(column->size(), 0);
 
     column->insert_default();
-    ASSERT_EQ(column->size(), 1);
+    if (column->size() != 1) {
+        ADD_FAILURE() << "column should contain one row after insert_default";
+        return Field();
+    }
 
     Field actual;
     column->get(0, actual);
-    assert_field_equals(actual, test_case.expected);
+    return actual;
 }
 
 TEST(DataTypeInsertDefaultTest, AllTypeFamilies) {
@@ -171,103 +62,285 @@ TEST(DataTypeInsertDefaultTest, AllTypeFamilies) {
         return DataTypeFactory::instance().create_data_type(type, false);
     };
 
-    std::vector<DefaultCase> cases;
-    cases.push_back(
-            {"bool", make_simple_type(TYPE_BOOLEAN), Field::create_field<TYPE_BOOLEAN>(UInt8(0))});
-    cases.push_back({"tinyint", make_simple_type(TYPE_TINYINT),
-                     Field::create_field<TYPE_TINYINT>(Int8(0))});
-    cases.push_back({"smallint", make_simple_type(TYPE_SMALLINT),
-                     Field::create_field<TYPE_SMALLINT>(Int16(0))});
-    cases.push_back({"int", make_simple_type(TYPE_INT), Field::create_field<TYPE_INT>(Int32(0))});
-    cases.push_back(
-            {"bigint", make_simple_type(TYPE_BIGINT), Field::create_field<TYPE_BIGINT>(Int64(0))});
-    cases.push_back({"largeint", make_simple_type(TYPE_LARGEINT),
-                     Field::create_field<TYPE_LARGEINT>(Int128(0))});
-    cases.push_back(
-            {"float", make_simple_type(TYPE_FLOAT), Field::create_field<TYPE_FLOAT>(Float32(0))});
-    cases.push_back({"double", make_simple_type(TYPE_DOUBLE),
-                     Field::create_field<TYPE_DOUBLE>(Float64(0))});
-    cases.push_back({"decimalv2",
-                     DataTypeFactory::instance().create_data_type(TYPE_DECIMALV2, false, 27, 9),
-                     Field::create_field<TYPE_DECIMALV2>(DecimalV2Value())});
-    cases.push_back({"decimal32",
-                     DataTypeFactory::instance().create_data_type(TYPE_DECIMAL32, false, 9, 2),
-                     Field::create_field<TYPE_DECIMAL32>(Decimal32(0))});
-    cases.push_back({"decimal64",
-                     DataTypeFactory::instance().create_data_type(TYPE_DECIMAL64, false, 18, 9),
-                     Field::create_field<TYPE_DECIMAL64>(Decimal64(0))});
-    cases.push_back({"decimal128",
-                     DataTypeFactory::instance().create_data_type(TYPE_DECIMAL128I, false, 38, 18),
-                     Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(0))});
-    cases.push_back({"decimal256",
-                     DataTypeFactory::instance().create_data_type(TYPE_DECIMAL256, false, 76, 18),
-                     Field::create_field<TYPE_DECIMAL256>(Decimal256(0))});
-    cases.push_back({"date", make_simple_type(TYPE_DATE),
-                     Field::create_field<TYPE_DATE>(VecDateTimeValue::DEFAULT_VALUE)});
-    cases.push_back({"datetime", make_simple_type(TYPE_DATETIME),
-                     Field::create_field<TYPE_DATETIME>(VecDateTimeValue::DEFAULT_VALUE)});
-    cases.push_back(
-            {"datev2", make_simple_type(TYPE_DATEV2),
-             Field::create_field<TYPE_DATEV2>(DateV2Value<DateV2ValueType>::DEFAULT_VALUE)});
-    cases.push_back({"datetimev2",
-                     DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6),
-                     Field::create_field<TYPE_DATETIMEV2>(
-                             DateV2Value<DateTimeV2ValueType>::DEFAULT_VALUE)});
-    cases.push_back({"timev2",
-                     DataTypeFactory::instance().create_data_type(TYPE_TIMEV2, false, 0, 6),
-                     Field::create_field<TYPE_TIMEV2>(Float64(0))});
-    cases.push_back({"timestamptz",
-                     DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMPTZ, false, 0, 6),
-                     Field::create_field<TYPE_TIMESTAMPTZ>(TimestampTzValue::DEFAULT_VALUE)});
-    cases.push_back({"ipv4", make_simple_type(TYPE_IPV4), Field::create_field<TYPE_IPV4>(IPv4(0))});
-    cases.push_back({"ipv6", make_simple_type(TYPE_IPV6), Field::create_field<TYPE_IPV6>(IPv6(0))});
-    cases.push_back({"char", DataTypeFactory::instance().create_data_type(TYPE_CHAR, false, 8, 0),
-                     Field::create_field<TYPE_STRING>(String())});
-    cases.push_back({"varchar",
-                     DataTypeFactory::instance().create_data_type(TYPE_VARCHAR, false, 32, 0),
-                     Field::create_field<TYPE_STRING>(String())});
-    cases.push_back(
-            {"string", make_simple_type(TYPE_STRING), Field::create_field<TYPE_STRING>(String())});
-    cases.push_back({"varbinary", std::make_shared<DataTypeVarbinary>(),
-                     Field::create_field<TYPE_VARBINARY>(StringView())});
-    cases.push_back(
-            {"jsonb", make_simple_type(TYPE_JSONB), Field::create_field<TYPE_JSONB>(JsonbField())});
-    cases.push_back({"bitmap", make_simple_type(TYPE_BITMAP),
-                     Field::create_field<TYPE_BITMAP>(BitmapValue::empty_bitmap())});
-    cases.push_back({"hll", make_simple_type(TYPE_HLL),
-                     Field::create_field<TYPE_HLL>(HyperLogLog::empty())});
-    cases.push_back({"quantile_state", make_simple_type(TYPE_QUANTILE_STATE),
-                     Field::create_field<TYPE_QUANTILE_STATE>(QuantileState())});
-    cases.push_back({"variant", std::make_shared<DataTypeVariant>(),
-                     Field::create_field<TYPE_NULL>(Null())});
-    cases.push_back({"nothing", std::make_shared<DataTypeNothing>(),
-                     Field::create_field<TYPE_NULL>(Null())});
-
     auto int_type = make_simple_type(TYPE_INT);
     auto nullable_int_type = std::make_shared<DataTypeNullable>(int_type);
-    cases.push_back({"nullable<int>", nullable_int_type, Field::create_field<TYPE_NULL>(Null())});
-
     auto nullable_string_type = std::make_shared<DataTypeNullable>(make_simple_type(TYPE_STRING));
-    cases.push_back({"array<nullable<int>>", std::make_shared<DataTypeArray>(nullable_int_type),
-                     Field::create_field<TYPE_ARRAY>(Array())});
-    cases.push_back(
-            {"map<nullable<string>,nullable<int>>",
-             std::make_shared<DataTypeMap>(nullable_string_type, nullable_int_type),
-             Field::create_field<TYPE_MAP>(Map {Field::create_field<TYPE_ARRAY>(Array()),
-                                                Field::create_field<TYPE_ARRAY>(Array())})});
-    cases.push_back(
-            {"struct<nullable<int>,nullable<string>>",
-             std::make_shared<DataTypeStruct>(DataTypes {nullable_int_type, nullable_string_type}),
-             Field::create_field<TYPE_STRUCT>(Tuple {Field::create_field<TYPE_NULL>(Null()),
-                                                     Field::create_field<TYPE_NULL>(Null())})});
-    cases.push_back({"agg_state<count>",
-                     std::make_shared<DataTypeAggState>(DataTypes {int_type}, false, "count",
-                                                        BeExecVersionManager::get_newest_version()),
-                     Field::create_field<TYPE_STRING>(String(8, '\0'))});
 
-    for (const auto& test_case : cases) {
-        SCOPED_TRACE(test_case.name);
-        assert_insert_default(test_case);
+    {
+        SCOPED_TRACE("bool");
+        auto actual = get_default_field(make_simple_type(TYPE_BOOLEAN));
+        ASSERT_EQ(actual.get_type(), TYPE_BOOLEAN);
+        EXPECT_EQ(actual.get<TYPE_BOOLEAN>(), UInt8(0));
+    }
+
+    {
+        SCOPED_TRACE("tinyint");
+        auto actual = get_default_field(make_simple_type(TYPE_TINYINT));
+        ASSERT_EQ(actual.get_type(), TYPE_TINYINT);
+        EXPECT_EQ(actual.get<TYPE_TINYINT>(), Int8(0));
+    }
+
+    {
+        SCOPED_TRACE("smallint");
+        auto actual = get_default_field(make_simple_type(TYPE_SMALLINT));
+        ASSERT_EQ(actual.get_type(), TYPE_SMALLINT);
+        EXPECT_EQ(actual.get<TYPE_SMALLINT>(), Int16(0));
+    }
+
+    {
+        SCOPED_TRACE("int");
+        auto actual = get_default_field(make_simple_type(TYPE_INT));
+        ASSERT_EQ(actual.get_type(), TYPE_INT);
+        EXPECT_EQ(actual.get<TYPE_INT>(), Int32(0));
+    }
+
+    {
+        SCOPED_TRACE("bigint");
+        auto actual = get_default_field(make_simple_type(TYPE_BIGINT));
+        ASSERT_EQ(actual.get_type(), TYPE_BIGINT);
+        EXPECT_EQ(actual.get<TYPE_BIGINT>(), Int64(0));
+    }
+
+    {
+        SCOPED_TRACE("largeint");
+        auto actual = get_default_field(make_simple_type(TYPE_LARGEINT));
+        ASSERT_EQ(actual.get_type(), TYPE_LARGEINT);
+        EXPECT_EQ(actual.get<TYPE_LARGEINT>(), Int128(0));
+    }
+
+    {
+        SCOPED_TRACE("float");
+        auto actual = get_default_field(make_simple_type(TYPE_FLOAT));
+        ASSERT_EQ(actual.get_type(), TYPE_FLOAT);
+        EXPECT_EQ(actual.get<TYPE_FLOAT>(), Float32(0));
+    }
+
+    {
+        SCOPED_TRACE("double");
+        auto actual = get_default_field(make_simple_type(TYPE_DOUBLE));
+        ASSERT_EQ(actual.get_type(), TYPE_DOUBLE);
+        EXPECT_EQ(actual.get<TYPE_DOUBLE>(), Float64(0));
+    }
+
+    {
+        SCOPED_TRACE("decimalv2");
+        auto actual = get_default_field(
+                DataTypeFactory::instance().create_data_type(TYPE_DECIMALV2, false, 27, 9));
+        ASSERT_EQ(actual.get_type(), TYPE_DECIMALV2);
+        EXPECT_EQ(actual.get<TYPE_DECIMALV2>(), DecimalV2Value());
+    }
+
+    {
+        SCOPED_TRACE("decimal32");
+        auto actual = get_default_field(
+                DataTypeFactory::instance().create_data_type(TYPE_DECIMAL32, false, 9, 2));
+        ASSERT_EQ(actual.get_type(), TYPE_DECIMAL32);
+        EXPECT_EQ(actual.get<TYPE_DECIMAL32>(), Decimal32(0));
+    }
+
+    {
+        SCOPED_TRACE("decimal64");
+        auto actual = get_default_field(
+                DataTypeFactory::instance().create_data_type(TYPE_DECIMAL64, false, 18, 9));
+        ASSERT_EQ(actual.get_type(), TYPE_DECIMAL64);
+        EXPECT_EQ(actual.get<TYPE_DECIMAL64>(), Decimal64(0));
+    }
+
+    {
+        SCOPED_TRACE("decimal128");
+        auto actual = get_default_field(
+                DataTypeFactory::instance().create_data_type(TYPE_DECIMAL128I, false, 38, 18));
+        ASSERT_EQ(actual.get_type(), TYPE_DECIMAL128I);
+        EXPECT_EQ(actual.get<TYPE_DECIMAL128I>(), Decimal128V3(0));
+    }
+
+    {
+        SCOPED_TRACE("decimal256");
+        auto actual = get_default_field(
+                DataTypeFactory::instance().create_data_type(TYPE_DECIMAL256, false, 76, 18));
+        ASSERT_EQ(actual.get_type(), TYPE_DECIMAL256);
+        EXPECT_EQ(actual.get<TYPE_DECIMAL256>(), Decimal256(0));
+    }
+
+    {
+        SCOPED_TRACE("date");
+        auto actual = get_default_field(make_simple_type(TYPE_DATE));
+        ASSERT_EQ(actual.get_type(), TYPE_DATE);
+        EXPECT_EQ(actual.get<TYPE_DATE>(), VecDateTimeValue::DEFAULT_VALUE);
+    }
+
+    {
+        SCOPED_TRACE("datetime");
+        auto actual = get_default_field(make_simple_type(TYPE_DATETIME));
+        ASSERT_EQ(actual.get_type(), TYPE_DATETIME);
+        EXPECT_EQ(actual.get<TYPE_DATETIME>(), VecDateTimeValue::DEFAULT_VALUE);
+    }
+
+    {
+        SCOPED_TRACE("datev2");
+        auto actual = get_default_field(make_simple_type(TYPE_DATEV2));
+        ASSERT_EQ(actual.get_type(), TYPE_DATEV2);
+        EXPECT_EQ(actual.get<TYPE_DATEV2>(), DateV2Value<DateV2ValueType>::DEFAULT_VALUE);
+    }
+
+    {
+        SCOPED_TRACE("datetimev2");
+        auto actual = get_default_field(
+                DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6));
+        ASSERT_EQ(actual.get_type(), TYPE_DATETIMEV2);
+        EXPECT_EQ(actual.get<TYPE_DATETIMEV2>(), DateV2Value<DateTimeV2ValueType>::DEFAULT_VALUE);
+    }
+
+    {
+        SCOPED_TRACE("timev2");
+        auto actual = get_default_field(
+                DataTypeFactory::instance().create_data_type(TYPE_TIMEV2, false, 0, 6));
+        ASSERT_EQ(actual.get_type(), TYPE_TIMEV2);
+        EXPECT_EQ(actual.get<TYPE_TIMEV2>(), Float64(0));
+    }
+
+    {
+        SCOPED_TRACE("timestamptz");
+        auto actual = get_default_field(
+                DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMPTZ, false, 0, 6));
+        ASSERT_EQ(actual.get_type(), TYPE_TIMESTAMPTZ);
+        EXPECT_EQ(actual.get<TYPE_TIMESTAMPTZ>(), TimestampTzValue::DEFAULT_VALUE);
+    }
+
+    {
+        SCOPED_TRACE("ipv4");
+        auto actual = get_default_field(make_simple_type(TYPE_IPV4));
+        ASSERT_EQ(actual.get_type(), TYPE_IPV4);
+        EXPECT_EQ(actual.get<TYPE_IPV4>(), IPv4(0));
+    }
+
+    {
+        SCOPED_TRACE("ipv6");
+        auto actual = get_default_field(make_simple_type(TYPE_IPV6));
+        ASSERT_EQ(actual.get_type(), TYPE_IPV6);
+        EXPECT_EQ(actual.get<TYPE_IPV6>(), IPv6(0));
+    }
+
+    {
+        SCOPED_TRACE("char");
+        auto actual = get_default_field(
+                DataTypeFactory::instance().create_data_type(TYPE_CHAR, false, 8, 0));
+        ASSERT_EQ(actual.get_type(), TYPE_STRING);
+        EXPECT_EQ(actual.get<TYPE_STRING>(), String());
+    }
+
+    {
+        SCOPED_TRACE("varchar");
+        auto actual = get_default_field(
+                DataTypeFactory::instance().create_data_type(TYPE_VARCHAR, false, 32, 0));
+        ASSERT_EQ(actual.get_type(), TYPE_STRING);
+        EXPECT_EQ(actual.get<TYPE_STRING>(), String());
+    }
+
+    {
+        SCOPED_TRACE("string");
+        auto actual = get_default_field(make_simple_type(TYPE_STRING));
+        ASSERT_EQ(actual.get_type(), TYPE_STRING);
+        EXPECT_EQ(actual.get<TYPE_STRING>(), String());
+    }
+
+    {
+        SCOPED_TRACE("varbinary");
+        auto actual = get_default_field(std::make_shared<DataTypeVarbinary>());
+        ASSERT_EQ(actual.get_type(), TYPE_VARBINARY);
+        EXPECT_EQ(actual.get<TYPE_VARBINARY>(), StringView());
+    }
+
+    {
+        SCOPED_TRACE("jsonb");
+        auto actual = get_default_field(make_simple_type(TYPE_JSONB));
+        ASSERT_TRUE(actual.get_type() == TYPE_JSONB || is_string_type(actual.get_type()));
+        if (actual.get_type() == TYPE_JSONB) {
+            EXPECT_EQ(actual.get<TYPE_JSONB>().get_size(), 0);
+        } else {
+            EXPECT_TRUE(actual.get<TYPE_STRING>().empty());
+        }
+    }
+
+    {
+        SCOPED_TRACE("bitmap");
+        auto actual = get_default_field(make_simple_type(TYPE_BITMAP));
+        ASSERT_EQ(actual.get_type(), TYPE_BITMAP);
+        EXPECT_EQ(actual.get<TYPE_BITMAP>().cardinality(), 0);
+    }
+
+    {
+        SCOPED_TRACE("hll");
+        auto actual = get_default_field(make_simple_type(TYPE_HLL));
+        ASSERT_EQ(actual.get_type(), TYPE_HLL);
+        EXPECT_EQ(actual.get<TYPE_HLL>().estimate_cardinality(), 0);
+    }
+
+    {
+        SCOPED_TRACE("quantile_state");
+        auto actual = get_default_field(make_simple_type(TYPE_QUANTILE_STATE));
+        QuantileState empty_state;
+        ASSERT_EQ(actual.get_type(), TYPE_QUANTILE_STATE);
+        EXPECT_EQ(actual.get<TYPE_QUANTILE_STATE>().get_serialized_size(),
+                  empty_state.get_serialized_size());
+    }
+
+    {
+        SCOPED_TRACE("variant");
+        auto actual = get_default_field(std::make_shared<DataTypeVariant>());
+        ASSERT_EQ(actual.get_type(), TYPE_NULL);
+        EXPECT_TRUE(actual.is_null());
+    }
+
+    {
+        SCOPED_TRACE("nothing");
+        auto actual = get_default_field(std::make_shared<DataTypeNothing>());
+        ASSERT_EQ(actual.get_type(), TYPE_NULL);
+        EXPECT_TRUE(actual.is_null());
+    }
+
+    {
+        SCOPED_TRACE("nullable<int>");
+        auto actual = get_default_field(nullable_int_type);
+        ASSERT_EQ(actual.get_type(), TYPE_NULL);
+        EXPECT_TRUE(actual.is_null());
+    }
+
+    {
+        SCOPED_TRACE("array<nullable<int>>");
+        auto actual = get_default_field(std::make_shared<DataTypeArray>(nullable_int_type));
+        ASSERT_EQ(actual.get_type(), TYPE_ARRAY);
+        EXPECT_TRUE(actual.get<TYPE_ARRAY>().empty());
+    }
+
+    {
+        SCOPED_TRACE("map<nullable<string>,nullable<int>>");
+        auto actual = get_default_field(
+                std::make_shared<DataTypeMap>(nullable_string_type, nullable_int_type));
+        ASSERT_EQ(actual.get_type(), TYPE_MAP);
+        const auto& map = actual.get<TYPE_MAP>();
+        ASSERT_EQ(map.size(), 2);
+        EXPECT_TRUE(map[0].get<TYPE_ARRAY>().empty());
+        EXPECT_TRUE(map[1].get<TYPE_ARRAY>().empty());
+    }
+
+    {
+        SCOPED_TRACE("struct<nullable<int>,nullable<string>>");
+        auto actual = get_default_field(std::make_shared<DataTypeStruct>(
+                DataTypes {nullable_int_type, nullable_string_type}));
+        ASSERT_EQ(actual.get_type(), TYPE_STRUCT);
+        const auto& tuple = actual.get<TYPE_STRUCT>();
+        ASSERT_EQ(tuple.size(), 2);
+        EXPECT_TRUE(tuple[0].is_null());
+        EXPECT_TRUE(tuple[1].is_null());
+    }
+
+    {
+        SCOPED_TRACE("agg_state<count>");
+        auto actual = get_default_field(std::make_shared<DataTypeAggState>(
+                DataTypes {int_type}, false, "count", BeExecVersionManager::get_newest_version()));
+        ASSERT_EQ(actual.get_type(), TYPE_STRING);
+        EXPECT_EQ(actual.get<TYPE_STRING>(), String(8, '\0'));
     }
 }
 
