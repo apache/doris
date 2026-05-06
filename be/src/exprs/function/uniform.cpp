@@ -157,6 +157,8 @@ public:
         return Impl::get_variadic_argument_types();
     }
 
+    ColumnNumbers get_arguments_that_are_always_constant() const override { return {0, 1}; }
+
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         // init_function_context do set_constant_cols for FRAGMENT_LOCAL scope
         if (scope == FunctionContext::FRAGMENT_LOCAL) {
