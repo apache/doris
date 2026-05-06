@@ -47,7 +47,7 @@ public class OlapTableStreamUpdateTest {
 
         Map<Long, Long> next = Collections.singletonMap(1L, 101L);
         Map<Long, Long> prev = new HashMap<>();
-        OlapTableStreamUpdate update = new OlapTableStreamUpdate(next, prev);
+        OlapTableStreamUpdate update = new OlapTableStreamUpdate(prev, next);
 
         TransactionCommitFailedException exception = Assertions.assertThrows(TransactionCommitFailedException.class,
                 () -> update.checkPartitionOffset("test_db", "s1", historicalPartitionOffset, partitionOffset));

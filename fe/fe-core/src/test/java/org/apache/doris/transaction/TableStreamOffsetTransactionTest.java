@@ -93,8 +93,8 @@ public class TableStreamOffsetTransactionTest extends TestWithFeService {
         Deencapsulation.setField(stream, "historicalPartitionOffset", historicalPartitionOffset);
         Deencapsulation.setField(stream, "partitionOffset", partitionOffset);
 
-        OlapTableStreamUpdate update = new OlapTableStreamUpdate(new HashMap<>(historicalPartitionOffset),
-                new HashMap<>());
+        OlapTableStreamUpdate update = new OlapTableStreamUpdate(new HashMap<>(),
+                new HashMap<>(historicalPartitionOffset));
         Assertions.assertTrue(update.getNext().keySet().containsAll(partitionIds));
 
         GlobalTransactionMgr transactionMgr = (GlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr();
@@ -137,7 +137,9 @@ public class TableStreamOffsetTransactionTest extends TestWithFeService {
         Map<Long, Long> next = Maps.newHashMap();
         for (Long partitionId : partitionIds) {
             Pair<Long, Long> streamUpdate = stream.getStreamUpdate(partitionId);
-            prev.put(partitionId, streamUpdate.first);
+            if (streamUpdate.first != null) {
+                prev.put(partitionId, streamUpdate.first);
+            }
             next.put(partitionId, streamUpdate.second);
         }
         OlapTableStreamUpdate updateAtReadTime = new OlapTableStreamUpdate(prev, next);
@@ -161,5 +163,4 @@ public class TableStreamOffsetTransactionTest extends TestWithFeService {
                 () -> Deencapsulation.invoke(dbTxnMgr, "checkStreamOffset", transactionState));
         Assertions.assertTrue(exception.getMessage().contains("previous version missing"));
     }
-
 }

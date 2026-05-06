@@ -1769,10 +1769,6 @@ public class DatabaseTransactionMgr {
      * @param isReplay true if this is a replay operation (edit log already contains this state)
      */
     protected void unprotectUpdateInMemoryState(TransactionState transactionState, boolean isReplay) {
-        if (transactionState.getTransactionStatus().equals(TransactionStatus.COMMITTED)) {
-            // update table stream offset if necessary
-            updateStreamOffset(transactionState, transactionState.getCommitTime());
-        }
         if (!transactionState.getTransactionStatus().isFinalStatus()) {
             if (idToRunningTransactionState.put(transactionState.getTransactionId(), transactionState) == null) {
                 runningTxnNums.incrementAndGet();
@@ -2293,6 +2289,10 @@ public class DatabaseTransactionMgr {
         } else {
             updatePartitionNextVersion(transactionState, db, isReplay,
                     Lists.newArrayList(transactionState.getIdToTableCommitInfos().values()));
+        }
+        // update table stream offset if necessary
+        if (!CollectionUtils.isEmpty(transactionState.getStreamUpdateInfos())) {
+            updateStreamOffset(transactionState, transactionState.getCommitTime());
         }
     }
 
@@ -3159,9 +3159,6 @@ public class DatabaseTransactionMgr {
     }
 
     private void updateStreamOffset(TransactionState transactionState, Long ts) {
-        if (CollectionUtils.isEmpty(transactionState.getStreamUpdateInfos())) {
-            return;
-        }
         for (TableStreamUpdateInfo info : transactionState.getStreamUpdateInfos()) {
             Database db = env.getInternalCatalog().getDbNullable(info.getDbId());
             if (db == null) {
