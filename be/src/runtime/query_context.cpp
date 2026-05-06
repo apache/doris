@@ -201,9 +201,6 @@ void QueryContext::init_query_task_controller() {
     _resource_ctx->task_controller()->set_task_id(_query_id);
     _resource_ctx->task_controller()->set_fe_addr(current_connect_fe);
     _resource_ctx->task_controller()->set_query_type(_query_options.query_type);
-    // Cache raw pointer to avoid dynamic_cast on the hot increment path.
-    // The controller is owned by _resource_ctx which outlives this QueryContext.
-    _query_task_controller = dynamic_cast<QueryTaskController*>(_resource_ctx->task_controller());
 #ifndef BE_TEST
     _exec_env->runtime_query_statistics_mgr()->register_resource_context(print_id(_query_id),
                                                                          _resource_ctx);
@@ -547,22 +544,14 @@ Status QueryContext::reset_global_rf(const google::protobuf::RepeatedField<int32
 }
 
 void QueryContext::add_total_task_num(int delta) {
-    // Task total is accumulated once when fragment task graph is built.
-    _total_task_num.fetch_add(delta, std::memory_order_relaxed);
-    // Mirror task progress into task controller so counters survive QueryContext teardown.
-    // Uses cached pointer to avoid dynamic_cast on every call.
-    if (_query_task_controller) {
-        _query_task_controller->add_total_task_num(delta);
+    if (auto* qtc = dynamic_cast<QueryTaskController*>(_resource_ctx->task_controller())) {
+        qtc->add_total_task_num(delta);
     }
 }
 
 void QueryContext::inc_finished_task_num() {
-    // Finished task counter is increased in real time when each task closes.
-    _finished_task_num.fetch_add(1, std::memory_order_relaxed);
-    // Mirror task progress into task controller so counters survive QueryContext teardown.
-    // Uses cached pointer to avoid dynamic_cast on every call.
-    if (_query_task_controller) {
-        _query_task_controller->inc_finished_task_num();
+    if (auto* qtc = dynamic_cast<QueryTaskController*>(_resource_ctx->task_controller())) {
+        qtc->inc_finished_task_num();
     }
 }
 
