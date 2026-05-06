@@ -1215,11 +1215,11 @@ TEST_F(CollectionStatisticsTest, CollectMergesTermsForSameFieldName) {
 
     MatchPredicateCollector collector;
     std::unordered_map<std::wstring, CollectInfo> collect_infos;
-    auto first =
-            collector.collect(runtime_state_.get(), tablet_schema, build_match("alpha"), &collect_infos);
+    auto first = collector.collect(runtime_state_.get(), tablet_schema, build_match("alpha"),
+                                   &collect_infos);
     ASSERT_TRUE(first.ok()) << first.msg();
-    auto second =
-            collector.collect(runtime_state_.get(), tablet_schema, build_match("beta"), &collect_infos);
+    auto second = collector.collect(runtime_state_.get(), tablet_schema, build_match("beta"),
+                                    &collect_infos);
     ASSERT_TRUE(second.ok()) << second.msg();
     ASSERT_EQ(collect_infos.size(), 1u);
     auto it = collect_infos.find(StringHelper::to_wstring(std::to_string(kColUid)));
