@@ -32,7 +32,8 @@ public class StreamingTaskTxnCommitAttachment extends TxnCommitAttachment {
     }
 
     public StreamingTaskTxnCommitAttachment(long jobId, long taskId,
-                long scannedRows, long loadBytes, long numFiles, long fileBytes, String offset) {
+                long scannedRows, long loadBytes, long numFiles, long fileBytes,
+                long filteredRows, String offset) {
         super(TransactionState.LoadJobSourceType.STREAMING_JOB);
         this.jobId = jobId;
         this.taskId = taskId;
@@ -40,6 +41,7 @@ public class StreamingTaskTxnCommitAttachment extends TxnCommitAttachment {
         this.loadBytes = loadBytes;
         this.numFiles = numFiles;
         this.fileBytes = fileBytes;
+        this.filteredRows = filteredRows;
         this.offset = offset;
     }
 
@@ -49,6 +51,7 @@ public class StreamingTaskTxnCommitAttachment extends TxnCommitAttachment {
         this.loadBytes = pb.getLoadBytes();
         this.numFiles = pb.getNumFiles();
         this.fileBytes = pb.getFileBytes();
+        this.filteredRows = pb.getFilteredRows();
         this.offset = pb.getOffset();
     }
 
@@ -69,6 +72,9 @@ public class StreamingTaskTxnCommitAttachment extends TxnCommitAttachment {
     @SerializedName(value = "fs")
     @Getter
     private long fileBytes;
+    @SerializedName(value = "fr")
+    @Getter
+    private long filteredRows;
     @SerializedName(value = "of")
     @Getter
     private String offset;
@@ -80,6 +86,7 @@ public class StreamingTaskTxnCommitAttachment extends TxnCommitAttachment {
                 + ", loadBytes=" + loadBytes
                 + ", numFiles=" + numFiles
                 + ", fileBytes=" + fileBytes
+                + ", filteredRows=" + filteredRows
                 + ", offset=" + offset
                 + "]";
     }

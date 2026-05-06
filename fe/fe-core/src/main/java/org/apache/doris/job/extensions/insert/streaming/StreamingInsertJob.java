@@ -792,6 +792,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         this.jobStatistic.setLoadBytes(this.jobStatistic.getLoadBytes() + attachment.getLoadBytes());
         this.jobStatistic.setFileNumber(this.jobStatistic.getFileNumber() + attachment.getNumFiles());
         this.jobStatistic.setFileSize(this.jobStatistic.getFileSize() + attachment.getFileBytes());
+        this.jobStatistic.setFilteredRows(this.jobStatistic.getFilteredRows() + attachment.getFilteredRows());
         Offset endOffset = offsetProvider.deserializeOffset(attachment.getOffset());
         offsetProvider.updateOffset(endOffset);
         // Sync offsetProviderPersist after each offset update so the checkpoint thread
@@ -807,6 +808,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         //update metric
         if (MetricRepo.isInit && !isReplay) {
             MetricRepo.COUNTER_STREAMING_JOB_TOTAL_ROWS.increase(attachment.getScannedRows());
+            MetricRepo.COUNTER_STREAMING_JOB_FILTER_ROWS.increase(attachment.getFilteredRows());
             MetricRepo.COUNTER_STREAMING_JOB_LOAD_BYTES.increase(attachment.getLoadBytes());
         }
     }
@@ -819,11 +821,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         this.jobStatistic.setLoadBytes(attachment.getLoadBytes());
         this.jobStatistic.setFileNumber(attachment.getNumFiles());
         this.jobStatistic.setFileSize(attachment.getFileBytes());
+        this.jobStatistic.setFilteredRows(attachment.getFilteredRows());
         offsetProvider.updateOffset(offsetProvider.deserializeOffset(attachment.getOffset()));
 
         //update metric
         if (MetricRepo.isInit && !isReplay) {
             MetricRepo.COUNTER_STREAMING_JOB_TOTAL_ROWS.update(attachment.getScannedRows());
+            MetricRepo.COUNTER_STREAMING_JOB_FILTER_ROWS.update(attachment.getFilteredRows());
             MetricRepo.COUNTER_STREAMING_JOB_LOAD_BYTES.update(attachment.getLoadBytes());
         }
     }
@@ -1210,6 +1214,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                         loadStatistic.getLoadBytes(),
                         loadStatistic.getFileNumber(),
                         loadStatistic.getTotalFileSizeB(),
+                        loadStatistic.getFilteredRows(),
                         offsetJson));
             passCheck = true;
         } finally {
