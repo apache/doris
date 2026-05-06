@@ -75,6 +75,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     private Map<String, String> targetProperties;
     private String targetDb;
     private StreamingJobProperties jobProperties;
+    private String cloudCluster;
     private long scannedRows = 0L;
     private long loadBytes = 0L;
     private long filteredRows = 0L;
@@ -90,7 +91,8 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
             String targetDb,
             Map<String, String> targetProperties,
             StreamingJobProperties jobProperties,
-            UserIdentity userIdentity) {
+            UserIdentity userIdentity,
+            String cloudCluster) {
         super(jobId, taskId, userIdentity);
         this.dataSourceType = dataSourceType;
         this.offsetProvider = offsetProvider;
@@ -98,6 +100,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         this.targetProperties = targetProperties;
         this.jobProperties = jobProperties;
         this.targetDb = targetDb;
+        this.cloudCluster = cloudCluster;
         this.timeoutMs = Config.streaming_task_timeout_multiplier * jobProperties.getMaxIntervalSecond() * 1000L;
     }
 
@@ -123,7 +126,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     }
 
     private void sendWriteRequest() throws JobException {
-        Backend backend = StreamingJobUtils.selectBackend();
+        Backend backend = StreamingJobUtils.selectBackend(cloudCluster);
         log.info("start to run streaming multi task {} in backend {}/{}, offset is {}",
                 taskId, backend.getId(), backend.getHost(), runningOffset.toString());
         this.runningBackendId = backend.getId();
