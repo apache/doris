@@ -111,20 +111,6 @@ public class Partition extends MetaObject {
         this.distributionInfo = distributionInfo;
     }
 
-    // generate virtual partition for table stream, runtime only
-    public Partition(Partition other) {
-        this.id = other.id;
-        this.name = other.name;
-        this.state = other.state;
-        this.baseIndex = other.baseIndex;
-        this.idToVisibleRollupIndex = other.idToVisibleRollupIndex;
-        this.idToShadowIndex = other.idToShadowIndex;
-        this.visibleVersion = other.visibleVersion;
-        this.visibleVersionTime = other.visibleVersionTime;
-        this.nextVersion = other.nextVersion;
-        this.distributionInfo = other.distributionInfo;
-    }
-
     public void setIdForRestore(long id) {
         this.id = id;
     }
