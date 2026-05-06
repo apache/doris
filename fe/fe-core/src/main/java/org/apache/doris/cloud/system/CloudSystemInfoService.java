@@ -18,6 +18,7 @@
 package org.apache.doris.cloud.system;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MediumAllocationMode;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.ComputeGroup;
@@ -220,7 +221,7 @@ public class CloudSystemInfoService extends SystemInfoService {
     @Override
     public Pair<Map<Tag, List<Long>>, TStorageMedium> selectBackendIdsForReplicaCreation(
             ReplicaAllocation replicaAlloc, Map<Tag, Integer> nextIndexs,
-            TStorageMedium storageMedium, boolean isStorageMediumSpecified,
+            TStorageMedium storageMedium, MediumAllocationMode mediumAllocationMode,
             boolean isOnlyForCheck)
             throws DdlException {
         return Pair.of(Maps.newHashMap(), storageMedium);

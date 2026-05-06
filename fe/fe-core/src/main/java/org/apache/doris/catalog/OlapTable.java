@@ -996,7 +996,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                             Pair<Map<Tag, List<Long>>, TStorageMedium> tag2beIdsAndMedium =
                                     Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(
                                             replicaAlloc, nextIndexes, null,
-                                            false, false);
+                                            MediumAllocationMode.ADAPTIVE, false);
                             tag2beIds = tag2beIdsAndMedium.first;
                         }
                         for (Map.Entry<Tag, List<Long>> entry3 : tag2beIds.entrySet()) {

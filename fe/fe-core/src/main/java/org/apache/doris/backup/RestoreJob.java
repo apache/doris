@@ -34,6 +34,7 @@ import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndexMeta;
+import org.apache.doris.catalog.MediumAllocationMode;
 import org.apache.doris.catalog.OdbcCatalogResource;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
@@ -1562,7 +1563,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 // replicas
                 try {
                     Pair<Map<Tag, List<Long>>, TStorageMedium> beIdsAndMedium = Env.getCurrentSystemInfo()
-                            .selectBackendIdsForReplicaCreation(replicaAlloc, nextIndexes, null, false, false);
+                            .selectBackendIdsForReplicaCreation(replicaAlloc, nextIndexes, null,
+                                    MediumAllocationMode.ADAPTIVE, false);
                     Map<Tag, List<Long>> beIds = beIdsAndMedium.first;
                     for (Map.Entry<Tag, List<Long>> entry : beIds.entrySet()) {
                         for (Long beId : entry.getValue()) {

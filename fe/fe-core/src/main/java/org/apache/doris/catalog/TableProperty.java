@@ -73,6 +73,17 @@ public class TableProperty implements GsonPostProcessable {
 
     private TStorageMedium storageMedium = null;
 
+    // Table-level cache of the medium allocation mode derived from the table's
+    // raw PROPERTIES map. Like {@link #storageMedium} this is rebuilt from
+    // {@code properties} on load rather than persisted as its own field, so
+    // {@link DataProperty#mediumAllocationMode} (the partition-level source of
+    // truth) remains the only persisted copy.
+    //
+    // Hard-binding at CREATE TABLE time: if the user specifies
+    // {@code PROPERTIES("storage_medium"=...)} the mode is STRICT, otherwise
+    // ADAPTIVE. See {@link MediumAllocationMode}.
+    private MediumAllocationMode mediumAllocationMode = MediumAllocationMode.ADAPTIVE;
+
     // which columns stored in RowStore column
     private List<String> rowStoreColumns;
 
@@ -163,6 +174,7 @@ public class TableProperty implements GsonPostProcessable {
                 buildInMemory();
                 buildMinLoadReplicaNum();
                 buildStorageMedium();
+                buildMediumAllocationMode();
                 buildStoragePolicy();
                 buildIsBeingSynced();
                 buildCompactionPolicy();
@@ -533,6 +545,24 @@ public class TableProperty implements GsonPostProcessable {
 
     public TStorageMedium getStorageMedium() {
         return storageMedium;
+    }
+
+    /**
+     * Derive the table-level {@link MediumAllocationMode} from the raw properties
+     * map. Mirrors the hard-binding used by {@link DataProperty}: the user
+     * explicitly asked for a medium iff {@link PropertyAnalyzer#PROPERTIES_STORAGE_MEDIUM}
+     * is present and non-empty.
+     */
+    public TableProperty buildMediumAllocationMode() {
+        String storageMediumStr = properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM);
+        mediumAllocationMode = Strings.isNullOrEmpty(storageMediumStr)
+                ? MediumAllocationMode.ADAPTIVE
+                : MediumAllocationMode.STRICT;
+        return this;
+    }
+
+    public MediumAllocationMode getMediumAllocationMode() {
+        return mediumAllocationMode;
     }
 
     public TableProperty buildStoragePolicy() {
@@ -921,6 +951,7 @@ public class TableProperty implements GsonPostProcessable {
         buildInMemory();
         buildMinLoadReplicaNum();
         buildStorageMedium();
+        buildMediumAllocationMode();
         buildStorageFormat();
         buildInvertedIndexFileStorageFormat();
         buildDataSortInfo();

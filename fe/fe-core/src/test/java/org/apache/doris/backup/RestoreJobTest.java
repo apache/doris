@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.MediumAllocationMode;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
@@ -151,7 +152,7 @@ public class RestoreJobTest {
                 Mockito.any(ReplicaAllocation.class),
                 Mockito.anyMap(),
                 Mockito.any(TStorageMedium.class),
-                Mockito.eq(false),
+                Mockito.eq(MediumAllocationMode.ADAPTIVE),
                 Mockito.eq(true));
 
         Mockito.doAnswer(inv -> {

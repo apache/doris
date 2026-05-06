@@ -18,10 +18,15 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TStorageMedium;
 
 import org.junit.Assert;
 import org.junit.Test;
+
+import java.util.HashMap;
+import java.util.Map;
 
 public class DataPropertyTest {
 
@@ -40,5 +45,77 @@ public class DataPropertyTest {
 
         dataProperty = new DataProperty(TStorageMedium.HDD);
         Assert.assertEquals(DataProperty.MAX_COOLDOWN_TIME_MS, dataProperty.getCooldownTimeMs());
+    }
+
+    @Test
+    public void testDefaultMediumAllocationMode() {
+        DataProperty dataProperty = new DataProperty(TStorageMedium.HDD);
+        Assert.assertEquals(MediumAllocationMode.ADAPTIVE, dataProperty.getMediumAllocationMode());
+
+        DataProperty dataProperty2 = new DataProperty(TStorageMedium.SSD,
+                DataProperty.MAX_COOLDOWN_TIME_MS, "");
+        Assert.assertEquals(MediumAllocationMode.ADAPTIVE, dataProperty2.getMediumAllocationMode());
+    }
+
+    @Test
+    public void testStrictFlagRoundTrip() {
+        DataProperty dataProperty = new DataProperty(TStorageMedium.SSD);
+        dataProperty.setMediumAllocationMode(MediumAllocationMode.STRICT);
+
+        String json = GsonUtils.GSON.toJson(dataProperty);
+        Assert.assertTrue("new field must be persisted", json.contains("mediumAllocationMode"));
+        Assert.assertTrue(json.contains("STRICT") || json.contains("strict"));
+
+        DataProperty restored = GsonUtils.GSON.fromJson(json, DataProperty.class);
+        Assert.assertEquals(MediumAllocationMode.STRICT, restored.getMediumAllocationMode());
+        Assert.assertTrue("legacy shim must agree with enum", restored.isStorageMediumSpecified());
+    }
+
+    /**
+     * On master the old {@code storageMediumSpecified} boolean had no
+     * {@code @SerializedName} annotation, so it was never written to the
+     * image at all. Simulate replaying such an old image (no mediumAllocationMode
+     * key) and verify we fall back to ADAPTIVE rather than NPE / STRICT.
+     */
+    @Test
+    public void testOldImageDeserialisesToAdaptive() throws Exception {
+        String legacyJson = "{"
+                + "\"storageMedium\":\"HDD\","
+                + "\"cooldownTimeMs\":" + DataProperty.MAX_COOLDOWN_TIME_MS + ","
+                + "\"storagePolicy\":\"\","
+                + "\"isMutable\":true"
+                + "}";
+
+        DataProperty restored = GsonUtils.GSON.fromJson(legacyJson, DataProperty.class);
+        restored.gsonPostProcess();
+
+        Assert.assertEquals(TStorageMedium.HDD, restored.getStorageMedium());
+        Assert.assertEquals(MediumAllocationMode.ADAPTIVE, restored.getMediumAllocationMode());
+        Assert.assertFalse(restored.isStorageMediumSpecified());
+    }
+
+    @Test
+    public void testLegacySetterMapsToEnum() {
+        DataProperty dataProperty = new DataProperty(TStorageMedium.SSD);
+        Assert.assertEquals(MediumAllocationMode.ADAPTIVE, dataProperty.getMediumAllocationMode());
+
+        dataProperty.setStorageMediumSpecified(true);
+        Assert.assertEquals(MediumAllocationMode.STRICT, dataProperty.getMediumAllocationMode());
+
+        dataProperty.setStorageMediumSpecified(false);
+        Assert.assertEquals(MediumAllocationMode.ADAPTIVE, dataProperty.getMediumAllocationMode());
+    }
+
+    @Test
+    public void testAnalyzeDataPropertyPreservesMediumAllocationModeWhenMediumUnspecified() throws Exception {
+        DataProperty oldDataProperty = new DataProperty(TStorageMedium.SSD);
+        oldDataProperty.setMediumAllocationMode(MediumAllocationMode.STRICT);
+
+        Map<String, String> properties = new HashMap<>();
+        properties.put(PropertyAnalyzer.PROPERTIES_MUTABLE, "false");
+
+        DataProperty updated = PropertyAnalyzer.analyzeDataProperty(properties, oldDataProperty);
+        Assert.assertEquals(MediumAllocationMode.STRICT, updated.getMediumAllocationMode());
+        Assert.assertFalse(updated.isMutable());
     }
 }

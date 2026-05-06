@@ -58,7 +58,7 @@ public class ReplicaAllocationTest {
                         Mockito.any(ReplicaAllocation.class),
                         Mockito.anyMap(),
                         Mockito.nullable(TStorageMedium.class),
-                        Mockito.eq(false),
+                        Mockito.eq(MediumAllocationMode.ADAPTIVE),
                         Mockito.eq(true));
     }
 
