@@ -646,6 +646,28 @@ public class IcebergRestPropertiesTest {
     }
 
     @Test
+    public void testS3TablesWithCredentialsProviderTypeEnvWithoutAccessKey() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.signing-name", "s3tables");
+        props.put("iceberg.rest.signing-region", "us-west-2");
+        props.put("iceberg.rest.sigv4-enabled", "true");
+        props.put("iceberg.rest.credentials_provider_type", "ENV");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertEquals("s3tables", catalogProps.get("rest.signing-name"));
+        Assertions.assertEquals("us-west-2", catalogProps.get("rest.signing-region"));
+        Assertions.assertEquals(
+                "software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider",
+                catalogProps.get("client.credentials-provider"));
+        Assertions.assertFalse(catalogProps.containsKey("rest.access-key-id"));
+        Assertions.assertFalse(catalogProps.containsKey("rest.secret-access-key"));
+    }
+
+    @Test
     public void testGlueWithCredentialsProviderTypeEnv() {
         Map<String, String> props = new HashMap<>();
         props.put("iceberg.rest.uri", "http://localhost:8080");
