@@ -252,18 +252,6 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
     }
 
     @Override
-    public boolean equals(Object o) {
-        if (!super.equals(o)) {
-            return false;
-        }
-        if (this == o) {
-            return true;
-        }
-        LogicalOlapTableStreamScan that = (LogicalOlapTableStreamScan) o;
-        return that.cachedOutput.equals(cachedOutput);
-    }
-
-    @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalOlapTableStreamScan(this, context);
     }
