@@ -254,7 +254,8 @@ public:
     Status push(RuntimeState* state, Block* input_block, bool eos) const override;
     Status pull(doris::RuntimeState* state, Block* output_block, bool* eos) const override;
     const RowDescriptor& intermediate_row_desc() const override {
-        return _intermediate_row_desc ? *_intermediate_row_desc : _row_descriptor;
+        DORIS_CHECK(_intermediate_row_desc != nullptr);
+        return *_intermediate_row_desc;
     }
 
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
@@ -270,7 +271,8 @@ public:
         if (_output_row_descriptor) {
             return *_output_row_descriptor;
         }
-        return _output_row_desc ? *_output_row_desc : _row_descriptor;
+        DORIS_CHECK(_output_row_desc != nullptr);
+        return *_output_row_desc;
     }
 
     bool need_more_input_data(RuntimeState* state) const override;
