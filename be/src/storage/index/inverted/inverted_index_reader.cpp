@@ -45,6 +45,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/field.h"
+#include "storage/field_key_encoder.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_reader_helper.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
@@ -63,13 +64,6 @@
 
 namespace {
 
-template <doris::PrimitiveType PT>
-static void bkd_encode_field(const doris::Field& field, const doris::KeyCoder* coder,
-                             std::string* out) {
-    auto kv = doris::PrimitiveTypeConvertor<PT>::to_storage_field_type(field.get<PT>());
-    coder->full_encode_ascending(&kv, out);
-}
-
 template <doris::FieldType FT>
 static void bkd_encode_min(const doris::KeyCoder* coder, std::string* out) {
     using key_t = typename doris::CppTypeTraits<FT>::CppType;
@@ -84,36 +78,14 @@ static void bkd_encode_max(const doris::KeyCoder* coder, std::string* out) {
     coder->full_encode_ascending(&v, out);
 }
 
-#define BKD_TYPE_CASES(MACRO)                            \
-    MACRO(OLAP_FIELD_TYPE_BOOL, TYPE_BOOLEAN)            \
-    MACRO(OLAP_FIELD_TYPE_TINYINT, TYPE_TINYINT)         \
-    MACRO(OLAP_FIELD_TYPE_SMALLINT, TYPE_SMALLINT)       \
-    MACRO(OLAP_FIELD_TYPE_INT, TYPE_INT)                 \
-    MACRO(OLAP_FIELD_TYPE_BIGINT, TYPE_BIGINT)           \
-    MACRO(OLAP_FIELD_TYPE_LARGEINT, TYPE_LARGEINT)       \
-    MACRO(OLAP_FIELD_TYPE_FLOAT, TYPE_FLOAT)             \
-    MACRO(OLAP_FIELD_TYPE_DOUBLE, TYPE_DOUBLE)           \
-    MACRO(OLAP_FIELD_TYPE_DECIMAL, TYPE_DECIMALV2)       \
-    MACRO(OLAP_FIELD_TYPE_DECIMAL32, TYPE_DECIMAL32)     \
-    MACRO(OLAP_FIELD_TYPE_DECIMAL64, TYPE_DECIMAL64)     \
-    MACRO(OLAP_FIELD_TYPE_DECIMAL128I, TYPE_DECIMAL128I) \
-    MACRO(OLAP_FIELD_TYPE_DECIMAL256, TYPE_DECIMAL256)   \
-    MACRO(OLAP_FIELD_TYPE_DATE, TYPE_DATE)               \
-    MACRO(OLAP_FIELD_TYPE_DATETIME, TYPE_DATETIME)       \
-    MACRO(OLAP_FIELD_TYPE_DATEV2, TYPE_DATEV2)           \
-    MACRO(OLAP_FIELD_TYPE_DATETIMEV2, TYPE_DATETIMEV2)   \
-    MACRO(OLAP_FIELD_TYPE_TIMESTAMPTZ, TYPE_TIMESTAMPTZ) \
-    MACRO(OLAP_FIELD_TYPE_IPV4, TYPE_IPV4)               \
-    MACRO(OLAP_FIELD_TYPE_IPV6, TYPE_IPV6)
-
 static doris::Status encode_bkd_field_ascending(doris::FieldType ft, const doris::Field& field,
                                                 const doris::KeyCoder* coder, std::string* out) {
-#define CASE(FT, PT)                                                   \
-    case doris::FieldType::FT:                                         \
-        bkd_encode_field<doris::PrimitiveType::PT>(field, coder, out); \
+#define CASE(FT, PT)                                                                  \
+    case doris::FieldType::FT:                                                        \
+        doris::full_encode_field_as_key<doris::PrimitiveType::PT>(field, coder, out); \
         return doris::Status::OK();
     switch (ft) {
-        BKD_TYPE_CASES(CASE)
+        DORIS_APPLY_FOR_KEY_ENCODABLE_NON_STRING_TYPES(CASE)
     default:
         break;
     }
@@ -128,7 +100,7 @@ static doris::Status encode_bkd_min_ascending(doris::FieldType ft, const doris::
         bkd_encode_min<doris::FieldType::FT>(coder, out); \
         return doris::Status::OK();
     switch (ft) {
-        BKD_TYPE_CASES(CASE)
+        DORIS_APPLY_FOR_KEY_ENCODABLE_NON_STRING_TYPES(CASE)
     default:
         break;
     }
@@ -143,7 +115,7 @@ static doris::Status encode_bkd_max_ascending(doris::FieldType ft, const doris::
         bkd_encode_max<doris::FieldType::FT>(coder, out); \
         return doris::Status::OK();
     switch (ft) {
-        BKD_TYPE_CASES(CASE)
+        DORIS_APPLY_FOR_KEY_ENCODABLE_NON_STRING_TYPES(CASE)
     default:
         break;
     }

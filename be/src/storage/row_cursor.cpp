@@ -28,6 +28,7 @@
 #include "core/data_type/primitive_type.h"
 #include "core/field.h"
 #include "storage/field.h"
+#include "storage/field_key_encoder.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/tablet/tablet_schema.h"
@@ -151,20 +152,6 @@ std::string RowCursor::to_string() const {
     return result;
 }
 
-// Convert a Field value to its storage representation via PrimitiveTypeConvertor and encode.
-// For most types this is an identity conversion; for DATE, DATETIME, DECIMALV2 it does
-// actual conversion to the olap storage format.
-template <PrimitiveType PT>
-static void encode_non_string_field(const StorageField* storage_field, const Field& f,
-                                    bool full_encode, std::string* buf) {
-    auto storage_val = PrimitiveTypeConvertor<PT>::to_storage_field_type(f.get<PT>());
-    if (full_encode) {
-        storage_field->full_encode_ascending(&storage_val, buf);
-    } else {
-        storage_field->encode_ascending(&storage_val, buf);
-    }
-}
-
 void RowCursor::_encode_field(const StorageField* storage_field, const Field& f, bool full_encode,
                               std::string* buf) const {
     FieldType ft = storage_field->type();
@@ -197,69 +184,18 @@ void RowCursor::_encode_field(const StorageField* storage_field, const Field& f,
         return;
     }
 
-    // Non-string types: convert Field value to storage format via PrimitiveTypeConvertor,
-    // then encode. For most types this is an identity conversion.
+    const KeyCoder* coder = storage_field->key_coder();
     switch (ft) {
-    case FieldType::OLAP_FIELD_TYPE_BOOL:
-        encode_non_string_field<TYPE_BOOLEAN>(storage_field, f, full_encode, buf);
+#define CASE(FT, PT)                                                                            \
+    case FieldType::FT:                                                                         \
+        if (full_encode) {                                                                      \
+            full_encode_field_as_key<PrimitiveType::PT>(f, coder, buf);                         \
+        } else {                                                                                \
+            encode_field_as_key<PrimitiveType::PT>(f, coder, storage_field->index_size(), buf); \
+        }                                                                                       \
         break;
-    case FieldType::OLAP_FIELD_TYPE_TINYINT:
-        encode_non_string_field<TYPE_TINYINT>(storage_field, f, full_encode, buf);
-        break;
-    case FieldType::OLAP_FIELD_TYPE_SMALLINT:
-        encode_non_string_field<TYPE_SMALLINT>(storage_field, f, full_encode, buf);
-        break;
-    case FieldType::OLAP_FIELD_TYPE_INT:
-        encode_non_string_field<TYPE_INT>(storage_field, f, full_encode, buf);
-        break;
-    case FieldType::OLAP_FIELD_TYPE_BIGINT:
-        encode_non_string_field<TYPE_BIGINT>(storage_field, f, full_encode, buf);
-        break;
-    case FieldType::OLAP_FIELD_TYPE_LARGEINT:
-        encode_non_string_field<TYPE_LARGEINT>(storage_field, f, full_encode, buf);
-        break;
-    case FieldType::OLAP_FIELD_TYPE_FLOAT:
-        encode_non_string_field<TYPE_FLOAT>(storage_field, f, full_encode, buf);
-        break;
-    case FieldType::OLAP_FIELD_TYPE_DOUBLE:
-        encode_non_string_field<TYPE_DOUBLE>(storage_field, f, full_encode, buf);
-        break;
-    case FieldType::OLAP_FIELD_TYPE_DATE:
-        encode_non_string_field<TYPE_DATE>(storage_field, f, full_encode, buf);
-        break;
-    case FieldType::OLAP_FIELD_TYPE_DATETIME:
-        encode_non_string_field<TYPE_DATETIME>(storage_field, f, full_encode, buf);
-        break;
-    case FieldType::OLAP_FIELD_TYPE_DATEV2:
-        encode_non_string_field<TYPE_DATEV2>(storage_field, f, full_encode, buf);
-        break;
-    case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
-        encode_non_string_field<TYPE_DATETIMEV2>(storage_field, f, full_encode, buf);
-        break;
-    case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
-        encode_non_string_field<TYPE_TIMESTAMPTZ>(storage_field, f, full_encode, buf);
-        break;
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL:
-        encode_non_string_field<TYPE_DECIMALV2>(storage_field, f, full_encode, buf);
-        break;
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL32:
-        encode_non_string_field<TYPE_DECIMAL32>(storage_field, f, full_encode, buf);
-        break;
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL64:
-        encode_non_string_field<TYPE_DECIMAL64>(storage_field, f, full_encode, buf);
-        break;
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
-        encode_non_string_field<TYPE_DECIMAL128I>(storage_field, f, full_encode, buf);
-        break;
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
-        encode_non_string_field<TYPE_DECIMAL256>(storage_field, f, full_encode, buf);
-        break;
-    case FieldType::OLAP_FIELD_TYPE_IPV4:
-        encode_non_string_field<TYPE_IPV4>(storage_field, f, full_encode, buf);
-        break;
-    case FieldType::OLAP_FIELD_TYPE_IPV6:
-        encode_non_string_field<TYPE_IPV6>(storage_field, f, full_encode, buf);
-        break;
+        DORIS_APPLY_FOR_KEY_ENCODABLE_NON_STRING_TYPES(CASE)
+#undef CASE
     default:
         LOG(FATAL) << "unsupported field type for encoding: " << int(ft);
         break;

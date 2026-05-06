@@ -84,6 +84,8 @@ public:
     void full_encode_ascending(const void* value, std::string* buf) const {
         _key_coder->full_encode_ascending(value, buf);
     }
+
+    const KeyCoder* key_coder() const { return _key_coder; }
     void add_sub_field(std::unique_ptr<StorageField> sub_field) {
         _sub_fields.emplace_back(std::move(sub_field));
     }
