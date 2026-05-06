@@ -118,6 +118,10 @@ public abstract class AbstractJob implements Writable {
         return jobId;
     }
 
+    public void setJobId(long jobId) {
+        this.jobId = jobId;
+    }
+
     public String getLabel() {
         return label;
     }
@@ -171,6 +175,10 @@ public abstract class AbstractJob implements Writable {
     public abstract boolean isFinished();
 
     public abstract Status updateRepo(Repository repo);
+
+    public int getSnapshotTaskCount() {
+        return 0;
+    }
 
     public static AbstractJob read(DataInput in) throws IOException {
         String json = Text.readString(in);

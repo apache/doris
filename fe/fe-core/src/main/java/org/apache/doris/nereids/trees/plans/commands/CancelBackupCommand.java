@@ -37,11 +37,21 @@ import com.google.common.base.Strings;
 public class CancelBackupCommand extends CancelCommand {
     private String dbName;
     private boolean isRestore;
+    private String label;      // Label filter (null means cancel all)
+    private boolean isLike;    // Whether to use LIKE pattern matching
 
+    // Old constructor for backward compatibility
     public CancelBackupCommand(String dbName, boolean isRestore) {
+        this(dbName, isRestore, null, false);
+    }
+
+    // New constructor with label filter support
+    public CancelBackupCommand(String dbName, boolean isRestore, String label, boolean isLike) {
         super(PlanType.CANCEL_BACKUP_AND_RESTORE_COMMAND);
         this.dbName = dbName;
         this.isRestore = isRestore;
+        this.label = label;
+        this.isLike = isLike;
     }
 
     public String getDbName() {
@@ -50,6 +60,45 @@ public class CancelBackupCommand extends CancelCommand {
 
     public boolean isRestore() {
         return isRestore;
+    }
+
+    public String getLabel() {
+        return label;
+    }
+
+    public boolean isLike() {
+        return isLike;
+    }
+
+    /**
+     * Check if a job label matches the filter
+     * @param jobLabel The label of the job to check
+     * @return true if the job label matches the filter, false otherwise
+     */
+    public boolean matchesLabel(String jobLabel) {
+        if (label == null) {
+            return true;
+        }
+
+        if (isLike) {
+            StringBuilder regex = new StringBuilder();
+            for (int i = 0; i < label.length(); i++) {
+                char c = label.charAt(i);
+                if (c == '%') {
+                    regex.append(".*");
+                } else if (c == '_') {
+                    regex.append(".");
+                } else if ("\\[]{}()*+?.^$|".indexOf(c) >= 0) {
+                    regex.append('\\');
+                    regex.append(c);
+                } else {
+                    regex.append(c);
+                }
+            }
+            return jobLabel.matches(regex.toString());
+        } else {
+            return jobLabel.equals(label);
+        }
     }
 
     @Override

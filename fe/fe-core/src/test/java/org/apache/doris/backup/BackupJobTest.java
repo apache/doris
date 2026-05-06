@@ -28,6 +28,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
@@ -70,6 +71,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class BackupJobTest {
@@ -627,5 +629,188 @@ public class BackupJobTest {
         // 3. delete files
         in.close();
         Files.delete(path);
+    }
+
+    private void allowJobExecution(BackupJob j) {
+        Deencapsulation.setField(j, "jobId", id.getAndIncrement());
+        Set<Long> allowedJobIds = Deencapsulation.getField(backupHandler, "allowedJobIds");
+        allowedJobIds.add(j.getJobId());
+    }
+
+    /**
+     * Test per-job tablet limit rejects backup when tablet count exceeds max_backup_tablets_per_job.
+     *
+     * Scenario: Set max_backup_tablets_per_job to 0, run backup
+     * Expected: Job should be CANCELLED with error about exceeding tablet limit
+     */
+    @Test
+    public void testPerJobTabletLimitRejectsWhenExceeded() {
+        int saved = Config.max_backup_tablets_per_job;
+        Config.max_backup_tablets_per_job = 0;
+        try {
+            AgentTaskQueue.clearAllTasks();
+            job.run();
+            Assert.assertEquals(BackupJobState.CANCELLED, job.getState());
+            Assert.assertTrue(job.getStatus().getErrMsg().contains("exceeds the limit"));
+        } finally {
+            Config.max_backup_tablets_per_job = saved;
+        }
+    }
+
+    /**
+     * Test global snapshot task limit rejects backup in concurrent mode.
+     *
+     * Scenario: Enable concurrency, set global limit to 1, pre-add 1 task so job's 1 tablet exceeds
+     * Expected: 1 + 1 > 1, Job should be CANCELLED with error about global limit
+     */
+    @Test
+    public void testGlobalSnapshotTaskLimitRejectsInConcurrentMode() {
+        int savedLimit = Config.max_concurrent_snapshot_tasks_total;
+        boolean savedConcurrency = Config.enable_table_level_backup_concurrency;
+        Config.enable_table_level_backup_concurrency = true;
+        Config.max_concurrent_snapshot_tasks_total = 1;
+        try {
+            AgentTaskQueue.clearAllTasks();
+            allowJobExecution(job);
+            backupHandler.addGlobalSnapshotTasks(1);
+            job.run();
+            Assert.assertEquals(BackupJobState.CANCELLED, job.getState());
+            Assert.assertTrue(job.getStatus().getErrMsg().contains("global concurrent snapshot tasks"));
+        } finally {
+            Config.max_concurrent_snapshot_tasks_total = savedLimit;
+            Config.enable_table_level_backup_concurrency = savedConcurrency;
+            backupHandler.addGlobalSnapshotTasks(-backupHandler.getGlobalSnapshotTasks());
+        }
+    }
+
+    /**
+     * Test global snapshot task limit rejects when existing tasks + new tasks exceed limit.
+     *
+     * Scenario: Pre-add 90 global tasks, set limit to 100, backup has 1 tablet (1 task)
+     * Expected: With global=90 + job=1 <= 100, should proceed to SNAPSHOTING
+     */
+    @Test
+    public void testGlobalSnapshotTaskLimitAllowsWithinBound() {
+        int savedLimit = Config.max_concurrent_snapshot_tasks_total;
+        boolean savedConcurrency = Config.enable_table_level_backup_concurrency;
+        Config.enable_table_level_backup_concurrency = true;
+        Config.max_concurrent_snapshot_tasks_total = 100;
+        try {
+            AgentTaskQueue.clearAllTasks();
+            allowJobExecution(job);
+            backupHandler.addGlobalSnapshotTasks(90);
+            job.run();
+            Assert.assertEquals(BackupJobState.SNAPSHOTING, job.getState());
+            Assert.assertEquals(Status.OK, job.getStatus());
+            // 90 + 1 tablet = 91
+            Assert.assertEquals(91, backupHandler.getGlobalSnapshotTasks());
+        } finally {
+            Config.max_concurrent_snapshot_tasks_total = savedLimit;
+            Config.enable_table_level_backup_concurrency = savedConcurrency;
+            backupHandler.addGlobalSnapshotTasks(-backupHandler.getGlobalSnapshotTasks());
+        }
+    }
+
+    /**
+     * Test global snapshot task limit rejects when sum exceeds limit.
+     *
+     * Scenario: Pre-add 100 global tasks, set limit to 100, backup adds 1 more
+     * Expected: 100 + 1 > 100, should be CANCELLED
+     */
+    @Test
+    public void testGlobalSnapshotTaskLimitRejectsWhenExceeded() {
+        int savedLimit = Config.max_concurrent_snapshot_tasks_total;
+        boolean savedConcurrency = Config.enable_table_level_backup_concurrency;
+        Config.enable_table_level_backup_concurrency = true;
+        Config.max_concurrent_snapshot_tasks_total = 100;
+        try {
+            AgentTaskQueue.clearAllTasks();
+            allowJobExecution(job);
+            backupHandler.addGlobalSnapshotTasks(100);
+            job.run();
+            Assert.assertEquals(BackupJobState.CANCELLED, job.getState());
+            Assert.assertTrue(job.getStatus().getErrMsg().contains("would exceed the limit"));
+        } finally {
+            Config.max_concurrent_snapshot_tasks_total = savedLimit;
+            Config.enable_table_level_backup_concurrency = savedConcurrency;
+            backupHandler.addGlobalSnapshotTasks(-backupHandler.getGlobalSnapshotTasks());
+        }
+    }
+
+    /**
+     * Test global snapshot task limit is skipped when concurrency is disabled.
+     *
+     * Scenario: Disable concurrency, set global limit to 0
+     * Expected: Job proceeds to SNAPSHOTING ignoring global limit, snapshotTaskCount stays 0
+     */
+    @Test
+    public void testGlobalSnapshotTaskLimitSkippedWhenConcurrencyDisabled() {
+        int savedLimit = Config.max_concurrent_snapshot_tasks_total;
+        boolean savedConcurrency = Config.enable_table_level_backup_concurrency;
+        Config.enable_table_level_backup_concurrency = false;
+        Config.max_concurrent_snapshot_tasks_total = 0;
+        try {
+            AgentTaskQueue.clearAllTasks();
+            job.run();
+            Assert.assertEquals(BackupJobState.SNAPSHOTING, job.getState());
+            Assert.assertEquals(Status.OK, job.getStatus());
+            Assert.assertEquals(0, job.getSnapshotTaskCount());
+            Assert.assertEquals(0, backupHandler.getGlobalSnapshotTasks());
+        } finally {
+            Config.max_concurrent_snapshot_tasks_total = savedLimit;
+            Config.enable_table_level_backup_concurrency = savedConcurrency;
+        }
+    }
+
+    /**
+     * Test snapshotTaskCount is persisted during serialization.
+     *
+     * Scenario: Run backup in concurrent mode, serialize and deserialize
+     * Expected: snapshotTaskCount should be preserved after deserialization
+     */
+    @Test
+    public void testSnapshotTaskCountPersisted() throws IOException, AnalysisException {
+        boolean savedConcurrency = Config.enable_table_level_backup_concurrency;
+        Config.enable_table_level_backup_concurrency = true;
+        try {
+            AgentTaskQueue.clearAllTasks();
+            allowJobExecution(job);
+            job.run();
+            Assert.assertEquals(BackupJobState.SNAPSHOTING, job.getState());
+            int expectedCount = job.getSnapshotTaskCount();
+            Assert.assertTrue(expectedCount > 0);
+
+            final Path path = Files.createTempFile("backupJobStc", "tmp");
+            DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
+            job.write(out);
+            out.flush();
+            out.close();
+
+            DataInputStream in = new DataInputStream(Files.newInputStream(path));
+            BackupJob job2 = BackupJob.read(in);
+            Assert.assertEquals(expectedCount, job2.getSnapshotTaskCount());
+
+            in.close();
+            Files.delete(path);
+        } finally {
+            Config.enable_table_level_backup_concurrency = savedConcurrency;
+            backupHandler.addGlobalSnapshotTasks(-backupHandler.getGlobalSnapshotTasks());
+        }
+    }
+
+    @Test
+    public void testExecutionGateBlocksInConcurrentMode() {
+        boolean savedConcurrency = Config.enable_table_level_backup_concurrency;
+        Config.enable_table_level_backup_concurrency = true;
+        try {
+            AgentTaskQueue.clearAllTasks();
+            // Do NOT call allowJobExecution, so job is not in allowedJobIds
+            Deencapsulation.setField(job, "jobId", id.getAndIncrement());
+            job.run();
+            // Job should stay PENDING because it lacks execution permission
+            Assert.assertEquals(BackupJobState.PENDING, job.getState());
+        } finally {
+            Config.enable_table_level_backup_concurrency = savedConcurrency;
+        }
     }
 }
