@@ -561,6 +561,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_ORC_LAZY_MAT = "enable_orc_lazy_materialization";
 
+    public static final String ENABLE_NESTED_LOOP_JOIN_LAZY_MATERIALIZATION =
+            "enable_nested_loop_join_lazy_materialization";
+
     public static final String ORC_TINY_STRIPE_THRESHOLD_BYTES = "orc_tiny_stripe_threshold_bytes";
 
     public static final String ORC_ONCE_MAX_READ_BYTES = "orc_once_max_read_bytes";
@@ -2469,6 +2472,14 @@ public class SessionVariable implements Serializable, Writable {
                             + "The default value is true."},
             needForward = true)
     public boolean enableOrcLazyMat = true;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_NESTED_LOOP_JOIN_LAZY_MATERIALIZATION,
+            fuzzy = true,
+            description = {"控制 Nested Loop Join 是否启用延迟物化技术。默认为 true。",
+                    "Controls whether to use lazy materialization technology in Nested Loop Join. "
+                            + "The default value is true."})
+    public boolean enableNestedLoopJoinLazyMaterialization = true;
 
     @VarAttrDef.VarAttr(
             name = ORC_TINY_STRIPE_THRESHOLD_BYTES,

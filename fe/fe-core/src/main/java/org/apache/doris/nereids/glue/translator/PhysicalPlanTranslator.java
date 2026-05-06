@@ -1995,7 +1995,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(SlotReference.class::cast)
                 .forEach(s -> outputSlotReferenceMap.put(s.getExprId(), s));
         Map<ExprId, SlotReference> materializedSlotReferenceMap = Maps.newHashMap(outputSlotReferenceMap);
-        nestedLoopJoinNode.enableMaterializedSlotIds();
+        boolean enableLazyMaterialization = context.getSessionVariable() == null
+                || context.getSessionVariable().enableNestedLoopJoinLazyMaterialization;
+        if (enableLazyMaterialization) {
+            nestedLoopJoinNode.enableMaterializedSlotIds();
+        }
         List<SlotReference> outputSlotReferences = Stream.concat(leftTuples.stream(), rightTuples.stream())
                 .map(TupleDescriptor::getSlots)
                 .flatMap(Collection::stream)
@@ -2009,7 +2013,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
             SlotReference sf = leftChildOutputMap.get(context.findExprId(leftSlotDescriptor.getId()));
             SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
-            if (materializedSlotReferenceMap.get(sf.getExprId()) != null) {
+            if (enableLazyMaterialization && materializedSlotReferenceMap.get(sf.getExprId()) != null) {
                 nestedLoopJoinNode.addSlotIdToMaterializedSlotIds(sd.getId());
             }
             nestedLoopJoinNode.getMaterializedSlotIdMap().put(sf.getExprId(), sd.getId());
@@ -2018,7 +2022,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
             SlotReference sf = rightChildOutputMap.get(context.findExprId(rightSlotDescriptor.getId()));
             SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
-            if (materializedSlotReferenceMap.get(sf.getExprId()) != null) {
+            if (enableLazyMaterialization && materializedSlotReferenceMap.get(sf.getExprId()) != null) {
                 nestedLoopJoinNode.addSlotIdToMaterializedSlotIds(sd.getId());
             }
             nestedLoopJoinNode.getMaterializedSlotIdMap().put(sf.getExprId(), sd.getId());
@@ -2030,7 +2034,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             outputSlotReferences.add(markJoinSlotReference);
             SlotDescriptor markJoinSlotDescriptor = context.createSlotDesc(intermediateDescriptor,
                     markJoinSlotReference);
-            if (materializedSlotReferenceMap.get(markJoinSlotReference.getExprId()) != null) {
+            if (enableLazyMaterialization
+                    && materializedSlotReferenceMap.get(markJoinSlotReference.getExprId()) != null) {
                 nestedLoopJoinNode.addSlotIdToMaterializedSlotIds(markJoinSlotDescriptor.getId());
             }
             nestedLoopJoinNode.getMaterializedSlotIdMap().put(markJoinSlotReference.getExprId(),
