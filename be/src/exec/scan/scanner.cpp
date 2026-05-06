@@ -245,6 +245,7 @@ Status Scanner::try_append_late_arrival_runtime_filter() {
     // avoid conjunct destroy in used by storage layer
     _conjuncts.clear();
     RETURN_IF_ERROR(_local_state->clone_conjunct_ctxs(_conjuncts));
+    _applied_rf_num = arrived_rf_num;
     return Status::OK();
 }
 

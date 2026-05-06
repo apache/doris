@@ -252,6 +252,8 @@ int AdaptiveThreadPoolController::get_current_threads(const std::string& name) c
 }
 
 bool AdaptiveThreadPoolController::is_io_busy() {
+    std::lock_guard<std::mutex> lk(_metrics_state_mutex);
+
     if (config::is_cloud_mode()) {
         if (_s3_file_upload_pool == nullptr) return false;
         int queue_size = _s3_file_upload_pool->get_queue_size();
@@ -275,14 +277,37 @@ bool AdaptiveThreadPoolController::is_io_busy() {
 }
 
 bool AdaptiveThreadPoolController::is_cpu_busy() {
+    std::lock_guard<std::mutex> lk(_metrics_state_mutex);
+
     if (_system_metrics == nullptr) return false;
 
-    double load_avg = _system_metrics->get_load_average_1_min();
-    int num_cpus = std::thread::hardware_concurrency();
-    if (num_cpus <= 0) return false;
+    int64_t total_time = 0;
+    int64_t idle_time = 0;
+    if (!_system_metrics->get_aggregate_cpu_time(&total_time, &idle_time)) {
+        return _last_cpu_busy;
+    }
 
-    double cpu_usage_percent = (load_avg / num_cpus) * 100.0;
-    return cpu_usage_percent > kCPUBusyThresholdPercent;
+    if (_last_cpu_total_time < 0) {
+        _last_cpu_total_time = total_time;
+        _last_cpu_idle_time = idle_time;
+        _last_cpu_busy = false;
+        return false;
+    }
+
+    int64_t total_time_delta = total_time - _last_cpu_total_time;
+    int64_t idle_time_delta = idle_time - _last_cpu_idle_time;
+    if (total_time_delta <= 0 || idle_time_delta < 0 || idle_time_delta > total_time_delta) {
+        // Keep the previous baseline so a transient invalid sample does not
+        // poison the next interval's delta calculation.
+        return _last_cpu_busy;
+    }
+
+    _last_cpu_total_time = total_time;
+    _last_cpu_idle_time = idle_time;
+    double cpu_busy_percent =
+            static_cast<double>(total_time_delta - idle_time_delta) * 100.0 / total_time_delta;
+    _last_cpu_busy = cpu_busy_percent > kCPUBusyThresholdPercent;
+    return _last_cpu_busy;
 }
 
 AdaptiveThreadPoolController::AdjustFunc AdaptiveThreadPoolController::make_flush_adjust_func(

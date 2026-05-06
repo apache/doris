@@ -853,11 +853,6 @@ void PackedFileManager::process_uploading_packed_files() {
         Status upload_status = finalize_packed_file_upload(packed_file->packed_file_path,
                                                            packed_file->writer.get());
 
-        if (upload_status.is<ErrorCode::ALREADY_CLOSED>()) {
-            record_ready_to_upload(packed_file);
-            handle_success(packed_file);
-            continue;
-        }
         if (!upload_status.ok()) {
             handle_failure(packed_file, upload_status);
             continue;
@@ -875,16 +870,13 @@ void PackedFileManager::process_uploading_packed_files() {
             continue;
         }
 
-        if (packed_file->writer->state() != FileWriter::State::CLOSED) {
+        Status status = packed_file->writer->try_finish_close();
+        if (status.is<ErrorCode::NEED_SEND_AGAIN>()) {
             continue;
         }
 
-        Status status = packed_file->writer->close(true);
-        if (status.is<ErrorCode::ALREADY_CLOSED>()) {
-            handle_success(packed_file);
-            continue;
-        }
         if (status.ok()) {
+            handle_success(packed_file);
             continue;
         }
 

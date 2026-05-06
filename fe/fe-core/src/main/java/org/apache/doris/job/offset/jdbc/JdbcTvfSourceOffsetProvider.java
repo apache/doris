@@ -58,6 +58,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 /**
@@ -203,9 +205,10 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
             String rawResponse = null;
             try {
                 TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
-                Future<PRequestCdcClientResult> future =
-                        BackendServiceProxy.getInstance().requestCdcClient(address, request);
-                InternalService.PRequestCdcClientResult result = future.get();
+                Future<PRequestCdcClientResult> future = BackendServiceProxy.getInstance()
+                        .requestCdcClient(address, request, Config.streaming_cdc_light_rpc_timeout_sec);
+                InternalService.PRequestCdcClientResult result =
+                        future.get(Config.streaming_cdc_light_rpc_timeout_sec, TimeUnit.SECONDS);
                 TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
                 if (code != TStatusCode.OK) {
                     log.warn("Failed to get task {} offset from BE {}: {}", taskId,
@@ -221,6 +224,11 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
                     log.info("Fetched task {} offset from BE {}: {}", taskId, backend.getHost(), data);
                     return data;
                 }
+            } catch (TimeoutException te) {
+                log.warn("cdc_client RPC timeout api=/api/getTaskOffset jobId={} taskId={} backend={}:{} "
+                                + "timeout_sec={}",
+                        jobId, taskId, backend.getHost(), backend.getBrpcPort(),
+                        Config.streaming_cdc_light_rpc_timeout_sec);
             } catch (Exception ex) {
                 log.warn("Get task offset error for task {} from BE {}, raw response: {}",
                         taskId, backend.getHost(), rawResponse, ex);

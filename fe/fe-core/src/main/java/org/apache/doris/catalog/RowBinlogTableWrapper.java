@@ -15,21 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.catalog;
 
-#include "service/http/http_handler_with_auth.h"
+import com.google.common.base.Preconditions;
 
-namespace doris {
+/**
+ * A lightweight wrapper base for read binlog<row> of table
+ */
+public class RowBinlogTableWrapper extends OlapTableWrapper {
 
-class HttpRequest;
-class ExecEnv;
+    private final MaterializedIndexMeta rowBinlogMeta;
 
-class AdjustTracingDump : public HttpHandlerWithAuth {
-public:
-    AdjustTracingDump(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
+    public RowBinlogTableWrapper(OlapTable originTable) {
+        super(originTable, originTable.getName(), originTable.generateTableRowBinlogSchema(), KeysType.DUP_KEYS);
+        this.rowBinlogMeta = originTable.getRowBinlogMeta();
+        Preconditions.checkNotNull(rowBinlogMeta, "row binlog meta is null, table=%s", originTable.getName());
+        this.setBaseIndexId(rowBinlogMeta.getIndexId());
+    }
 
-    ~AdjustTracingDump() override = default;
-
-    void handle(HttpRequest* req) override;
-};
-} // namespace doris
+    @Override
+    public long getBaseIndexId() {
+        return rowBinlogMeta.getIndexId();
+    }
+}

@@ -255,10 +255,9 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
         const size_t offset_size = sizeof(int32_t);
         for (size_t offset_i = start; offset_i < end; ++offset_i) {
             if (!concrete_array->IsNull(offset_i)) {
-                int32_t start_offset = 0;
-                int32_t end_offset = 0;
-                memcpy(&start_offset, offsets_data + offset_i * offset_size, offset_size);
-                memcpy(&end_offset, offsets_data + (offset_i + 1) * offset_size, offset_size);
+                auto start_offset = unaligned_load<int32_t>(offsets_data + offset_i * offset_size);
+                auto end_offset =
+                        unaligned_load<int32_t>(offsets_data + (offset_i + 1) * offset_size);
 
                 const auto* raw_data = buffer->data() + start_offset;
                 const auto raw_data_len = end_offset - start_offset;
@@ -981,8 +980,7 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_field(const uint8_t
         field = Field::create_field<TYPE_BIGINT>(v);
         data += sizeof(Int64);
     } else if constexpr (T == TYPE_LARGEINT) {
-        PackedInt128 pack;
-        memcpy(&pack, data, sizeof(PackedInt128));
+        auto pack = unaligned_load<PackedInt128>(data);
         field = Field::create_field<TYPE_LARGEINT>(Int128(pack.value));
         data += sizeof(PackedInt128);
     } else if constexpr (T == TYPE_FLOAT) {
@@ -998,8 +996,7 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_field(const uint8_t
         field = Field::create_field<TYPE_IPV4>(v);
         data += sizeof(IPv4);
     } else if constexpr (T == TYPE_IPV6) {
-        PackedUInt128 pack;
-        memcpy(&pack, data, sizeof(PackedUInt128));
+        auto pack = unaligned_load<PackedUInt128>(data);
         auto v = pack.value;
         field = Field::create_field<TYPE_IPV6>(v);
         data += sizeof(PackedUInt128);

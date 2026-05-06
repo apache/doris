@@ -655,12 +655,15 @@ void update_streaming_job_meta(MetaServiceCode& code, std::string& msg,
         }
         new_job_info.set_scanned_rows(new_job_info.scanned_rows() +
                                       commit_attachment.scanned_rows());
+        new_job_info.set_filtered_rows(new_job_info.filtered_rows() +
+                                       commit_attachment.filtered_rows());
         new_job_info.set_load_bytes(new_job_info.load_bytes() + commit_attachment.load_bytes());
         new_job_info.set_num_files(new_job_info.num_files() + commit_attachment.num_files());
         new_job_info.set_file_bytes(new_job_info.file_bytes() + commit_attachment.file_bytes());
     } else {
         new_job_info.set_job_id(commit_attachment.job_id());
         new_job_info.set_scanned_rows(commit_attachment.scanned_rows());
+        new_job_info.set_filtered_rows(commit_attachment.filtered_rows());
         new_job_info.set_load_bytes(commit_attachment.load_bytes());
         new_job_info.set_num_files(commit_attachment.num_files());
         new_job_info.set_file_bytes(commit_attachment.file_bytes());
@@ -981,6 +984,7 @@ void MetaServiceImpl::reset_streaming_job_offset(::google::protobuf::RpcControll
         // Preserve existing statistics if they exist
         if (prev_existed) {
             new_job_info.set_scanned_rows(prev_job_info.scanned_rows());
+            new_job_info.set_filtered_rows(prev_job_info.filtered_rows());
             new_job_info.set_load_bytes(prev_job_info.load_bytes());
             new_job_info.set_num_files(prev_job_info.num_files());
             new_job_info.set_file_bytes(prev_job_info.file_bytes());

@@ -66,6 +66,13 @@ jobs:
         env:
           CODE_REVIEW_ZCLLL_COPILOT_OPENCODE_KEY: ${{ secrets.CODE_REVIEW_ZCLLL_COPILOT_OPENCODE_KEY }}
 
+      - name: Prepare review context directory
+        run: |
+          review_context_dir="$(mktemp -d "$GITHUB_WORKSPACE/.opencode-review.XXXXXX")"
+          review_context_rel="$(basename "$review_context_dir")"
+          printf 'REVIEW_CONTEXT_DIR=%s\n' "$review_context_dir" >> "$GITHUB_ENV"
+          printf 'REVIEW_CONTEXT_REL=%s\n' "$review_context_rel" >> "$GITHUB_ENV"
+
       - name: Fetch existing PR review threads
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -75,8 +82,8 @@ jobs:
           MAX_THREADS=30
           MAX_BODY_CHARS=1200
 
-          if gh api --paginate --slurp repos/${REPO}/pulls/${PR_NUMBER}/comments > /tmp/pr_review_comments_pages.json 2>/tmp/pr_review_comments_error.log \
-            && jq 'add | sort_by((.in_reply_to_id // .id), .id)' /tmp/pr_review_comments_pages.json > /tmp/pr_review_comments.json 2>>/tmp/pr_review_comments_error.log \
+          if gh api --paginate --slurp repos/${REPO}/pulls/${PR_NUMBER}/comments > "$REVIEW_CONTEXT_DIR/pr_review_comments_pages.json" 2>"$REVIEW_CONTEXT_DIR/pr_review_comments_error.log" \
+            && jq 'add | sort_by((.in_reply_to_id // .id), .id)' "$REVIEW_CONTEXT_DIR/pr_review_comments_pages.json" > "$REVIEW_CONTEXT_DIR/pr_review_comments.json" 2>>"$REVIEW_CONTEXT_DIR/pr_review_comments_error.log" \
             && jq -r '
               def shorten($limit):
                 if (. // "" | length) > $limit then
@@ -111,18 +118,18 @@ jobs:
                 )
                 | join("\n\n")
               end
-            ' --argjson max_threads "$MAX_THREADS" --argjson max_body_chars "$MAX_BODY_CHARS" /tmp/pr_review_comments.json > /tmp/pr_review_threads.md 2>>/tmp/pr_review_comments_error.log; then
+            ' --argjson max_threads "$MAX_THREADS" --argjson max_body_chars "$MAX_BODY_CHARS" "$REVIEW_CONTEXT_DIR/pr_review_comments.json" > "$REVIEW_CONTEXT_DIR/pr_review_threads.md" 2>>"$REVIEW_CONTEXT_DIR/pr_review_comments_error.log"; then
             echo "Fetched existing PR review threads successfully."
           else
             printf '%s\n\n' \
               'Existing PR review threads could not be fetched or formatted for this run.' \
               'Proceed with the automated review without this auxiliary context.' \
-              > /tmp/pr_review_threads.md
-            if [ -s /tmp/pr_review_comments_error.log ]; then
+              > "$REVIEW_CONTEXT_DIR/pr_review_threads.md"
+            if [ -s "$REVIEW_CONTEXT_DIR/pr_review_comments_error.log" ]; then
               {
                 printf '\n%s\n' 'Fetch/format error details:'
-                sed 's/^/    /' /tmp/pr_review_comments_error.log
-              } >> /tmp/pr_review_threads.md
+                sed 's/^/    /' "$REVIEW_CONTEXT_DIR/pr_review_comments_error.log"
+              } >> "$REVIEW_CONTEXT_DIR/pr_review_threads.md"
             fi
           fi
 
@@ -131,16 +138,17 @@ jobs:
           REVIEW_FOCUS: ${{ inputs.review_focus }}
         run: |
           if [ -n "$(printf '%s' "$REVIEW_FOCUS" | tr -d '[:space:]')" ]; then
-            printf '%s\n' "$REVIEW_FOCUS" > /tmp/review_focus.txt
+            printf '%s\n' "$REVIEW_FOCUS" > "$REVIEW_CONTEXT_DIR/review_focus.txt"
           else
-            printf 'No additional user-provided review focus.\n' > /tmp/review_focus.txt
+            printf 'No additional user-provided review focus.\n' > "$REVIEW_CONTEXT_DIR/review_focus.txt"
           fi
 
       - name: Prepare review prompt
         run: |
-          cat > /tmp/review_prompt.txt <<'PROMPT'
+          cat > "$REVIEW_CONTEXT_DIR/review_prompt.txt" <<'PROMPT'
           You are performing an automated code review inside a GitHub Actions runner. The gh CLI is available and authenticated via GH_TOKEN. 
           The current directory is the code repository for the PR to be reviewed.
+          You MUST NOT attempt to access any files outside the current directory. and you DO NOT need to. But this does not prevent you from normally using any skill or web fetch tools.
           You can comment on the pull request.
           Proceed with all subsequent research at the HIGHEST level of thought, aiming to identify all issues and submit all comments in JSON format.
 
@@ -149,15 +157,15 @@ jobs:
           - PR number: PLACEHOLDER_PR_NUMBER
           - PR Head SHA: PLACEHOLDER_HEAD_SHA
           - PR Base SHA: PLACEHOLDER_BASE_SHA
-          - Existing inline review threads: /tmp/pr_review_threads.md
-          - Raw inline review comments JSON: /tmp/pr_review_comments.json
-          - User review focus: /tmp/review_focus.txt
+          - Existing inline review threads: PLACEHOLDER_CONTEXT_DIR/pr_review_threads.md
+          - Raw inline review comments JSON: PLACEHOLDER_CONTEXT_DIR/pr_review_comments.json
+          - User review focus: PLACEHOLDER_CONTEXT_DIR/review_focus.txt
 
           Before reviewing any code, you MUST read and follow the code review skill in this repository. During review, you must strictly follow those instructions.
-          Before proposing any new issue, you MUST read /tmp/pr_review_threads.md and treat every existing inline comment thread and reply as already-known review context.
+          Before proposing any new issue, you MUST read PLACEHOLDER_CONTEXT_DIR/pr_review_threads.md and treat every existing inline comment thread and reply as already-known review context.
           Do NOT submit the same or substantially similar issue again if it has already been raised in the existing review threads, even if you would phrase it differently.
           Only raise a similar concern when the PR introduces a genuinely different instance in another location that is not already covered by the existing thread, and explain why it is distinct.
-          You MUST also read /tmp/review_focus.txt. Perform a complete review of the whole PR as usual, and additionally pay special attention to the user-provided focus points from that file.
+          You MUST also read PLACEHOLDER_CONTEXT_DIR/review_focus.txt. Perform a complete review of the whole PR as usual, and additionally pay special attention to the user-provided focus points from that file.
           In the final summary, include a short response to the user focus points, including when no additional issue was found for them.
           In addition, you can perform any desired review operations to observe suspicious code and details in order to identify issues as much as possible.
 
@@ -173,10 +181,11 @@ jobs:
               - The JSON file should contain: {"event":"REQUEST_CHANGES","body":"<summary>","comments":[...]}
           - A complete and detailed review of the entire PR must be conducted, identifying all potential issues and submitting corresponding comments. Only then can the review work be considered finished. If this standard is not strictly met, the review of the remaining parts must continue.
           PROMPT
-          sed -i "s|PLACEHOLDER_REPO|${REPO}|g" /tmp/review_prompt.txt
-          sed -i "s|PLACEHOLDER_PR_NUMBER|${PR_NUMBER}|g" /tmp/review_prompt.txt
-          sed -i "s|PLACEHOLDER_HEAD_SHA|${HEAD_SHA}|g" /tmp/review_prompt.txt
-          sed -i "s|PLACEHOLDER_BASE_SHA|${BASE_SHA}|g" /tmp/review_prompt.txt
+          sed -i "s|PLACEHOLDER_REPO|${REPO}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
+          sed -i "s|PLACEHOLDER_PR_NUMBER|${PR_NUMBER}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
+          sed -i "s|PLACEHOLDER_HEAD_SHA|${HEAD_SHA}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
+          sed -i "s|PLACEHOLDER_BASE_SHA|${BASE_SHA}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
+          sed -i "s|PLACEHOLDER_CONTEXT_DIR|${REVIEW_CONTEXT_REL}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
         env:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr_number }}
@@ -190,14 +199,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PROMPT=$(cat /tmp/review_prompt.txt)
+          PROMPT=$(cat "$REVIEW_CONTEXT_DIR/review_prompt.txt")
 
           set +e
-          opencode run "$PROMPT" -m "github-copilot/gpt-5.4" --variant "xhigh" 2>&1 | tee /tmp/opencode-review.log
+          opencode run "$PROMPT" -m "github-copilot/gpt-5.5" 2>&1 | tee "$REVIEW_CONTEXT_DIR/opencode-review.log"
           status=${PIPESTATUS[0]}
           set -e
 
-          last_log_line=$(awk 'NF { line = $0 } END { print line }' /tmp/opencode-review.log)
+          last_log_line=$(awk 'NF { line = $0 } END { print line }' "$REVIEW_CONTEXT_DIR/opencode-review.log")
 
           failure_reason=""
           if printf '%s\n' "$last_log_line" | rg -q -i '^Error:|SSE read timed out'; then

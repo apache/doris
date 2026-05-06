@@ -422,7 +422,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
                     tableStats = new OlapTable.Statistics(db.getName(),
                             table.getName(), tableDataSize, tableTotalReplicaDataSize, 0L,
                             tableReplicaCount, tableRowCount, 0L, 0L,
-                            tableTotalLocalIndexSize, tableTotalLocalSegmentSize, 0L, 0L);
+                            tableTotalLocalIndexSize, tableTotalLocalSegmentSize, 0L, 0L, 0L, 0L);
                     olapTable.setStatistics(tableStats);
                     LOG.debug("finished to set row num for table: {} in database: {}",
                             table.getName(), db.getFullName());

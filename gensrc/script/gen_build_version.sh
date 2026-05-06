@@ -67,7 +67,7 @@ fi
 
 cd "${DORIS_HOME}"
 
-if [[ -d '.git' ]]; then
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     revision="$(git log -1 --pretty=format:"%H")"
     short_revision="$(git log -1 --pretty=format:"%h")"
     url="git://${hostname}"

@@ -135,8 +135,7 @@ Status OlapScanLocalState::_init_profile() {
             ADD_COUNTER(_segment_profile, "UncompressedBytesRead", TUnit::BYTES);
     _block_load_timer = ADD_TIMER(_segment_profile, "BlockLoadTime");
     _block_load_counter = ADD_COUNTER(_segment_profile, "BlocksLoad", TUnit::UNIT);
-    _block_fetch_timer = ADD_TIMER(_scanner_profile, "BlockFetchTime");
-    _delete_bitmap_get_agg_timer = ADD_TIMER(_scanner_profile, "DeleteBitmapGetAggTime");
+    _block_fetch_timer = ADD_CHILD_TIMER(_scanner_profile, "BlockFetchTime", "ScannerGetBlockTime");
     if (config::is_cloud_mode()) {
         static const char* sync_rowset_timer_name = "SyncRowsetTime";
         _sync_rowset_timer = ADD_TIMER(_scanner_profile, sync_rowset_timer_name);
@@ -274,46 +273,57 @@ Status OlapScanLocalState::_init_profile() {
     _total_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentTotal", TUnit::UNIT);
     _tablet_counter = ADD_COUNTER(custom_profile(), "TabletNum", TUnit::UNIT);
     _key_range_counter = ADD_COUNTER(custom_profile(), "KeyRangesNum", TUnit::UNIT);
-    _tablet_reader_init_timer = ADD_TIMER(_scanner_profile, "TabletReaderInitTimer");
-    _tablet_reader_capture_rs_readers_timer =
-            ADD_TIMER(_scanner_profile, "TabletReaderCaptureRsReadersTimer");
-    _tablet_reader_init_return_columns_timer =
-            ADD_TIMER(_scanner_profile, "TabletReaderInitReturnColumnsTimer");
-    _tablet_reader_init_keys_param_timer =
-            ADD_TIMER(_scanner_profile, "TabletReaderInitKeysParamTimer");
-    _tablet_reader_init_orderby_keys_param_timer =
-            ADD_TIMER(_scanner_profile, "TabletReaderInitOrderbyKeysParamTimer");
-    _tablet_reader_init_conditions_param_timer =
-            ADD_TIMER(_scanner_profile, "TabletReaderInitConditionsParamTimer");
-    _tablet_reader_init_delete_condition_param_timer =
-            ADD_TIMER(_scanner_profile, "TabletReaderInitDeleteConditionParamTimer");
-    _block_reader_vcollect_iter_init_timer =
-            ADD_TIMER(_scanner_profile, "BlockReaderVcollectIterInitTimer");
-    _block_reader_rs_readers_init_timer =
-            ADD_TIMER(_scanner_profile, "BlockReaderRsReadersInitTimer");
-    _block_reader_build_heap_init_timer =
-            ADD_TIMER(_scanner_profile, "BlockReaderBuildHeapInitTimer");
+    _tablet_reader_init_timer =
+            ADD_CHILD_TIMER(_scanner_profile, "TabletReaderInitTimer", "ReaderInitTime");
+    _tablet_reader_capture_rs_readers_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "TabletReaderCaptureRsReadersTimer", "TabletReaderInitTimer");
+    _tablet_reader_init_return_columns_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "TabletReaderInitReturnColumnsTimer", "TabletReaderInitTimer");
+    _tablet_reader_init_keys_param_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "TabletReaderInitKeysParamTimer", "TabletReaderInitTimer");
+    _tablet_reader_init_orderby_keys_param_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "TabletReaderInitOrderbyKeysParamTimer", "TabletReaderInitTimer");
+    _tablet_reader_init_conditions_param_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "TabletReaderInitConditionsParamTimer", "TabletReaderInitTimer");
+    _tablet_reader_init_delete_condition_param_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "TabletReaderInitDeleteConditionParamTimer", "TabletReaderInitTimer");
+    _block_reader_vcollect_iter_init_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "BlockReaderVcollectIterInitTimer", "TabletReaderInitTimer");
+    _block_reader_rs_readers_init_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "BlockReaderRsReadersInitTimer", "TabletReaderInitTimer");
+    _block_reader_build_heap_init_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "BlockReaderBuildHeapInitTimer", "TabletReaderInitTimer");
 
-    _rowset_reader_get_segment_iterators_timer =
-            ADD_TIMER(_scanner_profile, "RowsetReaderGetSegmentIteratorsTimer");
+    _rowset_reader_get_segment_iterators_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "RowsetReaderGetSegmentIteratorsTimer", "ScannerGetBlockTime");
+    _delete_bitmap_get_agg_timer = ADD_CHILD_TIMER(_scanner_profile, "DeleteBitmapGetAggTime",
+                                                   "RowsetReaderGetSegmentIteratorsTimer");
     _rowset_reader_create_iterators_timer =
-            ADD_TIMER(_scanner_profile, "RowsetReaderCreateIteratorsTimer");
-    _rowset_reader_init_iterators_timer =
-            ADD_TIMER(_scanner_profile, "RowsetReaderInitIteratorsTimer");
-    _rowset_reader_load_segments_timer =
-            ADD_TIMER(_scanner_profile, "RowsetReaderLoadSegmentsTimer");
+            ADD_CHILD_TIMER(_scanner_profile, "RowsetReaderCreateIteratorsTimer",
+                            "RowsetReaderGetSegmentIteratorsTimer");
+    _rowset_reader_init_iterators_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "RowsetReaderInitIteratorsTimer", "ScannerGetBlockTime");
+    _rowset_reader_load_segments_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "RowsetReaderLoadSegmentsTimer", "ScannerGetBlockTime");
 
-    _segment_iterator_init_timer = ADD_TIMER(_scanner_profile, "SegmentIteratorInitTimer");
+    _segment_iterator_init_timer =
+            ADD_CHILD_TIMER(_scanner_profile, "SegmentIteratorInitTimer", "BlockFetchTime");
     _segment_iterator_init_return_column_iterators_timer =
-            ADD_TIMER(_scanner_profile, "SegmentIteratorInitReturnColumnIteratorsTimer");
-    _segment_iterator_init_index_iterators_timer =
-            ADD_TIMER(_scanner_profile, "SegmentIteratorInitIndexIteratorsTimer");
+            ADD_CHILD_TIMER(_scanner_profile, "SegmentIteratorInitReturnColumnIteratorsTimer",
+                            "SegmentIteratorInitTimer");
+    _segment_iterator_init_index_iterators_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "SegmentIteratorInitIndexIteratorsTimer", "SegmentIteratorInitTimer");
     _segment_iterator_init_segment_prefetchers_timer =
-            ADD_TIMER(_scanner_profile, "SegmentIteratorInitSegmentPrefetchersTimer");
+            ADD_CHILD_TIMER(_scanner_profile, "SegmentIteratorInitSegmentPrefetchersTimer",
+                            "SegmentIteratorInitTimer");
 
-    _segment_create_column_readers_timer =
-            ADD_TIMER(_scanner_profile, "SegmentCreateColumnReadersTimer");
-    _segment_load_index_timer = ADD_TIMER(_scanner_profile, "SegmentLoadIndexTimer");
+    // These two timers span both iterator init and later lazy segment init paths,
+    // so their nearest stable ancestor is ScannerGetBlockTime instead of any
+    // narrower SegmentIterator/BlockFetch subphase.
+    _segment_create_column_readers_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "SegmentCreateColumnReadersTimer", "ScannerGetBlockTime");
+    _segment_load_index_timer =
+            ADD_CHILD_TIMER(_scanner_profile, "SegmentLoadIndexTimer", "ScannerGetBlockTime");
 
     _index_filter_profile = std::make_unique<RuntimeProfile>("IndexFilter");
     _scanner_profile->add_child(_index_filter_profile.get(), true, nullptr);

@@ -680,6 +680,8 @@ public class StmtExecutor {
                         scanNode.getSelectedPartitionNum(),
                         scanNode.getSelectedSplitNum(),
                         scanNode.getCardinality(),
+                        scanNode.isPartitionedTable(),
+                        scanNode.hasPartitionPredicate(),
                         context.getQualifiedUser());
 
             }
@@ -1862,6 +1864,9 @@ public class StmtExecutor {
                 if (item != null && !item.equals(FeConstants.null_string)) {
                     Column col = metaData.getColumn(i);
                     switch (col.getType().getPrimitiveType()) {
+                        case BOOLEAN:
+                            serializer.writeInt1(parseBooleanResultValue(item));
+                            break;
                         case INT:
                             serializer.writeInt4(Integer.parseInt(item));
                             break;
@@ -1893,6 +1898,16 @@ public class StmtExecutor {
             }
             context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
+    }
+
+    private static int parseBooleanResultValue(String item) {
+        if ("1".equals(item) || "true".equalsIgnoreCase(item)) {
+            return 1;
+        }
+        if ("0".equals(item) || "false".equalsIgnoreCase(item)) {
+            return 0;
+        }
+        throw new IllegalArgumentException("Invalid boolean result value: " + item);
     }
 
     public void handleExplainPlanProcessStmt(List<PlanProcess> result) throws IOException {
@@ -2013,6 +2028,10 @@ public class StmtExecutor {
         if (originStmt.originStmt != null) {
             context.setSqlHash(DigestUtils.md5Hex(originStmt.originStmt));
         }
+        // Mark state up front so audit log records this as an internal query even if parse/plan fails.
+        context.getState().setNereids(true);
+        context.getState().setIsQuery(true);
+        context.getState().setInternal(true);
         try {
             List<ResultRow> resultRows = new ArrayList<>();
             try {
@@ -2020,9 +2039,6 @@ public class StmtExecutor {
                 Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
                         "Nereids only process LogicalPlanAdapter,"
                                 + " but parsedStmt is " + parsedStmt.getClass().getName());
-                context.getState().setNereids(true);
-                context.getState().setIsQuery(true);
-                context.getState().setInternal(true);
                 planner = new NereidsPlanner(statementContext);
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
             } catch (Exception e) {
@@ -2078,6 +2094,16 @@ public class StmtExecutor {
             } catch (Exception e) {
                 throw new RuntimeException("Failed to fetch internal SQL result. " + Util.getRootCauseMessage(e), e);
             }
+        } catch (Exception e) {
+            // Surface failure into ConnectContext state so AuditLogHelper records ERR instead of OK.
+            if (context.getState().getStateType() != MysqlStateType.ERR) {
+                String msg = e.getMessage();
+                if (Strings.isNullOrEmpty(msg)) {
+                    msg = Util.getRootCauseMessage(e);
+                }
+                context.getState().setError(ErrorCode.ERR_INTERNAL_ERROR, msg);
+            }
+            throw e;
         } finally {
             if (coord != null) {
                 coord.close();

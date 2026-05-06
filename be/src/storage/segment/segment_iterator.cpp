@@ -957,7 +957,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
         return Status::OK();
     }
     IColumn::MutablePtr result_column;
-    std::unique_ptr<std::vector<uint64_t>> result_row_ids;
+    std::shared_ptr<std::vector<uint64_t>> result_row_ids;
     segment_v2::AnnIndexStats ann_index_stats;
 
     // Try to load ANN index before search
@@ -1015,8 +1015,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
             "Virtual column iterator, column_idx {}, is materialized with {} rows", dst_col_idx,
             result_row_ids->size());
     // reference count of result_column should be 1, so move will not issue any data copy.
-    virtual_column_iter->prepare_materialization(std::move(result_column),
-                                                 std::move(result_row_ids));
+    virtual_column_iter->prepare_materialization(std::move(result_column), result_row_ids);
 
     _need_read_data_indices[src_cid] = false;
     VLOG_DEBUG << fmt::format(
