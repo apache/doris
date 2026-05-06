@@ -169,8 +169,7 @@ public class OlapTableStream extends BaseTableStream {
         // if all available visible data has been consumed, return false
         // todo(TsukiokaKogane): change offset from partition version to commit tso
         return  (!partitionOffset.containsKey(partition.getId())
-                || !partitionOffset.get(partition.getId()).equals(partition.getVisibleVersion())
-                || historicalPartitionOffset.containsKey(partition.getId()))
+                || !partitionOffset.get(partition.getId()).equals(partition.getVisibleVersion()))
                 && partition.hasData();
     }
 
