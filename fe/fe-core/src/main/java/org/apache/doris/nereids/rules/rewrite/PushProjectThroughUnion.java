@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
@@ -80,13 +81,23 @@ public class PushProjectThroughUnion extends OneRewriteRuleFactory {
                 ImmutableList.Builder<NamedExpression> newOneRowProject = ImmutableList.builder();
                 for (NamedExpression outerProject : projects) {
                     if (outerProject instanceof Slot) {
+                        // replaceMap value is the original constant NamedExpression. Each
+                        // constant row owns a distinct ExprId different from the new UNION
+                        // output ExprId, so it can be reused as-is.
                         newOneRowProject.add((NamedExpression) replaceMap.getOrDefault(outerProject, outerProject));
                     } else {
-                        Expression replacedOutput = outerProject.rewriteUp(e -> {
+                        // `outerProject` is an Alias (canPushProject only allows Slot or
+                        // Alias(Cast(Slot))). Its ExprId equals the new UNION output ExprId
+                        // (newOutput below uses outerProject.toSlot()). Reassigning a fresh
+                        // ExprId on the Alias first breaks the collision; the subsequent
+                        // rewriteUp only rewrites the inner SlotReferences, leaving the
+                        // outer Alias' name/qualifier/nameFromChild intact.
+                        Alias oldAlias = (Alias) outerProject;
+                        Alias reIdAlias = oldAlias.withExprId(StatementScopeIdGenerator.newExprId());
+                        newOneRowProject.add((NamedExpression) reIdAlias.rewriteUp(e -> {
                             Expression mappingExpr = replaceMap.get(e);
                             return mappingExpr == null ? e : /* remove alias */ mappingExpr.child(0);
-                        });
-                        newOneRowProject.add((NamedExpression) replacedOutput);
+                        }));
                     }
                 }
                 newConstantListBuilder.add(newOneRowProject.build());
