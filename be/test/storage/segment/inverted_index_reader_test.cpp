@@ -29,13 +29,14 @@
 #include <string>
 #include <vector>
 
+#include "core/field.h"
+#include "core/value/vdatetime_value.h"
 #include "runtime/runtime_state.h"
 #include "storage/field.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
-#include "storage/index/inverted/inverted_index_query_param.h"
 #include "storage/index/inverted/inverted_index_writer.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
@@ -333,9 +334,8 @@ public:
         context->io_ctx = &io_ctx;
         context->stats = &stats;
         context->runtime_state = &runtime_state;
-        auto qp_335 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-        qp_335->set_value(&str_ref);
-        auto query_status = str_reader->query(context, field_name, qp_335.get(),
+        Field qp_335 = Field::create_field<TYPE_STRING>(std::string(str_ref.data, str_ref.size));
+        auto query_status = str_reader->query(context, field_name, qp_335,
                                               InvertedIndexQueryType::EQUAL_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -348,9 +348,9 @@ public:
         std::string not_exist = "orange";
         StringRef not_exist_ref(not_exist.c_str(), not_exist.length());
 
-        auto qp_348 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-        qp_348->set_value(&not_exist_ref);
-        query_status = str_reader->query(context, field_name, qp_348.get(),
+        Field qp_348 = Field::create_field<TYPE_STRING>(
+                std::string(not_exist_ref.data, not_exist_ref.size));
+        query_status = str_reader->query(context, field_name, qp_348,
                                          InvertedIndexQueryType::EQUAL_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -443,9 +443,8 @@ public:
         context->stats = &stats;
         context->runtime_state = &runtime_state;
 
-        auto qp_441 = TypedInvertedIndexQueryParam<TYPE_INT>::create_unique();
-        qp_441->set_value(&query_value);
-        auto query_status = bkd_reader->query(context, field_name, qp_441.get(),
+        Field qp_441 = Field::create_field<TYPE_INT>(query_value);
+        auto query_status = bkd_reader->query(context, field_name, qp_441,
                                               InvertedIndexQueryType::EQUAL_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -457,9 +456,8 @@ public:
         bitmap = std::make_shared<roaring::Roaring>();
         int32_t less_than_value = 100;
 
-        auto qp_453 = TypedInvertedIndexQueryParam<TYPE_INT>::create_unique();
-        qp_453->set_value(&less_than_value);
-        query_status = bkd_reader->query(context, field_name, qp_453.get(),
+        Field qp_453 = Field::create_field<TYPE_INT>(less_than_value);
+        query_status = bkd_reader->query(context, field_name, qp_453,
                                          InvertedIndexQueryType::LESS_THAN_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -471,9 +469,8 @@ public:
         bitmap = std::make_shared<roaring::Roaring>();
         int32_t greater_than_value = 100;
 
-        auto qp_465 = TypedInvertedIndexQueryParam<TYPE_INT>::create_unique();
-        qp_465->set_value(&greater_than_value);
-        query_status = bkd_reader->query(context, field_name, qp_465.get(),
+        Field qp_465 = Field::create_field<TYPE_INT>(greater_than_value);
+        query_status = bkd_reader->query(context, field_name, qp_465,
                                          InvertedIndexQueryType::GREATER_THAN_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -532,9 +529,8 @@ public:
         context->stats = &stats;
         context->runtime_state = &runtime_state;
 
-        auto qp_524 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-        qp_524->set_value(&str_ref);
-        auto query_status = str_reader->query(context, field_name, qp_524.get(),
+        Field qp_524 = Field::create_field<TYPE_STRING>(std::string(str_ref.data, str_ref.size));
+        auto query_status = str_reader->query(context, field_name, qp_524,
                                               InvertedIndexQueryType::EQUAL_QUERY, bitmap1);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -544,9 +540,8 @@ public:
         // Second query with same value, should be cache hit
         std::shared_ptr<roaring::Roaring> bitmap2 = std::make_shared<roaring::Roaring>();
 
-        auto qp_534 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-        qp_534->set_value(&str_ref);
-        query_status = str_reader->query(context, field_name, qp_534.get(),
+        Field qp_534 = Field::create_field<TYPE_STRING>(std::string(str_ref.data, str_ref.size));
+        query_status = str_reader->query(context, field_name, qp_534,
                                          InvertedIndexQueryType::EQUAL_QUERY, bitmap2);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -604,9 +599,8 @@ public:
         context->stats = &stats;
         context->runtime_state = &runtime_state;
 
-        auto qp_592 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-        qp_592->set_value(&str_ref);
-        auto query_status = str_reader->query(context, field_name, qp_592.get(),
+        Field qp_592 = Field::create_field<TYPE_STRING>(std::string(str_ref.data, str_ref.size));
+        auto query_status = str_reader->query(context, field_name, qp_592,
                                               InvertedIndexQueryType::EQUAL_QUERY, bitmap1);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -617,9 +611,8 @@ public:
         std::shared_ptr<roaring::Roaring> bitmap2 = std::make_shared<roaring::Roaring>();
         StringRef str_ref2(values[1].data, values[1].size); // "banana"
 
-        auto qp_603 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-        qp_603->set_value(&str_ref2);
-        query_status = str_reader->query(context, field_name, qp_603.get(),
+        Field qp_603 = Field::create_field<TYPE_STRING>(std::string(str_ref2.data, str_ref2.size));
+        query_status = str_reader->query(context, field_name, qp_603,
                                          InvertedIndexQueryType::EQUAL_QUERY, bitmap2);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -676,9 +669,9 @@ public:
 
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
             StringRef term_ref(term.data(), term.size());
-            auto qp_660 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-            qp_660->set_value(&term_ref);
-            auto status = str_reader->query(context, field_name, qp_660.get(),
+            Field qp_660 =
+                    Field::create_field<TYPE_STRING>(std::string(term_ref.data, term_ref.size));
+            auto status = str_reader->query(context, field_name, qp_660,
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok()) << status;
             EXPECT_EQ(1, bitmap->cardinality());
@@ -809,9 +802,8 @@ public:
         context->stats = &stats;
         context->runtime_state = &runtime_state;
 
-        auto qp_791 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-        qp_791->set_value(&str_ref);
-        auto query_status = str_reader->query(context, field_name, qp_791.get(),
+        Field qp_791 = Field::create_field<TYPE_STRING>(std::string(str_ref.data, str_ref.size));
+        auto query_status = str_reader->query(context, field_name, qp_791,
                                               InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -826,9 +818,9 @@ public:
         query_term = "apple";
         StringRef str_ref_a(query_term.c_str(), query_term.length());
 
-        auto qp_806 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-        qp_806->set_value(&str_ref_a);
-        query_status = str_reader->query(context, field_name, qp_806.get(),
+        Field qp_806 =
+                Field::create_field<TYPE_STRING>(std::string(str_ref_a.data, str_ref_a.size));
+        query_status = str_reader->query(context, field_name, qp_806,
                                          InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
@@ -908,10 +900,10 @@ public:
             context->stats = &stats;
             context->runtime_state = &runtime_state;
 
-            auto qp_887 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-            qp_887->set_value(&str_ref);
+            Field qp_887 =
+                    Field::create_field<TYPE_STRING>(std::string(str_ref.data, str_ref.size));
             auto query_status =
-                    str_reader->query(context, field_name, qp_887.get(),
+                    str_reader->query(context, field_name, qp_887,
                                       InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
 
             EXPECT_TRUE(query_status.ok()) << query_status;
@@ -927,9 +919,9 @@ public:
             query_term = "term_a";
             StringRef str_ref_a(query_term.c_str(), query_term.length());
 
-            auto qp_903 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-            qp_903->set_value(&str_ref_a);
-            query_status = str_reader->query(context, field_name, qp_903.get(),
+            Field qp_903 =
+                    Field::create_field<TYPE_STRING>(std::string(str_ref_a.data, str_ref_a.size));
+            query_status = str_reader->query(context, field_name, qp_903,
                                              InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
 
             EXPECT_TRUE(query_status.ok()) << query_status;
@@ -945,9 +937,9 @@ public:
             query_term = "noexist";
             StringRef str_ref_no_term(query_term.c_str(), query_term.length());
 
-            auto qp_919 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-            qp_919->set_value(&str_ref_no_term);
-            query_status = str_reader->query(context, field_name, qp_919.get(),
+            Field qp_919 = Field::create_field<TYPE_STRING>(
+                    std::string(str_ref_no_term.data, str_ref_no_term.size));
+            query_status = str_reader->query(context, field_name, qp_919,
                                              InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
             EXPECT_TRUE(query_status.ok()) << query_status;
             EXPECT_EQ(bitmap->cardinality(), 0) << "V3: Should find 0 documents matching 'noexist'";
@@ -996,9 +988,9 @@ public:
             context->stats = &stats;
             context->runtime_state = &runtime_state;
 
-            auto qp_968 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-            qp_968->set_value(&str_ref);
-            auto query_status = str_reader->query(context, field_name, qp_968.get(),
+            Field qp_968 =
+                    Field::create_field<TYPE_STRING>(std::string(str_ref.data, str_ref.size));
+            auto query_status = str_reader->query(context, field_name, qp_968,
                                                   InvertedIndexQueryType::EQUAL_QUERY, bitmap);
 
             EXPECT_TRUE(query_status.ok()) << query_status;
@@ -1014,9 +1006,9 @@ public:
             query_term = "term_a";
             StringRef str_ref_a(query_term.c_str(), query_term.length());
 
-            auto qp_984 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-            qp_984->set_value(&str_ref_a);
-            query_status = str_reader->query(context, field_name, qp_984.get(),
+            Field qp_984 =
+                    Field::create_field<TYPE_STRING>(std::string(str_ref_a.data, str_ref_a.size));
+            query_status = str_reader->query(context, field_name, qp_984,
                                              InvertedIndexQueryType::EQUAL_QUERY, bitmap);
 
             EXPECT_TRUE(query_status.ok()) << query_status;
@@ -1032,9 +1024,9 @@ public:
             query_term = "noexist";
             StringRef str_ref_no_term(query_term.c_str(), query_term.length());
 
-            auto qp_1000 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-            qp_1000->set_value(&str_ref_no_term);
-            query_status = str_reader->query(context, field_name, qp_1000.get(),
+            Field qp_1000 = Field::create_field<TYPE_STRING>(
+                    std::string(str_ref_no_term.data, str_ref_no_term.size));
+            query_status = str_reader->query(context, field_name, qp_1000,
                                              InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(query_status.ok()) << query_status;
             EXPECT_EQ(bitmap->cardinality(), 0) << "V3: Should find 0 documents matching 'noexist'";
@@ -1101,9 +1093,8 @@ public:
         context->stats = &stats;
         context->runtime_state = &runtime_state;
 
-        auto qp_1067 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-        qp_1067->set_value(&str_ref);
-        auto query_status = index_reader->query(context, field_name, qp_1067.get(),
+        Field qp_1067 = Field::create_field<TYPE_STRING>(std::string(str_ref.data, str_ref.size));
+        auto query_status = index_reader->query(context, field_name, qp_1067,
                                                 InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
 
         ASSERT_TRUE(query_status.ok()) << "Query failed for term '" << query_term << "' in file "
@@ -2125,9 +2116,9 @@ public:
         std::string field_name = "1"; // c2 unique_id
         StringRef query_val(values[0].data, values[0].size);
 
-        auto qp_2089 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-        qp_2089->set_value(&query_val);
-        Status st = mock_reader->query(context, field_name, qp_2089.get(),
+        Field qp_2089 =
+                Field::create_field<TYPE_STRING>(std::string(query_val.data, query_val.size));
+        Status st = mock_reader->query(context, field_name, qp_2089,
                                        InvertedIndexQueryType::EQUAL_QUERY, bitmap);
 
         EXPECT_FALSE(st.ok());
@@ -2189,9 +2180,9 @@ public:
         std::string query_term = "world";
         StringRef query_val(query_term.data(), query_term.size());
 
-        auto qp_2151 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-        qp_2151->set_value(&query_val);
-        Status st = mock_reader->query(context, field_name, qp_2151.get(),
+        Field qp_2151 =
+                Field::create_field<TYPE_STRING>(std::string(query_val.data, query_val.size));
+        Status st = mock_reader->query(context, field_name, qp_2151,
                                        InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
 
         EXPECT_FALSE(st.ok());
@@ -2201,9 +2192,9 @@ public:
         std::string phrase_query = "Apache Doris";
         StringRef phrase_query_val(phrase_query.data(), phrase_query.size());
 
-        auto qp_2161 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-        qp_2161->set_value(&phrase_query_val);
-        st = mock_reader->query(context, field_name, qp_2161.get(),
+        Field qp_2161 = Field::create_field<TYPE_STRING>(
+                std::string(phrase_query_val.data, phrase_query_val.size));
+        st = mock_reader->query(context, field_name, qp_2161,
                                 InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
 
         EXPECT_FALSE(st.ok());
@@ -2316,9 +2307,9 @@ public:
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
             std::string query_lower = "apple"; // lowercase
             StringRef str_ref(query_lower.c_str(), query_lower.length());
-            auto qp_2274 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-            qp_2274->set_value(&str_ref);
-            auto status = str_reader->query(context, "c2", qp_2274.get(),
+            Field qp_2274 =
+                    Field::create_field<TYPE_STRING>(std::string(str_ref.data, str_ref.size));
+            auto status = str_reader->query(context, "c2", qp_2274,
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
             EXPECT_GT(bitmap->cardinality(), 0) << "Should find 'Apple' with lowercase query";
@@ -2358,9 +2349,9 @@ public:
             std::string long_query = "this_is_a_very_long_string_that_exceeds_ignore_above_limit";
             StringRef str_ref(long_query.c_str(), long_query.length());
 
-            auto qp_2314 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-            qp_2314->set_value(&str_ref);
-            auto status = str_reader->query(context, "c2", qp_2314.get(),
+            Field qp_2314 =
+                    Field::create_field<TYPE_STRING>(std::string(str_ref.data, str_ref.size));
+            auto status = str_reader->query(context, "c2", qp_2314,
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_FALSE(status.ok());
             EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED);
@@ -2422,9 +2413,9 @@ public:
             std::string query = "quick database";
             StringRef query_ref(query.c_str(), query.length());
 
-            auto qp_2376 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-            qp_2376->set_value(&query_ref);
-            auto status = fulltext_reader->query(context, "c2", qp_2376.get(),
+            Field qp_2376 =
+                    Field::create_field<TYPE_STRING>(std::string(query_ref.data, query_ref.size));
+            auto status = fulltext_reader->query(context, "c2", qp_2376,
                                                  InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
             EXPECT_GT(bitmap->cardinality(), 0)
@@ -2437,9 +2428,9 @@ public:
             std::string query = "search fast";
             StringRef query_ref(query.c_str(), query.length());
 
-            auto qp_2389 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-            qp_2389->set_value(&query_ref);
-            auto status = fulltext_reader->query(context, "c2", qp_2389.get(),
+            Field qp_2389 =
+                    Field::create_field<TYPE_STRING>(std::string(query_ref.data, query_ref.size));
+            auto status = fulltext_reader->query(context, "c2", qp_2389,
                                                  InvertedIndexQueryType::MATCH_ALL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
@@ -2450,10 +2441,10 @@ public:
             std::string query = "quick brown";
             StringRef query_ref(query.c_str(), query.length());
 
-            auto qp = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-            qp->set_value(&query_ref);
+            Field qp =
+                    Field::create_field<TYPE_STRING>(std::string(query_ref.data, query_ref.size));
             auto status = fulltext_reader->query(
-                    context, "c2", qp.get(), InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
+                    context, "c2", qp, InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
 
@@ -2463,9 +2454,9 @@ public:
             std::string query = "sear";
             StringRef query_ref(query.c_str(), query.length());
 
-            auto qp_2411 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-            qp_2411->set_value(&query_ref);
-            auto status = fulltext_reader->query(context, "c2", qp_2411.get(),
+            Field qp_2411 =
+                    Field::create_field<TYPE_STRING>(std::string(query_ref.data, query_ref.size));
+            auto status = fulltext_reader->query(context, "c2", qp_2411,
                                                  InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY,
                                                  bitmap);
             EXPECT_TRUE(status.ok());
@@ -2477,10 +2468,10 @@ public:
             std::string query = "qu.*k";
             StringRef query_ref(query.c_str(), query.length());
 
-            auto qp = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-            qp->set_value(&query_ref);
+            Field qp =
+                    Field::create_field<TYPE_STRING>(std::string(query_ref.data, query_ref.size));
             auto status = fulltext_reader->query(
-                    context, "c2", qp.get(), InvertedIndexQueryType::MATCH_REGEXP_QUERY, bitmap);
+                    context, "c2", qp, InvertedIndexQueryType::MATCH_REGEXP_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
     }
@@ -2538,11 +2529,10 @@ public:
         std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
         StringRef str_ref("test1", 5);
 
-        auto param_qp = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-        param_qp->set_value(&str_ref);
         InvertedIndexParam param;
         param.column_name = "c2";
-        param.query_value = std::move(param_qp);
+        param.query_value =
+                Field::create_field<TYPE_STRING>(std::string(str_ref.data, str_ref.size));
         param.query_type = InvertedIndexQueryType::EQUAL_QUERY;
         param.num_rows = 3;
         param.roaring = bitmap;
@@ -2555,11 +2545,10 @@ public:
         size_t count = 0;
         auto* inverted_index_iterator = static_cast<InvertedIndexIterator*>(iterator.get());
         inverted_index_iterator->set_context(context);
-        auto try_qp = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-        try_qp->set_value(&str_ref);
+        Field try_qp = Field::create_field<TYPE_STRING>(std::string(str_ref.data, str_ref.size));
         status = inverted_index_iterator->try_read_from_inverted_index(
-                std::static_pointer_cast<InvertedIndexReader>(inverted_index_reader), "c2",
-                try_qp.get(), InvertedIndexQueryType::EQUAL_QUERY, &count);
+                std::static_pointer_cast<InvertedIndexReader>(inverted_index_reader), "c2", try_qp,
+                InvertedIndexQueryType::EQUAL_QUERY, &count);
         EXPECT_TRUE(status.ok());
     }
 
@@ -2631,9 +2620,9 @@ public:
             std::string query = "500";
             StringRef str_ref(query.c_str(), query.length());
 
-            auto qp_2571 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-            qp_2571->set_value(&str_ref);
-            auto status = str_reader->query(context, "c2", qp_2571.get(),
+            Field qp_2571 =
+                    Field::create_field<TYPE_STRING>(std::string(str_ref.data, str_ref.size));
+            auto status = str_reader->query(context, "c2", qp_2571,
                                             InvertedIndexQueryType::LESS_THAN_QUERY, bitmap);
             // This might succeed or fail depending on the implementation limits
             // The important thing is we handle the potential TooManyClauses error gracefully
@@ -2670,9 +2659,9 @@ public:
             std::string empty_query = "";
             StringRef str_ref(empty_query.c_str(), empty_query.length());
 
-            auto qp_2608 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-            qp_2608->set_value(&str_ref);
-            auto status = fulltext_reader->query(context, "c2", qp_2608.get(),
+            Field qp_2608 =
+                    Field::create_field<TYPE_STRING>(std::string(str_ref.data, str_ref.size));
+            auto status = fulltext_reader->query(context, "c2", qp_2608,
                                                  InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
             // Should either succeed with empty result or fail gracefully
         }
@@ -2814,9 +2803,9 @@ public:
             std::string query = "500";
             StringRef str_ref(query.c_str(), query.length());
 
-            auto qp_2750 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-            qp_2750->set_value(&str_ref);
-            auto status = str_reader->query(context, "c2", qp_2750.get(),
+            Field qp_2750 =
+                    Field::create_field<TYPE_STRING>(std::string(str_ref.data, str_ref.size));
+            auto status = str_reader->query(context, "c2", qp_2750,
                                             InvertedIndexQueryType::LESS_THAN_QUERY, bitmap);
             // This might succeed or fail depending on the implementation limits
             // The important thing is we handle the potential TooManyClauses error gracefully
@@ -2853,9 +2842,9 @@ public:
             std::string empty_query;
             StringRef str_ref(empty_query.c_str(), empty_query.length());
 
-            auto qp_2787 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-            qp_2787->set_value(&str_ref);
-            auto status = fulltext_reader->query(context, "c2", qp_2787.get(),
+            Field qp_2787 =
+                    Field::create_field<TYPE_STRING>(std::string(str_ref.data, str_ref.size));
+            auto status = fulltext_reader->query(context, "c2", qp_2787,
                                                  InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
             // Should either succeed with empty result or fail gracefully
         }
@@ -2906,10 +2895,10 @@ public:
             std::string regexp_query = "test.*";
             StringRef query_ref(regexp_query.c_str(), regexp_query.length());
 
-            auto qp = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-            qp->set_value(&query_ref);
+            Field qp =
+                    Field::create_field<TYPE_STRING>(std::string(query_ref.data, query_ref.size));
             auto status = fulltext_reader->query(
-                    context, "c2", qp.get(), InvertedIndexQueryType::MATCH_REGEXP_QUERY, bitmap);
+                    context, "c2", qp, InvertedIndexQueryType::MATCH_REGEXP_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
 
@@ -2944,57 +2933,57 @@ public:
             std::string query = "cherry";
             StringRef str_ref(query.c_str(), query.length());
 
-            auto qp_2874 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-            qp_2874->set_value(&str_ref);
-            auto status = str_reader->query(context, "c2", qp_2874.get(),
+            Field qp_2874 =
+                    Field::create_field<TYPE_STRING>(std::string(str_ref.data, str_ref.size));
+            auto status = str_reader->query(context, "c2", qp_2874,
                                             InvertedIndexQueryType::LESS_THAN_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
 
             // Test LESS_EQUAL_QUERY
             bitmap = std::make_shared<roaring::Roaring>();
-            auto qp_2880 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-            qp_2880->set_value(&str_ref);
-            status = str_reader->query(context, "c2", qp_2880.get(),
+            Field qp_2880 =
+                    Field::create_field<TYPE_STRING>(std::string(str_ref.data, str_ref.size));
+            status = str_reader->query(context, "c2", qp_2880,
                                        InvertedIndexQueryType::LESS_EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
 
             // Test GREATER_THAN_QUERY
             bitmap = std::make_shared<roaring::Roaring>();
-            auto qp_2886 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-            qp_2886->set_value(&str_ref);
-            status = str_reader->query(context, "c2", qp_2886.get(),
+            Field qp_2886 =
+                    Field::create_field<TYPE_STRING>(std::string(str_ref.data, str_ref.size));
+            status = str_reader->query(context, "c2", qp_2886,
                                        InvertedIndexQueryType::GREATER_THAN_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
 
             // Test GREATER_EQUAL_QUERY
             bitmap = std::make_shared<roaring::Roaring>();
-            auto qp_2892 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-            qp_2892->set_value(&str_ref);
-            status = str_reader->query(context, "c2", qp_2892.get(),
+            Field qp_2892 =
+                    Field::create_field<TYPE_STRING>(std::string(str_ref.data, str_ref.size));
+            status = str_reader->query(context, "c2", qp_2892,
                                        InvertedIndexQueryType::GREATER_EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
 
             // Test MATCH_PHRASE_QUERY for StringType
             bitmap = std::make_shared<roaring::Roaring>();
-            auto qp_2898 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-            qp_2898->set_value(&str_ref);
-            status = str_reader->query(context, "c2", qp_2898.get(),
+            Field qp_2898 =
+                    Field::create_field<TYPE_STRING>(std::string(str_ref.data, str_ref.size));
+            status = str_reader->query(context, "c2", qp_2898,
                                        InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
 
             // Test MATCH_PHRASE_PREFIX_QUERY for StringType
             bitmap = std::make_shared<roaring::Roaring>();
-            auto qp_2904 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-            qp_2904->set_value(&str_ref);
-            status = str_reader->query(context, "c2", qp_2904.get(),
+            Field qp_2904 =
+                    Field::create_field<TYPE_STRING>(std::string(str_ref.data, str_ref.size));
+            status = str_reader->query(context, "c2", qp_2904,
                                        InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
 
             // Test MATCH_REGEXP_QUERY for StringType
             bitmap = std::make_shared<roaring::Roaring>();
-            auto qp_2910 = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-            qp_2910->set_value(&str_ref);
-            status = str_reader->query(context, "c2", qp_2910.get(),
+            Field qp_2910 =
+                    Field::create_field<TYPE_STRING>(std::string(str_ref.data, str_ref.size));
+            status = str_reader->query(context, "c2", qp_2910,
                                        InvertedIndexQueryType::MATCH_REGEXP_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
@@ -3059,10 +3048,10 @@ public:
         EXPECT_NE(bkd_reader, nullptr);
 
         auto run_query = [&](InvertedIndexQueryType qt, T thr) {
-            auto qp = TypedInvertedIndexQueryParam<PT>::create_unique();
-            qp->set_value(&thr);
+            using raw_t = typename PrimitiveTypeTraits<PT>::StorageFieldType;
+            Field qp = Field::create_field_from_olap_value<PT>(static_cast<raw_t>(thr));
             auto bitmap = std::make_shared<roaring::Roaring>();
-            auto status = bkd_reader->query(context, column_name, qp.get(), qt, bitmap);
+            auto status = bkd_reader->query(context, column_name, qp, qt, bitmap);
             EXPECT_TRUE(status.ok()) << column_name << ": " << status;
             return bitmap->cardinality();
         };
@@ -3335,17 +3324,14 @@ public:
         for (auto& test_case : test_cases) {
             // Test try_query path
             size_t count = 0;
-            auto qp_2956 = TypedInvertedIndexQueryParam<TYPE_INT>::create_unique();
-            qp_2956->set_value(&test_case.second);
-            auto status =
-                    bkd_reader->try_query(context, "c1", qp_2956.get(), test_case.first, &count);
+            Field qp_2956 = Field::create_field<TYPE_INT>(test_case.second);
+            auto status = bkd_reader->try_query(context, "c1", qp_2956, test_case.first, &count);
             EXPECT_TRUE(status.ok()) << "Try query type: " << static_cast<int>(test_case.first);
 
             // Test actual query path
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto qp_2962 = TypedInvertedIndexQueryParam<TYPE_INT>::create_unique();
-            qp_2962->set_value(&test_case.second);
-            status = bkd_reader->query(context, "c1", qp_2962.get(), test_case.first, bitmap);
+            Field qp_2962 = Field::create_field<TYPE_INT>(test_case.second);
+            status = bkd_reader->query(context, "c1", qp_2962, test_case.first, bitmap);
             EXPECT_TRUE(status.ok()) << "Query type: " << static_cast<int>(test_case.first);
         }
 
@@ -3354,17 +3340,15 @@ public:
         int32_t max_value = 100; // Greater than maximum in data
 
         std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-        auto qp_2971 = TypedInvertedIndexQueryParam<TYPE_INT>::create_unique();
-        qp_2971->set_value(&min_value);
-        auto status = bkd_reader->query(context, "c1", qp_2971.get(),
+        Field qp_2971 = Field::create_field<TYPE_INT>(min_value);
+        auto status = bkd_reader->query(context, "c1", qp_2971,
                                         InvertedIndexQueryType::GREATER_THAN_QUERY, bitmap);
         EXPECT_TRUE(status.ok());
 
         bitmap = std::make_shared<roaring::Roaring>();
-        auto qp_2976 = TypedInvertedIndexQueryParam<TYPE_INT>::create_unique();
-        qp_2976->set_value(&max_value);
-        status = bkd_reader->query(context, "c1", qp_2976.get(),
-                                   InvertedIndexQueryType::LESS_THAN_QUERY, bitmap);
+        Field qp_2976 = Field::create_field<TYPE_INT>(max_value);
+        status = bkd_reader->query(context, "c1", qp_2976, InvertedIndexQueryType::LESS_THAN_QUERY,
+                                   bitmap);
         EXPECT_TRUE(status.ok());
     }
 
@@ -3409,16 +3393,11 @@ public:
         // Test the bypass path in read_from_inverted_index
         std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
         int32_t query_value = 3;
-        auto make_int_qp = [&query_value]() {
-            auto qp = TypedInvertedIndexQueryParam<TYPE_INT>::create_unique();
-            qp->set_value(&query_value);
-            return qp;
-        };
 
         // This should trigger the bypass logic due to low threshold
         InvertedIndexParam param;
         param.column_name = "c1";
-        param.query_value = make_int_qp();
+        param.query_value = Field::create_field<TYPE_INT>(query_value);
         param.query_type = InvertedIndexQueryType::LESS_THAN_QUERY;
         param.num_rows = 5;
         param.roaring = bitmap;
@@ -3432,7 +3411,7 @@ public:
         bitmap = std::make_shared<roaring::Roaring>();
         InvertedIndexParam param1;
         param1.column_name = "c1";
-        param1.query_value = make_int_qp();
+        param1.query_value = Field::create_field<TYPE_INT>(query_value);
         param1.query_type = InvertedIndexQueryType::EQUAL_QUERY;
         param1.num_rows = 5;
         param1.roaring = bitmap;
@@ -3442,11 +3421,11 @@ public:
 
         // Test try_read_from_inverted_index with non-BKD compatible query
         size_t count = 0;
-        auto try_qp = make_int_qp();
+        Field try_qp = Field::create_field<TYPE_INT>(query_value);
         status = inverted_index_iterator->try_read_from_inverted_index(
                 std::static_pointer_cast<InvertedIndexReader>(
                         iterator->get_reader(InvertedIndexReaderType::STRING_TYPE)),
-                "c1", try_qp.get(), InvertedIndexQueryType::MATCH_ANY_QUERY, &count);
+                "c1", try_qp, InvertedIndexQueryType::MATCH_ANY_QUERY, &count);
         EXPECT_TRUE(status.ok()); // Should succeed but not do anything for non-BKD queries
     }
 
@@ -3595,10 +3574,8 @@ public:
 
             for (auto& test_case : test_cases) {
                 std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-                auto qp_3192 = TypedInvertedIndexQueryParam<TYPE_INT>::create_unique();
-                qp_3192->set_value(&test_case.second);
-                auto status =
-                        bkd_reader->query(context, "c_int", qp_3192.get(), test_case.first, bitmap);
+                Field qp_3192 = Field::create_field<TYPE_INT>(test_case.second);
+                auto status = bkd_reader->query(context, "c_int", qp_3192, test_case.first, bitmap);
                 EXPECT_TRUE(status.ok()) << "Query type: " << static_cast<int>(test_case.first);
 
                 if (test_case.first == InvertedIndexQueryType::EQUAL_QUERY) {
@@ -3609,10 +3586,9 @@ public:
 
             for (auto& test_case : test_cases) {
                 size_t count = 0;
-                auto qp_3204 = TypedInvertedIndexQueryParam<TYPE_INT>::create_unique();
-                qp_3204->set_value(&test_case.second);
-                auto status = bkd_reader->try_query(context, "c_int", qp_3204.get(),
-                                                    test_case.first, &count);
+                Field qp_3204 = Field::create_field<TYPE_INT>(test_case.second);
+                auto status =
+                        bkd_reader->try_query(context, "c_int", qp_3204, test_case.first, &count);
                 EXPECT_TRUE(status.ok()) << "Try query type: " << static_cast<int>(test_case.first);
             }
         }
@@ -3636,9 +3612,8 @@ public:
 
             int64_t query_value = 1000000LL;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto qp_3229 = TypedInvertedIndexQueryParam<TYPE_BIGINT>::create_unique();
-            qp_3229->set_value(&query_value);
-            auto status = bkd_reader->query(context, "c_bigint", qp_3229.get(),
+            Field qp_3229 = Field::create_field<TYPE_BIGINT>(query_value);
+            auto status = bkd_reader->query(context, "c_bigint", qp_3229,
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
             EXPECT_EQ(bitmap->cardinality(), 1);
@@ -3671,10 +3646,10 @@ public:
 
             for (auto& test_case : test_cases) {
                 std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-                auto qp_3262 = TypedInvertedIndexQueryParam<TYPE_DATETIMEV2>::create_unique();
-                qp_3262->set_value(&test_case.second);
-                auto status = bkd_reader->query(context, "c_timestamptz", qp_3262.get(),
-                                                test_case.first, bitmap);
+                Field qp_3262 =
+                        Field::create_field_from_olap_value<TYPE_TIMESTAMPTZ>(test_case.second);
+                auto status = bkd_reader->query(context, "c_timestamptz", qp_3262, test_case.first,
+                                                bitmap);
                 EXPECT_TRUE(status.ok()) << "Query type: " << static_cast<int>(test_case.first);
 
                 if (test_case.first == InvertedIndexQueryType::EQUAL_QUERY) {
@@ -3685,9 +3660,9 @@ public:
 
             for (auto& test_case : test_cases) {
                 size_t count = 0;
-                auto qp_3274 = TypedInvertedIndexQueryParam<TYPE_DATETIMEV2>::create_unique();
-                qp_3274->set_value(&test_case.second);
-                auto status = bkd_reader->try_query(context, "c_timestamptz", qp_3274.get(),
+                Field qp_3274 =
+                        Field::create_field_from_olap_value<TYPE_TIMESTAMPTZ>(test_case.second);
+                auto status = bkd_reader->try_query(context, "c_timestamptz", qp_3274,
                                                     test_case.first, &count);
                 EXPECT_TRUE(status.ok()) << "Try query type: " << static_cast<int>(test_case.first);
             }
@@ -3785,9 +3760,8 @@ public:
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
             // TYPE_DATE storage is uint24_t — narrow from the test's uint32_t.
             typename PrimitiveTypeTraits<TYPE_DATE>::StorageFieldType date_storage(query_value);
-            auto qp_3366 = TypedInvertedIndexQueryParam<TYPE_DATE>::create_unique();
-            qp_3366->set_value(&date_storage);
-            auto status = bkd_reader->query(context, "c_date", qp_3366.get(),
+            Field qp_3366 = Field::create_field_from_olap_value<TYPE_DATE>(date_storage);
+            auto status = bkd_reader->query(context, "c_date", qp_3366,
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
@@ -3810,14 +3784,11 @@ public:
             auto bkd_reader = BkdIndexReader::create_shared(&idx_meta, reader);
             EXPECT_NE(bkd_reader, nullptr);
 
-            // TypedInvertedIndexQueryParam<TYPE_DATETIME>::storage_val is int64_t
-            // (conditional_t override on storage_val) — match the type to avoid
-            // signedness pointer-conversion errors.
             int64_t query_value = 20240101130000LL;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto qp_3391 = TypedInvertedIndexQueryParam<TYPE_DATETIME>::create_unique();
-            qp_3391->set_value(&query_value);
-            auto status = bkd_reader->query(context, "c_datetime", qp_3391.get(),
+            Field qp_3391 = Field::create_field_from_olap_value<TYPE_DATETIME>(
+                    static_cast<uint64_t>(query_value));
+            auto status = bkd_reader->query(context, "c_datetime", qp_3391,
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
@@ -3843,9 +3814,8 @@ public:
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
             // TYPE_BOOLEAN storage is uint8_t.
             uint8_t bool_storage = query_value ? 1 : 0;
-            auto qp_3415 = TypedInvertedIndexQueryParam<TYPE_BOOLEAN>::create_unique();
-            qp_3415->set_value(&bool_storage);
-            auto status = bkd_reader->query(context, "c_bool", qp_3415.get(),
+            Field qp_3415 = Field::create_field<TYPE_BOOLEAN>(bool_storage);
+            auto status = bkd_reader->query(context, "c_bool", qp_3415,
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
@@ -3869,9 +3839,8 @@ public:
 
             int8_t query_value = 1;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto qp_3439 = TypedInvertedIndexQueryParam<TYPE_TINYINT>::create_unique();
-            qp_3439->set_value(&query_value);
-            auto status = bkd_reader->query(context, "c_tinyint", qp_3439.get(),
+            Field qp_3439 = Field::create_field<TYPE_TINYINT>(query_value);
+            auto status = bkd_reader->query(context, "c_tinyint", qp_3439,
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
@@ -3895,9 +3864,8 @@ public:
 
             int16_t query_value = 1000;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto qp_3463 = TypedInvertedIndexQueryParam<TYPE_SMALLINT>::create_unique();
-            qp_3463->set_value(&query_value);
-            auto status = bkd_reader->query(context, "c_smallint", qp_3463.get(),
+            Field qp_3463 = Field::create_field<TYPE_SMALLINT>(query_value);
+            auto status = bkd_reader->query(context, "c_smallint", qp_3463,
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
@@ -3921,9 +3889,8 @@ public:
 
             __int128 query_value = 0;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto qp_3487 = TypedInvertedIndexQueryParam<TYPE_LARGEINT>::create_unique();
-            qp_3487->set_value(&query_value);
-            auto status = bkd_reader->query(context, "c_largeint", qp_3487.get(),
+            Field qp_3487 = Field::create_field<TYPE_LARGEINT>(query_value);
+            auto status = bkd_reader->query(context, "c_largeint", qp_3487,
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
@@ -3947,9 +3914,8 @@ public:
 
             uint32_t query_value = 20240202;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto qp_3511 = TypedInvertedIndexQueryParam<TYPE_DATEV2>::create_unique();
-            qp_3511->set_value(&query_value);
-            auto status = bkd_reader->query(context, "c_datev2", qp_3511.get(),
+            Field qp_3511 = Field::create_field<TYPE_DATEV2>(query_value);
+            auto status = bkd_reader->query(context, "c_datev2", qp_3511,
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
@@ -3974,9 +3940,8 @@ public:
 
             uint64_t query_value = 20240201130000ULL;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto qp_3536 = TypedInvertedIndexQueryParam<TYPE_DATETIMEV2>::create_unique();
-            qp_3536->set_value(&query_value);
-            auto status = bkd_reader->query(context, "c_datetimev2", qp_3536.get(),
+            Field qp_3536 = Field::create_field<TYPE_DATETIMEV2>(query_value);
+            auto status = bkd_reader->query(context, "c_datetimev2", qp_3536,
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
@@ -4001,9 +3966,8 @@ public:
 
             uint64_t query_value = 20240201130000ULL;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            auto qp_3561 = TypedInvertedIndexQueryParam<TYPE_DATETIMEV2>::create_unique();
-            qp_3561->set_value(&query_value);
-            auto status = bkd_reader->query(context, "c_timestamptz", qp_3561.get(),
+            Field qp_3561 = Field::create_field_from_olap_value<TYPE_TIMESTAMPTZ>(query_value);
+            auto status = bkd_reader->query(context, "c_timestamptz", qp_3561,
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
         }
@@ -4089,10 +4053,9 @@ public:
 
                     std::string query_value = "test";
                     std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-                    auto qp_unsupp = TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-                    qp_unsupp->set_value(query_value);
+                    Field qp_unsupp = Field::create_field<TYPE_STRING>(query_value);
                     auto query_status =
-                            bkd_reader->query(context, "c_unsupported", qp_unsupp.get(),
+                            bkd_reader->query(context, "c_unsupported", qp_unsupp,
                                               InvertedIndexQueryType::EQUAL_QUERY, bitmap);
                     // This might fail due to unsupported type, which is what we want to test
                 }

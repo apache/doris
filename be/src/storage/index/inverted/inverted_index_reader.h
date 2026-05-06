@@ -26,6 +26,7 @@
 
 #include "common/status.h"
 #include "core/data_type/primitive_type.h"
+#include "core/field.h"
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
 #include "storage/index/index_query_context.h"
@@ -76,9 +77,6 @@ class InvertedIndexQueryCacheHandle;
 class IndexFileReader;
 class InvertedIndexQueryInfo;
 class IndexIterator;
-class InvertedIndexQueryParam;
-class StringQueryParam;
-class NumericQueryParam;
 
 class InvertedIndexResultBitmap {
 private:
@@ -225,17 +223,13 @@ public:
 
     IndexType index_type() override { return IndexType::INVERTED; }
 
-    // Callers pass a TypedInvertedIndexQueryParam<PT> produced by
-    // InvertedIndexQueryParamFactory. Each reader static_casts to the
-    // appropriate intermediate (StringQueryParam / NumericQueryParam) at entry.
     virtual Status query(const IndexQueryContextPtr& context, const std::string& column_name,
-                         const InvertedIndexQueryParam* query_value,
-                         InvertedIndexQueryType query_type,
+                         const Field& query_value, InvertedIndexQueryType query_type,
                          std::shared_ptr<roaring::Roaring>& bit_map,
                          const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) = 0;
     virtual Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
-                             const InvertedIndexQueryParam* query_value,
-                             InvertedIndexQueryType query_type, size_t* count) = 0;
+                             const Field& query_value, InvertedIndexQueryType query_type,
+                             size_t* count) = 0;
 
     Status read_null_bitmap(const IndexQueryContextPtr& context,
                             InvertedIndexQueryCacheHandle* cache_handle,
@@ -292,11 +286,11 @@ public:
 
     Status new_iterator(std::unique_ptr<IndexIterator>* iterator) override;
     Status query(const IndexQueryContextPtr& context, const std::string& column_name,
-                 const InvertedIndexQueryParam* query_value, InvertedIndexQueryType query_type,
+                 const Field& query_value, InvertedIndexQueryType query_type,
                  std::shared_ptr<roaring::Roaring>& bit_map,
                  const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) override;
     Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
-                     const InvertedIndexQueryParam* query_value, InvertedIndexQueryType query_type,
+                     const Field& query_value, InvertedIndexQueryType query_type,
                      size_t* count) override {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
                 "FullTextIndexReader not support try_query");
@@ -317,11 +311,11 @@ public:
 
     Status new_iterator(std::unique_ptr<IndexIterator>* iterator) override;
     Status query(const IndexQueryContextPtr& context, const std::string& column_name,
-                 const InvertedIndexQueryParam* query_value, InvertedIndexQueryType query_type,
+                 const Field& query_value, InvertedIndexQueryType query_type,
                  std::shared_ptr<roaring::Roaring>& bit_map,
                  const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) override;
     Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
-                     const InvertedIndexQueryParam* query_value, InvertedIndexQueryType query_type,
+                     const Field& query_value, InvertedIndexQueryType query_type,
                      size_t* count) override {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
                 "StringTypeInvertedIndexReader not support try_query");
@@ -377,22 +371,21 @@ public:
 
     Status new_iterator(std::unique_ptr<IndexIterator>* iterator) override;
     Status query(const IndexQueryContextPtr& context, const std::string& column_name,
-                 const InvertedIndexQueryParam* query_value, InvertedIndexQueryType query_type,
+                 const Field& query_value, InvertedIndexQueryType query_type,
                  std::shared_ptr<roaring::Roaring>& bit_map,
                  const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) override;
     Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
-                     const InvertedIndexQueryParam* query_value, InvertedIndexQueryType query_type,
+                     const Field& query_value, InvertedIndexQueryType query_type,
                      size_t* count) override;
-    Status invoke_bkd_try_query(const IndexQueryContextPtr& context,
-                                const NumericQueryParam* query_value,
+    Status invoke_bkd_try_query(const IndexQueryContextPtr& context, const Field& query_value,
                                 InvertedIndexQueryType query_type,
                                 std::shared_ptr<lucene::util::bkd::bkd_reader> r, size_t* count);
-    Status invoke_bkd_query(const IndexQueryContextPtr& context,
-                            const NumericQueryParam* query_value, InvertedIndexQueryType query_type,
+    Status invoke_bkd_query(const IndexQueryContextPtr& context, const Field& query_value,
+                            InvertedIndexQueryType query_type,
                             std::shared_ptr<lucene::util::bkd::bkd_reader> r,
                             std::shared_ptr<roaring::Roaring>& bit_map);
     template <InvertedIndexQueryType QT>
-    Status construct_bkd_query_value(const NumericQueryParam* query_value,
+    Status construct_bkd_query_value(const Field& query_value,
                                      std::shared_ptr<lucene::util::bkd::bkd_reader> r,
                                      InvertedIndexVisitor<QT>* visitor);
 

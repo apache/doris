@@ -41,11 +41,11 @@
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
+#include "core/field.h"
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/function/function.h"
 #include "storage/index/index_reader_helper.h"
-#include "storage/index/inverted/inverted_index_query_param.h"
 #include "storage/index/inverted/inverted_index_query_type.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/predicate/column_predicate.h"
@@ -152,7 +152,6 @@ public:
         }
         Field param_value;
         arguments[0].column->get(0, param_value);
-        auto param_type = arguments[0].type->get_primitive_type();
         // The current implementation for the inverted index of arrays cannot handle cases where the array contains null values,
         // meaning an item in the array is null.
         if (param_value.is_null()) {
@@ -165,13 +164,10 @@ public:
             RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
             null_bitmap = null_bitmap_cache_handle.get_bitmap();
         }
-        std::unique_ptr<InvertedIndexQueryParam> query_param = nullptr;
-        RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(param_type, &param_value,
-                                                                           query_param));
         InvertedIndexParam param;
         param.column_name = data_type_with_name.first;
         param.column_type = data_type_with_name.second;
-        param.query_value = std::move(query_param);
+        param.query_value = param_value;
         param.query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
         param.num_rows = num_rows;
         param.roaring = std::make_shared<roaring::Roaring>();

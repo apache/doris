@@ -25,10 +25,10 @@
 #include <vector>
 
 #include "core/column/column.h"
+#include "core/field.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/vslot_ref.h"
 #include "io/fs/file_reader.h"
-#include "storage/index/inverted/inverted_index_query_param.h"
 #include "storage/index/inverted/query/phrase_prefix_query.h"
 #include "storage/segment/segment_iterator.h"
 
@@ -80,12 +80,9 @@ Status FunctionMultiMatch::evaluate_inverted_index(
         return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
                 "arguments for multi_match must be string");
     }
-    auto query_param = segment_v2::TypedInvertedIndexQueryParam<TYPE_STRING>::create_unique();
-    query_param->set_value(&query_str_ref);
-
     // search
     InvertedIndexParam param;
-    param.query_value = std::move(query_param);
+    param.query_value = Field::create_field<TYPE_STRING>(query_str_ref.to_string());
     param.query_type = query_type;
     param.num_rows = num_rows;
     for (size_t i = 0; i < data_type_with_names.size(); i++) {

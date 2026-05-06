@@ -38,16 +38,14 @@ public:
     }
 
     Status query(const segment_v2::IndexQueryContextPtr& context, const std::string& column_name,
-                 const segment_v2::InvertedIndexQueryParam* query_value,
-                 segment_v2::InvertedIndexQueryType query_type,
+                 const Field& query_value, segment_v2::InvertedIndexQueryType query_type,
                  std::shared_ptr<roaring::Roaring>& bit_map,
                  const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) override {
         return Status::OK();
     }
 
     Status try_query(const segment_v2::IndexQueryContextPtr& context,
-                     const std::string& column_name,
-                     const segment_v2::InvertedIndexQueryParam* query_value,
+                     const std::string& column_name, const Field& query_value,
                      segment_v2::InvertedIndexQueryType query_type, size_t* count) override {
         return Status::OK();
     }

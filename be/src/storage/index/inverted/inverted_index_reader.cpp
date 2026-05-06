@@ -33,12 +33,15 @@
 #include <roaring/roaring.hh>
 #include <set>
 #include <string>
+#include <type_traits>
 
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "core/data_type/primitive_type.h"
 #include "core/string_ref.h"
+#include "core/type_limit.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/field.h"
@@ -49,7 +52,6 @@
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/inverted_index_parser.h"
-#include "storage/index/inverted/inverted_index_query_param.h"
 #include "storage/index/inverted/inverted_index_query_type.h"
 #include "storage/index/inverted/inverted_index_searcher.h"
 #include "storage/index/inverted/query/phrase_query.h"
@@ -58,6 +60,103 @@
 #include "storage/olap_common.h"
 #include "storage/types.h"
 #include "util/faststring.h"
+
+namespace {
+
+// Encodes a Field's value as a BKD ascending key via KeyCoder.
+// CppTypeTraits<FT>::CppType is the type KeyCoder expects (e.g. int64_t for
+// DATETIME, where PrimitiveTypeTraits gives uint64_t — implicit conversion
+// preserves the bit pattern under 2's complement).
+template <doris::FieldType FT, doris::PrimitiveType PT>
+static void bkd_encode_field(const doris::Field& field, const doris::KeyCoder* coder,
+                             std::string* out) {
+    using key_t = typename doris::CppTypeTraits<FT>::CppType;
+    key_t kv = doris::PrimitiveTypeConvertor<PT>::to_storage_field_type(field.get<PT>());
+    coder->full_encode_ascending(&kv, out);
+}
+
+template <doris::FieldType FT>
+static void bkd_encode_min(const doris::KeyCoder* coder, std::string* out) {
+    using key_t = typename doris::CppTypeTraits<FT>::CppType;
+    key_t v = doris::type_limit<key_t>::min();
+    coder->full_encode_ascending(&v, out);
+}
+
+template <doris::FieldType FT>
+static void bkd_encode_max(const doris::KeyCoder* coder, std::string* out) {
+    using key_t = typename doris::CppTypeTraits<FT>::CppType;
+    key_t v = doris::type_limit<key_t>::max();
+    coder->full_encode_ascending(&v, out);
+}
+
+#define BKD_TYPE_CASES(MACRO)                            \
+    MACRO(OLAP_FIELD_TYPE_BOOL, TYPE_BOOLEAN)            \
+    MACRO(OLAP_FIELD_TYPE_TINYINT, TYPE_TINYINT)         \
+    MACRO(OLAP_FIELD_TYPE_SMALLINT, TYPE_SMALLINT)       \
+    MACRO(OLAP_FIELD_TYPE_INT, TYPE_INT)                 \
+    MACRO(OLAP_FIELD_TYPE_BIGINT, TYPE_BIGINT)           \
+    MACRO(OLAP_FIELD_TYPE_LARGEINT, TYPE_LARGEINT)       \
+    MACRO(OLAP_FIELD_TYPE_FLOAT, TYPE_FLOAT)             \
+    MACRO(OLAP_FIELD_TYPE_DOUBLE, TYPE_DOUBLE)           \
+    MACRO(OLAP_FIELD_TYPE_DECIMAL, TYPE_DECIMALV2)       \
+    MACRO(OLAP_FIELD_TYPE_DECIMAL32, TYPE_DECIMAL32)     \
+    MACRO(OLAP_FIELD_TYPE_DECIMAL64, TYPE_DECIMAL64)     \
+    MACRO(OLAP_FIELD_TYPE_DECIMAL128I, TYPE_DECIMAL128I) \
+    MACRO(OLAP_FIELD_TYPE_DECIMAL256, TYPE_DECIMAL256)   \
+    MACRO(OLAP_FIELD_TYPE_DATE, TYPE_DATE)               \
+    MACRO(OLAP_FIELD_TYPE_DATETIME, TYPE_DATETIME)       \
+    MACRO(OLAP_FIELD_TYPE_DATEV2, TYPE_DATEV2)           \
+    MACRO(OLAP_FIELD_TYPE_DATETIMEV2, TYPE_DATETIMEV2)   \
+    MACRO(OLAP_FIELD_TYPE_TIMESTAMPTZ, TYPE_TIMESTAMPTZ) \
+    MACRO(OLAP_FIELD_TYPE_IPV4, TYPE_IPV4)               \
+    MACRO(OLAP_FIELD_TYPE_IPV6, TYPE_IPV6)
+
+static doris::Status encode_bkd_field_ascending(doris::FieldType ft, const doris::Field& field,
+                                                const doris::KeyCoder* coder, std::string* out) {
+#define CASE(FT, PT)                                                                         \
+    case doris::FieldType::FT:                                                               \
+        bkd_encode_field<doris::FieldType::FT, doris::PrimitiveType::PT>(field, coder, out); \
+        return doris::Status::OK();
+    switch (ft) {
+        BKD_TYPE_CASES(CASE)
+    default:
+        break;
+    }
+#undef CASE
+    return doris::Status::InternalError("unsupported BKD field type {}", static_cast<int>(ft));
+}
+
+static doris::Status encode_bkd_min_ascending(doris::FieldType ft, const doris::KeyCoder* coder,
+                                              std::string* out) {
+#define CASE(FT, PT)                                      \
+    case doris::FieldType::FT:                            \
+        bkd_encode_min<doris::FieldType::FT>(coder, out); \
+        return doris::Status::OK();
+    switch (ft) {
+        BKD_TYPE_CASES(CASE)
+    default:
+        break;
+    }
+#undef CASE
+    return doris::Status::InternalError("unsupported BKD field type {}", static_cast<int>(ft));
+}
+
+static doris::Status encode_bkd_max_ascending(doris::FieldType ft, const doris::KeyCoder* coder,
+                                              std::string* out) {
+#define CASE(FT, PT)                                      \
+    case doris::FieldType::FT:                            \
+        bkd_encode_max<doris::FieldType::FT>(coder, out); \
+        return doris::Status::OK();
+    switch (ft) {
+        BKD_TYPE_CASES(CASE)
+    default:
+        break;
+    }
+#undef CASE
+    return doris::Status::InternalError("unsupported BKD field type {}", static_cast<int>(ft));
+}
+
+} // anonymous namespace
 
 namespace doris::segment_v2 {
 
@@ -290,19 +389,13 @@ Status FullTextIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterato
 }
 
 Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
-                                  const std::string& column_name,
-                                  const InvertedIndexQueryParam* query_value,
+                                  const std::string& column_name, const Field& query_value,
                                   InvertedIndexQueryType query_type,
                                   std::shared_ptr<roaring::Roaring>& bit_map,
                                   const InvertedIndexAnalyzerCtx* analyzer_ctx) {
     SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
 
-    const auto* str_param = dynamic_cast<const StringQueryParam*>(query_value);
-    if (str_param == nullptr) {
-        return Status::InternalError("FullTextIndexReader expected StringQueryParam");
-    }
-    std::string search_str;
-    str_param->get_string(&search_str);
+    std::string search_str = query_value.get<PrimitiveType::TYPE_STRING>();
     VLOG_DEBUG << column_name << " begin to search the fulltext index from clucene, query_str ["
                << search_str << "]";
 
@@ -416,18 +509,13 @@ Status StringTypeInvertedIndexReader::new_iterator(std::unique_ptr<IndexIterator
 
 Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
                                             const std::string& column_name,
-                                            const InvertedIndexQueryParam* query_value,
+                                            const Field& query_value,
                                             InvertedIndexQueryType query_type,
                                             std::shared_ptr<roaring::Roaring>& bit_map,
                                             const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/) {
     SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
 
-    const auto* str_param = dynamic_cast<const StringQueryParam*>(query_value);
-    if (str_param == nullptr) {
-        return Status::InternalError("StringTypeInvertedIndexReader expected StringQueryParam");
-    }
-    std::string search_str;
-    str_param->get_string(&search_str);
+    std::string search_str = query_value.get<PrimitiveType::TYPE_STRING>();
 
     // If the written value exceeds ignore_above, it will be written as null.
     // The queried value exceeds ignore_above means the written value cannot be found.
@@ -554,20 +642,26 @@ Status BkdIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterator) {
 }
 
 template <InvertedIndexQueryType QT>
-Status BkdIndexReader::construct_bkd_query_value(const NumericQueryParam* query_value,
+Status BkdIndexReader::construct_bkd_query_value(const Field& query_value,
                                                  std::shared_ptr<lucene::util::bkd::bkd_reader> r,
                                                  InvertedIndexVisitor<QT>* visitor) {
     if constexpr (QT == InvertedIndexQueryType::EQUAL_QUERY) {
-        query_value->encode_ascending(_value_key_coder, &visitor->query_max);
-        query_value->encode_ascending(_value_key_coder, &visitor->query_min);
+        RETURN_IF_ERROR(encode_bkd_field_ascending(_type_info->type(), query_value,
+                                                   _value_key_coder, &visitor->query_max));
+        RETURN_IF_ERROR(encode_bkd_field_ascending(_type_info->type(), query_value,
+                                                   _value_key_coder, &visitor->query_min));
     } else if constexpr (QT == InvertedIndexQueryType::LESS_THAN_QUERY ||
                          QT == InvertedIndexQueryType::LESS_EQUAL_QUERY) {
-        query_value->encode_ascending(_value_key_coder, &visitor->query_max);
-        query_value->encode_min_ascending(_value_key_coder, &visitor->query_min);
+        RETURN_IF_ERROR(encode_bkd_field_ascending(_type_info->type(), query_value,
+                                                   _value_key_coder, &visitor->query_max));
+        RETURN_IF_ERROR(encode_bkd_min_ascending(_type_info->type(), _value_key_coder,
+                                                 &visitor->query_min));
     } else if constexpr (QT == InvertedIndexQueryType::GREATER_THAN_QUERY ||
                          QT == InvertedIndexQueryType::GREATER_EQUAL_QUERY) {
-        query_value->encode_ascending(_value_key_coder, &visitor->query_min);
-        query_value->encode_max_ascending(_value_key_coder, &visitor->query_max);
+        RETURN_IF_ERROR(encode_bkd_field_ascending(_type_info->type(), query_value,
+                                                   _value_key_coder, &visitor->query_min));
+        RETURN_IF_ERROR(encode_bkd_max_ascending(_type_info->type(), _value_key_coder,
+                                                 &visitor->query_max));
     } else {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "invalid query type when query bkd index");
@@ -576,7 +670,7 @@ Status BkdIndexReader::construct_bkd_query_value(const NumericQueryParam* query_
 }
 
 Status BkdIndexReader::invoke_bkd_try_query(const IndexQueryContextPtr& context,
-                                            const NumericQueryParam* query_value,
+                                            const Field& query_value,
                                             InvertedIndexQueryType query_type,
                                             std::shared_ptr<lucene::util::bkd::bkd_reader> r,
                                             size_t* count) {
@@ -627,8 +721,7 @@ Status BkdIndexReader::invoke_bkd_try_query(const IndexQueryContextPtr& context,
 }
 
 Status BkdIndexReader::invoke_bkd_query(const IndexQueryContextPtr& context,
-                                        const NumericQueryParam* query_value,
-                                        InvertedIndexQueryType query_type,
+                                        const Field& query_value, InvertedIndexQueryType query_type,
                                         std::shared_ptr<lucene::util::bkd::bkd_reader> r,
                                         std::shared_ptr<roaring::Roaring>& bit_map) {
     SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_timer);
@@ -679,13 +772,8 @@ Status BkdIndexReader::invoke_bkd_query(const IndexQueryContextPtr& context,
 }
 
 Status BkdIndexReader::try_query(const IndexQueryContextPtr& context,
-                                 const std::string& column_name,
-                                 const InvertedIndexQueryParam* query_value,
+                                 const std::string& column_name, const Field& query_value,
                                  InvertedIndexQueryType query_type, size_t* count) {
-    const auto* num_param = dynamic_cast<const NumericQueryParam*>(query_value);
-    if (num_param == nullptr) {
-        return Status::InternalError("BkdIndexReader::try_query expected NumericQueryParam");
-    }
     try {
         std::shared_ptr<lucene::util::bkd::bkd_reader> r;
         auto st = get_bkd_reader(context, r);
@@ -696,7 +784,8 @@ Status BkdIndexReader::try_query(const IndexQueryContextPtr& context,
             return st;
         }
         std::string query_str;
-        num_param->encode_ascending(_value_key_coder, &query_str);
+        RETURN_IF_ERROR(encode_bkd_field_ascending(_type_info->type(), query_value,
+                                                   _value_key_coder, &query_str));
 
         auto index_file_key = _index_file_reader->get_index_file_cache_key(&_index_meta);
         InvertedIndexQueryCache::CacheKey cache_key {index_file_key, column_name, query_type,
@@ -709,7 +798,7 @@ Status BkdIndexReader::try_query(const IndexQueryContextPtr& context,
             return Status::OK();
         }
 
-        return invoke_bkd_try_query(context, num_param, query_type, r, count);
+        return invoke_bkd_try_query(context, query_value, query_type, r, count);
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "BKD Query CLuceneError Occurred, error msg: {}", e.what());
@@ -720,16 +809,11 @@ Status BkdIndexReader::try_query(const IndexQueryContextPtr& context,
 }
 
 Status BkdIndexReader::query(const IndexQueryContextPtr& context, const std::string& column_name,
-                             const InvertedIndexQueryParam* query_value,
-                             InvertedIndexQueryType query_type,
+                             const Field& query_value, InvertedIndexQueryType query_type,
                              std::shared_ptr<roaring::Roaring>& bit_map,
                              const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/) {
     SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
 
-    const auto* num_param = dynamic_cast<const NumericQueryParam*>(query_value);
-    if (num_param == nullptr) {
-        return Status::InternalError("BkdIndexReader::query expected NumericQueryParam");
-    }
     try {
         std::shared_ptr<lucene::util::bkd::bkd_reader> r;
         auto st = get_bkd_reader(context, r);
@@ -740,7 +824,8 @@ Status BkdIndexReader::query(const IndexQueryContextPtr& context, const std::str
             return st;
         }
         std::string query_str;
-        num_param->encode_ascending(_value_key_coder, &query_str);
+        RETURN_IF_ERROR(encode_bkd_field_ascending(_type_info->type(), query_value,
+                                                   _value_key_coder, &query_str));
 
         auto index_file_key = _index_file_reader->get_index_file_cache_key(&_index_meta);
         InvertedIndexQueryCache::CacheKey cache_key {index_file_key, column_name, query_type,
@@ -751,7 +836,7 @@ Status BkdIndexReader::query(const IndexQueryContextPtr& context, const std::str
             return Status::OK();
         }
 
-        RETURN_IF_ERROR(invoke_bkd_query(context, num_param, query_type, r, bit_map));
+        RETURN_IF_ERROR(invoke_bkd_query(context, query_value, query_type, r, bit_map));
         bit_map->runOptimize();
         cache->insert(cache_key, bit_map, &cache_handler);
 

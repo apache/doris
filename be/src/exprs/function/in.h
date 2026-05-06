@@ -38,6 +38,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/field.h"
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
@@ -46,7 +47,6 @@
 #include "exprs/function_context.h"
 #include "exprs/hybrid_set.h"
 #include "storage/index/index_reader_helper.h"
-#include "storage/index/inverted/inverted_index_query_param.h"
 
 namespace doris {
 
@@ -162,7 +162,6 @@ public:
         for (const auto& arg : arguments) {
             Field param_value;
             arg.column->get(0, param_value);
-            auto param_type = arg.type->get_primitive_type();
             if (param_value.is_null()) {
                 // predicate like column NOT IN (NULL, '') should not push down to index.
                 if (negative) {
@@ -171,14 +170,11 @@ public:
                 *roaring |= *null_bitmap;
                 continue;
             }
-            std::unique_ptr<InvertedIndexQueryParam> query_param = nullptr;
-            RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
-                    param_type, &param_value, query_param));
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
             segment_v2::InvertedIndexParam param;
             param.column_name = data_type_with_name.first;
             param.column_type = data_type_with_name.second;
-            param.query_value = std::move(query_param);
+            param.query_value = param_value;
             param.query_type = query_type;
             param.num_rows = num_rows;
             param.roaring = std::make_shared<roaring::Roaring>();
