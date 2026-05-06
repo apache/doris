@@ -133,7 +133,9 @@ Status DataTypeDateTimeV2SerDe::from_string(StringRef& str, IColumn& column,
 //   "2023-10-15 14:30:00.123000"  => scale 6, microsecond = 123000
 //   "2023-10-15 14:30:00.123"     => scale 3, microsecond = 123000
 //
-// On parse failure, falls back to MIN_DATETIME_V2.
+// On parse failure, falls back to MIN_DATETIME_V2, the packed lower-bound
+// DateTimeV2 value. This is MIN_DATE_V2 shifted into the DateTimeV2 date part,
+// not VecDateTimeValue::FIRST_DAY, which belongs to the V1 representation.
 Status DataTypeDateTimeV2SerDe::from_olap_string(const std::string& str, Field& field,
                                                  const FormatOptions& options) const {
     CastParameters params {.status = Status::OK(), .is_strict = false};
@@ -141,6 +143,10 @@ Status DataTypeDateTimeV2SerDe::from_olap_string(const std::string& str, Field& 
     DateV2Value<DateTimeV2ValueType> res;
     std::string date_format = "%Y-%m-%d %H:%i:%s.%f";
 
+    // In paths like partial update, we may fill default values into zonemap, while the default values for date-related
+    // types are filled with the default value 0 of the number base, corresponding to the date 0000-00-00, which is not always valid.
+    // so for the parse path of zonemap strings, we swallow the failure and return a default value. the value itself does not matter,
+    // after compaction it will be replaced.
     if (!res.from_date_format_str(date_format.data(), date_format.size(), str.data(), str.size())) {
         res = DateV2Value<DateTimeV2ValueType>(MIN_DATETIME_V2);
     }

@@ -234,7 +234,7 @@ Status DataTypeDateV2SerDe::from_string_batch(const ColumnString& col_str, Colum
 //   uint32_t value = (year << 9) | (month << 5) | day
 //
 // Expected input format: "YYYY-MM-DD", e.g. "2023-10-15"
-// On parse failure, falls back to MIN_DATE_V2.
+// On parse failure, falls back to MIN_DATE_V2, the packed lower-bound DateV2 value.
 Status DataTypeDateV2SerDe::from_olap_string(const std::string& str, Field& field,
                                              const FormatOptions& options) const {
     CastParameters params {.status = Status::OK(), .is_strict = false};
@@ -243,6 +243,10 @@ Status DataTypeDateV2SerDe::from_olap_string(const std::string& str, Field& fiel
     tm time_tm;
     char* tmp = strptime(str.c_str(), "%Y-%m-%d", &time_tm);
 
+    // In paths like partial update, we may fill default values into zonemap, while the default values for date-related
+    // types are filled with the default value 0 of the number base, corresponding to the date 0000-00-00, which is not always valid.
+    // so for the parse path of zonemap strings, we swallow the failure and return a default value. the value itself does not matter,
+    // after compaction it will be replaced.
     if (nullptr != tmp) {
         uint32_t value =
                 ((time_tm.tm_year + 1900) << 9) | ((time_tm.tm_mon + 1) << 5) | time_tm.tm_mday;
