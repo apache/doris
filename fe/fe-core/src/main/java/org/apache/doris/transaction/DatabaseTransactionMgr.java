@@ -706,8 +706,7 @@ public class DatabaseTransactionMgr {
      * @return true if the transaction need to commit, otherwise false
      */
     private boolean checkTransactionStateBeforeCommit(Database db, List<Table> tableList, long transactionId,
-            boolean is2PC, TransactionState transactionState)
-            throws TransactionCommitFailedException {
+            boolean is2PC, TransactionState transactionState) throws UserException {
         if (transactionState == null) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("transaction not found: {}", transactionId);
@@ -780,6 +779,8 @@ public class DatabaseTransactionMgr {
                 }
             }
         }
+        // check table stream offset if necessary
+        checkStreamOffset(transactionState);
         return true;
     }
 
@@ -818,8 +819,6 @@ public class DatabaseTransactionMgr {
             checkCommitStatus(tableList, transactionState, tabletCommitInfos, txnCommitAttachment, errorReplicaIds,
                     tableToPartition, totalInvolvedBackends);
         }
-        // check table stream offset if necessary
-        checkStreamOffset(transactionState);
         // before state transform
         transactionState.beforeStateTransform(TransactionStatus.COMMITTED);
         // transaction state transform
@@ -875,8 +874,6 @@ public class DatabaseTransactionMgr {
         if (!checkTransactionStateBeforeCommit(db, tableList, transactionId, false, transactionState)) {
             return;
         }
-        // check table stream offset if necessary
-        checkStreamOffset(transactionState);
 
         // error replica may be duplicated for different sub transaction, but it's ok
         Set<Long> errorReplicaIds = Sets.newHashSet();
