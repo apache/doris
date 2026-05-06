@@ -269,6 +269,8 @@ Status VCollectIterator::_topn_next(Block* block) {
         return Status::Error<END_OF_FILE>("");
     }
 
+    // The scanner enables this path only when no conjunct remains above SegmentIterator.
+    // Pushed filters have already run in storage before rows reach this TopN merge.
     auto clone_block = block->clone_empty();
     /*
     select id, "${tR2}",

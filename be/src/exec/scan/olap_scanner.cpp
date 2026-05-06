@@ -442,9 +442,12 @@ Status OlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.enable_mor_value_predicate_pushdown = true;
         }
 
-        // Push LIMIT into SegmentIterator only when all conjuncts have already
-        // moved there. Runtime filters may arrive late, so keep LIMIT at the
-        // scanner/operator layer when any runtime filter exists.
+        // Push LIMIT into SegmentIterator only when no scanner-level conjunct remains.
+        // For TopN this is also the contract for VCollectIterator::topn_next(): it no
+        // longer applies filter_block_conjuncts itself, so every filter must have either
+        // become a storage predicate or moved to SegmentIterator common-expr evaluation.
+        // Runtime filters may arrive late, so keep LIMIT at the scanner/operator layer
+        // when any runtime filter exists.
         if (_total_rf_num == 0 && _conjuncts.empty() &&
             _state->enable_segment_filter_and_limit_pushdown()) {
             if (olap_scan_node.__isset.sort_info &&
