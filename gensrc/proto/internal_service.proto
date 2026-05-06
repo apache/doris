@@ -393,6 +393,8 @@ message PTabletKeyLookupResponse {
     required PStatus status = 1;
     optional bytes row_batch = 2;
     optional bool empty_batch = 3;
+    // BE asks FE to resend once with full query context when lookup cache misses.
+    optional bool need_resend_query_context = 4;
 }
 
 //Add message definition to fetch and update cache

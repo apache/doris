@@ -32,6 +32,8 @@ suite("test_point_query") {
     def user = context.config.jdbcUser
     def password = context.config.jdbcPassword
     def realDb = "regression_test_serving_p0"
+    def lightweightLookupConfig = sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'enable_lightweight_lookup_request'; """
+    String oldLightweightLookupValue = lightweightLookupConfig[0][1]
     // Parse url
     String jdbcUrl = context.config.jdbcUrl
     String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
@@ -271,6 +273,29 @@ suite("test_point_query") {
                 qt_sql """select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where customer_key = 0"""
             }
         }
+
+        sql """ADMIN SET FRONTEND CONFIG ("enable_lightweight_lookup_request" = "true")"""
+        try {
+            connect(user, password, prepare_url) {
+                def lightweightStmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${realDb}.tbl_point_query0 where k1 = ? and k2 = ? and k3 = ?"
+                assertEquals(lightweightStmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+                lightweightStmt.setInt(1, 1231)
+                lightweightStmt.setBigDecimal(2, new BigDecimal("119291.11"))
+                lightweightStmt.setString(3, "ddd")
+                qe_point_select_lightweight lightweightStmt
+                qe_point_select_lightweight lightweightStmt
+
+                lightweightStmt.setInt(1, 1237)
+                lightweightStmt.setBigDecimal(2, new BigDecimal("120939.11130"))
+                lightweightStmt.setString(3, "a    ddd")
+                qe_point_select_lightweight lightweightStmt
+                qe_point_select_lightweight lightweightStmt
+                lightweightStmt.close()
+            }
+        } finally {
+            sql """ADMIN SET FRONTEND CONFIG ("enable_lightweight_lookup_request" = "${oldLightweightLookupValue}")"""
+        }
+
         sql "DROP TABLE IF EXISTS test_ODS_EBA_LLREPORT";
         sql """
             CREATE TABLE `test_ODS_EBA_LLREPORT` (
@@ -312,6 +337,7 @@ suite("test_point_query") {
             WHERE
              aaaid = '1111111'"""
     } finally {
+        sql """ADMIN SET FRONTEND CONFIG ("enable_lightweight_lookup_request" = "${oldLightweightLookupValue}")"""
     }
 
     // test partial update/delete
