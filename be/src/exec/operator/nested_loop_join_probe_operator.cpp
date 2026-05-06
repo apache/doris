@@ -299,6 +299,30 @@ Status NestedLoopJoinProbeLocalState::_append_lazy_probe_row_with_build_defaults
     return Status::OK();
 }
 
+Status NestedLoopJoinProbeLocalState::_append_lazy_mark_probe_row_with_build_defaults(
+        const Block& probe_block, int64_t probe_row_pos, bool mark_value) {
+    auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
+    const size_t mark_column_id = p._num_probe_side_columns + p._num_build_side_columns;
+    const size_t new_rows = _join_block.rows() + 1;
+
+    auto dst_columns = _join_block.mutate_columns();
+    for (int column_id : p._materialize_column_ids) {
+        const auto column_idx = cast_set<size_t>(column_id);
+        if (column_idx < p._num_probe_side_columns) {
+            const auto& src_column = probe_block.get_by_position(column_idx);
+            append_many_from_source(dst_columns[column_idx], src_column, probe_row_pos, 1);
+        } else if (column_idx == mark_column_id) {
+            ColumnFilterHelper(*dst_columns[column_idx]).insert_value(mark_value);
+        } else {
+            dst_columns[column_idx]->insert_many_defaults(1);
+        }
+    }
+    _join_block.set_columns(std::move(dst_columns));
+    _replace_lazy_placeholder_columns(new_rows);
+    DCHECK_EQ(_join_block.rows(), new_rows);
+    return Status::OK();
+}
+
 Status NestedLoopJoinProbeLocalState::_append_lazy_build_rows_with_probe_defaults(
         const Block& build_block, const IColumn::Filter& filter, size_t selected_rows) {
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
@@ -331,7 +355,7 @@ Status NestedLoopJoinProbeLocalState::_finalize_lazy_probe_row(RuntimeState* sta
                                                                const Block& probe_block,
                                                                int64_t probe_row_pos) {
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
-    if (!p._enable_lazy_probe_finalize || probe_row_pos < 0 ||
+    if ((!p._enable_lazy_probe_finalize && !p._enable_lazy_mark_finalize) || probe_row_pos < 0 ||
         cast_set<size_t>(probe_row_pos) >= probe_block.rows()) {
         return Status::OK();
     }
@@ -340,7 +364,11 @@ Status NestedLoopJoinProbeLocalState::_finalize_lazy_probe_row(RuntimeState* sta
     }
 
     const bool matched = _cur_probe_row_visited_flags[probe_row_pos];
-    if (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN) {
+    if (p._enable_lazy_mark_finalize) {
+        const bool mark_value = p._join_op == TJoinOp::LEFT_ANTI_JOIN ? !matched : matched;
+        RETURN_IF_ERROR(_append_lazy_mark_probe_row_with_build_defaults(probe_block, probe_row_pos,
+                                                                        mark_value));
+    } else if (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN) {
         if (!matched) {
             RETURN_IF_ERROR(_append_lazy_probe_row_with_build_defaults(probe_block, probe_row_pos));
         }
@@ -348,7 +376,8 @@ Status NestedLoopJoinProbeLocalState::_finalize_lazy_probe_row(RuntimeState* sta
         if (matched) {
             RETURN_IF_ERROR(_append_lazy_probe_row_with_build_defaults(probe_block, probe_row_pos));
         }
-    } else if (p._join_op == TJoinOp::LEFT_ANTI_JOIN) {
+    } else if (p._join_op == TJoinOp::LEFT_ANTI_JOIN ||
+               p._join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
         if (!matched) {
             RETURN_IF_ERROR(_append_lazy_probe_row_with_build_defaults(probe_block, probe_row_pos));
         }
@@ -371,20 +400,29 @@ Status NestedLoopJoinProbeLocalState::_finalize_lazy_build_side(RuntimeState* st
                         ->get_data()
                         .data();
         const size_t rows = build_block.rows();
+        const size_t output_capacity = state->batch_size() - _join_block.rows();
 
         IColumn::Filter filter(rows, 0);
         auto* __restrict filter_data = filter.data();
         size_t selected_rows = 0;
-        for (size_t i = 0; i < rows; ++i) {
-            const bool matched = visited_flags[i] != 0;
+        size_t row_idx = _output_null_row_idx_build_side;
+        for (; row_idx < rows && selected_rows < output_capacity; ++row_idx) {
+            const bool matched = visited_flags[row_idx] != 0;
             const bool selected = p._join_op == TJoinOp::RIGHT_SEMI_JOIN ? matched : !matched;
-            filter_data[i] = selected;
+            filter_data[row_idx] = selected;
             selected_rows += selected;
         }
 
-        RETURN_IF_ERROR(
-                _append_lazy_build_rows_with_probe_defaults(build_block, filter, selected_rows));
-        ++_output_null_idx_build_side;
+        if (selected_rows > 0) {
+            RETURN_IF_ERROR(_append_lazy_build_rows_with_probe_defaults(build_block, filter,
+                                                                        selected_rows));
+        }
+        if (row_idx == rows) {
+            ++_output_null_idx_build_side;
+            _output_null_row_idx_build_side = 0;
+        } else {
+            _output_null_row_idx_build_side = row_idx;
+        }
     }
     return Status::OK();
 }
@@ -513,7 +551,7 @@ Status NestedLoopJoinProbeLocalState::_process_lazy_probe_build_block(Block* pro
     const size_t selected_rows =
             candidate_rows -
             simd::count_zero_num(reinterpret_cast<int8_t*>(filter.data()), candidate_rows);
-    if (p._enable_lazy_probe_finalize && selected_rows > 0) {
+    if ((p._enable_lazy_probe_finalize || p._enable_lazy_mark_finalize) && selected_rows > 0) {
         _cur_probe_row_visited_flags[_probe_block_pos] = true;
     }
     _mark_lazy_build_rows_visited(build_block_idx, filter);
@@ -1008,6 +1046,8 @@ NestedLoopJoinProbeOperatorX::NestedLoopJoinProbeOperatorX(ObjectPool* pool, con
                                      tnode.nested_loop_join_node.is_output_left_side_only),
           _has_materialized_slot_ids(tnode.__isset.nested_loop_join_node &&
                                      tnode.nested_loop_join_node.__isset.materialized_slot_ids),
+          _has_mark_join_conjuncts(tnode.nested_loop_join_node.__isset.mark_join_conjuncts &&
+                                   !tnode.nested_loop_join_node.mark_join_conjuncts.empty()),
           _materialized_slot_ids(_has_materialized_slot_ids
                                          ? tnode.nested_loop_join_node.materialized_slot_ids
                                          : std::vector<SlotId> {}) {
@@ -1048,16 +1088,26 @@ Status NestedLoopJoinProbeOperatorX::prepare(RuntimeState* state) {
             _materialize_column_ids.insert(column_id);
         }
     }
+    _enable_lazy_mark_finalize =
+            _is_mark_join && !_has_mark_join_conjuncts &&
+            (_join_op == TJoinOp::LEFT_SEMI_JOIN || _join_op == TJoinOp::LEFT_ANTI_JOIN);
+    if (_enable_lazy_mark_finalize) {
+        _materialize_column_ids.insert(
+                cast_set<int>(_num_probe_side_columns + _num_build_side_columns));
+    }
     _enable_lazy_probe_finalize =
             _join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN ||
-            _join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN;
+            _join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+            _join_op == TJoinOp::FULL_OUTER_JOIN;
     _enable_lazy_build_finalize =
             _join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::RIGHT_SEMI_JOIN ||
             _join_op == TJoinOp::RIGHT_ANTI_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN;
     bool supported_lazy_join = _join_op == TJoinOp::INNER_JOIN || _join_op == TJoinOp::CROSS_JOIN ||
-                               _enable_lazy_probe_finalize || _enable_lazy_build_finalize;
+                               _enable_lazy_probe_finalize || _enable_lazy_build_finalize ||
+                               _enable_lazy_mark_finalize;
     _enable_lazy_materialize = _has_materialized_slot_ids && !_is_output_probe_side_only &&
-                               !_is_mark_join && supported_lazy_join && !projections().empty() &&
+                               (!_is_mark_join || _enable_lazy_mark_finalize) &&
+                               supported_lazy_join && !projections().empty() &&
                                &projections_row_desc() == &intermediate_row_desc();
     return VExpr::open(_join_conjuncts, state);
 }

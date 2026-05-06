@@ -92,6 +92,8 @@ private:
                              const Block& probe_block, const Block& build_block);
     Status _append_lazy_probe_row_with_build_defaults(const Block& probe_block,
                                                       int64_t probe_row_pos);
+    Status _append_lazy_mark_probe_row_with_build_defaults(const Block& probe_block,
+                                                           int64_t probe_row_pos, bool mark_value);
     Status _finalize_lazy_probe_row(RuntimeState* state, const Block& probe_block,
                                     int64_t probe_row_pos);
     Status _append_lazy_build_rows_with_probe_defaults(const Block& build_block,
@@ -240,6 +242,7 @@ private:
     std::stack<uint16_t> _build_offset_stack;
     std::stack<uint16_t> _probe_offset_stack;
     uint64_t _output_null_idx_build_side = 0;
+    uint64_t _output_null_row_idx_build_side = 0;
     VExprContextSPtrs _join_conjuncts;
 
     RuntimeProfile::Counter* _loop_join_timer = nullptr;
@@ -290,10 +293,12 @@ private:
     size_t _num_probe_side_columns = 0;
     size_t _num_build_side_columns = 0;
     bool _has_materialized_slot_ids = false;
+    bool _has_mark_join_conjuncts = false;
     std::vector<SlotId> _materialized_slot_ids;
     bool _enable_lazy_materialize = false;
     bool _enable_lazy_probe_finalize = false;
     bool _enable_lazy_build_finalize = false;
+    bool _enable_lazy_mark_finalize = false;
     std::set<int> _lazy_eval_column_ids;
     std::set<int> _materialize_column_ids;
 };
