@@ -426,6 +426,8 @@ public enum RuleType {
     DECOMPOSE_REPEAT(RuleTypeClass.REWRITE),
     DISTINCT_AGGREGATE_SPLIT(RuleTypeClass.REWRITE),
     PROCESS_SCALAR_AGG_MUST_USE_MULTI_DISTINCT(RuleTypeClass.REWRITE),
+    // table stream scan rewrite
+    NORMALIZE_OlAP_TABLE_STREAM_SCAN(RuleTypeClass.REWRITE),
 
     // exploration rules
     REORDER_INTERSECT(RuleTypeClass.EXPLORATION),
@@ -595,7 +597,7 @@ public enum RuleType {
     SPLIT_AGG_MULTI_PHASE(RuleTypeClass.IMPLEMENTATION),
     SPLIT_AGG_MULTI_PHASE_WITHOUT_GBY_KEY(RuleTypeClass.IMPLEMENTATION),
     IMPLEMENTATION_SENTINEL(RuleTypeClass.IMPLEMENTATION),
-    NORMALIZE_OlAP_TABLE_STREAM_SCAN(RuleTypeClass.REWRITE),
+
 
     // sentinel, use to count rules
     SENTINEL(RuleTypeClass.SENTINEL);
