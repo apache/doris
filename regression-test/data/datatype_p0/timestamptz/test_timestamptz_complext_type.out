@@ -17,3 +17,15 @@
 -- !parse_struct --
 {"first":"2020-01-01 05:00:00+08:00", "second":"2020-06-01 15:00:00+08:00", "third":"2020-01-01 07:59:59+08:00"}
 
+-- !element_at_key --
+post
+
+-- !map_contains_key --
+1
+
+-- !element_at_value --
+2024-11-03 06:05:00.000000+00:00
+
+-- !map_contains_value --
+1
+

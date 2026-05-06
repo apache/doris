@@ -17,12 +17,33 @@
 
 #include <string>
 
+#include "core/column/column_array.h"
+#include "core/column/column_nullable.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "core/field.h"
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
+#include "exprs/function/simple_function_factory.h"
+#include "testutil/datetime_ut_util.h"
 
 namespace doris {
+
+namespace {
+
+ColumnPtr create_nullable_timestamptz_column(std::initializer_list<TimestampTzValue> values) {
+    auto nested = ColumnTimeStampTz::create();
+    auto null_map = ColumnUInt8::create();
+    for (const auto& value : values) {
+        nested->insert_value(value);
+        null_map->insert_value(0);
+    }
+    return ColumnNullable::create(std::move(nested), std::move(null_map));
+}
+
+} // namespace
 
 TEST(function_array_index_test, array_contains) {
     std::string func_name = "array_contains";
@@ -141,6 +162,42 @@ TEST(function_array_index_test, array_contains) {
 
         static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
+}
+
+TEST(function_array_index_test, array_contains_timestamptz) {
+    const std::string func_name = "array_contains";
+    auto element_type = std::make_shared<DataTypeTimeStampTz>(6);
+    auto array_type = std::make_shared<DataTypeArray>(make_nullable(element_type));
+    auto return_type = std::make_shared<DataTypeBool>();
+    auto arguments_template = ColumnsWithTypeAndName {{nullptr, array_type, "array"},
+                                                      {nullptr, element_type, "item"}};
+
+    auto function = SimpleFunctionFactory::instance().get_function(
+            func_name, arguments_template, return_type, {true},
+            BeExecVersionManager::get_newest_version());
+    ASSERT_TRUE(function != nullptr);
+
+    auto pre = make_timestamptz(2024, 11, 3, 1, 5, 0, 0);
+    auto post = make_timestamptz(2024, 11, 3, 1, 5, 0, 0);
+
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->insert_value(2);
+
+    auto probe_column = ColumnTimeStampTz::create();
+    probe_column->insert_value(post);
+
+    Block block;
+    block.insert({ColumnArray::create(create_nullable_timestamptz_column({pre, post}),
+                                      std::move(offsets)),
+                  array_type, "array"});
+    block.insert({std::move(probe_column), element_type, "item"});
+    block.insert({nullptr, return_type, "result"});
+
+    auto status = function->execute(nullptr, block, {0, 1}, 2, 1);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto& result_column = assert_cast<const ColumnUInt8&>(*block.get_by_position(2).column);
+    EXPECT_EQ(result_column.get_element(0), 1);
 }
 
 TEST(function_array_index_test, array_position) {

@@ -65,4 +65,49 @@ suite("test_timestamptz_complext_type") {
             cast('{"first": "2020-01-01 00:00:00 +03:00", "second": "2020-06-01 12:00:00 +05:00", "third": "2019-12-31 23:59:59 +00:00"}' as struct<first:timestamptz, second:timestamptz, third:timestamptz>) as tz_struct;
     """
 
+    sql " set enable_nereids_planner = true; "
+    sql " set enable_fallback_to_original_planner = false; "
+    sql " set debug_skip_fold_constant = false; "
+    sql " set time_zone = '+00:00'; "
+
+    qt_element_at_key """
+        select cast(element_at(
+            map(
+                cast('2024-11-03 01:05:00 -04:00' as timestamptz(6)), 'pre',
+                cast('2024-11-03 01:05:00 -05:00' as timestamptz(6)), 'post'
+            ),
+            cast('2024-11-03 01:05:00 -05:00' as timestamptz(6))
+        ) as string);
+    """
+
+    qt_map_contains_key """
+        select cast(map_contains_key(
+            map(
+                cast('2024-11-03 01:05:00 -04:00' as timestamptz(6)), 'pre',
+                cast('2024-11-03 01:05:00 -05:00' as timestamptz(6)), 'post'
+            ),
+            cast('2024-11-03 01:05:00 -05:00' as timestamptz(6))
+        ) as int);
+    """
+
+    qt_element_at_value """
+        select cast(element_at(
+            map(
+                'pre', cast('2024-11-03 01:05:00 -04:00' as timestamptz(6)),
+                'post', cast('2024-11-03 01:05:00 -05:00' as timestamptz(6))
+            ),
+            'post'
+        ) as string);
+    """
+
+    qt_map_contains_value """
+        select cast(map_contains_value(
+            map(
+                'pre', cast('2024-11-03 01:05:00 -04:00' as timestamptz(6)),
+                'post', cast('2024-11-03 01:05:00 -05:00' as timestamptz(6))
+            ),
+            cast('2024-11-03 01:05:00 -05:00' as timestamptz(6))
+        ) as int);
+    """
+
 }

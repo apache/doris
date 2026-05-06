@@ -351,20 +351,6 @@ private:
         return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
     }
 
-    template <typename NestedColumnType>
-    ColumnPtr _execute_number_expanded(const ColumnArray::Offsets64& offsets,
-                                       const UInt8* nested_null_map, const IColumn& nested_column,
-                                       const IColumn& right_column,
-                                       const UInt8* right_nested_null_map,
-                                       const UInt8* outer_null_map) const {
-        if (is_column<NestedColumnType>(right_column)) {
-            return _execute_number<NestedColumnType, NestedColumnType>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        }
-        return nullptr;
-    }
-
     Status _execute_dispatch(Block& block, const ColumnNumbers& arguments, uint32_t result,
                              size_t input_rows_count) const {
         // extract array offsets and nested data
@@ -377,7 +363,7 @@ private:
         const ColumnArray* array_column = nullptr;
         const UInt8* array_null_map = nullptr;
         if (left_column->is_nullable()) {
-            auto nullable_array = reinterpret_cast<const ColumnNullable*>(left_column.get());
+            const auto* nullable_array = reinterpret_cast<const ColumnNullable*>(left_column.get());
             array_column =
                     reinterpret_cast<const ColumnArray*>(&nullable_array->get_nested_column());
             array_null_map = nullable_array->get_null_map_column().get_data().data();
@@ -413,12 +399,12 @@ private:
         auto right_type = remove_nullable(block.get_by_position(arguments[1]).type);
 
         ColumnPtr return_column = nullptr;
-        if (is_string_type(right_type->get_primitive_type()) &&
-            is_string_type(left_element_type->get_primitive_type())) {
+        auto left_element_ptype = left_element_type->get_primitive_type();
+        auto right_ptype = right_type->get_primitive_type();
+        if (is_string_type(right_ptype) && is_string_type(left_element_ptype)) {
             return_column = _execute_string(offsets, nested_null_map, *nested_column, *right_column,
                                             right_nested_null_map, array_null_map);
-        } else if (is_number(right_type->get_primitive_type()) &&
-                   is_number(left_element_type->get_primitive_type())) {
+        } else if (left_element_ptype == right_ptype) {
             auto call = [&](const auto& type) -> bool {
                 using DispatchType = std::decay_t<decltype(type)>;
                 return_column = _execute_number<typename DispatchType::ColumnType,
@@ -427,37 +413,9 @@ private:
                         right_nested_null_map, array_null_map);
                 return true;
             };
-            if (!dispatch_switch_number(right_type->get_primitive_type(), call)) {
-                return Status::InternalError(get_name() + " not support right type " +
-                                             right_type->get_name());
-            }
-        } else if ((is_date_v2_or_datetime_v2(right_type->get_primitive_type()) ||
-                    right_type->get_primitive_type() == TYPE_TIMEV2) &&
-                   (is_date_v2_or_datetime_v2(left_element_type->get_primitive_type()) ||
-                    left_element_type->get_primitive_type() == TYPE_TIMEV2)) {
-            if (left_element_type->get_primitive_type() == TYPE_DATEV2) {
-                return_column = _execute_number_expanded<ColumnDateV2>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-            } else if (left_element_type->get_primitive_type() == TYPE_DATETIMEV2) {
-                return_column = _execute_number_expanded<ColumnDateTimeV2>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-            } else if (left_element_type->get_primitive_type() == TYPE_TIMEV2) {
-                return_column = _execute_number_expanded<ColumnTimeV2>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-            }
-        } else if (is_ip(right_type->get_primitive_type()) &&
-                   is_ip(left_element_type->get_primitive_type())) {
-            if (left_element_type->get_primitive_type() == TYPE_IPV4) {
-                return_column = _execute_number_expanded<ColumnIPv4>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-            } else if (left_element_type->get_primitive_type() == TYPE_IPV6) {
-                return_column = _execute_number_expanded<ColumnIPv6>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
+            if (!dispatch_switch_scalar(left_element_ptype, call)) {
+                return Status::InternalError(get_name() + " not support type " +
+                                             left_element_type->get_name());
             }
         }
 
