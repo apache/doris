@@ -935,6 +935,8 @@ TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantFieldPatternGlobInd
 // E1: Match predicate whose left subtree contains no VSlotRef.
 // find_slot_ref recurses through children; when it returns nullptr the
 // collector reports INVERTED_INDEX_NOT_SUPPORTED.
+// Calls MatchPredicateCollector::collect() directly so coverage attribution
+// is not muddied by extract_collect_info's virtual-dispatch indirection.
 TEST_F(CollectionStatisticsTest, CollectMissingSlotRefReturnsError) {
     auto tablet_schema = std::make_shared<TabletSchema>();
     TabletColumn col;
@@ -949,12 +951,10 @@ TEST_F(CollectionStatisticsTest, CollectMissingSlotRefReturnsError) {
     match_expr->_children.push_back(literal_left);
     match_expr->_children.push_back(literal_right);
 
-    VExprContextSPtrs contexts;
-    contexts.push_back(std::make_shared<VExprContext>(match_expr));
-
+    MatchPredicateCollector collector;
     std::unordered_map<std::wstring, CollectInfo> collect_infos;
-    auto status = stats_->extract_collect_info(runtime_state_.get(), contexts, tablet_schema,
-                                               &collect_infos);
+    auto status =
+            collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
     ASSERT_FALSE(status.ok());
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
     EXPECT_TRUE(status.msg().find("Cannot find slot reference") != std::string::npos);
@@ -978,12 +978,10 @@ TEST_F(CollectionStatisticsTest, CollectMissingSlotDescriptorReturnsError) {
     match_expr->_children.push_back(slot_ref);
     match_expr->_children.push_back(literal);
 
-    VExprContextSPtrs contexts;
-    contexts.push_back(std::make_shared<VExprContext>(match_expr));
-
+    MatchPredicateCollector collector;
     std::unordered_map<std::wstring, CollectInfo> collect_infos;
-    auto status = stats_->extract_collect_info(runtime_state_.get(), contexts, tablet_schema,
-                                               &collect_infos);
+    auto status =
+            collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
     ASSERT_FALSE(status.ok());
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
     EXPECT_TRUE(status.msg().find("Cannot find slot descriptor") != std::string::npos);
@@ -1008,12 +1006,10 @@ TEST_F(CollectionStatisticsTest, CollectUnknownColumnNameReturnsError) {
     match_expr->_children.push_back(slot_ref);
     match_expr->_children.push_back(literal);
 
-    VExprContextSPtrs contexts;
-    contexts.push_back(std::make_shared<VExprContext>(match_expr));
-
+    MatchPredicateCollector collector;
     std::unordered_map<std::wstring, CollectInfo> collect_infos;
-    auto status = stats_->extract_collect_info(runtime_state_.get(), contexts, tablet_schema,
-                                               &collect_infos);
+    auto status =
+            collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
     ASSERT_FALSE(status.ok());
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
     EXPECT_TRUE(status.msg().find("Cannot find column index") != std::string::npos);
@@ -1053,12 +1049,10 @@ TEST_F(CollectionStatisticsTest, CollectDirectIndexHitFromSchema) {
     match_expr->_children.push_back(slot_ref);
     match_expr->_children.push_back(literal);
 
-    VExprContextSPtrs contexts;
-    contexts.push_back(std::make_shared<VExprContext>(match_expr));
-
+    MatchPredicateCollector collector;
     std::unordered_map<std::wstring, CollectInfo> collect_infos;
-    auto status = stats_->extract_collect_info(runtime_state_.get(), contexts, tablet_schema,
-                                               &collect_infos);
+    auto status =
+            collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
     ASSERT_TRUE(status.ok()) << status.msg();
     ASSERT_EQ(collect_infos.size(), 1u);
     auto it = collect_infos.find(StringHelper::to_wstring(std::to_string(kColUid)));
@@ -1092,12 +1086,10 @@ TEST_F(CollectionStatisticsTest, CollectNotExtractedColumnSkipsFallback) {
     match_expr->_children.push_back(slot_ref);
     match_expr->_children.push_back(literal);
 
-    VExprContextSPtrs contexts;
-    contexts.push_back(std::make_shared<VExprContext>(match_expr));
-
+    MatchPredicateCollector collector;
     std::unordered_map<std::wstring, CollectInfo> collect_infos;
-    auto status = stats_->extract_collect_info(runtime_state_.get(), contexts, tablet_schema,
-                                               &collect_infos);
+    auto status =
+            collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
     ASSERT_TRUE(status.ok()) << status.msg();
     EXPECT_TRUE(collect_infos.empty());
 }
@@ -1134,12 +1126,10 @@ TEST_F(CollectionStatisticsTest, CollectSkipsIndexWithoutAnalyzer) {
     match_expr->_children.push_back(slot_ref);
     match_expr->_children.push_back(literal);
 
-    VExprContextSPtrs contexts;
-    contexts.push_back(std::make_shared<VExprContext>(match_expr));
-
+    MatchPredicateCollector collector;
     std::unordered_map<std::wstring, CollectInfo> collect_infos;
-    auto status = stats_->extract_collect_info(runtime_state_.get(), contexts, tablet_schema,
-                                               &collect_infos);
+    auto status =
+            collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
     ASSERT_TRUE(status.ok()) << status.msg();
     EXPECT_TRUE(collect_infos.empty());
 }
@@ -1178,12 +1168,10 @@ TEST_F(CollectionStatisticsTest, CollectSkipsIndexWithoutSimilarityScore) {
     match_expr->_children.push_back(slot_ref);
     match_expr->_children.push_back(literal);
 
-    VExprContextSPtrs contexts;
-    contexts.push_back(std::make_shared<VExprContext>(match_expr));
-
+    MatchPredicateCollector collector;
     std::unordered_map<std::wstring, CollectInfo> collect_infos;
-    auto status = stats_->extract_collect_info(runtime_state_.get(), contexts, tablet_schema,
-                                               &collect_infos);
+    auto status =
+            collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
     ASSERT_TRUE(status.ok()) << status.msg();
     EXPECT_TRUE(collect_infos.empty());
 }
@@ -1225,14 +1213,14 @@ TEST_F(CollectionStatisticsTest, CollectMergesTermsForSameFieldName) {
         return m;
     };
 
-    VExprContextSPtrs contexts;
-    contexts.push_back(std::make_shared<VExprContext>(build_match("alpha")));
-    contexts.push_back(std::make_shared<VExprContext>(build_match("beta")));
-
+    MatchPredicateCollector collector;
     std::unordered_map<std::wstring, CollectInfo> collect_infos;
-    auto status = stats_->extract_collect_info(runtime_state_.get(), contexts, tablet_schema,
-                                               &collect_infos);
-    ASSERT_TRUE(status.ok()) << status.msg();
+    auto first =
+            collector.collect(runtime_state_.get(), tablet_schema, build_match("alpha"), &collect_infos);
+    ASSERT_TRUE(first.ok()) << first.msg();
+    auto second =
+            collector.collect(runtime_state_.get(), tablet_schema, build_match("beta"), &collect_infos);
+    ASSERT_TRUE(second.ok()) << second.msg();
     ASSERT_EQ(collect_infos.size(), 1u);
     auto it = collect_infos.find(StringHelper::to_wstring(std::to_string(kColUid)));
     ASSERT_NE(it, collect_infos.end());
