@@ -1148,7 +1148,7 @@ userIdentify
     ;
 
 grantUserIdentify
-    : userIdentify (IDENTIFIED BY PASSWORD? STRING_LITERAL)?
+    : userIdentify (IDENTIFIED BY PASSWORD? pwd=STRING_LITERAL)?
     ;
 
 explain
