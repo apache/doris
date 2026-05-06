@@ -63,15 +63,10 @@
 
 namespace {
 
-// Encodes a Field's value as a BKD ascending key via KeyCoder.
-// CppTypeTraits<FT>::CppType is the type KeyCoder expects (e.g. int64_t for
-// DATETIME, where PrimitiveTypeTraits gives uint64_t — implicit conversion
-// preserves the bit pattern under 2's complement).
-template <doris::FieldType FT, doris::PrimitiveType PT>
+template <doris::PrimitiveType PT>
 static void bkd_encode_field(const doris::Field& field, const doris::KeyCoder* coder,
                              std::string* out) {
-    using key_t = typename doris::CppTypeTraits<FT>::CppType;
-    key_t kv = doris::PrimitiveTypeConvertor<PT>::to_storage_field_type(field.get<PT>());
+    auto kv = doris::PrimitiveTypeConvertor<PT>::to_storage_field_type(field.get<PT>());
     coder->full_encode_ascending(&kv, out);
 }
 
@@ -113,9 +108,9 @@ static void bkd_encode_max(const doris::KeyCoder* coder, std::string* out) {
 
 static doris::Status encode_bkd_field_ascending(doris::FieldType ft, const doris::Field& field,
                                                 const doris::KeyCoder* coder, std::string* out) {
-#define CASE(FT, PT)                                                                         \
-    case doris::FieldType::FT:                                                               \
-        bkd_encode_field<doris::FieldType::FT, doris::PrimitiveType::PT>(field, coder, out); \
+#define CASE(FT, PT)                                                   \
+    case doris::FieldType::FT:                                         \
+        bkd_encode_field<doris::PrimitiveType::PT>(field, coder, out); \
         return doris::Status::OK();
     switch (ft) {
         BKD_TYPE_CASES(CASE)
