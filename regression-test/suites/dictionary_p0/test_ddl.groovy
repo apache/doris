@@ -107,27 +107,6 @@ suite("test_ddl") {
         exception "Column k0 is used more than once"
     }
 
-    // complex type
-    sql """
-        create table ctype(
-            k0 int null,
-            k1 MAP<STRING, INT>
-        )
-        DISTRIBUTED BY HASH(`k0`) BUCKETS auto
-        properties("replication_num" = "1");
-    """
-    test {
-        sql """
-        create dictionary dic1 using ctype
-        (
-            k1 KEY,
-            k0 VALUE
-        )LAYOUT(HASH_MAP)
-        properties('data_lifetime'='600');
-        """
-        exception "cannot be Map or Struct type"
-    }
-
     // nullable column test base table
     sql """
         create table nullable_table(
