@@ -285,6 +285,25 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
         _reusable = cache_handle;
         _profile_metrics.hit_lookup_cache = true;
     } else {
+        // Lightweight request: FE may omit reusable query context and rely on uuid cache.
+        // If cache miss and required parameters are absent, ask FE to resend a full request.
+        if (uuid != 0 && (!request->has_desc_tbl() || request->desc_tbl().empty() ||
+                          !request->has_output_expr() || request->output_expr().empty() ||
+                          !request->has_query_options() || request->query_options().empty())) {
+            if (VLOG_DEBUG_IS_ON) {
+                VLOG_DEBUG << "lookup connection cache miss, ask FE to resend query context"
+                           << ", tablet_id=" << request->tablet_id()
+                           << ", uuid_high=" << request->uuid().uuid_high()
+                           << ", uuid_low=" << request->uuid().uuid_low();
+            }
+            response->set_need_resend_query_context(true);
+            return Status::OK();
+        }
+        if (uuid == 0 && (!request->has_desc_tbl() || request->desc_tbl().empty() ||
+                          !request->has_output_expr() || request->output_expr().empty())) {
+            return Status::InvalidArgument(
+                    "tablet_fetch_data requires desc_tbl/output_expr when uuid is not set");
+        }
         // init handle
         auto reusable_ptr = std::make_shared<Reusable>();
         TDescriptorTable t_desc_tbl;

@@ -963,6 +963,9 @@ Status PInternalService::_tablet_fetch_data(const PTabletKeyLookupRequest* reque
                                             PTabletKeyLookupResponse* response) {
     PointQueryExecutor executor;
     RETURN_IF_ERROR(executor.init(request, response));
+    if (response->has_need_resend_query_context() && response->need_resend_query_context()) {
+        return Status::OK();
+    }
     RETURN_IF_ERROR(executor.lookup_up());
     executor.print_profile();
     return Status::OK();
