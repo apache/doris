@@ -262,7 +262,7 @@ bool glob_match_re2(const std::string& glob_pattern, const std::string& candidat
 
 bool is_regular_ng_compaction_subpath(const PathInData& path) {
     const std::string& relative_path = path.get_path();
-    return !relative_path.empty() && !path.get_is_typed() && !path.has_nested_part() &&
+    return !relative_path.empty() && !path.has_nested_part() &&
            !segment_v2::contains_nested_group_marker(relative_path) &&
            !segment_v2::is_root_nested_group_path(relative_path) &&
            relative_path != SPARSE_COLUMN_PATH &&
@@ -314,7 +314,7 @@ using ExistingNgCompactionSubcolumns = std::unordered_map<int32_t, std::vector<T
 
 struct NestedGroupCompactionMaterializationPlan {
     std::vector<TabletColumnPtr> preserved_regular_subcolumns;
-    PathSet materialized_regular_paths;
+    std::unordered_set<PathInData, PathInData::Hash> materialized_regular_paths;
     PathToDataTypes additional_regular_path_to_data_types;
 };
 
@@ -358,15 +358,14 @@ NestedGroupCompactionMaterializationPlan build_nested_group_compaction_materiali
     NestedGroupCompactionMaterializationPlan plan;
     plan.preserved_regular_subcolumns = existing_subcolumns;
     for (const auto& column : existing_subcolumns) {
-        plan.materialized_regular_paths.emplace(
-                column->path_info_ptr()->copy_pop_front().get_path());
+        plan.materialized_regular_paths.emplace(column->path_info_ptr()->copy_pop_front());
     }
     for (const auto& [path, data_types] : extended_info.path_to_data_types) {
         if (!is_regular_ng_compaction_subpath(path) ||
-            plan.materialized_regular_paths.contains(path.get_path())) {
+            plan.materialized_regular_paths.contains(path)) {
             continue;
         }
-        plan.materialized_regular_paths.emplace(path.get_path());
+        plan.materialized_regular_paths.emplace(path);
         plan.additional_regular_path_to_data_types.emplace(path, data_types);
     }
     return plan;
@@ -1309,7 +1308,7 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
         DataTypePtr data_type;
         get_least_supertype_jsonb(data_types, &data_type);
         auto column_name = parent_column->name_lower_case() + "." + path.get_path();
-        auto column_path = PathInData(column_name);
+        auto column_path = PathInData(column_name, path.get_is_typed());
         TabletColumn sub_column =
                 get_column_by_type(data_type, column_name,
                                    ExtraInfo {.unique_id = -1,
@@ -1318,7 +1317,14 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
         inherit_column_attributes(*parent_column, sub_column);
         TabletIndexes sub_column_indexes;
         inherit_index(parent_indexes, sub_column_indexes, sub_column);
-        paths_set_info.subcolumn_indexes.emplace(path.get_path(), std::move(sub_column_indexes));
+        if (path.get_is_typed()) {
+            TabletSchema::SubColumnInfo sub_column_info {.column = sub_column,
+                                                         .indexes = std::move(sub_column_indexes)};
+            paths_set_info.typed_path_set.emplace(path.get_path(), std::move(sub_column_info));
+        } else {
+            paths_set_info.subcolumn_indexes.emplace(path.get_path(),
+                                                     std::move(sub_column_indexes));
+        }
         output_schema->append_column(sub_column);
         VLOG_DEBUG << "append sub column " << path.get_path() << " data type "
                    << data_type->get_name();
