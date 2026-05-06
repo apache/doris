@@ -32,12 +32,18 @@ public class BinlogTestUtils {
     public static final long MAX_BYTES = 0x7fffffffffffffffL;
     public static final long MAX_HISTORY_NUMS = 0x7fffffffffffffffL;
 
-    public static BinlogConfig newTestBinlogConfig(boolean enableBinlog, long expiredTime) {
-        return new BinlogConfig(enableBinlog, expiredTime, MAX_BYTES, MAX_HISTORY_NUMS);
+    public static BinlogConfig newTestCCRBinlogConfig(boolean enableBinlog, long expiredTime) {
+        return new BinlogConfig(enableBinlog, expiredTime, MAX_BYTES, MAX_HISTORY_NUMS,
+                BinlogConfig.BinlogFormat.STATEMENT_AND_SNAPSHOT, false);
+    }
+
+    public static BinlogConfig newTestRowBinlogConfig(boolean enableBinlog, boolean needHistoricalValue) {
+        return new BinlogConfig(enableBinlog, BinlogConfig.NO_TTL, MAX_BYTES, MAX_HISTORY_NUMS,
+                BinlogConfig.BinlogFormat.ROW, needHistoricalValue);
     }
 
     public static BinlogConfigCache newMockBinlogConfigCache(long dbId, long tableId, long expiredTime) {
-        BinlogConfig binlogConfig = newTestBinlogConfig(true, expiredTime);
+        BinlogConfig binlogConfig = newTestCCRBinlogConfig(true, expiredTime);
         return new MockBinlogConfigCache(
                 Collections.singletonMap(String.format("%d_%d", dbId, tableId), binlogConfig));
     }
@@ -45,7 +51,7 @@ public class BinlogTestUtils {
     public static MockBinlogConfigCache newMockBinlogConfigCache(Map<String, Long> ttlMap) {
         Map<String, BinlogConfig> configMap = Maps.newHashMap();
         for (Map.Entry<String, Long> entry : ttlMap.entrySet()) {
-            configMap.put(entry.getKey(), newTestBinlogConfig(true, entry.getValue()));
+            configMap.put(entry.getKey(), newTestCCRBinlogConfig(true, entry.getValue()));
         }
         return new MockBinlogConfigCache(configMap);
     }

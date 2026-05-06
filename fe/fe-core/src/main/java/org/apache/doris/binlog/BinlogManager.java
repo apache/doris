@@ -825,7 +825,7 @@ public class BinlogManager {
                         continue;
                     }
                     currentDbId = dbId;
-                    currentDbBinlogEnable = db.getBinlogConfig().isEnable();
+                    currentDbBinlogEnable = db.getBinlogConfig().isEnableForCCR();
                     tableDummies = Lists.newArrayList();
                 }
 

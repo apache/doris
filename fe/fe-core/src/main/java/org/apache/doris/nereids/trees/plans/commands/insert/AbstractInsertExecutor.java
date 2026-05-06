@@ -222,6 +222,9 @@ public abstract class AbstractInsertExecutor {
         if (coordinator.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL) != null) {
             filteredRows = Integer.parseInt(coordinator.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL));
         }
+        if (insertLoadJob != null) {
+            insertLoadJob.getLoadStatistic().setFilteredRows(filteredRows);
+        }
     }
 
     private void checkStrictModeAndFilterRatio() throws Exception {
