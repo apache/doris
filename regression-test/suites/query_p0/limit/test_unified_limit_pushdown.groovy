@@ -18,8 +18,8 @@
 // Test unified limit pushdown to SegmentIterator.
 // This exercises the code path where _can_opt_limit_reads() returns true
 // because all column predicates are evaluated by inverted index, allowing
-// the segment iterator to tighten nrows_read_limit using topn_limit and
-// shared_scan_limit.
+// the segment iterator to tighten nrows_read_limit and avoid reading
+// non-predicate columns past the pushed-down local read limit.
 
 suite("test_unified_limit_pushdown") {
 
@@ -135,7 +135,7 @@ suite("test_unified_limit_pushdown") {
     assert count7[0][0] == 10 : "MOW inverted delete+filter: LIMIT 10, got ${count7[0][0]}"
 
     // ---- Multi-bucket table with inverted indexes ----
-    // Tests shared_scan_limit coordination across multiple scanners.
+    // Tests scanner-level shared limit coordination across multiple scanners.
     sql "DROP TABLE IF EXISTS dup_multi_inv_limit"
     sql """
         CREATE TABLE dup_multi_inv_limit (
@@ -157,7 +157,7 @@ suite("test_unified_limit_pushdown") {
     }
     sql sb.toString()
 
-    // With 8 buckets, up to 8 scanners may run. shared_scan_limit coordinates
+    // With 8 buckets, up to 8 scanners may run. The scanner-level shared limit coordinates
     // to return exactly LIMIT rows.
     def count8 = sql """
         SELECT COUNT(*) FROM (
@@ -196,7 +196,7 @@ suite("test_unified_limit_pushdown") {
     """
 
     // Also assert ORDER BY content for the multi-bucket case so that the
-    // shared_scan_limit path is row-validated, not just count-validated.
+    // multi-bucket path is row-validated, not just count-validated.
     order_qt_topn_multi_bucket """
         SELECT k1, k2 FROM dup_multi_inv_limit ORDER BY k1 LIMIT 12
     """

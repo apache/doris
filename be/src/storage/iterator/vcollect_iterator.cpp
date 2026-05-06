@@ -37,7 +37,6 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "core/field.h"
-#include "exprs/vexpr_context.h"
 #include "io/io_common.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
@@ -89,28 +88,23 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
     if (_reader->_reader_context.read_orderby_key_limit > 0) {
         _topn_limit = _reader->_reader_context.read_orderby_key_limit;
     }
-    // General limit. Applied after filter_block_conjuncts in next() so
-    // the row count reflects post-filter rows.
+    // General limit is forwarded to SegmentIterator, which applies it after
+    // predicate/common-expr filtering and before lazy-reading non-predicate columns.
     if (_reader->_reader_context.general_read_limit > 0) {
         _general_read_limit = static_cast<size_t>(_reader->_reader_context.general_read_limit);
     }
 }
 
 Status VCollectIterator::add_child(const RowSetSplits& rs_splits) {
-    // Forward the per-segment row cap to SegmentIterator so it can stop
-    // early. This is only safe when no filter is applied above the segment;
-    // otherwise the segment may EOF before producing enough post-filter
-    // rows to satisfy the limit. When the cap is suppressed here, limit
-    // enforcement still happens above (topn merge / general truncate).
+    // Forward the local row budget to SegmentIterator. SegmentIterator applies
+    // it after its own predicate/common-expr filtering, so LIMIT and pushed
+    // conjuncts stay in the same layer.
     if (use_topn_next()) {
-        if (_reader->_reader_context.filter_block_conjuncts.empty()) {
-            rs_splits.rs_reader->set_topn_limit(_topn_limit);
-        }
+        rs_splits.rs_reader->set_topn_limit(_topn_limit);
         _rs_splits.push_back(rs_splits);
         return Status::OK();
     }
-    if (!_merge && _general_read_limit > 0 &&
-        _reader->_reader_context.filter_block_conjuncts.empty()) {
+    if (_general_read_limit > 0) {
         rs_splits.rs_reader->set_topn_limit(_general_read_limit);
     }
 
@@ -259,35 +253,11 @@ Status VCollectIterator::next(Block* block) {
         return _topn_next(block);
     }
 
-    // Stop early once the general limit budget is reached.
-    if (_general_read_limit > 0 && _general_rows_returned >= _general_read_limit) {
-        return Status::Error<END_OF_FILE>("");
-    }
-
     if (LIKELY(_inner_iter)) {
         auto st = _inner_iter->next(block);
         if (UNLIKELY(!st.ok())) {
             return st;
         }
-
-        // Apply filter_block_conjuncts pushed down by the scanner. Must
-        // happen before limit accounting so the row count matches the
-        // operator-visible LIMIT.
-        if (!_reader->_reader_context.filter_block_conjuncts.empty()) {
-            RETURN_IF_ERROR(VExprContext::filter_block(
-                    _reader->_reader_context.filter_block_conjuncts, block, block->columns()));
-        }
-
-        if (_general_read_limit > 0) {
-            _general_rows_returned += block->rows();
-            if (_general_rows_returned > _general_read_limit) {
-                size_t excess = _general_rows_returned - _general_read_limit;
-                DORIS_CHECK(block->rows() >= excess);
-                block->set_num_rows(block->rows() - excess);
-                _general_rows_returned = _general_read_limit;
-            }
-        }
-
         return Status::OK();
     } else {
         return Status::Error<END_OF_FILE>("");
@@ -360,10 +330,6 @@ Status VCollectIterator::_topn_next(Block* block) {
                     return status;
                 }
             }
-
-            // filter block
-            RETURN_IF_ERROR(VExprContext::filter_block(
-                    _reader->_reader_context.filter_block_conjuncts, block, block->columns()));
 
             // update read rows
             read_rows += block->rows();

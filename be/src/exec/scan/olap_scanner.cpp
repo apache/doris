@@ -87,7 +87,6 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .remaining_conjunct_roots {},
                                  .common_expr_ctxs_push_down {},
                                  .topn_filter_source_node_ids {},
-                                 .filter_block_conjuncts {},
                                  .key_group_cluster_key_idxes {},
                                  .virtual_column_exprs {},
                                  .vir_cid_to_idx_in_block {},
@@ -443,11 +442,11 @@ Status OlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.enable_mor_value_predicate_pushdown = true;
         }
 
-        // Push limit and conjuncts into the storage layer. Skipped when
-        // runtime filters are present because they may arrive late and
-        // re-populate _conjuncts after the storage layer has committed to
-        // a row budget that ignored them.
-        if (_total_rf_num == 0) {
+        // Push LIMIT into SegmentIterator only when all conjuncts have already
+        // moved there. Runtime filters may arrive late, so keep LIMIT at the
+        // scanner/operator layer when any runtime filter exists.
+        if (_total_rf_num == 0 && _conjuncts.empty() &&
+            _state->enable_segment_filter_and_limit_pushdown()) {
             if (olap_scan_node.__isset.sort_info &&
                 !olap_scan_node.sort_info.is_asc_order.empty()) {
                 _limit = _local_state->limit_per_scanner();
@@ -459,32 +458,16 @@ Status OlapScanner::_init_tablet_reader_params(
                         olap_scan_node.sort_info.is_asc_order.size();
 
                 if (_limit > 0 && olap_scan_local_state->_storage_no_merge()) {
-                    // Tells VCollectIterator to use the topn reader path
-                    // (use_topn_next). Whether the per-segment row cap is
-                    // also forwarded to SegmentIterator is decided inside
-                    // VCollectIterator::add_child, which skips the cap when
-                    // filter_block_conjuncts is non-empty so that filters
-                    // applied above the segment do not cause the segment to
-                    // EOF before producing enough post-filter rows.
                     _tablet_reader_params.read_orderby_key_limit = _limit;
                 }
             } else if (_limit > 0 && olap_scan_local_state->_storage_no_merge()) {
-                // Limit truncate inside VCollectIterator. The truncate runs
-                // after filter_block_conjuncts so the row count matches the
-                // operator-visible LIMIT. Forwarding the cap further down
-                // to SegmentIterator is decided in add_child().
                 _tablet_reader_params.general_read_limit = _limit;
-            }
-
-            if (olap_scan_local_state->_storage_no_merge() && !_conjuncts.empty()) {
-                _tablet_reader_params.filter_block_conjuncts = _conjuncts;
-                _conjuncts.clear();
             }
         }
 
         // Each topn scanner must independently produce its full local top-N
         // candidates, so the cross-scanner shared limit cannot apply here.
-        if (_tablet_reader_params.read_orderby_key) {
+        if (_tablet_reader_params.read_orderby_key_limit > 0) {
             _shared_scan_limit = nullptr;
         }
         // Note: _shared_scan_limit is intentionally not pushed into the

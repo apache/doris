@@ -359,9 +359,8 @@ private:
     // For chunked topN output when result exceeds byte budget.
     Block _topn_result_block;
     size_t _topn_result_offset = 0;
-    // for general limit truncate (applied after filter_block_conjuncts)
+    // for forwarding general LIMIT to SegmentIterator
     size_t _general_read_limit = 0;
-    size_t _general_rows_returned = 0;
     std::vector<RowSetSplits> _rs_splits;
 
     // Hold reader point to access read params, such as fetch conditions.

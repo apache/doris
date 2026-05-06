@@ -472,8 +472,31 @@ Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* f
     return Status::OK();
 }
 
-bool OlapScanLocalState::_should_push_down_common_expr() {
-    return state()->enable_common_expr_pushdown() && _storage_no_merge();
+bool OlapScanLocalState::_should_push_down_common_expr(const VExprSPtr& expr) {
+    if (!state()->enable_segment_filter_and_limit_pushdown() ||
+        !VExpr::is_acting_on_a_slot(*expr)) {
+        return false;
+    }
+    if (_parent->limit() >= 0 && _helper.runtime_filter_nums() > 0) {
+        return false;
+    }
+    if (_storage_no_merge()) {
+        return true;
+    }
+    return _expr_only_refs_key_columns(expr);
+}
+
+bool OlapScanLocalState::_expr_only_refs_key_columns(const VExprSPtr& expr) {
+    if (expr->is_slot_ref()) {
+        const auto* slot_ref = assert_cast<const VSlotRef*>(expr.get());
+        return _is_key_column(slot_ref->expr_name());
+    }
+    for (const auto& child : expr->children()) {
+        if (!_expr_only_refs_key_columns(child)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool OlapScanLocalState::_storage_no_merge() {

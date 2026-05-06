@@ -489,6 +489,9 @@ struct TQueryOptions {
   // Default 8MB. Sent by FE session variable preferred_block_size_bytes.
   218: optional i64 preferred_block_size_bytes = 8388608
 
+  // Push scan conjuncts and LIMIT into SegmentIterator when safe.
+  219: optional bool enable_segment_filter_and_limit_pushdown = true
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

@@ -138,8 +138,9 @@ public:
     RowRanges row_ranges;
 
     // Per-segment row budget pushed down from the scanner (topn or general
-    // limit). SegmentIterator stops after `read_limit` rows. Only used when
-    // _can_opt_limit_reads() holds. 0 disables the optimization.
+    // limit). SegmentIterator applies it after predicate/common-expr filtering;
+    // _can_opt_limit_reads() only decides whether the pre-filter read can also
+    // be capped. 0 disables the optimization.
     size_t read_limit = 0;
 
     std::map<ColumnId, VExprContextSPtr> virtual_column_exprs;
