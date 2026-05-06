@@ -948,7 +948,6 @@ TEST(StorageVaultCascadeTest, AlterS3VaultCascadesToDerivedInstances) {
         *key_id = 1;
     });
 
-
     std::string cipher_sk = "HNAGUf23voYuuqV2BCX9Tw==";
     create_instance_with_storage_vault(meta_service.get(), "vault_parent", "", "2", "vault_old",
                                        "old_ak", "old_sk");
