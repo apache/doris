@@ -141,8 +141,7 @@ TEST(DictionaryArrayTest, ArrayValueNonNullable) {
     EXPECT_FALSE(nullable_result->is_null_at(2)); // key=3 found
     EXPECT_TRUE(nullable_result->is_null_at(3));  // key=99 not found
 
-    const auto* arr_result =
-            assert_cast<const ColumnArray*>(&nullable_result->get_nested_column());
+    const auto* arr_result = assert_cast<const ColumnArray*>(&nullable_result->get_nested_column());
 
     // row 0: [10, 20] -> 2 elements
     EXPECT_EQ(arr_result->get_offsets()[0] - 0, 2);
@@ -259,8 +258,7 @@ TEST(DictionaryArrayTest, ArrayKeyAndArrayValue) {
     EXPECT_FALSE(nullable_result->is_null_at(1));
     EXPECT_TRUE(nullable_result->is_null_at(2)); // not found
 
-    const auto* arr_result =
-            assert_cast<const ColumnArray*>(&nullable_result->get_nested_column());
+    const auto* arr_result = assert_cast<const ColumnArray*>(&nullable_result->get_nested_column());
 
     // row 0: ['x'] -> 1 element
     EXPECT_EQ(arr_result->get_offsets()[0] - 0, 1);
@@ -280,8 +278,8 @@ TEST(DictionaryArrayTest, MapKey) {
     value_col->insert_data("b", 1);
     value_col->insert_data("c", 1);
 
-    auto map_key_type =
-            std::make_shared<DataTypeMap>(std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>());
+    auto map_key_type = std::make_shared<DataTypeMap>(std::make_shared<DataTypeInt32>(),
+                                                      std::make_shared<DataTypeString>());
     auto string_type = std::make_shared<DataTypeString>();
 
     ColumnsWithTypeAndName attribute_data {{value_col->clone(), string_type, "v0"}};
@@ -290,7 +288,8 @@ TEST(DictionaryArrayTest, MapKey) {
             "test_map_key", {key_col}, {map_key_type}, attribute_data);
 
     // query: [{1->'x'}, {2->'y',3->'z'}, {}, {99->'miss'}]
-    auto query_key = make_map_column_int32_string({{{1, "x"}}, {{2, "y"}, {3, "z"}}, {}, {{99, "miss"}}});
+    auto query_key =
+            make_map_column_int32_string({{{1, "x"}}, {{2, "y"}, {3, "z"}}, {}, {{99, "miss"}}});
 
     auto result = dict->get_column("v0", string_type, query_key, map_key_type);
 
