@@ -254,7 +254,7 @@ public:
     Status push(RuntimeState* state, Block* input_block, bool eos) const override;
     Status pull(doris::RuntimeState* state, Block* output_block, bool* eos) const override;
     const RowDescriptor& intermediate_row_desc() const override {
-        return _old_version_flag ? _row_descriptor : *_intermediate_row_desc;
+        return _intermediate_row_desc ? *_intermediate_row_desc : _row_descriptor;
     }
 
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
@@ -267,9 +267,10 @@ public:
     }
 
     const RowDescriptor& row_desc() const override {
-        return _old_version_flag
-                       ? (_output_row_descriptor ? *_output_row_descriptor : _row_descriptor)
-                       : (_output_row_descriptor ? *_output_row_descriptor : *_output_row_desc);
+        if (_output_row_descriptor) {
+            return *_output_row_descriptor;
+        }
+        return _output_row_desc ? *_output_row_desc : _row_descriptor;
     }
 
     bool need_more_input_data(RuntimeState* state) const override;
@@ -286,7 +287,6 @@ private:
     bool _enable_lazy_probe_finalize = false;
     std::set<int> _lazy_eval_column_ids;
     std::set<int> _materialize_column_ids;
-    const bool _old_version_flag;
 };
 
 } // namespace doris

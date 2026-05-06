@@ -919,8 +919,7 @@ NestedLoopJoinProbeOperatorX::NestedLoopJoinProbeOperatorX(ObjectPool* pool, con
                                      tnode.nested_loop_join_node.__isset.materialized_slot_ids),
           _materialized_slot_ids(_has_materialized_slot_ids
                                          ? tnode.nested_loop_join_node.materialized_slot_ids
-                                         : std::vector<SlotId> {}),
-          _old_version_flag(!tnode.__isset.nested_loop_join_node) {
+                                         : std::vector<SlotId> {}) {
     _keep_origin = _is_output_probe_side_only;
 }
 
@@ -963,10 +962,9 @@ Status NestedLoopJoinProbeOperatorX::prepare(RuntimeState* state) {
                                   _join_op == TJoinOp::LEFT_ANTI_JOIN;
     bool supported_lazy_join = _join_op == TJoinOp::INNER_JOIN || _join_op == TJoinOp::CROSS_JOIN ||
                                _enable_lazy_probe_finalize;
-    _enable_lazy_materialize =
-            !_old_version_flag && _has_materialized_slot_ids && !_is_output_probe_side_only &&
-            !_is_mark_join && supported_lazy_join && conjuncts().empty() &&
-            !projections().empty() && &projections_row_desc() == &intermediate_row_desc();
+    _enable_lazy_materialize = _has_materialized_slot_ids && !_is_output_probe_side_only &&
+                               !_is_mark_join && supported_lazy_join && !projections().empty() &&
+                               &projections_row_desc() == &intermediate_row_desc();
     return VExpr::open(_join_conjuncts, state);
 }
 
