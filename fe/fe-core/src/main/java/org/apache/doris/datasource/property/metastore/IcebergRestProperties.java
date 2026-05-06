@@ -39,6 +39,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     // REST catalog property constants
     private static final String PREFIX_PROPERTY = "prefix";
+    private static final String HEADER_PROPERTY_PREFIX = "header.";
+    private static final String ICEBERG_REST_HEADER_PROPERTY_PREFIX = "iceberg.rest.header.";
     private static final String VENDED_CREDENTIALS_HEADER = "header.X-Iceberg-Access-Delegation";
     private static final String VENDED_CREDENTIALS_VALUE = "vended-credentials";
 
@@ -266,6 +268,25 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         }
         if (Strings.isNotBlank(icebergRestSocketTimeoutMs)) {
             icebergRestCatalogProperties.put("rest.client.socket-timeout-ms", icebergRestSocketTimeoutMs);
+        }
+
+        addCustomHeaderProperties();
+    }
+
+    /**
+     * Forward custom headers configured as "iceberg.rest.header.<Header-Name>" to Iceberg REST
+     * as "header.<Header-Name>", which is the key format expected by the Iceberg REST client.
+     */
+    private void addCustomHeaderProperties() {
+        for (Map.Entry<String, String> entry : getOrigProps().entrySet()) {
+            String key = entry.getKey();
+            String value = entry.getValue();
+            if (key != null && key.startsWith(ICEBERG_REST_HEADER_PROPERTY_PREFIX) && Strings.isNotBlank(value)) {
+                String headerName = key.substring(ICEBERG_REST_HEADER_PROPERTY_PREFIX.length());
+                if (Strings.isNotBlank(headerName)) {
+                    icebergRestCatalogProperties.put(HEADER_PROPERTY_PREFIX + headerName, value);
+                }
+            }
         }
     }
 
