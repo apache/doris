@@ -47,6 +47,7 @@ import org.apache.commons.lang3.tuple.Pair;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -89,12 +90,14 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                                       Collection<Slot> operativeSlots, List<NamedExpression> virtualColumns,
                                       List<OrderKey> scoreOrderKeys, Optional<Long> scoreLimit,
                                       Optional<ScoreRangeInfo> scoreRangeInfo,
-                                      List<OrderKey> annOrderKeys, Optional<Long> annLimit, String tableAlias) {
+                                      List<OrderKey> annOrderKeys, Optional<Long> annLimit, String tableAlias,
+                                      Boolean isIncrementalScan) {
         super(id, table, qualifier, groupExpression, logicalProperties,
                 selectedPartitionIds, partitionPruned, selectedTabletIds, selectedIndexId, indexSelected,
                 preAggStatus, specifiedPartitions, hints, cacheSlotWithSlotName, cachedOutput, tableSample,
                 directMvScan, colToSubPathsMap, specifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias);
+        this.isIncrementalScan = isIncrementalScan;
     }
 
     @Override
@@ -106,7 +109,8 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                         selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                         hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                         colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
-                        scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias));
+                        scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
+                        isIncrementalScan));
     }
 
     @Override
@@ -166,7 +170,7 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                         selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                         hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                         colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys,
-                        scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias));
+                        scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias, isIncrementalScan));
     }
 
     /** withCachedOutput */
@@ -179,7 +183,7 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                         selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions, hints,
                         cacheSlotWithSlotName, Optional.of(outputSlots), tableSample, directMvScan, colToSubPathsMap,
                         manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
-                        scoreRangeInfo, annOrderKeys, annLimit, tableAlias));
+                        scoreRangeInfo, annOrderKeys, annLimit, tableAlias, isIncrementalScan));
     }
 
     @Override
@@ -191,7 +195,7 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                         selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                         hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
                         manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
-                        scoreRangeInfo, annOrderKeys, annLimit, tableAlias));
+                        scoreRangeInfo, annOrderKeys, annLimit, tableAlias, isIncrementalScan));
     }
 
     @Override
@@ -228,9 +232,13 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                         selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                         hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                         colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
-                        scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias));
+                        scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
+                        isIncrementalScan));
     }
 
+    /**
+     * withGroupExpression
+     */
     @Override
     public LogicalOlapTableStreamScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return AbstractPlan.copyWithSameId(this, () ->
@@ -240,11 +248,8 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                         selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                         hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                         colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
-                        scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias));
-    }
-
-    public void setIsIncrementalScan(boolean isIncrementalScan) {
-        this.isIncrementalScan = isIncrementalScan;
+                        scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
+                        isIncrementalScan));
     }
 
     public boolean isIncrementalScan() {
@@ -254,5 +259,20 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalOlapTableStreamScan(this, context);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        LogicalOlapTableStreamScan that = (LogicalOlapTableStreamScan) o;
+        return Objects.equals(isIncrementalScan, that.isIncrementalScan);
     }
 }
