@@ -627,8 +627,9 @@ void SegmentIterator::_init_cache_block_prefetch() {
             // This runs after segment open, index pruning, and iterator initialization. At this
             // point _row_bitmap already represents the rows that the scan will read, and later
             // page reads advance monotonically in scan order. That makes it possible to describe
-            // the remaining segment-data access as ordered file ranges and let
-            // CacheBlockAwarePrefetchRemoteReader trigger cache-block prefetch by page offset.
+            // the remaining segment-data access as ordered file ranges. Each physical column
+            // iterator owns an independent CacheBlockAwarePrefetchRemoteReader, so the installed
+            // pattern is consumed automatically by read_at() using the current file offset.
             io::CacheBlockPrefetchPolicy prefetch_policy {
                     .max_prefetch_blocks = cast_set<size_t>(window_size),
                     .cache_block_size = cast_set<size_t>(config::file_cache_each_block_size),
@@ -670,10 +671,10 @@ void SegmentIterator::_init_cache_block_prefetch() {
                                                                         init_method);
                 }
             }
-            // Different columns in the same segment share the same underlying file reader, while
-            // each column has its own locally predictable and monotonic data-page sequence. Keep
-            // one read pattern per column iterator so advancing one column's prefetch window never
-            // advances another column's window on the shared CacheBlockAwarePrefetchRemoteReader.
+            // Different columns in the same segment have independently predictable and monotonic
+            // data-page sequences. With prefetch enabled they no longer share the same
+            // CacheBlockAwarePrefetchRemoteReader; installing one pattern per physical iterator
+            // is enough, and the IO layer advances that pattern from subsequent read_at() calls.
             for (auto& [method, iterators] : prefetch_iterators) {
                 if (method == FileAccessRangeBuildMethod::ALL_DATA_PAGES) {
                     for (auto* iterator : iterators) {

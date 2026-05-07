@@ -260,6 +260,7 @@ private:
 
     io::FileSystemSPtr _fs;
     io::FileReaderSPtr _file_reader;
+    io::FileReaderOptions _reader_options;
     uint32_t _segment_id;
     uint32_t _num_rows;
     AtomicStatus _healthy_status;

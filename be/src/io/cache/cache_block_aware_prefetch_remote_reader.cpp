@@ -26,100 +26,66 @@
 
 namespace doris::io {
 
-CacheBlockAwarePrefetchRemoteReader::ReadPatternHandle::ReadPatternHandle(
-        std::weak_ptr<CacheBlockAwarePrefetchRemoteReader> reader, ReadPatternId id)
-        : _reader(std::move(reader)), _id(id) {}
-
-CacheBlockAwarePrefetchRemoteReader::ReadPatternHandle::~ReadPatternHandle() {
-    reset();
-}
-
-CacheBlockAwarePrefetchRemoteReader::ReadPatternHandle::ReadPatternHandle(
-        ReadPatternHandle&& other) noexcept
-        : _reader(std::move(other._reader)), _id(std::exchange(other._id, 0)) {}
-
-CacheBlockAwarePrefetchRemoteReader::ReadPatternHandle&
-CacheBlockAwarePrefetchRemoteReader::ReadPatternHandle::operator=(
-        ReadPatternHandle&& other) noexcept {
-    if (this != &other) {
-        reset();
-        _reader = std::move(other._reader);
-        _id = std::exchange(other._id, 0);
-    }
-    return *this;
-}
-
-void CacheBlockAwarePrefetchRemoteReader::ReadPatternHandle::reset() noexcept {
-    auto id = std::exchange(_id, 0);
-    if (id == 0) {
-        return;
-    }
-    if (auto reader = _reader.lock()) {
-        reader->_clear_read_pattern(id);
-    }
-    _reader.reset();
-}
-
-void CacheBlockAwarePrefetchRemoteReader::ReadPatternHandle::prefetch(
-        size_t current_file_offset, const IOContext* io_ctx) const {
-    if (_id == 0) {
-        return;
-    }
-    if (auto reader = _reader.lock()) {
-        reader->_prefetch(_id, current_file_offset, io_ctx);
-    }
-}
-
 CacheBlockAwarePrefetchRemoteReader::CacheBlockAwarePrefetchRemoteReader(
         FileReaderSPtr remote_file_reader, const FileReaderOptions& opts)
         : CachedRemoteFileReader(std::move(remote_file_reader), opts) {}
 
-Result<CacheBlockAwarePrefetchRemoteReader::ReadPatternHandle>
-CacheBlockAwarePrefetchRemoteReader::register_read_pattern(CacheBlockReadPattern pattern,
-                                                           const CacheBlockPrefetchPolicy& policy) {
+Status CacheBlockAwarePrefetchRemoteReader::set_read_pattern(
+        CacheBlockReadPattern pattern, const CacheBlockPrefetchPolicy& policy) {
     if (policy.max_prefetch_blocks == 0 || policy.cache_block_size == 0) {
-        return ResultError(Status::InvalidArgument(
-                "cache block prefetch policy requires positive window and block size"));
+        return Status::InvalidArgument(
+                "cache block prefetch policy requires positive window and block size");
     }
 
     ReadPatternState state;
     state.direction = pattern.direction;
     state.policy = policy;
     state.block_sequence = _build_block_sequence(std::move(pattern), policy.cache_block_size);
+
+    std::lock_guard lock(_pattern_mutex);
     if (state.block_sequence.empty()) {
-        return ReadPatternHandle {};
+        _has_pattern = false;
+        _pattern = {};
+        return Status::OK();
     }
-
-    ReadPatternId id = 0;
-    std::lock_guard lock(_pattern_mutex);
-    id = _next_pattern_id++;
-    _patterns.emplace(id, std::move(state));
-    return ReadPatternHandle {
-            std::static_pointer_cast<CacheBlockAwarePrefetchRemoteReader>(shared_from_this()), id};
+    _pattern = std::move(state);
+    _has_pattern = true;
+    return Status::OK();
 }
 
-void CacheBlockAwarePrefetchRemoteReader::_clear_read_pattern(ReadPatternId id) {
-    if (id == 0) {
-        return;
-    }
+void CacheBlockAwarePrefetchRemoteReader::clear_read_pattern() {
     std::lock_guard lock(_pattern_mutex);
-    _patterns.erase(id);
+    _has_pattern = false;
+    _pattern = {};
 }
 
-void CacheBlockAwarePrefetchRemoteReader::_prefetch(ReadPatternId id, size_t current_file_offset,
+bool CacheBlockAwarePrefetchRemoteReader::has_read_pattern() const {
+    std::lock_guard lock(_pattern_mutex);
+    return _has_pattern;
+}
+
+Status CacheBlockAwarePrefetchRemoteReader::read_at_impl(size_t offset, Slice result,
+                                                         size_t* bytes_read,
+                                                         const IOContext* io_ctx) {
+    // Normal foreground reads drive the prefetch window by the real file offset
+    // that PageIO is about to read. Dry-run reads are submitted by
+    // CachedRemoteFileReader::prefetch_range() to warm the file cache; they must
+    // not recursively schedule more prefetch work.
+    if (io_ctx == nullptr || !io_ctx->is_dryrun) {
+        _prefetch(offset, io_ctx);
+    }
+    return CachedRemoteFileReader::read_at_impl(offset, result, bytes_read, io_ctx);
+}
+
+void CacheBlockAwarePrefetchRemoteReader::_prefetch(size_t current_file_offset,
                                                     const IOContext* io_ctx) {
-    if (id == 0) {
-        return;
-    }
-
     std::vector<CacheBlockRange> ranges;
     {
         std::lock_guard lock(_pattern_mutex);
-        auto iter = _patterns.find(id);
-        if (iter == _patterns.end()) {
+        if (!_has_pattern) {
             return;
         }
-        ranges = _next_prefetch_ranges(&iter->second, current_file_offset);
+        ranges = _next_prefetch_ranges(&_pattern, current_file_offset);
     }
 
     for (const auto& range : ranges) {

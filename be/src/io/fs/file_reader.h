@@ -60,7 +60,7 @@ struct FileReaderOptions {
     // Used to query the location of the file cache
     int64_t tablet_id = -1;
     // If true, FILE_BLOCK_CACHE readers are created as CacheBlockAwarePrefetchRemoteReader.
-    // Callers can then register file access patterns and prefetch file cache blocks.
+    // Callers can install one file access pattern and let read_at() prefetch file cache blocks.
     bool enable_cache_block_prefetch = false;
 
     static const FileReaderOptions DEFAULT;
