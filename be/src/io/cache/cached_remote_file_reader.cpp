@@ -633,7 +633,8 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
     g_skip_cache_sum << read_stats.skip_cache;
 }
 
-void CachedRemoteFileReader::prefetch_range(size_t offset, size_t size, const IOContext* io_ctx) {
+void CachedRemoteFileReader::async_touch_local_cache(size_t offset, size_t size,
+                                                     const IOContext* io_ctx) {
     if (offset >= this->size() || size == 0) {
         return;
     }
@@ -654,9 +655,10 @@ void CachedRemoteFileReader::prefetch_range(size_t offset, size_t size, const IO
     dryrun_ctx.file_cache_stats = nullptr;
     dryrun_ctx.file_reader_stats = nullptr;
 
-    LOG_IF(INFO, config::enable_segment_prefetch_verbose_log)
-            << fmt::format("[verbose] Submitting prefetch task for offset={} size={}, file={}",
-                           offset, size, path().filename().native());
+    LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
+            "[verbose] Submitting local cache touch task for offset={} size={}, "
+            "file={}",
+            offset, size, path().filename().native());
     std::weak_ptr<CachedRemoteFileReader> weak_this = shared_from_this();
     auto st = pool->submit_func([weak_this, offset, size, dryrun_ctx]() {
         auto self = weak_this.lock();
@@ -666,14 +668,15 @@ void CachedRemoteFileReader::prefetch_range(size_t offset, size_t size, const IO
         size_t bytes_read;
         Slice dummy_buffer((char*)nullptr, size);
         (void)self->read_at_impl(offset, dummy_buffer, &bytes_read, &dryrun_ctx);
-        LOG_IF(INFO, config::enable_segment_prefetch_verbose_log)
-                << fmt::format("[verbose] Prefetch task completed for offset={} size={}, file={}",
-                               offset, size, self->path().filename().native());
+        LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
+                "[verbose] Local cache touch task completed for offset={} size={}, "
+                "file={}",
+                offset, size, self->path().filename().native());
     });
 
     if (!st.ok()) {
-        VLOG_DEBUG << "Failed to submit prefetch task for offset=" << offset << " size=" << size
-                   << " error=" << st.to_string();
+        VLOG_DEBUG << "Failed to submit local cache touch task for offset=" << offset
+                   << " size=" << size << " error=" << st.to_string();
     }
 }
 

@@ -18,7 +18,9 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <roaring/roaring.hh>
+#include <span>
 #include <vector>
 
 #include "io/cache/cache_block_aware_prefetch_remote_reader.h"
@@ -44,10 +46,10 @@ struct SegmentCacheBlockPrefetchParams {
 // The segment layer knows rowids, while CacheBlockAwarePrefetchRemoteReader only
 // understands file ranges. This helper owns the ordinal-index walk that bridges
 // the two representations:
-// - add_rowids()/finish_by_rowids() consumes selected rowids and emits each
-//   touched data page as a FileAccessRange.
-// - build_all_data_ranges() emits every data page for full-segment readers such
-//   as compaction.
+// - add_ascending_rowids()/finish_by_rowids() consumes selected rowids and emits
+//   each touched data page as a FileAccessRange.
+// - build_all_data_page_ranges() emits every data page for full-segment readers
+//   such as compaction.
 //
 // The builder deliberately returns page file ranges, not file-cache block ids.
 // A data page may be larger than a file-cache block or may straddle multiple
@@ -57,26 +59,31 @@ struct SegmentCacheBlockPrefetchParams {
 // ordinal, so this helper keeps rowid handling entirely inside the segment layer.
 class SegmentFileAccessRangeBuilder {
 public:
-    SegmentFileAccessRangeBuilder(OrdinalIndexReader* ordinal_index, bool is_forward);
+    SegmentFileAccessRangeBuilder(OrdinalIndexReader* ordinal_index,
+                                  io::CacheBlockReadDirection direction);
 
     void reset();
-    void add_rowids(const rowid_t* rowids, uint32_t num);
+    // Rowids must be ascending by segment ordinal. Reverse scans still feed
+    // ascending rowids from the bitmap and only reverse the produced file ranges
+    // when finish_by_rowids() is called.
+    void add_ascending_rowids(std::span<const rowid_t> rowids);
     std::vector<io::FileAccessRange> finish_by_rowids();
-    std::vector<io::FileAccessRange> build_all_data_ranges();
+    std::vector<io::FileAccessRange> build_all_data_page_ranges();
 
     static void add_rowids_from_bitmap(const roaring::Roaring& row_bitmap,
-                                       const std::vector<SegmentFileAccessRangeBuilder*>& builders);
+                                       std::span<SegmentFileAccessRangeBuilder* const> builders);
 
 private:
     void _append_page_access_range(int page_index);
     void _reverse_if_backward();
+    bool _is_forward() const { return _direction == io::CacheBlockReadDirection::FORWARD; }
 
     OrdinalIndexReader* _ordinal_index = nullptr;
-    bool _is_forward = true;
+    io::CacheBlockReadDirection _direction = io::CacheBlockReadDirection::FORWARD;
     std::vector<io::FileAccessRange> _access_ranges;
 
-    int _page_idx = 0;
-    int _last_page_idx = -1;
+    int _next_page_hint = 0;
+    std::optional<int> _pending_page_index;
 };
 
 } // namespace doris::segment_v2

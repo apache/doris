@@ -26,6 +26,26 @@
 
 namespace doris::io {
 
+namespace {
+
+CacheBlockRange cache_block_range(size_t block_id, size_t cache_block_size) {
+    return {block_id * cache_block_size, cache_block_size};
+}
+
+bool trigger_file_range_is_before_current_offset(const FileAccessRange& range,
+                                                 size_t current_file_offset) {
+    if (current_file_offset <= range.offset) {
+        return false;
+    }
+    return current_file_offset - range.offset >= range.size;
+}
+
+bool same_trigger_file_range(const FileAccessRange& lhs, const FileAccessRange& rhs) {
+    return lhs.offset == rhs.offset && lhs.size == rhs.size;
+}
+
+} // namespace
+
 CacheBlockAwarePrefetchRemoteReader::CacheBlockAwarePrefetchRemoteReader(
         FileReaderSPtr remote_file_reader, const FileReaderOptions& opts)
         : CachedRemoteFileReader(std::move(remote_file_reader), opts) {}
@@ -37,31 +57,26 @@ Status CacheBlockAwarePrefetchRemoteReader::set_read_pattern(
                 "cache block prefetch policy requires positive window and block size");
     }
 
-    ReadPatternState state;
-    state.direction = pattern.direction;
-    state.policy = policy;
-    state.block_sequence = _build_block_sequence(std::move(pattern), policy.cache_block_size);
+    auto plan = detail::CacheBlockPrefetchPlan::from_read_pattern(std::move(pattern),
+                                                                  policy.cache_block_size);
 
     std::lock_guard lock(_pattern_mutex);
-    if (state.block_sequence.empty()) {
-        _has_pattern = false;
-        _pattern = {};
+    if (plan.empty()) {
+        _prefetch_cursor.reset();
         return Status::OK();
     }
-    _pattern = std::move(state);
-    _has_pattern = true;
+    _prefetch_cursor.emplace(std::move(plan), policy.max_prefetch_blocks);
     return Status::OK();
 }
 
 void CacheBlockAwarePrefetchRemoteReader::clear_read_pattern() {
     std::lock_guard lock(_pattern_mutex);
-    _has_pattern = false;
-    _pattern = {};
+    _prefetch_cursor.reset();
 }
 
 bool CacheBlockAwarePrefetchRemoteReader::has_read_pattern() const {
     std::lock_guard lock(_pattern_mutex);
-    return _has_pattern;
+    return _prefetch_cursor.has_value();
 }
 
 Status CacheBlockAwarePrefetchRemoteReader::read_at_impl(size_t offset, Slice result,
@@ -69,8 +84,8 @@ Status CacheBlockAwarePrefetchRemoteReader::read_at_impl(size_t offset, Slice re
                                                          const IOContext* io_ctx) {
     // Normal foreground reads drive the prefetch window by the real file offset
     // that PageIO is about to read. Dry-run reads are submitted by
-    // CachedRemoteFileReader::prefetch_range() to warm the file cache; they must
-    // not recursively schedule more prefetch work.
+    // CachedRemoteFileReader::async_touch_local_cache() to warm the file cache;
+    // they must not recursively schedule more prefetch work.
     if (io_ctx == nullptr || !io_ctx->is_dryrun) {
         _prefetch(offset, io_ctx);
     }
@@ -82,20 +97,74 @@ void CacheBlockAwarePrefetchRemoteReader::_prefetch(size_t current_file_offset,
     std::vector<CacheBlockRange> ranges;
     {
         std::lock_guard lock(_pattern_mutex);
-        if (!_has_pattern) {
+        if (!_prefetch_cursor.has_value()) {
             return;
         }
-        ranges = _next_prefetch_ranges(&_pattern, current_file_offset);
+        ranges = _prefetch_cursor->next_touch_ranges(current_file_offset);
     }
 
     for (const auto& range : ranges) {
-        prefetch_range(range.offset, range.size, io_ctx);
+        async_touch_local_cache(range.offset, range.size, io_ctx);
     }
 }
 
-std::vector<CacheBlockAwarePrefetchRemoteReader::CacheBlockInfo>
-CacheBlockAwarePrefetchRemoteReader::_build_block_sequence(CacheBlockReadPattern pattern,
-                                                           size_t cache_block_size) {
+namespace detail {
+
+CacheBlockPrefetchCursor::CacheBlockPrefetchCursor(CacheBlockPrefetchPlan plan,
+                                                   size_t max_prefetch_blocks)
+        : _plan(std::move(plan)), _max_prefetch_blocks(max_prefetch_blocks) {
+    DCHECK(_max_prefetch_blocks > 0);
+}
+
+std::vector<CacheBlockRange> CacheBlockPrefetchCursor::next_touch_ranges(
+        size_t current_file_offset) {
+    std::vector<CacheBlockRange> ranges;
+    const auto entries = _plan.entries();
+    if (entries.empty() || _next_touch_index >= entries.size()) {
+        return ranges;
+    }
+
+    _advance_current_index(current_file_offset);
+    if (_current_index >= entries.size()) {
+        return ranges;
+    }
+
+    _next_touch_index = std::max(_next_touch_index, _current_index);
+    while (_next_touch_index < entries.size()) {
+        const bool has_window_capacity = _prefetched_window_size() < _max_prefetch_blocks;
+        if (!has_window_capacity && !_next_range_continues_current_file_range()) {
+            break;
+        }
+        ranges.push_back(entries[_next_touch_index++].cache_block_range);
+    }
+    return ranges;
+}
+
+void CacheBlockPrefetchCursor::_advance_current_index(size_t current_file_offset) {
+    auto current_range_is_behind = [this,
+                                    current_file_offset](const CacheBlockPrefetchPlanEntry& entry) {
+        if (_plan.direction() == CacheBlockReadDirection::FORWARD) {
+            return trigger_file_range_is_before_current_offset(entry.trigger_file_range,
+                                                               current_file_offset);
+        }
+        return entry.trigger_file_range.offset > current_file_offset;
+    };
+    const auto entries = _plan.entries();
+    while (_current_index < entries.size() && current_range_is_behind(entries[_current_index])) {
+        ++_current_index;
+    }
+}
+
+bool CacheBlockPrefetchCursor::_next_range_continues_current_file_range() const {
+    const auto entries = _plan.entries();
+    return _next_touch_index > _current_index && _next_touch_index < entries.size() &&
+           same_trigger_file_range(entries[_next_touch_index].trigger_file_range,
+                                   entries[_next_touch_index - 1].trigger_file_range);
+}
+
+CacheBlockPrefetchPlan CacheBlockPrefetchPlan::from_read_pattern(CacheBlockReadPattern pattern,
+                                                                 size_t cache_block_size) {
+    const auto direction = pattern.direction;
     if (pattern.direction == CacheBlockReadDirection::FORWARD) {
         std::stable_sort(pattern.ranges.begin(), pattern.ranges.end(),
                          [](const FileAccessRange& lhs, const FileAccessRange& rhs) {
@@ -108,7 +177,7 @@ CacheBlockAwarePrefetchRemoteReader::_build_block_sequence(CacheBlockReadPattern
                          });
     }
 
-    std::vector<CacheBlockInfo> block_sequence;
+    std::vector<CacheBlockPrefetchPlanEntry> entries;
     std::unordered_set<size_t> added_blocks;
     for (const auto& range : pattern.ranges) {
         if (range.size == 0) {
@@ -121,7 +190,10 @@ CacheBlockAwarePrefetchRemoteReader::_build_block_sequence(CacheBlockReadPattern
         if (pattern.direction == CacheBlockReadDirection::FORWARD) {
             for (size_t block_id = start_block;; ++block_id) {
                 if (added_blocks.emplace(block_id).second) {
-                    block_sequence.push_back({block_id, range.offset});
+                    entries.push_back({
+                            .cache_block_range = cache_block_range(block_id, cache_block_size),
+                            .trigger_file_range = range,
+                    });
                 }
                 if (block_id == end_block) {
                     break;
@@ -130,7 +202,10 @@ CacheBlockAwarePrefetchRemoteReader::_build_block_sequence(CacheBlockReadPattern
         } else {
             for (size_t block_id = end_block;; --block_id) {
                 if (added_blocks.emplace(block_id).second) {
-                    block_sequence.push_back({block_id, range.offset});
+                    entries.push_back({
+                            .cache_block_range = cache_block_range(block_id, cache_block_size),
+                            .trigger_file_range = range,
+                    });
                 }
                 if (block_id == start_block) {
                     break;
@@ -138,51 +213,9 @@ CacheBlockAwarePrefetchRemoteReader::_build_block_sequence(CacheBlockReadPattern
             }
         }
     }
-    return block_sequence;
+    return CacheBlockPrefetchPlan(direction, std::move(entries));
 }
 
-std::vector<CacheBlockRange> CacheBlockAwarePrefetchRemoteReader::_next_prefetch_ranges(
-        ReadPatternState* state, size_t current_file_offset) {
-    DCHECK(state != nullptr);
-    std::vector<CacheBlockRange> ranges;
-    if (state->block_sequence.empty() ||
-        state->prefetched_index >= static_cast<int>(state->block_sequence.size()) - 1) {
-        return ranges;
-    }
-
-    const int block_sequence_size = static_cast<int>(state->block_sequence.size());
-    if (state->direction == CacheBlockReadDirection::FORWARD) {
-        while (state->current_block_index < block_sequence_size &&
-               state->block_sequence[state->current_block_index].trigger_offset <
-                       current_file_offset) {
-            state->current_block_index++;
-        }
-    } else {
-        while (state->current_block_index < block_sequence_size &&
-               state->block_sequence[state->current_block_index].trigger_offset >
-                       current_file_offset) {
-            state->current_block_index++;
-        }
-    }
-    if (state->current_block_index >= block_sequence_size) {
-        return ranges;
-    }
-
-    state->prefetched_index = std::max(state->prefetched_index, state->current_block_index - 1);
-    while (state->prefetched_index + 1 < block_sequence_size) {
-        const bool has_window_capacity =
-                static_cast<size_t>(state->window_size()) < state->policy.max_prefetch_blocks;
-        const bool is_completing_started_file_range =
-                state->prefetched_index >= state->current_block_index &&
-                state->block_sequence[state->prefetched_index + 1].trigger_offset ==
-                        state->block_sequence[state->prefetched_index].trigger_offset;
-        if (!has_window_capacity && !is_completing_started_file_range) {
-            break;
-        }
-        const auto& block = state->block_sequence[++state->prefetched_index];
-        ranges.push_back(_block_id_to_range(block.block_id, state->policy.cache_block_size));
-    }
-    return ranges;
-}
+} // namespace detail
 
 } // namespace doris::io

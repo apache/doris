@@ -2529,7 +2529,7 @@ Status FileColumnIterator::init_cache_block_prefetch(
                                           ? io::CacheBlockReadDirection::BACKWARD
                                           : io::CacheBlockReadDirection::FORWARD;
     _access_range_builder = std::make_unique<SegmentFileAccessRangeBuilder>(
-            ordinal_index, !params.read_options.read_orderby_key_reverse);
+            ordinal_index, _cache_block_read_direction);
     return Status::OK();
 }
 
