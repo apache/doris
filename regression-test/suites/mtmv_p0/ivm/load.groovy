@@ -15,19 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.mtmv.ivm;
-
-/** Reasons IVM analysis or execution can fail. */
-public enum IvmFailureReason {
-    BINLOG_BROKEN,
-    BINLOG_NOT_ENABLED,
-    STREAM_UNSUPPORTED,
-    SNAPSHOT_ALIGNMENT_UNSUPPORTED,
-    PLAN_PATTERN_UNSUPPORTED,
-    NON_DETERMINISTIC_ROW_ID,
-    OUTER_JOIN_RETRACTION_UNSUPPORTED,
-    PREVIOUS_RUN_INCOMPLETE,
-    INCREMENTAL_EXECUTION_FAILED,
-    AGG_UNSUPPORTED,
-    MIN_MAX_BOUNDARY_HIT
+suite("load") {
+    connect {
+        sql """DROP DATABASE IF EXISTS ${context.dbName} FORCE"""
+        sql """CREATE DATABASE ${context.dbName} PROPERTIES ("binlog.enable" = "true")"""
+    }
 }
