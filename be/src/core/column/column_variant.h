@@ -197,6 +197,7 @@ public:
         friend class ColumnVariant;
 
         bool is_empty_nested(size_t row) const;
+        bool is_empty_nested_root_value(size_t row) const;
 
         void resize(size_t n);
 
@@ -298,14 +299,19 @@ public:
 private:
     friend class COWHelper<IColumn, ColumnVariant>;
     // always create root: data type nothing
+    explicit ColumnVariant(int32_t max_subcolumns_count);
     explicit ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode);
 
     // always create root: data type nothing
+    explicit ColumnVariant(int32_t max_subcolumns_count, size_t size);
     explicit ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode, size_t size);
 
+    explicit ColumnVariant(int32_t max_subcolumns_count, DataTypePtr root_type,
+                           MutableColumnPtr&& root_column);
     explicit ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode,
                            DataTypePtr root_type, MutableColumnPtr&& root_column);
 
+    explicit ColumnVariant(int32_t max_subcolumns_count, Subcolumns&& subcolumns_);
     explicit ColumnVariant(int32_t max_subcolumns_count, bool enable_doc_mode,
                            Subcolumns&& subcolumns_);
 
