@@ -892,9 +892,10 @@ FileBlockCell* BlockFileCache::add_cell(const UInt128Wrapper& hash, const CacheC
                << " tablet_id=" << context.tablet_id;
 
     if (size > 1024 * 1024 * 1024) {
-        LOG(WARNING) << "File block size is too large for a block. size=" << size
+        LOG(WARNING) << "File block size is too large for a block, reject. size=" << size
                      << " hash=" << hash.to_string() << " offset=" << offset
                      << " stack:" << get_stack_trace();
+        return nullptr;
     }
 
     auto& offsets = _files[hash];
