@@ -1115,7 +1115,10 @@ TEST_F(ColumnVariantTest, clone_resized) {
         for (; i < clone_count; ++i) {
             // more than source size
             Field target_field;
-            Field source_field = column_variant->get_root_type()->get_default();
+            auto default_column = column_variant->get_root_type()->create_column();
+            default_column->insert_default();
+            Field source_field;
+            default_column->get(0, source_field);
             target_column->get(i, target_field);
             EXPECT_EQ(target_field, source_field)
                     << "target_field: " << target_field.get_type_name()

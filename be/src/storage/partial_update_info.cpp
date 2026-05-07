@@ -449,7 +449,7 @@ Status FixedReadPlan::fill_missing_columns(
                     // If the control flow reaches this branch, the column neither has default value
                     // nor is nullable. It means that the row's delete sign is marked, and the value
                     // columns are useless and won't be read. So we can just put arbitary values in the cells
-                    missing_col->insert(tablet_column.get_vec_type()->get_default());
+                    missing_col->insert_default();
                 }
             } else {
                 missing_col->insert_from(*old_value_block.get_by_position(i).column,
@@ -619,7 +619,7 @@ static void fill_non_primary_key_cell_for_column_store(
                 // store the generated auto-increment value in fixed partial update
                 new_col->insert_from(cur_col, block_pos);
             } else {
-                new_col->insert(tablet_column.get_vec_type()->get_default());
+                new_col->insert_default();
             }
         } else {
             auto pos_in_old_block = read_index.at(cid).at(segment_pos);
@@ -725,7 +725,7 @@ static void fill_non_primary_key_cell_for_row_store(
                 // store the generated auto-increment value in fixed partial update
                 new_col->insert_from(cur_col, block_pos);
             } else {
-                new_col->insert(tablet_column.get_vec_type()->get_default());
+                new_col->insert_default();
             }
         } else {
             new_col->insert_from(old_value_col, pos_in_old_block);
