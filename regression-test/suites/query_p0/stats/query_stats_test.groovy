@@ -39,6 +39,8 @@ suite("query_stats_test") {
         DISTRIBUTED BY HASH(`k1`) BUCKETS 1 properties("replication_num" = "1")
         """
     sql "admin set frontend config (\"enable_query_hit_stats\"=\"true\");"
+    sql "set enable_nereids_planner = true"
+    sql "set enable_query_cache = false"
     sql "clean all query stats"
     explain {
         sql("select k1 from ${tbName} where k1 = 1")
@@ -68,4 +70,6 @@ suite("query_stats_test") {
     qt_sql "show query stats from ${tbName}"
 
     sql "admin set frontend config (\"enable_query_hit_stats\"=\"false\");"
+    sql "set enable_nereids_planner = false"
+    sql "set enable_query_cache = true"
 }
