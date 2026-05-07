@@ -15,15 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "core/value/map_value.h"
+package org.apache.doris.catalog;
 
-namespace doris {
+import com.google.common.base.Preconditions;
 
-///====================== map-value funcs ======================///
-void MapValue::shallow_copy(const MapValue* value) {
-    _length = value->_length;
-    _key_data = value->_key_data;
-    _value_data = value->_value_data;
+/**
+ * A lightweight wrapper base for read binlog<row> of table
+ */
+public class RowBinlogTableWrapper extends OlapTableWrapper {
+
+    private final MaterializedIndexMeta rowBinlogMeta;
+
+    public RowBinlogTableWrapper(OlapTable originTable) {
+        super(originTable, originTable.getName(), originTable.generateTableRowBinlogSchema(), KeysType.DUP_KEYS);
+        this.rowBinlogMeta = originTable.getRowBinlogMeta();
+        Preconditions.checkNotNull(rowBinlogMeta, "row binlog meta is null, table=%s", originTable.getName());
+        this.setBaseIndexId(rowBinlogMeta.getIndexId());
+    }
+
+    @Override
+    public long getBaseIndexId() {
+        return rowBinlogMeta.getIndexId();
+    }
 }
-
-} // namespace doris

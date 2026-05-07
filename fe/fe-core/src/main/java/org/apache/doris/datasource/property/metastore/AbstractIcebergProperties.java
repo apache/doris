@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.metastore;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.metacache.CacheSpec;
+import org.apache.doris.datasource.property.common.IcebergAwsAssumeRoleProperties;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
@@ -265,6 +266,10 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
         }
         if (StringUtils.isNotBlank(s3Properties.getSessionToken())) {
             options.put(S3FileIOProperties.SESSION_TOKEN, s3Properties.getSessionToken());
+        }
+        if (s3Properties instanceof S3Properties) {
+            S3Properties awsProperties = (S3Properties) s3Properties;
+            IcebergAwsAssumeRoleProperties.putAssumeRoleProperties(options, awsProperties);
         }
     }
 

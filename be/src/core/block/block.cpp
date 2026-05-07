@@ -25,18 +25,15 @@
 #include <glog/logging.h>
 #include <snappy.h>
 #include <streamvbyte.h>
-#include <sys/types.h>
 
 #include <algorithm>
 #include <cassert>
 #include <iomanip>
-#include <iterator>
 #include <limits>
 #include <ranges>
 
 #include "agent/be_exec_version_manager.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -353,25 +350,6 @@ size_t Block::bytes() const {
     return res;
 }
 
-std::string Block::columns_bytes() const {
-    std::stringstream res;
-    res << "column bytes: [";
-    for (const auto& elem : data) {
-        if (!elem.column) {
-            std::stringstream ss;
-            for (const auto& e : data) {
-                ss << e.name + " ";
-            }
-            throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "Column {} in block is nullptr, in method bytes. All Columns are {}",
-                            elem.name, ss.str());
-        }
-        res << ", " << elem.column->byte_size();
-    }
-    res << "]";
-    return res.str();
-}
-
 size_t Block::allocated_bytes() const {
     size_t res = 0;
     for (const auto& elem : data) {
@@ -617,17 +595,6 @@ void Block::set_columns(MutableColumns&& columns) {
     for (size_t i = 0; i < num_columns; ++i) {
         data[i].column = std::move(columns[i]);
     }
-}
-
-Block Block::clone_with_columns(MutableColumns&& columns) const {
-    Block res;
-
-    size_t num_columns = data.size();
-    for (size_t i = 0; i < num_columns; ++i) {
-        res.insert({std::move(columns[i]), data[i].type, data[i].name});
-    }
-
-    return res;
 }
 
 Block Block::clone_without_columns(const std::vector<int>* column_offset) const {

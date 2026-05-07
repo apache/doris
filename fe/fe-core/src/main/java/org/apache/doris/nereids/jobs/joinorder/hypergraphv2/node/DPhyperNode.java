@@ -15,13 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "core/value/struct_value.h"
+package org.apache.doris.nereids.jobs.joinorder.hypergraphv2.node;
 
-namespace doris {
+import org.apache.doris.nereids.memo.Group;
 
-void StructValue::shallow_copy(const StructValue* other) {
-    _size = other->_size;
-    _values = other->_values;
-    _has_null = other->_has_null;
+/**
+ * HyperGraph Node.
+ */
+public class DPhyperNode extends AbstractNode {
+    private final Group group;
+
+    public DPhyperNode(int index, Group group) {
+        super(group.getLogicalExpression().getPlan(), index);
+        this.group = group;
+    }
+
+    public DPhyperNode withGroup(Group group) {
+        return new DPhyperNode(index, group);
+    }
+
+    public Group getGroup() {
+        return group;
+    }
+
+    public double getRowCount() {
+        return group.getStatistics().getRowCount();
+    }
 }
-} // namespace doris

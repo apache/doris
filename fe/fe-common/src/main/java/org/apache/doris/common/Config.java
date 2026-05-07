@@ -889,6 +889,27 @@ public class Config extends ConfigBase {
     public static int max_point_query_retry_time = 2;
 
     /**
+     * If set to true, FE may omit heavy reusable parameters (desc_tbl/output_expr/query_options)
+     * in point lookup requests (PTabletKeyLookupRequest) when executing prepared statements.
+     * BE will first try to find reusable context from LookupConnectionCache by uuid; if missing,
+     * BE asks FE to resend a full request with these parameters via
+     * response.need_resend_query_context.
+     *
+     * This can greatly reduce FE outbound network throughput when cache hit rate is high.
+     */
+    @ConfField(mutable = true, description = {
+            "是否启用 point query 轻量请求。开启后，FE 在 PreparedStatement 执行阶段会优先省略"
+                    + " desc_tbl/output_expr/query_options，BE 若未命中可复用缓存则会要求 FE 补发完整请求。"
+                    + "当 BE 侧缓存命中率较高时，可以显著降低 FE 的出网带宽。",
+            "Whether to enable lightweight point-query requests. When enabled, FE will omit"
+                    + " desc_tbl/output_expr/query_options on the first PreparedStatement execute"
+                    + " request, and BE will ask FE to resend the full request if reusable cache"
+                    + " is missing. This can significantly reduce FE outbound bandwidth when the"
+                    + " BE-side reusable cache hit rate is high."
+    })
+    public static boolean enable_lightweight_lookup_request = false;
+
+    /**
      * The tryLock timeout configuration of catalog lock.
      * Normally it does not need to change, unless you need to test something.
      */

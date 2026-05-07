@@ -45,6 +45,9 @@ class IColumn;
 
 namespace doris {
 
+DataTypeVariant::DataTypeVariant(int32_t max_subcolumns_count)
+        : DataTypeVariant(max_subcolumns_count, false) {}
+
 DataTypeVariant::DataTypeVariant(int32_t max_subcolumns_count, bool enable_doc_mode)
         : _max_subcolumns_count(max_subcolumns_count), _enable_doc_mode(enable_doc_mode) {
     name = fmt::format("Variant(max subcolumns count = {}, enable doc mode = {})",

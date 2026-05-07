@@ -15,13 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.joinorder.hypergraph;
+package org.apache.doris.nereids.jobs.joinorder.hypergraphv2;
 
-import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
+import java.util.Arrays;
 
 public class CircleDetectorTest {
     @Test
@@ -32,13 +31,13 @@ public class CircleDetectorTest {
         //    \ /
         //     3
         CircleDetector circleDetector = new CircleDetector(4);
-        Assertions.assertTrue(circleDetector.tryAddDirectedEdge(0, 1));
-        Assertions.assertTrue(circleDetector.tryAddDirectedEdge(1, 3));
-        Assertions.assertTrue(circleDetector.tryAddDirectedEdge(3, 2));
-        Assertions.assertTrue(!circleDetector.tryAddDirectedEdge(2, 0));
-        Assertions.assertTrue(circleDetector.tryAddDirectedEdge(0, 2));
-        List<Integer> orders = circleDetector.getTopologicalOrder();
-        List<Integer> targetOrders = ImmutableList.of(0, 1, 3, 2);
-        assert orders.equals(targetOrders) : orders;
+        Assertions.assertTrue(circleDetector.addEdge(0, 1));
+        Assertions.assertTrue(circleDetector.addEdge(1, 3));
+        Assertions.assertTrue(circleDetector.addEdge(3, 2));
+        Assertions.assertTrue(!circleDetector.addEdge(2, 0));
+        Assertions.assertTrue(circleDetector.addEdge(0, 2));
+        int[] orders = circleDetector.getOrder();
+        int[] targetOrders = new int[]{0, 1, 3, 2};
+        Assertions.assertTrue(Arrays.equals(orders, targetOrders));
     }
 }

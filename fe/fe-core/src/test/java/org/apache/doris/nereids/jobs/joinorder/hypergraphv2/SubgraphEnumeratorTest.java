@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.joinorder.hypergraph;
+package org.apache.doris.nereids.jobs.joinorder.hypergraphv2;
 
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmapSubsetIterator;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.Counter;
+import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.bitmap.LongBitmap;
+import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.bitmap.LongBitmapSubsetIterator;
+import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.edge.Edge;
+import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.receiver.Counter;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.util.HyperGraphBuilder;
 
@@ -107,7 +107,7 @@ public class SubgraphEnumeratorTest {
     }
 
     private int countAndCheck(long bitmap, HyperGraph hyperGraph, HashMap<Long, Integer> counter,
-            HashMap<Long, Integer> cache) {
+                              HashMap<Long, Integer> cache) {
         if (cache.containsKey(bitmap)) {
             return cache.get(bitmap);
         }
