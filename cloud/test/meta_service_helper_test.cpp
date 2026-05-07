@@ -16,7 +16,10 @@
 // under the License.
 
 #include <gtest/gtest.h>
+#include <unistd.h>
 
+#include <filesystem>
+#include <fstream>
 #include <limits>
 #include <optional>
 #include <string_view>
@@ -42,6 +45,40 @@ struct MsRateLimitInjectionConfigGuard {
 
     bool original_enable {config::enable_ms_rate_limit_injection};
     int32_t original_probability {config::ms_rate_limit_injection_probability};
+};
+
+class CgroupTestRoot {
+public:
+    CgroupTestRoot() // NOLINT(modernize-use-equals-default): creates temporary cgroup tree.
+            : root_(std::filesystem::temp_directory_path() /
+                    ("meta_service_cgroup_test_" + std::to_string(::getpid()) + "_" +
+                     std::to_string(id_++))) {
+        std::filesystem::create_directories(root_ / "proc/self");
+        std::filesystem::create_directories(root_ / "sys/fs/cgroup");
+    }
+
+    ~CgroupTestRoot() { // NOLINT(modernize-use-equals-default): removes temporary cgroup tree.
+        std::filesystem::remove_all(root_);
+    }
+
+    [[nodiscard]] internal::CgroupPaths paths() const {
+        return {.proc_self_cgroup_path = root_ / "proc/self/cgroup",
+                .proc_self_mountinfo_path = root_ / "proc/self/mountinfo",
+                .cgroup_root_path = root_ / "sys/fs/cgroup"};
+    }
+
+    void write_file(const std::filesystem::path& relative_path, std::string_view content) const {
+        auto file_path = root_ / relative_path;
+        std::filesystem::create_directories(file_path.parent_path());
+        std::ofstream stream(file_path);
+        stream << content;
+    }
+
+    [[nodiscard]] std::filesystem::path root() const { return root_; }
+
+private:
+    inline static int id_ = 0;
+    std::filesystem::path root_;
 };
 } // namespace
 
@@ -137,6 +174,27 @@ TEST(MetaServiceHelperTest, ParseCgroupCpuQuota) {
     ASSERT_TRUE(v1_limit.has_value());
     ASSERT_DOUBLE_EQ(*v1_limit, 1.5);
     ASSERT_FALSE(internal::parse_cgroup_v1_cpu_limit(-1, 100000).has_value());
+}
+
+TEST(MetaServiceHelperTest, EffectiveCpuLimitDisabledWhenV2CannotBeUsed) {
+    CgroupTestRoot test_root;
+    test_root.write_file("proc/self/cgroup", "0::/docker/test\n");
+    test_root.write_file("sys/fs/cgroup/cgroup.controllers", "cpu memory\n");
+    test_root.write_file("sys/fs/cgroup/docker/test/cpu.max", "max 100000\n");
+
+    ASSERT_FALSE(internal::get_effective_process_cpu_limit(test_root.paths()).has_value());
+}
+
+TEST(MetaServiceHelperTest, EffectiveCpuLimitDisabledWhenV1AndV2CannotBeUsed) {
+    CgroupTestRoot test_root;
+    test_root.write_file("proc/self/cgroup", "2:cpu:/docker/test\n");
+    test_root.write_file("proc/self/mountinfo",
+                         "36 25 0:32 / /sys/fs/cgroup/cpu rw,nosuid,nodev,noexec,relatime - "
+                         "cgroup cgroup rw,cpu\n");
+    test_root.write_file("sys/fs/cgroup/cpu/docker/test/cpu.cfs_quota_us", "-1\n");
+    test_root.write_file("sys/fs/cgroup/cpu/docker/test/cpu.cfs_period_us", "100000\n");
+
+    ASSERT_FALSE(internal::get_effective_process_cpu_limit(test_root.paths()).has_value());
 }
 
 TEST(MetaServiceHelperTest, UsagePercentCalculationUsesEffectiveLimit) {

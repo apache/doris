@@ -18,7 +18,9 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -26,6 +28,16 @@
 #include "common/bvars.h"
 
 namespace doris::cloud {
+
+namespace internal {
+struct CgroupPaths {
+    std::filesystem::path proc_self_cgroup_path;
+    std::filesystem::path proc_self_mountinfo_path;
+    std::filesystem::path cgroup_root_path;
+};
+
+std::optional<double> get_effective_process_cpu_limit(const CgroupPaths& paths);
+} // namespace internal
 
 struct MsStressMetrics {
     int64_t fdb_commit_latency_ns {BVAR_FDB_INVALID_VALUE};

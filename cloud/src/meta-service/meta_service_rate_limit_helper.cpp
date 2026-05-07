@@ -48,9 +48,9 @@
 namespace doris::cloud {
 namespace internal {
 namespace {
-constexpr std::string_view kProcSelfCgroupPath = "/proc/self/cgroup";
-constexpr std::string_view kProcSelfMountInfoPath = "/proc/self/mountinfo";
-constexpr std::string_view kCgroupRootPath = "/sys/fs/cgroup";
+const CgroupPaths kDefaultCgroupPaths {.proc_self_cgroup_path = "/proc/self/cgroup",
+                                       .proc_self_mountinfo_path = "/proc/self/mountinfo",
+                                       .cgroup_root_path = "/sys/fs/cgroup"};
 } // namespace
 
 struct CgroupMemoryInfo {
@@ -112,31 +112,31 @@ std::vector<std::string> split(std::string_view text, char delimiter) {
     return parts;
 }
 
-bool cgroups_v2_enabled() {
-    return std::filesystem::exists(std::filesystem::path(kCgroupRootPath) / "cgroup.controllers");
+bool cgroups_v2_enabled(const CgroupPaths& paths) {
+    return std::filesystem::exists(paths.cgroup_root_path / "cgroup.controllers");
 }
 
-std::optional<std::string> cgroup_v2_relative_path_of_process() {
-    auto line = read_first_line(std::filesystem::path(kProcSelfCgroupPath));
+std::optional<std::string> cgroup_v2_relative_path_of_process(const CgroupPaths& paths) {
+    auto line = read_first_line(paths.proc_self_cgroup_path);
     if (!line.has_value() || !line->starts_with("0::")) {
         return std::nullopt;
     }
     return line->substr(3);
 }
 
-std::optional<std::filesystem::path> get_cgroup_v2_dir(const std::string& subsystem_file) {
-    if (!cgroups_v2_enabled()) {
+std::optional<std::filesystem::path> get_cgroup_v2_dir(const std::string& subsystem_file,
+                                                       const CgroupPaths& paths) {
+    if (!cgroups_v2_enabled(paths)) {
         return std::nullopt;
     }
-    auto relative_path = cgroup_v2_relative_path_of_process();
+    auto relative_path = cgroup_v2_relative_path_of_process(paths);
     if (!relative_path.has_value()) {
         return std::nullopt;
     }
 
-    const std::filesystem::path cgroup_root(kCgroupRootPath);
     std::filesystem::path current =
-            cgroup_root / relative_path->substr(relative_path->starts_with('/') ? 1 : 0);
-    while (current != cgroup_root.parent_path()) {
+            paths.cgroup_root_path / relative_path->substr(relative_path->starts_with('/') ? 1 : 0);
+    while (current != paths.cgroup_root_path.parent_path()) {
         if (std::filesystem::exists(current / subsystem_file)) {
             return current;
         }
@@ -145,8 +145,9 @@ std::optional<std::filesystem::path> get_cgroup_v2_dir(const std::string& subsys
     return std::nullopt;
 }
 
-std::optional<std::string> get_cgroup_v1_process_path(const std::string& subsystem) {
-    std::ifstream stream(kProcSelfCgroupPath.data());
+std::optional<std::string> get_cgroup_v1_process_path(const std::string& subsystem,
+                                                      const CgroupPaths& paths) {
+    std::ifstream stream(paths.proc_self_cgroup_path);
     if (!stream.is_open()) {
         return std::nullopt;
     }
@@ -165,9 +166,9 @@ std::optional<std::string> get_cgroup_v1_process_path(const std::string& subsyst
     return std::nullopt;
 }
 
-std::optional<std::pair<std::string, std::string>> get_cgroup_v1_mount(
-        const std::string& subsystem) {
-    std::ifstream stream(kProcSelfMountInfoPath.data());
+std::optional<std::pair<std::string, std::string>> get_cgroup_v1_mount(const std::string& subsystem,
+                                                                       const CgroupPaths& paths) {
+    std::ifstream stream(paths.proc_self_mountinfo_path);
     if (!stream.is_open()) {
         return std::nullopt;
     }
@@ -196,9 +197,10 @@ std::optional<std::pair<std::string, std::string>> get_cgroup_v1_mount(
     return std::nullopt;
 }
 
-std::optional<std::filesystem::path> get_cgroup_v1_dir(const std::string& subsystem) {
-    auto process_path = get_cgroup_v1_process_path(subsystem);
-    auto mount = get_cgroup_v1_mount(subsystem);
+std::optional<std::filesystem::path> get_cgroup_v1_dir(const std::string& subsystem,
+                                                       const CgroupPaths& paths) {
+    auto process_path = get_cgroup_v1_process_path(subsystem, paths);
+    auto mount = get_cgroup_v1_mount(subsystem, paths);
     if (!process_path.has_value() || !mount.has_value()) {
         return std::nullopt;
     }
@@ -283,12 +285,11 @@ double get_process_affinity_cpu_limit() {
     return static_cast<double>(fallback);
 }
 
-std::optional<double> get_cgroup_cpu_quota_limit() {
-    if (auto dir = get_cgroup_v2_dir("cpu.max"); dir.has_value()) {
-        const std::filesystem::path cgroup_root(kCgroupRootPath);
+std::optional<double> get_cgroup_cpu_quota_limit(const CgroupPaths& paths) {
+    if (auto dir = get_cgroup_v2_dir("cpu.max", paths); dir.has_value()) {
         std::optional<double> limit;
         auto current = *dir;
-        while (current != cgroup_root.parent_path()) {
+        while (current != paths.cgroup_root_path.parent_path()) {
             if (auto line = read_first_line(current / "cpu.max"); line.has_value()) {
                 if (auto quota = parse_cgroup_v2_cpu_limit(*line); quota.has_value()) {
                     limit = limit.has_value() ? std::min(*limit, *quota) : quota;
@@ -301,7 +302,7 @@ std::optional<double> get_cgroup_cpu_quota_limit() {
         }
     }
 
-    if (auto dir = get_cgroup_v1_dir("cpu"); dir.has_value()) {
+    if (auto dir = get_cgroup_v1_dir("cpu", paths); dir.has_value()) {
         std::optional<double> limit;
         auto current = *dir;
         while (current != current.parent_path()) {
@@ -322,12 +323,18 @@ std::optional<double> get_cgroup_cpu_quota_limit() {
     return std::nullopt;
 }
 
-double get_effective_process_cpu_limit() {
-    double limit = get_process_affinity_cpu_limit();
-    if (auto quota = get_cgroup_cpu_quota_limit(); quota.has_value() && *quota > 0) {
-        limit = std::min(limit, *quota);
+std::optional<double> get_effective_process_cpu_limit(const CgroupPaths& paths) {
+    auto quota = get_cgroup_cpu_quota_limit(paths);
+    if (!quota.has_value() || *quota <= 0) {
+        return std::nullopt;
     }
+    double limit = get_process_affinity_cpu_limit();
+    limit = std::min(limit, *quota);
     return std::max(0.001, limit);
+}
+
+std::optional<double> get_effective_process_cpu_limit() {
+    return get_effective_process_cpu_limit(kDefaultCgroupPaths);
 }
 
 int64_t calculate_usage_percent(int64_t usage_bytes, int64_t limit_bytes) {
@@ -346,7 +353,7 @@ int64_t calculate_cpu_usage_percent(double delta_cpu_ns, double delta_wall_ns, d
 }
 
 std::optional<CgroupMemoryInfo> get_cgroup_memory_info() {
-    if (auto dir = get_cgroup_v2_dir("memory.current"); dir.has_value()) {
+    if (auto dir = get_cgroup_v2_dir("memory.current", kDefaultCgroupPaths); dir.has_value()) {
         auto limit_line = read_first_line(*dir / "memory.max");
         auto usage = read_int64_line(*dir / "memory.current");
         if (limit_line.has_value() && usage.has_value()) {
@@ -363,11 +370,11 @@ std::optional<CgroupMemoryInfo> get_cgroup_memory_info() {
             adjusted_usage -= metrics["inactive_file"];
             adjusted_usage -= metrics["slab_reclaimable"];
             adjusted_usage = std::max<int64_t>(0, adjusted_usage);
-            return CgroupMemoryInfo {limit_bytes, adjusted_usage};
+            return CgroupMemoryInfo {.limit_bytes = limit_bytes, .usage_bytes = adjusted_usage};
         }
     }
 
-    if (auto dir = get_cgroup_v1_dir("memory"); dir.has_value()) {
+    if (auto dir = get_cgroup_v1_dir("memory", kDefaultCgroupPaths); dir.has_value()) {
         auto limit = read_int64_line(*dir / "memory.limit_in_bytes");
         if (limit.has_value()) {
             auto metrics = read_metrics_map(*dir / "memory.stat");
@@ -509,8 +516,11 @@ public:
             current_wall_time_ns > last_wall_time_ns_) {
             const double delta_cpu_ns = current_cpu_time_ns - last_cpu_time_ns_;
             const double delta_wall_ns = current_wall_time_ns - last_wall_time_ns_;
-            sample.cpu_usage_percent = internal::calculate_cpu_usage_percent(
-                    delta_cpu_ns, delta_wall_ns, internal::get_effective_process_cpu_limit());
+            auto cpu_limit = internal::get_effective_process_cpu_limit();
+            if (cpu_limit.has_value()) {
+                sample.cpu_usage_percent = internal::calculate_cpu_usage_percent(
+                        delta_cpu_ns, delta_wall_ns, *cpu_limit);
+            }
         }
         last_cpu_time_ns_ = current_cpu_time_ns;
         last_wall_time_ns_ = current_wall_time_ns;
