@@ -423,6 +423,7 @@ Status VPaimonJniTableWriter::close(Status status) {
         _buffered_bytes = 0;
     }
 
+    std::vector<TCommitMessage> pending_commit_messages;
     if (status.ok()) {
         jobject j_payloads_obj = nullptr;
         int64_t prepare_commit_ns = 0;
@@ -442,8 +443,7 @@ Status VPaimonJniTableWriter::close(Status status) {
             DorisMetrics::instance()->paimon_prepare_commit_messages->increment(num_payloads);
             DorisMetrics::instance()->paimon_commit_payload_chunks->increment(num_payloads);
 
-            std::vector<TCommitMessage> msgs;
-            msgs.reserve(static_cast<size_t>(num_payloads));
+            pending_commit_messages.reserve(static_cast<size_t>(num_payloads));
             int64_t serialize_ns = 0;
             Defer record_serialize_commit_messages_latency {[&]() {
                 DorisMetrics::instance()->paimon_serialize_commit_messages_latency_ms->add(
@@ -466,7 +466,7 @@ Status VPaimonJniTableWriter::close(Status status) {
                                                 static_cast<size_t>(len));
                             TCommitMessage msg;
                             msg.__set_payload(payload);
-                            msgs.emplace_back(std::move(msg));
+                            pending_commit_messages.emplace_back(std::move(msg));
                             env->ReleaseByteArrayElements(j_bytes, bytes, JNI_ABORT);
                         }
                     }
@@ -475,13 +475,6 @@ Status VPaimonJniTableWriter::close(Status status) {
             }
 
             env->DeleteLocalRef(j_payloads);
-
-            if (!msgs.empty()) {
-                _state->add_paimon_commit_messages(msgs);
-                LOG(INFO) << "paimon: added " << msgs.size() << " commit messages to state";
-            } else {
-                LOG(INFO) << "paimon: no commit messages to add to state";
-            }
         } else if (!st.ok()) {
             status = st;
             Status abort_st = _abort(env);
@@ -510,6 +503,16 @@ Status VPaimonJniTableWriter::close(Status status) {
     } else {
         LOG(INFO) << "paimon: skip Java close because writer object or close method is not "
                      "initialized";
+    }
+
+    if (status.ok()) {
+        if (!pending_commit_messages.empty()) {
+            _state->add_paimon_commit_messages(pending_commit_messages);
+            LOG(INFO) << "paimon: added " << pending_commit_messages.size()
+                      << " commit messages to state";
+        } else {
+            LOG(INFO) << "paimon: no commit messages to add to state";
+        }
     }
 
     return status;

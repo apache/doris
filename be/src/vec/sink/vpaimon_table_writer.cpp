@@ -604,6 +604,8 @@ Status VPaimonTableWriter::write(RuntimeState* state, ::doris::Block& block) {
             RETURN_IF_ERROR(writer->write(gathered_block));
         }
     }
+    _state->update_num_rows_load_total(output_block.rows());
+    _state->update_num_bytes_load_total(output_block.bytes());
     DorisMetrics::instance()->paimon_write_project_latency_ms->add(to_ms_ceil(project_ns));
     DorisMetrics::instance()->paimon_write_dispatch_latency_ms->add(to_ms_ceil(dispatch_ns));
     DorisMetrics::instance()->paimon_write_partitions_latency_ms->add(

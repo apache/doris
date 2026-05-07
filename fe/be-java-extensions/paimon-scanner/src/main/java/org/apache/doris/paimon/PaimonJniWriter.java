@@ -551,7 +551,7 @@ public class PaimonJniWriter {
         }
     }
 
-    public void close() {
+    public void close() throws Exception {
         try {
             if (preExecutionAuthenticator != null) {
                 preExecutionAuthenticator.execute(() -> {
@@ -561,6 +561,7 @@ public class PaimonJniWriter {
             }
         } catch (Exception e) {
             LOG.warn("Error while closing PaimonJniWriter", e);
+            throw e;
         }
     }
 
