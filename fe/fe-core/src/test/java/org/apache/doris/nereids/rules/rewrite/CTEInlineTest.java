@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
@@ -29,6 +30,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class CTEInlineTest extends TestWithFeService implements MemoPatternMatchSupported {
@@ -80,5 +82,41 @@ public class CTEInlineTest extends TestWithFeService implements MemoPatternMatch
                         )
                 ).when(cte -> cte.getCteName().equals("yy"))
         );
+    }
+
+    @Test
+    public void recCteInlineRequireDeterministicProducer() {
+        String sql = new StringBuilder().append("with recursive t1 as (\n").append("    select\n")
+                .append("        1 as c1,\n").append("        1 as c2\n").append("),\n").append("t2 as (\n")
+                .append("    select\n").append("        2 as c1,\n").append("        2 as c2\n").append("),\n")
+                .append("t3 as (\n").append("    select\n").append("        3 as c1,\n").append("        3 as c2\n")
+                .append("),\n").append("xx as (\n").append("    select\n").append("        c1,\n")
+                .append("        c2\n").append("    from\n").append("        t1\n").append("    union\n")
+                .append("    select\n").append("        t2.c1,\n").append("        t2.c2\n").append("    from\n")
+                .append("        t2,\n").append("        xx\n").append("    where\n")
+                .append("        t2.c1 = xx.c1\n").append("        and rand() > 0\n")
+                .append("),\n").append("yy as (\n").append("    select\n").append("        c1,\n")
+                .append("        c2\n").append("    from\n").append("        t3\n").append("    union\n")
+                .append("    select\n").append("        t3.c1,\n").append("        t3.c2\n").append("    from\n")
+                .append("        t3,\n").append("        yy,\n").append("        xx\n").append("    where\n")
+                .append("        t3.c1 = yy.c1\n").append("        and t3.c2 = xx.c1\n").append(")\n")
+                .append("select\n").append("    *\n").append("from\n").append("    yy y1,\n")
+                .append("    yy y2;")
+                .toString();
+        LogicalPlan unboundPlan = new NereidsParser().parseSingle(sql);
+        StatementContext statementContext = new StatementContext(connectContext,
+                new OriginStatement(sql, 0));
+        NereidsPlanner planner = new NereidsPlanner(statementContext);
+        boolean originalNotEvalNondeterministicFunction = connectContext.notEvalNondeterministicFunction();
+        connectContext.setNotEvalNondeterministicFunction(true);
+        try {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> planner.planWithLock(unboundPlan, PhysicalProperties.ANY,
+                            ExplainCommand.ExplainLevel.REWRITTEN_PLAN));
+            Assertions.assertTrue(exception.getMessage()
+                    .contains("Inline CTE required; failed due to containing nondeterministic functions."));
+        } finally {
+            connectContext.setNotEvalNondeterministicFunction(originalNotEvalNondeterministicFunction);
+        }
     }
 }
