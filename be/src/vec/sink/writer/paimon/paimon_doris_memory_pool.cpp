@@ -72,12 +72,6 @@ void PaimonDorisMemoryPool::_ensure_thread_context(
         return;
     }
 
-    if (!(tctx->thread_mem_tracker_mgr->limiter_mem_tracker()->type() ==
-          doris::MemTrackerLimiter::Type::QUERY)) {
-        *attacher = std::make_unique<::doris::AttachTask>(_query_mem_tracker);
-        return;
-    }
-
     if (_query_mem_tracker.get() != tctx->thread_mem_tracker_mgr->limiter_mem_tracker()) {
         *switcher = std::make_unique<::doris::SwitchThreadMemTrackerLimiter>(_query_mem_tracker);
     }
