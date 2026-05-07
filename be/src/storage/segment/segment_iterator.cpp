@@ -30,6 +30,7 @@
 #include <numeric>
 #include <set>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -625,11 +626,12 @@ void SegmentIterator::_init_cache_block_prefetch() {
         if (window_size > 0 &&
             !_column_iterators.empty()) { // ensure init_iterators has been called
             // This runs after segment open, index pruning, and iterator initialization. At this
-            // point _row_bitmap already represents the rows that the scan will read, and later
-            // page reads advance monotonically in scan order. That makes it possible to describe
-            // the remaining segment-data access as ordered file ranges. Each physical column
-            // iterator owns an independent CacheBlockAwarePrefetchRemoteReader, so the installed
-            // pattern is consumed automatically by read_at() using the current file offset.
+            // point _row_bitmap describes the candidate rows left by segment-level indexes. For
+            // predicate columns, those candidates are definitely read to evaluate predicates; for
+            // non-predicate/common-expression columns under lazy materialization, the final rowids
+            // are produced batch by batch after predicate filtering. Each physical column iterator
+            // owns an independent CacheBlockAwarePrefetchRemoteReader, so the installed pattern is
+            // consumed automatically by read_at() using the current file offset.
             io::CacheBlockPrefetchPolicy prefetch_policy {
                     .max_prefetch_blocks = cast_set<size_t>(window_size),
                     .cache_block_size = cast_set<size_t>(config::file_cache_each_block_size),
@@ -665,16 +667,39 @@ void SegmentIterator::_init_cache_block_prefetch() {
                             ? FileAccessRangeBuildMethod::FROM_ROWIDS
                             : FileAccessRangeBuildMethod::ALL_DATA_PAGES;
             std::map<FileAccessRangeBuildMethod, std::vector<ColumnIterator*>> prefetch_iterators;
-            for (const auto& column_iter : _column_iterators) {
-                if (column_iter != nullptr) {
-                    column_iter->collect_cache_block_prefetch_iterators(prefetch_iterators,
-                                                                        init_method);
-                }
-            }
             // Different columns in the same segment have independently predictable and monotonic
             // data-page sequences. With prefetch enabled they no longer share the same
             // CacheBlockAwarePrefetchRemoteReader; installing one pattern per physical iterator
             // is enough, and the IO layer advances that pattern from subsequent read_at() calls.
+            //
+            // Predicate columns are special: the row ranges installed here are exactly the
+            // candidates that must be read to evaluate predicates for this segment. After their
+            // patterns are installed, we can immediately touch the first prefetch window before
+            // PageIO issues the first foreground read. Non-predicate/common-expression columns
+            // are different under lazy materialization: their exact rowids are produced batch by
+            // batch after predicate evaluation, so they keep the normal read_at()-triggered path.
+            auto is_predicate_column = [&](ColumnId cid) {
+                return std::ranges::find(_predicate_column_ids, cid) != _predicate_column_ids.end();
+            };
+            std::unordered_set<ColumnIterator*> initial_touch_iterators;
+            for (auto cid : _schema->column_ids()) {
+                auto& column_iter = _column_iterators[cid];
+                if (column_iter == nullptr) {
+                    continue;
+                }
+                std::map<FileAccessRangeBuildMethod, std::vector<ColumnIterator*>>
+                        column_prefetch_iterators;
+                column_iter->collect_cache_block_prefetch_iterators(column_prefetch_iterators,
+                                                                    init_method);
+                for (auto& [method, iterators] : column_prefetch_iterators) {
+                    if (is_predicate_column(cid)) {
+                        initial_touch_iterators.insert(iterators.begin(), iterators.end());
+                    }
+                    prefetch_iterators[method].insert(prefetch_iterators[method].end(),
+                                                      iterators.begin(), iterators.end());
+                }
+            }
+
             for (auto& [method, iterators] : prefetch_iterators) {
                 if (method == FileAccessRangeBuildMethod::ALL_DATA_PAGES) {
                     for (auto* iterator : iterators) {
@@ -687,6 +712,9 @@ void SegmentIterator::_init_cache_block_prefetch() {
                                 "rowset={}, segment={}, error={}",
                                 _opts.tablet_id, _opts.rowset_id.to_string(), segment_id(),
                                 st.to_string());
+                        if (st.ok() && initial_touch_iterators.contains(iterator)) {
+                            iterator->async_touch_cache_block_prefetch_initial_window();
+                        }
                     }
                 } else if (method == FileAccessRangeBuildMethod::FROM_ROWIDS &&
                            !iterators.empty()) {
@@ -708,6 +736,9 @@ void SegmentIterator::_init_cache_block_prefetch() {
                                 "rowset={}, segment={}, error={}",
                                 _opts.tablet_id, _opts.rowset_id.to_string(), segment_id(),
                                 st.to_string());
+                        if (st.ok() && initial_touch_iterators.contains(iterator)) {
+                            iterator->async_touch_cache_block_prefetch_initial_window();
+                        }
                     }
                 }
             }

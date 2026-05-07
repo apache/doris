@@ -432,6 +432,8 @@ public:
         return Status::OK();
     }
 
+    virtual void async_touch_cache_block_prefetch_initial_window() {}
+
     static constexpr const char* ACCESS_OFFSET = "OFFSET";
     static constexpr const char* ACCESS_ALL = "*";
     static constexpr const char* ACCESS_MAP_KEYS = "KEYS";
@@ -511,6 +513,7 @@ public:
         return _access_range_builder.get();
     }
     Status install_cache_block_prefetch_pattern(std::vector<io::FileAccessRange> ranges) override;
+    void async_touch_cache_block_prefetch_initial_window() override;
 
 protected:
     // Exposed to derived iterators (e.g. StringFileColumnIterator) so they can

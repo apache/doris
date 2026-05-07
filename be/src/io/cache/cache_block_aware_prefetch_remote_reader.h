@@ -110,6 +110,7 @@ public:
 
     [[nodiscard]] bool empty() const { return _plan.empty(); }
     std::vector<CacheBlockRange> next_touch_ranges(size_t current_file_offset);
+    std::vector<CacheBlockRange> next_initial_touch_ranges();
 
 private:
     void _advance_current_index(size_t current_file_offset);
@@ -151,6 +152,12 @@ private:
 //      configured window is full. If one file range spans more cache blocks than
 //      the window, the whole range is still prefetched so large data pages and
 //      pages that cross block boundaries are not split.
+//   4. If the caller knows the first file ranges are definitely going to be read
+//      (for example segment predicate columns after index pruning), it may call
+//      async_touch_initial_window() immediately after set_read_pattern(). This
+//      submits the first prefetch window before the first foreground read_at().
+//      Optional or batch-local streams should skip it and let read_at() trigger
+//      prefetch from the actual file offset.
 //
 // Usage example:
 //   See BlockFileCacheTest.usage_example_read_at_automatically_prefetches_single_pattern in
@@ -170,6 +177,8 @@ public:
 
     Status set_read_pattern(CacheBlockReadPattern pattern, const CacheBlockPrefetchPolicy& policy);
 
+    void async_touch_initial_window(const IOContext* io_ctx = nullptr);
+
     void clear_read_pattern();
 
     bool has_read_pattern() const;
@@ -180,6 +189,7 @@ protected:
 
 private:
     void _prefetch(size_t current_file_offset, const IOContext* io_ctx);
+    void _async_touch_ranges(std::vector<CacheBlockRange> ranges, const IOContext* io_ctx);
 
     mutable std::mutex _pattern_mutex;
     std::optional<detail::CacheBlockPrefetchCursor> _prefetch_cursor;
