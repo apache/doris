@@ -39,6 +39,20 @@ import java.util.stream.Collectors;
  *   - REFRESH INCREMENTAL must appear correctly
  */
 public class ShowCreateMTMVTest extends SqlTestBase {
+    @Override
+    protected void runBeforeAll() throws Exception {
+        super.runBeforeAll();
+        createTable("CREATE TABLE IF NOT EXISTS show_create_ivm_base (\n"
+                + "    id bigint,\n"
+                + "    score bigint\n"
+                + ")\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "  \"replication_num\" = \"1\",\n"
+                + "  \"binlog.enable\" = \"true\"\n"
+                + ")\n");
+    }
 
     // TC-4-1: INCREMENTAL MV SHOW CREATE must not contain UNIQUE KEY(...)
     @Test
@@ -47,7 +61,7 @@ public class ShowCreateMTMVTest extends SqlTestBase {
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1')\n"
-                + "as select * from test.T4;");
+                + "as select * from test.show_create_ivm_base;");
 
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
         MTMV mtmv = (MTMV) db.getTableOrAnalysisException("mv_show_ivm_no_uk");
@@ -64,7 +78,7 @@ public class ShowCreateMTMVTest extends SqlTestBase {
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1')\n"
-                + "as select * from test.T4;");
+                + "as select * from test.show_create_ivm_base;");
 
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
         MTMV mtmv = (MTMV) db.getTableOrAnalysisException("mv_show_ivm_no_rowid");
@@ -81,7 +95,7 @@ public class ShowCreateMTMVTest extends SqlTestBase {
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1')\n"
-                + "as select * from test.T4;");
+                + "as select * from test.show_create_ivm_base;");
 
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
         MTMV mtmv = (MTMV) db.getTableOrAnalysisException("mv_show_ivm_refresh");
@@ -98,7 +112,7 @@ public class ShowCreateMTMVTest extends SqlTestBase {
                 + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
                 + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1')\n"
-                + "as select * from test.T4;");
+                + "as select * from test.show_create_ivm_base;");
 
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
         MTMV mtmv = (MTMV) db.getTableOrAnalysisException("mv_show_complete");
@@ -119,7 +133,7 @@ public class ShowCreateMTMVTest extends SqlTestBase {
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1')\n"
-                + "as select * from test.T4;");
+                + "as select * from test.show_create_ivm_base;");
 
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
         MTMV mtmv = (MTMV) db.getTableOrAnalysisException("mv_show_ivm_replay");
@@ -143,7 +157,7 @@ public class ShowCreateMTMVTest extends SqlTestBase {
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1')\n"
-                + "as select * from test.T4;");
+                + "as select * from test.show_create_ivm_base;");
 
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
         MTMV mtmv = (MTMV) db.getTableOrAnalysisException("mv_show_ivm_hidden");
@@ -171,7 +185,7 @@ public class ShowCreateMTMVTest extends SqlTestBase {
                 + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
                 + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1')\n"
-                + "as select * from test.T4;");
+                + "as select * from test.show_create_ivm_base;");
 
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
         MTMV mtmv = (MTMV) db.getTableOrAnalysisException("mv_show_dup_keys");
@@ -199,7 +213,7 @@ public class ShowCreateMTMVTest extends SqlTestBase {
                 + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + "DISTRIBUTED BY RANDOM BUCKETS 3\n"
                 + "PROPERTIES ('replication_num' = '1')\n"
-                + "as select * from test.T4;");
+                + "as select * from test.show_create_ivm_base;");
 
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
         MTMV mtmv1 = (MTMV) db.getTableOrAnalysisException("mv_show_ivm_roundtrip_1");

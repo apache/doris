@@ -73,6 +73,7 @@ import org.apache.doris.thrift.TStorageType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 
@@ -87,6 +88,11 @@ class IvmNormalizeMtmvTest {
 
     // DUP_KEYS table — row-id = UuidNumeric(), non-deterministic
     private final LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+
+    @BeforeEach
+    void setUp() {
+        enableBinlog(scan.getTable());
+    }
 
     @Test
     void testGateDisabledKeepsPlanUnchanged() {
@@ -226,6 +232,7 @@ class IvmNormalizeMtmvTest {
         TableProperty tableProperty = new TableProperty(new java.util.HashMap<>());
         tableProperty.setEnableUniqueKeyMergeOnWrite(true);
         mowTable.setTableProperty(tableProperty);
+        enableBinlog(mowTable);
         LogicalOlapScan mowScan = new LogicalOlapScan(
                 PlanConstructor.getNextRelationId(), mowTable, ImmutableList.of("db"));
 
@@ -242,6 +249,7 @@ class IvmNormalizeMtmvTest {
     void testMorTableThrows() {
         // UNIQUE_KEYS without MOW (MOR) is not supported
         OlapTable morTable = PlanConstructor.newOlapTable(11, "mor", 0, KeysType.UNIQUE_KEYS);
+        enableBinlog(morTable);
         LogicalOlapScan morScan = new LogicalOlapScan(
                 PlanConstructor.getNextRelationId(), morTable, ImmutableList.of("db"));
 
@@ -252,6 +260,7 @@ class IvmNormalizeMtmvTest {
     @Test
     void testAggKeyTableThrows() {
         OlapTable aggTable = PlanConstructor.newOlapTable(12, "agg", 0, KeysType.AGG_KEYS);
+        enableBinlog(aggTable);
         LogicalOlapScan aggScan = new LogicalOlapScan(
                 PlanConstructor.getNextRelationId(), aggTable, ImmutableList.of("db"));
 
@@ -319,6 +328,32 @@ class IvmNormalizeMtmvTest {
         Assertions.assertInstanceOf(Cast.class, rowIdAlias.child());
         IvmNormalizeResult normalizeResult = jobContext.getCascadesContext().getIvmNormalizeResult().get();
         Assertions.assertTrue(normalizeResult.getRowIdDeterminism().values().iterator().next());
+    }
+
+    @Test
+    void testBaseTableWithoutBinlogThrowsIvmException() {
+        OlapTable noBinlogTable = PlanConstructor.newOlapTable(15, "no_binlog", 0, KeysType.DUP_KEYS);
+        LogicalOlapScan noBinlogScan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), noBinlogTable, ImmutableList.of("db"));
+
+        IvmException exception = Assertions.assertThrows(IvmException.class,
+                () -> new IvmNormalizeMtmv().rewriteRoot(noBinlogScan,
+                        newJobContextForRoot(noBinlogScan, true, Collections.emptySet())));
+        Assertions.assertEquals(IvmFailureReason.BINLOG_NOT_ENABLED, exception.getFailureReason());
+        Assertions.assertTrue(exception.getMessage().contains("no_binlog"));
+    }
+
+    @Test
+    void testExcludedTableWithoutBinlogDoesNotThrowBinlogException() {
+        OlapTable aggTable = newAggKeyOlapTableWithBoundDb(16, "excluded_no_binlog", "test");
+        LogicalOlapScan aggScan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), aggTable, ImmutableList.of("test"));
+
+        Plan result = new IvmNormalizeMtmv().rewriteRoot(aggScan, newJobContextForRoot(aggScan, true,
+                Collections.singleton(new TableNameInfo("internal", "test", "excluded_no_binlog"))));
+
+        Assertions.assertInstanceOf(LogicalProject.class, result);
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, result.getOutput().get(0).getName());
     }
 
     @Test
@@ -763,6 +798,7 @@ class IvmNormalizeMtmvTest {
         table.setIndexMeta(-1, tableName, table.getFullSchema(), 0, 0, (short) 0,
                 TStorageType.COLUMN, keysType);
         table.setQualifiedDbName(dbName);
+        enableBinlog(table);
         return table;
     }
 
@@ -783,5 +819,9 @@ class IvmNormalizeMtmvTest {
                 TStorageType.COLUMN, KeysType.AGG_KEYS);
         table.setQualifiedDbName(dbName);
         return table;
+    }
+
+    private void enableBinlog(OlapTable table) {
+        table.getBinlogConfig().setEnable(true);
     }
 }

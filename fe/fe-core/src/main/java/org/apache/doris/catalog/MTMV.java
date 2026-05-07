@@ -717,6 +717,11 @@ public class MTMV extends OlapTable {
         if (ivmInfo == null) {
             ivmInfo = new IvmInfo();
         }
+        if (refreshInfo != null && refreshInfo.getRefreshMethod() == null) {
+            LOG.warn("MTMV {} has unknown refresh method, marking as schema change", name);
+            status.setState(MTMVState.SCHEMA_CHANGE);
+            status.setSchemaChangeDetail("Unknown refresh method detected during deserialization");
+        }
         Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots = refreshSnapshot.getPartitionSnapshots();
         compatiblePctSnapshot(partitionSnapshots);
     }
