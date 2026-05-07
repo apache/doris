@@ -103,8 +103,8 @@ private:
 
     bool _should_push_down_common_expr(const VExprSPtr& expr) override;
 
-    enum class ExprSlotRefCheckMode { HAS_MATERIALIZED_SLOT, HAS_NON_KEY_COLUMN };
-    bool _check_expr_materialized_slots(const VExprSPtr& expr, ExprSlotRefCheckMode mode);
+    enum class ExprStorageFilterCheckMode { HAS_SEGMENT_EVALUABLE_EXPR, HAS_NON_KEY_SLOT };
+    bool _check_expr_storage_filter(const VExprSPtr& expr, ExprStorageFilterCheckMode mode);
 
     bool _storage_no_merge() override;
 

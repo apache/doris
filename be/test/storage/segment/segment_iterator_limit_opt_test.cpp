@@ -51,6 +51,15 @@ static MutableColumnPtr make_int_column(size_t rows) {
     return column;
 }
 
+static MutableColumnPtr make_int_sequence_column(size_t rows) {
+    auto column = ColumnVector<TYPE_INT>::create();
+    column->reserve(rows);
+    for (size_t i = 0; i < rows; ++i) {
+        column->insert_value(cast_set<int32_t>(i));
+    }
+    return column;
+}
+
 class SegmentIteratorLimitOptTest : public ::testing::Test {
 protected:
     void SetUp() override {
@@ -132,6 +141,31 @@ TEST_F(SegmentIteratorLimitOptTest, read_limit_shrinks_materialized_columns) {
     EXPECT_EQ(20, selected_size);
     EXPECT_EQ(0, block.get_by_position(0).column->size());
     EXPECT_EQ(20, block.get_by_position(1).column->size());
+}
+
+TEST_F(SegmentIteratorLimitOptTest, reverse_read_limit_keeps_suffix_rows) {
+    auto iter = make_iter();
+    iter->_opts.read_limit = 20;
+    iter->_opts.read_orderby_key_reverse = true;
+    iter->_rows_returned = 0;
+    iter->_sel_rowid_idx.resize(100);
+    for (uint16_t i = 0; i < 100; ++i) {
+        iter->_sel_rowid_idx[i] = i;
+    }
+
+    Block block;
+    block.insert({make_int_sequence_column(100), std::make_shared<DataTypeInt32>(), "k1"});
+    uint16_t selected_size = 100;
+
+    ASSERT_TRUE(iter->_apply_read_limit_to_selected_rows(&block, selected_size).ok());
+    EXPECT_EQ(20, selected_size);
+    EXPECT_EQ(20, block.get_by_position(0).column->size());
+    EXPECT_EQ(80, assert_cast<const ColumnVector<TYPE_INT>*>(block.get_by_position(0).column.get())
+                          ->get_data()[0]);
+    EXPECT_EQ(99, assert_cast<const ColumnVector<TYPE_INT>*>(block.get_by_position(0).column.get())
+                          ->get_data()[19]);
+    EXPECT_EQ(80, iter->_sel_rowid_idx[0]);
+    EXPECT_EQ(99, iter->_sel_rowid_idx[19]);
 }
 
 // Has delete condition predicates → should return false even with limit set.

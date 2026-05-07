@@ -2491,6 +2491,17 @@ static void shrink_materialized_block_columns(Block* block, size_t rows) {
     }
 }
 
+static void slice_materialized_block_columns(Block* block, size_t offset, size_t rows,
+                                             size_t original_rows) {
+    for (auto& entry : *block) {
+        if (!entry.column || entry.column->size() == 0) {
+            continue;
+        }
+        DORIS_CHECK(entry.column->size() == original_rows);
+        entry.column = entry.column->cut(offset, rows);
+    }
+}
+
 Status SegmentIterator::_apply_read_limit_to_selected_rows(Block* block, uint16_t& selected_size) {
     if (_opts.read_limit == 0) {
         return Status::OK();
@@ -2503,6 +2514,16 @@ Status SegmentIterator::_apply_read_limit_to_selected_rows(Block* block, uint16_
         return Status::OK();
     }
     if (selected_size > remaining) {
+        if (_opts.read_orderby_key_reverse) {
+            const auto original_size = selected_size;
+            const auto offset = original_size - remaining;
+            for (size_t i = 0; i < remaining; ++i) {
+                _sel_rowid_idx[i] = _sel_rowid_idx[offset + i];
+            }
+            selected_size = cast_set<uint16_t>(remaining);
+            slice_materialized_block_columns(block, offset, remaining, original_size);
+            return Status::OK();
+        }
         selected_size = cast_set<uint16_t>(remaining);
         shrink_materialized_block_columns(block, selected_size);
     }

@@ -475,9 +475,9 @@ Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* f
 
 bool OlapScanLocalState::_should_push_down_common_expr(const VExprSPtr& expr) {
     // This switch controls both pushed filter execution and LIMIT accounting in SegmentIterator.
-    // Only expressions with extractable slot dependencies can be evaluated there.
+    // Index-only expressions must also enter SegmentIterator even without slot children.
     if (!state()->enable_segment_filter_and_limit_pushdown() ||
-        !_check_expr_materialized_slots(expr, ExprSlotRefCheckMode::HAS_MATERIALIZED_SLOT)) {
+        !_check_expr_storage_filter(expr, ExprStorageFilterCheckMode::HAS_SEGMENT_EVALUABLE_EXPR)) {
         return false;
     }
 
@@ -496,25 +496,40 @@ bool OlapScanLocalState::_should_push_down_common_expr(const VExprSPtr& expr) {
 
     // AGG and UNIQUE-MOR may still merge value columns above SegmentIterator. Push only key-column
     // expressions so filtering does not observe pre-merge values.
-    return !_check_expr_materialized_slots(expr, ExprSlotRefCheckMode::HAS_NON_KEY_COLUMN);
+    return !_check_expr_storage_filter(expr, ExprStorageFilterCheckMode::HAS_NON_KEY_SLOT);
 }
 
-bool OlapScanLocalState::_check_expr_materialized_slots(const VExprSPtr& expr,
-                                                        ExprSlotRefCheckMode mode) {
+bool OlapScanLocalState::_check_expr_storage_filter(const VExprSPtr& expr,
+                                                    ExprStorageFilterCheckMode mode) {
     DORIS_CHECK(expr != nullptr);
+    if (expr->node_type() == TExprNodeType::SEARCH_EXPR) {
+        if (mode == ExprStorageFilterCheckMode::HAS_NON_KEY_SLOT) {
+            if (expr->children().empty()) {
+                return true;
+            }
+            return std::ranges::any_of(expr->children(), [this, mode](const auto& child) {
+                return _check_expr_storage_filter(child, mode);
+            });
+        }
+        return mode == ExprStorageFilterCheckMode::HAS_SEGMENT_EVALUABLE_EXPR;
+    }
+    if (expr->node_type() == TExprNodeType::MATCH_PRED &&
+        mode == ExprStorageFilterCheckMode::HAS_SEGMENT_EVALUABLE_EXPR) {
+        return true;
+    }
     if (expr->is_slot_ref()) {
         const auto* slot_ref = assert_cast<const VSlotRef*>(expr.get());
-        return (mode == ExprSlotRefCheckMode::HAS_MATERIALIZED_SLOT) |
+        return mode == ExprStorageFilterCheckMode::HAS_SEGMENT_EVALUABLE_EXPR ||
                !_is_key_column(slot_ref->expr_name());
     }
     if (expr->is_virtual_slot_ref()) {
         const auto* virtual_slot_ref = assert_cast<const VirtualSlotRef*>(expr.get());
         DORIS_CHECK(virtual_slot_ref->get_virtual_column_expr() != nullptr);
-        return _check_expr_materialized_slots(virtual_slot_ref->get_virtual_column_expr(), mode);
+        return _check_expr_storage_filter(virtual_slot_ref->get_virtual_column_expr(), mode);
     }
 
     return std::ranges::any_of(expr->children(), [this, mode](const auto& child) {
-        return _check_expr_materialized_slots(child, mode);
+        return _check_expr_storage_filter(child, mode);
     });
 }
 
@@ -1123,6 +1138,8 @@ OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, i
           _cache_param(param) {
     _output_tuple_id = tnode.olap_scan_node.tuple_id;
     if (_olap_scan_node.__isset.sort_info && _olap_scan_node.__isset.sort_limit) {
+        DORIS_CHECK(_limit < 0);
+        DORIS_CHECK(_olap_scan_node.sort_limit > 0);
         _limit_per_scanner = _olap_scan_node.sort_limit;
     }
     DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {

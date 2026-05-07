@@ -87,6 +87,7 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
     // it only sets read_orderby_key_limit on the no-merge tablet types.
     if (_reader->_reader_context.read_orderby_key_limit > 0) {
         _topn_limit = _reader->_reader_context.read_orderby_key_limit;
+        DORIS_CHECK(_reader->_reader_context.general_read_limit == 0);
     }
     // General limit is forwarded to SegmentIterator, which applies it after
     // predicate/common-expr filtering and before lazy-reading non-predicate columns.
@@ -117,6 +118,7 @@ Status VCollectIterator::add_child(const RowSetSplits& rs_splits) {
 // then merged with the base rowset.
 Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_readers) {
     if (use_topn_next()) {
+        DORIS_CHECK(_children.empty());
         return Status::OK();
     }
 
@@ -265,22 +267,15 @@ Status VCollectIterator::next(Block* block) {
 }
 
 Status VCollectIterator::_topn_next(Block* block) {
+    DORIS_CHECK(use_topn_next());
+    DORIS_CHECK(_reader->_reader_context.read_orderby_key_columns != nullptr);
+    DORIS_CHECK(!_reader->_reader_context.read_orderby_key_columns->empty());
+
     if (_topn_eof) {
         return Status::Error<END_OF_FILE>("");
     }
 
-    // The scanner enables this path only when no conjunct remains above SegmentIterator.
-    // Pushed filters have already run in storage before rows reach this TopN merge.
     auto clone_block = block->clone_empty();
-    /*
-    select id, "${tR2}",
-            l2_distance_approximate 
-        from ann_index_only_scan
-        where l2_distance_approximate < 10
-        order by id
-        limit 20;
-    where id is the orderby key column.
-    */
     // Initialize virtual slot columns by schema (avoid runtime type checks):
     // use _reader_context.vir_col_idx_to_type to construct real columns for those positions.
     if (!_reader->_reader_context.vir_col_idx_to_type.empty()) {

@@ -92,7 +92,8 @@ public:
     inline bool use_topn_next() const { return _topn_limit > 0; }
 
 private:
-    // next for topn query
+    // Scanner-local TopN merge. SegmentIterator has already applied all pushed filters and its
+    // per-segment row budget; this path only keeps the best local rows across rowsets.
     Status _topn_next(Block* block);
 
     class BlockRowPosComparator {
@@ -356,9 +357,6 @@ private:
     // for topn next
     size_t _topn_limit = 0;
     bool _topn_eof = false;
-    // For chunked topN output when result exceeds byte budget.
-    Block _topn_result_block;
-    size_t _topn_result_offset = 0;
     // for forwarding general LIMIT to SegmentIterator
     size_t _general_read_limit = 0;
     std::vector<RowSetSplits> _rs_splits;

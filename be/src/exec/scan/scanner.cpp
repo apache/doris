@@ -49,8 +49,8 @@ Scanner::Scanner(RuntimeState* state, ScanLocalStateBase* local_state, int64_t l
 Status Scanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     // All scanners share a remaining-limit counter so a LIMIT query can
     // stop once enough rows have been collected across scanners.
-    // OlapScanner overrides this to nullptr for the topn path, since each
-    // scanner there must independently produce its full local top-N.
+    // Key TopN scans have no ordinary scan LIMIT, so each scanner can
+    // independently produce its full local top-N.
     _shared_scan_limit = _local_state->shared_scan_limit_ptr();
 
     if (!conjuncts.empty()) {

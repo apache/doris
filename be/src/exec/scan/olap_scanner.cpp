@@ -456,9 +456,9 @@ Status OlapScanner::_init_tablet_reader_params(
         if (_limit > 0 && no_runtime_filters && segment_filter_and_limit_enabled &&
             storage_no_merge) {
             for (const auto& conjunct : _conjuncts) {
-                DORIS_CHECK(!olap_scan_local_state->_check_expr_materialized_slots(
-                        conjunct->root(),
-                        OlapScanLocalState::ExprSlotRefCheckMode::HAS_MATERIALIZED_SLOT));
+                DORIS_CHECK(!olap_scan_local_state->_check_expr_storage_filter(
+                        conjunct->root(), OlapScanLocalState::ExprStorageFilterCheckMode::
+                                                  HAS_SEGMENT_EVALUABLE_EXPR));
             }
         }
 
