@@ -403,6 +403,23 @@ TEST_F(PythonServerTest, EnsurePoolInitializedSuccess) {
     mgr.shutdown();
 }
 
+TEST_F(PythonServerTest, EnsurePoolInitializedLogsProgressWhileWaitingForSlowProcess) {
+    setup_doris_home();
+    std::string python_path =
+            create_fake_python_with_delay_and_socket_creation("python3.delayed", "3.9.16", 200);
+
+    config::max_python_process_num = 1;
+
+    PythonServerManager mgr;
+    PythonVersion version("3.9.16", test_dir_, python_path);
+
+    auto result = mgr._ensure_pool_initialized(version);
+
+    EXPECT_TRUE(result.has_value()) << result.error().to_string();
+
+    mgr.shutdown();
+}
+
 TEST_F(PythonServerTest, EnsurePoolInitializedIdempotent) {
     setup_doris_home();
     std::string python_path = create_fake_python_with_socket_creation("3.9.16");

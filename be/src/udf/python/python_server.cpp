@@ -130,7 +130,11 @@ PythonServerManager::_ensure_pool_initialized(const PythonVersion& version) {
     int success_count = 0;
     int failure_count = 0;
     const auto init_start_time = std::chrono::steady_clock::now();
+#ifdef BE_TEST
+    constexpr auto progress_log_interval = std::chrono::milliseconds(50);
+#else
     constexpr auto progress_log_interval = std::chrono::seconds(20);
+#endif
     for (int i = 0; i < max_pool_size; i++) {
         // Print init log every 20s until the current slot is ready.
         while (futures[i].wait_for(progress_log_interval) != std::future_status::ready) {
