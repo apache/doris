@@ -299,7 +299,7 @@ struct TQueryOptions {
   // max rows of each sub-queue in DataQueue.
   106: optional i64 data_queue_max_blocks = 0;
   
-  // expr pushdown for index filter rows
+  // deprecated
   107: optional bool enable_common_expr_pushdown_for_inverted_index = false;
   108: optional i64 local_exchange_free_blocks_limit;
 

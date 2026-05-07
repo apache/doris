@@ -248,12 +248,6 @@ public:
                _query_options.enable_segment_filter_and_limit_pushdown;
     }
 
-    bool enable_common_expr_pushdown_for_inverted_index() const {
-        return enable_segment_filter_and_limit_pushdown() &&
-               _query_options.__isset.enable_common_expr_pushdown_for_inverted_index &&
-               _query_options.enable_common_expr_pushdown_for_inverted_index;
-    };
-
     bool mysql_row_binary_format() const {
         return _query_options.__isset.mysql_row_binary_format &&
                _query_options.mysql_row_binary_format;
