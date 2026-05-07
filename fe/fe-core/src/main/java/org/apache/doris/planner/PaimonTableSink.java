@@ -43,6 +43,7 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -169,6 +170,8 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
 
         if (paimonTable != null) {
             tSink.setSerializedTable(encodeObjectToString(paimonTable));
+            putPaimonFormatOption(options, paimonTable, "file.format");
+            putPaimonFormatOption(options, paimonTable, "manifest.format");
         }
 
         ArrayList<String> partitionKeys = new ArrayList<>();
@@ -213,6 +216,12 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
         boolean enableJni = false;
         if (ConnectContext.get() != null) {
             enableJni = ConnectContext.get().getSessionVariable().enablePaimonJniWriter;
+        }
+        if (!enableJni && "orc".equals(options.getOrDefault("file.format", "parquet")
+                .trim().toLowerCase(Locale.ROOT))) {
+            throw new AnalysisException(
+                    "paimon-cpp native writer does not support ORC tables yet; "
+                            + "set enable_paimon_jni_writer=true");
         }
         options.put("paimon_use_jni", String.valueOf(enableJni));
         if (ConnectContext.get() != null) {
@@ -284,5 +293,13 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
             }
         }
         return tableLocation;
+    }
+
+    private void putPaimonFormatOption(Map<String, String> options, org.apache.paimon.table.Table paimonTable,
+            String key) {
+        String value = paimonTable.options().get(key);
+        if (value != null && !value.isEmpty()) {
+            options.put(key, value);
+        }
     }
 }

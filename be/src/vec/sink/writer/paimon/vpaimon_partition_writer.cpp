@@ -53,13 +53,25 @@ public:
 
     arrow::Status Allocate(int64_t size, int64_t alignment, uint8_t** out) override {
         *out = reinterpret_cast<uint8_t*>(pool_->Malloc(size, alignment));
+        if (*out == nullptr) {
+            return arrow::Status::OutOfMemory("paimon memory pool malloc of size ", size,
+                                              " failed");
+        }
         stats_.DidAllocateBytes(size);
         return arrow::Status::OK();
     }
 
     arrow::Status Reallocate(int64_t old_size, int64_t new_size, int64_t alignment,
                              uint8_t** ptr) override {
-        *ptr = reinterpret_cast<uint8_t*>(pool_->Realloc(*ptr, old_size, new_size, alignment));
+        uint8_t* previous_ptr = *ptr;
+        uint8_t* new_ptr =
+                reinterpret_cast<uint8_t*>(pool_->Realloc(*ptr, old_size, new_size, alignment));
+        if (new_ptr == nullptr) {
+            *ptr = previous_ptr;
+            return arrow::Status::OutOfMemory("paimon memory pool realloc of size ", new_size,
+                                              " failed");
+        }
+        *ptr = new_ptr;
         stats_.DidReallocateBytes(old_size, new_size);
         return arrow::Status::OK();
     }

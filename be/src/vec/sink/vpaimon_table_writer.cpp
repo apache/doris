@@ -20,6 +20,7 @@
 #include <gen_cpp/DataSinks_types.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -242,8 +243,22 @@ Status VPaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
                   << _state->query_options().paimon_target_file_size;
     }
 
-    options["file.format"] = "parquet";
-    options["manifest.format"] = "parquet";
+    auto file_format_it = options.find("file.format");
+    if (file_format_it != options.end()) {
+        std::string file_format = file_format_it->second;
+        std::transform(file_format.begin(), file_format.end(), file_format.begin(),
+                       [](unsigned char c) { return std::tolower(c); });
+        if (file_format == "orc") {
+            return Status::NotSupported(
+                    "paimon-cpp native writer does not support ORC tables yet; "
+                    "enable_paimon_jni_writer=true is required");
+        }
+    } else {
+        options["file.format"] = "parquet";
+    }
+    if (options.find("manifest.format") == options.end()) {
+        options["manifest.format"] = "parquet";
+    }
     if ((!paimon_sink.__isset.bucket_num || paimon_sink.bucket_num <= 0) &&
         paimon_sink.__isset.bucket_keys && !paimon_sink.bucket_keys.empty()) {
         return Status::NotSupported(

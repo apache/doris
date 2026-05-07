@@ -75,6 +75,32 @@ paimon::Status _to_paimon_status(const doris::Status& st) {
     return paimon::Status::IOError(st.to_string());
 }
 
+paimon::Result<bool> _path_is_file(const std::shared_ptr<doris::io::FileSystem>& fs,
+                                   const std::string& path) {
+    doris::io::Path file_path(path);
+    doris::io::Path parent_path = file_path.parent_path();
+    std::string file_name = file_path.filename().string();
+    if (parent_path.empty() || file_name.empty()) {
+        return paimon::Status::Invalid("invalid file path: ", path);
+    }
+
+    std::vector<doris::io::FileInfo> files;
+    bool parent_exists = false;
+    doris::Status list_st = fs->list(parent_path, false, &files, &parent_exists);
+    if (!list_st.ok()) {
+        return paimon::Status::IOError(list_st.to_string());
+    }
+    if (!parent_exists) {
+        return paimon::Status::NotExist("parent path does not exist: ", parent_path.string());
+    }
+    for (const auto& file : files) {
+        if (file.file_name == file_name) {
+            return file.is_file;
+        }
+    }
+    return paimon::Status::NotExist("path not found under parent listing: ", path);
+}
+
 class DorisPaimonBasicFileStatus final : public paimon::BasicFileStatus {
 public:
     DorisPaimonBasicFileStatus(std::string path, bool is_dir)
@@ -244,10 +270,14 @@ public:
             if (!overwrite) {
                 return paimon::Status::Exist("path already exists: ", path);
             }
-            doris::Status del_st = _fs->delete_directory(doris::io::Path(path));
-            if (!del_st.ok()) {
-                del_st = _fs->delete_file(doris::io::Path(path));
+            auto is_file = _path_is_file(_fs, path);
+            if (!is_file.ok()) {
+                return is_file.status();
             }
+            if (!is_file.value()) {
+                return paimon::Status::Invalid("refuse to overwrite directory as file: ", path);
+            }
+            doris::Status del_st = _fs->delete_file(doris::io::Path(path));
             if (!del_st.ok()) {
                 return paimon::Status::IOError(del_st.to_string());
             }

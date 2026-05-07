@@ -43,7 +43,6 @@ if (${MAKE_TEST} STREQUAL "OFF" AND ${BUILD_BENCHMARK} STREQUAL "OFF")
 
     target_link_libraries(doris_be
         ${DORIS_LINK_LIBS}
-        paimon_rawlog_compat
     )
 
     install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
