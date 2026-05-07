@@ -632,8 +632,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         RETURN_IF_ERROR(pk_idx->new_iterator(&iter, nullptr));
 
         size_t num_to_read = std::min<int64_t>(batch_size, remaining);
-        auto index_type =
-                DataTypeFactory::instance().create_data_type(pk_idx->type_info()->type(), 1, 0);
+        auto index_type = DataTypeFactory::instance().create_data_type(pk_idx->type(), 1, 0);
         auto index_column = index_type->create_column();
         Slice last_key_slice(last_key);
         RETURN_IF_ERROR(iter->seek_at_or_after(&last_key_slice, &exact_match));
@@ -671,9 +670,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 Slice rowid_slice =
                         Slice(key.get_data() + key_without_seq.get_size() + seq_col_length + 1,
                               rowid_length - 1);
-                const auto* type_info =
-                        get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>();
-                const auto* rowid_coder = get_key_coder(type_info->type());
+                const auto* rowid_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
                 RETURN_IF_ERROR(rowid_coder->decode_ascending(&rowid_slice, rowid_length,
                                                               (uint8_t*)&row_id));
             }
