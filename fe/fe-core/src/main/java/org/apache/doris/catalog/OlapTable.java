@@ -807,6 +807,26 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     /**
+     * Check properties before restore.
+     */
+    public Status checkPropertiesForRestore() {
+        if (tableProperty != null) {
+            if (Config.isCloudMode()) {
+                // Avoid restore non-light schema change table in cloud mode. Because non-light schema change table
+                // may have different schema with same schema version(which is always 0), which will cause very bad
+                // problem to metadata in cloud mode.
+                if (!tableProperty.getUseSchemaLightChange()) {
+                    String msg = String.format("Restoring table %s which has property `\"light_schema_change\""
+                            + " = \"false\"`, currently cloud mode only supports light schema change table."
+                            + " Please enable `light_schema_change` property before backup and restore.", name);
+                    return new Status(ErrCode.COMMON_ERROR, msg);
+                }
+            }
+        }
+        return Status.OK;
+    }
+
+    /**
      * Set the related properties when is_being_synced properties is true.
      *
      * Some properties, like storage_policy, colocate_with, are not supported by the ccr syncer.
