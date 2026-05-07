@@ -1033,6 +1033,15 @@ public class TypeCoercionUtils {
                 || rightType instanceof SmallIntType) {
             return Optional.of(leftType);
         }
+        // For BigIntType and LargeIntType, using DoubleType would lose precision
+        // because double only has 53 bits of mantissa (about 15-17 significant digits).
+        // BigInt can represent up to 19 digits, and LargeInt up to 39 digits.
+        // Use DecimalV3Type to preserve exact integer representation.
+        if (rightType instanceof BigIntType || rightType instanceof LargeIntType) {
+            return Optional.of(DecimalV3Type.widerDecimalV3Type(
+                    DecimalV3Type.forType(leftType),
+                    DecimalV3Type.forType(rightType), true));
+        }
         return Optional.of(DoubleType.INSTANCE);
     }
 
@@ -1758,6 +1767,16 @@ public class TypeCoercionUtils {
         // numeric
         if (leftType.isFloatType() || leftType.isDoubleType()
                 || rightType.isFloatType() || rightType.isDoubleType()) {
+            // For BigIntType and LargeIntType, using DoubleType loses precision
+            // because double only has 53 bits of mantissa (~15-17 significant digits).
+            // BigInt can represent up to 19 digits, and LargeInt up to 39 digits.
+            // Use DecimalV3Type to preserve exact integer representation.
+            if (leftType instanceof BigIntType || leftType instanceof LargeIntType
+                    || rightType instanceof BigIntType || rightType instanceof LargeIntType) {
+                return Optional.of(DecimalV3Type.widerDecimalV3Type(
+                        DecimalV3Type.forType(leftType),
+                        DecimalV3Type.forType(rightType), true));
+            }
             return Optional.of(DoubleType.INSTANCE);
         }
         if (leftType.isNumericType() && rightType.isNumericType()) {
