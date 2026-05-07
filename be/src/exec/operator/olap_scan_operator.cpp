@@ -37,6 +37,7 @@
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/virtual_slot_ref.h"
 #include "exprs/vslot_ref.h"
 #include "io/cache/block_file_cache_profile.h"
 #include "runtime/query_cache/query_cache.h"
@@ -474,9 +475,9 @@ Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* f
 
 bool OlapScanLocalState::_should_push_down_common_expr(const VExprSPtr& expr) {
     // This switch controls both pushed filter execution and LIMIT accounting in SegmentIterator.
-    // Only expressions that actually reference slots can reduce storage reads.
+    // Only expressions with extractable slot dependencies can be evaluated there.
     if (!state()->enable_segment_filter_and_limit_pushdown() ||
-        !VExpr::is_acting_on_a_slot(*expr)) {
+        !_check_expr_materialized_slots(expr, ExprSlotRefCheckMode::HAS_MATERIALIZED_SLOT)) {
         return false;
     }
 
@@ -495,20 +496,26 @@ bool OlapScanLocalState::_should_push_down_common_expr(const VExprSPtr& expr) {
 
     // AGG and UNIQUE-MOR may still merge value columns above SegmentIterator. Push only key-column
     // expressions so filtering does not observe pre-merge values.
-    return _expr_only_refs_key_columns(expr);
+    return !_check_expr_materialized_slots(expr, ExprSlotRefCheckMode::HAS_NON_KEY_COLUMN);
 }
 
-bool OlapScanLocalState::_expr_only_refs_key_columns(const VExprSPtr& expr) {
+bool OlapScanLocalState::_check_expr_materialized_slots(const VExprSPtr& expr,
+                                                        ExprSlotRefCheckMode mode) {
+    DORIS_CHECK(expr != nullptr);
     if (expr->is_slot_ref()) {
         const auto* slot_ref = assert_cast<const VSlotRef*>(expr.get());
-        return _is_key_column(slot_ref->expr_name());
+        return (mode == ExprSlotRefCheckMode::HAS_MATERIALIZED_SLOT) |
+               !_is_key_column(slot_ref->expr_name());
     }
-    for (const auto& child : expr->children()) {
-        if (!_expr_only_refs_key_columns(child)) {
-            return false;
-        }
+    if (expr->is_virtual_slot_ref()) {
+        const auto* virtual_slot_ref = assert_cast<const VirtualSlotRef*>(expr.get());
+        DORIS_CHECK(virtual_slot_ref->get_virtual_column_expr() != nullptr);
+        return _check_expr_materialized_slots(virtual_slot_ref->get_virtual_column_expr(), mode);
     }
-    return true;
+
+    return std::ranges::any_of(expr->children(), [this, mode](const auto& child) {
+        return _check_expr_materialized_slots(child, mode);
+    });
 }
 
 bool OlapScanLocalState::_storage_no_merge() {

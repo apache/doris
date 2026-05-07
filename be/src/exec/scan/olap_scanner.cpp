@@ -442,36 +442,60 @@ Status OlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.enable_mor_value_predicate_pushdown = true;
         }
 
-        // Push LIMIT into SegmentIterator only when no scanner-level conjunct remains.
-        // For TopN this is also the contract for VCollectIterator::topn_next(): it no
-        // longer applies filter_block_conjuncts itself, so every filter must have either
-        // become a storage predicate or moved to SegmentIterator common-expr evaluation.
-        // Runtime filters may arrive late, so keep LIMIT at the scanner/operator layer
-        // when any runtime filter exists.
-        if (_total_rf_num == 0 && _conjuncts.empty() &&
-            _state->enable_segment_filter_and_limit_pushdown()) {
-            if (olap_scan_node.__isset.sort_info &&
-                !olap_scan_node.sort_info.is_asc_order.empty()) {
-                _limit = _local_state->limit_per_scanner();
+        const bool has_key_topn =
+                olap_scan_node.__isset.sort_info && !olap_scan_node.sort_info.is_asc_order.empty();
+        if (has_key_topn) {
+            _limit = _local_state->limit_per_scanner();
+        }
+
+        const bool no_runtime_filters = _total_rf_num == 0;
+        const bool segment_filter_and_limit_enabled =
+                _state->enable_segment_filter_and_limit_pushdown();
+        const bool storage_no_merge = olap_scan_local_state->_storage_no_merge();
+
+        if (_limit > 0 && no_runtime_filters && segment_filter_and_limit_enabled &&
+            storage_no_merge) {
+            for (const auto& conjunct : _conjuncts) {
+                DORIS_CHECK(!olap_scan_local_state->_check_expr_materialized_slots(
+                        conjunct->root(),
+                        OlapScanLocalState::ExprSlotRefCheckMode::HAS_MATERIALIZED_SLOT));
+            }
+        }
+
+        // Segment LIMIT has only two legal states: completely disabled, or enabled after every
+        // row-filtering conjunct has become a storage predicate or SegmentIterator common expr.
+        const bool can_push_down_segment_limit =
+                _limit > 0 && no_runtime_filters && _conjuncts.empty() &&
+                segment_filter_and_limit_enabled && storage_no_merge;
+        if (can_push_down_segment_limit) {
+            if (has_key_topn) {
                 _tablet_reader_params.read_orderby_key = true;
                 if (!olap_scan_node.sort_info.is_asc_order[0]) {
                     _tablet_reader_params.read_orderby_key_reverse = true;
                 }
                 _tablet_reader_params.read_orderby_key_num_prefix_columns =
                         olap_scan_node.sort_info.is_asc_order.size();
-
-                if (_limit > 0 && olap_scan_local_state->_storage_no_merge()) {
-                    _tablet_reader_params.read_orderby_key_limit = _limit;
-                }
-            } else if (_limit > 0 && olap_scan_local_state->_storage_no_merge()) {
+                _tablet_reader_params.read_orderby_key_limit = _limit;
+            } else {
                 _tablet_reader_params.general_read_limit = _limit;
             }
         }
 
-        // Each topn scanner must independently produce its full local top-N
-        // candidates, so the cross-scanner shared limit cannot apply here.
-        if (_tablet_reader_params.read_orderby_key_limit > 0) {
+        if (_tablet_reader_params.read_orderby_key_limit > 0 ||
+            _tablet_reader_params.general_read_limit > 0) {
+            DORIS_CHECK(can_push_down_segment_limit);
+            DORIS_CHECK(_conjuncts.empty());
+        }
+
+        // A key TopN scan cannot share the plain LIMIT early-stop counter. If
+        // storage TopN is pushed down, each scanner must produce its full local
+        // candidates. If it is not pushed down for any reason, the upper TopN
+        // still needs all rows from the scan.
+        if (has_key_topn) {
             _shared_scan_limit = nullptr;
+            if (_tablet_reader_params.read_orderby_key_limit == 0) {
+                _limit = -1;
+            }
         }
         // Note: _shared_scan_limit is intentionally not pushed into the
         // storage layer. SegmentIterator's _process_eof() is irreversible,
