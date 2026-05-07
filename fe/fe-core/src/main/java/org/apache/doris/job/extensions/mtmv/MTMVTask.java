@@ -118,6 +118,7 @@ public class MTMVTask extends AbstractTask {
             new Column("CompletedPartitions", ScalarType.createStringType()),
             new Column("Progress", ScalarType.createStringType()),
             new Column("LastQueryId", ScalarType.createStringType()),
+            new Column("IvmFallbackReason", ScalarType.createStringType()),
             new Column("ComputeGroup", ScalarType.createStringType()));
 
     public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
@@ -156,6 +157,8 @@ public class MTMVTask extends AbstractTask {
     MTMVTaskRefreshMode refreshMode;
     @SerializedName("lastQueryId")
     String lastQueryId;
+    @SerializedName("ifr")
+    private String ivmFallbackReason;
     @SerializedName("cg")
     private String computeGroup;
 
@@ -288,6 +291,7 @@ public class MTMVTask extends AbstractTask {
                     mtmv.getName(), getTaskId());
             return true;
         }
+        ivmFallbackReason = ivmResult.getFailureReason().name();
         // INCREMENTAL was explicitly requested; do not fall back to full refresh.
         if (currentRefreshMode == RefreshMode.INCREMENTAL) {
             throw new JobException(
@@ -624,6 +628,8 @@ public class MTMVTask extends AbstractTask {
                 new TCell().setStringVal(getProgress()));
         trow.addToColumnValue(
                 new TCell().setStringVal(lastQueryId));
+        trow.addToColumnValue(new TCell().setStringVal(
+                ivmFallbackReason == null ? FeConstants.null_string : ivmFallbackReason));
         trow.addToColumnValue(new TCell().setStringVal(
                 computeGroup == null || computeGroup.isEmpty() ? FeConstants.null_string : computeGroup));
         return trow;

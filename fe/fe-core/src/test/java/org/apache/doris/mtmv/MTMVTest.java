@@ -20,11 +20,13 @@ package org.apache.doris.mtmv;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionItem;
+import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
@@ -36,6 +38,7 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
@@ -312,6 +315,42 @@ public class MTMVTest {
         mtmv.alterStatus(new MTMVStatus(MTMVState.SCHEMA_CHANGE, "base table"));
         Assert.assertEquals(MTMVState.SCHEMA_CHANGE, status.getState());
         Assert.assertEquals(MTMVRefreshState.SUCCESS, status.getRefreshState());
+    }
+
+    @Test
+    public void testUnknownRefreshMethodMarksSchemaChangeAfterDeserialize() {
+        MTMV mtmv = buildSerializableMTMV();
+        String json = GsonUtils.GSON.toJson(mtmv).replace("\"rm\":\"COMPLETE\"", "\"rm\":\"UNKNOWN\"");
+
+        MTMV restored = GsonUtils.GSON.fromJson(json, MTMV.class);
+
+        Assert.assertNull(restored.getRefreshInfo().getRefreshMethod());
+        Assert.assertEquals(MTMVState.SCHEMA_CHANGE, restored.getStatus().getState());
+        Assert.assertEquals("Unknown refresh method detected during deserialization",
+                restored.getStatus().getSchemaChangeDetail());
+    }
+
+    private MTMV buildSerializableMTMV() {
+        MTMV mtmv = new MTMV();
+        mtmv.setId(1L);
+        mtmv.setQualifiedDbName("db1");
+        mtmv.setRefreshInfo(buildMTMVRefreshInfo(mtmv));
+        mtmv.setQuerySql("select k1 from t1");
+        mtmv.setStatus(new MTMVStatus(MTMVRefreshState.SUCCESS));
+        mtmv.getStatus().setState(MTMVState.NORMAL);
+        mtmv.setJobInfo(new MTMVJobInfo("job1"));
+        mtmv.setMvProperties(Maps.newHashMap());
+        mtmv.setRelation(new MTMVRelation(Sets.newHashSet(), Sets.newHashSet(), Sets.newHashSet(), Sets.newHashSet(),
+                Sets.newHashSet()));
+        mtmv.setMvPartitionInfo(new MTMVPartitionInfo());
+        mtmv.setRefreshSnapshot(new MTMVRefreshSnapshot());
+
+        List<Column> schema = Lists.newArrayList(new Column("k1", PrimitiveType.INT, true));
+        mtmv.setBaseIndexId(1L);
+        mtmv.setIndexMeta(1L, "mv1", schema, 0, 0, (short) 1, TStorageType.COLUMN,
+                KeysType.DUP_KEYS);
+        mtmv.setPartitionInfo(new SinglePartitionInfo());
+        return mtmv;
     }
 
     @Test
