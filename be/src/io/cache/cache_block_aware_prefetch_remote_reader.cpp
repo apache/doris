@@ -74,6 +74,18 @@ void CacheBlockAwarePrefetchRemoteReader::clear_read_pattern() {
     _prefetch_cursor.reset();
 }
 
+void CacheBlockAwarePrefetchRemoteReader::async_touch_initial_window(const IOContext* io_ctx) {
+    std::vector<CacheBlockRange> ranges;
+    {
+        std::lock_guard lock(_pattern_mutex);
+        if (!_prefetch_cursor.has_value()) {
+            return;
+        }
+        ranges = _prefetch_cursor->next_initial_touch_ranges();
+    }
+    _async_touch_ranges(std::move(ranges), io_ctx);
+}
+
 bool CacheBlockAwarePrefetchRemoteReader::has_read_pattern() const {
     std::lock_guard lock(_pattern_mutex);
     return _prefetch_cursor.has_value();
@@ -103,6 +115,11 @@ void CacheBlockAwarePrefetchRemoteReader::_prefetch(size_t current_file_offset,
         ranges = _prefetch_cursor->next_touch_ranges(current_file_offset);
     }
 
+    _async_touch_ranges(std::move(ranges), io_ctx);
+}
+
+void CacheBlockAwarePrefetchRemoteReader::_async_touch_ranges(std::vector<CacheBlockRange> ranges,
+                                                              const IOContext* io_ctx) {
     for (const auto& range : ranges) {
         async_touch_local_cache(range.offset, range.size, io_ctx);
     }
@@ -138,6 +155,14 @@ std::vector<CacheBlockRange> CacheBlockPrefetchCursor::next_touch_ranges(
         ranges.push_back(entries[_next_touch_index++].cache_block_range);
     }
     return ranges;
+}
+
+std::vector<CacheBlockRange> CacheBlockPrefetchCursor::next_initial_touch_ranges() {
+    const auto entries = _plan.entries();
+    if (entries.empty() || _current_index >= entries.size()) {
+        return {};
+    }
+    return next_touch_ranges(entries[_current_index].trigger_file_range.offset);
 }
 
 void CacheBlockPrefetchCursor::_advance_current_index(size_t current_file_offset) {

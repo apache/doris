@@ -2556,6 +2556,11 @@ Status FileColumnIterator::install_cache_block_prefetch_pattern(
                                                           _cache_block_prefetch_policy);
 }
 
+void FileColumnIterator::async_touch_cache_block_prefetch_initial_window() {
+    DCHECK(_cache_block_prefetch_reader != nullptr);
+    _cache_block_prefetch_reader->async_touch_initial_window(&_opts.io_ctx);
+}
+
 Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
     _opts = opts;
     // be consistent with segment v1

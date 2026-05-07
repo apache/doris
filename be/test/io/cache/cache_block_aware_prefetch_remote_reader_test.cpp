@@ -399,6 +399,34 @@ TEST(CacheBlockAwarePrefetchRemoteReaderTest, prefetch_window_advances_without_d
     EXPECT_EQ(ranges[0].offset, 300);
 }
 
+TEST(CacheBlockAwarePrefetchRemoteReaderTest, initial_touch_window_advances_before_read_at) {
+    detail::CacheBlockPrefetchCursor cursor {
+            detail::CacheBlockPrefetchPlan::from_read_pattern(
+                    CacheBlockReadPattern {
+                            .direction = CacheBlockReadDirection::FORWARD,
+                            .ranges =
+                                    {
+                                            {.offset = 0, .size = 1},
+                                            {.offset = 100, .size = 1},
+                                            {.offset = 200, .size = 1},
+                                    },
+                    },
+                    100),
+            2};
+
+    auto ranges = cursor.next_initial_touch_ranges();
+    ASSERT_EQ(ranges.size(), 2);
+    EXPECT_EQ(ranges[0].offset, 0);
+    EXPECT_EQ(ranges[1].offset, 100);
+
+    ranges = cursor.next_touch_ranges(0);
+    EXPECT_TRUE(ranges.empty());
+
+    ranges = cursor.next_touch_ranges(100);
+    ASSERT_EQ(ranges.size(), 1);
+    EXPECT_EQ(ranges[0].offset, 200);
+}
+
 TEST(CacheBlockAwarePrefetchRemoteReaderTest, prefetch_window_does_not_split_large_file_range) {
     detail::CacheBlockPrefetchCursor cursor {
             detail::CacheBlockPrefetchPlan::from_read_pattern(
@@ -618,6 +646,104 @@ TEST_F(BlockFileCacheTest, usage_example_read_at_automatically_prefetches_single
     first_reader->clear_read_pattern();
     EXPECT_FALSE(first_reader->has_read_pattern());
     EXPECT_TRUE(second_reader->has_read_pattern());
+}
+
+TEST_F(BlockFileCacheTest,
+       cache_block_aware_prefetch_remote_reader_touches_initial_window_before_read_at) {
+    std::string test_cache_base_path = caches_dir / "initial_prefetch_window" / "";
+    auto cleanup = [&] {
+        ExecEnv::GetInstance()->_segment_prefetch_thread_pool.reset();
+        if (fs::exists(test_cache_base_path)) {
+            fs::remove_all(test_cache_base_path);
+        }
+        FileCacheFactory::instance()->_caches.clear();
+        FileCacheFactory::instance()->_path_to_cache.clear();
+        FileCacheFactory::instance()->_capacity = 0;
+    };
+    cleanup();
+    Defer defer {cleanup};
+
+    fs::create_directories(test_cache_base_path);
+    FileCacheSettings settings;
+    settings.query_queue_size = 8_mb;
+    settings.query_queue_elements = 8;
+    settings.index_queue_size = 1_mb;
+    settings.index_queue_elements = 1;
+    settings.disposable_queue_size = 1_mb;
+    settings.disposable_queue_elements = 1;
+    settings.capacity = 10_mb;
+    settings.max_file_block_size = config::file_cache_each_block_size;
+    settings.max_query_cache_size = 0;
+    ASSERT_TRUE(
+            FileCacheFactory::instance()->create_file_cache(test_cache_base_path, settings).ok());
+    auto cache = FileCacheFactory::instance()->_path_to_cache[test_cache_base_path];
+    ASSERT_TRUE(wait_until([&] { return cache->get_async_open_success(); }));
+
+    std::unique_ptr<ThreadPool> pool;
+    ASSERT_TRUE(ThreadPoolBuilder("CacheBlockAwarePrefetchRemoteReaderInitialWindowTest")
+                        .set_min_threads(2)
+                        .set_max_threads(4)
+                        .build(&pool)
+                        .ok());
+    ExecEnv::GetInstance()->_segment_prefetch_thread_pool = std::move(pool);
+
+    FileReaderOptions opts;
+    opts.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
+    opts.is_doris_table = true;
+    opts.tablet_id = 10086;
+
+    auto remote_reader = std::make_shared<CountingRemoteFileReader>(
+            Path("/tmp/cache_block_prefetch_initial_window"), 4_mb);
+    auto reader = std::make_shared<CacheBlockAwarePrefetchRemoteReader>(remote_reader, opts);
+    CacheBlockPrefetchPolicy policy {
+            .max_prefetch_blocks = 2,
+            .cache_block_size = static_cast<size_t>(config::file_cache_each_block_size),
+    };
+    ASSERT_TRUE(reader->set_read_pattern(
+                              CacheBlockReadPattern {
+                                      .direction = CacheBlockReadDirection::FORWARD,
+                                      .ranges =
+                                              {
+                                                      {.offset = 0, .size = 1},
+                                                      {.offset = 1_mb, .size = 1},
+                                                      {.offset = 2_mb, .size = 1},
+                                              },
+                              },
+                              policy)
+                        .ok());
+
+    // Predicate columns in SegmentIterator use this path after their read pattern is installed:
+    // the first window is touched before PageIO issues the first foreground read_at(), because
+    // those ranges are guaranteed to be consumed by predicate evaluation.
+    IOContext io_ctx;
+    reader->async_touch_initial_window(&io_ctx);
+    ASSERT_TRUE(wait_until([&] {
+        std::set<size_t> offsets;
+        for (const auto& range : remote_reader->read_ranges()) {
+            offsets.emplace(range.offset);
+        }
+        return offsets.contains(0) && offsets.contains(1_mb);
+    }));
+
+    auto key = BlockFileCache::hash("cache_block_prefetch_initial_window");
+    CacheContext context;
+    ReadStatistics stats;
+    context.stats = &stats;
+    context.cache_type = FileCacheType::NORMAL;
+    ASSERT_TRUE(wait_until([&] {
+        auto holder = cache->get_or_set(key, 0, 2_mb, context);
+        auto blocks = fromHolder(holder);
+        return blocks.size() == 2 && blocks[0]->state() == FileBlock::State::DOWNLOADED &&
+               blocks[1]->state() == FileBlock::State::DOWNLOADED;
+    }));
+
+    // The initial touch advances the same cursor used by read_at()-triggered prefetch, so calling
+    // it again without scan progress is idempotent and does not resubmit the already touched
+    // cache blocks.
+    const auto read_count = remote_reader->read_ranges().size();
+    reader->async_touch_initial_window(&io_ctx);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    EXPECT_EQ(remote_reader->read_ranges().size(), read_count);
 }
 
 TEST_F(BlockFileCacheTest, cached_remote_file_reader_async_touch_local_cache_downloads_range) {
