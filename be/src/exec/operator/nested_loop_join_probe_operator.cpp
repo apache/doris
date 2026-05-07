@@ -25,6 +25,7 @@
 #include "core/column/column.h"
 #include "core/column/column_const.h"
 #include "core/column/column_filter_helper.h"
+#include "core/column/column_nullable.h"
 #include "exec/operator/operator.h"
 
 namespace doris {
@@ -39,6 +40,13 @@ constexpr int8_t MARK_NULL = -1;
 
 ColumnPtr make_const_column_from_row(const ColumnWithTypeAndName& source, size_t row, size_t rows) {
     return ColumnConst::create(source.column->cut(row, 1), rows);
+}
+
+ColumnPtr align_eval_column_nullable(const ColumnWithTypeAndName& target, const ColumnPtr& column) {
+    if (target.type->is_nullable() && !column->is_nullable()) {
+        return make_nullable(column);
+    }
+    return column;
 }
 
 void append_many_from_source(MutableColumnPtr& dst_column, const ColumnWithTypeAndName& src_column,
@@ -484,10 +492,14 @@ void NestedLoopJoinProbeLocalState::_append_lazy_probe_eval_columns(
                     block_column.type->create_column_const_with_default_value(rows),
                     block_column.type, block_column.name);
         } else if (fixed_side_probe) {
-            eval_columns.emplace_back(make_const_column_from_row(src_column, fixed_side_pos, rows),
-                                      block_column.type, block_column.name);
+            eval_columns.emplace_back(
+                    align_eval_column_nullable(
+                            block_column,
+                            make_const_column_from_row(src_column, fixed_side_pos, rows)),
+                    block_column.type, block_column.name);
         } else {
-            eval_columns.emplace_back(src_column.column, block_column.type, block_column.name);
+            eval_columns.emplace_back(align_eval_column_nullable(block_column, src_column.column),
+                                      block_column.type, block_column.name);
         }
     }
 }
@@ -506,10 +518,14 @@ void NestedLoopJoinProbeLocalState::_append_lazy_build_eval_columns(
                     block_column.type->create_column_const_with_default_value(rows),
                     block_column.type, block_column.name);
         } else if (fixed_side_probe) {
-            eval_columns.emplace_back(src_column.column, block_column.type, block_column.name);
-        } else {
-            eval_columns.emplace_back(make_const_column_from_row(src_column, fixed_side_pos, rows),
+            eval_columns.emplace_back(align_eval_column_nullable(block_column, src_column.column),
                                       block_column.type, block_column.name);
+        } else {
+            eval_columns.emplace_back(
+                    align_eval_column_nullable(
+                            block_column,
+                            make_const_column_from_row(src_column, fixed_side_pos, rows)),
+                    block_column.type, block_column.name);
         }
     }
 }
