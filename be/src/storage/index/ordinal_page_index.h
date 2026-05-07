@@ -99,7 +99,7 @@ private:
 
 private:
     friend class OrdinalPageIndexIterator;
-    friend class SegmentPrefetcher;
+    friend class SegmentFileAccessRangeBuilder;
 
     io::FileReaderSPtr _file_reader;
     DorisCallOnce<Status> _load_once;

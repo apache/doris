@@ -1578,14 +1578,15 @@ Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const si
     return _process_root_column(dst, root_column, most_common_type);
 }
 
-Status VariantRootColumnIterator::init_prefetcher(const SegmentPrefetchParams& params) {
-    return _inner_iter->init_prefetcher(params);
+Status VariantRootColumnIterator::init_cache_block_prefetch(
+        const SegmentCacheBlockPrefetchParams& params) {
+    return _inner_iter->init_cache_block_prefetch(params);
 }
 
-void VariantRootColumnIterator::collect_prefetchers(
-        std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
-        PrefetcherInitMethod init_method) {
-    _inner_iter->collect_prefetchers(prefetchers, init_method);
+void VariantRootColumnIterator::collect_cache_block_prefetch_iterators(
+        std::map<FileAccessRangeBuildMethod, std::vector<ColumnIterator*>>& iterators,
+        FileAccessRangeBuildMethod init_method) {
+    _inner_iter->collect_cache_block_prefetch_iterators(iterators, init_method);
 }
 
 static void fill_nested_with_defaults(MutableColumnPtr& dst, MutableColumnPtr& sibling_column,

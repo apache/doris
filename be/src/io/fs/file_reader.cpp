@@ -20,6 +20,7 @@
 #include <bthread/bthread.h>
 #include <glog/logging.h>
 
+#include "io/cache/cache_block_aware_prefetch_remote_reader.h"
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_system.h"
 #include "util/async_io.h"
@@ -44,6 +45,10 @@ Result<FileReaderSPtr> create_cached_file_reader(FileReaderSPtr raw_reader,
     case io::FileCachePolicy::NO_CACHE:
         return raw_reader;
     case FileCachePolicy::FILE_BLOCK_CACHE:
+        if (opts.enable_cache_block_prefetch) {
+            return std::make_shared<CacheBlockAwarePrefetchRemoteReader>(std::move(raw_reader),
+                                                                         opts);
+        }
         return std::make_shared<CachedRemoteFileReader>(std::move(raw_reader), opts);
     default:
         return ResultError(Status::InternalError("Unknown cache type: {}", opts.cache_type));
