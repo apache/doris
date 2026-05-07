@@ -23,6 +23,7 @@
 
 #include <cstddef> // for size_t
 #include <cstdint> // for uint32_t
+#include <functional>
 #include <map>
 #include <memory> // for unique_ptr
 #include <string>
@@ -90,6 +91,20 @@ struct ColumnReaderOptions {
     int be_exec_version = -1;
 
     TabletSchemaSPtr tablet_schema = nullptr;
+
+    // Optional factory for creating the data-page FileReader used by one
+    // physical FileColumnIterator.
+    //
+    // ColumnReader instances are cached at segment scope and may be reused by
+    // different SegmentIterators or by different physical subcolumns. They must
+    // not own mutable scan progress for cache-block prefetch. When
+    // enable_cache_block_prefetch is false, the factory returns the shared
+    // segment reader to keep the historical resource-sharing behavior. When it
+    // is true, the factory opens a fresh CacheBlockAwarePrefetchRemoteReader for
+    // each FileColumnIterator::init(), so that reader owns exactly one monotonic
+    // read pattern and read_at() can advance it without any outer manual trigger
+    // or cross-column/cross-scan interference.
+    std::function<Result<io::FileReaderSPtr>()> file_reader_factory;
 };
 
 struct ColumnIteratorOptions {
@@ -241,6 +256,7 @@ private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
                  io::FileReaderSPtr file_reader);
     Status init(const ColumnMetaPB* meta);
+    Result<io::FileReaderSPtr> _new_data_file_reader() const;
 
     [[nodiscard]] Status _load_zone_map_index(bool use_page_cache, bool kept_in_memory,
                                               const ColumnIteratorOptions& iter_opts);
@@ -277,6 +293,7 @@ private:
     uint64_t _num_rows;
 
     io::FileReaderSPtr _file_reader;
+    std::function<Result<io::FileReaderSPtr>()> _file_reader_factory;
 
     DictEncodingType _dict_encoding_type;
 
@@ -505,7 +522,6 @@ private:
     Status _load_next_page(bool* eos);
     Status _read_data_page(const OrdinalPageIndexIterator& iter);
     Status _read_dict_data();
-    void _trigger_cache_block_prefetch_if_eligible(size_t file_offset);
 
     std::shared_ptr<ColumnReader> _reader = nullptr;
 
@@ -533,10 +549,13 @@ private:
 
     std::unique_ptr<StringRef[]> _dict_word_info;
 
-    bool _enable_cache_block_prefetch {false};
     std::unique_ptr<SegmentFileAccessRangeBuilder> _access_range_builder;
+    // Owned by this iterator and used for all data/dict page reads through
+    // _opts.file_reader. With cache-block prefetch enabled this is a fresh
+    // CacheBlockAwarePrefetchRemoteReader, not the segment-level shared reader.
+    // Therefore the reader's single read pattern is iterator-local.
+    io::FileReaderSPtr _data_file_reader;
     std::shared_ptr<io::CacheBlockAwarePrefetchRemoteReader> _cache_block_prefetch_reader;
-    io::CacheBlockAwarePrefetchRemoteReader::ReadPatternHandle _cache_block_read_pattern;
     io::CacheBlockPrefetchPolicy _cache_block_prefetch_policy;
     io::CacheBlockReadDirection _cache_block_read_direction = io::CacheBlockReadDirection::FORWARD;
 };

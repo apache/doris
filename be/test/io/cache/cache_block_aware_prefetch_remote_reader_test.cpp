@@ -363,9 +363,10 @@ TEST(CacheBlockAwarePrefetchRemoteReaderTest,
     EXPECT_EQ(ranges[0].offset, 0);
 }
 
-TEST_F(BlockFileCacheTest, usage_example_registers_independent_column_patterns) {
+TEST_F(BlockFileCacheTest, usage_example_read_at_automatically_prefetches_single_pattern) {
     std::string test_cache_base_path = caches_dir / "cache_block_prefetch_usage_example" / "";
     auto cleanup = [&] {
+        ExecEnv::GetInstance()->_segment_prefetch_thread_pool.reset();
         if (fs::exists(test_cache_base_path)) {
             fs::remove_all(test_cache_base_path);
         }
@@ -392,65 +393,77 @@ TEST_F(BlockFileCacheTest, usage_example_registers_independent_column_patterns) 
     auto cache = FileCacheFactory::instance()->_path_to_cache[test_cache_base_path];
     ASSERT_TRUE(wait_until([&] { return cache->get_async_open_success(); }));
 
+    std::unique_ptr<ThreadPool> pool;
+    ASSERT_TRUE(ThreadPoolBuilder("CacheBlockAwarePrefetchRemoteReaderUsageTest")
+                        .set_min_threads(2)
+                        .set_max_threads(4)
+                        .build(&pool)
+                        .ok());
+    ExecEnv::GetInstance()->_segment_prefetch_thread_pool = std::move(pool);
+
     FileReaderOptions opts;
     opts.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
     opts.is_doris_table = true;
     opts.tablet_id = 10086;
 
-    auto remote_reader = std::make_shared<CountingRemoteFileReader>(
-            Path("/tmp/cache_block_prefetch_usage_example"), 5_mb);
-    auto shared_reader = std::make_shared<CacheBlockAwarePrefetchRemoteReader>(remote_reader, opts);
+    auto first_remote_reader = std::make_shared<CountingRemoteFileReader>(
+            Path("/tmp/cache_block_prefetch_usage_example_first"), 5_mb);
+    auto first_reader =
+            std::make_shared<CacheBlockAwarePrefetchRemoteReader>(first_remote_reader, opts);
+    auto second_remote_reader = std::make_shared<CountingRemoteFileReader>(
+            Path("/tmp/cache_block_prefetch_usage_example_second"), 5_mb);
+    auto second_reader =
+            std::make_shared<CacheBlockAwarePrefetchRemoteReader>(second_remote_reader, opts);
     CacheBlockPrefetchPolicy policy {
             .max_prefetch_blocks = 2,
             .cache_block_size = static_cast<size_t>(config::file_cache_each_block_size),
     };
 
-    auto first_column_pattern = shared_reader->register_read_pattern(
-            CacheBlockReadPattern {
-                    .direction = CacheBlockReadDirection::FORWARD,
-                    .ranges =
-                            {
-                                    {.offset = 0, .size = 1},
-                                    {.offset = 1_mb, .size = 1},
-                                    {.offset = 2_mb, .size = 1},
-                            },
-            },
-            policy);
-    ASSERT_TRUE(first_column_pattern.has_value()) << first_column_pattern.error();
-    auto first_column = std::move(first_column_pattern.value());
+    ASSERT_TRUE(first_reader
+                        ->set_read_pattern(
+                                CacheBlockReadPattern {
+                                        .direction = CacheBlockReadDirection::FORWARD,
+                                        .ranges =
+                                                {
+                                                        {.offset = 0, .size = 1},
+                                                        {.offset = 1_mb, .size = 1},
+                                                        {.offset = 2_mb, .size = 1},
+                                                },
+                                },
+                                policy)
+                        .ok());
+    ASSERT_TRUE(second_reader
+                        ->set_read_pattern(
+                                CacheBlockReadPattern {
+                                        .direction = CacheBlockReadDirection::FORWARD,
+                                        .ranges =
+                                                {
+                                                        {.offset = 3_mb, .size = 1},
+                                                        {.offset = 4_mb, .size = 1},
+                                                },
+                                },
+                                policy)
+                        .ok());
+    ASSERT_TRUE(first_reader->has_read_pattern());
+    ASSERT_TRUE(second_reader->has_read_pattern());
 
-    auto second_column_pattern = shared_reader->register_read_pattern(
-            CacheBlockReadPattern {
-                    .direction = CacheBlockReadDirection::FORWARD,
-                    .ranges =
-                            {
-                                    {.offset = 3_mb, .size = 1},
-                                    {.offset = 4_mb, .size = 1},
-                            },
-            },
-            policy);
-    ASSERT_TRUE(second_column_pattern.has_value()) << second_column_pattern.error();
-    auto second_column = std::move(second_column_pattern.value());
+    char buf;
+    size_t bytes_read = 0;
+    IOContext io_ctx;
+    ASSERT_TRUE(first_reader->read_at(0, Slice(&buf, 1), &bytes_read, &io_ctx).ok());
+    EXPECT_EQ(bytes_read, 1);
+    EXPECT_EQ(first_reader->_pattern.prefetched_index, 1);
+    EXPECT_EQ(second_reader->_pattern.prefetched_index, -1);
+    EXPECT_EQ(second_reader->_pattern.current_block_index, 0);
 
-    ASSERT_TRUE(first_column);
-    ASSERT_TRUE(second_column);
-    ASSERT_NE(first_column._id, second_column._id);
+    ASSERT_TRUE(second_reader->read_at(3_mb, Slice(&buf, 1), &bytes_read, &io_ctx).ok());
+    EXPECT_EQ(bytes_read, 1);
+    EXPECT_EQ(first_reader->_pattern.prefetched_index, 1);
+    EXPECT_EQ(second_reader->_pattern.prefetched_index, 1);
 
-    const auto first_column_pattern_id = first_column._id;
-    const auto second_column_pattern_id = second_column._id;
-    first_column.prefetch(0);
-    EXPECT_EQ(shared_reader->_patterns.at(first_column_pattern_id).prefetched_index, 1);
-    EXPECT_EQ(shared_reader->_patterns.at(second_column_pattern_id).prefetched_index, -1);
-    EXPECT_EQ(shared_reader->_patterns.at(second_column_pattern_id).current_block_index, 0);
-
-    second_column.prefetch(3_mb);
-    EXPECT_EQ(shared_reader->_patterns.at(first_column_pattern_id).prefetched_index, 1);
-    EXPECT_EQ(shared_reader->_patterns.at(second_column_pattern_id).prefetched_index, 1);
-
-    first_column.reset();
-    EXPECT_FALSE(first_column);
-    EXPECT_FALSE(shared_reader->_patterns.contains(first_column_pattern_id));
-    EXPECT_TRUE(shared_reader->_patterns.contains(second_column_pattern_id));
+    first_reader->clear_read_pattern();
+    EXPECT_FALSE(first_reader->has_read_pattern());
+    EXPECT_TRUE(second_reader->has_read_pattern());
 }
 
 TEST_F(BlockFileCacheTest, cache_block_aware_prefetch_remote_reader_prefetches_cache_blocks) {
@@ -504,51 +517,6 @@ TEST_F(BlockFileCacheTest, cache_block_aware_prefetch_remote_reader_prefetches_c
     EXPECT_NE(dynamic_cast<CacheBlockAwarePrefetchRemoteReader*>(cached_reader.value().get()),
               nullptr);
 
-    auto shared_reader_remote = std::make_shared<CountingRemoteFileReader>(
-            Path("/tmp/cache_block_aware_prefetch_remote_reader_shared"), 4_mb);
-    auto shared_reader = std::make_shared<CacheBlockAwarePrefetchRemoteReader>(shared_reader_remote,
-                                                                               cached_reader_opts);
-    CacheBlockPrefetchPolicy shared_policy {
-            .max_prefetch_blocks = 2,
-            .cache_block_size = static_cast<size_t>(config::file_cache_each_block_size),
-    };
-    auto first_pattern = shared_reader->register_read_pattern(
-            CacheBlockReadPattern {
-                    .direction = CacheBlockReadDirection::FORWARD,
-                    .ranges =
-                            {
-                                    {.offset = 0, .size = 1},
-                                    {.offset = 1_mb, .size = 1},
-                                    {.offset = 2_mb, .size = 1},
-                            },
-            },
-            shared_policy);
-    ASSERT_TRUE(first_pattern.has_value()) << first_pattern.error();
-    auto first_column = std::move(first_pattern.value());
-
-    auto second_pattern = shared_reader->register_read_pattern(
-            CacheBlockReadPattern {
-                    .direction = CacheBlockReadDirection::FORWARD,
-                    .ranges =
-                            {
-                                    {.offset = 3_mb, .size = 1},
-                                    {.offset = 4_mb, .size = 1},
-                            },
-            },
-            shared_policy);
-    ASSERT_TRUE(second_pattern.has_value()) << second_pattern.error();
-    auto second_column = std::move(second_pattern.value());
-    ASSERT_NE(first_column._id, second_column._id);
-
-    first_column.prefetch(0);
-    EXPECT_EQ(shared_reader->_patterns.at(first_column._id).prefetched_index, 1);
-    EXPECT_EQ(shared_reader->_patterns.at(second_column._id).prefetched_index, -1);
-    EXPECT_EQ(shared_reader->_patterns.at(second_column._id).current_block_index, 0);
-
-    second_column.prefetch(3_mb);
-    EXPECT_EQ(shared_reader->_patterns.at(first_column._id).prefetched_index, 1);
-    EXPECT_EQ(shared_reader->_patterns.at(second_column._id).prefetched_index, 1);
-
     std::unique_ptr<ThreadPool> pool;
     ASSERT_TRUE(ThreadPoolBuilder("CacheBlockAwarePrefetchRemoteReaderTest")
                         .set_min_threads(2)
@@ -579,12 +547,15 @@ TEST_F(BlockFileCacheTest, cache_block_aware_prefetch_remote_reader_prefetches_c
             .max_prefetch_blocks = 2,
             .cache_block_size = static_cast<size_t>(config::file_cache_each_block_size),
     };
-    auto pattern_handle_result = reader->register_read_pattern(std::move(pattern), policy);
-    ASSERT_TRUE(pattern_handle_result.has_value()) << pattern_handle_result.error();
-    auto pattern_handle = std::move(pattern_handle_result.value());
-    ASSERT_TRUE(pattern_handle);
+    ASSERT_TRUE(reader->set_read_pattern(std::move(pattern), policy).ok());
+    ASSERT_TRUE(reader->has_read_pattern());
 
-    pattern_handle.prefetch(0);
+    char buf;
+    size_t bytes_read = 0;
+    IOContext io_ctx;
+    ASSERT_TRUE(reader->read_at(0, Slice(&buf, 1), &bytes_read, &io_ctx).ok());
+    EXPECT_EQ(bytes_read, 1);
+    EXPECT_EQ(reader->_pattern.prefetched_index, 1);
     ASSERT_TRUE(wait_until([&] { return remote_reader->read_ranges().size() >= 2; }));
     auto read_ranges = remote_reader->read_ranges();
     std::set<size_t> offsets;
@@ -594,7 +565,9 @@ TEST_F(BlockFileCacheTest, cache_block_aware_prefetch_remote_reader_prefetches_c
     EXPECT_TRUE(offsets.contains(0));
     EXPECT_TRUE(offsets.contains(1_mb));
 
-    pattern_handle.prefetch(1_mb);
+    ASSERT_TRUE(reader->read_at(1_mb, Slice(&buf, 1), &bytes_read, &io_ctx).ok());
+    EXPECT_EQ(bytes_read, 1);
+    EXPECT_EQ(reader->_pattern.prefetched_index, 2);
     ASSERT_TRUE(wait_until([&] { return remote_reader->read_ranges().size() >= 3; }));
     read_ranges = remote_reader->read_ranges();
     offsets.clear();
@@ -603,9 +576,11 @@ TEST_F(BlockFileCacheTest, cache_block_aware_prefetch_remote_reader_prefetches_c
     }
     EXPECT_TRUE(offsets.contains(2_mb));
 
-    pattern_handle.prefetch(1_mb);
+    const auto read_count = remote_reader->read_ranges().size();
+    ASSERT_TRUE(reader->read_at(1_mb, Slice(&buf, 1), &bytes_read, &io_ctx).ok());
+    EXPECT_EQ(reader->_pattern.prefetched_index, 2);
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    EXPECT_EQ(remote_reader->read_ranges().size(), 3);
+    EXPECT_EQ(remote_reader->read_ranges().size(), read_count);
 
     auto key = BlockFileCache::hash("cache_block_aware_prefetch_remote_reader_file");
     CacheContext context;
@@ -617,8 +592,6 @@ TEST_F(BlockFileCacheTest, cache_block_aware_prefetch_remote_reader_prefetches_c
     ASSERT_EQ(blocks.size(), 2);
     EXPECT_EQ(blocks[0]->state(), FileBlock::State::DOWNLOADED);
     EXPECT_EQ(blocks[1]->state(), FileBlock::State::DOWNLOADED);
-
-    pattern_handle.reset();
 }
 
 } // namespace doris::io

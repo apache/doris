@@ -18,10 +18,8 @@
 #pragma once
 
 #include <cstddef>
-#include <cstdint>
 #include <memory>
 #include <mutex>
-#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
@@ -76,29 +74,28 @@ struct CacheBlockRange {
 //   CachedRemoteFileReader already knows how to warm a file cache block by
 //   reading it in dry-run mode. This class adds an explicit read-pattern layer
 //   above that primitive: callers describe the future file access ranges and a
-//   prefetch policy, then notify the reader as their logical position advances.
-//   The reader translates the pattern to file cache blocks, keeps a sliding
-//   window of blocks ahead of the current position, and submits one async
-//   prefetch task per cache block through CachedRemoteFileReader::prefetch_range.
+//   prefetch policy. The reader translates the pattern to file cache blocks,
+//   keeps a sliding window of blocks ahead of the current read_at() offset, and
+//   submits one async prefetch task per cache block through
+//   CachedRemoteFileReader::prefetch_range.
 //
 // Interface usage:
 //   1. Build a CacheBlockReadPattern from higher-level metadata. For segment
 //      scans, the segment layer converts selected row ids through the ordinal
 //      index into FileAccessRange entries for data pages.
-//   2. Call register_read_pattern() with a CacheBlockPrefetchPolicy. The
-//      returned ReadPatternHandle is a move-only RAII token owned by the caller,
-//      typically one column/page iterator. Destroying or resetting the handle
-//      unregisters only that pattern, so multiple columns sharing the same file
-//      reader keep isolated progress state.
-//   3. Call ReadPatternHandle::prefetch(current_file_offset, io_ctx) before
-//      reading the next file range. The reader advances the pattern by file
-//      offset and warms cache blocks until the configured window is full. If one
-//      file range spans more cache blocks than the window, the whole range is
-//      still prefetched so large data pages and pages that cross block
-//      boundaries are not split.
+//   2. Give each physical column iterator its own
+//      CacheBlockAwarePrefetchRemoteReader. A reader owns at most one pattern,
+//      so multiple independently monotonic scan streams should not share this
+//      object.
+//   3. Call set_read_pattern() with a CacheBlockPrefetchPolicy before scanning.
+//      Afterwards callers use the normal FileReader::read_at() API. Each read
+//      advances the pattern by file offset and warms cache blocks until the
+//      configured window is full. If one file range spans more cache blocks than
+//      the window, the whole range is still prefetched so large data pages and
+//      pages that cross block boundaries are not split.
 //
 // Usage example:
-//   See BlockFileCacheTest.usage_example_registers_independent_column_patterns in
+//   See BlockFileCacheTest.usage_example_read_at_automatically_prefetches_single_pattern in
 //   be/test/io/cache/cache_block_aware_prefetch_remote_reader_test.cpp.
 //
 // This optimization intentionally spends more object-storage IOPS to expose more
@@ -107,43 +104,21 @@ struct CacheBlockRange {
 // cache block granularity. On cold scans where bandwidth is the bottleneck and
 // IOPS headroom exists, this trades S3 IOPS for higher aggregate throughput.
 class CacheBlockAwarePrefetchRemoteReader final : public CachedRemoteFileReader {
-    using ReadPatternId = uint64_t;
-
 public:
-    class ReadPatternHandle {
-    public:
-        ReadPatternHandle() = default;
-        ~ReadPatternHandle();
-
-        ReadPatternHandle(const ReadPatternHandle&) = delete;
-        ReadPatternHandle& operator=(const ReadPatternHandle&) = delete;
-
-        ReadPatternHandle(ReadPatternHandle&& other) noexcept;
-        ReadPatternHandle& operator=(ReadPatternHandle&& other) noexcept;
-
-        explicit operator bool() const { return _id != 0; }
-
-        void reset() noexcept;
-
-        void prefetch(size_t current_file_offset, const IOContext* io_ctx = nullptr) const;
-
-    private:
-        friend class CacheBlockAwarePrefetchRemoteReader;
-
-        ReadPatternHandle(std::weak_ptr<CacheBlockAwarePrefetchRemoteReader> reader,
-                          ReadPatternId id);
-
-        std::weak_ptr<CacheBlockAwarePrefetchRemoteReader> _reader;
-        ReadPatternId _id = 0;
-    };
-
     CacheBlockAwarePrefetchRemoteReader(FileReaderSPtr remote_file_reader,
                                         const FileReaderOptions& opts);
 
     ~CacheBlockAwarePrefetchRemoteReader() override = default;
 
-    Result<ReadPatternHandle> register_read_pattern(CacheBlockReadPattern pattern,
-                                                    const CacheBlockPrefetchPolicy& policy);
+    Status set_read_pattern(CacheBlockReadPattern pattern, const CacheBlockPrefetchPolicy& policy);
+
+    void clear_read_pattern();
+
+    bool has_read_pattern() const;
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const IOContext* io_ctx) override;
 
 private:
     struct CacheBlockInfo {
@@ -171,12 +146,11 @@ private:
     static std::vector<CacheBlockRange> _next_prefetch_ranges(ReadPatternState* state,
                                                               size_t current_file_offset);
 
-    void _clear_read_pattern(ReadPatternId id);
-    void _prefetch(ReadPatternId id, size_t current_file_offset, const IOContext* io_ctx);
+    void _prefetch(size_t current_file_offset, const IOContext* io_ctx);
 
-    std::mutex _pattern_mutex;
-    ReadPatternId _next_pattern_id = 1;
-    std::unordered_map<ReadPatternId, ReadPatternState> _patterns;
+    mutable std::mutex _pattern_mutex;
+    bool _has_pattern = false;
+    ReadPatternState _pattern;
 };
 
 } // namespace doris::io
