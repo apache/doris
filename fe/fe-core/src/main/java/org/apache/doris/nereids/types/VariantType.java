@@ -184,6 +184,11 @@ public class VariantType extends PrimitiveType {
                                     .append(String.valueOf(variantSparseHashShardCount))
                                     .append("\"");
         }
+        if (enableNestedGroup) {
+            sb.append(",");
+            sb.append("\"variant_enable_nested_group\" = \"")
+                    .append(String.valueOf(enableNestedGroup)).append("\"");
+        }
         sb.append(")>");
         return sb.toString();
     }
@@ -269,5 +274,9 @@ public class VariantType extends PrimitiveType {
 
     public int getVariantDocShardCount() {
         return variantDocShardCount;
+    }
+
+    public boolean getEnableNestedGroup() {
+        return enableNestedGroup;
     }
 }

@@ -30,9 +30,6 @@ import org.apache.doris.thrift.TSearchFieldBinding;
 import org.apache.doris.thrift.TSearchOccur;
 import org.apache.doris.thrift.TSearchParam;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -44,8 +41,6 @@ import java.util.stream.IntStream;
  * for BE VSearchExpr processing. This is only used during FE->BE translation.
  */
 public class SearchPredicate extends Predicate {
-    private static final Logger LOG = LogManager.getLogger(SearchPredicate.class);
-
     private final String dslString;
     private final QsPlan qsPlan;
     private final List<Index> fieldIndexes;
@@ -91,37 +86,6 @@ public class SearchPredicate extends Predicate {
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.SEARCH_EXPR;
         msg.setSearchParam(buildThriftParam());
-
-        LOG.info("SearchPredicate.toThrift: dsl='{}', num_children_in_base={}, children_size={}",
-                dslString, msg.num_children, this.children.size());
-
-        // Print QsPlan details
-        if (qsPlan != null) {
-            LOG.info("SearchPredicate.toThrift: QsPlan fieldBindings.size={}",
-                    qsPlan.getFieldBindings() != null ? qsPlan.getFieldBindings().size() : 0);
-            if (qsPlan.getFieldBindings() != null) {
-                for (int i = 0; i < qsPlan.getFieldBindings().size(); i++) {
-                    SearchDslParser.QsFieldBinding binding = qsPlan.getFieldBindings().get(i);
-                    LOG.info("SearchPredicate.toThrift: binding[{}] fieldName='{}', slotIndex={}",
-                            i, binding.getFieldName(), binding.getSlotIndex());
-                }
-            }
-        }
-
-        for (int i = 0; i < this.children.size(); i++) {
-            Expr child = this.children.get(i);
-            LOG.info("SearchPredicate.toThrift: child[{}] = {} (type={})",
-                    i, child.getClass().getSimpleName(), child.getType());
-            if (child instanceof SlotRef) {
-                SlotRef slotRef = (SlotRef) child;
-                LOG.info("SearchPredicate.toThrift: SlotRef details - column={}, isAnalyzed={}",
-                        slotRef.getColumnName(), slotRef.isAnalyzed());
-                if (slotRef.isAnalyzed() && slotRef.getDesc() != null) {
-                    LOG.info("SearchPredicate.toThrift: SlotRef analyzed - slotId={}",
-                            slotRef.getSlotId());
-                }
-            }
-        }
     }
 
     @Override
@@ -171,9 +135,6 @@ public class SearchPredicate extends Predicate {
                 thriftBinding.setIsVariantSubcolumn(true);
                 thriftBinding.setParentFieldName(parentField);
                 thriftBinding.setSubcolumnPath(subcolumnPath);
-
-                LOG.info("buildThriftParam: variant subcolumn field='{}', parent='{}', subcolumn='{}'",
-                        fieldPath, parentField, subcolumnPath);
             } else {
                 thriftBinding.setIsVariantSubcolumn(false);
             }
@@ -185,10 +146,7 @@ public class SearchPredicate extends Predicate {
                 SlotRef slotRef = (SlotRef) this.children.get(i);
                 int actualSlotId = slotRef.getSlotId().asInt();
                 thriftBinding.setSlotIndex(actualSlotId);
-                LOG.info("buildThriftParam: binding field='{}', actual slotId={}",
-                        binding.getFieldName(), actualSlotId);
             } else {
-                LOG.warn("buildThriftParam: No corresponding SlotRef for field '{}'", binding.getFieldName());
                 thriftBinding.setSlotIndex(i); // fallback to position
             }
 
@@ -197,8 +155,6 @@ public class SearchPredicate extends Predicate {
                 Map<String, String> properties = fieldIndexes.get(i).getProperties();
                 if (properties != null && !properties.isEmpty()) {
                     thriftBinding.setIndexProperties(properties);
-                    LOG.debug("buildThriftParam: field='{}' index_properties={}",
-                            fieldPath, properties);
                 }
             }
 
