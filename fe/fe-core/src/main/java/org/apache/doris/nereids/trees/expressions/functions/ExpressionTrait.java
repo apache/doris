@@ -52,16 +52,25 @@ public interface ExpressionTrait extends TreeNode<Expression> {
      */
     default List<Expression> getArguments() {
         boolean hasVariableArg = false;
-        ImmutableList.Builder<Expression> arguments = ImmutableList.builder();
         for (Expression arg : children()) {
             if (arg instanceof Variable) {
-                arguments.add(((Variable) arg).getRealExpression());
                 hasVariableArg = true;
-            } else {
-                arguments.add(arg);
+                break;
             }
         }
-        return hasVariableArg ? arguments.build() : children();
+        if (hasVariableArg) {
+            ImmutableList.Builder<Expression> arguments = ImmutableList.builder();
+            for (Expression arg : children()) {
+                if (arg instanceof Variable) {
+                    arguments.add(((Variable) arg).getRealExpression());
+                } else {
+                    arguments.add(arg);
+                }
+            }
+            return arguments.build();
+        } else {
+            return children();
+        }
     }
 
     /**
