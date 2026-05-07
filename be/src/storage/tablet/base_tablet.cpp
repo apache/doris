@@ -1073,7 +1073,7 @@ Status BaseTablet::generate_new_block_for_partial_update(
                                 mutable_column.get())
                                 ->insert_default();
                     } else {
-                        mutable_column->insert(rs_column.get_vec_type()->get_default());
+                        mutable_column->insert_default();
                     }
                 } else {
                     mutable_column->insert_from(*old_block.get_by_position(i).column,
@@ -1125,7 +1125,7 @@ static void fill_cell_for_flexible_partial_update(
                 //       keep consistency between replicas
                 new_col->insert_from(cur_col, read_index_update[cast_set<uint32_t>(idx)]);
             } else {
-                new_col->insert(tablet_column.get_vec_type()->get_default());
+                new_col->insert_default();
             }
         } else {
             new_col->insert_from(old_value_col, read_index_old[cast_set<uint32_t>(idx)]);
