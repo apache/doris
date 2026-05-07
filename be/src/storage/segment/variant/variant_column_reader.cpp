@@ -1431,7 +1431,7 @@ Status VariantRootColumnIterator::_process_root_column(MutableColumnPtr& dst,
 
     // add root column to a tmp object column
     auto tmp = ColumnVariant::create(0, obj.enable_doc_mode(), root_column->size());
-    auto& tmp_obj = assert_cast<ColumnVariant&>(*tmp);
+    auto& tmp_obj = *tmp;
     tmp_obj.add_sub_column({}, std::move(root_column), most_common_type);
     // tmp_obj.get_sparse_column()->assume_mutable()->insert_many_defaults(root_column->size());
 

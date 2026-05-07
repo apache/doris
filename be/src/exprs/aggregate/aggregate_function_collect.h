@@ -266,9 +266,7 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
             max_size = rhs.max_size;
 
             data->insert_range_from(*rhs.data, 0,
-                                    std::min(assert_cast<size_t, TypeCheckOnRelease::DISABLE>(
-                                                     static_cast<size_t>(max_size - size())),
-                                             rhs.size()));
+                                    std::min(static_cast<size_t>(max_size - size()), rhs.size()));
         } else {
             data->insert_range_from(*rhs.data, 0, rhs.size());
         }
@@ -338,9 +336,7 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
 
             column_data->insert_range_from(
                     *rhs.column_data, 0,
-                    std::min(assert_cast<size_t, TypeCheckOnRelease::DISABLE>(
-                                     static_cast<size_t>(max_size - size())),
-                             rhs.size()));
+                    std::min(static_cast<size_t>(max_size - size()), rhs.size()));
         } else {
             column_data->insert_range_from(*rhs.column_data, 0, rhs.size());
         }
