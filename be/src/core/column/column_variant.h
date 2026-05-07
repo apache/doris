@@ -172,9 +172,6 @@ public:
         /// creates a single column that stores all values.
         void finalize(FinalizeMode mode = FinalizeMode::READ_MODE);
 
-        /// Returns last inserted field.
-        Field get_last_field() const;
-
         void deserialize_from_binary_column(const ColumnString* value, size_t row);
 
         /// Returns single column if subcolumn in finalizes.
@@ -639,9 +636,6 @@ public:
                 subcolumns.size() - typed_path_count - nested_path_count - 1;
         return _max_subcolumns_count - current_subcolumns_count;
     }
-
-    // doc snapshot mode: only root column, and doc snapshot column is not empty
-    bool is_doc_mode() const;
 
     void try_get_from_doc_value_column(size_t n, Field& res) const;
 
