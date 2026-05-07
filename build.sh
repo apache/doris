@@ -34,6 +34,7 @@ if [[ -z "${DORIS_THIRDPARTY}" ]]; then
     export DORIS_THIRDPARTY="${DORIS_HOME}/thirdparty"
 fi
 export TP_INCLUDE_DIR="${DORIS_THIRDPARTY}/installed/include"
+export TP_INSTALLED_DIR="${DORIS_THIRDPARTY}/installed"
 export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 HADOOP_DEPS_NAME="hadoop-deps"
 . "${DORIS_HOME}/env.sh"
@@ -662,6 +663,16 @@ FE_MODULES="$(
 
 # Clean and build Backend
 if [[ "${BUILD_BE}" -eq 1 ]]; then
+
+    echo "install datasketches-cpp to thirdparty path before build fe"
+    cd "${DORIS_HOME}"
+    git submodule sync && git submodule update --init --recursive && git submodule foreach --recursive git clean -fd && git submodule foreach --recursive git reset --hard
+    DATASKETCHES_BUILD_DIR="${DORIS_HOME}/contrib/datasketches"
+    cd "${DATASKETCHES_BUILD_DIR}"
+    "${CMAKE_CMD}" -S . -B build/Release -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$TP_INSTALLED_DIR
+    "${CMAKE_CMD}" --build build/Release -t install
+    cd "${DORIS_HOME}"
+
     update_submodule "contrib/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
     update_submodule "contrib/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
     update_submodule "contrib/openblas" "openblas" "https://github.com/apache/doris-thirdparty/archive/refs/heads/openblas.tar.gz"

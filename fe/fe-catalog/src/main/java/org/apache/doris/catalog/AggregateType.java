@@ -32,6 +32,7 @@ public enum AggregateType {
     REPLACE("REPLACE"),
     REPLACE_IF_NOT_NULL("REPLACE_IF_NOT_NULL"),
     HLL_UNION("HLL_UNION"),
+    DATASKETCHES_HLL_UNION_AGG("DATASKETCHES_HLL_UNION_AGG"),
     NONE("NONE"),
     BITMAP_UNION("BITMAP_UNION"),
     QUANTILE_UNION("QUANTILE_UNION"),
@@ -48,6 +49,7 @@ public enum AggregateType {
         aggTypeMap.put("MAX", AggregateType.MAX);
         aggTypeMap.put("REPLACE", AggregateType.REPLACE);
         aggTypeMap.put("REPLACE_IF_NOT_NULL", AggregateType.REPLACE_IF_NOT_NULL);
+        aggTypeMap.put("DATASKETCHES_HLL_UNION_AGG", AggregateType.DATASKETCHES_HLL_UNION_AGG);
         aggTypeMap.put("HLL_UNION", AggregateType.HLL_UNION);
         aggTypeMap.put("BITMAP_UNION", AggregateType.BITMAP_UNION);
         aggTypeMap.put("QUANTILE_UNION", AggregateType.QUANTILE_UNION);
@@ -125,6 +127,11 @@ public enum AggregateType {
         primitiveTypeList.clear();
         primitiveTypeList.add(PrimitiveType.HLL);
         compatibilityMap.put(HLL_UNION, EnumSet.copyOf(primitiveTypeList));
+
+        primitiveTypeList.clear();
+        primitiveTypeList.add(PrimitiveType.VARCHAR);
+        primitiveTypeList.add(PrimitiveType.STRING);
+        compatibilityMap.put(DATASKETCHES_HLL_UNION_AGG, EnumSet.copyOf(primitiveTypeList));
 
         primitiveTypeList.clear();
         primitiveTypeList.add(PrimitiveType.BITMAP);

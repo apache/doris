@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.DataSketchesHllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
@@ -472,6 +473,15 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                     return PreAggStatus.on();
                 } else {
                     return PreAggStatus.off("invalid bitmapUnion: " + bitmapUnion.toSql());
+                }
+            }
+
+            @Override
+            public PreAggStatus visitDataSketchesHllUnionAgg(DataSketchesHllUnionAgg dsHllUnionAgg, AggregateType aggregateType) {
+                if (aggregateType == AggregateType.DATASKETCHES_HLL_UNION_AGG) {
+                    return PreAggStatus.on();
+                } else {
+                    return PreAggStatus.off("invalid dsHllUnionAgg: " + dsHllUnionAgg.toSql());
                 }
             }
 

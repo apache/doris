@@ -129,6 +129,7 @@ else()
     message(FATAL_ERROR "DORIS_HOME is not defined")
 endif()
 set(BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}")
+set(THIRDPARTY_INCLUDE_DIR "${DORIS_HOME}/thirdparty/installed/include")
 set(GENSRC_DIR "${BASE_DIR}/../gensrc/build/")
 set(COMMON_SRC_DIR "${BASE_DIR}/../common")
 set(SRC_DIR "${BASE_DIR}/src/")
@@ -506,6 +507,10 @@ include_directories(
     ${CONTRIB_PATH}/clucene/src/core
     ${CONTRIB_PATH}/clucene/src/shared
     ${CONTRIB_PATH}/clucene/src/contribs-lib
+)
+
+include_directories(
+    ${THIRDPARTY_INCLUDE_DIR}
 )
 
 include_directories(
