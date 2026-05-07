@@ -922,7 +922,15 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public List<Column> getSchemaByIndexId(Long indexId, boolean full) {
-        List<Column> fullSchema = indexIdToMeta.get(indexId).getSchema();
+        MaterializedIndexMeta meta = indexIdToMeta.get(indexId);
+        if (meta == null) {
+            throw new RuntimeException(String.format(
+                    "No schema found for index id %d in table %s(%d). This may be caused by a"
+                    + " concurrent DDL operation (e.g., schema change). Available index ids: %s."
+                    + " Please retry the query.",
+                    indexId, name, id, indexIdToMeta.keySet()));
+        }
+        List<Column> fullSchema = meta.getSchema();
         if (full) {
             return fullSchema;
         } else {

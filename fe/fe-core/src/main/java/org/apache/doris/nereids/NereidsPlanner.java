@@ -152,6 +152,7 @@ public class NereidsPlanner extends Planner {
                 if (plan instanceof PhysicalPlan) {
                     physicalPlan = (PhysicalPlan) plan;
                     distribute(physicalPlan, explainLevel);
+                    cacheThriftPlans(explainLevel);
                 }
             });
         } finally {
@@ -553,6 +554,21 @@ public class NereidsPlanner extends Planner {
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile()
                     .setDistributeTime(TimeUtils.getStartTimeMs());
+        }
+    }
+
+    /**
+     * Pre-serialize (cache) the TPlan for each fragment while still holding the table read lock.
+     * This prevents NPE in OlapTable.getSchemaByIndexId caused by concurrent schema changes
+     * that may remove index metadata after the table lock is released.
+     */
+    private void cacheThriftPlans(ExplainLevel explainLevel) {
+        if (explainLevel != ExplainLevel.NONE && explainLevel.isPlanLevel
+                && (explainLevel != ExplainLevel.ALL_PLAN && explainLevel != ExplainLevel.DISTRIBUTED_PLAN)) {
+            return;
+        }
+        for (PlanFragment fragment : fragments) {
+            fragment.cacheThriftPlan();
         }
     }
 
