@@ -30,38 +30,28 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 void SubQueue::try_pop(std::unique_ptr<Block>* output_block) {
-    bool need_notify_sink_ready = false;
-    {
-        LockGuard l(queue_lock);
-        if (!blocks.empty()) {
-            *output_block = std::move(blocks.front());
-            blocks.pop_front();
-            bytes_in_queue -= (*output_block)->allocated_bytes();
-            blocks_in_queue -= 1;
-            need_notify_sink_ready = blocks.empty();
+    LockGuard l(queue_lock);
+    if (!blocks.empty()) {
+        *output_block = std::move(blocks.front());
+        blocks.pop_front();
+        bytes_in_queue -= (*output_block)->allocated_bytes();
+        blocks_in_queue -= 1;
+        if (blocks.empty()) {
+            sink_dependency->set_ready();
         }
-    }
-    // Notify outside of queue_lock to avoid nested locks.
-    if (need_notify_sink_ready) {
-        sink_dependency->set_ready();
     }
 }
 
 bool SubQueue::try_push(std::unique_ptr<Block> block, std::atomic_uint32_t& total_counter) {
-    bool need_block_sink = false;
-    {
-        LockGuard l(queue_lock);
-        if (is_finished) {
-            return false;
-        }
-        total_counter++;
-        bytes_in_queue += block->allocated_bytes();
-        blocks.emplace_back(std::move(block));
-        blocks_in_queue += 1;
-        need_block_sink = (static_cast<int64_t>(blocks.size()) > max_blocks_in_queue.load());
+    LockGuard l(queue_lock);
+    if (is_finished) {
+        return false;
     }
-    // Notify outside of queue_lock to avoid nested locks.
-    if (need_block_sink) {
+    total_counter++;
+    bytes_in_queue += block->allocated_bytes();
+    blocks.emplace_back(std::move(block));
+    blocks_in_queue += 1;
+    if (static_cast<int64_t>(blocks.size()) > max_blocks_in_queue.load()) {
         sink_dependency->block();
     }
     return true;
