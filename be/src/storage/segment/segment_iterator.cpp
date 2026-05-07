@@ -681,7 +681,7 @@ void SegmentIterator::_init_cache_block_prefetch() {
                         auto* builder = iterator->cache_block_prefetch_range_builder();
                         DCHECK(builder != nullptr);
                         Status st = iterator->install_cache_block_prefetch_pattern(
-                                builder->build_all_data_ranges());
+                                builder->build_all_data_page_ranges());
                         LOG_IF(WARNING, !st.ok()) << fmt::format(
                                 "failed to install cache block prefetch pattern, tablet={}, "
                                 "rowset={}, segment={}, error={}",

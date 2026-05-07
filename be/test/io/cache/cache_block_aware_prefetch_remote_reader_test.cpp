@@ -23,6 +23,7 @@
 #include <functional>
 #include <mutex>
 #include <set>
+#include <span>
 #include <string>
 #include <thread>
 #include <utility>
@@ -111,11 +112,21 @@ std::unique_ptr<segment_v2::OrdinalIndexReader> make_ordinal_index_for_prefetch_
     return ordinal_index;
 }
 
+void expect_plan_entry(std::span<const detail::CacheBlockPrefetchPlanEntry> entries, size_t index,
+                       size_t cache_block_offset, size_t trigger_offset, size_t trigger_size) {
+    ASSERT_LT(index, entries.size());
+    const auto& entry = entries[index];
+    EXPECT_EQ(entry.cache_block_range.offset, cache_block_offset);
+    EXPECT_EQ(entry.trigger_file_range.offset, trigger_offset);
+    EXPECT_EQ(entry.trigger_file_range.size, trigger_size);
+}
+
 TEST(CacheBlockAwarePrefetchRemoteReaderTest, segment_file_access_range_builder_from_rowids) {
     auto ordinal_index = make_ordinal_index_for_prefetch_test();
-    segment_v2::SegmentFileAccessRangeBuilder builder(ordinal_index.get(), true);
+    segment_v2::SegmentFileAccessRangeBuilder builder(ordinal_index.get(),
+                                                      CacheBlockReadDirection::FORWARD);
     std::vector<rowid_t> rowids {5, 30, 115, 250};
-    builder.add_rowids(rowids.data(), static_cast<uint32_t>(rowids.size()));
+    builder.add_ascending_rowids(rowids);
 
     auto ranges = builder.finish_by_rowids();
 
@@ -129,9 +140,10 @@ TEST(CacheBlockAwarePrefetchRemoteReaderTest, segment_file_access_range_builder_
 TEST(CacheBlockAwarePrefetchRemoteReaderTest,
      segment_file_access_range_builder_from_rowids_backward) {
     auto ordinal_index = make_ordinal_index_for_prefetch_test();
-    segment_v2::SegmentFileAccessRangeBuilder builder(ordinal_index.get(), false);
+    segment_v2::SegmentFileAccessRangeBuilder builder(ordinal_index.get(),
+                                                      CacheBlockReadDirection::BACKWARD);
     std::vector<rowid_t> rowids {5, 30, 115, 250};
-    builder.add_rowids(rowids.data(), static_cast<uint32_t>(rowids.size()));
+    builder.add_ascending_rowids(rowids);
 
     auto ranges = builder.finish_by_rowids();
 
@@ -143,9 +155,10 @@ TEST(CacheBlockAwarePrefetchRemoteReaderTest,
 
 TEST(CacheBlockAwarePrefetchRemoteReaderTest, segment_file_access_range_builder_all_data) {
     auto ordinal_index = make_ordinal_index_for_prefetch_test();
-    segment_v2::SegmentFileAccessRangeBuilder builder(ordinal_index.get(), false);
+    segment_v2::SegmentFileAccessRangeBuilder builder(ordinal_index.get(),
+                                                      CacheBlockReadDirection::BACKWARD);
 
-    auto ranges = builder.build_all_data_ranges();
+    auto ranges = builder.build_all_data_page_ranges();
 
     ASSERT_EQ(ranges.size(), 4);
     EXPECT_EQ(ranges[0].offset, 300);
@@ -166,9 +179,10 @@ TEST(CacheBlockAwarePrefetchRemoteReaderTest,
             segment_v2::PagePointer(50, 260),
             segment_v2::PagePointer(400, 40),
     };
-    segment_v2::SegmentFileAccessRangeBuilder builder(ordinal_index.get(), true);
+    segment_v2::SegmentFileAccessRangeBuilder builder(ordinal_index.get(),
+                                                      CacheBlockReadDirection::FORWARD);
     std::vector<rowid_t> rowids {10, 120};
-    builder.add_rowids(rowids.data(), static_cast<uint32_t>(rowids.size()));
+    builder.add_ascending_rowids(rowids);
 
     auto ranges = builder.finish_by_rowids();
 
@@ -179,7 +193,93 @@ TEST(CacheBlockAwarePrefetchRemoteReaderTest,
     EXPECT_EQ(ranges[1].size, 40);
 }
 
-TEST(CacheBlockAwarePrefetchRemoteReaderTest, build_block_sequence_forward) {
+TEST(CacheBlockAwarePrefetchRemoteReaderTest,
+     segment_file_access_range_builder_consumes_bitmap_for_multiple_builders) {
+    auto first_ordinal_index = make_ordinal_index_for_prefetch_test();
+    segment_v2::SegmentFileAccessRangeBuilder first_builder(first_ordinal_index.get(),
+                                                            CacheBlockReadDirection::FORWARD);
+    std::vector<rowid_t> stale_rowids {5};
+    first_builder.add_ascending_rowids(stale_rowids);
+
+    auto reader =
+            std::make_shared<CountingRemoteFileReader>(Path("/tmp/second_ordinal_index"), 4096);
+    auto second_ordinal_index = std::make_unique<segment_v2::OrdinalIndexReader>(
+            reader, 400, segment_v2::OrdinalIndexPB());
+    second_ordinal_index->_num_pages = 3;
+    second_ordinal_index->_ordinals = {0, 150, 260, 400};
+    second_ordinal_index->_pages = {
+            segment_v2::PagePointer(1000, 50),
+            segment_v2::PagePointer(2000, 50),
+            segment_v2::PagePointer(3000, 50),
+    };
+    segment_v2::SegmentFileAccessRangeBuilder second_builder(second_ordinal_index.get(),
+                                                             CacheBlockReadDirection::FORWARD);
+
+    roaring::Roaring row_bitmap;
+    row_bitmap.add(5);
+    row_bitmap.add(160);
+    row_bitmap.add(270);
+    row_bitmap.add(350);
+    std::vector<segment_v2::SegmentFileAccessRangeBuilder*> builders {
+            &first_builder,
+            &second_builder,
+    };
+    segment_v2::SegmentFileAccessRangeBuilder::add_rowids_from_bitmap(row_bitmap, builders);
+
+    auto first_ranges = first_builder.finish_by_rowids();
+    ASSERT_EQ(first_ranges.size(), 4);
+    EXPECT_EQ(first_ranges[0].offset, 0);
+    EXPECT_EQ(first_ranges[1].offset, 100);
+    EXPECT_EQ(first_ranges[2].offset, 200);
+    EXPECT_EQ(first_ranges[3].offset, 300);
+
+    auto second_ranges = second_builder.finish_by_rowids();
+    ASSERT_EQ(second_ranges.size(), 3);
+    EXPECT_EQ(second_ranges[0].offset, 1000);
+    EXPECT_EQ(second_ranges[1].offset, 2000);
+    EXPECT_EQ(second_ranges[2].offset, 3000);
+}
+
+TEST(CacheBlockAwarePrefetchRemoteReaderTest,
+     segment_file_access_ranges_drive_prefetch_plan_and_cursor) {
+    auto reader = std::make_shared<CountingRemoteFileReader>(
+            Path("/tmp/prefetch_chain_ordinal_index"), 512);
+    auto ordinal_index = std::make_unique<segment_v2::OrdinalIndexReader>(
+            reader, 200, segment_v2::OrdinalIndexPB());
+    ordinal_index->_num_pages = 2;
+    ordinal_index->_ordinals = {0, 100, 200};
+    ordinal_index->_pages = {
+            segment_v2::PagePointer(50, 260),
+            segment_v2::PagePointer(400, 40),
+    };
+    segment_v2::SegmentFileAccessRangeBuilder builder(ordinal_index.get(),
+                                                      CacheBlockReadDirection::FORWARD);
+    std::vector<rowid_t> rowids {10, 120};
+    builder.add_ascending_rowids(rowids);
+
+    auto file_ranges = builder.finish_by_rowids();
+    detail::CacheBlockPrefetchCursor cursor {
+            detail::CacheBlockPrefetchPlan::from_read_pattern(
+                    CacheBlockReadPattern {
+                            .direction = CacheBlockReadDirection::FORWARD,
+                            .ranges = std::move(file_ranges),
+                    },
+                    100),
+            2};
+
+    auto cache_block_ranges = cursor.next_touch_ranges(50);
+    ASSERT_EQ(cache_block_ranges.size(), 4);
+    EXPECT_EQ(cache_block_ranges[0].offset, 0);
+    EXPECT_EQ(cache_block_ranges[1].offset, 100);
+    EXPECT_EQ(cache_block_ranges[2].offset, 200);
+    EXPECT_EQ(cache_block_ranges[3].offset, 300);
+
+    cache_block_ranges = cursor.next_touch_ranges(400);
+    ASSERT_EQ(cache_block_ranges.size(), 1);
+    EXPECT_EQ(cache_block_ranges[0].offset, 400);
+}
+
+TEST(CacheBlockAwarePrefetchRemoteReaderTest, build_prefetch_plan_forward) {
     CacheBlockReadPattern pattern {
             .direction = CacheBlockReadDirection::FORWARD,
             .ranges =
@@ -191,20 +291,17 @@ TEST(CacheBlockAwarePrefetchRemoteReaderTest, build_block_sequence_forward) {
                     },
     };
 
-    auto sequence = CacheBlockAwarePrefetchRemoteReader::_build_block_sequence(pattern, 100);
+    auto plan = detail::CacheBlockPrefetchPlan::from_read_pattern(pattern, 100);
+    const auto entries = plan.entries();
 
-    ASSERT_EQ(sequence.size(), 4);
-    EXPECT_EQ(sequence[0].block_id, 0);
-    EXPECT_EQ(sequence[0].trigger_offset, 0);
-    EXPECT_EQ(sequence[1].block_id, 1);
-    EXPECT_EQ(sequence[1].trigger_offset, 90);
-    EXPECT_EQ(sequence[2].block_id, 2);
-    EXPECT_EQ(sequence[2].trigger_offset, 205);
-    EXPECT_EQ(sequence[3].block_id, 3);
-    EXPECT_EQ(sequence[3].trigger_offset, 310);
+    ASSERT_EQ(entries.size(), 4);
+    expect_plan_entry(entries, 0, 0, 0, 90);
+    expect_plan_entry(entries, 1, 100, 90, 40);
+    expect_plan_entry(entries, 2, 200, 205, 30);
+    expect_plan_entry(entries, 3, 300, 310, 10);
 }
 
-TEST(CacheBlockAwarePrefetchRemoteReaderTest, build_block_sequence_backward) {
+TEST(CacheBlockAwarePrefetchRemoteReaderTest, build_prefetch_plan_backward) {
     CacheBlockReadPattern pattern {
             .direction = CacheBlockReadDirection::BACKWARD,
             .ranges =
@@ -215,21 +312,18 @@ TEST(CacheBlockAwarePrefetchRemoteReaderTest, build_block_sequence_backward) {
                     },
     };
 
-    auto sequence = CacheBlockAwarePrefetchRemoteReader::_build_block_sequence(pattern, 100);
+    auto plan = detail::CacheBlockPrefetchPlan::from_read_pattern(pattern, 100);
+    const auto entries = plan.entries();
 
-    ASSERT_EQ(sequence.size(), 4);
-    EXPECT_EQ(sequence[0].block_id, 3);
-    EXPECT_EQ(sequence[0].trigger_offset, 250);
-    EXPECT_EQ(sequence[1].block_id, 2);
-    EXPECT_EQ(sequence[1].trigger_offset, 250);
-    EXPECT_EQ(sequence[2].block_id, 1);
-    EXPECT_EQ(sequence[2].trigger_offset, 90);
-    EXPECT_EQ(sequence[3].block_id, 0);
-    EXPECT_EQ(sequence[3].trigger_offset, 90);
+    ASSERT_EQ(entries.size(), 4);
+    expect_plan_entry(entries, 0, 300, 250, 80);
+    expect_plan_entry(entries, 1, 200, 250, 80);
+    expect_plan_entry(entries, 2, 100, 90, 120);
+    expect_plan_entry(entries, 3, 0, 90, 120);
 }
 
 TEST(CacheBlockAwarePrefetchRemoteReaderTest,
-     build_block_sequence_expands_cross_block_ranges_and_ignores_duplicates) {
+     build_prefetch_plan_expands_cross_block_ranges_and_ignores_duplicates) {
     CacheBlockReadPattern pattern {
             .direction = CacheBlockReadDirection::FORWARD,
             .ranges =
@@ -241,22 +335,18 @@ TEST(CacheBlockAwarePrefetchRemoteReaderTest,
                     },
     };
 
-    auto sequence = CacheBlockAwarePrefetchRemoteReader::_build_block_sequence(pattern, 100);
+    auto plan = detail::CacheBlockPrefetchPlan::from_read_pattern(pattern, 100);
+    const auto entries = plan.entries();
 
-    ASSERT_EQ(sequence.size(), 5);
-    EXPECT_EQ(sequence[0].block_id, 0);
-    EXPECT_EQ(sequence[0].trigger_offset, 50);
-    EXPECT_EQ(sequence[1].block_id, 1);
-    EXPECT_EQ(sequence[1].trigger_offset, 50);
-    EXPECT_EQ(sequence[2].block_id, 2);
-    EXPECT_EQ(sequence[2].trigger_offset, 50);
-    EXPECT_EQ(sequence[3].block_id, 3);
-    EXPECT_EQ(sequence[3].trigger_offset, 50);
-    EXPECT_EQ(sequence[4].block_id, 4);
-    EXPECT_EQ(sequence[4].trigger_offset, 400);
+    ASSERT_EQ(entries.size(), 5);
+    expect_plan_entry(entries, 0, 0, 50, 260);
+    expect_plan_entry(entries, 1, 100, 50, 260);
+    expect_plan_entry(entries, 2, 200, 50, 260);
+    expect_plan_entry(entries, 3, 300, 50, 260);
+    expect_plan_entry(entries, 4, 400, 400, 100);
 }
 
-TEST(CacheBlockAwarePrefetchRemoteReaderTest, build_block_sequence_backward_cross_block_range) {
+TEST(CacheBlockAwarePrefetchRemoteReaderTest, build_prefetch_plan_backward_cross_block_range) {
     CacheBlockReadPattern pattern {
             .direction = CacheBlockReadDirection::BACKWARD,
             .ranges =
@@ -266,104 +356,147 @@ TEST(CacheBlockAwarePrefetchRemoteReaderTest, build_block_sequence_backward_cros
                     },
     };
 
-    auto sequence = CacheBlockAwarePrefetchRemoteReader::_build_block_sequence(pattern, 100);
+    auto plan = detail::CacheBlockPrefetchPlan::from_read_pattern(pattern, 100);
+    const auto entries = plan.entries();
 
-    ASSERT_EQ(sequence.size(), 4);
-    EXPECT_EQ(sequence[0].block_id, 3);
-    EXPECT_EQ(sequence[0].trigger_offset, 50);
-    EXPECT_EQ(sequence[1].block_id, 2);
-    EXPECT_EQ(sequence[1].trigger_offset, 50);
-    EXPECT_EQ(sequence[2].block_id, 1);
-    EXPECT_EQ(sequence[2].trigger_offset, 50);
-    EXPECT_EQ(sequence[3].block_id, 0);
-    EXPECT_EQ(sequence[3].trigger_offset, 50);
+    ASSERT_EQ(entries.size(), 4);
+    expect_plan_entry(entries, 0, 300, 50, 260);
+    expect_plan_entry(entries, 1, 200, 50, 260);
+    expect_plan_entry(entries, 2, 100, 50, 260);
+    expect_plan_entry(entries, 3, 0, 50, 260);
 }
 
 TEST(CacheBlockAwarePrefetchRemoteReaderTest, prefetch_window_advances_without_duplicates) {
-    CacheBlockAwarePrefetchRemoteReader::ReadPatternState state {
-            .direction = CacheBlockReadDirection::FORWARD,
-            .policy = {.max_prefetch_blocks = 2, .cache_block_size = 100},
-            .block_sequence =
-                    {
-                            {.block_id = 0, .trigger_offset = 0},
-                            {.block_id = 1, .trigger_offset = 100},
-                            {.block_id = 2, .trigger_offset = 200},
-                            {.block_id = 3, .trigger_offset = 300},
+    detail::CacheBlockPrefetchCursor cursor {
+            detail::CacheBlockPrefetchPlan::from_read_pattern(
+                    CacheBlockReadPattern {
+                            .direction = CacheBlockReadDirection::FORWARD,
+                            .ranges =
+                                    {
+                                            {.offset = 0, .size = 1},
+                                            {.offset = 100, .size = 1},
+                                            {.offset = 200, .size = 1},
+                                            {.offset = 300, .size = 1},
+                                    },
                     },
-    };
+                    100),
+            2};
 
-    auto ranges = CacheBlockAwarePrefetchRemoteReader::_next_prefetch_ranges(&state, 0);
+    auto ranges = cursor.next_touch_ranges(0);
     ASSERT_EQ(ranges.size(), 2);
     EXPECT_EQ(ranges[0].offset, 0);
     EXPECT_EQ(ranges[1].offset, 100);
 
-    ranges = CacheBlockAwarePrefetchRemoteReader::_next_prefetch_ranges(&state, 0);
+    ranges = cursor.next_touch_ranges(0);
     EXPECT_TRUE(ranges.empty());
 
-    ranges = CacheBlockAwarePrefetchRemoteReader::_next_prefetch_ranges(&state, 100);
+    ranges = cursor.next_touch_ranges(100);
     ASSERT_EQ(ranges.size(), 1);
     EXPECT_EQ(ranges[0].offset, 200);
 
-    ranges = CacheBlockAwarePrefetchRemoteReader::_next_prefetch_ranges(&state, 300);
+    ranges = cursor.next_touch_ranges(300);
     ASSERT_EQ(ranges.size(), 1);
     EXPECT_EQ(ranges[0].offset, 300);
 }
 
 TEST(CacheBlockAwarePrefetchRemoteReaderTest, prefetch_window_does_not_split_large_file_range) {
-    CacheBlockAwarePrefetchRemoteReader::ReadPatternState state {
-            .direction = CacheBlockReadDirection::FORWARD,
-            .policy = {.max_prefetch_blocks = 2, .cache_block_size = 100},
-            .block_sequence =
-                    {
-                            {.block_id = 0, .trigger_offset = 50},
-                            {.block_id = 1, .trigger_offset = 50},
-                            {.block_id = 2, .trigger_offset = 50},
-                            {.block_id = 3, .trigger_offset = 50},
-                            {.block_id = 4, .trigger_offset = 400},
+    detail::CacheBlockPrefetchCursor cursor {
+            detail::CacheBlockPrefetchPlan::from_read_pattern(
+                    CacheBlockReadPattern {
+                            .direction = CacheBlockReadDirection::FORWARD,
+                            .ranges =
+                                    {
+                                            {.offset = 50, .size = 260},
+                                            {.offset = 400, .size = 100},
+                                    },
                     },
-    };
+                    100),
+            2};
 
-    auto ranges = CacheBlockAwarePrefetchRemoteReader::_next_prefetch_ranges(&state, 50);
+    auto ranges = cursor.next_touch_ranges(50);
     ASSERT_EQ(ranges.size(), 4);
     EXPECT_EQ(ranges[0].offset, 0);
     EXPECT_EQ(ranges[1].offset, 100);
     EXPECT_EQ(ranges[2].offset, 200);
     EXPECT_EQ(ranges[3].offset, 300);
 
-    ranges = CacheBlockAwarePrefetchRemoteReader::_next_prefetch_ranges(&state, 400);
+    ranges = cursor.next_touch_ranges(400);
     ASSERT_EQ(ranges.size(), 1);
     EXPECT_EQ(ranges[0].offset, 400);
 }
 
 TEST(CacheBlockAwarePrefetchRemoteReaderTest,
-     backward_prefetch_window_advances_without_duplicates) {
-    CacheBlockAwarePrefetchRemoteReader::ReadPatternState state {
-            .direction = CacheBlockReadDirection::BACKWARD,
-            .policy = {.max_prefetch_blocks = 2, .cache_block_size = 100},
-            .block_sequence =
-                    {
-                            {.block_id = 3, .trigger_offset = 300},
-                            {.block_id = 2, .trigger_offset = 200},
-                            {.block_id = 1, .trigger_offset = 100},
-                            {.block_id = 0, .trigger_offset = 0},
+     prefetch_window_triggers_when_read_starts_inside_file_range) {
+    detail::CacheBlockPrefetchCursor forward_cursor {
+            detail::CacheBlockPrefetchPlan::from_read_pattern(
+                    CacheBlockReadPattern {
+                            .direction = CacheBlockReadDirection::FORWARD,
+                            .ranges = {{.offset = 50, .size = 260}},
                     },
-    };
+                    100),
+            2};
 
-    auto ranges = CacheBlockAwarePrefetchRemoteReader::_next_prefetch_ranges(&state, 300);
+    auto ranges = forward_cursor.next_touch_ranges(180);
+    ASSERT_EQ(ranges.size(), 4);
+    EXPECT_EQ(ranges[0].offset, 0);
+    EXPECT_EQ(ranges[1].offset, 100);
+    EXPECT_EQ(ranges[2].offset, 200);
+    EXPECT_EQ(ranges[3].offset, 300);
+
+    detail::CacheBlockPrefetchCursor backward_cursor {
+            detail::CacheBlockPrefetchPlan::from_read_pattern(
+                    CacheBlockReadPattern {
+                            .direction = CacheBlockReadDirection::BACKWARD,
+                            .ranges = {{.offset = 50, .size = 260}},
+                    },
+                    100),
+            2};
+
+    ranges = backward_cursor.next_touch_ranges(180);
+    ASSERT_EQ(ranges.size(), 4);
+    EXPECT_EQ(ranges[0].offset, 300);
+    EXPECT_EQ(ranges[1].offset, 200);
+    EXPECT_EQ(ranges[2].offset, 100);
+    EXPECT_EQ(ranges[3].offset, 0);
+}
+
+TEST(CacheBlockAwarePrefetchRemoteReaderTest,
+     backward_prefetch_window_advances_without_duplicates) {
+    detail::CacheBlockPrefetchCursor cursor {
+            detail::CacheBlockPrefetchPlan::from_read_pattern(
+                    CacheBlockReadPattern {
+                            .direction = CacheBlockReadDirection::BACKWARD,
+                            .ranges =
+                                    {
+                                            {.offset = 300, .size = 1},
+                                            {.offset = 200, .size = 1},
+                                            {.offset = 100, .size = 1},
+                                            {.offset = 0, .size = 1},
+                                    },
+                    },
+                    100),
+            2};
+
+    auto ranges = cursor.next_touch_ranges(300);
     ASSERT_EQ(ranges.size(), 2);
     EXPECT_EQ(ranges[0].offset, 300);
     EXPECT_EQ(ranges[1].offset, 200);
 
-    ranges = CacheBlockAwarePrefetchRemoteReader::_next_prefetch_ranges(&state, 200);
+    ranges = cursor.next_touch_ranges(200);
     ASSERT_EQ(ranges.size(), 1);
     EXPECT_EQ(ranges[0].offset, 100);
 
-    ranges = CacheBlockAwarePrefetchRemoteReader::_next_prefetch_ranges(&state, 0);
+    ranges = cursor.next_touch_ranges(0);
     ASSERT_EQ(ranges.size(), 1);
     EXPECT_EQ(ranges[0].offset, 0);
 }
 
 TEST_F(BlockFileCacheTest, usage_example_read_at_automatically_prefetches_single_pattern) {
+    // This is the intended integration pattern for segment readers:
+    // create one cache-aware reader per physical iterator, install one monotonic
+    // file-offset pattern, then let ordinary read_at() calls advance prefetch
+    // automatically. No outer code needs to keep a pattern id or manually
+    // trigger cache-block prefetch before each page read.
     std::string test_cache_base_path = caches_dir / "cache_block_prefetch_usage_example" / "";
     auto cleanup = [&] {
         ExecEnv::GetInstance()->_segment_prefetch_thread_pool.reset();
@@ -419,6 +552,9 @@ TEST_F(BlockFileCacheTest, usage_example_read_at_automatically_prefetches_single
             .cache_block_size = static_cast<size_t>(config::file_cache_each_block_size),
     };
 
+    // The two readers stand for two independent column iterators. Their
+    // patterns are intentionally different to show that progress is isolated by
+    // the reader object instead of by an external read-pattern handle.
     ASSERT_TRUE(first_reader
                         ->set_read_pattern(
                                 CacheBlockReadPattern {
@@ -450,20 +586,102 @@ TEST_F(BlockFileCacheTest, usage_example_read_at_automatically_prefetches_single
     char buf;
     size_t bytes_read = 0;
     IOContext io_ctx;
+    auto read_offsets = [](const std::shared_ptr<CountingRemoteFileReader>& reader) {
+        std::set<size_t> offsets;
+        for (const auto& range : reader->read_ranges()) {
+            offsets.emplace(range.offset);
+        }
+        return offsets;
+    };
+
+    // A normal read on the first reader touches the first reader's window only.
+    // The second reader remains idle until its own read_at() observes file
+    // offset 3 MiB.
     ASSERT_TRUE(first_reader->read_at(0, Slice(&buf, 1), &bytes_read, &io_ctx).ok());
     EXPECT_EQ(bytes_read, 1);
-    EXPECT_EQ(first_reader->_pattern.prefetched_index, 1);
-    EXPECT_EQ(second_reader->_pattern.prefetched_index, -1);
-    EXPECT_EQ(second_reader->_pattern.current_block_index, 0);
+    ASSERT_TRUE(wait_until([&] {
+        auto offsets = read_offsets(first_remote_reader);
+        return offsets.contains(0) && offsets.contains(1_mb);
+    }));
+    EXPECT_TRUE(second_remote_reader->read_ranges().empty());
 
+    // Reading the second iterator advances only the second pattern. This mirrors
+    // segment scans where each physical column iterator owns its own
+    // CacheBlockAwarePrefetchRemoteReader.
     ASSERT_TRUE(second_reader->read_at(3_mb, Slice(&buf, 1), &bytes_read, &io_ctx).ok());
     EXPECT_EQ(bytes_read, 1);
-    EXPECT_EQ(first_reader->_pattern.prefetched_index, 1);
-    EXPECT_EQ(second_reader->_pattern.prefetched_index, 1);
+    ASSERT_TRUE(wait_until([&] {
+        auto offsets = read_offsets(second_remote_reader);
+        return offsets.contains(3_mb) && offsets.contains(4_mb);
+    }));
 
     first_reader->clear_read_pattern();
     EXPECT_FALSE(first_reader->has_read_pattern());
     EXPECT_TRUE(second_reader->has_read_pattern());
+}
+
+TEST_F(BlockFileCacheTest, cached_remote_file_reader_async_touch_local_cache_downloads_range) {
+    std::string test_cache_base_path = caches_dir / "async_touch_local_cache" / "";
+    auto cleanup = [&] {
+        ExecEnv::GetInstance()->_segment_prefetch_thread_pool.reset();
+        if (fs::exists(test_cache_base_path)) {
+            fs::remove_all(test_cache_base_path);
+        }
+        FileCacheFactory::instance()->_caches.clear();
+        FileCacheFactory::instance()->_path_to_cache.clear();
+        FileCacheFactory::instance()->_capacity = 0;
+    };
+    cleanup();
+    Defer defer {cleanup};
+
+    fs::create_directories(test_cache_base_path);
+    FileCacheSettings settings;
+    settings.query_queue_size = 8_mb;
+    settings.query_queue_elements = 8;
+    settings.index_queue_size = 1_mb;
+    settings.index_queue_elements = 1;
+    settings.disposable_queue_size = 1_mb;
+    settings.disposable_queue_elements = 1;
+    settings.capacity = 10_mb;
+    settings.max_file_block_size = config::file_cache_each_block_size;
+    settings.max_query_cache_size = 0;
+    ASSERT_TRUE(
+            FileCacheFactory::instance()->create_file_cache(test_cache_base_path, settings).ok());
+    auto cache = FileCacheFactory::instance()->_path_to_cache[test_cache_base_path];
+    ASSERT_TRUE(wait_until([&] { return cache->get_async_open_success(); }));
+
+    std::unique_ptr<ThreadPool> pool;
+    ASSERT_TRUE(ThreadPoolBuilder("CachedRemoteFileReaderAsyncTouchTest")
+                        .set_min_threads(2)
+                        .set_max_threads(4)
+                        .build(&pool)
+                        .ok());
+    ExecEnv::GetInstance()->_segment_prefetch_thread_pool = std::move(pool);
+
+    FileReaderOptions opts;
+    opts.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
+    opts.is_doris_table = true;
+    opts.tablet_id = 10086;
+
+    auto remote_reader = std::make_shared<CountingRemoteFileReader>(
+            Path("/tmp/cached_remote_async_touch_local_cache"), 2_mb);
+    auto reader = std::make_shared<CachedRemoteFileReader>(remote_reader, opts);
+
+    reader->async_touch_local_cache(0, 1_mb);
+    ASSERT_TRUE(wait_until([&] { return !remote_reader->read_ranges().empty(); }));
+    auto read_ranges = remote_reader->read_ranges();
+    ASSERT_EQ(read_ranges[0].offset, 0);
+
+    auto key = BlockFileCache::hash("cached_remote_async_touch_local_cache");
+    CacheContext context;
+    ReadStatistics stats;
+    context.stats = &stats;
+    context.cache_type = FileCacheType::NORMAL;
+    ASSERT_TRUE(wait_until([&] {
+        auto holder = cache->get_or_set(key, 0, 1_mb, context);
+        auto blocks = fromHolder(holder);
+        return blocks.size() == 1 && blocks[0]->state() == FileBlock::State::DOWNLOADED;
+    }));
 }
 
 TEST_F(BlockFileCacheTest, cache_block_aware_prefetch_remote_reader_prefetches_cache_blocks) {
@@ -555,7 +773,6 @@ TEST_F(BlockFileCacheTest, cache_block_aware_prefetch_remote_reader_prefetches_c
     IOContext io_ctx;
     ASSERT_TRUE(reader->read_at(0, Slice(&buf, 1), &bytes_read, &io_ctx).ok());
     EXPECT_EQ(bytes_read, 1);
-    EXPECT_EQ(reader->_pattern.prefetched_index, 1);
     ASSERT_TRUE(wait_until([&] { return remote_reader->read_ranges().size() >= 2; }));
     auto read_ranges = remote_reader->read_ranges();
     std::set<size_t> offsets;
@@ -567,7 +784,6 @@ TEST_F(BlockFileCacheTest, cache_block_aware_prefetch_remote_reader_prefetches_c
 
     ASSERT_TRUE(reader->read_at(1_mb, Slice(&buf, 1), &bytes_read, &io_ctx).ok());
     EXPECT_EQ(bytes_read, 1);
-    EXPECT_EQ(reader->_pattern.prefetched_index, 2);
     ASSERT_TRUE(wait_until([&] { return remote_reader->read_ranges().size() >= 3; }));
     read_ranges = remote_reader->read_ranges();
     offsets.clear();
@@ -578,7 +794,6 @@ TEST_F(BlockFileCacheTest, cache_block_aware_prefetch_remote_reader_prefetches_c
 
     const auto read_count = remote_reader->read_ranges().size();
     ASSERT_TRUE(reader->read_at(1_mb, Slice(&buf, 1), &bytes_read, &io_ctx).ok());
-    EXPECT_EQ(reader->_pattern.prefetched_index, 2);
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     EXPECT_EQ(remote_reader->read_ranges().size(), read_count);
 

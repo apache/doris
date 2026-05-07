@@ -28,41 +28,44 @@
 namespace doris::segment_v2 {
 
 SegmentFileAccessRangeBuilder::SegmentFileAccessRangeBuilder(OrdinalIndexReader* ordinal_index,
-                                                             bool is_forward)
-        : _ordinal_index(ordinal_index), _is_forward(is_forward) {
+                                                             io::CacheBlockReadDirection direction)
+        : _ordinal_index(ordinal_index), _direction(direction) {
     DCHECK(_ordinal_index != nullptr);
 }
 
 void SegmentFileAccessRangeBuilder::reset() {
     _access_ranges.clear();
-    _page_idx = 0;
-    _last_page_idx = -1;
+    _next_page_hint = 0;
+    _pending_page_index.reset();
 }
 
-void SegmentFileAccessRangeBuilder::add_rowids(const rowid_t* rowids, uint32_t num) {
+void SegmentFileAccessRangeBuilder::add_ascending_rowids(std::span<const rowid_t> rowids) {
     DCHECK(_ordinal_index != nullptr);
+    if (rowids.empty()) {
+        return;
+    }
+    DCHECK(std::ranges::is_sorted(rowids));
     const auto& ordinals = _ordinal_index->_ordinals;
     const int num_pages = _ordinal_index->_num_pages;
-    for (uint32_t i = 0; i < num; ++i) {
-        rowid_t rowid = rowids[i];
-
-        while (_page_idx < num_pages - 1 && ordinals[_page_idx + 1] <= rowid) {
-            _page_idx++;
+    DORIS_CHECK(num_pages > 0);
+    for (const rowid_t rowid : rowids) {
+        while (_next_page_hint < num_pages - 1 && ordinals[_next_page_hint + 1] <= rowid) {
+            _next_page_hint++;
         }
 
-        if (_page_idx != _last_page_idx) {
-            if (_last_page_idx != -1) {
-                _append_page_access_range(_last_page_idx);
+        if (!_pending_page_index.has_value() || _next_page_hint != *_pending_page_index) {
+            if (_pending_page_index.has_value()) {
+                _append_page_access_range(*_pending_page_index);
             }
-            _last_page_idx = _page_idx;
+            _pending_page_index = _next_page_hint;
         }
     }
 }
 
 std::vector<io::FileAccessRange> SegmentFileAccessRangeBuilder::finish_by_rowids() {
     DCHECK(_ordinal_index != nullptr);
-    if (_last_page_idx != -1) {
-        _append_page_access_range(_last_page_idx);
+    if (_pending_page_index.has_value()) {
+        _append_page_access_range(*_pending_page_index);
     }
     _reverse_if_backward();
     auto output = std::move(_access_ranges);
@@ -70,13 +73,13 @@ std::vector<io::FileAccessRange> SegmentFileAccessRangeBuilder::finish_by_rowids
     return output;
 }
 
-std::vector<io::FileAccessRange> SegmentFileAccessRangeBuilder::build_all_data_ranges() {
+std::vector<io::FileAccessRange> SegmentFileAccessRangeBuilder::build_all_data_page_ranges() {
     DCHECK(_ordinal_index != nullptr);
     reset();
     const int num_pages = _ordinal_index->_num_pages;
 
-    for (_page_idx = 0; _page_idx < num_pages; ++_page_idx) {
-        _append_page_access_range(_page_idx);
+    for (int page_index = 0; page_index < num_pages; ++page_index) {
+        _append_page_access_range(page_index);
     }
 
     _reverse_if_backward();
@@ -87,7 +90,7 @@ std::vector<io::FileAccessRange> SegmentFileAccessRangeBuilder::build_all_data_r
 
 void SegmentFileAccessRangeBuilder::add_rowids_from_bitmap(
         const roaring::Roaring& row_bitmap,
-        const std::vector<SegmentFileAccessRangeBuilder*>& builders) {
+        std::span<SegmentFileAccessRangeBuilder* const> builders) {
     for (auto* builder : builders) {
         builder->reset();
     }
@@ -102,7 +105,7 @@ void SegmentFileAccessRangeBuilder::add_rowids_from_bitmap(
     for (; num > 0;
          num = roaring::api::roaring_read_uint32_iterator(&iter, rowids.data(), batch_size)) {
         for (auto* builder : builders) {
-            builder->add_rowids(rowids.data(), num);
+            builder->add_ascending_rowids(std::span(rowids.data(), num));
         }
     }
 }
@@ -116,7 +119,7 @@ void SegmentFileAccessRangeBuilder::_append_page_access_range(int page_index) {
 }
 
 void SegmentFileAccessRangeBuilder::_reverse_if_backward() {
-    if (!_is_forward && !_access_ranges.empty()) {
+    if (!_is_forward() && !_access_ranges.empty()) {
         std::ranges::reverse(_access_ranges);
     }
 }
