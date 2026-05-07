@@ -378,12 +378,6 @@ public class VariableMgr {
 
         if (setVar.getType() == SetType.GLOBAL) {
             setGlobalVarAndWriteEditLog(ctx, attr.name(), value);
-            if (SessionVariable.ENABLE_COMMON_EXPR_PUSHDOWN.equals(attr.name())) {
-                VarContext segmentPushdownCtx =
-                        getVarContext(SessionVariable.ENABLE_SEGMENT_FILTER_AND_LIMIT_PUSHDOWN);
-                setGlobalVarAndWriteEditLog(segmentPushdownCtx,
-                        SessionVariable.ENABLE_SEGMENT_FILTER_AND_LIMIT_PUSHDOWN, value);
-            }
         }
 
         // No matter this is a global setting or not, always set session variable.
@@ -398,11 +392,6 @@ public class VariableMgr {
             }
         }
         setValue(sessionVariable, sessionVariableField, value);
-        if (SessionVariable.ENABLE_COMMON_EXPR_PUSHDOWN.equals(attr.name())) {
-            VarContext segmentPushdownCtx =
-                    getVarContext(SessionVariable.ENABLE_SEGMENT_FILTER_AND_LIMIT_PUSHDOWN);
-            setValue(sessionVariable, new SessionVariableField(segmentPushdownCtx.getField()), value);
-        }
     }
 
     private static void setGlobalVarAndWriteEditLog(VarContext ctx, String name, String value) throws DdlException {
