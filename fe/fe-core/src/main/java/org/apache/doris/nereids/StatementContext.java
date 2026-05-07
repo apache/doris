@@ -139,8 +139,10 @@ public class StatementContext implements Closeable {
     private int maxNAryInnerJoin = 0;
 
     private boolean isDpHyp = false;
+    private boolean isAfterDpHyper = false;
 
     private boolean isDelete = false;
+
     private boolean hasNondeterministic = false;
 
     // hasUnknownColStats true if any column stats in the tables used by this sql is
@@ -549,6 +551,14 @@ public class StatementContext implements Closeable {
 
     public void setDpHyp(boolean dpHyp) {
         isDpHyp = dpHyp;
+    }
+
+    public boolean isAfterDpHyper() {
+        return isAfterDpHyper;
+    }
+
+    public void setAfterDpHyper(boolean isAfterDpHyper) {
+        this.isAfterDpHyper = isAfterDpHyper;
     }
 
     public ExprId getNextExprId() {
