@@ -223,8 +223,12 @@ public class CascadesContext implements ScheduleContext {
             StatementContext statementContext, Plan initPlan, CTEContext cteContext,
             PhysicalProperties requireProperties, boolean isLeadingDisableJoinReorder,
             CTEContext recursiveCteContext) {
-        return new CascadesContext(parent, subtree, statementContext, initPlan, null,
+        CascadesContext cascadesContext = new CascadesContext(parent, subtree, statementContext, initPlan, null,
                 cteContext, requireProperties, isLeadingDisableJoinReorder, recursiveCteContext);
+        if (parent.isPresent() && parent.get().getOuterScope().isPresent()) {
+            cascadesContext.setOuterScope(parent.get().getOuterScope().get());
+        }
+        return cascadesContext;
     }
 
     public CascadesContext getRoot() {

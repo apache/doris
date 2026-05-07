@@ -31,7 +31,10 @@ import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
 import org.apache.doris.nereids.rules.rewrite.UnCorrelatedApplyFilter;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -45,6 +48,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Set;
 
 public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatchSupported {
 
@@ -86,6 +90,23 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
             + " SELECT * FROM cte1) a";
 
     private final String cteWithDiffRelationId = "with s as (select * from supplier) select * from s as s1, s as s2";
+
+    private final List<String> correlatedSubqueryWithCteSqls = ImmutableList.of(
+            "SELECT * FROM supplier outer_s WHERE EXISTS ("
+                    + "WITH picked AS (SELECT s_suppkey, s_region FROM supplier) "
+                    + "SELECT 1 FROM picked WHERE picked.s_region = outer_s.s_region)",
+            "SELECT * FROM supplier outer_s WHERE outer_s.s_suppkey IN ("
+                    + "WITH picked AS (SELECT s_suppkey, s_region FROM supplier) "
+                    + "SELECT picked.s_suppkey FROM picked WHERE picked.s_region = outer_s.s_region)"
+    );
+
+    private final String scalarSubqueryWithCteSql = "SELECT * FROM supplier outer_s WHERE outer_s.s_suppkey = ("
+            + "WITH picked AS (SELECT s_suppkey FROM supplier WHERE s_nation = 'PERU') "
+            + "SELECT min(picked.s_suppkey) FROM picked)";
+
+    private final String correlatedSlotUnderCteProducerSql = "SELECT * FROM supplier outer_s WHERE EXISTS ("
+            + "WITH picked AS (SELECT s_suppkey FROM supplier WHERE s_region = outer_s.s_region) "
+            + "SELECT 1 FROM picked)";
 
     private final List<String> testSqls = ImmutableList.of(
             multiCte, cteWithColumnAlias, cteConsumerInSubQuery, cteConsumerJoin, cteReferToAnotherOne, cteJoinSelf,
@@ -172,6 +193,40 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
                                 )
                         )
                 );
+    }
+
+    @Test
+    public void testCorrelatedSubqueryWithCte() throws Exception {
+        for (String sql : correlatedSubqueryWithCteSqls) {
+            StatementScopeIdGenerator.clear();
+            Plan plan = PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .getPlan();
+            Set<Plan> applyNodes = plan.collect(LogicalApply.class::isInstance);
+
+            Assertions.assertEquals(1, applyNodes.size(), sql);
+            LogicalApply<?, ?> apply = (LogicalApply<?, ?>) applyNodes.iterator().next();
+            Assertions.assertTrue(apply.isCorrelated(), sql);
+            Assertions.assertTrue(apply.child(1).anyMatch(LogicalCTEAnchor.class::isInstance), sql);
+        }
+    }
+
+    @Test
+    public void testScalarSubqueryWithCte() throws Exception {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze(scalarSubqueryWithCteSql)
+                .getPlan();
+        Set<Plan> cteAnchors = plan.collect(LogicalCTEAnchor.class::isInstance);
+
+        Assertions.assertFalse(cteAnchors.isEmpty());
+    }
+
+    @Test
+    public void testCorrelatedSlotUnderCteProducerInSubquery() {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(correlatedSlotUnderCteProducerSql),
+                "Not throw expected exception.");
+        Assertions.assertTrue(exception.getMessage().contains("Unsupported correlated subquery in cte"));
     }
 
     @Test

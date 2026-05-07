@@ -466,6 +466,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     ),
                     // query rewrite support window, so add this rule here
                     custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION, AggScalarSubQueryToWindowFunction::new),
+                    custom(RuleType.PULL_UP_CTE_ANCHOR, PullUpCteAnchor::new),
+                    custom(RuleType.CTE_INLINE, CTEInline::new),
                     bottomUp(
                             new EliminateUselessPlanUnderApply(),
                             // CorrelateApplyToUnCorrelateApply and ApplyToJoin
