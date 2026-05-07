@@ -159,6 +159,18 @@ public class IndexStats {
         return stat;
     }
 
+    /**
+     * Merge filter column stats without incrementing the table-level query count.
+     * Used when filter stats are recorded separately after queryHit has already been counted.
+     */
+    public void mergeFilterStats(Map<String, ColumnStatsDelta> columnStats) {
+        for (Map.Entry<String, ColumnStatsDelta> e : columnStats.entrySet()) {
+            if (e.getValue().filterHit) {
+                addFilterStats(e.getKey());
+            }
+        }
+    }
+
     public void rename(String column, String newName) {
         AtomicLong queryStata = columnQueryStats.get(column);
         if (queryStata != null) {

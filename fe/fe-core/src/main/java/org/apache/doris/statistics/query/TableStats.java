@@ -153,6 +153,13 @@ public class TableStats {
         }
     }
 
+    public void mergeFilterStats(StatsDelta statsDelta) {
+        IndexStats i = indexStats.get(statsDelta.getIndex());
+        if (i != null) {
+            i.mergeFilterStats(statsDelta.getColumnStats());
+        }
+    }
+
     public void clear() {
         indexStats.clear();
     }

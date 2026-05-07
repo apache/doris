@@ -52,5 +52,20 @@ suite("query_stats_test") {
     qt_sql "show query stats from ${tbName}"
     qt_sql "show query stats from ${tbName} all"
     qt_sql "show query stats from ${tbName} all verbose"
+
+    // Verify that a single query touching both a SELECT column (k3) and a WHERE column (k5)
+    // increments the table query count by exactly 1, not 2.
+    // The table count tracks how many queries touched the table — k3 and k5 are column-level
+    // counters (queryHit and filterHit) and are independent of the table count.
+    // If addStats were called twice (once for queryHit, once for filterHit), the count would
+    // wrongly show 2. mergeFilterStats prevents this by updating filter counters only,
+    // without re-incrementing the table query count.
+    sql "clean all query stats"
+    sql "select k3 from ${tbName} where k5 = 1.0"
+    // table count must be 1 (one query ran), not 2
+    qt_sql "show query stats from ${tbName} all"
+    // k3: queryHit=1 (SELECT), k5: filterHit=1 (WHERE), all others 0
+    qt_sql "show query stats from ${tbName}"
+
     sql "admin set frontend config (\"enable_query_hit_stats\"=\"false\");"
 }

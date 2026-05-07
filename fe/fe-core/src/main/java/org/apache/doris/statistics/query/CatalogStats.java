@@ -205,6 +205,13 @@ public class CatalogStats {
         }
     }
 
+    public void mergeFilterStats(StatsDelta statsDelta) {
+        DataBaseStats d = dataBaseStats.get(statsDelta.getDatabase());
+        if (d != null) {
+            d.mergeFilterStats(statsDelta);
+        }
+    }
+
     public void clear() {
         dataBaseStats.clear();
     }

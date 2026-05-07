@@ -74,6 +74,17 @@ public class QueryStats {
     }
 
     /**
+     * Merge filter column stats without incrementing the table-level query count.
+     * Called after queryHit has already been counted by addStats in computePhysicalOlapScan.
+     */
+    public void mergeFilterStats(StatsDelta statsDelta) {
+        CatalogStats c = catalogStats.get(statsDelta.getCatalog());
+        if (c != null) {
+            c.mergeFilterStats(statsDelta);
+        }
+    }
+
+    /**
      * Add tablet statistics
      */
     public void addStats(List<Long> replicaIds) {

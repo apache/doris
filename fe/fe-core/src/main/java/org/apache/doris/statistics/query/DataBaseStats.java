@@ -162,6 +162,13 @@ public class DataBaseStats {
         }
     }
 
+    public void mergeFilterStats(StatsDelta statsDelta) {
+        TableStats t = tableStats.get(statsDelta.getTable());
+        if (t != null) {
+            t.mergeFilterStats(statsDelta);
+        }
+    }
+
     public void clear() {
         tableStats.clear();
     }
