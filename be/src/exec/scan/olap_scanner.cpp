@@ -881,8 +881,8 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.segment_iterator_init_return_column_iterators_timer_ns);
     COUNTER_UPDATE(local_state->_segment_iterator_init_index_iterators_timer,
                    stats.segment_iterator_init_index_iterators_timer_ns);
-    COUNTER_UPDATE(local_state->_segment_iterator_init_segment_prefetchers_timer,
-                   stats.segment_iterator_init_segment_prefetchers_timer_ns);
+    COUNTER_UPDATE(local_state->_segment_iterator_init_cache_block_prefetch_timer,
+                   stats.segment_iterator_init_cache_block_prefetch_timer_ns);
 
     COUNTER_UPDATE(local_state->_segment_create_column_readers_timer,
                    stats.segment_create_column_readers_timer_ns);

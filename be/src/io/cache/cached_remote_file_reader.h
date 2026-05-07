@@ -37,8 +37,8 @@ namespace doris::io {
 struct IOContext;
 struct FileCacheStatistics;
 
-class CachedRemoteFileReader final : public FileReader,
-                                     public std::enable_shared_from_this<CachedRemoteFileReader> {
+class CachedRemoteFileReader : public FileReader,
+                               public std::enable_shared_from_this<CachedRemoteFileReader> {
 public:
     CachedRemoteFileReader(FileReaderSPtr remote_file_reader, const FileReaderOptions& opts);
 

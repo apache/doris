@@ -23,7 +23,8 @@
 
 #include <cstddef> // for size_t
 #include <cstdint> // for uint32_t
-#include <memory>  // for unique_ptr
+#include <map>
+#include <memory> // for unique_ptr
 #include <string>
 #include <utility>
 #include <vector>
@@ -33,7 +34,6 @@
 #include "common/status.h"            // for Status
 #include "core/column/column_array.h" // ColumnArray
 #include "core/data_type/data_type.h"
-#include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/io_common.h"
 #include "storage/index/index_reader.h"
@@ -45,7 +45,7 @@
 #include "storage/segment/page_handle.h" // for PageHandle
 #include "storage/segment/page_pointer.h"
 #include "storage/segment/parsed_page.h" // for ParsedPage
-#include "storage/segment/segment_prefetcher.h"
+#include "storage/segment/segment_file_access_range_builder.h"
 #include "storage/segment/stream_reader.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
@@ -237,7 +237,6 @@ public:
 private:
     friend class VariantColumnReader;
     friend class FileColumnIterator;
-    friend class SegmentPrefetcher;
 
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
                  io::FileReaderSPtr file_reader);
@@ -402,11 +401,19 @@ public:
 
     virtual void remove_pruned_sub_iterators() {};
 
-    virtual Status init_prefetcher(const SegmentPrefetchParams& params) { return Status::OK(); }
+    virtual Status init_cache_block_prefetch(const SegmentCacheBlockPrefetchParams& params) {
+        return Status::OK();
+    }
 
-    virtual void collect_prefetchers(
-            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
-            PrefetcherInitMethod init_method) {}
+    virtual void collect_cache_block_prefetch_iterators(
+            std::map<FileAccessRangeBuildMethod, std::vector<ColumnIterator*>>& iterators,
+            FileAccessRangeBuildMethod init_method) {}
+
+    virtual SegmentFileAccessRangeBuilder* cache_block_prefetch_range_builder() { return nullptr; }
+
+    virtual Status install_cache_block_prefetch_pattern(std::vector<io::FileAccessRange> ranges) {
+        return Status::OK();
+    }
 
     static constexpr const char* ACCESS_OFFSET = "OFFSET";
     static constexpr const char* ACCESS_ALL = "*";
@@ -479,10 +486,14 @@ public:
 
     bool is_all_dict_encoding() const override { return _is_all_dict_encoding; }
 
-    Status init_prefetcher(const SegmentPrefetchParams& params) override;
-    void collect_prefetchers(
-            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
-            PrefetcherInitMethod init_method) override;
+    Status init_cache_block_prefetch(const SegmentCacheBlockPrefetchParams& params) override;
+    void collect_cache_block_prefetch_iterators(
+            std::map<FileAccessRangeBuildMethod, std::vector<ColumnIterator*>>& iterators,
+            FileAccessRangeBuildMethod init_method) override;
+    SegmentFileAccessRangeBuilder* cache_block_prefetch_range_builder() override {
+        return _access_range_builder.get();
+    }
+    Status install_cache_block_prefetch_pattern(std::vector<io::FileAccessRange> ranges) override;
 
 protected:
     // Exposed to derived iterators (e.g. StringFileColumnIterator) so they can
@@ -494,7 +505,7 @@ private:
     Status _load_next_page(bool* eos);
     Status _read_data_page(const OrdinalPageIndexIterator& iter);
     Status _read_dict_data();
-    void _trigger_prefetch_if_eligible(ordinal_t ord);
+    void _trigger_cache_block_prefetch_if_eligible(size_t file_offset);
 
     std::shared_ptr<ColumnReader> _reader = nullptr;
 
@@ -522,9 +533,12 @@ private:
 
     std::unique_ptr<StringRef[]> _dict_word_info;
 
-    bool _enable_prefetch {false};
-    std::unique_ptr<SegmentPrefetcher> _prefetcher;
-    std::shared_ptr<io::CachedRemoteFileReader> _cached_remote_file_reader {nullptr};
+    bool _enable_cache_block_prefetch {false};
+    std::unique_ptr<SegmentFileAccessRangeBuilder> _access_range_builder;
+    std::shared_ptr<io::CacheBlockAwarePrefetchRemoteReader> _cache_block_prefetch_reader;
+    io::CacheBlockAwarePrefetchRemoteReader::ReadPatternHandle _cache_block_read_pattern;
+    io::CacheBlockPrefetchPolicy _cache_block_prefetch_policy;
+    io::CacheBlockReadDirection _cache_block_read_direction = io::CacheBlockReadDirection::FORWARD;
 };
 
 class EmptyFileColumnIterator final : public ColumnIterator {
@@ -583,10 +597,10 @@ public:
         return _offset_iterator->read_by_rowids(rowids, count, dst);
     }
 
-    Status init_prefetcher(const SegmentPrefetchParams& params) override;
-    void collect_prefetchers(
-            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
-            PrefetcherInitMethod init_method) override;
+    Status init_cache_block_prefetch(const SegmentCacheBlockPrefetchParams& params) override;
+    void collect_cache_block_prefetch_iterators(
+            std::map<FileAccessRangeBuildMethod, std::vector<ColumnIterator*>>& iterators,
+            FileAccessRangeBuildMethod init_method) override;
 
 private:
     std::unique_ptr<FileColumnIterator> _offset_iterator;
@@ -620,10 +634,10 @@ public:
         }
         return _offsets_iterator->get_current_ordinal();
     }
-    Status init_prefetcher(const SegmentPrefetchParams& params) override;
-    void collect_prefetchers(
-            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
-            PrefetcherInitMethod init_method) override;
+    Status init_cache_block_prefetch(const SegmentCacheBlockPrefetchParams& params) override;
+    void collect_cache_block_prefetch_iterators(
+            std::map<FileAccessRangeBuildMethod, std::vector<ColumnIterator*>>& iterators,
+            FileAccessRangeBuildMethod init_method) override;
 
     Status set_access_paths(const TColumnAccessPaths& all_access_paths,
                             const TColumnAccessPaths& predicate_access_paths) override;
@@ -676,10 +690,10 @@ public:
 
     void remove_pruned_sub_iterators() override;
 
-    Status init_prefetcher(const SegmentPrefetchParams& params) override;
-    void collect_prefetchers(
-            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
-            PrefetcherInitMethod init_method) override;
+    Status init_cache_block_prefetch(const SegmentCacheBlockPrefetchParams& params) override;
+    void collect_cache_block_prefetch_iterators(
+            std::map<FileAccessRangeBuildMethod, std::vector<ColumnIterator*>>& iterators,
+            FileAccessRangeBuildMethod init_method) override;
 
 private:
     std::shared_ptr<ColumnReader> _struct_reader = nullptr;
@@ -723,10 +737,10 @@ public:
 
     void remove_pruned_sub_iterators() override;
 
-    Status init_prefetcher(const SegmentPrefetchParams& params) override;
-    void collect_prefetchers(
-            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
-            PrefetcherInitMethod init_method) override;
+    Status init_cache_block_prefetch(const SegmentCacheBlockPrefetchParams& params) override;
+    void collect_cache_block_prefetch_iterators(
+            std::map<FileAccessRangeBuildMethod, std::vector<ColumnIterator*>>& iterators,
+            FileAccessRangeBuildMethod init_method) override;
 
 private:
     std::shared_ptr<ColumnReader> _array_reader = nullptr;

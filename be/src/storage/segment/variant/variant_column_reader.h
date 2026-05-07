@@ -460,10 +460,10 @@ public:
 
     ordinal_t get_current_ordinal() const override { return _inner_iter->get_current_ordinal(); }
 
-    Status init_prefetcher(const SegmentPrefetchParams& params) override;
-    void collect_prefetchers(
-            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
-            PrefetcherInitMethod init_method) override;
+    Status init_cache_block_prefetch(const SegmentCacheBlockPrefetchParams& params) override;
+    void collect_cache_block_prefetch_iterators(
+            std::map<FileAccessRangeBuildMethod, std::vector<ColumnIterator*>>& iterators,
+            FileAccessRangeBuildMethod init_method) override;
 
 private:
     Status _process_root_column(MutableColumnPtr& dst, MutableColumnPtr& root_column,
