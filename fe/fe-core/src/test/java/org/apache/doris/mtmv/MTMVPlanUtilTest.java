@@ -448,7 +448,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
                 MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE);
         autoCtx.setSessionVariable(autoSessionVariable);
         Assertions.assertDoesNotThrow(() -> MTMVPlanUtil.ensureMTMVQueryUsable(autoMtmv, autoCtx));
-        Assertions.assertEquals(0, autoSessionVariable.getEnableIvmRewriteSetCount());
+        Assertions.assertEquals(1, autoSessionVariable.getEnableIvmRewriteSetCount());
 
         CountingSessionVariable incrementalSessionVariable = new CountingSessionVariable();
         ConnectContext incrementalCtx = MTMVPlanUtil.createMTMVContext(incrementalMtmv,

@@ -27,6 +27,8 @@ import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.ivm.IvmAggMeta;
 import org.apache.doris.mtmv.ivm.IvmAggMeta.AggTarget;
 import org.apache.doris.mtmv.ivm.IvmAggMeta.AggType;
+import org.apache.doris.mtmv.ivm.IvmException;
+import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmNormalizeResult;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.StatementContext;
@@ -156,7 +158,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
     // unsupported: any plan node not explicitly whitelisted below
     @Override
     public Plan visit(Plan plan, Boolean isFirstNonSink) {
-        throw new AnalysisException("IVM does not support plan node: "
+        throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED, "IVM does not support plan node: "
                 + plan.getClass().getSimpleName());
     }
 
@@ -211,12 +213,12 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Boolean isFirstNonSink) {
         JoinType joinType = join.getJoinType();
         if (joinType != JoinType.INNER_JOIN && joinType != JoinType.CROSS_JOIN) {
-            throw new AnalysisException(
+            throw new IvmException(IvmFailureReason.OUTER_JOIN_RETRACTION_UNSUPPORTED,
                     "IVM does not support join type: " + joinType
                             + ". Only INNER_JOIN and CROSS_JOIN are supported.");
         }
         if (join.isMarkJoin()) {
-            throw new AnalysisException(
+            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                     "IVM does not support mark join (subquery with disjunction).");
         }
 
@@ -269,11 +271,11 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
     @Override
     public Plan visitLogicalUnion(LogicalUnion union, Boolean isFirstNonSink) {
         if (union.getQualifier() != Qualifier.ALL) {
-            throw new AnalysisException(
+            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                     "IVM does not support UNION DISTINCT. Only UNION ALL is supported.");
         }
         if (!union.getConstantExprsList().isEmpty()) {
-            throw new AnalysisException(
+            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                     "IVM does not support UNION ALL with constant expressions.");
         }
 
@@ -343,7 +345,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
     @Override
     public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> agg, Boolean isFirstNonSink) {
         if (!isFirstNonSink) {
-            throw new AnalysisException(
+            throw new IvmException(IvmFailureReason.AGG_UNSUPPORTED,
                     "IVM aggregate must be the top-level operator (only sinks and projects allowed above it)");
         }
         Plan newChild = agg.child().accept(this, false);
@@ -458,7 +460,8 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
             aggType = AggType.MAX;
             addHiddenAlias(hiddenAliases, ordinal, AggType.COUNT, new Count(aggFunc.child(0)));
         } else {
-            throw new AnalysisException("IVM: unsupported aggregate function: " + aggFunc.getName());
+            throw new IvmException(IvmFailureReason.AGG_UNSUPPORTED,
+                    "IVM: unsupported aggregate function: " + aggFunc.getName());
         }
 
         hiddenAggOutputs.addAll(hiddenAliases.values());
@@ -625,7 +628,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
         boolean isExcludedTriggerTable = isExcludedTriggerTable(table);
         if (keysType == KeysType.UNIQUE_KEYS) {
             if (!table.getEnableUniqueKeyMergeOnWrite() && !isExcludedTriggerTable) {
-                throw new AnalysisException(
+                throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                         "INCREMENTAL materialized view requires UNIQUE_KEYS base tables "
                                 + "to enable Merge-On-Write. Table '"
                                 + table.getName() + "' has MOW disabled."
@@ -640,7 +643,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
         if (keysType == KeysType.AGG_KEYS && isExcludedTriggerTable) {
             return buildDeterministicRowIdFromBaseKeys(table, scan);
         }
-        throw new AnalysisException(
+        throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                 "INCREMENTAL materialized view requires base tables to be "
                         + "UNIQUE_KEYS with Merge-On-Write or DUP_KEYS. Table '"
                         + table.getName() + "' is " + keysType
@@ -689,11 +692,11 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
     private static void checkAggFunctions(List<AggregateFunction> aggFunctions) {
         for (AggregateFunction aggFunc : aggFunctions) {
             if (aggFunc.isDistinct()) {
-                throw new AnalysisException(
+                throw new IvmException(IvmFailureReason.AGG_UNSUPPORTED,
                         "Aggregate DISTINCT is not supported for IVM: " + aggFunc.toSql());
             }
             if (!SUPPORTED_AGG_FUNCTIONS.contains(aggFunc.getClass())) {
-                throw new AnalysisException(
+                throw new IvmException(IvmFailureReason.AGG_UNSUPPORTED,
                         "Unsupported aggregate function for IVM: " + aggFunc.getName());
             }
         }

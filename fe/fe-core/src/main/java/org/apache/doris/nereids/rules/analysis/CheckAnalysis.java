@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.mtmv.ivm.IvmException;
+import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -264,7 +266,7 @@ public class CheckAnalysis implements AnalysisRuleFactory {
             if (expr.containsType(WindowExpression.class)) {
                 WindowExpression windowExpr = (WindowExpression) ExpressionUtils.collect(
                         ImmutableList.of(expr), WindowExpression.class::isInstance).iterator().next();
-                throw new AnalysisException(
+                throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                         "IVM does not support window functions: " + windowExpr.toSql());
             }
         }

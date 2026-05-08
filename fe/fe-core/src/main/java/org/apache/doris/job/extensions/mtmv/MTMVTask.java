@@ -289,12 +289,12 @@ public class MTMVTask extends AbstractTask {
         if (currentRefreshMode == RefreshMode.INCREMENTAL) {
             throw new JobException(
                     "IVM incremental refresh failed for mv=" + mtmv.getName()
-                    + ", reason=" + ivmResult.getFallbackReason()
+                    + ", reason=" + ivmResult.getFailureReason()
                     + ", detail=" + ivmResult.getDetailMessage());
         }
         LOG.warn("IVM refresh fell back for mv={}, reason={}, detail={}, taskId={}. "
                 + "Continuing with partition-based refresh.",
-                mtmv.getName(), ivmResult.getFallbackReason(),
+                mtmv.getName(), ivmResult.getFailureReason(),
                 ivmResult.getDetailMessage(), getTaskId());
         return false;
     }

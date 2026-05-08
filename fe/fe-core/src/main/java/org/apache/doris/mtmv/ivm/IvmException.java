@@ -17,16 +17,20 @@
 
 package org.apache.doris.mtmv.ivm;
 
-/** Reasons an incremental refresh may fall back to partition or full refresh. */
-public enum IvmFallbackReason {
-    BINLOG_BROKEN,
-    STREAM_UNSUPPORTED,
-    SNAPSHOT_ALIGNMENT_UNSUPPORTED,
-    PLAN_PATTERN_UNSUPPORTED,
-    NON_DETERMINISTIC_ROW_ID,
-    OUTER_JOIN_RETRACTION_UNSUPPORTED,
-    PREVIOUS_RUN_INCOMPLETE,
-    INCREMENTAL_EXECUTION_FAILED,
-    AGG_UNSUPPORTED,
-    MIN_MAX_BOUNDARY_HIT
+import org.apache.doris.nereids.exceptions.AnalysisException;
+
+import java.util.Objects;
+
+/** Exception for known IVM analysis failures that can be mapped to a failure reason. */
+public class IvmException extends AnalysisException {
+    private final IvmFailureReason failureReason;
+
+    public IvmException(IvmFailureReason failureReason, String message) {
+        super(message);
+        this.failureReason = Objects.requireNonNull(failureReason, "failureReason can not be null");
+    }
+
+    public IvmFailureReason getFailureReason() {
+        return failureReason;
+    }
 }

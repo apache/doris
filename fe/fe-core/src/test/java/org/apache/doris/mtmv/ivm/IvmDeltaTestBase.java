@@ -101,7 +101,7 @@ abstract class IvmDeltaTestBase {
         List<Column> columns = ImmutableList.of(
                 new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
                 new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
-                new Column(Column.BINLOG_OPERATION_COL, Type.TINYINT, false, AggregateType.NONE, "0", ""));
+                new Column(Column.IVM_MOCK_BINLOG_OPERATION_COL, Type.TINYINT, false, AggregateType.NONE, "0", ""));
         OlapTable table = new OlapTable(1L, "t_op", columns,
                 KeysType.DUP_KEYS, new SinglePartitionInfo(),
                 new RandomDistributionInfo(3));

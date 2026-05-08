@@ -73,7 +73,7 @@ public class IvmRefreshManager {
             context = buildRefreshContext(mtmv);
         } catch (Exception e) {
             IvmRefreshResult result = IvmRefreshResult.fallback(
-                    IvmFallbackReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED, e.getMessage());
+                    IvmFailureReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED, e.getMessage());
             LOG.warn("IVM context build failed for mv={}, result={}", mtmv.getName(), result);
             return result;
         }
@@ -84,11 +84,11 @@ public class IvmRefreshManager {
     IvmRefreshResult precheck(MTMV mtmv) {
         Objects.requireNonNull(mtmv, "mtmv can not be null");
         if (mtmv.getIvmInfo().isRunningIvmRefresh()) {
-            return IvmRefreshResult.fallback(IvmFallbackReason.PREVIOUS_RUN_INCOMPLETE,
+            return IvmRefreshResult.fallback(IvmFailureReason.PREVIOUS_RUN_INCOMPLETE,
                     "A previous incremental refresh did not complete; full refresh is required");
         }
         if (mtmv.getIvmInfo().isBinlogBroken()) {
-            return IvmRefreshResult.fallback(IvmFallbackReason.BINLOG_BROKEN,
+            return IvmRefreshResult.fallback(IvmFailureReason.BINLOG_BROKEN,
                     "Stream binlog is marked as broken");
         }
         // return checkStreamSupport(mtmv);
@@ -202,11 +202,15 @@ public class IvmRefreshManager {
         List<Command> commands;
         try {
             commands = analyzeDeltaCommands(context);
+        } catch (IvmException e) {
+            IvmRefreshResult result = IvmRefreshResult.fallback(e.getFailureReason(), e.getMessage());
+            LOG.warn("IVM plan analysis failed for mv={}, result={}", mtmv.getName(), result, e);
+            return result;
         } catch (Exception e) {
             String detail = e.getMessage() != null ? e.getMessage()
                     : e.getClass().getName() + " (no message)";
             IvmRefreshResult result = IvmRefreshResult.fallback(
-                    IvmFallbackReason.PLAN_PATTERN_UNSUPPORTED, detail);
+                    IvmFailureReason.PLAN_PATTERN_UNSUPPORTED, detail);
             LOG.warn("IVM plan analysis failed for mv={}, result={}", mtmv.getName(), result, e);
             return result;
         }
@@ -242,20 +246,20 @@ public class IvmRefreshManager {
                     : e.getClass().getName() + " (no message)";
             if (detail.contains("IVM: deleted row may be current")) {
                 IvmRefreshResult result = IvmRefreshResult.fallback(
-                        IvmFallbackReason.MIN_MAX_BOUNDARY_HIT, detail);
+                        IvmFailureReason.MIN_MAX_BOUNDARY_HIT, detail);
                 LOG.info("IVM MIN/MAX boundary hit for mv={}, falling back to COMPLETE refresh, result={}",
                         mtmv.getName(), result);
                 return result;
             }
             if (detail.contains("IVM fallback: delete on non-deterministic row_id")) {
                 IvmRefreshResult result = IvmRefreshResult.fallback(
-                        IvmFallbackReason.NON_DETERMINISTIC_ROW_ID, detail);
+                        IvmFailureReason.NON_DETERMINISTIC_ROW_ID, detail);
                 LOG.info("IVM non-deterministic row_id for mv={}, falling back to COMPLETE refresh, result={}",
                         mtmv.getName(), result);
                 return result;
             }
             IvmRefreshResult result = IvmRefreshResult.fallback(
-                    IvmFallbackReason.INCREMENTAL_EXECUTION_FAILED, detail);
+                    IvmFailureReason.INCREMENTAL_EXECUTION_FAILED, detail);
             LOG.warn("IVM execution failed for mv={}, result={}", mtmv.getName(), result, e);
             return result;
         }
@@ -352,35 +356,35 @@ public class IvmRefreshManager {
     private IvmRefreshResult checkStreamSupport(MTMV mtmv) {
         MTMVRelation relation = mtmv.getRelation();
         if (relation == null) {
-            return IvmRefreshResult.fallback(IvmFallbackReason.STREAM_UNSUPPORTED,
+            return IvmRefreshResult.fallback(IvmFailureReason.STREAM_UNSUPPORTED,
                     "No base table relation found for incremental refresh");
         }
         Set<BaseTableInfo> baseTables = relation.getBaseTablesOneLevelAndFromView();
         if (baseTables == null || baseTables.isEmpty()) {
-            return IvmRefreshResult.fallback(IvmFallbackReason.STREAM_UNSUPPORTED,
+            return IvmRefreshResult.fallback(IvmFailureReason.STREAM_UNSUPPORTED,
                     "No base tables found for incremental refresh");
         }
         Map<BaseTableInfo, IvmStreamRef> baseTableStreams = mtmv.getIvmInfo().getBaseTableStreams();
         if (baseTableStreams == null || baseTableStreams.isEmpty()) {
-            return IvmRefreshResult.fallback(IvmFallbackReason.STREAM_UNSUPPORTED,
+            return IvmRefreshResult.fallback(IvmFailureReason.STREAM_UNSUPPORTED,
                     "No stream bindings are registered for this materialized view");
         }
         for (BaseTableInfo baseTableInfo : baseTables) {
             IvmStreamRef streamRef = baseTableStreams.get(baseTableInfo);
             if (streamRef == null) {
-                return IvmRefreshResult.fallback(IvmFallbackReason.STREAM_UNSUPPORTED,
+                return IvmRefreshResult.fallback(IvmFailureReason.STREAM_UNSUPPORTED,
                         "No stream binding found for base table: " + baseTableInfo);
             }
             final TableIf table;
             try {
                 table = MTMVUtil.getTable(baseTableInfo);
             } catch (Exception e) {
-                return IvmRefreshResult.fallback(IvmFallbackReason.STREAM_UNSUPPORTED,
+                return IvmRefreshResult.fallback(IvmFailureReason.STREAM_UNSUPPORTED,
                         "Failed to resolve base table metadata for incremental refresh: "
                                 + baseTableInfo + ", reason=" + e.getMessage());
             }
             if (!(table instanceof OlapTable)) {
-                return IvmRefreshResult.fallback(IvmFallbackReason.STREAM_UNSUPPORTED,
+                return IvmRefreshResult.fallback(IvmFailureReason.STREAM_UNSUPPORTED,
                         "Only OLAP base tables are supported for incremental refresh: " + baseTableInfo);
             }
         }

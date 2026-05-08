@@ -20,7 +20,6 @@ package org.apache.doris.mtmv.ivm;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
@@ -43,6 +42,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
 
 import java.util.Map;
 import java.util.Optional;
@@ -217,8 +217,8 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
                 ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
 
-        Assertions.assertThrows(AnalysisException.class, () -> normalizeJoinPlan(join),
-                "LEFT_OUTER_JOIN should throw AnalysisException");
+        assertIvmException(IvmFailureReason.OUTER_JOIN_RETRACTION_UNSUPPORTED,
+                () -> normalizeJoinPlan(join));
     }
 
     @Test
@@ -228,8 +228,8 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.RIGHT_OUTER_JOIN,
                 ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
 
-        Assertions.assertThrows(AnalysisException.class, () -> normalizeJoinPlan(join),
-                "RIGHT_OUTER_JOIN should throw AnalysisException");
+        assertIvmException(IvmFailureReason.OUTER_JOIN_RETRACTION_UNSUPPORTED,
+                () -> normalizeJoinPlan(join));
     }
 
     @Test
@@ -257,8 +257,13 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
                 Optional.of(new MarkJoinSlotReference("$mark")),
                 scanA, scanB, JoinReorderContext.EMPTY);
 
-        Assertions.assertThrows(AnalysisException.class, () -> normalizeJoinPlan(join),
-                "Mark join conjuncts should throw AnalysisException");
+        assertIvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                () -> normalizeJoinPlan(join));
+    }
+
+    private void assertIvmException(IvmFailureReason failureReason, Executable executable) {
+        IvmException exception = Assertions.assertThrows(IvmException.class, executable);
+        Assertions.assertEquals(failureReason, exception.getFailureReason());
     }
 
     @Test

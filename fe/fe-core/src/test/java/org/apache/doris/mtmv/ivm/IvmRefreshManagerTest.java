@@ -99,7 +99,7 @@ public class IvmRefreshManagerTest {
         IvmRefreshResult result = manager.doRefresh(mtmv);
 
         Assertions.assertFalse(result.isSuccess());
-        Assertions.assertEquals(IvmFallbackReason.INCREMENTAL_EXECUTION_FAILED, result.getFallbackReason());
+        Assertions.assertEquals(IvmFailureReason.INCREMENTAL_EXECUTION_FAILED, result.getFailureReason());
         Assertions.assertTrue(executor.executeCalled);
     }
 
@@ -113,7 +113,23 @@ public class IvmRefreshManagerTest {
         IvmRefreshResult result = manager.doRefresh(mtmv);
 
         Assertions.assertFalse(result.isSuccess());
-        Assertions.assertEquals(IvmFallbackReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED, result.getFallbackReason());
+        Assertions.assertEquals(IvmFailureReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED, result.getFailureReason());
+        Assertions.assertFalse(executor.executeCalled);
+    }
+
+    @Test
+    public void testManagerReturnsIvmExceptionFailureReasonWhenAnalyzeFails() {
+        MTMV mtmv = mockMtmv();
+        TestDeltaExecutor executor = new TestDeltaExecutor();
+        TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
+                newContext(mtmv), Collections.emptyList());
+        manager.throwIvmExceptionOnAnalyze = true;
+
+        IvmRefreshResult result = manager.doRefresh(mtmv);
+
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertEquals(IvmFailureReason.AGG_UNSUPPORTED, result.getFailureReason());
+        Assertions.assertTrue(result.getDetailMessage().contains("unsupported aggregate"));
         Assertions.assertFalse(executor.executeCalled);
     }
 
@@ -132,7 +148,7 @@ public class IvmRefreshManagerTest {
         IvmRefreshResult result = manager.doRefresh(mtmv);
 
         Assertions.assertFalse(result.isSuccess());
-        Assertions.assertEquals(IvmFallbackReason.BINLOG_BROKEN, result.getFallbackReason());
+        Assertions.assertEquals(IvmFailureReason.BINLOG_BROKEN, result.getFailureReason());
         Assertions.assertFalse(executor.executeCalled);
     }
 
@@ -211,7 +227,7 @@ public class IvmRefreshManagerTest {
         IvmRefreshResult result = manager.doRefresh(mtmv);
 
         Assertions.assertFalse(result.isSuccess());
-        Assertions.assertEquals(IvmFallbackReason.PREVIOUS_RUN_INCOMPLETE, result.getFallbackReason());
+        Assertions.assertEquals(IvmFailureReason.PREVIOUS_RUN_INCOMPLETE, result.getFailureReason());
         Assertions.assertFalse(executor.executeCalled);
     }
 
@@ -388,6 +404,7 @@ public class IvmRefreshManagerTest {
         private final IvmRefreshContext context;
         private final List<Command> commands;
         private boolean throwOnBuild;
+        private boolean throwIvmExceptionOnAnalyze;
         private boolean useSuperPrecheck;
         /** Snapshots of runningIvmRefresh at each persistIvmInfo call. */
         private final List<Boolean> persistCalls = new ArrayList<>();
@@ -417,6 +434,9 @@ public class IvmRefreshManagerTest {
 
         @Override
         List<Command> analyzeDeltaCommands(IvmRefreshContext ctx) {
+            if (throwIvmExceptionOnAnalyze) {
+                throw new IvmException(IvmFailureReason.AGG_UNSUPPORTED, "unsupported aggregate");
+            }
             return commands;
         }
 

@@ -45,6 +45,8 @@ import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mtmv.ivm.IvmException;
+import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -52,6 +54,7 @@ import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.AnalyzerForCreateView;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo.PlanSlotFinder;
@@ -88,6 +91,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
     private MTMVRelation relation;
     private MTMVPartitionInfo mvPartitionInfo;
     private final Map<String, String> sessionVariables;
+    private boolean enableIvm;
 
     /**
      * constructor for create MTMV
@@ -120,6 +124,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
         this.mvPartitionDefinition = Objects
                 .requireNonNull(mvPartitionDefinition, "require mtmvPartitionInfo object");
         this.sessionVariables = sessionVariables;
+        this.enableIvm = isExplicitIncremental();
     }
 
     /**
@@ -147,13 +152,14 @@ public class CreateMTMVInfo extends CreateTableInfo {
             throw new AnalysisException(message);
         }
         analyzeProperties();
-        // IVM MVs must not have user-specified keys — the unique key is the hidden row-id
-        if (isEnableIvm() && !keys.isEmpty()) {
-            throw new AnalysisException(
-                    "Incremental materialized view does not allow specifying key columns. "
-                    + "The unique key is the hidden row-id column managed by IVM.");
+        if (isAutoRefresh()) {
+            if (!analyzeAutoRefreshQuery(ctx)) {
+                analyzeQuery(ctx);
+            }
+        } else {
+            enableIvm = isExplicitIncremental();
+            analyzeQuery(ctx);
         }
-        analyzeQuery(ctx);
         this.partitionDesc = generatePartitionDesc(ctx);
         if (distribution == null) {
             throw new AnalysisException("Create async materialized view should contain distribution desc");
@@ -189,6 +195,28 @@ public class CreateMTMVInfo extends CreateTableInfo {
 
         // set CreateTableInfo information
         setTableInformation(ctx);
+    }
+
+    private boolean analyzeAutoRefreshQuery(ConnectContext ctx) throws UserException {
+        AnalyzeQueryState origin = AnalyzeQueryState.capture(this);
+        try {
+            enableIvm = true;
+            analyzeQuery(ctx);
+            return true;
+        } catch (IvmException e) {
+            LOG.info("AUTO refresh materialized view {} fallback to non-IVM: {}",
+                    tableNameInfo.getTbl(), e.getMessage());
+            origin.restore(this);
+            resetStatementContext(ctx);
+            enableIvm = false;
+            return false;
+        }
+    }
+
+    private void resetStatementContext(ConnectContext ctx) {
+        StatementContext oldStatementContext = ctx.getStatementContext();
+        ctx.setStatementContext(new StatementContext(ctx,
+                oldStatementContext == null ? null : oldStatementContext.getOriginStatement()));
     }
 
     private void rewriteQuerySql(ConnectContext ctx) {
@@ -246,6 +274,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
      * analyzeQuery
      */
     public void analyzeQuery(ConnectContext ctx) throws UserException {
+        checkUserSpecifiedKeysForIvm();
         MTMVAnalyzeQueryInfo mtmvAnalyzeQueryInfo = MTMVPlanUtil.analyzeQuery(ctx, this.mvProperties,
                 this.mvPartitionDefinition, this.distribution, this.simpleColumnDefinitions, this.properties, this.keys,
                 this.logicalQuery, isEnableIvm());
@@ -253,6 +282,14 @@ public class CreateMTMVInfo extends CreateTableInfo {
         this.columns = mtmvAnalyzeQueryInfo.getColumnDefinitions();
         this.relation = mtmvAnalyzeQueryInfo.getRelation();
         this.properties = mtmvAnalyzeQueryInfo.getProperties();
+    }
+
+    private void checkUserSpecifiedKeysForIvm() {
+        if (isEnableIvm() && !keys.isEmpty()) {
+            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                    "Incremental materialized view does not allow specifying key columns. "
+                    + "The unique key is the hidden row-id column managed by IVM.");
+        }
     }
 
     private List<Column> getPartitionColumn(String partitionColumnName) {
@@ -375,7 +412,15 @@ public class CreateMTMVInfo extends CreateTableInfo {
     }
 
     public boolean isEnableIvm() {
+        return enableIvm;
+    }
+
+    private boolean isExplicitIncremental() {
         return refreshInfo.getRefreshMethod() == RefreshMethod.INCREMENTAL;
+    }
+
+    private boolean isAutoRefresh() {
+        return refreshInfo.getRefreshMethod() == RefreshMethod.AUTO;
     }
 
     public MTMVPartitionInfo getMvPartitionInfo() {
@@ -384,5 +429,39 @@ public class CreateMTMVInfo extends CreateTableInfo {
 
     public Map<String, String> getSessionVariables() {
         return sessionVariables;
+    }
+
+    private static class AnalyzeQueryState {
+        private final Map<String, String> properties;
+        private final List<ColumnDefinition> columns;
+        private final MTMVRelation relation;
+        private final MTMVPartitionInfo mvPartitionInfo;
+        private final MTMVPartitionType mvPartitionType;
+        private final Expression mvPartitionExpression;
+        private final boolean enableIvm;
+
+        private AnalyzeQueryState(CreateMTMVInfo info) {
+            this.properties = info.properties == null ? null : Maps.newHashMap(info.properties);
+            this.columns = info.columns;
+            this.relation = info.relation;
+            this.mvPartitionInfo = info.mvPartitionInfo;
+            this.mvPartitionType = info.mvPartitionDefinition.getPartitionType();
+            this.mvPartitionExpression = info.mvPartitionDefinition.getFunctionCallExpression();
+            this.enableIvm = info.enableIvm;
+        }
+
+        private static AnalyzeQueryState capture(CreateMTMVInfo info) {
+            return new AnalyzeQueryState(info);
+        }
+
+        private void restore(CreateMTMVInfo info) {
+            info.properties = properties == null ? null : Maps.newHashMap(properties);
+            info.columns = columns;
+            info.relation = relation;
+            info.mvPartitionInfo = mvPartitionInfo;
+            info.mvPartitionDefinition.setPartitionType(mvPartitionType);
+            info.mvPartitionDefinition.setFunctionCallExpression(mvPartitionExpression);
+            info.enableIvm = enableIvm;
+        }
     }
 }

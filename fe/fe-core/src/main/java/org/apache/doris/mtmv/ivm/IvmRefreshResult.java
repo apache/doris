@@ -22,12 +22,12 @@ import java.util.Objects;
 /** Result of one FE-side incremental refresh attempt. */
 public class IvmRefreshResult {
     private final boolean success;
-    private final IvmFallbackReason fallbackReason;
+    private final IvmFailureReason failureReason;
     private final String detailMessage;
 
-    private IvmRefreshResult(boolean success, IvmFallbackReason fallbackReason, String detailMessage) {
+    private IvmRefreshResult(boolean success, IvmFailureReason failureReason, String detailMessage) {
         this.success = success;
-        this.fallbackReason = fallbackReason;
+        this.failureReason = failureReason;
         this.detailMessage = detailMessage;
     }
 
@@ -35,18 +35,18 @@ public class IvmRefreshResult {
         return new IvmRefreshResult(true, null, null);
     }
 
-    public static IvmRefreshResult fallback(IvmFallbackReason fallbackReason, String detailMessage) {
+    public static IvmRefreshResult fallback(IvmFailureReason failureReason, String detailMessage) {
         return new IvmRefreshResult(false,
-                Objects.requireNonNull(fallbackReason, "fallbackReason can not be null"),
-                detailMessage == null ? fallbackReason.name() : detailMessage);
+                Objects.requireNonNull(failureReason, "failureReason can not be null"),
+                detailMessage == null ? failureReason.name() : detailMessage);
     }
 
     public boolean isSuccess() {
         return success;
     }
 
-    public IvmFallbackReason getFallbackReason() {
-        return fallbackReason;
+    public IvmFailureReason getFailureReason() {
+        return failureReason;
     }
 
     public String getDetailMessage() {
@@ -60,7 +60,7 @@ public class IvmRefreshResult {
         }
         return "IvmRefreshResult{"
                 + "success=false"
-                + ", fallbackReason=" + fallbackReason
+                + ", failureReason=" + failureReason
                 + ", detailMessage='" + detailMessage + '\''
                 + '}';
     }
