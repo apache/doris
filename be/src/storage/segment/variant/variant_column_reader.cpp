@@ -129,14 +129,26 @@ public:
 
     void remove_pruned_sub_iterators() override { _inner->remove_pruned_sub_iterators(); }
 
-    Status init_prefetcher(const SegmentPrefetchParams& params) override {
-        return _inner->init_prefetcher(params);
+    Status init_cache_block_prefetch(const SegmentCacheBlockPrefetchParams& params) override {
+        return _inner->init_cache_block_prefetch(params);
     }
 
-    void collect_prefetchers(
-            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
-            PrefetcherInitMethod init_method) override {
-        _inner->collect_prefetchers(prefetchers, init_method);
+    void collect_cache_block_prefetch_iterators(
+            std::map<FileAccessRangeBuildMethod, std::vector<ColumnIterator*>>& iterators,
+            FileAccessRangeBuildMethod init_method) override {
+        _inner->collect_cache_block_prefetch_iterators(iterators, init_method);
+    }
+
+    SegmentFileAccessRangeBuilder* cache_block_prefetch_range_builder() override {
+        return _inner->cache_block_prefetch_range_builder();
+    }
+
+    Status install_cache_block_prefetch_pattern(std::vector<io::FileAccessRange> ranges) override {
+        return _inner->install_cache_block_prefetch_pattern(std::move(ranges));
+    }
+
+    void async_touch_cache_block_prefetch_initial_window() override {
+        _inner->async_touch_cache_block_prefetch_initial_window();
     }
 
 private:
