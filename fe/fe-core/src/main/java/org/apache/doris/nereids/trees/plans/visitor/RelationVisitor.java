@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
@@ -131,6 +132,10 @@ public interface RelationVisitor<R, C> {
 
     default R visitLogicalWorkTableReference(LogicalWorkTableReference logicalWorkTableReference, C context) {
         return visitLogicalRelation(logicalWorkTableReference, context);
+    }
+
+    default R visitLogicalOlapTableStreamScan(LogicalOlapTableStreamScan olapScan, C context) {
+        return visitLogicalCatalogRelation(olapScan, context);
     }
 
     // *******************************

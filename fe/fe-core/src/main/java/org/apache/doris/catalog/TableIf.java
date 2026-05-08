@@ -288,6 +288,7 @@ public interface TableIf {
                     return "SYSTEM VIEW";
                 case INLINE_VIEW:
                 case VIEW:
+                case STREAM:
                     return "VIEW";
                 case OLAP:
                 case MYSQL:
@@ -306,7 +307,6 @@ public interface TableIf {
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:
                 case DORIS_EXTERNAL_TABLE:
                 case PLUGIN_EXTERNAL_TABLE:
-                case STREAM:
                     return "BASE TABLE";
                 default:
                     return null;

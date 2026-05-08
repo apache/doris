@@ -290,7 +290,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         this.tableProperty = null;
     }
 
-    private TableProperty getOrCreatTableProperty() {
+    protected TableProperty getOrCreatTableProperty() {
         if (tableProperty == null) {
             tableProperty = new TableProperty(new HashMap<>());
         }

@@ -113,6 +113,7 @@ import org.apache.doris.nereids.rules.rewrite.MergeSetOperations;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperationsExcept;
 import org.apache.doris.nereids.rules.rewrite.MergeTopNs;
 import org.apache.doris.nereids.rules.rewrite.NestedColumnPruning;
+import org.apache.doris.nereids.rules.rewrite.NormalizeOlapTableStreamScan;
 import org.apache.doris.nereids.rules.rewrite.NormalizeSort;
 import org.apache.doris.nereids.rules.rewrite.OperativeColumnDerive;
 import org.apache.doris.nereids.rules.rewrite.OrExpansion;
@@ -895,7 +896,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ImmutableSet.of(LogicalCTEAnchor.class),
                 () -> {
                     List<RewriteJob> rewriteJobs = Lists.newArrayListWithExpectedSize(300);
-
+                    rewriteJobs.add(
+                            topic("normalize olap table stream scan",
+                                    custom(RuleType.NORMALIZE_OlAP_TABLE_STREAM_SCAN,
+                                            NormalizeOlapTableStreamScan::new)
+                            )
+                    );
                     rewriteJobs.addAll(jobs(
                             topic("cte inline and pull up all cte anchor",
                                     custom(RuleType.PULL_UP_CTE_ANCHOR, PullUpCteAnchor::new),
