@@ -584,9 +584,9 @@ void insert_result_data(MutableColumnPtr& result_column, ColumnPtr& argument_col
                     binary_cast<VecDateTimeValue, int64_t>(column_raw_data[row]) *
                             int64_t(!(null_map_data[row] | filled_flag[row])));
         } else {
-            result_raw_data[row] +=
-                    column_raw_data[row] *
-                    typename ColumnType::value_type(!(null_map_data[row] | filled_flag[row]));
+            if (!(null_map_data[row] | filled_flag[row])) {
+                result_raw_data[row] = column_raw_data[row];
+            }
         }
 
         filled_flag[row] += (!(null_map_data[row] | filled_flag[row]));
