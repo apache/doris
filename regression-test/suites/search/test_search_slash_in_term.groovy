@@ -61,6 +61,15 @@ suite("test_search_slash_in_term", "p0") {
     // Wait for index building
     Thread.sleep(3000)
 
+    test {
+        sql """
+            SELECT /*+SET_VAR(enable_segment_filter_and_limit_pushdown=false) */ id
+            FROM ${tableName}
+            WHERE search('title:AC/DC')
+        """
+        exception "SEARCH expressions require SegmentIterator inverted-index evaluation"
+    }
+
     // ============ Test 1: Slash in term with field prefix ============
     // title:AC/DC should parse as single term, standard analyzer tokenizes to "ac" and "dc"
     // With default OR operator, matches rows containing "ac" or "dc" in title

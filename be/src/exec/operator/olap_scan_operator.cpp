@@ -408,12 +408,71 @@ Status OlapScanLocalState::_init_profile() {
     return Status::OK();
 }
 
+static bool contains_expr_node_type(const VExprSPtr& expr, TExprNodeType::type node_type) {
+    if (expr == nullptr) {
+        return false;
+    }
+    if (expr->node_type() == node_type) {
+        return true;
+    }
+    if (expr->is_rf_wrapper() && contains_expr_node_type(expr->get_impl(), node_type)) {
+        return true;
+    }
+    return std::ranges::any_of(expr->children(), [node_type](const auto& child) {
+        return contains_expr_node_type(child, node_type);
+    });
+}
+
+static Status validate_segment_filter_and_limit_dependencies(RuntimeState* state,
+                                                             TPushAggOp::type push_down_agg_type,
+                                                             const VExprContextSPtrs& conjuncts) {
+    const bool segment_filter_and_limit_enabled = state->enable_segment_filter_and_limit_pushdown();
+    if (!segment_filter_and_limit_enabled) {
+        for (const auto& conjunct : conjuncts) {
+            const auto& root = conjunct->root();
+            if (contains_expr_node_type(root, TExprNodeType::SEARCH_EXPR)) {
+                return Status::InvalidArgument(
+                        "SEARCH expressions require SegmentIterator inverted-index evaluation, "
+                        "but enable_segment_filter_and_limit_pushdown is false, so the expression "
+                        "would remain as a residual scan predicate and cannot be executed "
+                        "correctly. Set enable_segment_filter_and_limit_pushdown=true for this "
+                        "query.");
+            }
+            if (!state->query_options().enable_match_without_inverted_index &&
+                contains_expr_node_type(root, TExprNodeType::MATCH_PRED)) {
+                return Status::InvalidArgument(
+                        "MATCH expressions require SegmentIterator inverted-index evaluation when "
+                        "enable_match_without_inverted_index is false, but "
+                        "enable_segment_filter_and_limit_pushdown is false, so the expression "
+                        "would fall back to a disabled slow path. Set "
+                        "enable_segment_filter_and_limit_pushdown=true, or set "
+                        "enable_match_without_inverted_index=true to allow slow MATCH execution.");
+            }
+        }
+    }
+
+    if (!segment_filter_and_limit_enabled && push_down_agg_type == TPushAggOp::COUNT_ON_INDEX &&
+        !conjuncts.empty()) {
+        return Status::InvalidArgument(
+                "COUNT_ON_INDEX pushdown cannot be used with residual scan predicates. "
+                "Residual predicates must be evaluated before COUNT_ON_INDEX counts rows; "
+                "otherwise the query may return incorrect results. Set "
+                "enable_segment_filter_and_limit_pushdown=true so eligible predicates are "
+                "evaluated in SegmentIterator, or set enable_count_on_index_pushdown=false to "
+                "disable COUNT_ON_INDEX pushdown.");
+    }
+    return Status::OK();
+}
+
 Status OlapScanLocalState::_process_conjuncts(RuntimeState* state) {
     SCOPED_TIMER(_process_conjunct_timer);
     RETURN_IF_ERROR(ScanLocalState::_process_conjuncts(state));
     if (ScanLocalState::_eos) {
         return Status::OK();
     }
+    auto& p = _parent->cast<OlapScanOperatorX>();
+    RETURN_IF_ERROR(validate_segment_filter_and_limit_dependencies(state, p._push_down_agg_type,
+                                                                   _conjuncts));
     RETURN_IF_ERROR(_build_key_ranges_and_filters());
     return Status::OK();
 }
