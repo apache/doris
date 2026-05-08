@@ -87,7 +87,7 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
     // it only sets read_orderby_key_limit on the no-merge tablet types.
     if (_reader->_reader_context.read_orderby_key_limit > 0) {
         _topn_limit = _reader->_reader_context.read_orderby_key_limit;
-        DORIS_CHECK(_reader->_reader_context.general_read_limit == 0);
+        DORIS_CHECK(_reader->_reader_context.general_read_limit <= 0);
     }
     // General limit is forwarded to SegmentIterator, which applies it after
     // predicate/common-expr filtering and before lazy-reading non-predicate columns.
@@ -267,6 +267,7 @@ Status VCollectIterator::next(Block* block) {
 }
 
 Status VCollectIterator::_topn_next(Block* block) {
+    DORIS_CHECK(block != nullptr);
     DORIS_CHECK(use_topn_next());
     DORIS_CHECK(_reader->_reader_context.read_orderby_key_columns != nullptr);
     DORIS_CHECK(!_reader->_reader_context.read_orderby_key_columns->empty());
@@ -289,13 +290,11 @@ Status VCollectIterator::_topn_next(Block* block) {
     }
     MutableBlock mutable_block = MutableBlock::build_mutable_block(&clone_block);
 
-    if (!_reader->_reader_context.read_orderby_key_columns) {
-        return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                "read_orderby_key_columns should not be nullptr");
-    }
-
-    size_t first_sort_column_idx = (*_reader->_reader_context.read_orderby_key_columns)[0];
     const std::vector<uint32_t>* sort_columns = _reader->_reader_context.read_orderby_key_columns;
+    for (auto column_idx : *sort_columns) {
+        DORIS_CHECK(column_idx < clone_block.columns());
+    }
+    size_t first_sort_column_idx = (*sort_columns)[0];
 
     BlockRowPosComparator row_pos_comparator(&mutable_block, sort_columns,
                                              _reader->_reader_context.read_orderby_key_reverse);
@@ -355,6 +354,8 @@ Status VCollectIterator::_topn_next(Block* block) {
 
                     int res = 0;
                     for (auto k : *sort_columns) {
+                        DORIS_CHECK(k < block->columns());
+                        DORIS_CHECK(k < mutable_block.columns());
                         DCHECK(block->get_by_position(k).type->equals(
                                 *mutable_block.get_datatype_by_position(k)));
                         res = block->get_by_position(k).column->compare_at(
