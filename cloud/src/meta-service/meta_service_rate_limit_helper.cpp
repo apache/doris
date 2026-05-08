@@ -836,7 +836,7 @@ RpcRateLimitWhitelist& RpcRateLimitWhitelist::instance() {
 
 bool RpcRateLimitWhitelist::should_rate_limit(const std::string& rpc_name) const {
     std::lock_guard lock(mutex_);
-    return whitelist_.empty() || whitelist_.contains(rpc_name);
+    return whitelist_.contains("*") || whitelist_.contains(rpc_name);
 }
 
 void RpcRateLimitWhitelist::set_whitelist(const std::vector<std::string>& rpcs) {

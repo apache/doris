@@ -157,6 +157,22 @@ TEST(MetaServiceHelperTest, MsRateLimitInjectionRequiresSwitchAndProbabilityHit)
     ASSERT_NE(decision.debug_string().find("test_injection"), std::string::npos);
 }
 
+TEST(MetaServiceHelperTest, RpcRateLimitWhitelistEmptyDoesNotRateLimitAnyRpc) {
+    auto& whitelist = RpcRateLimitWhitelist::instance();
+    whitelist.set_whitelist({});
+
+    ASSERT_FALSE(whitelist.should_rate_limit("prepare_rowset"));
+    ASSERT_FALSE(whitelist.should_rate_limit("commit_rowset"));
+}
+
+TEST(MetaServiceHelperTest, RpcRateLimitWhitelistStarRateLimitsAllRpcs) {
+    auto& whitelist = RpcRateLimitWhitelist::instance();
+    whitelist.set_whitelist({"*"});
+
+    ASSERT_TRUE(whitelist.should_rate_limit("prepare_rowset"));
+    ASSERT_TRUE(whitelist.should_rate_limit("unknown_rpc"));
+}
+
 TEST(MetaServiceHelperTest, ParseCpusetCpuCount) {
     ASSERT_EQ(internal::parse_cpuset_cpu_count("0-3,5,7-8"), 7);
     ASSERT_EQ(internal::parse_cpuset_cpu_count("2"), 1);
