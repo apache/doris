@@ -33,6 +33,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -99,6 +100,12 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         hasMaterializedSlotIds = true;
     }
 
+    private List<SlotId> getSortedMaterializedSlotIds() {
+        List<SlotId> sortedSlotIds = new ArrayList<>(materializedSlotIds);
+        sortedSlotIds.sort(Comparator.comparingInt(SlotId::asInt));
+        return sortedSlotIds;
+    }
+
     public NestedLoopJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, List<TupleId> tupleIds,
             JoinOperator joinOperator, boolean isMarkJoin) {
         super(id, "NESTED LOOP JOIN", joinOperator, isMarkJoin);
@@ -135,7 +142,7 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         msg.nested_loop_join_node.setUseSpecificProjections(false);
         if (hasMaterializedSlotIds) {
             List<Integer> slotIds = new ArrayList<>();
-            for (SlotId slotId : materializedSlotIds) {
+            for (SlotId slotId : getSortedMaterializedSlotIds()) {
                 slotIds.add(slotId.asInt());
             }
             msg.nested_loop_join_node.setMaterializedSlotIds(slotIds);
@@ -187,7 +194,7 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         }
         if (hasMaterializedSlotIds) {
             output.append(detailPrefix).append("materialized slot ids: ");
-            for (SlotId slotId : materializedSlotIds) {
+            for (SlotId slotId : getSortedMaterializedSlotIds()) {
                 output.append(slotId).append(" ");
             }
             output.append("\n");
