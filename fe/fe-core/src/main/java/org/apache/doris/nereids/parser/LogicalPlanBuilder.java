@@ -3846,7 +3846,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public OrderKey visitSortItem(SortItemContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             boolean isAsc = ctx.DESC() == null;
-            boolean isNullFirst = ctx.FIRST() != null || (ctx.LAST() == null && isAsc);
+            boolean isNullFirst = ctx.FIRST() != null || (ctx.LAST() == null && isAsc
+                    && (ConnectContext.get() == null
+                    || !ConnectContext.get().getSessionVariable().getSqlDialect().equals("presto")));
             Expression expression = typedVisit(ctx.expression());
             return new OrderKey(expression, isAsc, isNullFirst);
         });
