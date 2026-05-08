@@ -51,7 +51,8 @@ suite("regression_test_variant", "p0"){
         qt_sql """select count() from ${table_name}"""
     }
 
-    def create_table = { table_name, key_type="DUPLICATE", buckets=(new Random().nextInt(15) + 1).toString()  ->
+    def create_table = { table_name, key_type="DUPLICATE",
+            buckets=(new Random().nextInt(15) + 1).toString(), disable_auto_compaction="false" ->
         sql "DROP TABLE IF EXISTS ${table_name}"
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
@@ -60,7 +61,7 @@ suite("regression_test_variant", "p0"){
             )
             ${key_type} KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS ${buckets}
-            properties("replication_num" = "1", "disable_auto_compaction" = "false");
+            properties("replication_num" = "1", "disable_auto_compaction" = "${disable_auto_compaction}");
         """
     }
 
@@ -107,22 +108,24 @@ suite("regression_test_variant", "p0"){
 
         // 2. type confilct cases
         def table_name = "type_conflict_resolution"
-        create_table table_name
-        sql """insert into ${table_name} values (1, '{"c" : "123"}');"""
-        sql """insert into ${table_name} values (2, '{"c" : 123}');"""
-        sql """insert into ${table_name} values (3, '{"cc" : [123.2]}');"""
-        sql """insert into ${table_name} values (4, '{"cc" : [123.1]}');"""
-        sql """insert into ${table_name} values (5, '{"ccc" : 123}');"""
-        sql """insert into ${table_name} values (6, '{"ccc" : 123321}');"""
-        sql """insert into ${table_name} values (7, '{"cccc" : 123.22}');"""
-        sql """insert into ${table_name} values (8, '{"cccc" : 123.11}');"""
-        sql """insert into ${table_name} values (9, '{"ccccc" : [123]}');"""
-        sql """insert into ${table_name} values (10, '{"ccccc" : [123456789]}');"""
-        sql """insert into ${table_name} values (11, '{"b" : 1111111111111111}');"""
-        sql """insert into ${table_name} values (12, '{"b" : 1.222222}');"""
-        sql """insert into ${table_name} values (13, '{"bb" : 1}');"""
-        sql """insert into ${table_name} values (14, '{"bb" : 214748364711}');"""
-        sql """insert into ${table_name} values (15, '{"A" : 1}');"""
+        // Keep conflicting values in one tablet and one rowset so type resolution is deterministic.
+        create_table.call(table_name, "DUPLICATE", "1", "true")
+        sql """insert into ${table_name} values
+                (1, '{"c" : "123"}'),
+                (2, '{"c" : 123}'),
+                (3, '{"cc" : [123.2]}'),
+                (4, '{"cc" : [123.1]}'),
+                (5, '{"ccc" : 123}'),
+                (6, '{"ccc" : 123321}'),
+                (7, '{"cccc" : 123.22}'),
+                (8, '{"cccc" : 123.11}'),
+                (9, '{"ccccc" : [123]}'),
+                (10, '{"ccccc" : [123456789]}'),
+                (11, '{"b" : 1111111111111111}'),
+                (12, '{"b" : 1.222222}'),
+                (13, '{"bb" : 1}'),
+                (14, '{"bb" : 214748364711}'),
+                (15, '{"A" : 1}');"""
         qt_sql """select v from type_conflict_resolution order by k;"""
         verify table_name
 

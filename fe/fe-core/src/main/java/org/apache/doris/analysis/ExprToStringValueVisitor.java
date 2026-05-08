@@ -82,19 +82,11 @@ public class ExprToStringValueVisitor extends ExprVisitor<String, StringValueCon
             String timeStr = expr.getStringValue();
             value = timeStr.substring(1, timeStr.length() - 1);
         } else {
-            double dValue = expr.getValue();
             if (expr.getType() == Type.FLOAT) {
-                Float fValue = (float) dValue;
-                if (fValue.equals(Float.POSITIVE_INFINITY)) {
-                    dValue = Double.POSITIVE_INFINITY;
-                }
-                if (fValue.equals(Float.NEGATIVE_INFINITY)) {
-                    dValue = Double.NEGATIVE_INFINITY;
-                }
+                value = FractionalFormat.getFormatStringValue((float) expr.getValue());
+            } else {
+                value = FractionalFormat.getFormatStringValue(expr.getValue());
             }
-            value = FractionalFormat.getFormatStringValue(dValue,
-                    expr.getType() == Type.DOUBLE ? 16 : 7,
-                    expr.getType() == Type.DOUBLE ? "%.15E" : "%.6E");
         }
         if (ctx.isInComplexType() && expr.getType() == Type.TIMEV2) {
             return wrapWithQuotes(value, ctx);

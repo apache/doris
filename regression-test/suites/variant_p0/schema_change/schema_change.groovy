@@ -103,7 +103,8 @@ suite("regression_test_variant_schema_change", "variant_type"){
     sql """insert into t values (7, '{"a" : 11111.11111}')"""
     sql "alter table t modify column col1 variant;"
     wait_for_latest_op_on_table_finish("t", timeout)
-    qt_sql "select * from t order by col0 limit 3"
+    qt_sql "select col0, cast(col1 as json) from t order by col0 limit 3"
+
     sql """insert into t values (1, '{"a" : 1.0}')"""
     sql """insert into t values (2, '{"a" : 111.1111}')"""
     sql """insert into t values (3, '{"a" : "11111"}')"""
@@ -112,5 +113,5 @@ suite("regression_test_variant_schema_change", "variant_type"){
     sql """insert into t values (6, '{"a" : "11111"}')"""
     sql """insert into t values (7, '{"a" : 11111.11111}')"""
     trigger_and_wait_compaction("t", "cumulative", 1800)
-    qt_sql "select * from t order by col0 limit 3"
+    qt_sql "select col0, cast(col1 as json) from t order by col0 limit 3"
 }

@@ -423,7 +423,7 @@ suite("test_hdfs_parquet_group6", "p0,external") {
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/int32.parquet"
             test {
-                sql """ select * from HDFS(
+                sql """ select /*+ SET_VAR(enable_file_scanner_v2=true) */ * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
@@ -726,7 +726,7 @@ suite("test_hdfs_parquet_group6", "p0,external") {
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/fixed_len_byte_array.parquet"
-            order_qt_test_98 """ select * from HDFS(
+            order_qt_test_98 """ select /*+ SET_VAR(enable_file_scanner_v2=false) */ * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
@@ -734,7 +734,7 @@ suite("test_hdfs_parquet_group6", "p0,external") {
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/int64.parquet"
             test {
-                sql """ select * from HDFS(
+                sql """ select /*+ SET_VAR(enable_file_scanner_v2=true) */ * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
@@ -792,7 +792,7 @@ suite("test_hdfs_parquet_group6", "p0,external") {
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/fixed_len_byte_array.parquet"
-            order_qt_test_107 """ select * from HDFS(
+            order_qt_test_107 """ select /*+ SET_VAR(enable_file_scanner_v2=false) */ * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "enable_mapping_varbinary"="true",
