@@ -260,7 +260,7 @@ Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
                             {
                                 COUNTER_UPDATE(local_state._passthrough_rows_counter,
                                                (int64_t)(row + 1));
-                            LockGuard lock(local_state._shared_state->buffer_mutex);
+                                LockGuard lock(local_state._shared_state->buffer_mutex);
                                 // have emplace (num_rows - row) to hashtable, and now have row remaining needed in block;
                                 // set_num_rows(x) retains the range [0, x - 1], so row + 1 is needed here.
                                 input_block->set_num_rows(row + 1);

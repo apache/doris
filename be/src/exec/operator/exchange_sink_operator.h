@@ -23,8 +23,8 @@
 #include <atomic>
 #include <memory>
 
-#include "common/thread_safety_annotations.h"
 #include "common/status.h"
+#include "common/thread_safety_annotations.h"
 #include "exec/exchange/exchange_writer.h"
 #include "exec/exchange/vdata_stream_sender.h"
 #include "exec/operator/exchange_sink_buffer.h"

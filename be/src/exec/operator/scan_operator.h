@@ -21,8 +21,8 @@
 #include <set>
 #include <string>
 
-#include "common/thread_safety_annotations.h"
 #include "common/status.h"
+#include "common/thread_safety_annotations.h"
 #include "core/field.h"
 #include "exec/common/util.hpp"
 #include "exec/operator/operator.h"
