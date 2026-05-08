@@ -44,6 +44,7 @@ struct TermInfoComparer {
 
 struct CollectInfo {
     std::set<segment_v2::TermInfo, TermInfoComparer> term_infos;
+    std::shared_ptr<const TabletIndex> owned_index_meta;
     const TabletIndex* index_meta = nullptr;
 };
 using CollectInfoMap = std::unordered_map<std::wstring, CollectInfo>;
