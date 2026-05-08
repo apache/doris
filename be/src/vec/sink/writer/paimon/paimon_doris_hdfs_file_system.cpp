@@ -22,12 +22,14 @@
 #include <gen_cpp/PlanNodes_types.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -101,6 +103,16 @@ paimon::Result<bool> _path_is_file(const std::shared_ptr<doris::io::FileSystem>&
     return paimon::Status::NotExist("path not found under parent listing: ", path);
 }
 
+bool _is_transient_hdfs_read_error(const doris::Status& st) {
+    if (st.ok()) {
+        return false;
+    }
+    std::string message = st.to_string();
+    return message.find("Read hdfs file failed") != std::string::npos ||
+           message.find("Blocklist for") != std::string::npos ||
+           message.find("has changed") != std::string::npos;
+}
+
 class DorisPaimonBasicFileStatus final : public paimon::BasicFileStatus {
 public:
     DorisPaimonBasicFileStatus(std::string path, bool is_dir)
@@ -137,8 +149,9 @@ private:
 
 class DorisPaimonInputStream final : public paimon::InputStream {
 public:
-    DorisPaimonInputStream(doris::io::FileReaderSPtr reader, std::string uri)
-            : _reader(std::move(reader)), _uri(std::move(uri)) {}
+    DorisPaimonInputStream(std::shared_ptr<doris::io::FileSystem> fs,
+                           doris::io::FileReaderSPtr reader, std::string uri)
+            : _fs(std::move(fs)), _reader(std::move(reader)), _uri(std::move(uri)) {}
 
     paimon::Status Close() override { return _to_paimon_status(_reader->close()); }
 
@@ -175,7 +188,7 @@ public:
     paimon::Result<int32_t> Read(char* buffer, uint32_t size) override {
         size_t bytes_read = 0;
         doris::Slice slice(buffer, size);
-        doris::Status st = _reader->read_at(_pos, slice, &bytes_read, nullptr);
+        doris::Status st = _read_at_with_retry(_pos, slice, &bytes_read);
         if (!st.ok()) {
             return paimon::Status::IOError(st.to_string());
         }
@@ -186,7 +199,7 @@ public:
     paimon::Result<int32_t> Read(char* buffer, uint32_t size, uint64_t offset) override {
         size_t bytes_read = 0;
         doris::Slice slice(buffer, size);
-        doris::Status st = _reader->read_at(offset, slice, &bytes_read, nullptr);
+        doris::Status st = _read_at_with_retry(offset, slice, &bytes_read);
         if (!st.ok()) {
             return paimon::Status::IOError(st.to_string());
         }
@@ -210,6 +223,36 @@ public:
     }
 
 private:
+    doris::Status _read_at_with_retry(uint64_t offset, const doris::Slice& slice,
+                                      size_t* bytes_read) {
+        constexpr int kMaxReadAttempts = 4;
+        constexpr int kInitialBackoffMs = 100;
+
+        doris::Status last_st;
+        for (int attempt = 0; attempt < kMaxReadAttempts; ++attempt) {
+            *bytes_read = 0;
+            last_st = _reader->read_at(offset, slice, bytes_read, nullptr);
+            if (last_st.ok() || !_is_transient_hdfs_read_error(last_st) ||
+                attempt + 1 == kMaxReadAttempts) {
+                return last_st;
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(kInitialBackoffMs << attempt));
+            doris::io::FileReaderSPtr new_reader;
+            doris::Status reopen_st = _fs->open_file(doris::io::Path(_uri), &new_reader, nullptr);
+            if (reopen_st.ok()) {
+                _reader = std::move(new_reader);
+            } else {
+                last_st = reopen_st;
+                if (!_is_transient_hdfs_read_error(reopen_st)) {
+                    return reopen_st;
+                }
+            }
+        }
+        return last_st;
+    }
+
+    std::shared_ptr<doris::io::FileSystem> _fs;
     doris::io::FileReaderSPtr _reader;
     std::string _uri;
     int64_t _pos = 0;
@@ -256,7 +299,7 @@ public:
         if (!st.ok()) {
             return paimon::Status::IOError(st.to_string());
         }
-        return std::make_unique<DorisPaimonInputStream>(std::move(reader), path);
+        return std::make_unique<DorisPaimonInputStream>(_fs, std::move(reader), path);
     }
 
     paimon::Result<std::unique_ptr<paimon::OutputStream>> Create(const std::string& path,
