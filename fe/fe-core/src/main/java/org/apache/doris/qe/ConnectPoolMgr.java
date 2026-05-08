@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext.ThreadInfo;
 import org.apache.doris.thrift.TUniqueId;
@@ -67,6 +68,7 @@ public class ConnectPoolMgr {
         }
         // Check user
         connByUser.putIfAbsent(ctx.getQualifiedUser(), new AtomicInteger(0));
+        MetricRepo.USER_GAUGE_CONNECTION_NUM.getOrAdd(ctx.getQualifiedUser());
         AtomicInteger conns = connByUser.get(ctx.getQualifiedUser());
         if (conns.incrementAndGet() > ctx.getEnv().getAuth().getMaxConn(ctx.getQualifiedUser())) {
             conns.decrementAndGet();

@@ -17,6 +17,7 @@
 
 package org.apache.doris.service.arrowflight.sessions;
 
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectPoolMgr;
@@ -47,6 +48,7 @@ public class FlightSqlConnectPoolMgr extends ConnectPoolMgr {
         }
         // not check user
         connectionMap.put(ctx.getConnectionId(), ctx);
+        MetricRepo.USER_GAUGE_CONNECTION_NUM.getOrAdd(ctx.getQualifiedUser());
         if (ctx.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
             flightToken2ConnectionId.put(ctx.getPeerIdentity(), ctx.getConnectionId());
         }
