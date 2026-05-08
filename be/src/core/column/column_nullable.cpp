@@ -57,8 +57,7 @@ void ColumnNullable::update_xxHash_with_value(size_t start, size_t end, uint64_t
     if (!has_null(start, end)) {
         _nested_column->update_xxHash_with_value(start, end, hash, nullptr);
     } else {
-        const auto* __restrict real_null_data =
-                assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
+        const auto* __restrict real_null_data = get_null_map_column().get_data().data();
         for (size_t i = start; i < end; ++i) {
             if (real_null_data[i] != 0) {
                 hash = HashUtil::xxHash64NullWithSeed(hash);
@@ -73,8 +72,7 @@ void ColumnNullable::update_crc_with_value(size_t start, size_t end, uint32_t& h
     if (!has_null(start, end)) {
         _nested_column->update_crc_with_value(start, end, hash, nullptr);
     } else {
-        const auto* __restrict real_null_data =
-                assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
+        const auto* __restrict real_null_data = get_null_map_column().get_data().data();
         for (size_t i = start; i < end; ++i) {
             if (real_null_data[i] != 0) {
                 hash = HashUtil::zlib_crc_hash_null(hash);
@@ -98,8 +96,7 @@ void ColumnNullable::update_crcs_with_value(uint32_t* __restrict hashes, doris::
     DCHECK(null_data == nullptr);
     auto s = rows;
     DCHECK(s == size());
-    const auto* __restrict real_null_data =
-            assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
+    const auto* __restrict real_null_data = get_null_map_column().get_data().data();
     if (!has_null()) {
         _nested_column->update_crcs_with_value(hashes, type, rows, offset, nullptr);
     } else {
@@ -114,8 +111,7 @@ void ColumnNullable::update_crcs_with_value(uint32_t* __restrict hashes, doris::
 
 void ColumnNullable::update_crc32c_batch(uint32_t* __restrict hashes,
                                          const uint8_t* __restrict /* null_map */) const {
-    const auto* __restrict real_null_data =
-            assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
+    const auto* __restrict real_null_data = get_null_map_column().get_data().data();
     if (_nested_column->support_replace_column_null_data()) {
         // nullmap process is slow, replace null data to default value to avoid nullmap process
         _nested_column->assume_mutable()->replace_column_null_data(real_null_data);
@@ -133,8 +129,7 @@ void ColumnNullable::update_crc32c_batch(uint32_t* __restrict hashes,
 
 void ColumnNullable::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
                                           const uint8_t* __restrict /* null_map */) const {
-    const auto* __restrict real_null_data =
-            assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
+    const auto* __restrict real_null_data = get_null_map_column().get_data().data();
     constexpr int NULL_VALUE = 0;
     for (size_t i = start; i < end; ++i) {
         if (real_null_data[i] != 0) {
@@ -148,8 +143,7 @@ void ColumnNullable::update_hashes_with_value(uint64_t* __restrict hashes,
                                               const uint8_t* __restrict null_data) const {
     DCHECK(null_data == nullptr);
     auto s = size();
-    const auto* __restrict real_null_data =
-            assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
+    const auto* __restrict real_null_data = get_null_map_column().get_data().data();
     if (!has_null()) {
         _nested_column->update_hashes_with_value(hashes, nullptr);
     } else {

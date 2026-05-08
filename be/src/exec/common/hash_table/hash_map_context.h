@@ -1065,9 +1065,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
                 auto& nullable_col = assert_cast<ColumnNullable&>(*key_columns[i]);
 
                 data = const_cast<char*>(nullable_col.get_nested_column().get_raw_data().data);
-                UInt8* nullmap = assert_cast<ColumnUInt8*>(&nullable_col.get_null_map_column())
-                                         ->get_data()
-                                         .data();
+                UInt8* nullmap = nullable_col.get_null_map_column().get_data().data();
 
                 // The current column is nullable. Check if the value of the
                 // corresponding key is nullable. Update the null map accordingly.

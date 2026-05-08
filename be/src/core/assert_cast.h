@@ -29,12 +29,28 @@
 
 enum class TypeCheckOnRelease : bool { ENABLE = true, DISABLE = false };
 
+template <typename T>
+struct AssertCastNormalizedType {
+    using no_ref_t = std::remove_reference_t<T>;
+    using no_cv_t = std::remove_cv_t<no_ref_t>;
+    using type =
+            std::conditional_t<std::is_pointer_v<no_cv_t>,
+                               std::add_pointer_t<std::remove_cv_t<std::remove_pointer_t<no_cv_t>>>,
+                               no_cv_t>;
+};
+
+template <typename T>
+using AssertCastNormalizedType_t = typename AssertCastNormalizedType<T>::type;
+
 /** Perform static_cast in release build when TypeCheckOnRelease is set to DISABLE.
   * Checks type by comparing typeid and throw an exception in all the other situations.
   * The exact match of the type is checked. That is, cast to the ancestor will be unsuccessful.
   */
 template <typename To, TypeCheckOnRelease check = TypeCheckOnRelease::ENABLE, typename From>
 PURE To assert_cast(From&& from) {
+    static_assert(!std::is_same_v<AssertCastNormalizedType_t<To>, AssertCastNormalizedType_t<From>>,
+                  "assert_cast is redundant for the same type after removing cv/ref qualifiers");
+
     // https://godbolt.org/z/nrsx7nYhs
     // perform_cast will not be compiled to asm in release build with TypeCheckOnRelease::DISABLE
     auto perform_cast = [](auto&& from) -> To {

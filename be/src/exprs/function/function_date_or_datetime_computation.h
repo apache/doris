@@ -790,7 +790,7 @@ public:
             // update result nullmap with inputs
             if (result_nullable) {
                 auto null_map = ColumnBool::create(input_rows_count, 0);
-                NullMap& result_null_map = assert_cast<ColumnBool&>(*null_map).get_data();
+                NullMap& result_null_map = null_map->get_data();
                 if (nullmap0) {
                     VectorizedUtils::update_null_map(result_null_map, *nullmap0);
                 }
@@ -817,7 +817,7 @@ public:
             // update result nullmap with inputs
             if (result_nullable) {
                 auto null_map = ColumnBool::create(input_rows_count, 0);
-                NullMap& result_null_map = assert_cast<ColumnBool&>(*null_map).get_data();
+                NullMap& result_null_map = null_map->get_data();
                 if (nullmap0) {
                     VectorizedUtils::update_null_map(result_null_map, *nullmap0, true);
                 }
@@ -914,7 +914,7 @@ public:
             // update result nullmap with inputs
             if (result_nullable) {
                 auto null_map = ColumnBool::create(input_rows_count, 0);
-                NullMap& result_null_map = assert_cast<ColumnBool&>(*null_map).get_data();
+                NullMap& result_null_map = null_map->get_data();
                 if (nullmap0) {
                     VectorizedUtils::update_null_map(result_null_map, *nullmap0);
                 }
@@ -940,7 +940,7 @@ public:
             // update result nullmap with inputs
             if (result_nullable) {
                 auto null_map = ColumnBool::create(input_rows_count, 0);
-                NullMap& result_null_map = assert_cast<ColumnBool&>(*null_map).get_data();
+                NullMap& result_null_map = null_map->get_data();
                 if (nullmap0) {
                     VectorizedUtils::update_null_map(result_null_map, *nullmap0, true);
                 }
@@ -1255,7 +1255,7 @@ struct TimestampToDateTime : IFunction {
                         uint32_t result, size_t input_rows_count) const override {
         // Handle null map manually
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-        NullMap& result_null_map = assert_cast<ColumnUInt8&>(*result_null_map_column).get_data();
+        NullMap& result_null_map = result_null_map_column->get_data();
 
         ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
         const NullMap* null_map = VectorizedUtils::get_null_map(argument_column);

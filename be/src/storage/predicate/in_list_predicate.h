@@ -214,8 +214,7 @@ public:
                        bool* flags) const {
         if (column.is_nullable()) {
             const auto* nullable_col = check_and_get_column<ColumnNullable>(column);
-            const auto& null_bitmap =
-                    assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column()).get_data();
+            const auto& null_bitmap = nullable_col->get_null_map_column().get_data();
             const auto& nested_col = nullable_col->get_nested_column();
 
             if (_opposite) {
@@ -469,8 +468,7 @@ private:
 
         if (column.is_nullable()) {
             const auto* nullable_col = check_and_get_column<ColumnNullable>(column);
-            const auto& null_map =
-                    assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column()).get_data();
+            const auto& null_map = nullable_col->get_null_map_column().get_data();
             const auto& nested_col = nullable_col->get_nested_column();
 
             if (_opposite) {

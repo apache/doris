@@ -35,7 +35,7 @@ namespace doris {
 MutableColumnPtr ColumnVarbinary::clone_resized(size_t size) const {
     auto res = create();
     if (size > 0) {
-        auto& new_col = assert_cast<Self&>(*res);
+        auto& new_col = *res;
         size_t count = std::min(this->size(), size);
         for (size_t i = 0; i < count; ++i) {
             auto value = this->get_data_at(i);
@@ -109,7 +109,7 @@ ColumnPtr ColumnVarbinary::filter(const IColumn::Filter& filt, ssize_t result_si
 
 size_t ColumnVarbinary::filter(const IColumn::Filter& filter) {
     size_t pos = 0;
-    const Self& src_vec = assert_cast<const Self&>(*this);
+    const Self& src_vec = *this;
     for (size_t i = 0; i < filter.size(); i++) {
         if (filter[i]) {
             if (src_vec.get_data()[i].isInline()) {
@@ -226,8 +226,7 @@ void ColumnVarbinary::insert_many_strings_overflow(const StringRef* strings, siz
 void ColumnVarbinary::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                                   IColumn::Permutation& perms, EqualRange& range,
                                   bool last_column) const {
-    sorter->sort_column(assert_cast<const ColumnVarbinary&>(*this), flags, perms, range,
-                        last_column);
+    sorter->sort_column(*this, flags, perms, range, last_column);
 }
 
 #include "common/compile_check_end.h"

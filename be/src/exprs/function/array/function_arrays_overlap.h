@@ -313,8 +313,8 @@ public:
 
         // execute overlap check
         auto array_type = remove_nullable(block.get_by_position(arguments[0]).type);
-        auto left_element_type =
-                remove_nullable(assert_cast<const DataTypeArray&>(*array_type).get_nested_type());
+        auto left_element_type = remove_nullable(
+                assert_cast<const DataTypeArray*>(array_type.get())->get_nested_type());
         switch (left_element_type->get_primitive_type()) {
         case TYPE_STRING:
         case TYPE_CHAR:

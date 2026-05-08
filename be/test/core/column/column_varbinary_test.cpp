@@ -175,8 +175,7 @@ TEST_F(ColumnVarbinaryTest, FilterBothModes) {
     IColumn::Filter f = {1, 0, 1, 1, 0, 1};
     size_t expected = 4; // number of ones
 
-    const auto& ccol = assert_cast<const ColumnVarbinary&>(*col);
-    ColumnPtr filtered = ccol.filter(f, -1);
+    ColumnPtr filtered = col->filter(f, -1);
     const auto& fcol = assert_cast<const ColumnVarbinary&>(*filtered);
     ASSERT_EQ(fcol.size(), expected);
     std::vector<size_t> kept_idx = {0, 2, 3, 5}; // includes both inline and non-inline
@@ -250,7 +249,7 @@ TEST_F(ColumnVarbinaryTest, CloneResized) {
 
     // enlarge
     auto c2 = col->clone_resized(5);
-    const auto& cc2 = assert_cast<const ColumnVarbinary&>(*c2);
+    const auto& cc2 = *c2;
     ASSERT_EQ(cc2.size(), 5U);
     for (size_t i = 0; i < vals.size(); ++i) {
         auto r = cc2.get_data_at(i);
@@ -264,7 +263,7 @@ TEST_F(ColumnVarbinaryTest, CloneResized) {
 
     // shrink
     auto c3 = col->clone_resized(2);
-    const auto& cc3 = assert_cast<const ColumnVarbinary&>(*c3);
+    const auto& cc3 = *c3;
     ASSERT_EQ(cc3.size(), 2U);
     for (size_t i = 0; i < 2; ++i) {
         auto r = cc3.get_data_at(i);
@@ -588,7 +587,7 @@ TEST_F(ColumnVarbinaryTest, CloneResizedZero) {
     col->insert_data("a", 1);
     col->insert_data("", 0);
     auto c0 = col->clone_resized(0);
-    const auto& cc0 = assert_cast<const ColumnVarbinary&>(*c0);
+    const auto& cc0 = *c0;
     EXPECT_EQ(cc0.size(), 0U);
 }
 
