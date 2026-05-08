@@ -35,6 +35,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/thread_safety_annotations.h"
 #include "core/block/block.h"
 #include "core/types.h"
 #include "exec/common/agg_utils.h"
@@ -685,10 +686,10 @@ struct AnalyticSharedState : public BasicSharedState {
 
 public:
     AnalyticSharedState() = default;
-    std::queue<Block> blocks_buffer;
-    std::mutex buffer_mutex;
-    bool sink_eos = false;
-    std::mutex sink_eos_lock;
+    std::queue<Block> blocks_buffer GUARDED_BY(buffer_mutex);
+    AnnotatedMutex buffer_mutex;
+    bool sink_eos GUARDED_BY(sink_eos_lock) = false;
+    AnnotatedMutex sink_eos_lock;
     Arena agg_arena_pool;
 };
 
@@ -776,12 +777,12 @@ struct NestedLoopJoinSharedState : public JoinSharedState {
 struct PartitionSortNodeSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(PartitionSortNodeSharedState)
 public:
-    std::queue<Block> blocks_buffer;
-    std::mutex buffer_mutex;
+    std::queue<Block> blocks_buffer GUARDED_BY(buffer_mutex);
+    AnnotatedMutex buffer_mutex;
     std::vector<std::unique_ptr<PartitionSorter>> partition_sorts;
-    bool sink_eos = false;
-    std::mutex sink_eos_lock;
-    std::mutex prepared_finish_lock;
+    bool sink_eos GUARDED_BY(sink_eos_lock) = false;
+    AnnotatedMutex sink_eos_lock;
+    AnnotatedMutex prepared_finish_lock;
 };
 
 struct SetSharedState : public BasicSharedState {
