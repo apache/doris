@@ -17,11 +17,10 @@
 
 suite("test_pythonudtf_no_input") {
     def runtime_version = getPythonUdfRuntimeVersion()
-    def table_name = "test_pythonudtf_no_input_tbl"
 
     try {
         sql """ DROP FUNCTION IF EXISTS py_emit_no_input(); """
-        sql """ DROP TABLE IF EXISTS ${table_name}; """
+        sql """ DROP TABLE IF EXISTS test_pythonudtf_no_input_tbl; """
 
         sql """
         CREATE TABLES FUNCTION py_emit_no_input()
@@ -39,7 +38,7 @@ def emit_values():
         """
 
         sql """
-        CREATE TABLE ${table_name} (
+        CREATE TABLE test_pythonudtf_no_input_tbl (
             id INT
         ) ENGINE=OLAP
         DUPLICATE KEY(id)
@@ -47,11 +46,11 @@ def emit_values():
         PROPERTIES("replication_num" = "1");
         """
 
-        sql """ INSERT INTO ${table_name} VALUES (1), (2); """
+        sql """ INSERT INTO test_pythonudtf_no_input_tbl VALUES (1), (2); """
 
         def rows = sql("""
             SELECT id, value
-            FROM ${table_name}
+            FROM test_pythonudtf_no_input_tbl
             LATERAL VIEW py_emit_no_input() tmp AS value
             ORDER BY id, value
         """)

@@ -17,11 +17,10 @@
 
 suite("test_pythonudf_no_input") {
     def runtime_version = getPythonUdfRuntimeVersion()
-    def table_name = "test_pythonudf_no_input_tbl"
 
     try {
         sql """ DROP FUNCTION IF EXISTS py_const_no_input(); """
-        sql """ DROP TABLE IF EXISTS ${table_name}; """
+        sql """ DROP TABLE IF EXISTS test_pythonudf_no_input_tbl; """
 
         sql """
         CREATE FUNCTION py_const_no_input()
@@ -40,7 +39,7 @@ def evaluate():
         assert sql(""" SELECT py_const_no_input(); """)[0][0] == 7
 
         sql """
-        CREATE TABLE ${table_name} (
+        CREATE TABLE test_pythonudf_no_input_tbl (
             id INT
         ) ENGINE=OLAP
         DUPLICATE KEY(id)
@@ -48,11 +47,11 @@ def evaluate():
         PROPERTIES("replication_num" = "1");
         """
 
-        sql """ INSERT INTO ${table_name} VALUES (1), (2), (3); """
+        sql """ INSERT INTO test_pythonudf_no_input_tbl VALUES (1), (2), (3); """
 
         def rows = sql("""
             SELECT id, py_const_no_input() AS v
-            FROM ${table_name}
+            FROM test_pythonudf_no_input_tbl
             ORDER BY id
         """)
 
