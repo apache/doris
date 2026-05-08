@@ -59,18 +59,15 @@ TEST_F(NLJAppendProbeDataWithNullTest, NullMapSizeMustMatchNestedColumnAfterInse
     const size_t probe_side_process_count = num_rows;
     const size_t probe_block_start_pos = 0;
 
-    assert_cast<ColumnNullable*>(dst_column.get())
-            ->get_nested_column_ptr()
-            ->insert_range_from(*src_column, probe_block_start_pos, probe_side_process_count);
+    dst_column->get_nested_column_ptr()->insert_range_from(*src_column, probe_block_start_pos,
+                                                           probe_side_process_count);
 
     // The fix: resize_fill must use probe_side_process_count, not 1.
-    assert_cast<ColumnNullable*>(dst_column.get())
-            ->get_null_map_column()
-            .get_data()
-            .resize_fill(origin_sz + probe_side_process_count, 0);
+    dst_column->get_null_map_column().get_data().resize_fill(origin_sz + probe_side_process_count,
+                                                             0);
 
     // Verify: nested column and null map must have the same size.
-    auto* nullable = assert_cast<ColumnNullable*>(dst_column.get());
+    auto* nullable = dst_column.get();
     ASSERT_EQ(nullable->get_nested_column().size(), num_rows);
     ASSERT_EQ(nullable->get_null_map_column().size(), num_rows);
     ASSERT_EQ(nullable->size(), num_rows);
@@ -104,17 +101,12 @@ TEST_F(NLJAppendProbeDataWithNullTest, BugReproNullMapSizeMismatchWhenExtendedBy
     auto origin_sz = dst_column->size();
 
     // Insert N rows into nested column.
-    assert_cast<ColumnNullable*>(dst_column.get())
-            ->get_nested_column_ptr()
-            ->insert_range_from(*src_column, 0, num_rows);
+    dst_column->get_nested_column_ptr()->insert_range_from(*src_column, 0, num_rows);
 
     // Simulate the OLD buggy code: resize_fill(origin_sz + 1, 0)
-    assert_cast<ColumnNullable*>(dst_column.get())
-            ->get_null_map_column()
-            .get_data()
-            .resize_fill(origin_sz + 1, 0);
+    dst_column->get_null_map_column().get_data().resize_fill(origin_sz + 1, 0);
 
-    auto* nullable = assert_cast<ColumnNullable*>(dst_column.get());
+    auto* nullable = dst_column.get();
     // The nested column has 5 rows but null map only has 1 — invariant broken.
     EXPECT_EQ(nullable->get_nested_column().size(), num_rows);
     EXPECT_EQ(nullable->get_null_map_column().size(), 1);
@@ -133,15 +125,10 @@ TEST_F(NLJAppendProbeDataWithNullTest, SingleRowInsertIsCorrect) {
     auto origin_sz = dst_column->size();
     constexpr size_t count = 1;
 
-    assert_cast<ColumnNullable*>(dst_column.get())
-            ->get_nested_column_ptr()
-            ->insert_range_from(*src_column, 0, count);
-    assert_cast<ColumnNullable*>(dst_column.get())
-            ->get_null_map_column()
-            .get_data()
-            .resize_fill(origin_sz + count, 0);
+    dst_column->get_nested_column_ptr()->insert_range_from(*src_column, 0, count);
+    dst_column->get_null_map_column().get_data().resize_fill(origin_sz + count, 0);
 
-    auto* nullable = assert_cast<ColumnNullable*>(dst_column.get());
+    auto* nullable = dst_column.get();
     ASSERT_EQ(nullable->get_nested_column().size(), 1);
     ASSERT_EQ(nullable->get_null_map_column().size(), 1);
     ASSERT_EQ(nullable->size(), 1);
@@ -168,15 +155,10 @@ TEST_F(NLJAppendProbeDataWithNullTest, AppendToNonEmptyColumn) {
     ASSERT_EQ(origin_sz, 2);
 
     constexpr size_t count = 3;
-    assert_cast<ColumnNullable*>(dst_column.get())
-            ->get_nested_column_ptr()
-            ->insert_range_from(*src_column, 0, count);
-    assert_cast<ColumnNullable*>(dst_column.get())
-            ->get_null_map_column()
-            .get_data()
-            .resize_fill(origin_sz + count, 0);
+    dst_column->get_nested_column_ptr()->insert_range_from(*src_column, 0, count);
+    dst_column->get_null_map_column().get_data().resize_fill(origin_sz + count, 0);
 
-    auto* nullable = assert_cast<ColumnNullable*>(dst_column.get());
+    auto* nullable = dst_column.get();
     ASSERT_EQ(nullable->get_nested_column().size(), 5);
     ASSERT_EQ(nullable->get_null_map_column().size(), 5);
     ASSERT_EQ(nullable->size(), 5);

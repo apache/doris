@@ -1196,7 +1196,7 @@ TEST_F(ColumnVariantTest, serialize_one_row_to_string) {
     auto tz = cctz::utc_time_zone();
     options.timezone = &tz;
     {
-        const auto* variant = assert_cast<const ColumnVariant*>(column_variant.get());
+        const auto* variant = column_variant.get();
         // Serialize hierarchy types to json format
         std::string buffer;
         for (size_t row_idx = 2000; row_idx < variant->size(); ++row_idx) {
@@ -2099,7 +2099,7 @@ TEST_F(ColumnVariantTest, find_path_lower_bound_in_sparse_data) {
     auto test_func = [](const auto& source_column) {
         auto src_size = source_column->size();
         EXPECT_TRUE(src_size > 0);
-        auto* mutable_ptr = assert_cast<ColumnVariant*>(source_column.get());
+        auto* mutable_ptr = source_column.get();
         //        auto [sparse_data_paths, sparse_data_values] = mutable_ptr->get_sparse_data_paths_and_values();
         // forloop
         PathInData pat("object.array");
