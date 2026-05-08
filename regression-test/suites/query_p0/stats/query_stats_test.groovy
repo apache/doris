@@ -39,7 +39,21 @@ suite("query_stats_test") {
         DISTRIBUTED BY HASH(`k1`) BUCKETS 1 properties("replication_num" = "1")
         """
     sql "admin set frontend config (\"enable_query_hit_stats\"=\"true\");"
+    sql "set enable_nereids_planner = true"
+    sql "set enable_query_cache = false"
+
+    // Insert data so Nereids produces a real OlapScan instead of VEMPTYSET
+    // (an empty table is optimized away before translation, producing no scan node,
+    // which means QueryStatsRecorder finds nothing to record).
+    sql """INSERT INTO ${tbName} VALUES
+        (true,  1,   100,  1000,  10000,  123.456, 'A1234', '2024-01-01', '2024-01-01 10:00:00', 'alpha',   1.23,  4.56, 'text1',  12345678901234567890),
+        (false, -5,  200,  2000,  20000,  234.567, 'B2345', '2024-02-02', '2024-02-02 11:30:00', 'beta',    2.34,  5.67, 'text2',  22345678901234567890),
+        (true,  10, -300,  3000,  30000,  345.678, 'C3456', '2024-03-03', '2024-03-03 12:45:00', 'gamma',   3.45,  6.78, 'text3',  32345678901234567890),
+        (NULL,   0,    0,     0,      0,    0.000, 'D4567', '2024-04-04', '2024-04-04 00:00:00', 'delta',   0.00,  0.00, 'text4',  42345678901234567890),
+        (false, 127, 32767, 2147483647, 9223372036854775807, 999.999, 'E5678', '2024-05-05', '2024-05-05 23:59:59', 'epsilon', 9.99, 9.99, 'text5', 52345678901234567890)"""
+
     sql "clean all query stats"
+
     explain {
         sql("select k1 from ${tbName} where k1 = 1")
     }
@@ -52,5 +66,19 @@ suite("query_stats_test") {
     qt_sql "show query stats from ${tbName}"
     qt_sql "show query stats from ${tbName} all"
     qt_sql "show query stats from ${tbName} all verbose"
+
+    // Verify that a single query touching both a SELECT column (k3) and a WHERE column (k5)
+    // increments the table query count by exactly 1.
+    // QueryStatsRecorder accumulates both queryHit and filterHit into a single StatsDelta
+    // per table and calls addStats() once, so the table count is always 1 per query.
+    sql "clean all query stats"
+    sql "select k3 from ${tbName} where k5 = 1.0"
+    // table count must be 1 (one query ran), not 2
+    qt_sql "show query stats from ${tbName} all"
+    // k3: queryHit=1 (SELECT), k5: filterHit=1 (WHERE), all others 0
+    qt_sql "show query stats from ${tbName}"
+
     sql "admin set frontend config (\"enable_query_hit_stats\"=\"false\");"
+    sql "set enable_nereids_planner = false"
+    sql "set enable_query_cache = true"
 }
