@@ -55,6 +55,15 @@ WITH SERDEPROPERTIES (
 STORED AS TEXTFILE
 LOCATION '/user/doris/preinstalled_data/csv/open_csv_complex_type';
 
+CREATE TABLE open_csv_physical_line_boundary (
+  id STRING,
+  info STRING
+)
+ROW FORMAT SERDE
+  'org.apache.hadoop.hive.serde2.OpenCSVSerde'
+STORED AS TEXTFILE
+LOCATION '/user/doris/preinstalled_data/csv/open_csv_physical_line_boundary';
+
 create database if not exists openx_json;
 use openx_json;
 

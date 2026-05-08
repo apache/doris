@@ -169,6 +169,20 @@ TEST_F(EncloseCsvLineReaderTest, MultiCharDelimiters) {
 TEST_F(EncloseCsvLineReaderTest, HiveTextInputFormatKeepsPhysicalLineBoundaries) {
     verify_csv_split("'corp\nname',x\nplain,y", "\n", ",", '\'', '\\', false,
                      {"'corp", "name',x", "plain,y"}, {{}, {5}, {5}}, false);
+
+    // Multi-character line delimiter must also terminate the quoted field in Hive mode.
+    verify_csv_split("'a\r\nb',x\r\nplain,y", "\r\n", ",", '\'', '\\', false,
+                     {"'a", "b',x", "plain,y"}, {{}, {2}, {5}}, false);
+
+    // A quoted field containing multiple embedded line delimiters yields one row per physical
+    // line, and each physical line is reparsed with a fresh state.
+    verify_csv_split("'a\nb\nc',d\nplain", "\n", ",", '\'', '\\', false,
+                     {"'a", "b", "c',d", "plain"}, {{}, {}, {2}, {}}, false);
+
+    // Default (allow_multiline=true) must still merge lines across an open quote so non-Hive
+    // callers keep their previous behavior.
+    verify_csv_split("'a\nb',x\nplain,y", "\n", ",", '\'', '\\', false,
+                     {"'a\nb',x", "plain,y"}, {{5}, {5}});
 }
 
 } // namespace doris

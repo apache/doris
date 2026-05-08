@@ -42,5 +42,10 @@ suite("test_open_csv_serde", "p0,external") {
         qt_csv_escape_quote_in_enclose """select * from csv_json_table_simple order by id;"""
         qt_csv_null_format """select * from open_csv_table_null_format order by id;"""
         qt_csv_complex_type """select * from open_csv_complex_type order by id;"""
+        // Regression for the physical-line-boundary fix: Hive OpenCSVSerde must not merge rows
+        // across a line delimiter, even when a quoted field contains a newline. Before the fix
+        // the row with an embedded newline was merged into a single record, giving 3 rows; the
+        // correct Hive behavior yields 4 physical rows.
+        qt_csv_physical_line_count """select count(*) from open_csv_physical_line_boundary;"""
     }
 }
