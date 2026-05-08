@@ -36,7 +36,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTestScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHudiScan;
@@ -160,11 +159,6 @@ public interface RelationVisitor<R, C> {
 
     default R visitPhysicalOlapScan(PhysicalOlapScan olapScan, C context) {
         return visitPhysicalCatalogRelation(olapScan, context);
-    }
-
-    default R visitPhysicalDeferMaterializeOlapScan(
-            PhysicalDeferMaterializeOlapScan deferMaterializeOlapScan, C context) {
-        return visitPhysicalCatalogRelation(deferMaterializeOlapScan, context);
     }
 
     default R visitPhysicalWorkTableReference(PhysicalWorkTableReference workTableReference, C context) {

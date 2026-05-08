@@ -2205,7 +2205,7 @@ public class SessionVariable implements Serializable, Writable {
     // Whether enable two phase read optimization
     // 1. read related rowids along with necessary column data
     // 2. spawn fetch RPC to other nodes to get related data by sorted rowids
-    @VarAttrDef.VarAttr(name = ENABLE_TWO_PHASE_READ_OPT, fuzzy = true, varType = VariableAnnotation.DEPRECATED,
+    @VarAttrDef.VarAttr(name = ENABLE_TWO_PHASE_READ_OPT, fuzzy = true, varType = VariableAnnotation.REMOVED,
             description = {"由topn_lazy_materialization_threshold 替代，"
                     + "当topn_lazy_materialization_threshold=-1时关闭两阶段读优化",
                     "Replaced by topn_lazy_materialization_threshold. The two-stage read optimization "
