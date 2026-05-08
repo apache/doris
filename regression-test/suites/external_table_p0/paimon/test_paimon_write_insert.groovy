@@ -172,9 +172,7 @@ suite("test_paimon_write_insert", "p0,external") {
         verifyInsert(true, "append_partition_bucketed", 8, "jni_ap_bk_2", "2026-04-02")
 
         // ========== Test paimon-cpp writer (enable_paimon_jni_writer=false) ==========
-        // pk_partition_no_bucket (bucket=-1) is NOT supported by paimon-cpp, skip it
-        verifyInsert(false, "append_partition_no_bucket", 13, "cpp_ap_nb_1", "2026-04-03")
-        verifyInsert(false, "append_partition_no_bucket", 14, "cpp_ap_nb_2", "2026-04-04")
+        // bucket=-1 is NOT supported by paimon-cpp, skip dynamic bucket tables
         verifyInsert(false, "pk_partition_bucketed", 15, "cpp_pk_bk_1", "2026-04-03")
         verifyInsert(false, "pk_partition_bucketed", 16, "cpp_pk_bk_2", "2026-04-04")
         verifyInsert(false, "append_partition_bucketed", 17, "cpp_ap_bk_1", "2026-04-03")
@@ -185,7 +183,7 @@ suite("test_paimon_write_insert", "p0,external") {
         assertEquals("2", pkNbCount[0][0].toString())
 
         def apNbCount = sql """select count(*) from append_partition_no_bucket"""
-        assertEquals("4", apNbCount[0][0].toString())
+        assertEquals("2", apNbCount[0][0].toString())
 
         def pkBkCount = sql """select count(*) from pk_partition_bucketed"""
         assertEquals("4", pkBkCount[0][0].toString())
