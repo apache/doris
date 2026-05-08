@@ -156,4 +156,36 @@ void TimestampTzValue::convert_local_to_utc(const cctz::time_zone& local_time_zo
                                dt.microsecond());
 }
 
+int TimestampTzValue::utc_offset(const cctz::time_zone& local_time_zone) const {
+    cctz::civil_second utc_cs(_utc_dt.year(), _utc_dt.month(), _utc_dt.day(), _utc_dt.hour(),
+                              _utc_dt.minute(), _utc_dt.second());
+    cctz::time_point<cctz::seconds> utc_tp = cctz::convert(utc_cs, cctz::utc_time_zone());
+    return local_time_zone.lookup(utc_tp).offset;
+}
+
+void TimestampTzValue::convert_local_to_utc(const cctz::time_zone& local_time_zone,
+                                            const DateV2Value<DateTimeV2ValueType>& dt,
+                                            int preferred_offset) {
+    cctz::civil_second local_cs(dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(),
+                                dt.second());
+    const auto lookup = local_time_zone.lookup(local_cs);
+    cctz::time_point<cctz::seconds> local_tp = cctz::convert(local_cs, local_time_zone);
+
+    if (lookup.kind == cctz::time_zone::civil_lookup::REPEATED) {
+        const auto pre_offset = local_time_zone.lookup(lookup.pre).offset;
+        const auto post_offset = local_time_zone.lookup(lookup.post).offset;
+        if (preferred_offset == pre_offset) {
+            local_tp = lookup.pre;
+        } else if (preferred_offset == post_offset) {
+            local_tp = lookup.post;
+        }
+    }
+
+    auto utc_cs = cctz::convert(local_tp, cctz::utc_time_zone());
+    _utc_dt.unchecked_set_time((uint16_t)utc_cs.year(), (uint8_t)utc_cs.month(),
+                               (uint8_t)utc_cs.day(), (uint8_t)utc_cs.hour(),
+                               (uint8_t)utc_cs.minute(), (uint8_t)utc_cs.second(),
+                               dt.microsecond());
+}
+
 } // namespace doris
