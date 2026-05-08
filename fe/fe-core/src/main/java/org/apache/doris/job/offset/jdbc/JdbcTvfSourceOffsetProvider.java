@@ -91,11 +91,7 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
         super();
     }
 
-    /**
-     * Initializes provider state and fetches snapshot splits from BE.
-     * splitChunks is called here (rather than in StreamingInsertJob) to keep
-     * all cdc_stream-specific init logic inside the provider.
-     */
+    /** Initializes provider state from TVF properties; called every schedule tick. */
     @Override
     public void ensureInitialized(Long jobId, Map<String, String> originTvfProps) throws JobException {
         String type = originTvfProps.get(DataSourceConfigKeys.TYPE);
@@ -125,13 +121,13 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
     }
 
     /**
-     * Called once on fresh job creation (not on FE restart).
-     * Fetches snapshot splits from BE and persists them to the meta table.
+     * No-op on fresh creation: split fetching is now driven incrementally by the scheduler
+     * via advanceSplits() each tick. syncTables and cdcSplitProgress have already been set
+     * by StreamingInsertJob.initInsertJob -> initSplitProgress before this is called.
      */
     @Override
     public void initOnCreate() throws JobException {
-        String table = sourceProperties.get(DataSourceConfigKeys.TABLE);
-        splitChunks(Collections.singletonList(table));
+        // intentional no-op
     }
 
     /**
@@ -312,6 +308,12 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
      */
     @Override
     public void replayIfNeed(StreamingInsertJob job) throws JobException {
+        // Re-init transient split progress fields lost across FE restart.
+        // syncTables itself is persisted on StreamingInsertJob; cdcSplitProgress is rebuilt empty
+        // here and advanceSplits will resume from the system table on next tick.
+        if (cdcSplitProgress == null) {
+            initSplitProgress(job.getSyncTables());
+        }
         if (currentOffset == null) {
             // No committed txn yet. If snapshot splits exist in the meta table (written by
             // initOnCreate), restore remainingSplits so getNextOffset() returns snapshot splits

@@ -66,6 +66,13 @@ public class StreamingJobSchedulerTask extends AbstractTask {
             }
         }
         streamingInsertJob.replayOffsetProviderIfNeed();
+        // Pre-advance one batch so the first task has splits to consume; otherwise the
+        // first dispatch would fall on the next tick (= waiting one max_interval).
+        streamingInsertJob.advanceSplitsIfNeed();
+        if (streamingInsertJob.getJobStatus() == JobStatus.PAUSED) {
+            // advanceSplits failed and paused the job; skip task dispatch this tick.
+            return;
+        }
         if (streamingInsertJob.hasReachedEnd()) {
             // Source already fully consumed (e.g. snapshot-only mode recovered after FE restart).
             // Transition directly to FINISHED without creating a new task.
@@ -80,6 +87,8 @@ public class StreamingJobSchedulerTask extends AbstractTask {
     private void handleRunningState() throws JobException {
         streamingInsertJob.processTimeoutTasks();
         streamingInsertJob.fetchMeta();
+        // Each tick: fetch one more batch of splits from cdc_client.
+        streamingInsertJob.advanceSplitsIfNeed();
     }
 
     private void autoResumeHandler() throws JobException {

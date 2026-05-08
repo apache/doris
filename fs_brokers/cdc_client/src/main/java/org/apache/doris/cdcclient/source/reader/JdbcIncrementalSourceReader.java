@@ -30,14 +30,14 @@ import org.apache.doris.job.cdc.split.SnapshotSplit;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.flink.api.connector.source.SourceSplit;
-import org.apache.flink.api.connector.source.mocks.MockSplitEnumeratorContext;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.cdc.common.utils.Preconditions;
 import org.apache.flink.cdc.connectors.base.config.JdbcSourceConfig;
 import org.apache.flink.cdc.connectors.base.dialect.JdbcDataSourceDialect;
 import org.apache.flink.cdc.connectors.base.options.StartupOptions;
-import org.apache.flink.cdc.connectors.base.source.assigner.HybridSplitAssigner;
-import org.apache.flink.cdc.connectors.base.source.assigner.SnapshotSplitAssigner;
+import org.apache.flink.cdc.connectors.base.source.assigner.splitter.ChunkSplitter;
+import org.apache.flink.cdc.connectors.base.source.assigner.state.ChunkSplitterState;
+import org.apache.flink.cdc.connectors.base.source.assigner.state.ChunkSplitterState.ChunkBound;
 import org.apache.flink.cdc.connectors.base.source.meta.offset.Offset;
 import org.apache.flink.cdc.connectors.base.source.meta.offset.OffsetFactory;
 import org.apache.flink.cdc.connectors.base.source.meta.split.FinishedSnapshotSplitInfo;
@@ -66,7 +66,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -133,54 +132,78 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
         LOG.info("Initialized poll executor with parallelism: {}", parallelism);
     }
 
+    /**
+     * Fetch a batch of snapshot splits by driving flink-cdc {@link ChunkSplitter} directly.
+     *
+     * <p>Stateless: each RPC builds a fresh splitter from the (table, nextChunkStart, nextChunkId)
+     * triple supplied by FE, fetches up to {@code batchSize} chunks, then closes the splitter.
+     *
+     * <p>Only INITIAL/SNAPSHOT startup modes call this RPC; binlog/latest modes never reach here.
+     */
     @Override
     public List<AbstractSourceSplit> getSourceSplits(FetchTableSplitsRequest ftsReq) {
-        LOG.info("Get table {} splits for job {}", ftsReq.getSnapshotTable(), ftsReq.getJobId());
+        LOG.info("Get table {} splits for job {} (nextSplitId={}, hasNextSplitStart={})",
+                ftsReq.getSnapshotTable(), ftsReq.getJobId(),
+                ftsReq.getNextSplitId(),
+                ftsReq.getNextSplitStart() != null);
         JdbcSourceConfig sourceConfig = getSourceConfig(ftsReq);
-        List<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit>
-                remainingSnapshotSplits = new ArrayList<>();
-        StreamSplit remainingStreamSplit = null;
+        String schema = ftsReq.getConfig().get(DataSourceConfigKeys.SCHEMA);
+        TableId tableId = new TableId(null, schema, ftsReq.getSnapshotTable());
 
-        // Check startup mode - for PostgreSQL, we use similar logic as MySQL
-        String startupMode = ftsReq.getConfig().get(DataSourceConfigKeys.OFFSET);
-        if (DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(startupMode)
-                || DataSourceConfigKeys.OFFSET_SNAPSHOT.equalsIgnoreCase(startupMode)) {
-            remainingSnapshotSplits =
-                    startSplitChunks(sourceConfig, ftsReq.getSnapshotTable(), ftsReq.getConfig());
-        } else {
-            // For non-initial mode, create a stream split
-            Offset startingOffset = createInitialOffset();
-            remainingStreamSplit =
-                    new StreamSplit(
-                            STREAM_SPLIT_ID,
-                            startingOffset,
-                            createNoStoppingOffset(),
-                            new ArrayList<>(),
-                            new HashMap<>(),
-                            0);
-        }
+        // Reconstruct flink-cdc ChunkBound from FE-side nextSplitStart.
+        //   null / empty -> START_BOUND (first time splitting this table, start from min(pk))
+        //   non-empty    -> middleOf(value[0]) (continue from previous split's splitEnd)
+        // END_BOUND never appears in transit: when a table is fully split, FE clears
+        // committedSplitProgress.currentSplittingTable to null, so the next RPC will be for
+        // a different table or no RPC at all.
+        Object[] pkValues = ftsReq.getNextSplitStart();
+        ChunkBound bound = (pkValues == null || pkValues.length == 0)
+                ? ChunkBound.START_BOUND
+                : ChunkBound.middleOf(pkValues[0]);
 
-        List<AbstractSourceSplit> splits = new ArrayList<>();
-        if (!remainingSnapshotSplits.isEmpty()) {
-            for (org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit
-                    snapshotSplit : remainingSnapshotSplits) {
-                String splitId = snapshotSplit.splitId();
-                String tableId = snapshotSplit.getTableId().identifier();
-                Object[] splitStart = snapshotSplit.getSplitStart();
-                Object[] splitEnd = snapshotSplit.getSplitEnd();
-                List<String> splitKey = snapshotSplit.getSplitKeyType().getFieldNames();
-                SnapshotSplit split =
-                        new SnapshotSplit(splitId, tableId, splitKey, splitStart, splitEnd, null);
-                splits.add(split);
+        int splitId = ftsReq.getNextSplitId() == null ? 0 : ftsReq.getNextSplitId();
+        int batchSize = ftsReq.getBatchSize() == null ? 100 : ftsReq.getBatchSize();
+
+        ChunkSplitterState state = new ChunkSplitterState(tableId, bound, splitId);
+        ChunkSplitter splitter = getDialect(sourceConfig).createChunkSplitter(sourceConfig, state);
+        splitter.open();
+
+        try {
+            List<AbstractSourceSplit> result = new ArrayList<>();
+            while (result.size() < batchSize) {
+                Collection<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit>
+                        chunks = splitter.generateSplits(tableId);
+                for (org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit chunk : chunks) {
+                    result.add(toDorisSnapshotSplit(chunk));
+                }
+                if (!splitter.hasNextChunk()) {
+                    break;
+                }
             }
-        } else {
-            Offset startingOffset = remainingStreamSplit.getStartingOffset();
-            BinlogSplit streamSplit = new BinlogSplit();
-            streamSplit.setSplitId(remainingStreamSplit.splitId());
-            streamSplit.setStartingOffset(startingOffset.getOffset());
-            splits.add(streamSplit);
+            LOG.info("Fetched {} splits for table {} (splitId starts at {}); hasNextChunk={}",
+                    result.size(), tableId, splitId, splitter.hasNextChunk());
+            return result;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to generate splits for " + tableId, e);
+        } finally {
+            try {
+                splitter.close();
+            } catch (Exception e) {
+                LOG.warn("Failed to close splitter for {}", tableId, e);
+            }
         }
-        return splits;
+    }
+
+    /** flink-cdc SnapshotSplit -> Doris SnapshotSplit (drops splitKeyType, keeps key field names). */
+    private SnapshotSplit toDorisSnapshotSplit(
+            org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit chunk) {
+        return new SnapshotSplit(
+                chunk.splitId(),
+                chunk.getTableId().identifier(),
+                chunk.getSplitKeyType().getFieldNames(),
+                chunk.getSplitStart(),
+                chunk.getSplitEnd(),
+                null);
     }
 
     @Override
@@ -744,86 +767,6 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
                         "Unsupported startup mode " + startupOptions.startupMode);
         }
         return startingOffset;
-    }
-
-    private List<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit>
-            startSplitChunks(
-                    JdbcSourceConfig sourceConfig,
-                    String snapshotTable,
-                    Map<String, String> config) {
-        List<TableId> remainingTables = new ArrayList<>();
-        if (snapshotTable != null) {
-            String schema = config.get(DataSourceConfigKeys.SCHEMA);
-            remainingTables.add(new TableId(null, schema, snapshotTable));
-        }
-        List<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit> remainingSplits =
-                new ArrayList<>();
-        HybridSplitAssigner<JdbcSourceConfig> splitAssigner =
-                new HybridSplitAssigner<>(
-                        sourceConfig,
-                        1,
-                        remainingTables,
-                        true,
-                        getDialect(sourceConfig),
-                        getOffsetFactory(),
-                        new MockSplitEnumeratorContext(1));
-        splitAssigner.open();
-        try {
-            while (true) {
-                Optional<SourceSplitBase> split = splitAssigner.getNext();
-                if (split.isPresent()) {
-                    org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit
-                            snapshotSplit = split.get().asSnapshotSplit();
-                    remainingSplits.add(snapshotSplit);
-                } else {
-                    break;
-                }
-            }
-        } finally {
-            closeChunkSplitterOnly(splitAssigner);
-        }
-        return remainingSplits;
-    }
-
-    /**
-     * Close only the chunk splitter to avoid closing shared connection pools Similar to MySQL
-     * implementation Note: HybridSplitAssigner wraps SnapshotSplitAssigner, so we need to get the
-     * inner assigner first
-     */
-    private static void closeChunkSplitterOnly(HybridSplitAssigner<?> splitAssigner) {
-        try {
-            // First, get the inner SnapshotSplitAssigner from HybridSplitAssigner
-            java.lang.reflect.Field snapshotAssignerField =
-                    HybridSplitAssigner.class.getDeclaredField("snapshotSplitAssigner");
-            snapshotAssignerField.setAccessible(true);
-            SnapshotSplitAssigner<?> snapshotSplitAssigner =
-                    (SnapshotSplitAssigner<?>) snapshotAssignerField.get(splitAssigner);
-
-            if (snapshotSplitAssigner == null) {
-                LOG.warn("snapshotSplitAssigner is null in HybridSplitAssigner");
-                return;
-            }
-
-            // Call closeExecutorService() via reflection
-            java.lang.reflect.Method closeExecutorMethod =
-                    SnapshotSplitAssigner.class.getDeclaredMethod("closeExecutorService");
-            closeExecutorMethod.setAccessible(true);
-            closeExecutorMethod.invoke(snapshotSplitAssigner);
-
-            // Call chunkSplitter.close() via reflection
-            java.lang.reflect.Field chunkSplitterField =
-                    SnapshotSplitAssigner.class.getDeclaredField("chunkSplitter");
-            chunkSplitterField.setAccessible(true);
-            Object chunkSplitter = chunkSplitterField.get(snapshotSplitAssigner);
-
-            if (chunkSplitter != null) {
-                java.lang.reflect.Method closeMethod = chunkSplitter.getClass().getMethod("close");
-                closeMethod.invoke(chunkSplitter);
-                LOG.info("Closed Source chunkSplitter JDBC connection");
-            }
-        } catch (Exception e) {
-            LOG.warn("Failed to close chunkSplitter via reflection", e);
-        }
     }
 
     // Method removed - reader cleanup is now handled in finishSplitRecords()

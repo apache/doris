@@ -181,6 +181,30 @@ public interface SourceOffsetProvider {
     }
 
     /**
+     * Initialize split progress at CREATE. Called once with the list of source tables this job syncs.
+     * For providers without splitting concept (e.g. S3), default is no-op.
+     */
+    default void initSplitProgress(List<String> syncTables) {}
+
+    /**
+     * Advance one batch of split fetching, called by scheduler each tick during PENDING/RUNNING.
+     * For providers without async splitting work (e.g. S3, Kafka), default is no-op.
+     * Aligned with flink-cdc SnapshotSplitAssigner naming.
+     *
+     * @throws JobException if fetching splits fails fatally
+     */
+    default void advanceSplits() throws JobException {}
+
+    /**
+     * Returns true if no more splits will be produced.
+     * For providers without splitting concept, always returns true.
+     * Aligned with flink-cdc SnapshotSplitAssigner.noMoreSplits() naming.
+     */
+    default boolean noMoreSplits() {
+        return true;
+    }
+
+    /**
      * Get the lag of the data source in seconds.
      * For CDC sources, lag = (now - last consumed event timestamp) in seconds.
      *

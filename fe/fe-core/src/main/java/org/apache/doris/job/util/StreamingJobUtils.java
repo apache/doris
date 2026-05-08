@@ -101,6 +101,12 @@ public class StreamingJobUtils {
     private static final String SELECT_SPLITS_TABLE_TEMPLATE =
             "SELECT table_name, chunk_list FROM " + FULL_QUALIFIED_META_TBL_NAME + " WHERE job_id='%s' ORDER BY id ASC";
 
+    private static final String SELECT_TABLE_ID_TEMPLATE =
+            "SELECT id FROM " + FULL_QUALIFIED_META_TBL_NAME + " WHERE job_id='%s' AND table_name='%s'";
+
+    private static final String SELECT_MAX_ID_TEMPLATE =
+            "SELECT IFNULL(MAX(id), 0) FROM " + FULL_QUALIFIED_META_TBL_NAME + " WHERE job_id='%s'";
+
     private static final String DELETE_JOB_META_TEMPLATE =
             "DELETE FROM " + FULL_QUALIFIED_META_TBL_NAME + " WHERE job_id='%s'";
 
@@ -178,6 +184,54 @@ public class StreamingJobUtils {
             index++;
         }
         batchInsert(values);
+    }
+
+    /**
+     * UPSERT a single table's chunk_list. id is reused if the table already has a row,
+     * otherwise allocated as MAX(id)+1. Relies on UNIQUE KEY (id, job_id) for in-place override.
+     */
+    public static void upsertChunkList(Long jobId, String tableName, List<SnapshotSplit> chunks) throws Exception {
+        createMetaTableIfNotExist();
+        Integer id = querySingleTableId(jobId, tableName);
+        if (id == null) {
+            id = queryNextAvailableId(jobId);
+        }
+        Map<String, String> params = new HashMap<>();
+        params.put("id", String.valueOf(id));
+        params.put("job_id", String.valueOf(jobId));
+        params.put("table_name", tableName);
+        params.put("chunk_list", objectMapper.writeValueAsString(chunks));
+        StringSubstitutor sub = new StringSubstitutor(params);
+        String sql = sub.replace(INSERT_INTO_META_TABLE_TEMPLATE);
+        batchInsert(Collections.singletonList(sql));
+    }
+
+    /** Returns id of the row matching (jobId, tableName), or null if no such row exists. */
+    private static Integer querySingleTableId(Long jobId, String tableName) throws JobException {
+        String sql = String.format(SELECT_TABLE_ID_TEMPLATE, jobId, tableName);
+        try (AutoCloseConnectContext ctx = new AutoCloseConnectContext(buildConnectContext())) {
+            StmtExecutor stmtExecutor = new StmtExecutor(ctx.connectContext, sql);
+            List<ResultRow> rows = stmtExecutor.executeInternalQuery();
+            if (rows == null || rows.isEmpty()) {
+                return null;
+            }
+            return Integer.parseInt(rows.get(0).get(0));
+        } catch (Exception e) {
+            throw new JobException("query table id failed: " + e.getMessage());
+        }
+    }
+
+    /** Returns MAX(id) + 1 for this job, or 1 if no rows yet. */
+    private static int queryNextAvailableId(Long jobId) throws JobException {
+        String sql = String.format(SELECT_MAX_ID_TEMPLATE, jobId);
+        try (AutoCloseConnectContext ctx = new AutoCloseConnectContext(buildConnectContext())) {
+            StmtExecutor stmtExecutor = new StmtExecutor(ctx.connectContext, sql);
+            List<ResultRow> rows = stmtExecutor.executeInternalQuery();
+            int max = (rows == null || rows.isEmpty()) ? 0 : Integer.parseInt(rows.get(0).get(0));
+            return max + 1;
+        } catch (Exception e) {
+            throw new JobException("query next available id failed: " + e.getMessage());
+        }
     }
 
     private static void batchInsert(List<String> values) throws Exception {
