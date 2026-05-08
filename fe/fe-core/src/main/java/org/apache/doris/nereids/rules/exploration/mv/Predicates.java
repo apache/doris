@@ -23,14 +23,19 @@ import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
@@ -45,16 +50,25 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * This record the predicates which can be pulled up or some other type predicates.
  * Also contains the necessary method for predicates process
  */
 public class Predicates {
+
+    // Guard DNF expansion from exponential branch blow-up.
+    private static final int MAX_DNF_BRANCHES = 1024;
+    private static final List<PredicateImplicationRule> PREDICATE_IMPLICATION_RULES = ImmutableList.of(
+            new SameExpressionImplicationRule(),
+            new ComparablePredicateImplicationRule());
 
     // Predicates that can be pulled up
     private final Set<Expression> pulledUpPredicates;
@@ -117,28 +131,28 @@ public class Predicates {
         List<? extends Expression> viewPredicatesShuttled = ExpressionUtils.shuttleExpressionWithLineage(
                 Lists.newArrayList(viewStructInfoPredicates.getCouldNotPulledUpPredicates()),
                 viewStructInfo.getTopPlan());
-        List<Expression> viewPredicatesQueryBased = ExpressionUtils.replace((List<Expression>) viewPredicatesShuttled,
+        List<Expression> queryBasedViewPredicates = ExpressionUtils.replace((List<Expression>) viewPredicatesShuttled,
                 viewToQuerySlotMapping.toSlotReferenceMap());
         // could not be pulled up predicates in query and view should be same
         if (queryStructInfoPredicates.getCouldNotPulledUpPredicates().equals(
-                Sets.newHashSet(viewPredicatesQueryBased))) {
+                Sets.newHashSet(queryBasedViewPredicates))) {
             return ImmutableMap.of();
         }
         return null;
     }
 
     /**
-     * compensate equivalence predicates
+     * collect equivalence candidates from query/view difference.
      */
-    public static Map<Expression, ExpressionInfo> compensateEquivalence(StructInfo queryStructInfo,
+    public static Map<Expression, ExpressionInfo> collectEquivalenceCandidates(StructInfo queryStructInfo,
             StructInfo viewStructInfo,
             SlotMapping viewToQuerySlotMapping,
             ComparisonResult comparisonResult) {
         EquivalenceClass queryEquivalenceClass = queryStructInfo.getEquivalenceClass();
         EquivalenceClass viewEquivalenceClass = viewStructInfo.getEquivalenceClass();
         Map<SlotReference, SlotReference> viewToQuerySlotMap = viewToQuerySlotMapping.toSlotReferenceMap();
-        EquivalenceClass viewEquivalenceClassQueryBased = viewEquivalenceClass.permute(viewToQuerySlotMap);
-        if (viewEquivalenceClassQueryBased == null) {
+        EquivalenceClass queryBasedViewEquivalenceClass = viewEquivalenceClass.permute(viewToQuerySlotMap);
+        if (queryBasedViewEquivalenceClass == null) {
             return null;
         }
         final Map<Expression, ExpressionInfo> equalCompensateConjunctions = new HashMap<>();
@@ -149,7 +163,7 @@ public class Predicates {
             return null;
         }
         EquivalenceClassMapping queryToViewEquivalenceMapping =
-                EquivalenceClassMapping.generate(queryEquivalenceClass, viewEquivalenceClassQueryBased);
+                EquivalenceClassMapping.generate(queryEquivalenceClass, queryBasedViewEquivalenceClass);
         // can not map all target equivalence class, can not compensate
         if (queryToViewEquivalenceMapping.getEquivalenceClassSetMap().size()
                 < viewEquivalenceClass.getEquivalenceSetList().size()) {
@@ -191,9 +205,9 @@ public class Predicates {
     }
 
     /**
-     * compensate range predicates
+     * collect range candidates from query/view difference.
      */
-    public static Map<Expression, ExpressionInfo> compensateRangePredicate(StructInfo queryStructInfo,
+    public static Map<Expression, ExpressionInfo> collectRangeCandidates(StructInfo queryStructInfo,
             StructInfo viewStructInfo,
             SlotMapping viewToQuerySlotMapping,
             ComparisonResult comparisonResult,
@@ -201,19 +215,14 @@ public class Predicates {
         SplitPredicate querySplitPredicate = queryStructInfo.getSplitPredicate();
         SplitPredicate viewSplitPredicate = viewStructInfo.getSplitPredicate();
 
-        Set<Expression> viewRangeQueryBasedSet = new HashSet<>();
-        for (Expression viewExpression : viewSplitPredicate.getRangePredicateMap().keySet()) {
-            viewRangeQueryBasedSet.add(
-                    ExpressionUtils.replace(viewExpression, viewToQuerySlotMapping.toSlotReferenceMap()));
-        }
-        viewRangeQueryBasedSet.remove(BooleanLiteral.TRUE);
-
-        Set<Expression> queryRangeSet = querySplitPredicate.getRangePredicateMap().keySet();
-        queryRangeSet.remove(BooleanLiteral.TRUE);
+        Set<Expression> queryBasedViewRangeSet = collectNonInferredQueryBasedExpressions(
+                viewSplitPredicate.getRangePredicateMap().keySet(), viewToQuerySlotMapping);
+        Set<Expression> queryRangeSet = collectNonInferredExpressions(
+                querySplitPredicate.getRangePredicateMap().keySet());
 
         Set<Expression> differentExpressions = new HashSet<>();
-        Sets.difference(queryRangeSet, viewRangeQueryBasedSet).copyInto(differentExpressions);
-        Sets.difference(viewRangeQueryBasedSet, queryRangeSet).copyInto(differentExpressions);
+        Sets.difference(queryRangeSet, queryBasedViewRangeSet).copyInto(differentExpressions);
+        Sets.difference(queryBasedViewRangeSet, queryRangeSet).copyInto(differentExpressions);
         // the range predicate in query and view is same, don't need to compensate
         if (differentExpressions.isEmpty()) {
             return ImmutableMap.of();
@@ -225,24 +234,25 @@ public class Predicates {
             // normalized expressions is not in query, can not compensate
             return null;
         }
-        Map<Expression, ExpressionInfo> normalizedExpressionsWithLiteral = new HashMap<>();
+        Map<Expression, ExpressionInfo> normalizedExpressionsWithLiteral = new LinkedHashMap<>();
         for (Expression expression : normalizedExpressions) {
-            Set<Literal> literalSet = expression.collect(expressionTreeNode -> expressionTreeNode instanceof Literal);
-            if (!(expression instanceof ComparisonPredicate)
-                    || (expression instanceof GreaterThan || expression instanceof LessThanEqual)
-                    || literalSet.size() != 1) {
-                if (expression.anyMatch(AggregateFunction.class::isInstance)) {
-                    return null;
-                }
-                normalizedExpressionsWithLiteral.put(expression, ExpressionInfo.EMPTY);
-                continue;
-            }
             if (expression.anyMatch(AggregateFunction.class::isInstance)) {
                 return null;
             }
-            normalizedExpressionsWithLiteral.put(expression, new ExpressionInfo(literalSet.iterator().next()));
+            normalizedExpressionsWithLiteral.put(expression, buildRangeExpressionInfo(expression));
         }
-        return normalizedExpressionsWithLiteral;
+        return ImmutableMap.copyOf(normalizedExpressionsWithLiteral);
+    }
+
+    private static ExpressionInfo buildRangeExpressionInfo(Expression expression) {
+        Set<Literal> literalSet = expression.collect(expressionTreeNode -> expressionTreeNode instanceof Literal);
+        if (!(expression instanceof ComparisonPredicate)
+                || expression instanceof GreaterThan
+                || expression instanceof LessThanEqual
+                || literalSet.size() != 1) {
+            return ExpressionInfo.EMPTY;
+        }
+        return new ExpressionInfo(literalSet.iterator().next());
     }
 
     private static Set<Expression> normalizeExpression(Expression expression, CascadesContext cascadesContext) {
@@ -254,41 +264,365 @@ public class Predicates {
         return ExpressionUtils.extractConjunctionToSet(expression);
     }
 
-    /**
-     * compensate residual predicates
-     */
-    public static Map<Expression, ExpressionInfo> compensateResidualPredicate(StructInfo queryStructInfo,
+    /** Collect all predicate compensation candidates before residual finalization. */
+    public static PredicateCompensation collectCompensationCandidates(
+            StructInfo queryStructInfo,
             StructInfo viewStructInfo,
             SlotMapping viewToQuerySlotMapping,
-            ComparisonResult comparisonResult) {
-        // TODO Residual predicates compensate, simplify implementation currently.
-        SplitPredicate querySplitPredicate = queryStructInfo.getSplitPredicate();
-        SplitPredicate viewSplitPredicate = viewStructInfo.getSplitPredicate();
-
-        Set<Expression> viewResidualQueryBasedSet = new HashSet<>();
-        for (Expression viewExpression : viewSplitPredicate.getResidualPredicateMap().keySet()) {
-            viewResidualQueryBasedSet.add(
-                    ExpressionUtils.replace(viewExpression, viewToQuerySlotMapping.toSlotReferenceMap()));
-        }
-        viewResidualQueryBasedSet.remove(BooleanLiteral.TRUE);
-
-        Set<Expression> queryResidualSet = querySplitPredicate.getResidualPredicateMap().keySet();
-        // remove unnecessary literal BooleanLiteral.TRUE
-        queryResidualSet.remove(BooleanLiteral.TRUE);
-        // query residual predicate can not contain all view residual predicate when view have residual predicate,
-        // bail out
-        if (!queryResidualSet.containsAll(viewResidualQueryBasedSet)) {
+            ComparisonResult comparisonResult,
+            CascadesContext cascadesContext) {
+        Map<Expression, ExpressionInfo> equalCandidates = collectEquivalenceCandidates(
+                queryStructInfo, viewStructInfo, viewToQuerySlotMapping, comparisonResult);
+        Map<Expression, ExpressionInfo> rangeCandidates = collectRangeCandidates(
+                queryStructInfo, viewStructInfo, viewToQuerySlotMapping, comparisonResult, cascadesContext);
+        Map<Expression, ExpressionInfo> residualCandidates = collectResidualCandidates(queryStructInfo);
+        if (equalCandidates == null || rangeCandidates == null || residualCandidates == null) {
             return null;
         }
-        queryResidualSet.removeAll(viewResidualQueryBasedSet);
-        Map<Expression, ExpressionInfo> expressionExpressionInfoMap = new HashMap<>();
-        for (Expression needCompensate : queryResidualSet) {
-            if (needCompensate.anyMatch(AggregateFunction.class::isInstance)) {
+        return new PredicateCompensation(equalCandidates, rangeCandidates, residualCandidates);
+    }
+
+    /** Compensate predicates in one step. */
+    public static PredicateCompensation compensatePredicates(
+            StructInfo queryStructInfo,
+            StructInfo viewStructInfo,
+            SlotMapping viewToQuerySlotMapping,
+            ComparisonResult comparisonResult,
+            CascadesContext cascadesContext) {
+        PredicateCompensation compensationCandidates = collectCompensationCandidates(
+                queryStructInfo, viewStructInfo, viewToQuerySlotMapping, comparisonResult, cascadesContext);
+        if (compensationCandidates == null) {
+            return null;
+        }
+        Set<Expression> queryBasedViewResidualPredicates = collectNonInferredQueryBasedExpressions(
+                viewStructInfo.getSplitPredicate().getResidualPredicateMap().keySet(), viewToQuerySlotMapping);
+        return compensateCandidatesByViewResidual(queryBasedViewResidualPredicates, compensationCandidates);
+    }
+
+    private static PredicateCompensation compensateCandidatesByViewResidual(
+            Set<Expression> queryBasedViewResidualPredicates,
+            PredicateCompensation compensationCandidates) {
+        try {
+            Expression combinedCompensationCandidates = buildCombinedPredicate(
+                    compensationCandidates.getEquals().keySet(),
+                    compensationCandidates.getRanges().keySet(),
+                    compensationCandidates.getResiduals().keySet());
+            Expression combinedQueryBasedViewResidual = buildCombinedPredicate(queryBasedViewResidualPredicates);
+
+            // The compensation must not widen the view result:
+            // compensationCandidates => queryBasedViewResidual.
+            if (!impliesByDnf(combinedCompensationCandidates, combinedQueryBasedViewResidual)) {
                 return null;
             }
-            expressionExpressionInfoMap.put(needCompensate, ExpressionInfo.EMPTY);
+
+            return new PredicateCompensation(
+                    removePredicatesImpliedByViewResidual(
+                            compensationCandidates.getEquals(), combinedQueryBasedViewResidual),
+                    removePredicatesImpliedByViewResidual(
+                            compensationCandidates.getRanges(), combinedQueryBasedViewResidual),
+                    removePredicatesImpliedByViewResidual(
+                            compensationCandidates.getResiduals(), combinedQueryBasedViewResidual));
+        } catch (DnfBranchOverflowException e) {
+            // DNF branch expansion may explode exponentially; fail compensation conservatively.
+            return null;
         }
-        return expressionExpressionInfoMap;
+    }
+
+    private static Map<Expression, ExpressionInfo> collectResidualCandidates(StructInfo queryStructInfo) {
+        Set<Expression> expressions = collectNonInferredExpressions(
+                queryStructInfo.getSplitPredicate().getResidualPredicateMap().keySet());
+        Map<Expression, ExpressionInfo> residualCandidates = new LinkedHashMap<>();
+        for (Expression expression : expressions) {
+            if (expression.anyMatch(AggregateFunction.class::isInstance)) {
+                // Aggregate functions in residual predicates are not safe for detail-MV compensation.
+                return null;
+            }
+            residualCandidates.put(expression, ExpressionInfo.EMPTY);
+        }
+        return ImmutableMap.copyOf(residualCandidates);
+    }
+
+    private static Set<Expression> collectNonInferredExpressions(Collection<Expression> expressions) {
+        return expressions.stream()
+                .filter(expression -> !ExpressionUtils.isInferred(expression))
+                .filter(expression -> !BooleanLiteral.TRUE.equals(expression))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private static Set<Expression> collectNonInferredQueryBasedExpressions(Collection<Expression> expressions,
+            SlotMapping viewToQuerySlotMapping) {
+        Map<SlotReference, SlotReference> slotReferenceMap = viewToQuerySlotMapping.toSlotReferenceMap();
+        return expressions.stream()
+                .filter(expression -> !ExpressionUtils.isInferred(expression))
+                .map(expression -> ExpressionUtils.replace(expression, slotReferenceMap))
+                .filter(expression -> !BooleanLiteral.TRUE.equals(expression))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    @SafeVarargs
+    private static Expression buildCombinedPredicate(Collection<Expression>... predicateCollections) {
+        List<Expression> combinedPredicates = new ArrayList<>();
+        for (Collection<Expression> predicateCollection : predicateCollections) {
+            for (Expression predicate : predicateCollection) {
+                if (!BooleanLiteral.TRUE.equals(predicate)) {
+                    combinedPredicates.add(predicate);
+                }
+            }
+        }
+        return ExpressionUtils.and(combinedPredicates);
+    }
+
+    private static Map<Expression, ExpressionInfo> removePredicatesImpliedByViewResidual(
+            Map<Expression, ExpressionInfo> predicates,
+            Expression viewResidual) {
+        // Remove candidates already implied by the view residual predicate.
+        Map<Expression, ExpressionInfo> remainingPredicates = new LinkedHashMap<>();
+        for (Map.Entry<Expression, ExpressionInfo> entry : predicates.entrySet()) {
+            // If viewResidual => candidate, candidate is redundant and can be dropped.
+            if (!impliesByDnf(viewResidual, entry.getKey())) {
+                remainingPredicates.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return ImmutableMap.copyOf(remainingPredicates);
+    }
+
+    private static boolean impliesByDnf(Expression source, Expression target) {
+        // Check whether source => target.
+        List<Set<Expression>> sourceBranches = extractDnfBranches(source);
+        List<Set<Expression>> targetBranches = extractDnfBranches(target);
+        if (sourceBranches.isEmpty()) {
+            return true;
+        }
+        if (targetBranches.isEmpty()) {
+            return false;
+        }
+        for (Set<Expression> sourceBranch : sourceBranches) {
+            boolean branchMatched = false;
+            for (Set<Expression> targetBranch : targetBranches) {
+                if (branchImplies(sourceBranch, targetBranch)) {
+                    branchMatched = true;
+                    break;
+                }
+            }
+            if (!branchMatched) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean branchImplies(Set<Expression> sourceBranch, Set<Expression> targetBranch) {
+        for (Expression targetPredicate : targetBranch) {
+            boolean predicateMatched = false;
+            for (Expression sourcePredicate : sourceBranch) {
+                if (predicateImplies(sourcePredicate, targetPredicate)) {
+                    predicateMatched = true;
+                    break;
+                }
+            }
+            if (!predicateMatched) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean predicateImplies(Expression source, Expression target) {
+        for (PredicateImplicationRule rule : PREDICATE_IMPLICATION_RULES) {
+            if (rule.proves(source, target)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static ComparisonPredicate normalizeComparisonPredicate(ComparisonPredicate predicate) {
+        if (predicate.left() instanceof Literal && !(predicate.right() instanceof Literal)) {
+            return (ComparisonPredicate) predicate.commute();
+        }
+        return predicate;
+    }
+
+    private interface PredicateImplicationRule {
+        boolean proves(Expression source, Expression target);
+    }
+
+    private static final class SameExpressionImplicationRule implements PredicateImplicationRule {
+        @Override
+        public boolean proves(Expression source, Expression target) {
+            return source.equals(target);
+        }
+    }
+
+    /*
+     * Prove implication between comparable predicates on the same input by converting them to ranges.
+     * For example, "a > 20" implies "a > 10", and "a = 10" implies "a >= 10".
+     */
+    private static final class ComparablePredicateImplicationRule implements PredicateImplicationRule {
+        @Override
+        public boolean proves(Expression source, Expression target) {
+            ComparablePredicateRange sourceRange = ComparablePredicateRange.from(source);
+            ComparablePredicateRange targetRange = ComparablePredicateRange.from(target);
+            return sourceRange != null && targetRange != null && sourceRange.implies(targetRange);
+        }
+
+        private static final class ComparablePredicateRange {
+            private final Expression input;
+            private final Bound lowerBound;
+            private final Bound upperBound;
+
+            private ComparablePredicateRange(Expression input, Bound lowerBound, Bound upperBound) {
+                this.input = input;
+                this.lowerBound = lowerBound;
+                this.upperBound = upperBound;
+            }
+
+            private static ComparablePredicateRange from(Expression expression) {
+                if (!(expression instanceof ComparisonPredicate)) {
+                    return null;
+                }
+                ComparisonPredicate normalized = normalizeComparisonPredicate((ComparisonPredicate) expression);
+                if (!(normalized.right() instanceof ComparableLiteral)) {
+                    return null;
+                }
+                ComparableLiteral literal = (ComparableLiteral) normalized.right();
+                if (normalized instanceof EqualTo) {
+                    Bound bound = new Bound(literal, true);
+                    return new ComparablePredicateRange(normalized.left(), bound, bound);
+                }
+                if (normalized instanceof GreaterThan) {
+                    return new ComparablePredicateRange(normalized.left(), new Bound(literal, false), null);
+                }
+                if (normalized instanceof GreaterThanEqual) {
+                    return new ComparablePredicateRange(normalized.left(), new Bound(literal, true), null);
+                }
+                if (normalized instanceof LessThan) {
+                    return new ComparablePredicateRange(normalized.left(), null, new Bound(literal, false));
+                }
+                if (normalized instanceof LessThanEqual) {
+                    return new ComparablePredicateRange(normalized.left(), null, new Bound(literal, true));
+                }
+                return null;
+            }
+
+            private boolean implies(ComparablePredicateRange target) {
+                return input.equals(target.input)
+                        && impliesLowerBound(target.lowerBound)
+                        && impliesUpperBound(target.upperBound);
+            }
+
+            private boolean impliesLowerBound(Bound targetLowerBound) {
+                if (targetLowerBound == null) {
+                    return true;
+                }
+                if (lowerBound == null) {
+                    return false;
+                }
+                int compareResult = lowerBound.literal.compareTo(targetLowerBound.literal);
+                if (compareResult != 0) {
+                    return compareResult > 0;
+                }
+                return !lowerBound.inclusive || targetLowerBound.inclusive;
+            }
+
+            private boolean impliesUpperBound(Bound targetUpperBound) {
+                if (targetUpperBound == null) {
+                    return true;
+                }
+                if (upperBound == null) {
+                    return false;
+                }
+                int compareResult = upperBound.literal.compareTo(targetUpperBound.literal);
+                if (compareResult != 0) {
+                    return compareResult < 0;
+                }
+                return !upperBound.inclusive || targetUpperBound.inclusive;
+            }
+        }
+
+        private static final class Bound {
+            private final ComparableLiteral literal;
+            private final boolean inclusive;
+
+            private Bound(ComparableLiteral literal, boolean inclusive) {
+                this.literal = literal;
+                this.inclusive = inclusive;
+            }
+        }
+    }
+
+    /*
+     * Example:
+     *   (A OR B) AND C
+     * becomes:
+     *   [{A, C}, {B, C}]
+     */
+    private static List<Set<Expression>> extractDnfBranches(Expression expression) {
+        if (BooleanLiteral.TRUE.equals(expression)) {
+            List<Set<Expression>> trueBranches = new ArrayList<>();
+            trueBranches.add(new LinkedHashSet<>());
+            return trueBranches;
+        }
+        if (BooleanLiteral.FALSE.equals(expression)) {
+            return ImmutableList.of();
+        }
+        if (expression instanceof Or) {
+            List<Set<Expression>> branches = new ArrayList<>();
+            for (Expression child : ExpressionUtils.extractDisjunction(expression)) {
+                List<Set<Expression>> childBranches = extractDnfBranches(child);
+                long expectedSize = (long) branches.size() + childBranches.size();
+                if (expectedSize > MAX_DNF_BRANCHES) {
+                    throw DnfBranchOverflowException.INSTANCE;
+                }
+                branches.addAll(childBranches);
+            }
+            return branches;
+        }
+        if (expression instanceof And) {
+            List<Set<Expression>> branches = new ArrayList<>();
+            branches.add(new LinkedHashSet<>());
+            for (Expression child : ExpressionUtils.extractConjunction(expression)) {
+                List<Set<Expression>> childBranches = extractDnfBranches(child);
+                branches = crossProductBranches(branches, childBranches);
+                if (branches.isEmpty()) {
+                    return branches;
+                }
+            }
+            return branches;
+        }
+        List<Set<Expression>> branches = new ArrayList<>();
+        Set<Expression> branch = new LinkedHashSet<>();
+        branch.add(expression);
+        branches.add(branch);
+        return branches;
+    }
+
+    private static List<Set<Expression>> crossProductBranches(List<Set<Expression>> leftBranches,
+            List<Set<Expression>> rightBranches) {
+        if (leftBranches.isEmpty() || rightBranches.isEmpty()) {
+            return ImmutableList.of();
+        }
+        long expectedSize = (long) leftBranches.size() * rightBranches.size();
+        if (expectedSize > MAX_DNF_BRANCHES) {
+            throw DnfBranchOverflowException.INSTANCE;
+        }
+        List<Set<Expression>> mergedBranches = new ArrayList<>((int) expectedSize);
+        for (Set<Expression> leftBranch : leftBranches) {
+            for (Set<Expression> rightBranch : rightBranches) {
+                Set<Expression> mergedBranch = new LinkedHashSet<>(leftBranch);
+                mergedBranch.addAll(rightBranch);
+                mergedBranches.add(mergedBranch);
+            }
+        }
+        return mergedBranches;
+    }
+
+    private static final class DnfBranchOverflowException extends RuntimeException {
+        private static final DnfBranchOverflowException INSTANCE = new DnfBranchOverflowException();
+
+        private DnfBranchOverflowException() {
+            super(null, null, true, false);
+        }
     }
 
     @Override
@@ -308,6 +642,43 @@ public class Predicates {
 
         public ExpressionInfo(Literal literal) {
             this.literal = literal;
+        }
+    }
+
+    /** Predicate compensation result holding equals, ranges and residuals. */
+    public static final class PredicateCompensation {
+        private final Map<Expression, ExpressionInfo> equals;
+        private final Map<Expression, ExpressionInfo> ranges;
+        private final Map<Expression, ExpressionInfo> residuals;
+
+        public PredicateCompensation(Map<Expression, ExpressionInfo> equals,
+                Map<Expression, ExpressionInfo> ranges,
+                Map<Expression, ExpressionInfo> residuals) {
+            this.equals = ImmutableMap.copyOf(equals);
+            this.ranges = ImmutableMap.copyOf(ranges);
+            this.residuals = ImmutableMap.copyOf(residuals);
+        }
+
+        public Map<Expression, ExpressionInfo> getEquals() {
+            return equals;
+        }
+
+        public Map<Expression, ExpressionInfo> getRanges() {
+            return ranges;
+        }
+
+        public Map<Expression, ExpressionInfo> getResiduals() {
+            return residuals;
+        }
+
+        public SplitPredicate toSplitPredicate() {
+            return SplitPredicate.of(equals, ranges, residuals);
+        }
+
+        @Override
+        public String toString() {
+            return Utils.toSqlString("PredicateCompensation",
+                    "equals", equals, "ranges", ranges, "residuals", residuals);
         }
     }
 

@@ -177,6 +177,7 @@ public class AddMinMax implements ExpressionPatternRuleFactory, ValueDescVisitor
         List<Map.Entry<Expression, MinMaxValue>> minMaxExprs = exprMinMaxValues.entrySet().stream()
                 .sorted((a, b) -> Integer.compare(a.getValue().exprOrderIndex, b.getValue().exprOrderIndex))
                 .collect(Collectors.toList());
+        Set<Expression> nonInferredOriginPredicates = collectNonInferredPredicates(expr);
         List<Expression> addExprs = Lists.newArrayListWithExpectedSize(minMaxExprs.size() * 2);
         for (Map.Entry<Expression, MinMaxValue> entry : minMaxExprs) {
             Expression targetExpr = entry.getKey();
@@ -185,7 +186,8 @@ public class AddMinMax implements ExpressionPatternRuleFactory, ValueDescVisitor
                     && range.lowerEndpoint().equals(range.upperEndpoint())
                     && range.lowerBoundType() == BoundType.CLOSED
                     && range.upperBoundType() == BoundType.CLOSED) {
-                Expression cmp = new EqualTo(targetExpr, (Literal) range.lowerEndpoint());
+                Expression cmp = markInferredIfGenerated(new EqualTo(targetExpr, (Literal) range.lowerEndpoint()),
+                        nonInferredOriginPredicates);
                 addExprs.add(cmp);
                 continue;
             }
@@ -194,6 +196,7 @@ public class AddMinMax implements ExpressionPatternRuleFactory, ValueDescVisitor
                 Expression cmp = range.lowerBoundType() == BoundType.CLOSED
                         ? new GreaterThanEqual(targetExpr, (Literal) literal)
                         : new GreaterThan(targetExpr, (Literal) literal);
+                cmp = markInferredIfGenerated(cmp, nonInferredOriginPredicates);
                 addExprs.add(cmp);
             }
             if (range.hasUpperBound()) {
@@ -201,6 +204,7 @@ public class AddMinMax implements ExpressionPatternRuleFactory, ValueDescVisitor
                 Expression cmp = range.upperBoundType() == BoundType.CLOSED
                         ? new LessThanEqual(targetExpr, (Literal) literal)
                         : new LessThan(targetExpr, (Literal) literal);
+                cmp = markInferredIfGenerated(cmp, nonInferredOriginPredicates);
                 addExprs.add(cmp);
             }
         }
@@ -217,8 +221,30 @@ public class AddMinMax implements ExpressionPatternRuleFactory, ValueDescVisitor
         return result;
     }
 
+    private Set<Expression> collectNonInferredPredicates(Expression expr) {
+        Set<Expression> predicates = Sets.newHashSet();
+        collectNonInferredPredicates(expr, predicates);
+        return predicates;
+    }
+
+    private void collectNonInferredPredicates(Expression expr, Set<Expression> predicates) {
+        if (expr instanceof CompoundPredicate) {
+            for (Expression child : expr.children()) {
+                collectNonInferredPredicates(child, predicates);
+            }
+            return;
+        }
+        if (!expr.isInferred()) {
+            predicates.add(expr);
+        }
+    }
+
+    private Expression markInferredIfGenerated(Expression minMaxPredicate,
+            Set<Expression> nonInferredOriginPredicates) {
+        return minMaxPredicate.withInferred(!nonInferredOriginPredicates.contains(minMaxPredicate));
+    }
+
     private Expression replaceCmpMinMax(Expression expr, Set<Expression> cmpMinMaxExprs) {
-        // even if expr is nullable, replace it to true is ok because expression will 'AND' it later
         if (cmpMinMaxExprs.contains(expr)) {
             return BooleanLiteral.TRUE;
         }
