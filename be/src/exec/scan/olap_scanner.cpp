@@ -449,12 +449,10 @@ Status OlapScanner::_init_tablet_reader_params(
         }
 
         const bool no_runtime_filters = _total_rf_num == 0;
-        const bool segment_filter_and_limit_enabled =
-                _state->enable_segment_filter_and_limit_pushdown();
+        const bool segment_limit_enabled = _state->enable_segment_limit_pushdown();
         const bool storage_no_merge = olap_scan_local_state->_storage_no_merge();
 
-        if (_limit > 0 && no_runtime_filters && segment_filter_and_limit_enabled &&
-            storage_no_merge) {
+        if (_limit > 0 && no_runtime_filters && segment_limit_enabled && storage_no_merge) {
             for (const auto& conjunct : _conjuncts) {
                 DORIS_CHECK(!olap_scan_local_state->_check_expr_storage_filter(
                         conjunct->root(), OlapScanLocalState::ExprStorageFilterCheckMode::
@@ -464,9 +462,9 @@ Status OlapScanner::_init_tablet_reader_params(
 
         // Segment LIMIT has only two legal states: completely disabled, or enabled after every
         // row-filtering conjunct has become a storage predicate or SegmentIterator common expr.
-        const bool can_push_down_segment_limit =
-                _limit > 0 && no_runtime_filters && _conjuncts.empty() &&
-                segment_filter_and_limit_enabled && storage_no_merge;
+        const bool can_push_down_segment_limit = _limit > 0 && no_runtime_filters &&
+                                                 _conjuncts.empty() && segment_limit_enabled &&
+                                                 storage_no_merge;
         if (can_push_down_segment_limit) {
             if (has_key_topn) {
                 _tablet_reader_params.read_orderby_key = true;

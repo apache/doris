@@ -50,18 +50,16 @@ suite("test_variant_predefine_index_type", "p0"){
     sql """ set enable_common_expr_pushdown = true """
     sql """ set enable_match_without_inverted_index = false """
 
-    sql """ set enable_segment_filter_and_limit_pushdown = false """
-    test {
-        sql """ select count() from ${tableName} where cast(var['path']['int'] as int) = 789 """
-        exception "COUNT_ON_INDEX pushdown cannot be used with residual scan predicates"
-    }
+    sql """ set enable_segment_limit_pushdown = false """
+    qt_count_on_index_with_segment_limit_disabled """
+        select count() from ${tableName} where cast(var['path']['int'] as int) = 789
+    """
     sql """ set enable_count_on_index_pushdown = false """
-    test {
-        sql """ select id from ${tableName} where var['path']['string'] match 'hello' order by id """
-        exception "MATCH expressions require SegmentIterator inverted-index evaluation"
-    }
+    qt_match_with_segment_limit_disabled """
+        select id from ${tableName} where var['path']['string'] match 'hello' order by id
+    """
     sql """ set enable_count_on_index_pushdown = true """
-    sql """ set enable_segment_filter_and_limit_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
 
     qt_sql """ select count() from ${tableName} where cast(var['path']['int'] as int) = 789 """
     qt_sql """ select count() from ${tableName} where cast(var['path']['decimal'] as DECIMAL(15, 12)) = 789.789123456789 """
