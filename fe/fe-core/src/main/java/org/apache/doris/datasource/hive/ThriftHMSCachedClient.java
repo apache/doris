@@ -710,11 +710,11 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         private final IMetaStoreClient client;
         private volatile Throwable throwable;
         private volatile boolean readyToClose;
-        private String hadoopUserName;
+        private String hmsClientKey;
 
-        private ThriftHMSClient(String hadoopUserName, String hadoopUserToken, HiveConf hiveConf) throws MetaException {
+        private ThriftHMSClient(BDPAuthContext bdpAuthContext, HiveConf hiveConf) throws MetaException {
             String type = hiveConf.get(HMSBaseProperties.HIVE_METASTORE_TYPE);
-            this.hadoopUserName = hadoopUserName;
+            this.hmsClientKey = bdpAuthContext.getHmsClientCacheKey();
             this.readyToClose = false;
             if (HMSBaseProperties.DLF_TYPE.equalsIgnoreCase(type)) {
                 client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
@@ -723,8 +723,8 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                 client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
                         AWSCatalogMetastoreClient.class.getName());
             } else {
-                UserGroupInformation ugi = UserGroupInformation.createRemoteUser(hadoopUserName,
-                        null, hadoopUserToken);
+                UserGroupInformation ugi = UserGroupInformation.createRemoteUser(bdpAuthContext.getHadoopUserName(),
+                        null, bdpAuthContext.getUserToken());
                 client = ugi.doAs((PrivilegedAction<IMetaStoreClient>) () -> {
                     try {
                         return RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
@@ -751,10 +751,10 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                 if (isClosed || throwable != null || readyToClose) {
                     readyToClose = true;
                 } else {
-                    clientPool.put(hadoopUserName, this);
+                    clientPool.put(hmsClientKey, this);
                     pooledClientCount.incrementAndGet();
                     totalPooledClientCount.incrementAndGet();
-                    priorityQueue.add(Pair.of(hadoopUserName, System.currentTimeMillis()));
+                    priorityQueue.add(Pair.of(hmsClientKey, System.currentTimeMillis()));
                     if (clientPool.size() > poolSize) {
                         Pair<String, Long> pair = priorityQueue.poll();
                         List<ThriftHMSClient> clients = (List<ThriftHMSClient>) clientPool.get(pair.first);
@@ -784,15 +784,15 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             ThriftHMSClient client = null;
             synchronized (clientPool) {
                 try {
-                    client = clientPool.get(bdpAuthContext.getHadoopUserName()).stream()
+                    client = clientPool.get(bdpAuthContext.getHmsClientCacheKey()).stream()
                         .findFirst().orElse(null);
                     if (client != null) {
-                        clientPool.remove(bdpAuthContext.getHadoopUserName(), client);
+                        clientPool.remove(bdpAuthContext.getHmsClientCacheKey(), client);
                         pooledClientCount.decrementAndGet();
                         totalPooledClientCount.decrementAndGet();
                         Iterator<Pair<String, Long>> iterator = priorityQueue.iterator();
                         while (iterator.hasNext()) {
-                            if (iterator.next().first.equals(bdpAuthContext.getHadoopUserName())) {
+                            if (iterator.next().first.equals(bdpAuthContext.getHmsClientCacheKey())) {
                                 iterator.remove();
                                 break;
                             }
@@ -805,8 +805,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                     HiveConf conf = new HiveConf(hiveConf);
                     conf.set("BEE_SOURCE", bdpAuthContext.getSource());
                     conf.set("BEE_USER", bdpAuthContext.getErp());
-                    client = new ThriftHMSClient(bdpAuthContext.getHadoopUserName(), bdpAuthContext.getUserToken(),
-                        hiveConf);
+                    client = new ThriftHMSClient(bdpAuthContext, hiveConf);
                     if (bdpAuthContext.getUserType() != null && bdpAuthContext.getUserType().equalsIgnoreCase(
                             "dev_personal")) {
                         client.client.setMetaConf("USER_TYPE", bdpAuthContext.getUserType());

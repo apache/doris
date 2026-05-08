@@ -21,6 +21,8 @@ import org.apache.doris.thrift.TBDPAuthContext;
 
 import com.alibaba.ttl.TransmittableThreadLocal;
 
+import java.util.Optional;
+
 public class BDPAuthContext {
     protected static TransmittableThreadLocal<BDPAuthContext> threadLocalInfo = new TransmittableThreadLocal<>();
     private String erp = null;
@@ -140,6 +142,13 @@ public class BDPAuthContext {
 
     public String getBusinessLine() {
         return businessLine;
+    }
+
+    public String getHmsClientCacheKey() {
+        StringBuilder sd = new StringBuilder(hadoopUserName);
+        Optional.ofNullable(userType).ifPresent(sd::append);
+        Optional.ofNullable(businessLine).ifPresent(sd::append);
+        return sd.toString();
     }
 
     public String toString() {
