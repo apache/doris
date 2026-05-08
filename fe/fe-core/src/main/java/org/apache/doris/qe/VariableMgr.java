@@ -306,6 +306,8 @@ public class VariableMgr {
                 ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_OPERATION_FOR_IAM, setVar.getVariable());
             }
             ConnectContext.get().getBdpAuthContext().setErpChanged(true);
+            ConnectContext.get().getBdpAuthContext().setUserType(null);
+            ConnectContext.get().getBdpAuthContext().setBusinessLine(null);
             LOG.info("succeed to set erp, " + bdpAuthContext);
         } else if (setVar.getVariable().equalsIgnoreCase("hadoop_user_name")) {
             BDPAuthContext bdpAuthContext = BDPAuthContext.get();
@@ -324,6 +326,20 @@ public class VariableMgr {
                 bdpAuthContext.setUserToken(userToken);
                 bdpAuthContext.setErpChanged(false);
                 LOG.info("succeed to set hadoop_user_name, " + bdpAuthContext);
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_OPERATION_FOR_IAM, setVar.getVariable());
+            }
+        } else if (setVar.getVariable().equalsIgnoreCase("businessline")) {
+            BDPAuthContext bdpAuthContext = BDPAuthContext.get();
+            Preconditions.checkNotNull(bdpAuthContext, "bdp auth info cannot be null");
+            if (IAMUtil.isSourceInWhitelist(bdpAuthContext.getSource())) {
+                if (!bdpAuthContext.isErpChanged()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_OPERATION_FOR_IAM, setVar.getVariable());
+                }
+                String businessLineName = setVar.getValue().getStringValue();
+                bdpAuthContext.setBusinessLine(businessLineName);
+                bdpAuthContext.setUserType("dev_personal");
+                LOG.info("succeed to set businessline, " + bdpAuthContext);
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_OPERATION_FOR_IAM, setVar.getVariable());
             }
