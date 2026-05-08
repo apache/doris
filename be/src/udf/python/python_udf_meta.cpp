@@ -32,7 +32,6 @@ namespace doris {
 
 Status PythonUDFMeta::convert_types_to_schema(const DataTypes& types, const std::string& timezone,
                                               std::shared_ptr<arrow::Schema>* schema) {
-    assert(!types.empty());
     arrow::SchemaBuilder builder;
     for (size_t i = 0; i < types.size(); ++i) {
         std::shared_ptr<arrow::DataType> arrow_type;
@@ -152,8 +151,9 @@ Status PythonUDFMeta::check() const {
         return Status::InvalidArgument("Python UDF runtime version is empty");
     }
 
-    if (input_types.empty()) {
-        return Status::InvalidArgument("Python UDF input types is empty");
+    if (input_types.empty() &&
+        (client_type == PythonClientType::UDAF || type == PythonUDFLoadType::UNKNOWN)) {
+        return Status::InvalidArgument("Python UDAF input types is empty");
     }
 
     if (!return_type) {
