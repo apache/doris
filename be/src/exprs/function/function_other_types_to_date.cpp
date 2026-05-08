@@ -108,7 +108,7 @@ struct StrToDate {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-        NullMap& result_null_map = assert_cast<ColumnUInt8&>(*result_null_map_column).get_data();
+        NullMap& result_null_map = result_null_map_column->get_data();
 
         ColumnPtr argument_columns[2];
         bool col_const[2];
@@ -263,7 +263,7 @@ struct MakeDateImpl {
 
         // Handle null map manually - update result null map from input null maps upfront
         auto result_null_map_column = ColumnBool::create(input_rows_count, 0);
-        NullMap& result_null_map = assert_cast<ColumnBool&>(*result_null_map_column).get_data();
+        NullMap& result_null_map = result_null_map_column->get_data();
 
         ColumnPtr argument_columns[2];
         bool col_const[2];
@@ -584,7 +584,7 @@ public:
 
         // Handle null map manually - update result null map from input null map upfront
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-        NullMap& result_null_map = assert_cast<ColumnUInt8&>(*result_null_map_column).get_data();
+        NullMap& result_null_map = result_null_map_column->get_data();
 
         // Update result null map from input null map using standard approach
         bool col_const = is_column_const(*argument_column);
@@ -794,7 +794,7 @@ struct UnixTimeStampStrImpl {
                                size_t input_rows_count) {
         // Handle null map manually
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-        NullMap& result_null_map = assert_cast<ColumnUInt8&>(*result_null_map_column).get_data();
+        NullMap& result_null_map = result_null_map_column->get_data();
 
         ColumnPtr col_left = nullptr, col_right = nullptr;
         bool source_const = false, format_const = false;
@@ -1011,7 +1011,7 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         // Handle null map manually - update result null map from input null maps upfront
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-        NullMap& result_null_map = assert_cast<ColumnUInt8&>(*result_null_map_column).get_data();
+        NullMap& result_null_map = result_null_map_column->get_data();
 
         ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
         const NullMap* null_map = VectorizedUtils::get_null_map(argument_column);
@@ -1260,7 +1260,7 @@ struct FromIso8601DateV2 {
                           uint32_t result, size_t input_rows_count) {
         const auto* src_column_ptr = block.get_by_position(arguments[0]).column.get();
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-        NullMap& result_null_map = assert_cast<ColumnUInt8&>(*result_null_map_column).get_data();
+        NullMap& result_null_map = result_null_map_column->get_data();
 
         ColumnDateV2::MutablePtr res = ColumnDateV2::create(input_rows_count);
         auto& result_data = res->get_data();
