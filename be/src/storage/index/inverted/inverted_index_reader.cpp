@@ -79,10 +79,26 @@ static void bkd_encode_max(const doris::KeyCoder* coder, std::string* out) {
 
 static doris::Status encode_bkd_field_ascending(doris::FieldType ft, const doris::Field& field,
                                                 const doris::KeyCoder* coder, std::string* out) {
-#define CASE(FT, PT)                                                                  \
-    case doris::FieldType::FT:                                                        \
-        doris::full_encode_field_as_key<doris::PrimitiveType::PT>(field, coder, out); \
-        return doris::Status::OK();
+    // `actual` is the primitive type of the query Field from the caller; `PrimitiveType::PT` is the
+    // scalar type the BKD index stores (e.g. INT for an INT column or ARRAY<INT> index).
+    // Normally they match: `int_col = 1` -> both INT; `array_contains(int_arr, 2)` -> both INT.
+    // Mismatch happens when the query Field carries a non-scalar while BKD records the inner scalar:
+    // `arr = []` reaches here via `FunctionComparison<EqualsOp>` with the entire const ARRAY literal
+    // as the query Field, so `actual = TYPE_ARRAY` while PT is the inner scalar -- the predicate
+    // cannot be answered by BKD. Return INVERTED_INDEX_EVALUATE_SKIPPED so `_apply_index_expr`
+    // downgrades to scalar evaluation instead of crashing on `Field::get<PT>()` DCHECK below.
+#define CASE(FT, PT)                                                                               \
+    case doris::FieldType::FT: {                                                                   \
+        const auto actual = field.get_type();                                                      \
+        if (actual != doris::PrimitiveType::PT && actual != doris::PrimitiveType::TYPE_NULL &&     \
+            !(doris::is_string_type(actual) && doris::is_string_type(doris::PrimitiveType::PT))) { \
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED, false>( \
+                    "BKD query value type {} does not match index type {}",                        \
+                    static_cast<int>(actual), static_cast<int>(ft));                               \
+        }                                                                                          \
+        doris::full_encode_field_as_key<doris::PrimitiveType::PT>(field, coder, out);              \
+        return doris::Status::OK();                                                                \
+    }
     switch (ft) {
         DORIS_APPLY_FOR_KEY_ENCODABLE_NON_STRING_TYPES(CASE)
     default:
