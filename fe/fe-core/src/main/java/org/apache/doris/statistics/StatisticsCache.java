@@ -401,6 +401,9 @@ public class StatisticsCache {
             if (ctx != null && ctx.getState().isPlanWithUnKnownColumnStats()) {
                 return ColumnStatistic.UNKNOWN;
             }
+            if (StatisticConstants.isSystemTable(olapTable)) {
+                return ColumnStatistic.UNKNOWN;
+            }
             return doGetColumnStatistics(
                     catalogId, schemaId, tableId, selectIndexId, colName, ctx
             );
@@ -409,6 +412,9 @@ public class StatisticsCache {
         public PartitionColumnStatistic getPartitionColumnStatistics(
                 String partName, String colName, ConnectContext ctx) {
             if (ctx != null && ctx.getState().isPlanWithUnKnownColumnStats()) {
+                return PartitionColumnStatistic.UNKNOWN;
+            }
+            if (StatisticConstants.isSystemTable(olapTable)) {
                 return PartitionColumnStatistic.UNKNOWN;
             }
             return doGetPartitionColumnStatistics(

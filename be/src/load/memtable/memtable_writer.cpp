@@ -289,6 +289,9 @@ Status MemTableWriter::_do_close_wait() {
 }
 
 void MemTableWriter::_update_profile(RuntimeProfile* profile) {
+    if (!profile) {
+        return;
+    }
     // NOTE: MemTableWriter may be accessed when profile is out of scope, in MemTableMemoryLimiter.
     // To avoid accessing dangling pointers, we cannot make profile as a member of MemTableWriter.
     auto child =

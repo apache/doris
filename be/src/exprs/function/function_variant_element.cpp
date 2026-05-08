@@ -207,13 +207,17 @@ private:
                 assert_cast<const ColumnString&>(doc_value_data_map.get_keys());
         const auto& src_doc_value_data_values =
                 assert_cast<const ColumnString&>(doc_value_data_map.get_values());
-        // Write extracted data into target's doc_value column (not sparse) to preserve
-        // doc mode invariant: doc_mode columns must not have sparse data.
-        auto& doc_value_offsets =
-                assert_cast<ColumnMap&>(*target_ptr->get_doc_value_column()->assume_mutable())
+        const bool write_to_doc_value = target_ptr->enable_doc_mode();
+        // Ordinary Variant extraction keeps the selected prefix in sparse data, matching the
+        // source branch behavior. Only doc-mode columns keep extracted data in doc_value.
+        auto& extracted_offsets =
+                assert_cast<ColumnMap&>(*(write_to_doc_value ? target_ptr->get_doc_value_column()
+                                                             : target_ptr->get_sparse_column())
+                                                 ->assume_mutable())
                         .get_offsets();
-        auto [doc_value_paths, doc_value_values] =
-                target_ptr->get_doc_value_data_paths_and_values();
+        auto [extracted_paths, extracted_values] =
+                write_to_doc_value ? target_ptr->get_doc_value_data_paths_and_values()
+                                   : target_ptr->get_sparse_data_paths_and_values();
         StringRef prefix_ref(path.get_path());
         std::string_view path_prefix(prefix_ref.data, prefix_ref.size);
         for (size_t i = 0; i != src_doc_value_data_offsets.size(); ++i) {
@@ -233,20 +237,24 @@ private:
                         continue;
                     }
                     std::string_view sub_path = *sub_path_optional;
-                    doc_value_paths->insert_data(sub_path.data(), sub_path.size());
-                    doc_value_values->insert_from(src_doc_value_data_values, lower_bound_index);
+                    extracted_paths->insert_data(sub_path.data(), sub_path.size());
+                    extracted_values->insert_from(src_doc_value_data_values, lower_bound_index);
                 } else {
                     root.deserialize_from_binary_column(&src_doc_value_data_values,
                                                         lower_bound_index);
                 }
             }
-            if (root.size() == doc_value_offsets.size()) {
+            if (root.size() == extracted_offsets.size()) {
                 root.insert_default();
             }
-            doc_value_offsets.push_back(doc_value_paths->size());
+            extracted_offsets.push_back(extracted_paths->size());
         }
         target_ptr->get_subcolumns().create_root(root);
-        target_ptr->get_sparse_column()->assume_mutable()->resize(src_ptr->size());
+        if (write_to_doc_value) {
+            target_ptr->get_sparse_column()->assume_mutable()->resize(src_ptr->size());
+        } else {
+            target_ptr->get_doc_value_column()->assume_mutable()->resize(src_ptr->size());
+        }
         target_ptr->set_num_rows(src_ptr->size());
     }
 

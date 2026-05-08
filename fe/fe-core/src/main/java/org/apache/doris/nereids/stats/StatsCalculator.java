@@ -76,18 +76,17 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -104,6 +103,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
@@ -111,7 +111,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOla
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
@@ -119,7 +118,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
@@ -433,14 +431,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return getColumnStatistic(catalogRelation.getTable(), slot.getName(), idxId);
     }
 
-    /**
-     * if get partition col stats failed, then return table level col stats
-     */
-    private ColumnStatistic getColumnStatsFromPartitionCacheOrTableCache(
-            OlapTableStatistics olapTableStats, SlotReference slot, List<String> partitionNames) {
-        return getColumnStatistic(olapTableStats, slot.getName(), partitionNames);
-    }
-
     private double getSelectedPartitionRowCount(OlapScan olapScan, double tableRowCount) {
         // the number of partitions whose row count is not available
         double unknownPartitionCount = 0;
@@ -629,8 +619,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             for (SlotReference slot : visibleOutputSlots) {
                 ColumnStatistic cache;
                 if (enablePartitionStatics) {
-                    cache = getColumnStatsFromPartitionCacheOrTableCache(
-                            olapTableStats, slot, selectedPartitionNames);
+                    cache = getColumnStatistic(olapTableStats, slot.getName(), selectedPartitionNames);
                 } else {
                     cache = olapTableStats.getColumnStatistics(slot.getName(), connectContext);
                 }
@@ -639,7 +628,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 }
                 ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache,
                         selectedPartitionsRowCount);
-                colStatsBuilder.normalizeAvgSizeByte(slot);
+                colStatsBuilder.normalizeAvgSizeByte(slot.getDataType());
+                //scale null_num
+                double scale = tableRowCount == 0 ? 1 : selectedPartitionsRowCount / tableRowCount;
+                colStatsBuilder.setNumNulls(colStatsBuilder.getNumNulls() * scale);
                 builder.putColumnStatistics(slot, colStatsBuilder.build());
             }
             checkIfUnknownStatsUsedAsKey(builder);
@@ -649,7 +641,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             for (SlotReference slot : visibleOutputSlots) {
                 ColumnStatistic cache = olapTableStats.getColumnStatistics(slot.getName(), connectContext);
                 ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache, tableRowCount);
-                colStatsBuilder.normalizeAvgSizeByte(slot);
+                colStatsBuilder.normalizeAvgSizeByte(slot.getDataType());
                 builder.putColumnStatistics(slot, colStatsBuilder.build());
             }
             checkIfUnknownStatsUsedAsKey(builder);
@@ -832,6 +824,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return computeOlapScan(olapScan);
     }
 
+    @Override
+    public Statistics visitLogicalOlapTableStreamScan(LogicalOlapTableStreamScan olapScan, Void context) {
+        return computeOlapScan(olapScan);
+    }
+
     private boolean isVisibleSlotReference(Slot slot) {
         if (slot instanceof SlotReference) {
             Optional<Column> colOpt = ((SlotReference) slot).getOriginalColumn();
@@ -869,21 +866,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
-    public Statistics visitLogicalJdbcScan(LogicalJdbcScan jdbcScan, Void context) {
-        jdbcScan.getExpressions();
-        return computeCatalogRelation(jdbcScan);
-    }
-
-    @Override
     public Statistics visitLogicalOdbcScan(LogicalOdbcScan odbcScan, Void context) {
         odbcScan.getExpressions();
         return computeCatalogRelation(odbcScan);
-    }
-
-    @Override
-    public Statistics visitLogicalEsScan(LogicalEsScan esScan, Void context) {
-        esScan.getExpressions();
-        return computeCatalogRelation(esScan);
     }
 
     @Override
@@ -1036,6 +1021,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
+    public Statistics visitPhysicalBucketedHashAggregate(
+            PhysicalBucketedHashAggregate<? extends Plan> agg, Void context) {
+        return computeAggregate(agg, groupExpression.childStatistics(0));
+    }
+
+    @Override
     public Statistics visitPhysicalRepeat(PhysicalRepeat<? extends Plan> repeat, Void context) {
         return computeRepeat(repeat, groupExpression.childStatistics(0));
     }
@@ -1104,18 +1095,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
-    public Statistics visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, Void context) {
-        return computeCatalogRelation(jdbcScan);
-    }
-
-    @Override
     public Statistics visitPhysicalOdbcScan(PhysicalOdbcScan odbcScan, Void context) {
         return computeCatalogRelation(odbcScan);
-    }
-
-    @Override
-    public Statistics visitPhysicalEsScan(PhysicalEsScan esScan, Void context) {
-        return computeCatalogRelation(esScan);
     }
 
     @Override
@@ -1288,6 +1269,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return columnStatistics;
     }
 
+    /**
+     * - partition pruned: try to get partition col stats, if failed, then fall back to table level col stats
+     * - no partition pruned: get table level col stats
+     */
     private ColumnStatistic getColumnStatistic(
             OlapTableStatistics olapTableStatistics, String colName, List<String> partitionNames) {
         if (connectContext != null && connectContext.getState().isPlanWithUnKnownColumnStats()) {
@@ -1497,7 +1482,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         //       2. Handle alias, literal in the output expression list
         for (NamedExpression outputExpression : outputExpressions) {
             ColumnStatistic columnStat = ExpressionEstimation.estimate(outputExpression, childStats);
-            if (columnStat.getHotValues() != null) {
+            Map<Literal, Float> hotValues = columnStat.getHotValues();
+            // Hot values from child cannot be propagated through aggregate: aggregation (group by, sum, etc.)
+            if (hotValues != null && !hotValues.isEmpty()) {
                 ColumnStatisticBuilder builder = new ColumnStatisticBuilder(columnStat);
                 builder.setHotValues(null);
                 columnStat = builder.build();
@@ -1622,14 +1609,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 }
             }
 
+            int maxHotValueCount = SessionVariable.getHotValueCollectCount();
             Map<Literal, Float> resultHotValues = new LinkedHashMap<>();
-            for (Literal hot : unionHotValues.keySet()) {
-                float ratio = (float) (unionHotValues.get(hot) / unionRowCount);
-                if (ratio * colStatsBuilder.getNdv() >= SessionVariable.getSkewValueThreshold()
-                        || ratio >= SessionVariable.getHotValueThreshold()) {
-                    resultHotValues.put(hot, ratio);
-                }
-            }
+            unionHotValues.entrySet().stream()
+                    .sorted((a, b) -> Float.compare(b.getValue(), a.getValue()))
+                    .limit(maxHotValueCount)
+                    .forEach(e -> resultHotValues.put(e.getKey(), (float) (e.getValue() / unionRowCount)));
             if (!resultHotValues.isEmpty()) {
                 colStatsBuilder.setHotValues(resultHotValues);
             }
@@ -1698,14 +1683,15 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 }
             }
 
-            Map<Literal, Float> resultHotValues = new LinkedHashMap<>();
-            for (Literal hot : unionHotValues.keySet()) {
-                float ratio = (float) (unionHotValues.get(hot) / unionRowCount);
-                if (ratio * colStatsBuilder.getNdv() >= SessionVariable.getSkewValueThreshold()
-                        || ratio >= SessionVariable.getHotValueThreshold()) {
-                    resultHotValues.put(hot, ratio);
-                }
+            int maxHotValueCount = SessionVariable.getHotValueCollectCount();
+            if (maxHotValueCount <= 0) {
+                maxHotValueCount = 10;
             }
+            Map<Literal, Float> resultHotValues = new LinkedHashMap<>();
+            unionHotValues.entrySet().stream()
+                    .sorted((a, b) -> Float.compare(b.getValue(), a.getValue()))
+                    .limit(maxHotValueCount)
+                    .forEach(e -> resultHotValues.put(e.getKey(), (float) (e.getValue() / unionRowCount)));
             if (!resultHotValues.isEmpty()) {
                 colStatsBuilder.setHotValues(resultHotValues);
             }

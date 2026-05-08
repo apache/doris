@@ -279,6 +279,14 @@ public class Partition extends MetaObject {
         return remoteDataSize;
     }
 
+    public long getBinlogDataSize() {
+        long binlogDataSize = 0;
+        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE)) {
+            binlogDataSize += mIndex.getBinlogSize();
+        }
+        return binlogDataSize;
+    }
+
     public long getReplicaCount() {
         long replicaCount = 0;
         for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE)) {

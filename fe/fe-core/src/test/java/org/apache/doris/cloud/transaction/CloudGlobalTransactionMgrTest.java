@@ -290,12 +290,18 @@ public class CloudGlobalTransactionMgrTest {
         MetaServiceProxy mockProxy = Mockito.mock(MetaServiceProxy.class);
         try (MockedStatic<MetaServiceProxy> mockedStatic = Mockito.mockStatic(MetaServiceProxy.class)) {
             mockedStatic.when(MetaServiceProxy::getInstance).thenReturn(mockProxy);
-            AbortTxnResponse response = AbortTxnResponse.newBuilder()
+            long transactionId = 123533;
+            Cloud.GetTxnResponse getTxnResponse = Cloud.GetTxnResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(MetaServiceCode.OK).setMsg("OK"))
+                    .setTxnInfo(buildTxnInfo(transactionId))
+                    .build();
+            AbortTxnResponse abortTxnResponse = AbortTxnResponse.newBuilder()
                     .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
                             .setCode(MetaServiceCode.OK).setMsg("OK"))
                     .build();
-            Mockito.doReturn(response).when(mockProxy).abortTxn(Mockito.any());
-            long transactionId = 123533;
+            Mockito.doReturn(getTxnResponse).when(mockProxy).getTxn(Mockito.any());
+            Mockito.doReturn(abortTxnResponse).when(mockProxy).abortTxn(Mockito.any());
             masterTransMgr.abortTransaction(CatalogTestUtil.testDbId1, transactionId, "User Cancelled");
         }
     }
@@ -319,7 +325,14 @@ public class CloudGlobalTransactionMgrTest {
         MetaServiceProxy mockProxy = Mockito.mock(MetaServiceProxy.class);
         try (MockedStatic<MetaServiceProxy> mockedStatic = Mockito.mockStatic(MetaServiceProxy.class)) {
             mockedStatic.when(MetaServiceProxy::getInstance).thenReturn(mockProxy);
+            long transactionId = 123533;
+            Cloud.GetTxnResponse getTxnResponse = Cloud.GetTxnResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(MetaServiceCode.OK).setMsg("OK"))
+                    .setTxnInfo(buildTxnInfo(transactionId))
+                    .build();
             final int[] times = {1};
+            Mockito.doReturn(getTxnResponse).when(mockProxy).getTxn(Mockito.any());
             Mockito.doAnswer(invocation -> {
                 AbortTxnResponse.Builder abortTxnResponseBuilder = AbortTxnResponse.newBuilder();
                 if (times[0] > 5) {
@@ -333,7 +346,6 @@ public class CloudGlobalTransactionMgrTest {
                 times[0]++;
                 return abortTxnResponseBuilder.build();
             }).when(mockProxy).abortTxn(Mockito.any());
-            long transactionId = 123533;
             masterTransMgr.abortTransaction(CatalogTestUtil.testDbId1, transactionId, "User Cancelled");
         }
     }
@@ -409,5 +421,16 @@ public class CloudGlobalTransactionMgrTest {
             long result = masterTransMgr.getNextTransactionId();
             Assert.assertEquals(1000, result);
         }
+    }
+
+    private TxnInfoPB buildTxnInfo(long transactionId) {
+        return TxnInfoPB.newBuilder()
+                .setDbId(CatalogTestUtil.testDbId1)
+                .addAllTableIds(Lists.newArrayList(CatalogTestUtil.testTableId1))
+                .setTxnId(transactionId)
+                .setLabel(CatalogTestUtil.testTxnLabel1)
+                .setListenerId(0L)
+                .setStatus(Cloud.TxnStatusPB.TXN_STATUS_PREPARED)
+                .build();
     }
 }

@@ -28,6 +28,9 @@ namespace doris {
 constexpr std::string_view kBinlogPrefix = "binlog_";
 constexpr std::string_view kBinlogMetaPrefix = "binlog_meta_";
 constexpr std::string_view kBinlogDataPrefix = "binlog_data_";
+constexpr std::string_view kRowBinlogPrefix = "binlog_row_";
+// used in file directory
+constexpr std::string_view FDRowBinlogSuffix = "_row_binlog";
 
 inline auto make_binlog_meta_key(const std::string_view tablet, int64_t version,
                                  const std::string_view rowset) {

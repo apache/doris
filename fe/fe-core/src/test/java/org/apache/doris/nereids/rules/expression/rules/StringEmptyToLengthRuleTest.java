@@ -24,10 +24,13 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.collect.ImmutableList;
@@ -137,5 +140,55 @@ public class StringEmptyToLengthRuleTest extends ExpressionRewriteTestHelper {
         // NOT(str_col = 'abc') — non-empty literal, must not be rewritten
         SlotReference slot = new SlotReference("str_col", StringType.INSTANCE, true);
         assertRuleNoRewrite(new Not(new EqualTo(slot, new VarcharLiteral("abc"))));
+    }
+
+    // ─── Struct element (non-SlotReference expression) cases ─────────────────────
+
+    @Test
+    public void testStructElementEqualEmptyRewrite() {
+        // struct_element(struct_col, 'f3') = '' → length(struct_element(struct_col, 'f3')) = 0
+        SlotReference structSlot = new SlotReference("struct_col",
+                new StructType(ImmutableList.of(
+                        new StructField("f1", IntegerType.INSTANCE, true, ""),
+                        new StructField("f3", StringType.INSTANCE, true, "")
+                )), true);
+        StructElement structElement = new StructElement(structSlot, new VarcharLiteral("f3"));
+        VarcharLiteral empty = new VarcharLiteral("");
+        assertRuleRewrite(
+                new EqualTo(structElement, empty),
+                new EqualTo(new Length(structElement), new IntegerLiteral(0))
+        );
+    }
+
+    @Test
+    public void testStructElementReversedOperandsRewrite() {
+        // '' = struct_element(struct_col, 'f3') → length(struct_element(struct_col, 'f3')) = 0
+        SlotReference structSlot = new SlotReference("struct_col",
+                new StructType(ImmutableList.of(
+                        new StructField("f1", IntegerType.INSTANCE, true, ""),
+                        new StructField("f3", StringType.INSTANCE, true, "")
+                )), true);
+        StructElement structElement = new StructElement(structSlot, new VarcharLiteral("f3"));
+        VarcharLiteral empty = new VarcharLiteral("");
+        assertRuleRewrite(
+                new EqualTo(empty, structElement),
+                new EqualTo(new Length(structElement), new IntegerLiteral(0))
+        );
+    }
+
+    @Test
+    public void testNotStructElementEqualEmptyRewrite() {
+        // NOT(struct_element(struct_col, 'f3') = '') → NOT(length(struct_element(struct_col, 'f3')) = 0)
+        SlotReference structSlot = new SlotReference("struct_col",
+                new StructType(ImmutableList.of(
+                        new StructField("f1", IntegerType.INSTANCE, true, ""),
+                        new StructField("f3", StringType.INSTANCE, true, "")
+                )), true);
+        StructElement structElement = new StructElement(structSlot, new VarcharLiteral("f3"));
+        VarcharLiteral empty = new VarcharLiteral("");
+        assertRuleRewrite(
+                new Not(new EqualTo(structElement, empty)),
+                new Not(new EqualTo(new Length(structElement), new IntegerLiteral(0)))
+        );
     }
 }

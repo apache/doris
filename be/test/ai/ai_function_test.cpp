@@ -50,13 +50,35 @@ namespace doris {
 class FunctionAITransportTestHelper : public FunctionAISentiment {
 public:
     using FunctionAISentiment::do_send_request;
-    using FunctionAISentiment::execute_embedding_request;
 };
 
-class EmptyEmbeddingResultAdapter : public MockAdapter {
+class FunctionAIFilterBatchTestHelper : public AIFunction<FunctionAIFilterBatchTestHelper> {
 public:
-    Status parse_embedding_response(const std::string& /*response_body*/,
-                                    std::vector<std::vector<float>>& /*results*/) const override {
+    friend class AIFunction<FunctionAIFilterBatchTestHelper>;
+
+    static constexpr auto name = "ai_filter";
+    static constexpr auto system_prompt = FunctionAIFilter::system_prompt;
+    static constexpr size_t number_of_arguments = FunctionAIFilter::number_of_arguments;
+
+    using AIFunction<FunctionAIFilterBatchTestHelper>::execute_batch_request;
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeBool>();
+    }
+
+    MutableColumnPtr create_result_column() const { return ColumnUInt8::create(); }
+
+    Status append_batch_results(const std::vector<std::string>& batch_results,
+                                IColumn& col_result) const {
+        auto& bool_col = assert_cast<ColumnUInt8&>(col_result);
+        for (const auto& batch_result : batch_results) {
+            std::string_view trimmed = doris::trim(batch_result);
+            if (trimmed != "1" && trimmed != "0") {
+                return Status::RuntimeError("Failed to parse boolean value: " +
+                                            std::string(trimmed));
+            }
+            bool_col.insert_value(static_cast<UInt8>(trimmed == "1"));
+        }
         return Status::OK();
     }
 };
@@ -417,6 +439,7 @@ TEST(AIFunctionTest, AISimilarityTest) {
 TEST(AIFunctionTest, AISimilarityExecuteTest) {
     auto runtime_state = std::make_unique<MockRuntimeState>();
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+    setenv("AI_TEST_RESULT", R"(["0.5"])", 1);
 
     std::vector<std::string> resources = {"mock_resource"};
     std::vector<std::string> text1 = {"I like this dish"};
@@ -439,6 +462,7 @@ TEST(AIFunctionTest, AISimilarityExecuteTest) {
             similarity_func->execute_impl(ctx.get(), block, arguments, result_idx, text1.size());
 
     ASSERT_TRUE(exec_status.ok());
+    unsetenv("AI_TEST_RESULT");
 }
 
 TEST(AIFunctionTest, AISimilarityTrimWhitespace) {
@@ -446,10 +470,19 @@ TEST(AIFunctionTest, AISimilarityTrimWhitespace) {
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
 
     std::vector<std::pair<std::string, float>> test_cases = {
-            {"0.5", 0.5f},        {"1.0", 1.0f},     {"0.0", 0.0f},           {" 0.5", 0.5f},
-            {"0.5 ", 0.5f},       {" 0.5 ", 0.5f},   {"\n0.8", 0.8f},         {"0.3\n", 0.3f},
-            {"\n0.7\n", 0.7f},    {"\t0.2\t", 0.2f}, {" \n\t0.9 \n\t", 0.9f}, {"  0.1  ", 0.1f},
-            {"\r\n0.6\r\n", 0.6f}};
+            {R"(["0.5"])", 0.5f},
+            {R"(["1.0"])", 1.0f},
+            {R"(["0.0"])", 0.0f},
+            {" " + std::string(R"(["0.5"])"), 0.5f},
+            {std::string(R"(["0.5"])") + " ", 0.5f},
+            {" " + std::string(R"(["0.5"])") + " ", 0.5f},
+            {"\n" + std::string(R"(["0.8"])"), 0.8f},
+            {std::string(R"(["0.3"])") + "\n", 0.3f},
+            {"\n" + std::string(R"(["0.7"])") + "\n", 0.7f},
+            {"\t" + std::string(R"(["0.2"])") + "\t", 0.2f},
+            {" \n\t" + std::string(R"(["0.9"])") + " \n\t", 0.9f},
+            {"  " + std::string(R"(["0.1"])") + "  ", 0.1f},
+            {"\r\n" + std::string(R"(["0.6"])") + "\r\n", 0.6f}};
 
     for (const auto& test_case : test_cases) {
         setenv("AI_TEST_RESULT", test_case.first.c_str(), 1);
@@ -520,6 +553,43 @@ TEST(AIFunctionTest, AISimilarityInvalidValue) {
                 << "Should have failed for invalid value: '" << invalid_value << "'";
         ASSERT_NE(exec_status.to_string().find("Failed to parse float value"), std::string::npos);
     }
+    unsetenv("AI_TEST_RESULT");
+}
+
+TEST(AIFunctionTest, AISimilarityBatchExecuteTest) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    setenv("AI_TEST_RESULT", R"(["0.5","1.0","0.0"])", 1);
+
+    std::vector<std::string> resources = {"mock_resource"};
+    std::vector<std::string> text1 = {"a", "b", "c"};
+    std::vector<std::string> text2 = {"d", "e", "f"};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_text1 = ColumnHelper::create_column<DataTypeString>(text1);
+    auto col_text2 = ColumnHelper::create_column<DataTypeString>(text2);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text1), std::make_shared<DataTypeString>(), "text1"});
+    block.insert({std::move(col_text2), std::make_shared<DataTypeString>(), "text2"});
+    block.insert({nullptr, std::make_shared<DataTypeFloat32>(), "result"});
+
+    ColumnNumbers arguments = {0, 1, 2};
+    size_t result_idx = 3;
+
+    auto similarity_func = FunctionAISimilarity::create();
+    Status exec_status =
+            similarity_func->execute_impl(ctx.get(), block, arguments, result_idx, text1.size());
+
+    ASSERT_TRUE(exec_status.ok());
+
+    const auto& res_col =
+            assert_cast<const ColumnFloat32&>(*block.get_by_position(result_idx).column);
+    ASSERT_EQ(res_col.size(), 3);
+    EXPECT_FLOAT_EQ(res_col.get_data()[0], 0.5f);
+    EXPECT_FLOAT_EQ(res_col.get_data()[1], 1.0f);
+    EXPECT_FLOAT_EQ(res_col.get_data()[2], 0.0f);
 
     unsetenv("AI_TEST_RESULT");
 }
@@ -548,6 +618,7 @@ TEST(AIFunctionTest, AIFilterTest) {
 TEST(AIFunctionTest, AIFilterExecuteTest) {
     auto runtime_state = std::make_unique<MockRuntimeState>();
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+    setenv("AI_TEST_RESULT", R"(["0"])", 1);
 
     std::vector<std::string> resources = {"mock_resource"};
     std::vector<std::string> texts = {"This is a valid sentence."};
@@ -566,17 +637,20 @@ TEST(AIFunctionTest, AIFilterExecuteTest) {
     Status exec_status =
             filter_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
 
+    ASSERT_TRUE(exec_status.ok());
+
     const auto& res_col =
             assert_cast<const ColumnUInt8&>(*block.get_by_position(result_idx).column);
     UInt8 val = res_col.get_data()[0];
     ASSERT_TRUE(val == 0);
+    unsetenv("AI_TEST_RESULT");
 }
 
 TEST(AIFunctionTest, AIFilterExecuteMultipleRows) {
     auto runtime_state = std::make_unique<MockRuntimeState>();
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
 
-    setenv("AI_TEST_RESULT", " 1 ", 1);
+    setenv("AI_TEST_RESULT", R"(["1","1"])", 1);
 
     std::vector<std::string> resources = {"mock_resource", "mock_resource"};
     std::vector<std::string> texts = {"This is valid.", "This is also valid."};
@@ -610,9 +684,18 @@ TEST(AIFunctionTest, AIFilterTrimWhitespace) {
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
 
     std::vector<std::pair<std::string, UInt8>> test_cases = {
-            {"0", 0},     {"1", 1},           {" 0", 0},    {"0 ", 0},
-            {" 0 ", 0},   {"\n0", 0},         {"0\n", 0},   {"\n0\n", 0},
-            {"\t1\t", 1}, {" \n\t1 \n\t", 1}, {"  1  ", 1}, {"\r\n0\r\n", 0}};
+            {R"(["0"])", 0},
+            {R"(["1"])", 1},
+            {" " + std::string(R"(["0"])"), 0},
+            {std::string(R"(["0"])") + " ", 0},
+            {" " + std::string(R"(["0"])") + " ", 0},
+            {"\n" + std::string(R"(["0"])"), 0},
+            {std::string(R"(["0"])") + "\n", 0},
+            {"\n" + std::string(R"(["0"])") + "\n", 0},
+            {"\t" + std::string(R"(["1"])") + "\t", 1},
+            {" \n\t" + std::string(R"(["1"])") + " \n\t", 1},
+            {"  " + std::string(R"(["1"])") + "  ", 1},
+            {"\r\n" + std::string(R"(["0"])") + "\r\n", 0}};
 
     for (const auto& test_case : test_cases) {
         setenv("AI_TEST_RESULT", test_case.first.c_str(), 1);
@@ -652,8 +735,10 @@ TEST(AIFunctionTest, AIFilterInvalidValue) {
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
 
     std::vector<std::string> invalid_cases = {
-            "2",    "maybe", "ok",   "",      "   ", "01", "0.5",  "sure",  "truee", "falsee",
-            "yess", "noo",   "true", "false", "yes", "no", "TRUE", "FALSE", "YES",   "NO"};
+            R"(["2"])",    R"(["maybe"])", R"(["ok"])",    R"([""])",       R"(["01"])",
+            R"(["0.5"])",  R"(["sure"])",  R"(["truee"])", R"(["falsee"])", R"(["yess"])",
+            R"(["noo"])",  R"(["true"])",  R"(["false"])", R"(["yes"])",    R"(["no"])",
+            R"(["TRUE"])", R"(["FALSE"])", R"(["YES"])",   "[\"NO\"]"};
 
     for (const auto& invalid_value : invalid_cases) {
         setenv("AI_TEST_RESULT", invalid_value.c_str(), 1);
@@ -686,6 +771,303 @@ TEST(AIFunctionTest, AIFilterInvalidValue) {
     unsetenv("AI_TEST_RESULT");
 }
 
+TEST(AIFunctionTest, AIFilterBatchExecuteTest) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    setenv("AI_TEST_RESULT", R"(["1","0","1"])", 1);
+
+    std::vector<std::string> resources = {"mock_resource"};
+    std::vector<std::string> texts = {"valid text", "invalid text", "valid again"};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_text = ColumnHelper::create_column<DataTypeString>(texts);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text), std::make_shared<DataTypeString>(), "text"});
+    block.insert({nullptr, std::make_shared<DataTypeBool>(), "result"});
+
+    ColumnNumbers arguments = {0, 1};
+    size_t result_idx = 2;
+
+    auto filter_func = FunctionAIFilter::create();
+    Status exec_status =
+            filter_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
+
+    ASSERT_TRUE(exec_status.ok());
+
+    const auto& res_col =
+            assert_cast<const ColumnUInt8&>(*block.get_by_position(result_idx).column);
+    ASSERT_EQ(res_col.size(), 3);
+    EXPECT_EQ(res_col.get_data()[0], 1);
+    EXPECT_EQ(res_col.get_data()[1], 0);
+    EXPECT_EQ(res_col.get_data()[2], 1);
+
+    unsetenv("AI_TEST_RESULT");
+}
+
+TEST(AIFunctionTest, AIFilterBatchLengthMismatch) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    setenv("AI_TEST_RESULT", R"(["1","0"])", 1);
+
+    std::vector<std::string> resources = {"mock_resource"};
+    std::vector<std::string> texts = {"row1", "row2", "row3"};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_text = ColumnHelper::create_column<DataTypeString>(texts);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text), std::make_shared<DataTypeString>(), "text"});
+    block.insert({nullptr, std::make_shared<DataTypeBool>(), "result"});
+
+    ColumnNumbers arguments = {0, 1};
+    size_t result_idx = 2;
+
+    auto filter_func = FunctionAIFilter::create();
+    Status exec_status =
+            filter_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
+
+    ASSERT_FALSE(exec_status.ok());
+    ASSERT_TRUE(exec_status.to_string().find("expected 3 items but got 2") != std::string::npos);
+
+    unsetenv("AI_TEST_RESULT");
+}
+
+TEST(AIFunctionTest, AIFilterBatchInvalidJson) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    std::vector<std::string> invalid_cases = {"1,0", "{}", "", "   "};
+
+    for (const auto& invalid_value : invalid_cases) {
+        setenv("AI_TEST_RESULT", invalid_value.c_str(), 1);
+
+        std::vector<std::string> resources = {"mock_resource"};
+        std::vector<std::string> texts = {"row1", "row2"};
+        auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+        auto col_text = ColumnHelper::create_column<DataTypeString>(texts);
+
+        Block block;
+        block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+        block.insert({std::move(col_text), std::make_shared<DataTypeString>(), "text"});
+        block.insert({nullptr, std::make_shared<DataTypeBool>(), "result"});
+
+        ColumnNumbers arguments = {0, 1};
+        size_t result_idx = 2;
+
+        auto filter_func = FunctionAIFilter::create();
+        Status exec_status =
+                filter_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
+
+        ASSERT_FALSE(exec_status.ok())
+                << "Should have failed for invalid batch json: '" << invalid_value << "'";
+        ASSERT_TRUE(
+                exec_status.to_string().find("Invalid batch result format") != std::string::npos ||
+                exec_status.to_string().find("expected 2 items but got 1") != std::string::npos);
+    }
+
+    unsetenv("AI_TEST_RESULT");
+}
+
+TEST(AIFunctionTest, AIFilterBatchInvalidElement) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    std::vector<std::string> invalid_cases = {R"(["1","2"])", R"(["1",0])", R"(["yes","no"])"};
+
+    for (const auto& invalid_value : invalid_cases) {
+        setenv("AI_TEST_RESULT", invalid_value.c_str(), 1);
+
+        std::vector<std::string> resources = {"mock_resource"};
+        std::vector<std::string> texts = {"row1", "row2"};
+        auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+        auto col_text = ColumnHelper::create_column<DataTypeString>(texts);
+
+        Block block;
+        block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+        block.insert({std::move(col_text), std::make_shared<DataTypeString>(), "text"});
+        block.insert({nullptr, std::make_shared<DataTypeBool>(), "result"});
+
+        ColumnNumbers arguments = {0, 1};
+        size_t result_idx = 2;
+
+        auto filter_func = FunctionAIFilter::create();
+        Status exec_status =
+                filter_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
+
+        ASSERT_FALSE(exec_status.ok())
+                << "Should have failed for invalid batch element: '" << invalid_value << "'";
+        ASSERT_TRUE(exec_status.to_string().find("Failed to parse boolean value") !=
+                            std::string::npos ||
+                    exec_status.to_string().find("Invalid batch result format") !=
+                            std::string::npos);
+    }
+
+    unsetenv("AI_TEST_RESULT");
+}
+
+TEST(AIFunctionTest, AIFilterBatchSplitByWindow) {
+    TQueryOptions query_options = create_fake_query_options();
+    query_options.__set_ai_context_window_size(128 * 1024);
+    auto query_ctx = MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), query_options);
+    query_ctx->set_mock_ai_resource();
+    TQueryGlobals query_globals;
+    auto runtime_state = std::make_unique<MockRuntimeState>(
+            TUniqueId(), 0, query_options, query_globals, nullptr, query_ctx.get());
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    setenv("AI_TEST_RESULT", R"(["1"])", 1);
+
+    std::vector<std::string> resources = {"mock_resource"};
+    std::vector<std::string> texts = {std::string(70 * 1024, 'a'), std::string(70 * 1024, 'b'),
+                                      std::string(70 * 1024, 'c')};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_text = ColumnHelper::create_column<DataTypeString>(texts);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text), std::make_shared<DataTypeString>(), "text"});
+    block.insert({nullptr, std::make_shared<DataTypeBool>(), "result"});
+
+    ColumnNumbers arguments = {0, 1};
+    size_t result_idx = 2;
+
+    auto filter_func = FunctionAIFilter::create();
+    Status exec_status =
+            filter_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
+
+    ASSERT_TRUE(exec_status.ok());
+
+    const auto& res_col =
+            assert_cast<const ColumnUInt8&>(*block.get_by_position(result_idx).column);
+    ASSERT_EQ(res_col.size(), 3);
+    EXPECT_EQ(res_col.get_data()[0], 1);
+    EXPECT_EQ(res_col.get_data()[1], 1);
+    EXPECT_EQ(res_col.get_data()[2], 1);
+
+    unsetenv("AI_TEST_RESULT");
+}
+
+TEST(AIFunctionTest, AIFilterSingleRowExceedsBatchWindow) {
+    TQueryOptions query_options = create_fake_query_options();
+    query_options.__set_ai_context_window_size(128 * 1024);
+    auto query_ctx = MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), query_options);
+    query_ctx->set_mock_ai_resource();
+    TQueryGlobals query_globals;
+    auto runtime_state = std::make_unique<MockRuntimeState>(
+            TUniqueId(), 0, query_options, query_globals, nullptr, query_ctx.get());
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    std::vector<std::string> resources = {"mock_resource"};
+    std::vector<std::string> texts = {std::string(130 * 1024, 'x')};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_text = ColumnHelper::create_column<DataTypeString>(texts);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text), std::make_shared<DataTypeString>(), "text"});
+    block.insert({nullptr, std::make_shared<DataTypeBool>(), "result"});
+
+    ColumnNumbers arguments = {0, 1};
+    size_t result_idx = 2;
+
+    auto filter_func = FunctionAIFilter::create();
+    // Even if a single row exceeds the batch window, it should be sent as a standalone request.
+    setenv("AI_TEST_RESULT", "[\"1\"]", 1);
+    Status exec_status =
+            filter_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
+
+    ASSERT_TRUE(exec_status.ok());
+
+    const auto& res_col =
+            assert_cast<const ColumnUInt8&>(*block.get_by_position(result_idx).column);
+    ASSERT_EQ(res_col.size(), 1);
+    EXPECT_EQ(res_col.get_data()[0], 1);
+
+    unsetenv("AI_TEST_RESULT");
+}
+
+TEST(AIFunctionTest, AIFilterOversizedRowFlushesHistoryBatchFirst) {
+    TQueryOptions query_options = create_fake_query_options();
+    query_options.__set_ai_context_window_size(128 * 1024);
+    auto query_ctx = MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), query_options);
+    query_ctx->set_mock_ai_resource();
+    TQueryGlobals query_globals;
+    auto runtime_state = std::make_unique<MockRuntimeState>(
+            TUniqueId(), 0, query_options, query_globals, nullptr, query_ctx.get());
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    std::vector<std::string> resources = {"mock_resource", "mock_resource"};
+    std::vector<std::string> texts = {"small row", std::string(130 * 1024, 'x')};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_text = ColumnHelper::create_column<DataTypeString>(texts);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text), std::make_shared<DataTypeString>(), "text"});
+    block.insert({nullptr, std::make_shared<DataTypeBool>(), "result"});
+
+    ColumnNumbers arguments = {0, 1};
+    size_t result_idx = 2;
+
+    auto filter_func = FunctionAIFilter::create();
+    setenv("AI_TEST_RESULT", R"(["1"])", 1);
+    Status exec_status =
+            filter_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
+
+    ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
+
+    const auto& res_col =
+            assert_cast<const ColumnUInt8&>(*block.get_by_position(result_idx).column);
+    ASSERT_EQ(res_col.size(), 2);
+    EXPECT_EQ(res_col.get_data()[0], 1);
+    EXPECT_EQ(res_col.get_data()[1], 1);
+
+    unsetenv("AI_TEST_RESULT");
+}
+
+TEST(AIFunctionTest, AIFilterUsesAiContextWindowSizeSessionVariable) {
+    TQueryOptions query_options = create_fake_query_options();
+    query_options.__set_ai_context_window_size(16);
+    auto query_ctx = MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), query_options);
+    query_ctx->set_mock_ai_resource();
+    TQueryGlobals query_globals;
+    auto runtime_state = std::make_unique<MockRuntimeState>(
+            TUniqueId(), 0, query_options, query_globals, nullptr, query_ctx.get());
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    setenv("AI_TEST_RESULT", R"(["1"])", 1);
+
+    std::vector<std::string> resources = {"mock_resource"};
+    std::vector<std::string> texts = {"12345678901234567890", "abcdefghijabcdefghij"};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_text = ColumnHelper::create_column<DataTypeString>(texts);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text), std::make_shared<DataTypeString>(), "text"});
+    block.insert({nullptr, std::make_shared<DataTypeBool>(), "result"});
+
+    ColumnNumbers arguments = {0, 1};
+    size_t result_idx = 2;
+
+    auto filter_func = FunctionAIFilter::create();
+    Status exec_status =
+            filter_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
+
+    ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
+
+    const auto& res_col =
+            assert_cast<const ColumnUInt8&>(*block.get_by_position(result_idx).column);
+    ASSERT_EQ(res_col.size(), 2);
+    EXPECT_EQ(res_col.get_data()[0], 1);
+    EXPECT_EQ(res_col.get_data()[1], 1);
+
+    unsetenv("AI_TEST_RESULT");
+}
+
 TEST(AIFunctionTest, ResourceNotFound) {
     auto runtime_state = std::make_unique<MockRuntimeState>();
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
@@ -703,12 +1085,14 @@ TEST(AIFunctionTest, ResourceNotFound) {
     ColumnNumbers arguments = {0, 1};
     size_t result_idx = 2;
 
-    auto sentiment_func = FunctionAISentiment::create();
-    Status exec_status =
-            sentiment_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
-
-    ASSERT_FALSE(exec_status.ok());
-    ASSERT_TRUE(exec_status.to_string().find("AI resource not found") != std::string::npos);
+    ASSERT_DEATH(
+            {
+                auto sentiment_func = FunctionAISentiment::create();
+                Status exec_status = sentiment_func->execute_impl(ctx.get(), block, arguments,
+                                                                  result_idx, texts.size());
+                static_cast<void>(exec_status);
+            },
+            "it != ai_resources->end");
 }
 
 TEST(AIFunctionTest, MockResourceSendRequest) {
@@ -740,6 +1124,41 @@ TEST(AIFunctionTest, MockResourceSendRequest) {
     ASSERT_EQ(val, "this is a mock response. test input");
 }
 
+TEST(AIFunctionTest, AIStringFunctionBatchExecuteTest) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    setenv("AI_TEST_RESULT", R"(["positive","negative","neutral"])", 1);
+
+    std::vector<std::string> resources = {"mock_resource"};
+    std::vector<std::string> texts = {"great", "bad", "okay"};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_text = ColumnHelper::create_column<DataTypeString>(texts);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text), std::make_shared<DataTypeString>(), "text"});
+    block.insert({nullptr, std::make_shared<DataTypeString>(), "result"});
+
+    ColumnNumbers arguments = {0, 1};
+    size_t result_idx = 2;
+
+    auto sentiment_func = FunctionAISentiment::create();
+    Status exec_status =
+            sentiment_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
+
+    ASSERT_TRUE(exec_status.ok());
+
+    const auto& res_col =
+            assert_cast<const ColumnString&>(*block.get_by_position(result_idx).column);
+    ASSERT_EQ(res_col.size(), 3);
+    EXPECT_EQ(res_col.get_data_at(0).to_string(), "positive");
+    EXPECT_EQ(res_col.get_data_at(1).to_string(), "negative");
+    EXPECT_EQ(res_col.get_data_at(2).to_string(), "neutral");
+
+    unsetenv("AI_TEST_RESULT");
+}
+
 TEST(AIFunctionTest, MissingAIResourcesMetadataTest) {
     auto query_ctx = MockQueryContext::create();
     TQueryOptions query_options;
@@ -761,12 +1180,14 @@ TEST(AIFunctionTest, MissingAIResourcesMetadataTest) {
     ColumnNumbers arguments = {0, 1};
     size_t result_idx = 2;
 
-    auto sentiment_func = FunctionAISentiment::create();
-    Status exec_status =
-            sentiment_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
-
-    ASSERT_FALSE(exec_status.ok());
-    ASSERT_NE(exec_status.to_string().find("AI resources metadata missing"), std::string::npos);
+    ASSERT_DEATH(
+            {
+                auto sentiment_func = FunctionAISentiment::create();
+                Status exec_status = sentiment_func->execute_impl(ctx.get(), block, arguments,
+                                                                  result_idx, texts.size());
+                static_cast<void>(exec_status);
+            },
+            "ai_resources");
 }
 
 TEST(AIFunctionTest, ReturnTypeTest) {
@@ -832,6 +1253,11 @@ public:
     using FunctionAISentiment::normalize_endpoint;
 };
 
+class FunctionEmbedTestHelper : public FunctionEmbed {
+public:
+    using FunctionEmbed::normalize_endpoint;
+};
+
 TEST(AIFunctionTest, NormalizeLegacyCompletionsEndpoint) {
     TAIResource resource;
     resource.endpoint = "https://api.openai.com/v1/completions";
@@ -848,6 +1274,126 @@ TEST(AIFunctionTest, NormalizeEndpointNoopForOtherPaths) {
     resource.endpoint = "https://localhost/v1/responses";
     FunctionAISentimentTestHelper::normalize_endpoint(resource);
     ASSERT_EQ(resource.endpoint, "https://localhost/v1/responses");
+}
+
+TEST(AIFunctionTest, NormalizeGeminiGenerateEndpointFromBaseVersion) {
+    TAIResource resource;
+    resource.provider_type = "gemini";
+    resource.model_name = "gemini-pro";
+    resource.endpoint = "https://generativelanguage.googleapis.com/v1beta";
+
+    FunctionAISentimentTestHelper::normalize_endpoint(resource);
+    ASSERT_EQ(resource.endpoint,
+              "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent");
+}
+
+TEST(AIFunctionTest, NormalizeGeminiEmbedEndpointFromBaseVersion) {
+    TAIResource resource;
+    resource.provider_type = "GEMINI";
+    resource.model_name = "gemini-embedding-2-preview";
+    resource.endpoint = "https://generativelanguage.googleapis.com/v1beta";
+
+    FunctionEmbedTestHelper::normalize_endpoint(resource);
+    ASSERT_EQ(resource.endpoint,
+              "https://generativelanguage.googleapis.com/v1beta/models/"
+              "gemini-embedding-2-preview:batchEmbedContents");
+}
+
+TEST(AIFunctionTest, NormalizeGeminiEndpointNoopForNonBasePath) {
+    TAIResource resource;
+    resource.provider_type = "gemini";
+    resource.model_name = "gemini-pro";
+    resource.endpoint =
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent";
+
+    FunctionAISentimentTestHelper::normalize_endpoint(resource);
+    ASSERT_EQ(resource.endpoint,
+              "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent");
+}
+
+TEST(AIFunctionTest, NormalizeGeminiEmbedLegacySingleEndpointToBatchEndpoint) {
+    TAIResource resource;
+    resource.provider_type = "gemini";
+    resource.model_name = "gemini-embedding-2-preview";
+    resource.endpoint =
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            "gemini-embedding-2-preview:embedContent";
+
+    FunctionEmbedTestHelper::normalize_endpoint(resource);
+    ASSERT_EQ(resource.endpoint,
+              "https://generativelanguage.googleapis.com/v1beta/models/"
+              "gemini-embedding-2-preview:batchEmbedContents");
+}
+
+TEST(AIFunctionTest, ExecuteBatchRequestSuccess) {
+    TQueryOptions query_options = create_fake_query_options();
+    query_options.__set_query_timeout(5);
+    auto query_ctx = MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), query_options);
+    TQueryGlobals query_globals;
+    RuntimeState runtime_state(TUniqueId(), 0, query_options, query_globals, nullptr,
+                               query_ctx.get());
+    auto ctx = FunctionContext::create_context(&runtime_state, {}, {});
+
+    OneShotHttpServer server(200, R"({"choices":[{"message":{"content":"[\"1\",\"0\"]"}}]})");
+
+    TAIResource config;
+    config.endpoint = server.endpoint();
+    config.provider_type = "OPENAI";
+    config.model_name = "test-model";
+    config.api_key = "secret";
+    config.max_retries = 1;
+
+    std::shared_ptr<AIAdapter> adapter = std::make_shared<OpenAIAdapter>();
+    adapter->init(config);
+
+    FunctionAIFilterBatchTestHelper helper;
+    std::vector<std::string> results;
+    Status st = helper.execute_batch_request({"first row", "second row"}, results, config, adapter,
+                                             ctx.get());
+
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_EQ(results.size(), 2);
+    EXPECT_EQ(results[0], "1");
+    EXPECT_EQ(results[1], "0");
+
+    std::string request = server.join_and_get_request();
+    ASSERT_NE(request.find("Authorization: Bearer secret"), std::string::npos);
+    ASSERT_NE(
+            request.find(
+                    R"([{\"idx\":0,\"input\":\"first row\"},{\"idx\":1,\"input\":\"second row\"}])"),
+            std::string::npos);
+}
+
+TEST(AIFunctionTest, ExecuteBatchRequestResultSizeMismatch) {
+    TQueryOptions query_options = create_fake_query_options();
+    query_options.__set_query_timeout(5);
+    auto query_ctx = MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), query_options);
+    TQueryGlobals query_globals;
+    RuntimeState runtime_state(TUniqueId(), 0, query_options, query_globals, nullptr,
+                               query_ctx.get());
+    auto ctx = FunctionContext::create_context(&runtime_state, {}, {});
+
+    OneShotHttpServer server(200, R"({"choices":[{"message":{"content":"[\"1\"]"}}]})");
+
+    TAIResource config;
+    config.endpoint = server.endpoint();
+    config.provider_type = "OPENAI";
+    config.model_name = "test-model";
+    config.api_key = "secret";
+    config.max_retries = 1;
+
+    std::shared_ptr<AIAdapter> adapter = std::make_shared<OpenAIAdapter>();
+    adapter->init(config);
+
+    FunctionAIFilterBatchTestHelper helper;
+    std::vector<std::string> results;
+    Status st = helper.execute_batch_request({"first row", "second row"}, results, config, adapter,
+                                             ctx.get());
+
+    ASSERT_FALSE(st.ok());
+    ASSERT_NE(st.to_string().find(
+                      "Failed to parse ai_filter batch result, expected 2 items but got 1"),
+              std::string::npos);
 }
 
 TEST(AIFunctionTest, DoSendRequestTransportError) {
@@ -944,43 +1490,6 @@ TEST(AIFunctionTest, DoSendRequestSuccess) {
     std::string request = server.join_and_get_request();
     ASSERT_NE(request.find("POST "), std::string::npos);
     ASSERT_NE(request.find(R"({"message":"hello"})"), std::string::npos);
-}
-
-TEST(AIFunctionTest, ExecuteEmbeddingRequestMockSuccess) {
-    auto runtime_state = std::make_unique<MockRuntimeState>();
-    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
-
-    TAIResource config;
-    config.provider_type = "MOCK";
-    std::shared_ptr<AIAdapter> adapter = std::make_shared<MockAdapter>();
-    adapter->init(config);
-
-    FunctionAITransportTestHelper helper;
-    std::vector<float> result;
-    Status st = helper.execute_embedding_request("{}", result, config, adapter, ctx.get());
-
-    ASSERT_TRUE(st.ok()) << st.to_string();
-    ASSERT_EQ(result.size(), 5);
-    for (size_t i = 0; i < result.size(); ++i) {
-        ASSERT_FLOAT_EQ(result[i], static_cast<float>(i));
-    }
-}
-
-TEST(AIFunctionTest, ExecuteEmbeddingRequestEmptyResult) {
-    auto runtime_state = std::make_unique<MockRuntimeState>();
-    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
-
-    TAIResource config;
-    config.provider_type = "MOCK";
-    std::shared_ptr<AIAdapter> adapter = std::make_shared<EmptyEmbeddingResultAdapter>();
-    adapter->init(config);
-
-    FunctionAITransportTestHelper helper;
-    std::vector<float> result;
-    Status st = helper.execute_embedding_request("{}", result, config, adapter, ctx.get());
-
-    ASSERT_FALSE(st.ok());
-    ASSERT_NE(st.to_string().find("AI returned empty result"), std::string::npos);
 }
 
 } // namespace doris

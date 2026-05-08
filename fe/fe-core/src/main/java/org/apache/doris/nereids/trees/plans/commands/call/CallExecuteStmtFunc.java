@@ -19,8 +19,10 @@ package org.apache.doris.nereids.trees.plans.commands.call;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.connector.api.ConnectorMetadata;
+import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -87,16 +89,20 @@ public class CallExecuteStmtFunc extends CallFunc {
         if (catalogIf == null) {
             throw new AnalysisException("catalog not found: " + catalogName);
         }
-        if (!(catalogIf instanceof JdbcExternalCatalog)) {
-            throw new AnalysisException("Only support JDBC catalog");
-        }
 
         // check priv
         if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(user, catalogName, PrivPredicate.LOAD)) {
             throw new AnalysisException("user " + user + " has no privilege to execute stmt in catalog " + catalogName);
         }
 
-        JdbcExternalCatalog catalog = (JdbcExternalCatalog) catalogIf;
-        catalog.executeStmt(stmt);
+        if (catalogIf instanceof PluginDrivenExternalCatalog) {
+            PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalogIf;
+            ConnectorSession session = pluginCatalog.buildConnectorSession();
+            ConnectorMetadata metadata = pluginCatalog.getConnector().getMetadata(session);
+            metadata.executeStmt(session, stmt);
+        } else {
+            throw new AnalysisException("executeStmt not supported for catalog type: "
+                    + catalogIf.getType());
+        }
     }
 }

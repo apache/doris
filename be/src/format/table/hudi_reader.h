@@ -20,74 +20,40 @@
 
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
-#include "format/table/table_format_reader.h"
+#include "format/table/table_schema_change_helper.h"
 namespace doris {
-class HudiReader : public TableFormatReader, public TableSchemaChangeHelper {
-public:
-    HudiReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
-               RuntimeState* state, const TFileScanRangeParams& params, const TFileRangeDesc& range,
-               io::IOContext* io_ctx, FileMetaCache* meta_cache)
-            : TableFormatReader(std::move(file_format_reader), state, profile, params, range,
-                                io_ctx, meta_cache) {};
 
-    ~HudiReader() override = default;
-
-    Status get_next_block_inner(Block* block, size_t* read_rows, bool* eof) final;
-
-    Status init_row_filters() final { return Status::OK(); };
-};
-
-class HudiParquetReader final : public HudiReader {
+// HudiParquetReader: directly inherits ParquetReader (no composition wrapping).
+// Schema mapping is done in on_before_init_reader hook via field_id matching.
+class HudiParquetReader final : public ParquetReader, public TableSchemaChangeHelper {
 public:
     ENABLE_FACTORY_CREATOR(HudiParquetReader);
-    HudiParquetReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
-                      RuntimeState* state, const TFileScanRangeParams& params,
-                      const TFileRangeDesc& range, io::IOContext* io_ctx, FileMetaCache* meta_cache)
-            : HudiReader(std::move(file_format_reader), profile, state, params, range, io_ctx,
-                         meta_cache) {};
+    HudiParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                      const TFileRangeDesc& range, size_t batch_size, const cctz::time_zone* ctz,
+                      io::IOContext* io_ctx, RuntimeState* state,
+                      FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true)
+            : ParquetReader(profile, params, range, batch_size, ctz, io_ctx, state, meta_cache,
+                            enable_lazy_mat) {}
     ~HudiParquetReader() final = default;
 
-    Status init_reader(
-            const std::vector<std::string>& read_table_col_names,
-            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
-            const VExprContextSPtrs& conjuncts,
-            phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
-                    slot_id_to_predicates,
-            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-            const std::unordered_map<std::string, int>* colname_to_slot_id,
-            const VExprContextSPtrs* not_single_slot_filter_conjuncts,
-            const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
+protected:
+    Status on_before_init_reader(ReaderInitContext* ctx) override;
 };
 
-class HudiOrcReader final : public HudiReader {
+// HudiOrcReader: directly inherits OrcReader (no composition wrapping).
+class HudiOrcReader final : public OrcReader, public TableSchemaChangeHelper {
 public:
     ENABLE_FACTORY_CREATOR(HudiOrcReader);
-    HudiOrcReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
-                  RuntimeState* state, const TFileScanRangeParams& params,
-                  const TFileRangeDesc& range, io::IOContext* io_ctx, FileMetaCache* meta_cache)
-            : HudiReader(std::move(file_format_reader), profile, state, params, range, io_ctx,
-                         meta_cache) {};
+    HudiOrcReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
+                  const TFileRangeDesc& range, size_t batch_size, const std::string& ctz,
+                  io::IOContext* io_ctx, FileMetaCache* meta_cache = nullptr,
+                  bool enable_lazy_mat = true)
+            : OrcReader(profile, state, params, range, batch_size, ctz, io_ctx, meta_cache,
+                        enable_lazy_mat) {}
     ~HudiOrcReader() final = default;
 
-    Status init_reader(
-            const std::vector<std::string>& read_table_col_names,
-            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
-            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
-            const RowDescriptor* row_descriptor,
-            const VExprContextSPtrs* not_single_slot_filter_conjuncts,
-            const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
-        auto* orc_reader = static_cast<OrcReader*>(_file_format_reader.get());
-        const orc::Type* orc_type_ptr = nullptr;
-        RETURN_IF_ERROR(orc_reader->get_file_type(&orc_type_ptr));
-        RETURN_IF_ERROR(gen_table_info_node_by_field_id(
-                _params, _range.table_format_params.hudi_params.schema_id, tuple_descriptor,
-                orc_type_ptr));
-
-        return orc_reader->init_reader(&read_table_col_names, col_name_to_block_idx, conjuncts,
-                                       false, tuple_descriptor, row_descriptor,
-                                       not_single_slot_filter_conjuncts,
-                                       slot_id_to_filter_conjuncts, table_info_node_ptr);
-    }
+protected:
+    Status on_before_init_reader(ReaderInitContext* ctx) override;
 };
 
 } // namespace doris

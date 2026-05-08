@@ -47,7 +47,6 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.es.EsUtil;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
@@ -1115,10 +1114,8 @@ public class CreateTableInfo {
             distribution != null ? distribution.translateToCatalogStyle() : null;
 
         if (engineName.equals(ENGINE_ELASTICSEARCH)) {
-            try {
-                EsUtil.analyzePartitionAndDistributionDesc(partitionDesc, distributionDesc);
-            } catch (Exception e) {
-                throw new AnalysisException(e.getMessage(), e.getCause());
+            if (distributionDesc != null) {
+                throw new AnalysisException("could not support distribution clause");
             }
         } else if (!engineName.equals(ENGINE_OLAP)) {
             if (!engineName.equals(ENGINE_HIVE) && !engineName.equals(ENGINE_MAXCOMPUTE)

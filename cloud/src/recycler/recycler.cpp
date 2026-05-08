@@ -76,6 +76,7 @@
 #include "recycler/recycler_service.h"
 #include "recycler/sync_executor.h"
 #include "recycler/util.h"
+#include "snapshot/snapshot_manager_factory.h"
 
 namespace doris::cloud {
 
@@ -231,7 +232,7 @@ Recycler::Recycler(std::shared_ptr<TxnKv> txn_kv) : txn_kv_(std::move(txn_kv)) {
 
     auto resource_mgr = std::make_shared<ResourceManager>(txn_kv_);
     txn_lazy_committer_ = std::make_shared<TxnLazyCommitter>(txn_kv_, std::move(resource_mgr));
-    snapshot_manager_ = std::make_shared<SnapshotManager>(txn_kv_);
+    snapshot_manager_ = create_snapshot_manager(txn_kv_);
 }
 
 Recycler::~Recycler() {
@@ -591,7 +592,8 @@ InstanceRecycler::InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const Instance
           resource_mgr_(std::make_shared<ResourceManager>(txn_kv_)) {
     delete_bitmap_lock_white_list_->init();
     resource_mgr_->init();
-    snapshot_manager_ = std::make_shared<SnapshotManager>(txn_kv_);
+
+    snapshot_manager_ = create_snapshot_manager(txn_kv_);
 
     // Since the recycler's resource manager could not be notified when instance info changes,
     // we need to refresh the instance info here to ensure the resource manager has the latest info.
@@ -2998,18 +3000,17 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
         }
     }
 
-    // Process delete bitmap - check if it's stored in packed file
-    bool delete_bitmap_is_packed = false;
+    // Process delete bitmap - check where it's stored.
+    DeleteBitmapStorageType delete_bitmap_storage_type = DeleteBitmapStorageType::NOT_FOUND;
     if (decrement_delete_bitmap_packed_file_ref_counts(tablet_id, rowset_id,
-                                                       &delete_bitmap_is_packed) != 0) {
+                                                       &delete_bitmap_storage_type) != 0) {
         LOG_WARNING("failed to decrement delete bitmap packed file ref count")
                 .tag("instance_id", instance_id_)
                 .tag("tablet_id", tablet_id)
                 .tag("rowset_id", rowset_id);
         return -1;
     }
-    // Only delete standalone delete bitmap file if not stored in packed file
-    if (!delete_bitmap_is_packed) {
+    if (delete_bitmap_storage_type == DeleteBitmapStorageType::STANDALONE_FILE) {
         file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
     }
     // TODO(AlexYue): seems could do do batch
@@ -3255,11 +3256,11 @@ int InstanceRecycler::decrement_packed_file_ref_counts(const doris::RowsetMetaCl
     return ret;
 }
 
-int InstanceRecycler::decrement_delete_bitmap_packed_file_ref_counts(int64_t tablet_id,
-                                                                     const std::string& rowset_id,
-                                                                     bool* out_is_packed) {
-    if (out_is_packed) {
-        *out_is_packed = false;
+int InstanceRecycler::decrement_delete_bitmap_packed_file_ref_counts(
+        int64_t tablet_id, const std::string& rowset_id,
+        DeleteBitmapStorageType* out_storage_type) {
+    if (out_storage_type) {
+        *out_storage_type = DeleteBitmapStorageType::NOT_FOUND;
     }
 
     // Get delete bitmap storage info from FDB
@@ -3303,15 +3304,24 @@ int InstanceRecycler::decrement_delete_bitmap_packed_file_ref_counts(int64_t tab
         return -1;
     }
 
-    // Check if delete bitmap is stored in packed file
-    if (!storage.has_packed_slice_location() ||
-        storage.packed_slice_location().packed_file_path().empty()) {
-        // Not stored in packed file, nothing to do
+    if (storage.store_in_fdb()) {
+        if (out_storage_type) {
+            *out_storage_type = DeleteBitmapStorageType::IN_FDB;
+        }
         return 0;
     }
 
-    if (out_is_packed) {
-        *out_is_packed = true;
+    // Check if delete bitmap is stored in standalone file.
+    if (!storage.has_packed_slice_location() ||
+        storage.packed_slice_location().packed_file_path().empty()) {
+        if (out_storage_type) {
+            *out_storage_type = DeleteBitmapStorageType::STANDALONE_FILE;
+        }
+        return 0;
+    }
+
+    if (out_storage_type) {
+        *out_storage_type = DeleteBitmapStorageType::PACKED_FILE;
     }
 
     const auto& packed_loc = storage.packed_slice_location();
@@ -3650,10 +3660,10 @@ int InstanceRecycler::delete_rowset_data(
             continue;
         }
 
-        // Process delete bitmap - check if it's stored in packed file
-        bool delete_bitmap_is_packed = false;
+        // Process delete bitmap - check where it's stored.
+        DeleteBitmapStorageType delete_bitmap_storage_type = DeleteBitmapStorageType::NOT_FOUND;
         if (decrement_delete_bitmap_packed_file_ref_counts(tablet_id, rowset_id,
-                                                           &delete_bitmap_is_packed) != 0) {
+                                                           &delete_bitmap_storage_type) != 0) {
             LOG_WARNING("failed to decrement delete bitmap packed file ref count")
                     .tag("instance_id", instance_id_)
                     .tag("tablet_id", tablet_id)
@@ -3661,8 +3671,7 @@ int InstanceRecycler::delete_rowset_data(
             ret = -1;
             continue;
         }
-        // Only delete standalone delete bitmap file if not stored in packed file
-        if (!delete_bitmap_is_packed) {
+        if (delete_bitmap_storage_type == DeleteBitmapStorageType::STANDALONE_FILE) {
             file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
         }
 

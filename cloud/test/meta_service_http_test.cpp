@@ -42,6 +42,7 @@
 #include "common/config.h"
 #include "common/configbase.h"
 #include "common/defer.h"
+#include "common/http_helper.h"
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
@@ -370,7 +371,52 @@ static void insert_rowset(MetaService* meta_service, int64_t db_id, const std::s
     commit_txn(meta_service, db_id, txn_id, label);
 }
 
-/// NOTICE: Not ALL `code`, returned by http server, are supported by `MetaServiceCode`.
+TEST(MetaServiceHttpTest, SplitHttpApiPath) {
+    {
+        auto path = split_http_api_path("v1/create_instance");
+        ASSERT_EQ(path.version, "v1");
+        ASSERT_EQ(path.route, "create_instance");
+    }
+    {
+        auto path = split_http_api_path("v2/create_instance");
+        ASSERT_EQ(path.version, "v2");
+        ASSERT_EQ(path.route, "create_instance");
+    }
+    {
+        auto path = split_http_api_path("create_instance");
+        ASSERT_TRUE(path.version.empty());
+        ASSERT_EQ(path.route, "create_instance");
+    }
+    {
+        auto path = split_http_api_path("version/create_instance");
+        ASSERT_TRUE(path.version.empty());
+        ASSERT_EQ(path.route, "version/create_instance");
+    }
+}
+
+TEST(MetaServiceHttpTest, ResolveHttpHandlerByVersion) {
+    // clang-format off
+    HttpHandlerInfo handler_info {
+            .handler = [](void*, brpc::Controller*) { return HttpResponse {200, "v1", ""}; },
+            .versioned_handlers = {{"v2",
+                                    [](void*, brpc::Controller*) {
+                                        return HttpResponse {200, "v2", ""};
+                                    }}},
+            .role = HttpRole::META_SERVICE};
+    // clang-format on
+
+    ASSERT_EQ(resolve_http_handler(handler_info, ""), &handler_info.handler);
+    ASSERT_EQ(resolve_http_handler(handler_info, "v1"), &handler_info.handler);
+    ASSERT_EQ(resolve_http_handler(handler_info, "v2"), &handler_info.versioned_handlers.at("v2"));
+    ASSERT_EQ(resolve_http_handler(handler_info, "v3"), nullptr);
+
+    const auto& handlers = get_http_handlers();
+    auto it = handlers.find("add_cluster");
+    ASSERT_NE(it, handlers.end());
+    ASSERT_EQ(resolve_http_handler(it->second, ""), &it->second.handler);
+    ASSERT_EQ(resolve_http_handler(it->second, "v1"), &it->second.handler);
+    ASSERT_EQ(resolve_http_handler(it->second, "v2"), nullptr);
+}
 
 TEST(MetaServiceHttpTest, InstanceTest) {
     HttpContext ctx;
@@ -607,6 +653,74 @@ TEST(MetaServiceHttpTest, InstanceTestWithVersion) {
 
         InstanceInfoPB instance = ctx.get_instance_info("test_instance");
         ASSERT_EQ(instance.status(), InstanceInfoPB::DELETED);
+    }
+}
+
+TEST(MetaServiceHttpTest, AlterClusterTestWithVersion) {
+    config::enable_cluster_name_check = true;
+
+    HttpContext ctx;
+    {
+        CreateInstanceRequest req;
+        req.set_instance_id(mock_instance);
+        req.set_user_id("test_user");
+        req.set_name("test_name");
+        ObjectStoreInfoPB obj;
+        obj.set_ak("123");
+        obj.set_sk("321");
+        obj.set_bucket("456");
+        obj.set_prefix("654");
+        obj.set_endpoint("789");
+        obj.set_region("987");
+        obj.set_external_endpoint("888");
+        obj.set_provider(ObjectStoreInfoPB::BOS);
+        req.mutable_obj_info()->CopyFrom(obj);
+
+        auto [status_code, resp] =
+                ctx.forward<MetaServiceResponseStatus>("v1/create_instance", req);
+        ASSERT_EQ(status_code, 200);
+        ASSERT_EQ(resp.code(), MetaServiceCode::OK);
+    }
+
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_cluster_name(mock_cluster_name);
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("v1/add_cluster", req);
+        ASSERT_EQ(status_code, 200);
+        ASSERT_EQ(resp.code(), MetaServiceCode::OK);
+    }
+
+    {
+        GetClusterRequest req;
+        req.set_cloud_unique_id("1:" + mock_instance + ":xxxx");
+        req.set_cluster_id(mock_cluster_id);
+        auto [status_code, resp] = ctx.forward_with_result<ClusterPB>("v1/get_cluster", req);
+        ASSERT_EQ(status_code, 200);
+        ASSERT_EQ(resp.status.code(), MetaServiceCode::OK);
+        ASSERT_TRUE(resp.result.has_value());
+        ASSERT_EQ(resp.result->cluster_name(), mock_cluster_name);
+    }
+
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id);
+        req.mutable_cluster()->set_cluster_name("rename_cluster_name");
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("v1/rename_cluster", req);
+        ASSERT_EQ(status_code, 200);
+        ASSERT_EQ(resp.code(), MetaServiceCode::OK);
+    }
+
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("v1/drop_cluster", req);
+        ASSERT_EQ(status_code, 200);
+        ASSERT_EQ(resp.code(), MetaServiceCode::OK);
     }
 }
 
@@ -1397,8 +1511,8 @@ TEST(MetaServiceHttpTest, GetTabletStatsTest) {
 TEST(MetaServiceHttpTest, ToUnknownUrlTest) {
     HttpContext ctx;
     auto [status_code, content] = ctx.query<std::string>("unkown_resource_xxxxxx", "");
-    ASSERT_EQ(status_code, 200);
-    ASSERT_NE(content.find("\"code\": \"OK\""), std::string::npos);
+    ASSERT_EQ(status_code, 404);
+    ASSERT_EQ(content, "http path not found or not allowed\n");
 }
 
 TEST(MetaServiceHttpTest, UnknownFields) {
@@ -1820,7 +1934,7 @@ TEST(MetaServiceHttpTest, UpdateConfig) {
     {
         auto [status_code, content] = ctx.query<std::string>("update_config", "");
         ASSERT_EQ(status_code, 400);
-        std::string msg = "query param `config` should not be empty";
+        std::string msg = "query param `configs` should not be empty";
         ASSERT_NE(content.find(msg), std::string::npos);
     }
     {
@@ -2044,6 +2158,53 @@ TEST(MetaServiceHttpTest, UpdateConfig) {
         }
         std::filesystem::remove(config::custom_conf_path);
         config::custom_conf_path = original_conf_path;
+    }
+}
+
+TEST(MetaServiceHttpTest, ShowConfigEscapesJsonSpecialCharacters) {
+    HttpContext ctx;
+
+    const std::string config_key = "idempotent_request_replay_exclusion";
+    const std::string old_value = config::idempotent_request_replay_exclusion;
+    const std::string new_value = R"(Get"Tablet\StatsRequest)";
+    DORIS_CLOUD_DEFER_COPY(config_key, old_value) {
+        auto [succ, cause] = config::set_config({{config_key, old_value}}, false, "");
+        ASSERT_TRUE(succ) << cause;
+    };
+
+    {
+        auto [succ, cause] = config::set_config({{config_key, new_value}}, false, "");
+        ASSERT_TRUE(succ) << cause;
+    }
+
+    {
+        rapidjson::Document d;
+        rapidjson::ParseResult ps = d.Parse(config::show_config(config_key).c_str());
+        ASSERT_TRUE(ps) << rapidjson::GetParseError_En(ps.Code());
+        ASSERT_TRUE(d.IsArray());
+        ASSERT_EQ(d.Size(), 1);
+        ASSERT_TRUE(d[0].IsArray());
+        ASSERT_EQ(d[0].Size(), 4);
+        ASSERT_TRUE(d[0][2].IsString());
+        ASSERT_EQ(d[0][2].GetString(), new_value);
+    }
+
+    {
+        auto [status_code, body] = ctx.query<std::string>("show_config", "conf_key=" + config_key);
+        ASSERT_EQ(status_code, 200);
+
+        rapidjson::Document d;
+        rapidjson::ParseResult ps = d.Parse(body.c_str());
+        ASSERT_TRUE(ps) << rapidjson::GetParseError_En(ps.Code()) << ", body: " << body;
+        ASSERT_TRUE(d.HasMember("code"));
+        ASSERT_STREQ(d["code"].GetString(), "OK");
+        ASSERT_TRUE(d.HasMember("result"));
+        ASSERT_TRUE(d["result"].IsArray());
+        ASSERT_EQ(d["result"].Size(), 1);
+        ASSERT_TRUE(d["result"][0].IsArray());
+        ASSERT_EQ(d["result"][0].Size(), 4);
+        ASSERT_TRUE(d["result"][0][2].IsString());
+        ASSERT_EQ(d["result"][0][2].GetString(), new_value);
     }
 }
 

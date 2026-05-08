@@ -18,6 +18,11 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <functional>
+#include <future>
+#include <thread>
+
 #include "common/config.h"
 #include "common/status.h"
 #include "exec/operator/operator.h"
@@ -34,6 +39,7 @@
 #include "testutil/mock/mock_thread_mem_tracker_mgr.h"
 #include "testutil/mock/mock_workload_group_mgr.h"
 #include "util/debug_points.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -69,12 +75,9 @@ public:
 private:
     void _build_fragment_context() {
         int fragment_id = 0;
-        _context = std::make_shared<PipelineFragmentContext>(
-                _query_id, TPipelineFragmentParams(), _query_ctx, ExecEnv::GetInstance(),
-                empty_function,
-                std::bind<Status>(std::mem_fn(&FragmentMgr::trigger_pipeline_context_report),
-                                  ExecEnv::GetInstance()->fragment_mgr(), std::placeholders::_1,
-                                  std::placeholders::_2));
+        _context = std::make_shared<PipelineFragmentContext>(_query_id, TPipelineFragmentParams(),
+                                                             _query_ctx, ExecEnv::GetInstance(),
+                                                             empty_function);
         _runtime_state = std::make_unique<MockRuntimeState>(
                 _query_id, fragment_id, _query_options, _query_ctx->query_globals,
                 ExecEnv::GetInstance(), _query_ctx.get());
@@ -96,6 +99,19 @@ private:
 
 template class OperatorX<DummyOperatorLocalState>;
 template class DataSinkOperatorX<DummySinkLocalState>;
+
+class BlockableSubmitTaskScheduler : public MockTaskScheduler {
+public:
+    Status submit(PipelineTaskSPtr task) override {
+        if (on_submit) {
+            on_submit(task);
+        }
+        static_cast<void>(task->is_blockable());
+        return MockTaskScheduler::submit(task);
+    }
+
+    std::function<void(PipelineTaskSPtr)> on_submit;
+};
 
 TEST_F(PipelineTaskTest, TEST_CONSTRUCTOR) {
     auto num_instances = 1;
@@ -558,6 +574,92 @@ TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION) {
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         EXPECT_EQ(_task_scheduler->submit_count(), 1);
     }
+}
+
+TEST_F(PipelineTaskTest, TEST_WAKE_UP_SUBMIT_PROTECTED_FROM_FINALIZE) {
+    auto scheduler = std::make_unique<BlockableSubmitTaskScheduler>();
+    auto* scheduler_ptr = scheduler.get();
+    _query_ctx->_task_scheduler = scheduler_ptr;
+
+    auto num_instances = 1;
+    auto pip_id = 0;
+    auto task_id = 0;
+    auto pip = std::make_shared<Pipeline>(pip_id, num_instances, num_instances);
+    OperatorPtr source_op;
+    source_op.reset(new DummyOperator());
+    EXPECT_TRUE(pip->add_operator(source_op, num_instances).ok());
+
+    int op_id = 1;
+    int node_id = 2;
+    int dest_id = 3;
+    DataSinkOperatorPtr sink_op;
+    sink_op.reset(new DummySinkOperatorX(op_id, node_id, dest_id));
+    EXPECT_TRUE(pip->set_sink(sink_op).ok());
+
+    auto profile = std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_id));
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
+    _runtime_state->resize_op_id_to_local_state(-1);
+    auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
+                                               profile.get(), shared_state_map, task_id);
+    task->_exec_time_slice = 10'000'000'000ULL;
+
+    std::vector<TScanRangeParams> scan_range;
+    int sender_id = 0;
+    TDataSink tsink;
+    EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
+    task->_wake_up_early = true;
+    auto dep = std::make_shared<Dependency>(0, 0, "test_dep", false);
+    task->_execution_dependencies.push_back(dep.get());
+    EXPECT_EQ(dep->is_blocked_by(task), dep.get());
+    EXPECT_EQ(task->_exec_state, PipelineTask::State::BLOCKED);
+
+    auto origin_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    Defer debug_point_cleanup {[&]() {
+        DebugPoints::instance()->remove("PipelineTask::unblock_all_dependencies.before_set_ready");
+        config::enable_debug_points = origin_enable_debug_points;
+        _query_ctx->_task_scheduler = _task_scheduler.get();
+    }};
+
+    std::promise<void> wake_up_reached_promise;
+    auto wake_up_reached = wake_up_reached_promise.get_future();
+    std::promise<void> release_wake_up_promise;
+    auto release_wake_up = release_wake_up_promise.get_future();
+    DebugPoints::instance()->add_with_callback(
+            "PipelineTask::unblock_all_dependencies.before_set_ready", std::function<void()>([&]() {
+                wake_up_reached_promise.set_value();
+                release_wake_up.wait();
+            }));
+
+    scheduler_ptr->on_submit = [&](PipelineTaskSPtr submitted_task) {
+        EXPECT_EQ(submitted_task.get(), task.get());
+        EXPECT_NE(task->_sink, nullptr);
+        EXPECT_FALSE(task->_operators.empty());
+    };
+
+    std::thread unblock_thread([&]() { task->unblock_all_dependencies(); });
+    EXPECT_EQ(wake_up_reached.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+
+    std::promise<void> close_started_promise;
+    auto close_started = close_started_promise.get_future();
+    auto close_finalize = std::async(std::launch::async, [&]() {
+        close_started_promise.set_value();
+        EXPECT_TRUE(task->close(Status::OK()).ok());
+        EXPECT_TRUE(task->finalize().ok());
+    });
+    EXPECT_EQ(close_started.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+    EXPECT_EQ(close_finalize.wait_for(std::chrono::milliseconds(100)), std::future_status::timeout);
+
+    release_wake_up_promise.set_value();
+    unblock_thread.join();
+    close_finalize.wait();
+
+    EXPECT_EQ(scheduler_ptr->submit_count(), 1);
+    EXPECT_EQ(task->_exec_state, PipelineTask::State::FINALIZED);
+    EXPECT_EQ(task->_sink, nullptr);
+    EXPECT_TRUE(task->_operators.empty());
 }
 
 TEST_F(PipelineTaskTest, TEST_SINK_FINISHED) {

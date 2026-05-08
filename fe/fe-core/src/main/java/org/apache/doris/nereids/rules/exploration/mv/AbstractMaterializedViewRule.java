@@ -29,6 +29,7 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
@@ -44,7 +45,6 @@ import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
@@ -871,36 +871,35 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             StructInfo queryStructInfo,
             StructInfo viewStructInfo,
             CascadesContext cascadesContext) {
-        Set<Expression> queryPulledUpPredicates = queryPredicates.stream()
-                .flatMap(expr -> ExpressionUtils.extractConjunction(expr).stream())
-                .map(expr -> {
-                    // NOTICE inferNotNull generate Not with isGeneratedIsNotNull = false,
-                    //  so, we need set this flag to false before comparison.
-                    if (expr instanceof Not) {
-                        return ((Not) expr).withGeneratedIsNotNull(false);
-                    }
-                    return expr;
-                })
-                .collect(Collectors.toSet());
-        Set<Expression> queryNullRejectPredicates =
-                ExpressionUtils.inferNotNull(queryPulledUpPredicates, cascadesContext);
-        if (queryPulledUpPredicates.containsAll(queryNullRejectPredicates)) {
-            // Query has no null reject predicates, return
-            return false;
+        Set<Slot> queryNullRejectSlots = new HashSet<>();
+        for (Expression queryPredicate : queryPredicates) {
+            Optional<Slot> explicitNotNullSlot = TypeUtils.isNotNull(queryPredicate);
+            explicitNotNullSlot.ifPresent(queryNullRejectSlots::add);
         }
-        // Get query null reject predicate slots
-        Set<Expression> queryNullRejectSlotSet = new HashSet<>();
+        Set<Expression> queryNullRejectPredicates = ExpressionUtils.inferNotNull(queryPredicates, cascadesContext);
         for (Expression queryNullRejectPredicate : queryNullRejectPredicates) {
             Optional<Slot> notNullSlot = TypeUtils.isNotNull(queryNullRejectPredicate);
-            if (!notNullSlot.isPresent()) {
-                continue;
-            }
-            queryNullRejectSlotSet.add(notNullSlot.get());
+            notNullSlot.ifPresent(queryNullRejectSlots::add);
         }
-        // query slot need shuttle to use table slot, avoid alias influence
-        Set<Expression> queryUsedNeedRejectNullSlotsViewBased = ExpressionUtils.shuttleExpressionWithLineage(
-                        new ArrayList<>(queryNullRejectSlotSet), queryStructInfo.getTopPlan()).stream()
-                .map(expr -> ExpressionUtils.replace(expr, queryToViewMapping.toSlotReferenceMap()))
+        // INNER JOIN conditions guarantee NOT NULL on join-key slots.
+        // After EliminateOuterJoin converts LEFT→INNER, the JoinEdge objects in the HyperGraph
+        // retain the INNER type even though EliminateNotNull removes filter-level NOT NULL predicates.
+        for (JoinEdge joinEdge : queryStructInfo.getHyperGraph().getJoinEdges()) {
+            if (joinEdge.getJoinType().isInnerJoin()) {
+                queryNullRejectSlots.addAll(ExpressionUtils.inferNotNullSlots(
+                        ImmutableSet.copyOf(joinEdge.getExpressions()), cascadesContext));
+            }
+        }
+        if (queryNullRejectSlots.isEmpty()) {
+            return false;
+        }
+        Set<Slot> queryUsedNeedRejectNullSlotsViewBased = ExpressionUtils.shuttleExpressionWithLineage(
+                        new ArrayList<>(queryNullRejectSlots), queryStructInfo.getTopPlan()).stream()
+                .filter(Slot.class::isInstance)
+                .map(Slot.class::cast)
+                .map(slot -> ExpressionUtils.replace(slot, queryToViewMapping.toSlotReferenceMap()))
+                .filter(Slot.class::isInstance)
+                .map(Slot.class::cast)
                 .collect(Collectors.toSet());
         // view slot need shuttle to use table slot, avoid alias influence
         Set<Set<Slot>> shuttledRequireNoNullableViewSlot = new HashSet<>();

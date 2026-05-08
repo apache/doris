@@ -500,6 +500,11 @@ DECLARE_mInt32(pk_index_page_cache_stale_sweep_time_sec);
 DECLARE_mBool(enable_low_cardinality_optimize);
 DECLARE_Bool(enable_low_cardinality_cache_code);
 
+// Adaptive batch size: dynamically adjust SegmentIterator chunk row count using EWMA
+// so that each output block stays close to preferred_block_size_bytes.
+// When false, the fixed batch_size row behaviour is preserved.
+DECLARE_mBool(enable_adaptive_batch_size);
+
 // be policy
 // whether check compaction checksum
 DECLARE_mBool(enable_compaction_checksum);
@@ -1772,6 +1777,10 @@ DECLARE_mInt32(segments_key_bounds_truncation_threshold);
 // ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DECLARE_mBool(random_segments_key_bounds_truncation);
 
+// If true, non-MOW rowsets store a single aggregated [rowset_min, rowset_max]
+// key-bounds entry instead of per-segment bounds, to reduce meta size on cloud FDB.
+DECLARE_mBool(enable_aggregate_non_mow_key_bounds);
+
 DECLARE_mBool(enable_auto_clone_on_compaction_missing_version);
 
 DECLARE_mBool(enable_auto_clone_on_mow_publish_missing_version);
@@ -1817,6 +1826,7 @@ DECLARE_mInt32(concurrency_stats_dump_interval_ms);
 DECLARE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin);
 
 DECLARE_mBool(enable_cloud_make_rs_visible_on_be);
+DECLARE_mInt32(file_handles_deplenish_frequency_times);
 
 #ifdef BE_TEST
 // test s3

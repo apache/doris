@@ -40,8 +40,10 @@ std::string TimestampTzValue::to_string(const cctz::time_zone& tz, int scale) co
     cctz::civil_second civ = lookup_result.cs;
     auto time_offset = lookup_result.offset;
 
-    int offset_hours = time_offset / 3600;
-    int offset_mins = (std::abs(time_offset) % 3600) / 60;
+    bool is_negative_offset = time_offset < 0;
+    int abs_offset = std::abs(time_offset);
+    int offset_hours = abs_offset / 3600;
+    int offset_mins = (abs_offset % 3600) / 60;
 
     /// TODO: We could directly use datetime's to_string here. In the future,
     /// when we support a function like 'show datetime with timezone',
@@ -57,13 +59,13 @@ std::string TimestampTzValue::to_string(const cctz::time_zone& tz, int scale) co
     int len = tmp_dt.to_buffer(buffer, scale);
     // timezone +03:00
     // buffer[len++] = ' ';
-    buffer[len++] = (offset_hours >= 0 ? '+' : '-');
-    buffer[len++] = static_cast<char>('0' + std::abs(offset_hours) / 10);
-    buffer[len++] = '0' + std::abs(offset_hours) % 10;
+    buffer[len++] = (is_negative_offset ? '-' : '+');
+    buffer[len++] = static_cast<char>('0' + offset_hours / 10);
+    buffer[len++] = '0' + offset_hours % 10;
     buffer[len++] = ':';
     buffer[len++] = static_cast<char>('0' + offset_mins / 10);
     buffer[len++] = '0' + offset_mins % 10;
-    return std::string(buffer, len);
+    return {buffer, static_cast<size_t>(len)};
 }
 
 bool TimestampTzValue::from_datetime(const DateV2Value<DateTimeV2ValueType>& origin_dt,

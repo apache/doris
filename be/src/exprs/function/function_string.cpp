@@ -44,6 +44,7 @@
 #include "exprs/function/string_hex_util.h"
 #include "util/string_search.hpp"
 #include "util/url_coding.h"
+#include "util/utf8_check.h"
 
 namespace doris {
 struct NameStringASCII {
@@ -220,6 +221,29 @@ struct StringUtf8LengthImpl {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int str_size = offsets[i] - offsets[i - 1];
             res[i] = simd::VStringFunctions::get_char_len(raw_str, str_size);
+        }
+        return Status::OK();
+    }
+};
+
+struct NameIsValidUTF8 {
+    static constexpr auto name = "is_valid_utf8";
+};
+
+struct IsValidUTF8Impl {
+    using ReturnType = DataTypeUInt8;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
+    using Type = String;
+    using ReturnColumnType = ColumnUInt8;
+
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         PaddedPODArray<UInt8>& res) {
+        auto size = offsets.size();
+        res.resize(size);
+        for (size_t i = 0; i < size; ++i) {
+            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            size_t str_size = offsets[i] - offsets[i - 1];
+            res[i] = validate_utf8(raw_str, str_size) ? 1 : 0;
         }
         return Status::OK();
     }
@@ -1316,6 +1340,7 @@ using FunctionStringLength = FunctionUnaryToType<StringLengthImpl, NameStringLen
 using FunctionCrc32 = FunctionUnaryToType<Crc32Impl, NameCrc32>;
 using FunctionStringUTF8Length = FunctionUnaryToType<StringUtf8LengthImpl, NameStringUtf8Length>;
 using FunctionStringSpace = FunctionUnaryToType<StringSpace, NameStringSpace>;
+using FunctionIsValidUTF8 = FunctionUnaryToType<IsValidUTF8Impl, NameIsValidUTF8>;
 using FunctionStringStartsWith =
         FunctionBinaryToType<DataTypeString, DataTypeString, StringStartsWithImpl, NameStartsWith>;
 using FunctionStringEndsWith =
@@ -1422,7 +1447,9 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSubReplace<SubReplaceThreeImpl>>();
     factory.register_function<FunctionSubReplace<SubReplaceFourImpl>>();
     factory.register_function<FunctionOverlay>();
+    factory.register_function<FunctionIsValidUTF8>();
 
+    factory.register_alias(FunctionIsValidUTF8::name, "isValidUTF8");
     factory.register_alias(FunctionToLower::name, "lcase");
     factory.register_alias(FunctionToUpper::name, "ucase");
     factory.register_alias(FunctionStringUTF8Length::name, "character_length");

@@ -247,6 +247,19 @@ public class S3PropertiesTest {
         Assertions.assertEquals("arn:aws:iam::123456789012:role/MyTestRole", backendProperties.get("AWS_ROLE_ARN"));
     }
 
+    @Test
+    public void testS3PropertiesIgnoreIcebergRestIamRoleAliases() throws UserException {
+        origProps.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
+        origProps.put("iceberg.rest.role_arn", "arn:aws:iam::123456789012:role/MyTestRole");
+        origProps.put("iceberg.rest.external-id", "external-123");
+
+        S3Properties s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
+        Map<String, String> backendProperties = s3Props.getBackendConfigProperties();
+
+        Assertions.assertNull(backendProperties.get("AWS_ROLE_ARN"));
+        Assertions.assertNull(backendProperties.get("AWS_EXTERNAL_ID"));
+    }
+
 
     @Test
     public void testGetAwsCredentialsProviderWithIamRoleAndExternalId() {

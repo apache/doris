@@ -1115,7 +1115,10 @@ TEST_F(ColumnVariantTest, clone_resized) {
         for (; i < clone_count; ++i) {
             // more than source size
             Field target_field;
-            Field source_field = column_variant->get_root_type()->get_default();
+            auto default_column = column_variant->get_root_type()->create_column();
+            default_column->insert_default();
+            Field source_field;
+            default_column->get(0, source_field);
             target_column->get(i, target_field);
             EXPECT_EQ(target_field, source_field)
                     << "target_field: " << target_field.get_type_name()
@@ -1492,26 +1495,6 @@ TEST_F(ColumnVariantTest, get_dimensions) {
         for (auto& entry : source_column->get_subcolumns()) {
             EXPECT_TRUE(entry != nullptr);
             EXPECT_GE(entry->data.get_dimensions(), 0);
-        }
-    };
-    test_func(column_variant);
-}
-
-TEST_F(ColumnVariantTest, get_last_field) {
-    auto test_func = [](const auto& source_column) {
-        auto src_size = source_column->size();
-        EXPECT_TRUE(src_size > 0);
-
-        // Test get_last_field for root column
-        const auto& root = source_column->get_subcolumns().get_root();
-        EXPECT_TRUE(root != nullptr);
-        Field last_field;
-        root->data.get_last_field();
-
-        // Test get_last_field for subcolumns
-        for (const auto& subcolumn : source_column->get_subcolumns()) {
-            EXPECT_TRUE(subcolumn != nullptr);
-            subcolumn->data.get_last_field();
         }
     };
     test_func(column_variant);
@@ -2285,8 +2268,6 @@ TEST_F(ColumnVariantTest, array_field_operations) {
             EXPECT_TRUE(subcolumn != nullptr);
             EXPECT_TRUE(subcolumn->size() > 0);
             std::cout << "subcolumn size: " << subcolumn->size() << std::endl;
-            Field f = subcolumn->get_last_field();
-            EXPECT_TRUE(f.get_type() == PrimitiveType::TYPE_ARRAY);
 
             // Create field info
             FieldInfo info;
@@ -3082,30 +3063,6 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
     }
 }
 
-TEST_F(ColumnVariantTest, field_visitor) {
-    // Test replacing scalar values in a flat array
-    {
-        Array array;
-        array.push_back(Field::create_field<TYPE_BIGINT>(Int64(1)));
-        array.push_back(Field::create_field<TYPE_BIGINT>(Int64(2)));
-        array.push_back(Field::create_field<TYPE_BIGINT>(Int64(3)));
-
-        Field field = Field::create_field<TYPE_ARRAY>(std::move(array));
-        Field replacement = Field::create_field<TYPE_BIGINT>(Int64(42));
-        Field result = apply_visitor(FieldVisitorReplaceScalars(replacement, 0), field);
-
-        EXPECT_EQ(result.get<TYPE_BIGINT>(), 42);
-
-        Field replacement1 = Field::create_field<TYPE_BIGINT>(Int64(42));
-        Field result1 = apply_visitor(FieldVisitorReplaceScalars(replacement, 1), field);
-
-        EXPECT_EQ(result1.get<TYPE_ARRAY>().size(), 3);
-        EXPECT_EQ(result1.get<TYPE_ARRAY>()[0].get<TYPE_BIGINT>(), 42);
-        EXPECT_EQ(result1.get<TYPE_ARRAY>()[1].get<TYPE_BIGINT>(), 42);
-        EXPECT_EQ(result1.get<TYPE_ARRAY>()[2].get<TYPE_BIGINT>(), 42);
-    }
-}
-
 TEST_F(ColumnVariantTest, subcolumn_operations_coverage) {
     // Test insert_range_from
     {
@@ -3503,21 +3460,12 @@ TEST_F(ColumnVariantTest, test_variant_deserialize_from_sparse_column) {
     //                  PrimitiveType::TYPE_ARRAY);
     //        EXPECT_EQ(subcolumn.get_dimensions(), 1);
     //        EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_TINYINT);
-    //        auto v = subcolumn.get_last_field();
-    //        auto& arr = v.get<TYPE_ARRAY>();
-    //        EXPECT_EQ(arr.size(), 1);
-    //        EXPECT_EQ(arr[0].get<TYPE_TINYINT>(), 123);
-    //
     //        subcolumn.deserialize_from_binary_column(&value, 1);
     //        EXPECT_EQ(subcolumn.data.size(), 2);
     //        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
     //                  PrimitiveType::TYPE_ARRAY);
     //        EXPECT_EQ(subcolumn.get_dimensions(), 1);
     //        EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_INT);
-    //        auto v2 = subcolumn.get_last_field();
-    //        auto& arr2 = v2.get<TYPE_ARRAY>();
-    //        EXPECT_EQ(arr2.size(), 1);
-    //        EXPECT_EQ(arr2[0].get<TYPE_INT>(), 123);
     //    }
     //
     //    column_map.clear();
@@ -3549,22 +3497,12 @@ TEST_F(ColumnVariantTest, test_variant_deserialize_from_sparse_column) {
     //        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
     //                  PrimitiveType::TYPE_ARRAY);
     //        EXPECT_EQ(subcolumn.get_dimensions(), 1);
-    //        auto v = subcolumn.get_last_field();
-    //        auto& arr = v.get<TYPE_ARRAY>();
-    //        EXPECT_EQ(arr.size(), 1);
-    //        EXPECT_TRUE(arr[0].is_null());
-    //
     //        subcolumn.deserialize_from_binary_column(&value, 1);
     //        EXPECT_EQ(subcolumn.data.size(), 2);
     //        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
     //                  PrimitiveType::TYPE_ARRAY);
     //        EXPECT_EQ(subcolumn.get_dimensions(), 1);
     //        EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_INT);
-    //        auto v2 = subcolumn.get_last_field();
-    //        auto& arr2 = v2.get<TYPE_ARRAY>();
-    //        EXPECT_EQ(arr2.size(), 2);
-    //        EXPECT_TRUE(arr2[0].is_null());
-    //        EXPECT_EQ(arr2[1].get<TYPE_INT>(), 123);
     //    }
 }
 

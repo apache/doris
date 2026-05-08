@@ -40,7 +40,6 @@
 #include "storage/compaction/cumulative_compaction.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
-#include "storage/compaction/full_compaction.h"
 #include "storage/compaction/single_replica_compaction.h"
 #include "storage/compaction_task_tracker.h"
 #include "storage/olap_define.h"
@@ -150,13 +149,22 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
         return Status::NotSupported("The remote = '{}' is not supported", param_remote);
     }
 
+    // "force" = "true" means skip permit limiter when submitting full compaction to thread pool
+    bool force = false;
+    std::string param_force = req->param(PARAM_COMPACTION_FORCE);
+    if (param_force == "true") {
+        force = true;
+    } else if (!param_force.empty() && param_force != "false") {
+        return Status::NotSupported("The force = '{}' is not supported", param_force);
+    }
+
     if (tablet_id == 0 && table_id != 0) {
         std::vector<TabletSharedPtr> tablet_vec = _engine.tablet_manager()->get_all_tablet(
                 [table_id](Tablet* tablet) -> bool { return tablet->get_table_id() == table_id; });
         for (const auto& tablet : tablet_vec) {
             tablet->set_last_full_compaction_schedule_time(UnixMillis());
             RETURN_IF_ERROR(_engine.submit_compaction_task(tablet, CompactionType::FULL_COMPACTION,
-                                                           false, true, 1));
+                                                           force, true, 1));
         }
     } else {
         // 2. fetch the tablet by tablet_id
@@ -178,33 +186,36 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
             return Status::OK();
         })
 
-        // 3. execute compaction task
-        std::packaged_task<Status()> task([this, tablet, compaction_type, fetch_from_remote]() {
-            return _execute_compaction_callback(tablet, compaction_type, fetch_from_remote);
-        });
-        std::future<Status> future_obj = task.get_future();
-        std::thread(std::move(task)).detach();
-
-        // 更新schedule_time
-        if (compaction_type == PARAM_COMPACTION_BASE) {
-            tablet->set_last_base_compaction_schedule_time(UnixMillis());
-        } else if (compaction_type == PARAM_COMPACTION_CUMULATIVE) {
-            tablet->set_last_cumu_compaction_schedule_time(UnixMillis());
-        } else if (compaction_type == PARAM_COMPACTION_FULL) {
+        if (compaction_type == PARAM_COMPACTION_FULL) {
+            // 3. submit full compaction task to thread pool
             tablet->set_last_full_compaction_schedule_time(UnixMillis());
-        }
-
-        // 4. wait for result for 2 seconds by async
-        std::future_status status = future_obj.wait_for(std::chrono::seconds(2));
-        if (status == std::future_status::ready) {
-            // fetch execute result
-            Status olap_status = future_obj.get();
-            if (!olap_status.ok()) {
-                return olap_status;
-            }
+            RETURN_IF_ERROR(_engine.submit_compaction_task(tablet, CompactionType::FULL_COMPACTION,
+                                                           force, true, 1));
         } else {
-            LOG(INFO) << "Manual compaction task is timeout for waiting "
-                      << (status == std::future_status::timeout);
+            // 3. execute base/cumulative compaction task in a detached thread
+            std::packaged_task<Status()> task([this, tablet, compaction_type, fetch_from_remote]() {
+                return _execute_compaction_callback(tablet, compaction_type, fetch_from_remote);
+            });
+            std::future<Status> future_obj = task.get_future();
+            std::thread(std::move(task)).detach();
+
+            if (compaction_type == PARAM_COMPACTION_BASE) {
+                tablet->set_last_base_compaction_schedule_time(UnixMillis());
+            } else if (compaction_type == PARAM_COMPACTION_CUMULATIVE) {
+                tablet->set_last_cumu_compaction_schedule_time(UnixMillis());
+            }
+
+            // 4. wait for result for 2 seconds by async
+            std::future_status status = future_obj.wait_for(std::chrono::seconds(2));
+            if (status == std::future_status::ready) {
+                Status olap_status = future_obj.get();
+                if (!olap_status.ok()) {
+                    return olap_status;
+                }
+            } else {
+                LOG(INFO) << "Manual compaction task is timeout for waiting "
+                          << (status == std::future_status::timeout);
+            }
         }
     }
     LOG(INFO) << "Manual compaction task is successfully triggered";
@@ -373,19 +384,6 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
                     LOG(WARNING) << "failed to do cumulative compaction. res=" << res
                                  << ", table=" << tablet->tablet_id();
                 }
-            }
-        }
-    } else if (compaction_type == PARAM_COMPACTION_FULL) {
-        FullCompaction full_compaction(_engine, tablet);
-        res = do_compact(full_compaction, CompactionProfileType::FULL);
-        if (!res) {
-            if (res.is<FULL_NO_SUITABLE_VERSION>()) {
-                // Ignore this error code.
-                VLOG_NOTICE << "failed to init full compaction due to no suitable version,"
-                            << "tablet=" << tablet->tablet_id();
-            } else {
-                LOG(WARNING) << "failed to do full compaction. res=" << res
-                             << ", table=" << tablet->tablet_id();
             }
         }
     }

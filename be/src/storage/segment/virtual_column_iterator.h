@@ -34,7 +34,7 @@ public:
     ~VirtualColumnIterator() override = default;
 
     MOCK_FUNCTION void prepare_materialization(IColumn::Ptr column,
-                                               std::unique_ptr<std::vector<uint64_t>> labels);
+                                               std::shared_ptr<std::vector<uint64_t>> labels);
 
     Status init(const ColumnIteratorOptions& opts) override;
 

@@ -1344,6 +1344,19 @@ struct TAutoIncrementRangeResult {
     4: optional Types.TNetworkAddress master_address
 }
 
+struct TMaxComputeBlockIdRequest {
+    1: optional i64 txn_id
+    2: optional string write_session_id
+    3: optional i64 length
+}
+
+struct TMaxComputeBlockIdResult {
+    1: optional Status.TStatus status
+    2: optional i64 start
+    3: optional i64 length
+    4: optional Types.TNetworkAddress master_address
+}
+
 struct TCreatePartitionRequest {
     1: optional i64 txn_id
     2: optional i64 db_id
@@ -1957,6 +1970,7 @@ service FrontendService {
     Status.TStatus updatePlanStatsCache(1: TUpdatePlanStatsCacheRequest request)
 
     TAutoIncrementRangeResult getAutoIncrementRange(1: TAutoIncrementRangeRequest request)
+    TMaxComputeBlockIdResult getMaxComputeBlockIdRange(1: TMaxComputeBlockIdRequest request)
 
     TCreatePartitionResult createPartition(1: TCreatePartitionRequest request)
     // insert overwrite partition(*)

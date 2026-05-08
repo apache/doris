@@ -113,6 +113,7 @@ import org.apache.doris.nereids.rules.rewrite.MergeSetOperations;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperationsExcept;
 import org.apache.doris.nereids.rules.rewrite.MergeTopNs;
 import org.apache.doris.nereids.rules.rewrite.NestedColumnPruning;
+import org.apache.doris.nereids.rules.rewrite.NormalizeOlapTableStreamScan;
 import org.apache.doris.nereids.rules.rewrite.NormalizeSort;
 import org.apache.doris.nereids.rules.rewrite.OperativeColumnDerive;
 import org.apache.doris.nereids.rules.rewrite.OrExpansion;
@@ -722,6 +723,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topic("Table/Physical optimization",
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalCatalogRelation.class),
                         topDown(
+                                // Mark short-circuit point query before pruning empty partitions,
+                                // otherwise PRUNE_EMPTY_PARTITION may replace LogicalOlapScan with LogicalEmptyRelation
+                                // and short-circuit flag can never be set.
+                                new LogicalResultSinkToShortCircuitPointQuery(),
                                 new PruneOlapScanPartition(),
                                 new PruneEmptyPartition(),
                                 new PruneFileScanPartition(),
@@ -734,8 +739,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topic("adjust preagg status",
                         custom(RuleType.SET_PREAGG_STATUS, SetPreAggStatus::new)
                 ),
-                topic("Point query short circuit",
-                        topDown(new LogicalResultSinkToShortCircuitPointQuery())),
                 topic("eliminate",
                         // SORT_PRUNING should be applied after mergeLimit
                         custom(RuleType.ELIMINATE_SORT, EliminateSort::new),
@@ -893,7 +896,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ImmutableSet.of(LogicalCTEAnchor.class),
                 () -> {
                     List<RewriteJob> rewriteJobs = Lists.newArrayListWithExpectedSize(300);
-
+                    rewriteJobs.add(
+                            topic("normalize olap table stream scan",
+                                    custom(RuleType.NORMALIZE_OlAP_TABLE_STREAM_SCAN,
+                                            NormalizeOlapTableStreamScan::new)
+                            )
+                    );
                     rewriteJobs.addAll(jobs(
                             topic("cte inline and pull up all cte anchor",
                                     custom(RuleType.PULL_UP_CTE_ANCHOR, PullUpCteAnchor::new),

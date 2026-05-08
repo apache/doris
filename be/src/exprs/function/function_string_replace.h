@@ -35,6 +35,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/string_ref.h"
+#include "exec/common/string_searcher.h"
 #include "exec/common/stringop_substring.h"
 #include "exec/common/template_helpers.hpp"
 #include "exprs/function/function.h"
@@ -87,6 +88,23 @@ public:
 
         ColumnString::MutablePtr col_res = ColumnString::create();
 
+        // Fast path: when old_str and new_str are both constant and old_str is
+        // non-empty (the common case for replace(col, 'literal', 'literal')).
+        // Works directly on ColumnString chars/offsets to avoid per-row
+        // std::string allocation and copy overhead.
+        // Applies to both replace (empty=true) and replace_empty (empty=false):
+        // when old_str is non-empty the two variants behave identically.
+        if (col_const[1] && col_const[2]) {
+            StringRef old_ref = col_old_str->get_data_at(0);
+            StringRef new_ref = col_new_str->get_data_at(0);
+            if (old_ref.size > 0) {
+                _replace_const_pattern(*col_origin_str, old_ref, new_ref, *col_res,
+                                       input_rows_count, col_const[0]);
+                block.replace_by_position(result, std::move(col_res));
+                return Status::OK();
+            }
+        }
+
         std::visit(
                 [&](auto origin_str_const, auto old_str_const, auto new_str_const) {
                     for (int i = 0; i < input_rows_count; ++i) {
@@ -112,6 +130,70 @@ public:
     }
 
 private:
+    // Optimized replace path for constant old_str (non-empty) and constant new_str.
+    // Avoids per-row std::string allocation by working directly on ColumnString
+    // chars/offsets.  Two-level search strategy:
+    //  1. memchr (glibc AVX512) scans for the needle's first byte.  If absent,
+    //     the row is guaranteed no-match and is bulk-copied with a single memcpy.
+    //  2. When the first byte is present, ASCIICaseSensitiveStringSearcher
+    //     (SSE4.1, prebuilt once outside the row loop) does the full needle scan.
+    static void _replace_const_pattern(const ColumnString& src, StringRef old_ref,
+                                       StringRef new_ref, ColumnString& dst,
+                                       size_t input_rows_count, bool src_const) {
+        auto& dst_chars = dst.get_chars();
+        auto& dst_offsets = dst.get_offsets();
+
+        dst_chars.reserve(src_const ? (src.get_data_at(0).size * input_rows_count)
+                                    : src.get_chars().size());
+        dst_offsets.resize(input_rows_count);
+
+        // Build SSE4.1 searcher once — first+second byte masks precomputed here.
+        ASCIICaseSensitiveStringSearcher searcher(old_ref.data, old_ref.size);
+        const size_t needle_size = old_ref.size;
+        const size_t replacement_size = new_ref.size;
+        const char* replacement_data = new_ref.data;
+        const auto needle_first = static_cast<unsigned char>(old_ref.data[0]);
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            StringRef row = src.get_data_at(src_const ? 0 : i);
+            const char* const row_end = row.data + row.size;
+
+            // Level-1: memchr for needle's first byte (glibc uses AVX512 internally).
+            // If the first byte is absent the entire row cannot contain the needle;
+            // bulk-copy it and move to the next row without entering the SSE4.1 loop.
+            if (memchr(row.data, needle_first, row.size) == nullptr) {
+                StringOP::push_value_string({row.data, row.size}, i, dst_chars, dst_offsets);
+                continue;
+            }
+
+            // Level-2: SSE4.1 searcher handles needle matching for this row.
+            const char* pos = row.data;
+            while (pos < row_end) {
+                const char* match = searcher.search(pos, row_end);
+                // Copy prefix before match
+                size_t prefix_len = static_cast<size_t>(match - pos);
+                if (prefix_len > 0) {
+                    size_t old_size = dst_chars.size();
+                    ColumnString::check_chars_length(old_size + prefix_len, i + 1);
+                    dst_chars.resize(old_size + prefix_len);
+                    memcpy(&dst_chars[old_size], pos, prefix_len);
+                }
+                if (match == row_end) {
+                    break;
+                }
+                // Copy replacement
+                if (replacement_size > 0) {
+                    size_t old_size = dst_chars.size();
+                    ColumnString::check_chars_length(old_size + replacement_size, i + 1);
+                    dst_chars.resize(old_size + replacement_size);
+                    memcpy(&dst_chars[old_size], replacement_data, replacement_size);
+                }
+                pos = match + needle_size;
+            }
+            StringOP::push_empty_string(i, dst_chars, dst_offsets);
+        }
+    }
+
     std::string replace(std::string str, std::string_view old_str, std::string_view new_str) const {
         if (old_str.empty()) {
             if constexpr (empty) {

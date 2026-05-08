@@ -48,6 +48,7 @@ public class ChildFirstClassLoader extends URLClassLoader {
         packages.add("org.slf4j.");
         packages.add("org.apache.logging.");
         packages.add("org.apache.doris.extension.spi.");
+        packages.add("org.apache.doris.connector.api.");
         DEFAULT_PARENT_FIRST_PACKAGES = Collections.unmodifiableList(packages);
     }
 

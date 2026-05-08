@@ -150,7 +150,7 @@ public class DateTimeV2Type extends DateLikeType implements ScaleTimeType {
 
     @Override
     public boolean acceptsType(DataType other) {
-        return other instanceof DateTimeV2Type;
+        return other.equals(this);
     }
 
     @Override

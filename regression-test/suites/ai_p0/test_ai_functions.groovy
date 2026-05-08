@@ -136,6 +136,27 @@ suite("test_ai_functions") {
     res = sql """SHOW RESOURCES WHERE NAME = '${embedResourceName}'"""
     assertTrue(res.size() > 0)
 
+    sql """SET embed_max_batch_size = 1;"""
+    sql """SET ai_context_window_size = 1;"""
+    test {
+        sql """SET embed_max_batch_size = 0;"""
+        exception "embed_max_batch_size"
+    }
+    test {
+        sql """SET embed_max_batch_size = -1;"""
+        exception "embed_max_batch_size"
+    }
+    test {
+        sql """SET ai_context_window_size = 0;"""
+        exception "ai_context_window_size"
+    }
+    test {
+        sql """SET ai_context_window_size = -1;"""
+        exception "ai_context_window_size"
+    }
+    sql """UNSET VARIABLE embed_max_batch_size;"""
+    sql """UNSET VARIABLE ai_context_window_size;"""
+
     test_query_timeout_exception("SELECT EMBED('${embedResourceName}', text) FROM ${test_table_for_ai_functions};")
 
     try_sql("""DROP TABLE IF EXISTS ${test_table_for_ai_functions}""")

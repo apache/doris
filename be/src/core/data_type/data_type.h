@@ -124,11 +124,6 @@ public:
     ColumnPtr create_column_const(size_t size, const Field& field) const;
     ColumnPtr create_column_const_with_default_value(size_t size) const;
 
-    /** Get default value of data type.
-      * It is the "default" default, regardless the fact that a table could contain different user-specified default.
-      */
-    virtual Field get_default() const = 0;
-
     virtual Field get_field(const TExprNode& node) const = 0;
 
     /// Checks that two instances belong to the same type

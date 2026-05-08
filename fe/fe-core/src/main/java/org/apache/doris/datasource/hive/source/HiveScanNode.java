@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.hive.source;
 
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -52,6 +53,7 @@ import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
+import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
@@ -65,7 +67,6 @@ import org.apache.doris.thrift.TTransactionalHiveDesc;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import lombok.Setter;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.logging.log4j.LogManager;
@@ -92,7 +93,6 @@ public class HiveScanNode extends FileQueryScanNode {
     private HiveTransaction hiveTransaction = null;
 
     // will only be set in Nereids, for lagency planner, it should be null
-    @Setter
     protected SelectedPartitions selectedPartitions = null;
 
     private DirectoryLister directoryLister;
@@ -123,6 +123,11 @@ public class HiveScanNode extends FileQueryScanNode {
         hmsTable = (HMSExternalTable) desc.getTable();
         brokerName = hmsTable.getCatalog().bindBrokerName();
         this.directoryLister = directoryLister;
+    }
+
+    public void setSelectedPartitions(SelectedPartitions selectedPartitions) {
+        this.selectedPartitions = selectedPartitions;
+        setHasPartitionPredicate(selectedPartitions != null && selectedPartitions.hasPartitionPredicate);
     }
 
     @Override
@@ -343,6 +348,14 @@ public class HiveScanNode extends FileQueryScanNode {
                         new HiveSplitCreator(fileCacheValue.getAcidInfo())));
             }
         }
+    }
+
+    @Override
+    protected TColumnCategory classifyColumn(SlotDescriptor slot, List<String> partitionKeys) {
+        if (slot.getColumn().getName().startsWith(Column.GLOBAL_ROWID_COL)) {
+            return TColumnCategory.SYNTHESIZED;
+        }
+        return super.classifyColumn(slot, partitionKeys);
     }
 
     private long determineTargetFileSplitSize(List<FileCacheValue> fileCaches,

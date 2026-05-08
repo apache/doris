@@ -41,13 +41,11 @@ import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.connectivity.CatalogConnectivityTestCoordinator;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
-import org.apache.doris.datasource.es.EsExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
-import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.metacache.MetaCache;
@@ -208,6 +206,24 @@ public abstract class ExternalCatalog
         }
     }
 
+    /**
+     * Returns Hadoop-related properties as a plain Map.
+     * Connector plugins should use this instead of getConfiguration()
+     * and build their own Configuration internally when needed.
+     */
+    public Map<String, String> getHadoopProperties() {
+        Map<String, String> props = new java.util.HashMap<>(catalogProperty.getHadoopProperties());
+        if (ifNotSetFallbackToSimpleAuth()) {
+            props.putIfAbsent("ipc.client.fallback-to-simple-auth-allowed", "true");
+        }
+        return props;
+    }
+
+    /**
+     * @deprecated Use {@link #getHadoopProperties()} and build Configuration locally.
+     *             This method will be removed when connector SPI extraction is complete.
+     */
+    @Deprecated
     public Configuration getConfiguration() {
         // build configuration is costly, so we cache it.
         if (cachedConf != null) {
@@ -220,6 +236,18 @@ public abstract class ExternalCatalog
             cachedConf = buildConf();
             return cachedConf;
         }
+    }
+
+    /**
+     * Builds a Hadoop Configuration from a properties map.
+     * Use this when you need a Configuration object from catalog properties.
+     */
+    public static Configuration buildHadoopConfiguration(Map<String, String> properties) {
+        Configuration conf = new HdfsConfiguration();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            conf.set(entry.getKey(), entry.getValue());
+        }
+        return conf;
     }
 
     private Configuration buildConf() {
@@ -904,10 +932,8 @@ public abstract class ExternalCatalog
         switch (logType) {
             case HMS:
                 return new HMSExternalDatabase(this, dbId, localDbName, remoteDbName);
-            case ES:
-                return new EsExternalDatabase(this, dbId, localDbName, remoteDbName);
             case JDBC:
-                return new JdbcExternalDatabase(this, dbId, localDbName, remoteDbName);
+                return new PluginDrivenExternalDatabase(this, dbId, localDbName, remoteDbName);
             case ICEBERG:
                 return new IcebergExternalDatabase(this, dbId, localDbName, remoteDbName);
             case MAX_COMPUTE:
@@ -922,6 +948,8 @@ public abstract class ExternalCatalog
                 return new TrinoConnectorExternalDatabase(this, dbId, localDbName, remoteDbName);
             case REMOTE_DORIS:
                 return new RemoteDorisExternalDatabase(this, dbId, localDbName, remoteDbName);
+            case PLUGIN:
+                return new PluginDrivenExternalDatabase(this, dbId, localDbName, remoteDbName);
             default:
                 break;
         }

@@ -434,6 +434,8 @@ DEFINE_mInt32(pk_index_page_cache_stale_sweep_time_sec, "600");
 DEFINE_mBool(enable_low_cardinality_optimize, "true");
 DEFINE_Bool(enable_low_cardinality_cache_code, "true");
 
+DEFINE_mBool(enable_adaptive_batch_size, "true");
+
 // be policy
 // whether check compaction checksum
 DEFINE_mBool(enable_compaction_checksum, "false");
@@ -1715,6 +1717,10 @@ DEFINE_mBool(enable_fetch_rowsets_from_peer_replicas, "false");
 DEFINE_mInt32(segments_key_bounds_truncation_threshold, "36");
 // ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DEFINE_mBool(random_segments_key_bounds_truncation, "false");
+
+// If true, non-MOW rowsets store a single aggregated [rowset_min, rowset_max]
+// key-bounds entry instead of per-segment bounds, to reduce meta size on cloud FDB.
+DEFINE_mBool(enable_aggregate_non_mow_key_bounds, "true");
 // p0, daily, rqg, external
 DEFINE_String(fuzzy_test_type, "");
 
@@ -1773,6 +1779,7 @@ DEFINE_Validator(concurrency_stats_dump_interval_ms,
 DEFINE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin, "true");
 
 DEFINE_mBool(enable_cloud_make_rs_visible_on_be, "false");
+DEFINE_mInt32(file_handles_deplenish_frequency_times, "3");
 
 // clang-format off
 #ifdef BE_TEST
