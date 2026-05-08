@@ -985,8 +985,6 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                 static_cast<int64_t>(load_costs_ms));
     }
 
-    ann_index_reader->set_rowset_id(_opts.rowset_id.to_string());
-    ann_index_reader->set_segment_id(_segment->id());
     bool enable_ann_index_result_cache =
             !_opts.runtime_state ||
             !_opts.runtime_state->query_options().__isset.enable_ann_index_result_cache ||
@@ -1252,19 +1250,6 @@ Status SegmentIterator::_apply_index_expr() {
                              << ", error msg: " << st.to_string();
                 return st;
             }
-        }
-    }
-
-    for (const auto& iter : _index_iterators) {
-        if (iter == nullptr) continue;
-        auto* ann_iter = dynamic_cast<segment_v2::AnnIndexIterator*>(iter.get());
-        if (ann_iter == nullptr) continue;
-        auto ann_reader = std::dynamic_pointer_cast<segment_v2::AnnIndexReader>(
-                ann_iter->get_reader(segment_v2::AnnIndexReaderType::ANN));
-        if (ann_reader) {
-            ann_reader->set_rowset_id(_opts.rowset_id.to_string());
-            ann_reader->set_segment_id(_segment->id());
-            ann_reader->set_rows_of_segment(num_rows());
         }
     }
 

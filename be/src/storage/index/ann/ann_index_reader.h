@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 #include "runtime/runtime_state.h"
 #include "storage/index/ann/ann_index.h"
@@ -40,7 +41,8 @@ class IndexIterator;
 class AnnIndexReader : public IndexReader {
 public:
     AnnIndexReader(const TabletIndex* index_meta,
-                   std::shared_ptr<IndexFileReader> index_file_reader);
+                   std::shared_ptr<IndexFileReader> index_file_reader, std::string rowset_id = "",
+                   uint32_t segment_id = 0, size_t rows_of_segment = 0);
     ~AnnIndexReader() override = default;
 
     Status load_index(io::IOContext* io_ctx);
@@ -64,10 +66,6 @@ public:
     AnnIndexMetric get_metric_type() const { return _metric_type; }
 
     size_t get_dimension() const;
-
-    void set_rowset_id(std::string rowset_id) { _rowset_id = rowset_id; }
-    void set_segment_id(uint32_t segment_id) { _segment_id = segment_id; }
-    void set_rows_of_segment(size_t rows) { _rows_of_segment = rows; }
 
 private:
     TabletIndex _index_meta;

@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <memory>
+#include <utility>
 
 #include "common/config.h"
 #include "common/metrics/doris_metrics.h"
@@ -48,8 +49,13 @@ static void check_topn_result(const IndexSearchResult& result) {
 }
 
 AnnIndexReader::AnnIndexReader(const TabletIndex* index_meta,
-                               std::shared_ptr<IndexFileReader> index_file_reader)
-        : _index_meta(*index_meta), _index_file_reader(index_file_reader) {
+                               std::shared_ptr<IndexFileReader> index_file_reader,
+                               std::string rowset_id, uint32_t segment_id, size_t rows_of_segment)
+        : _index_meta(*index_meta),
+          _index_file_reader(std::move(index_file_reader)),
+          _rowset_id(std::move(rowset_id)),
+          _segment_id(segment_id),
+          _rows_of_segment(rows_of_segment) {
     const auto index_properties = _index_meta.properties();
     auto it = index_properties.find("index_type");
     DCHECK(it != index_properties.end());
