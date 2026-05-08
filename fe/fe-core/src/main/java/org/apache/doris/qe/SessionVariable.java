@@ -746,6 +746,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_ES_PARALLEL_SCROLL = "enable_es_parallel_scroll";
 
+    public static final String ENABLE_EXTERNAL_FILE_CACHE = "enable_external_file_cache";
+
     public static final String EXCHANGE_MULTI_BLOCKS_BYTE_SIZE = "exchange_multi_blocks_byte_size";
 
     public static final String SKIP_CHECKING_ACID_VERSION_FILE = "skip_checking_acid_version_file";
@@ -3353,6 +3355,10 @@ public class SessionVariable implements Serializable, Writable {
                             + "When set to false, COUNT(*) will scan data files "
                             + "to exclude the impact of dangling delete files."})
     public boolean ignoreIcebergDanglingDelete = false;
+
+
+    @VariableMgr.VarAttr(name = ENABLE_EXTERNAL_FILE_CACHE)
+    public boolean enableExternalFileCache = true;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -5974,6 +5980,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableAddIndexForNewData(boolean enableAddIndexForNewData) {
         this.enableAddIndexForNewData = enableAddIndexForNewData;
+    }
+
+    public void setEnableExternalFileCache(boolean enableExternalFileCache) {
+        this.enableExternalFileCache = enableExternalFileCache;
+    }
+
+    public boolean getEnableExternalFileCache() {
+        return enableExternalFileCache;
     }
 
     public static boolean enableStrictCast() {

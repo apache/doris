@@ -311,7 +311,8 @@ public class HiveScanNode extends FileQueryScanNode {
                 throw e;
             }
         } else {
-            boolean withCache = Config.max_external_file_cache_num > 0;
+            boolean withCache = Config.max_external_file_cache_num > 0 && (ConnectContext.get() == null
+                    || ConnectContext.get().getSessionVariable().getEnableExternalFileCache());
             fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1,
                     directoryLister, hmsTable);
         }
