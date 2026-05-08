@@ -20,7 +20,6 @@ package org.apache.doris.mtmv.ivm;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.rules.rewrite.IvmNormalizeMtmv;
@@ -42,6 +41,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
 
 import java.util.List;
 
@@ -246,8 +246,8 @@ class IvmNormalizeMtmvUnionTest extends IvmDeltaTestBase {
                 childrenOutputs.build(), ImmutableList.of(), false,
                 ImmutableList.of(scanA, scanB));
 
-        Assertions.assertThrows(AnalysisException.class, () -> normalizeUnionPlan(union),
-                "UNION DISTINCT should throw AnalysisException");
+        assertIvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                () -> normalizeUnionPlan(union));
     }
 
     @Test
@@ -281,8 +281,13 @@ class IvmNormalizeMtmvUnionTest extends IvmDeltaTestBase {
                 childrenOutputs.build(), constantExprs, false,
                 ImmutableList.of(scanA, scanB));
 
-        Assertions.assertThrows(AnalysisException.class, () -> normalizeUnionPlan(union),
-                "UNION ALL with constant expressions should throw AnalysisException");
+        assertIvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                () -> normalizeUnionPlan(union));
+    }
+
+    private void assertIvmException(IvmFailureReason failureReason, Executable executable) {
+        IvmException exception = Assertions.assertThrows(IvmException.class, executable);
+        Assertions.assertEquals(failureReason, exception.getFailureReason());
     }
 
     @Test

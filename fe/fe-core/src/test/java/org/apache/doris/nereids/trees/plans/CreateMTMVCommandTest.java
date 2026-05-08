@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -313,20 +314,49 @@ public class CreateMTMVCommandTest extends TestWithFeService {
     }
 
     @Test
-    public void testCreateNonIncrementalMTMVDefaultsIvmFlagFalse() throws Exception {
-        createTable("create table test.mtmv_non_increment_flag_base (k1 int)\n"
+    public void testCreateAutoMTMVPersistsIvmFlagWhenCapable() throws Exception {
+        createTable("create table test.mtmv_auto_increment_flag_base (k1 int)\n"
                 + "duplicate key(k1)\n"
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties('replication_num' = '1');");
-        createMtmv("CREATE MATERIALIZED VIEW mtmv_non_increment_flag\n"
+        createMtmv("CREATE MATERIALIZED VIEW mtmv_auto_increment_flag\n"
                 + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
                 + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
                 + " PROPERTIES ('replication_num' = '1')\n"
-                + " AS SELECT k1 FROM mtmv_non_increment_flag_base;");
+                + " AS SELECT k1 FROM mtmv_auto_increment_flag_base;");
 
-        MTMV mtmv = getMtmv("mtmv_non_increment_flag");
-        Assertions.assertFalse(mtmv.isIvm());
-        Assertions.assertFalse(mtmv.getIvmInfo().isEnableIvm());
+        MTMV mtmv = getMtmv("mtmv_auto_increment_flag");
+        Assertions.assertTrue(mtmv.isIvm());
+        Assertions.assertTrue(mtmv.getIvmInfo().isEnableIvm());
+    }
+
+    @Test
+    public void testCreateAutoMTMVFallsBackToNonIvmOnIvmException() throws Exception {
+        createTable("create table test.mtmv_auto_fallback_agg_base (k1 int, v1 int SUM)\n"
+                + "aggregate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+
+        CreateMTMVInfo info = getPartitionTableInfo("CREATE MATERIALIZED VIEW mtmv_auto_fallback_agg\n"
+                + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1 FROM mtmv_auto_fallback_agg_base;");
+
+        Assertions.assertFalse(info.isEnableIvm());
+    }
+
+    @Test
+    public void testCreateAutoMTMVDoesNotFallbackOnGeneralAnalysisException() throws Exception {
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> getPartitionTableInfo("CREATE MATERIALIZED VIEW mtmv_auto_bad_sql\n"
+                        + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
+                        + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                        + " PROPERTIES ('replication_num' = '1')\n"
+                        + " AS SELECT missing_col FROM missing_table;"));
+
+        Assertions.assertFalse(ex.getMessage().contains("fallback"),
+                "unexpected message: " + ex.getMessage());
     }
 
     @Test
@@ -670,9 +700,8 @@ public class CreateMTMVCommandTest extends TestWithFeService {
 
     @Test
     public void testNonIvmMvRandomDistributionPreserved() throws Exception {
-        // Non-IVM (AUTO refresh) MV with RANDOM distribution should remain RANDOM
-        createTable("create table test.non_ivm_dist_base (k1 int, v1 int)\n"
-                + "duplicate key(k1)\n"
+        createTable("create table test.non_ivm_dist_base (k1 int, v1 int SUM)\n"
+                + "aggregate key(k1)\n"
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties('replication_num' = '1');");
 
@@ -682,11 +711,32 @@ public class CreateMTMVCommandTest extends TestWithFeService {
                 + " DISTRIBUTED BY RANDOM BUCKETS 3\n"
                 + " PROPERTIES ('replication_num' = '1')\n"
                 + " AS\n"
-                + " SELECT k1, v1 FROM non_ivm_dist_base;");
+                + " SELECT k1 FROM non_ivm_dist_base;");
 
-        // Distribution should remain RANDOM (not overridden)
+        Assertions.assertFalse(info.isEnableIvm());
         Assertions.assertFalse(info.getDistribution().isHash(),
                 "Non-IVM MV distribution should remain RANDOM");
+        Assertions.assertFalse(info.getProperties().containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE));
+        Assertions.assertTrue(info.getColumns().stream()
+                .noneMatch(column -> Column.IVM_ROW_ID_COL.equals(column.getName())));
+    }
+
+    @Test
+    public void testCreateAutoMTMVWithUserSpecifiedKeyFallsBackToNonIvm() throws Exception {
+        createTable("create table test.auto_key_base (k1 int, v1 int)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+
+        CreateMTMVInfo info = getPartitionTableInfo(
+                "CREATE MATERIALIZED VIEW auto_key_mv\n"
+                + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
+                + " KEY(k1)\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM auto_key_base;");
+
+        Assertions.assertFalse(info.isEnableIvm());
     }
 
     @Test
