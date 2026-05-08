@@ -94,7 +94,7 @@ public class DFSFileSystem extends RemoteFileSystem {
         try {
             Path locatedPath = new Path(remotePath);
             org.apache.hadoop.fs.FileSystem fileSystem = nativeFileSystem(locatedPath);
-            if (Config.enable_list_hdfs_files_without_block_locations) {
+            if (!Config.split_assigner_optimized_local_scheduling) {
                 ArrayDeque<Path> pathQueue = new ArrayDeque<>();
                 pathQueue.add(locatedPath);
                 while (!pathQueue.isEmpty()) {

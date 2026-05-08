@@ -53,7 +53,7 @@ public class DFSFileSystemTest {
     @BeforeEach
     public void setUp() {
         // Save original config value
-        originalConfigValue = Config.enable_list_hdfs_files_without_block_locations;
+        originalConfigValue = Config.split_assigner_optimized_local_scheduling;
 
         // Create a real DFSFileSystem instance for testing
         dfsFileSystem = new DFSFileSystem(new HdfsProperties(new HashMap<>()));
@@ -62,7 +62,7 @@ public class DFSFileSystemTest {
     @AfterEach
     public void tearDown() {
         // Restore original config value
-        Config.enable_list_hdfs_files_without_block_locations = originalConfigValue;
+        Config.split_assigner_optimized_local_scheduling = originalConfigValue;
     }
 
 
@@ -70,7 +70,7 @@ public class DFSFileSystemTest {
     @Test
     public void testListFilesRecursiveWithNewImplementation() throws Exception {
         // Enable new implementation
-        Config.enable_list_hdfs_files_without_block_locations = true;
+        Config.split_assigner_optimized_local_scheduling = false;
 
         // Create mock file structure:
         // /test/
@@ -146,7 +146,7 @@ public class DFSFileSystemTest {
     @Test
     public void testListFilesNonRecursiveWithNewImplementation() throws Exception {
         // Enable new implementation
-        Config.enable_list_hdfs_files_without_block_locations = true;
+        Config.split_assigner_optimized_local_scheduling = false;
 
         // Create mock file structure for non-recursive test:
         // /test/
@@ -206,7 +206,7 @@ public class DFSFileSystemTest {
     @Test
     public void testListFilesFileNotFound() throws Exception {
         // Enable new implementation
-        Config.enable_list_hdfs_files_without_block_locations = true;
+        Config.split_assigner_optimized_local_scheduling = false;
 
         Path nonexistentPath = new Path("/nonexistent");
 
@@ -239,7 +239,7 @@ public class DFSFileSystemTest {
     @Test
     public void testListFilesIOException() throws Exception {
         // Enable new implementation
-        Config.enable_list_hdfs_files_without_block_locations = true;
+        Config.split_assigner_optimized_local_scheduling = false;
 
         Path testPath = new Path("/test");
 
@@ -272,7 +272,7 @@ public class DFSFileSystemTest {
     @Test
     public void testListFilesUserException() throws Exception {
         // Enable new implementation
-        Config.enable_list_hdfs_files_without_block_locations = true;
+        Config.split_assigner_optimized_local_scheduling = false;
 
         // Use MockUp to partially mock DFSFileSystem - override nativeFileSystem to throw UserException
         new MockUp<DFSFileSystem>() {
@@ -294,7 +294,7 @@ public class DFSFileSystemTest {
     @Test
     public void testListFilesEmptyDirectory() throws Exception {
         // Enable new implementation
-        Config.enable_list_hdfs_files_without_block_locations = true;
+        Config.split_assigner_optimized_local_scheduling = false;
 
         Path emptyPath = new Path("/empty");
 
@@ -326,7 +326,7 @@ public class DFSFileSystemTest {
     @Test
     public void testListFilesWithOldImplementation() throws Exception {
         // Disable new implementation to test fallback to parent class
-        Config.enable_list_hdfs_files_without_block_locations = false;
+        Config.split_assigner_optimized_local_scheduling = true;
 
         // When the flag is disabled, the method should call super.listFiles()
         // We need to mock the parent class behavior
@@ -350,7 +350,7 @@ public class DFSFileSystemTest {
     @Test
     public void testListFilesBasicFunctionality() throws Exception {
         // Simple test to verify basic functionality
-        Config.enable_list_hdfs_files_without_block_locations = true;
+        Config.split_assigner_optimized_local_scheduling = false;
 
         Path rootPath = new Path("/test");
         Path file1Path = new Path("/test/test1.txt");
@@ -400,7 +400,7 @@ public class DFSFileSystemTest {
         FileStatus fileStatus = createMockFileStatus(filePath, false, 1024, 1000);
 
         // Test with new implementation enabled
-        Config.enable_list_hdfs_files_without_block_locations = true;
+        Config.split_assigner_optimized_local_scheduling = false;
 
         // Use MockUp to partially mock DFSFileSystem - only override nativeFileSystem method
         new MockUp<DFSFileSystem>() {
@@ -426,7 +426,7 @@ public class DFSFileSystemTest {
         Assertions.assertNull(result1.get(0).getBlockLocations()); // New implementation sets null
 
         // Test with new implementation disabled (falls back to parent)
-        Config.enable_list_hdfs_files_without_block_locations = false;
+        Config.split_assigner_optimized_local_scheduling = true;
 
         List<RemoteFile> result2 = new ArrayList<>();
         Status status2 = dfsFileSystem.listFiles("/test", false, result2);

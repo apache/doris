@@ -2818,7 +2818,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {
             "本地节点软亲缘性优化。尽可能地优先选取本地副本节点。",
             "Local node soft affinity optimization. Prefer local replication node."})
-    public static boolean split_assigner_optimized_local_scheduling = true;
+    public static boolean split_assigner_optimized_local_scheduling = false;
 
     @ConfField(mutable = true, description = {
             "随机算法最小的候选数目，会选取相对最空闲的节点。",
@@ -3938,10 +3938,6 @@ public class Config extends ConfigBase {
     public static long[] file_size_range_to_decide_split_size = {
         20 * 1024 * 1024 * 1024L, 40 * 1024 * 1024 * 1024L, 80 * 1024 * 1024 * 1024L, 160 * 1024 * 1024 * 1024L,
         320 * 1024 * 1024 * 1024L};
-
-    @ConfField(mutable = true, description = {"是否允许获取hdfs的文件元数据信息时不携带block的位置信息",
-        "whether to enable list hdfs files without block locations"})
-    public static boolean enable_list_hdfs_files_without_block_locations = true;
 
     @ConfField(mutable = true, description = {"单个lakehouse表能扫描的最大分区数量",
         "max selected partition num for single lakehouse table"})

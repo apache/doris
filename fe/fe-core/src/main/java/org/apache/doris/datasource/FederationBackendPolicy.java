@@ -63,7 +63,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
@@ -223,8 +222,6 @@ public class FederationBackendPolicy {
      */
     public Multimap<Backend, Split> computeScanRangeAssignment(List<Split> splits) throws UserException {
         ListMultimap<Backend, Split> assignment = ArrayListMultimap.create();
-
-        Collections.shuffle(splits, new Random(FIXED_SHUFFLE_SEED));
         List<Split> remainingSplits;
 
         List<Backend> backends = new ArrayList<>();
