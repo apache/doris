@@ -21,10 +21,11 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 
+#include <boost/process.hpp>
 #include <filesystem>
 #include <fstream>
-#include <future>
 #include <string>
+#include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -36,6 +37,7 @@
 namespace doris {
 
 namespace fs = std::filesystem;
+namespace bp = boost::process;
 
 class PythonServerTest : public ::testing::Test {
 protected:
@@ -135,6 +137,13 @@ protected:
         std::ofstream ofs(plugin_dir + "/python_server.py");
         ofs << "# fake server\n";
         ofs.close();
+    }
+
+    ProcessPtr create_sleep_process() {
+        bp::ipstream output_stream;
+        std::string sleep_path = fs::exists("/bin/sleep") ? "/bin/sleep" : "/usr/bin/sleep";
+        bp::child child(sleep_path, "60", bp::std_out > output_stream, bp::std_err > bp::null);
+        return std::make_shared<PythonUDFProcess>(std::move(child), std::move(output_stream));
     }
 };
 

@@ -420,8 +420,9 @@ Status PythonServerManager::clear_module_cache(const std::string& location) {
 
 void PythonServerManager::clear_udaf_state_cache(int64_t function_id) {
     std::string body = fmt::format(R"({{"function_id": {}}})", function_id);
-    THROW_IF_ERROR(_broadcast_action_to_processes("clear_udaf_state_cache", body,
-                                                  fmt::format("function_id={}", function_id)));
+    WARN_IF_ERROR(_broadcast_action_to_processes("clear_udaf_state_cache", body,
+                                                 fmt::format("function_id={}", function_id)),
+                  "failed to clear Python UDAF state cache");
 }
 
 Status PythonServerManager::_broadcast_action_to_processes(const std::string& action_type,

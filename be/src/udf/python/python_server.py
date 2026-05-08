@@ -1603,22 +1603,25 @@ class FlightServer(flight.FlightServerBase):
         )
 
         with self.udaf_managers_lock:
-            if func_key not in self.udaf_state_managers:
+            manager = self.udaf_state_managers.get(func_key)
+            if manager is None:
                 manager = UDAFStateManager()
                 # Load and set the UDAF class for this manager using UDAFClassLoader
                 udaf_class = UDAFClassLoader.load_udaf_class(python_udaf_meta)
                 manager.set_udaf_class(udaf_class)
                 self.udaf_state_managers[func_key] = manager
 
-        return self.udaf_state_managers[func_key]
+            # Return the manager while holding the lock so a concurrent DROP cleanup
+            # cannot pop the key between lookup and return.
+            return manager
 
     def _clear_udaf_state_cache_by_function_id(self, function_id: int) -> int:
         """
         Clear UDAF managers for a dropped function id.
 
         DROP FUNCTION cache cleanup is asynchronous. The runtime key still includes
-        function_id for correctness, while this action releases old states and class
-        objects after the drop task reaches this Python process.
+        function_id for correctness, while this action detaches dropped functions
+        from the manager registry so new exchanges cannot reuse the old UDAF class.
         """
         prefix = f"{function_id}:"
         cleared = 0
@@ -1628,8 +1631,10 @@ class FlightServer(flight.FlightServerBase):
                 key for key in self.udaf_state_managers if key.startswith(prefix)
             ]
             for key in keys_to_remove:
-                manager = self.udaf_state_managers.pop(key)
-                manager.states.clear()
+                # Do not clear manager.states here. An already-started Flight
+                # exchange may still hold this manager and continue with later
+                # SERIALIZE/FINALIZE/DESTROY calls for its place_ids.
+                self.udaf_state_managers.pop(key, None)
                 cleared += 1
 
         if cleared:
