@@ -27,15 +27,18 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.property.metastore.AbstractIcebergProperties;
+import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -133,6 +136,36 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         metadataOps = ops;
     }
 
+    @Override
+    protected List<String> listDatabaseNames() {
+        if (isIcebergRestUserSessionPropertyEnabled()) {
+            return ((IcebergMetadataOps) metadataOps).listDatabaseNames(currentSessionContext());
+        }
+        return super.listDatabaseNames();
+    }
+
+    @Override
+    public List<String> getDbNames() {
+        if (isIcebergRestUserSessionPropertyEnabled()) {
+            makeSureInitialized();
+            return listDatabaseNames();
+        }
+        return super.getDbNames();
+    }
+
+    @Override
+    public List<String> getDbNamesOrEmpty() {
+        if (isIcebergRestUserSessionPropertyEnabled()) {
+            try {
+                return getDbNames();
+            } catch (Exception e) {
+                LOG.warn("failed to get db names in catalog {}", getName(), e);
+                return Collections.emptyList();
+            }
+        }
+        return super.getDbNamesOrEmpty();
+    }
+
     /**
      * Returns the underlying {@link Catalog} instance used by this external catalog.
      *
@@ -158,17 +191,38 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         makeSureInitialized();
-        return metadataOps.tableExist(dbName, tblName);
+        return ((IcebergMetadataOps) metadataOps).tableExist(ctx, dbName, tblName);
     }
 
     @Override
     protected List<String> listTableNamesFromRemote(SessionContext ctx, String dbName) {
         // On the Doris side, the result of SHOW TABLES for Iceberg external tables includes both tables and views,
         // so the combined set of tables and views is used here.
-        List<String> tableNames = metadataOps.listTableNames(dbName);
-        List<String> viewNames = metadataOps.listViewNames(dbName);
+        IcebergMetadataOps ops = (IcebergMetadataOps) metadataOps;
+        List<String> tableNames = ops.listTableNames(ctx, dbName);
+        List<String> viewNames = ops.listViewNames(ctx, dbName);
         tableNames.addAll(viewNames);
         return tableNames;
+    }
+
+    public boolean isIcebergRestUserSessionEnabled() {
+        makeSureInitialized();
+        return msProperties instanceof IcebergRestProperties
+                && ((IcebergRestProperties) msProperties).isIcebergRestUserSessionEnabled();
+    }
+
+    private boolean isIcebergRestUserSessionPropertyEnabled() {
+        return catalogProperty.getMetastoreProperties() instanceof IcebergRestProperties
+                && ((IcebergRestProperties) catalogProperty.getMetastoreProperties()).isIcebergRestUserSessionEnabled();
+    }
+
+    private static SessionContext currentSessionContext() {
+        ConnectContext context = ConnectContext.get();
+        if (context == null) {
+            return SessionContext.empty();
+        }
+        SessionContext sessionContext = context.getSessionContext();
+        return sessionContext == null ? SessionContext.empty() : sessionContext;
     }
 
     @Override
@@ -189,6 +243,10 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     @Override
     public boolean viewExists(String dbName, String viewName) {
         return metadataOps.viewExists(dbName, viewName);
+    }
+
+    public boolean viewExists(SessionContext ctx, String dbName, String viewName) {
+        return ((IcebergMetadataOps) metadataOps).viewExists(ctx, dbName, viewName);
     }
 
     /**

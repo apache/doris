@@ -28,6 +28,16 @@ paths = ['''^fe/fe-filesystem/fe-filesystem-s3/src/test/java/org/apache/doris/fi
 regexes = ['''(access_key|secret_key).*"(ak-|sk-|canonical|sess-tok)''']
 
 [[rules]]
+id = "jwt"
+
+[[rules.allowlists]]
+description = "Ignore the fake JWT fixture in DelegatedCredentialTest"
+condition = "AND"
+regexTarget = "line"
+paths = ['''^fe/fe-core/src/test/java/org/apache/doris/datasource/DelegatedCredentialTest\.java$''']
+regexes = ['''"eyJhbGciOiJub25lIn0\.eyJleHAiOjE3MDAwMDAwMDB9\."''']
+
+[[rules]]
 id = "private-key"
 
 [[rules.allowlists]]

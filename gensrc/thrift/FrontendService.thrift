@@ -405,6 +405,10 @@ struct TMasterOpRequest {
     1002: optional string sessionId
     // propagate client's CLIENT_DEPRECATE_EOF capability for proxy forwarding
     1003: optional bool clientDeprecatedEOF
+    // delegated credential for datasource user-session requests
+    1004: optional string delegated_credential_type
+    1005: optional string delegated_credential_token
+    1006: optional i64 delegated_credential_expires_at_millis
 }
 
 struct TColumnDefinition {

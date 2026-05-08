@@ -20,9 +20,16 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.datasource.DelegatedCredential;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.GenericPartitionFieldSummary;
@@ -46,8 +53,10 @@ import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.LongType;
 import org.apache.iceberg.types.Types.StructType;
+import org.apache.iceberg.view.View;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
@@ -65,6 +74,80 @@ import java.util.Map;
 import java.util.Optional;
 
 public class IcebergUtilsTest {
+    @Test
+    public void testGetIcebergViewUsesSessionCatalogWithDelegatedCredential() {
+        ConnectContext context = new ConnectContext();
+        SessionContext sessionContext = SessionContext.of(new DelegatedCredential(
+                DelegatedCredential.Type.ACCESS_TOKEN, "delegated-access-token"));
+        context.setSessionContext(sessionContext);
+        context.setThreadLocalInfo();
+
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        IcebergRestExternalCatalog catalog = Mockito.mock(IcebergRestExternalCatalog.class);
+        IcebergMetadataOps ops = Mockito.mock(IcebergMetadataOps.class);
+        View delegatedView = Mockito.mock(View.class);
+        View cachedView = Mockito.mock(View.class);
+        Mockito.when(dorisTable.getCatalog()).thenReturn(catalog);
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
+        Mockito.when(dorisTable.getRemoteName()).thenReturn("view1");
+        Mockito.when(catalog.isIcebergRestUserSessionEnabled()).thenReturn(true);
+        Mockito.when(catalog.getMetadataOps()).thenReturn(ops);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+        Mockito.when(ops.loadView(Mockito.same(sessionContext), Mockito.eq("db"), Mockito.eq("view1")))
+                .thenReturn(delegatedView);
+
+        Env env = Mockito.mock(Env.class);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        IcebergExternalMetaCache cache = Mockito.mock(IcebergExternalMetaCache.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        Mockito.when(cacheMgr.iceberg(1L)).thenReturn(cache);
+        Mockito.when(cache.getIcebergView(dorisTable)).thenReturn(cachedView);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+            Assert.assertSame(delegatedView, IcebergUtils.getIcebergView(dorisTable));
+            Mockito.verify(cache, Mockito.never()).getIcebergView(dorisTable);
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testGetIcebergSchemaUsesSessionCatalogForView() {
+        ConnectContext context = new ConnectContext();
+        SessionContext sessionContext = SessionContext.of(new DelegatedCredential(
+                DelegatedCredential.Type.ACCESS_TOKEN, "delegated-access-token"));
+        context.setSessionContext(sessionContext);
+        context.setThreadLocalInfo();
+
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        IcebergRestExternalCatalog catalog = Mockito.mock(IcebergRestExternalCatalog.class);
+        IcebergMetadataOps ops = Mockito.mock(IcebergMetadataOps.class);
+        View delegatedView = Mockito.mock(View.class);
+        Mockito.when(dorisTable.getCatalog()).thenReturn(catalog);
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
+        Mockito.when(dorisTable.getRemoteName()).thenReturn("view1");
+        Mockito.when(dorisTable.isView()).thenReturn(true);
+        Mockito.when(catalog.isIcebergRestUserSessionEnabled()).thenReturn(true);
+        Mockito.when(catalog.getMetadataOps()).thenReturn(ops);
+        Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {});
+        Mockito.when(ops.loadView(Mockito.same(sessionContext), Mockito.eq("db"), Mockito.eq("view1")))
+                .thenReturn(delegatedView);
+        Mockito.when(delegatedView.schema()).thenReturn(new Schema(
+                Types.NestedField.required(1, "c1", Types.IntegerType.get())));
+
+        try {
+            List<Column> schema = IcebergUtils.getIcebergSchema(dorisTable);
+
+            Assert.assertEquals(1, schema.size());
+            Assert.assertEquals("c1", schema.get(0).getName());
+            Mockito.verify(ops, Mockito.never()).loadTable(Mockito.any(), Mockito.anyString(), Mockito.anyString());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
     @Test
     public void testParseTableName() {
         try {

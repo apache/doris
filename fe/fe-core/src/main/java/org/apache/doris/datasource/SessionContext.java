@@ -17,9 +17,53 @@
 
 package org.apache.doris.datasource;
 
+import java.util.Optional;
+import java.util.OptionalLong;
+import java.util.UUID;
+
 /**
  * Save information that may need to pass to the external data source from Doris.
  * Such as user info, session variable, predicates, etc.
  */
 public class SessionContext {
+    private static final SessionContext EMPTY = new SessionContext("", null);
+
+    private final String sessionId;
+    private final DelegatedCredential delegatedCredential;
+
+    private SessionContext(String sessionId, DelegatedCredential delegatedCredential) {
+        this.sessionId = sessionId;
+        this.delegatedCredential = delegatedCredential;
+    }
+
+    public static SessionContext empty() {
+        return EMPTY;
+    }
+
+    public static SessionContext of(DelegatedCredential delegatedCredential) {
+        if (delegatedCredential == null) {
+            return empty();
+        }
+        return new SessionContext(UUID.randomUUID().toString(), delegatedCredential);
+    }
+
+    public String getSessionId() {
+        return sessionId;
+    }
+
+    public Optional<DelegatedCredential> getDelegatedCredential() {
+        return Optional.ofNullable(delegatedCredential);
+    }
+
+    public boolean hasDelegatedCredential() {
+        return delegatedCredential != null;
+    }
+
+    public OptionalLong getDelegatedCredentialExpiresAtMillis() {
+        return delegatedCredential == null ? OptionalLong.empty() : delegatedCredential.getExpiresAtMillis();
+    }
+
+    public boolean isDelegatedCredentialExpired(long currentTimeMillis) {
+        return delegatedCredential != null && delegatedCredential.isExpired(currentTimeMillis);
+    }
 }

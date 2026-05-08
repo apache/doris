@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.datasource.DelegatedCredential;
+import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.doris.datasource.property.common.IcebergAwsClientCredentialsProperties;
@@ -24,12 +26,14 @@ import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
+import org.apache.doris.qe.ConnectContext;
 
 import lombok.Getter;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.rest.auth.AuthProperties;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 import org.apache.logging.log4j.util.Strings;
 
@@ -68,14 +72,12 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     @ConnectorProperty(names = {"iceberg.rest.session"},
             required = false,
-            supported = false,
             description = "The session type of the iceberg rest catalog service,"
                     + "optional: (none, user), default: none.")
     private String icebergRestSession = "none";
 
     @ConnectorProperty(names = {"iceberg.rest.session-timeout"},
             required = false,
-            supported = false,
             description = "The session timeout of the iceberg rest catalog service.")
     private String icebergRestSessionTimeout = "0";
 
@@ -105,6 +107,13 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             description = "Enable oauth2 token refresh for the iceberg rest catalog service.")
     private String icebergRestOauth2TokenRefreshEnabled = String.valueOf(
             OAuth2Properties.TOKEN_REFRESH_ENABLED_DEFAULT);
+
+    @Getter
+    @ConnectorProperty(names = {"iceberg.rest.oauth2.delegated-token-mode"},
+            required = false,
+            description = "How user delegated tokens are passed to the iceberg rest catalog."
+                    + " Supported values are: access_token, token_exchange. Default: access_token.")
+    private String icebergRestOauth2DelegatedTokenMode = DelegatedTokenMode.ACCESS_TOKEN.value;
 
     @ConnectorProperty(names = {"iceberg.rest.vended-credentials-enabled"},
             required = false,
@@ -186,6 +195,9 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             description = "Socket timeout in milliseconds for the REST catalog HTTP client. Default: 60000 (60s).")
     private String icebergRestSocketTimeoutMs = "60000";
 
+    @Getter
+    private DelegatedTokenMode delegatedTokenMode = DelegatedTokenMode.ACCESS_TOKEN;
+
     protected IcebergRestProperties(Map<String, String> props) {
         super(props);
     }
@@ -198,7 +210,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     @Override
     public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
             List<StorageProperties> storagePropertiesList) {
-        catalogProps.putAll(getIcebergRestCatalogProperties());
+        catalogProps.putAll(getIcebergRestCatalogPropertiesForCatalogInit(currentSessionContext()));
         Configuration configuration = new Configuration();
         toFileIOProperties(storagePropertiesList, catalogProps, configuration);
         // 4. Build iceberg catalog
@@ -209,6 +221,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         validateSecurityType();
+        validateSessionType();
+        delegatedTokenMode = DelegatedTokenMode.fromString(icebergRestOauth2DelegatedTokenMode);
         icebergRestCredentialsProviderMode =
                 AwsCredentialsProviderMode.fromString(icebergRestCredentialsProviderType);
         buildRules().validate();
@@ -231,6 +245,18 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         }
     }
 
+    private void validateSessionType() {
+        try {
+            Session.valueOf(icebergRestSession.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Invalid session type: " + icebergRestSession
+                    + ". Supported values are: none, user");
+        }
+        if (isIcebergRestUserSessionEnabled() && !"oauth2".equalsIgnoreCase(icebergRestSecurityType)) {
+            throw new IllegalArgumentException("iceberg.rest.session=user requires oauth2 security type");
+        }
+    }
+
     private ParamRules buildRules() {
         ParamRules rules = new ParamRules()
                 // OAuth2 requires either credential or token, but not both
@@ -245,7 +271,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         if ("oauth2".equalsIgnoreCase(icebergRestSecurityType)) {
             boolean hasCredential = Strings.isNotBlank(icebergRestOauth2Credential);
             boolean hasToken = Strings.isNotBlank(icebergRestOauth2Token);
-            if (!hasCredential && !hasToken) {
+            if (!hasCredential && !hasToken && !isIcebergRestUserSessionEnabled()) {
                 throw new IllegalArgumentException("OAuth2 requires either credential or token");
             }
         }
@@ -314,6 +340,11 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         if (Strings.isNotBlank(icebergRestSocketTimeoutMs)) {
             icebergRestCatalogProperties.put("rest.client.socket-timeout-ms", icebergRestSocketTimeoutMs);
         }
+
+        if (isIcebergRestUserSessionEnabled() && Strings.isNotBlank(icebergRestSessionTimeout)
+                && Long.parseLong(icebergRestSessionTimeout) > 0) {
+            icebergRestCatalogProperties.put(CatalogProperties.AUTH_SESSION_TIMEOUT_MS, icebergRestSessionTimeout);
+        }
     }
 
     private void addAuthenticationProperties() {
@@ -324,6 +355,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     }
 
     private void addOAuth2Properties() {
+        icebergRestCatalogProperties.put(AuthProperties.AUTH_TYPE, AuthProperties.AUTH_TYPE_OAUTH2);
         if (Strings.isNotBlank(icebergRestOauth2Credential)) {
             // Client Credentials Flow
             icebergRestCatalogProperties.put(OAuth2Properties.CREDENTIAL, icebergRestOauth2Credential);
@@ -335,7 +367,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             }
             icebergRestCatalogProperties.put(OAuth2Properties.TOKEN_REFRESH_ENABLED,
                     icebergRestOauth2TokenRefreshEnabled);
-        } else {
+        } else if (Strings.isNotBlank(icebergRestOauth2Token)) {
             // Pre-configured Token Flow
             icebergRestCatalogProperties.put(OAuth2Properties.TOKEN, icebergRestOauth2Token);
         }
@@ -368,6 +400,35 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         return Collections.unmodifiableMap(icebergRestCatalogProperties);
     }
 
+    Map<String, String> getIcebergRestCatalogPropertiesForCatalogInit(SessionContext sessionContext) {
+        Map<String, String> catalogProperties = new HashMap<>(icebergRestCatalogProperties);
+        if (!isIcebergRestUserSessionEnabled() || sessionContext == null
+                || !sessionContext.hasDelegatedCredential()) {
+            return Collections.unmodifiableMap(catalogProperties);
+        }
+
+        DelegatedCredential credential = sessionContext.getDelegatedCredential().get();
+        if (delegatedTokenMode == DelegatedTokenMode.ACCESS_TOKEN) {
+            catalogProperties.remove(OAuth2Properties.CREDENTIAL);
+            catalogProperties.remove(OAuth2Properties.OAUTH2_SERVER_URI);
+            catalogProperties.remove(OAuth2Properties.SCOPE);
+            catalogProperties.remove(OAuth2Properties.TOKEN_REFRESH_ENABLED);
+            catalogProperties.put(OAuth2Properties.TOKEN, credential.getToken());
+        } else {
+            catalogProperties.put(credential.getIcebergCredentialKey(), credential.getToken());
+        }
+        return Collections.unmodifiableMap(catalogProperties);
+    }
+
+    private static SessionContext currentSessionContext() {
+        ConnectContext context = ConnectContext.get();
+        if (context == null) {
+            return SessionContext.empty();
+        }
+        SessionContext sessionContext = context.getSessionContext();
+        return sessionContext == null ? SessionContext.empty() : sessionContext;
+    }
+
     public boolean isIcebergRestVendedCredentialsEnabled() {
         return Boolean.parseBoolean(icebergRestVendedCredentialsEnabled);
     }
@@ -380,8 +441,38 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         return Boolean.parseBoolean(icebergRestViewEnabled);
     }
 
+    public boolean isIcebergRestUserSessionEnabled() {
+        return Session.USER.name().equalsIgnoreCase(icebergRestSession);
+    }
+
     public enum Security {
         NONE,
         OAUTH2,
+    }
+
+    public enum Session {
+        NONE,
+        USER,
+    }
+
+    public enum DelegatedTokenMode {
+        ACCESS_TOKEN("access_token"),
+        TOKEN_EXCHANGE("token_exchange");
+
+        private final String value;
+
+        DelegatedTokenMode(String value) {
+            this.value = value;
+        }
+
+        public static DelegatedTokenMode fromString(String value) {
+            for (DelegatedTokenMode mode : values()) {
+                if (mode.value.equalsIgnoreCase(value)) {
+                    return mode;
+                }
+            }
+            throw new IllegalArgumentException("Invalid delegated token mode: " + value
+                    + ". Supported values are: access_token, token_exchange");
+        }
     }
 }

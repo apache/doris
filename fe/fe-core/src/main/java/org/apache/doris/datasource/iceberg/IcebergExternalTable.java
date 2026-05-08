@@ -29,6 +29,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
@@ -94,7 +95,8 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         super.makeSureInitialized();
         if (!objectCreated) {
             objectCreated = true;
-            isView = catalog.viewExists(getRemoteDbName(), getRemoteName());
+            isView = ((IcebergExternalCatalog) catalog)
+                    .viewExists(currentSessionContext(), getRemoteDbName(), getRemoteName());
         }
     }
 
@@ -335,6 +337,15 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     public boolean isView() {
         makeSureInitialized();
         return isView;
+    }
+
+    private static SessionContext currentSessionContext() {
+        ConnectContext context = ConnectContext.get();
+        if (context == null) {
+            return SessionContext.empty();
+        }
+        SessionContext sessionContext = context.getSessionContext();
+        return sessionContext == null ? SessionContext.empty() : sessionContext;
     }
 
     public String getViewText() {

@@ -55,16 +55,19 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.literal.Result;
 import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -798,6 +801,9 @@ public class IcebergUtils {
     }
 
     public static Table getIcebergTable(ExternalTable dorisTable) {
+        if (useSessionCatalog(dorisTable)) {
+            return loadIcebergTableWithSession(dorisTable);
+        }
         return icebergExternalMetaCache(dorisTable).getIcebergTable(dorisTable);
     }
 
@@ -1559,10 +1565,16 @@ public class IcebergUtils {
     }
 
     public static IcebergSchemaCacheValue getSchemaCacheValue(ExternalTable dorisTable, IcebergSnapshotCacheValue sv) {
+        if (useSessionCatalog(dorisTable)) {
+            return buildTableSchemaCacheValue(dorisTable, sv.getSnapshot().getSchemaId(), getIcebergTable(dorisTable));
+        }
         return getSchemaCacheValue(dorisTable, sv.getSnapshot().getSchemaId());
     }
 
     public static IcebergSnapshotCacheValue getLatestSnapshotCacheValue(ExternalTable dorisTable) {
+        if (useSessionCatalog(dorisTable)) {
+            return loadSnapshotCacheValue(dorisTable, getIcebergTable(dorisTable));
+        }
         return icebergExternalMetaCache(dorisTable).getSnapshotCache(dorisTable);
     }
 
@@ -1595,6 +1607,9 @@ public class IcebergUtils {
     }
 
     public static List<Column> getIcebergSchema(ExternalTable dorisTable) {
+        if (useSessionCatalog(dorisTable) && dorisTable.isView()) {
+            return loadViewSchemaCacheValue(dorisTable, NEWEST_SCHEMA_ID).get().getSchema();
+        }
         Optional<MvccSnapshot> snapshotFromContext = MvccUtil.getSnapshotFromContext(dorisTable);
         IcebergSnapshotCacheValue cacheValue = IcebergUtils.getSnapshotCacheValue(snapshotFromContext, dorisTable);
         return IcebergUtils.getSchemaCacheValue(dorisTable, cacheValue).getSchema();
@@ -1611,6 +1626,9 @@ public class IcebergUtils {
     }
 
     public static View getIcebergView(ExternalTable dorisTable) {
+        if (useSessionCatalog(dorisTable)) {
+            return loadIcebergViewWithSession(dorisTable);
+        }
         return icebergExternalMetaCache(dorisTable).getIcebergView(dorisTable);
     }
 
@@ -1628,6 +1646,11 @@ public class IcebergUtils {
 
     private static Optional<SchemaCacheValue> loadTableSchemaCacheValue(ExternalTable dorisTable, long schemaId) {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
+        return Optional.of(buildTableSchemaCacheValue(dorisTable, schemaId, icebergTable));
+    }
+
+    private static IcebergSchemaCacheValue buildTableSchemaCacheValue(ExternalTable dorisTable, long schemaId,
+            Table icebergTable) {
         List<Column> schema = IcebergUtils.getSchema(dorisTable, schemaId, false, icebergTable);
         // get table partition column info
         List<Column> tmpColumns = Lists.newArrayList();
@@ -1641,7 +1664,58 @@ public class IcebergUtils {
                 }
             }
         }
-        return Optional.of(new IcebergSchemaCacheValue(schema, tmpColumns));
+        return new IcebergSchemaCacheValue(schema, tmpColumns);
+    }
+
+    private static IcebergSnapshotCacheValue loadSnapshotCacheValue(ExternalTable dorisTable, Table icebergTable) {
+        if (!(dorisTable instanceof MTMVRelatedTableIf)) {
+            throw new RuntimeException(String.format("Table %s.%s is not a valid MTMV related table.",
+                    dorisTable.getDbName(), dorisTable.getName()));
+        }
+        try {
+            MTMVRelatedTableIf table = (MTMVRelatedTableIf) dorisTable;
+            IcebergSnapshot latestIcebergSnapshot = IcebergUtils.getLatestIcebergSnapshot(icebergTable);
+            IcebergPartitionInfo icebergPartitionInfo;
+            if (!table.isValidRelatedTable()) {
+                icebergPartitionInfo = IcebergPartitionInfo.empty();
+            } else {
+                icebergPartitionInfo = IcebergUtils.loadPartitionInfo(dorisTable, icebergTable,
+                        latestIcebergSnapshot.getSnapshotId(), latestIcebergSnapshot.getSchemaId());
+            }
+            return new IcebergSnapshotCacheValue(icebergPartitionInfo, latestIcebergSnapshot);
+        } catch (AnalysisException e) {
+            throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+        }
+    }
+
+    private static Table loadIcebergTableWithSession(ExternalTable dorisTable) {
+        IcebergExternalCatalog catalog = (IcebergExternalCatalog) dorisTable.getCatalog();
+        IcebergMetadataOps ops = (IcebergMetadataOps) catalog.getMetadataOps();
+        return ops.loadTable(currentSessionContext(), dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
+    }
+
+    private static View loadIcebergViewWithSession(ExternalTable dorisTable) {
+        IcebergExternalCatalog catalog = (IcebergExternalCatalog) dorisTable.getCatalog();
+        IcebergMetadataOps ops = (IcebergMetadataOps) catalog.getMetadataOps();
+        return (View) ops.loadView(currentSessionContext(), dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
+    }
+
+    private static boolean useSessionCatalog(ExternalTable dorisTable) {
+        if (!(dorisTable.getCatalog() instanceof IcebergExternalCatalog)) {
+            return false;
+        }
+        SessionContext sessionContext = currentSessionContext();
+        return sessionContext.hasDelegatedCredential()
+                && ((IcebergExternalCatalog) dorisTable.getCatalog()).isIcebergRestUserSessionEnabled();
+    }
+
+    private static SessionContext currentSessionContext() {
+        ConnectContext context = ConnectContext.get();
+        if (context == null) {
+            return SessionContext.empty();
+        }
+        SessionContext sessionContext = context.getSessionContext();
+        return sessionContext == null ? SessionContext.empty() : sessionContext;
     }
 
 

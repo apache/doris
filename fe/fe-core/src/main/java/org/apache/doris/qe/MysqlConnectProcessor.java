@@ -218,6 +218,9 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                     "msg: Not supported such prepared statement");
             return;
         }
+        if (rejectExpiredDelegatedCredential(preparedStatementContext.command.getOriginalStmt().originStmt)) {
+            return;
+        }
         handleExecute(preparedStatementContext.command, stmtId, preparedStatementContext, packetBuf, null);
     }
 

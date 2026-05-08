@@ -195,7 +195,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                     })
                     .collect(Collectors.toList());
         } else {
-            tableNames = extCatalog.listTableNames(null, remoteName).stream().map(tableName -> {
+            tableNames = extCatalog.listTableNames(currentSessionContext(), remoteName).stream().map(tableName -> {
                 String localTableName = extCatalog.fromRemoteTableName(remoteName, tableName);
                 if (this.isStoredTableNamesLowerCase()) {
                     localTableName = localTableName.toLowerCase();
@@ -428,7 +428,16 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 }
             }
         }
-        return extCatalog.tableExist(ConnectContext.get().getSessionContext(), remoteName, remoteTblName);
+        return extCatalog.tableExist(currentSessionContext(), remoteName, remoteTblName);
+    }
+
+    private static SessionContext currentSessionContext() {
+        ConnectContext context = ConnectContext.get();
+        if (context == null) {
+            return SessionContext.empty();
+        }
+        SessionContext sessionContext = context.getSessionContext();
+        return sessionContext == null ? SessionContext.empty() : sessionContext;
     }
 
     // ATTN: this method only returned cached tables.
