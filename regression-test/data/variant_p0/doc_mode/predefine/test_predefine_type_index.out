@@ -8,9 +8,9 @@
 
 -- !sql --
 1	{"path":{"decimal":123.123456789012,"int":123,"string":"hello"}}
-2	{"path":{"decimal":456.456789123456,"int":456,"string":"world"}}
-3	{"path":{"decimal":789.789123456789,"int":789,"string":"hello"}}
-4	{"path":{"decimal":100.100123456789,"int":100,"string":"world"}}
+2	{"path":{"decimal":456.45678912345602,"int":456,"string":"world"}}
+3	{"path":{"decimal":789.78912345678896,"int":789,"string":"hello"}}
+4	{"path":{"decimal":100.10012345678901,"int":100,"string":"world"}}
 5	{"path":{"decimal":111.111111111111,"int":111,"string":"hello"}}
 
 -- !sql --
@@ -51,9 +51,9 @@
 1	{"path":{"decimal":123.123456789012,"int":123,"string":"hello"}}
 1	{"path":{"decimal":123.123456789012,"int":123,"string":"hello"}}
 1	{"path":{"decimal":123.123456789012,"int":123,"string":"hello"}}
-2	{"path":{"decimal":456.456789123456,"int":456,"string":"world"}}
-3	{"path":{"decimal":789.789123456789,"int":789,"string":"hello"}}
-4	{"path":{"decimal":100.100123456789,"int":100,"string":"world"}}
+2	{"path":{"decimal":456.45678912345602,"int":456,"string":"world"}}
+3	{"path":{"decimal":789.78912345678896,"int":789,"string":"hello"}}
+4	{"path":{"decimal":100.10012345678901,"int":100,"string":"world"}}
 5	{"path":{"decimal":111.111111111111,"int":111,"string":"hello"}}
 
 -- !sql --

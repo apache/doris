@@ -116,10 +116,10 @@ private:
         } else {
             if constexpr (std::is_same_v<T, float>) {
                 end = fmt::format_to(buffer, FMT_COMPILE("{:.{}g}"), value,
-                                     std::numeric_limits<float>::digits10 + 1);
+                                     std::numeric_limits<float>::max_digits10);
             } else {
                 end = fmt::format_to(buffer, FMT_COMPILE("{:.{}g}"), value,
-                                     std::numeric_limits<double>::digits10 + 1);
+                                     std::numeric_limits<double>::max_digits10);
             }
         }
         *end = '\0';
