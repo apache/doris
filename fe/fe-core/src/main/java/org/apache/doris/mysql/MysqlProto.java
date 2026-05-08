@@ -274,6 +274,10 @@ public class MysqlProto {
             if (bdpUserInfo.isSetDb()) {
                 dbName = bdpUserInfo.getDb();
             }
+            if (bdpUserInfo.isSetUserType() && bdpUserInfo.getUserType().equalsIgnoreCase("dev_personal")) {
+                bdpAuthContext.setUserType(bdpUserInfo.getUserType());
+                bdpAuthContext.setBusinessLine(bdpUserInfo.getBusinessLine());
+            }
             Optional<Pair<ErrorCode, String>> res = ConnectContextUtil.initCatalogAndDb(context, catalogName, dbName);
             if (res.isPresent()) {
                 context.getState().setError(res.get().first, res.get().second);

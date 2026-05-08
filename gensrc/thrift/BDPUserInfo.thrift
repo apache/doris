@@ -26,6 +26,8 @@ struct TBDPUserInfo {
    5: optional string userToken
    6: optional string catalog
    7: optional string db
+   8: optional string userType
+   9: optional string businessLine
 }
 
 struct TBDPAuthContext {
@@ -34,4 +36,6 @@ struct TBDPAuthContext {
    3: required string hadoopUserName
    4: required string userToken
    5: required bool viewBased
+   6: optional string userType
+   7: optional string businessLine
 }

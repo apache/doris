@@ -129,9 +129,15 @@ public class FEOpExecutor {
         try {
             if (BDPAuthContext.get() != null) {
                 BDPAuthContext bdpAuthContext = BDPAuthContext.get();
-                params.setBdpAuthContext(new TBDPAuthContext(bdpAuthContext.getSource(),
+                TBDPAuthContext tbdpAuthContext = new TBDPAuthContext(bdpAuthContext.getSource(),
                         bdpAuthContext.getErp(), bdpAuthContext.getHadoopUserName(), bdpAuthContext.getUserToken(),
-                        bdpAuthContext.isViewBased()));
+                        bdpAuthContext.isViewBased());
+                if (bdpAuthContext.getUserType() != null && bdpAuthContext.getUserType().equalsIgnoreCase(
+                        "dev_personal")) {
+                    tbdpAuthContext.setUserType(bdpAuthContext.getUserType());
+                    tbdpAuthContext.setBusinessLine(bdpAuthContext.getBusinessLine());
+                }
+                params.setBdpAuthContext(tbdpAuthContext);
             }
             final TMasterOpResult result = client.forward(params);
             isReturnToPool = true;

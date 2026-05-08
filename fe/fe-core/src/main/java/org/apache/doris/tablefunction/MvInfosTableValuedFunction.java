@@ -114,8 +114,14 @@ public class MvInfosTableValuedFunction extends MetadataTableValuedFunction {
         TMetaScanRange metaScanRange = new TMetaScanRange();
         if (BDPAuthContext.get() != null) {
             BDPAuthContext bdpAuthContext = BDPAuthContext.get();
-            metaScanRange.setBdpAuthContext(new TBDPAuthContext(bdpAuthContext.getSource(), bdpAuthContext.getErp(),
-                    bdpAuthContext.getHadoopUserName(), bdpAuthContext.getUserToken(), bdpAuthContext.isViewBased()));
+            TBDPAuthContext tbdpAuthContext = new TBDPAuthContext(bdpAuthContext.getSource(), bdpAuthContext.getErp(),
+                    bdpAuthContext.getHadoopUserName(), bdpAuthContext.getUserToken(), bdpAuthContext.isViewBased());
+            if (bdpAuthContext.getUserType() != null && bdpAuthContext.getUserType().equalsIgnoreCase(
+                    "dev_personal")) {
+                tbdpAuthContext.setUserType(bdpAuthContext.getUserType());
+                tbdpAuthContext.setBusinessLine(bdpAuthContext.getBusinessLine());
+            }
+            metaScanRange.setBdpAuthContext(tbdpAuthContext);
         }
         metaScanRange.setMetadataType(TMetadataType.MATERIALIZED_VIEWS);
         TMaterializedViewsMetadataParams mtmvParam = new TMaterializedViewsMetadataParams();

@@ -29,13 +29,15 @@ public class BDPAuthContext {
     private String userToken = null;
     private volatile boolean erpChanged = false;
     private volatile boolean viewBased = false;
+    private String userType = null;
+    private String businessLine = null;
 
     public BDPAuthContext() {
     }
 
     public BDPAuthContext(TBDPAuthContext bdpAuthContext) {
         this(bdpAuthContext.erp, bdpAuthContext.source, bdpAuthContext.hadoopUserName, bdpAuthContext.userToken,
-                bdpAuthContext.viewBased);
+                bdpAuthContext.viewBased, bdpAuthContext.userType, bdpAuthContext.businessLine);
     }
 
     public BDPAuthContext(String erp, String source, String hadoopUserName, String userToken) {
@@ -51,6 +53,17 @@ public class BDPAuthContext {
         this.hadoopUserName = hadoopUserName;
         this.userToken = userToken;
         this.viewBased = viewBased;
+    }
+
+    public BDPAuthContext(String erp, String source, String hadoopUserName, String userToken, boolean viewBased,
+                          String userType, String businessLine) {
+        this.erp = erp;
+        this.source = source;
+        this.hadoopUserName = hadoopUserName;
+        this.userToken = userToken;
+        this.viewBased = viewBased;
+        this.userType = userType;
+        this.businessLine = businessLine;
     }
 
     public void setErpChanged(boolean erpChanged) {
@@ -85,6 +98,14 @@ public class BDPAuthContext {
         threadLocalInfo.set(this);
     }
 
+    public void setUserType(String userType) {
+        this.userType = userType;
+    }
+
+    public void setBusinessLine(String businessLine) {
+        this.businessLine = businessLine;
+    }
+
     public static BDPAuthContext get() {
         return threadLocalInfo.get();
     }
@@ -111,6 +132,14 @@ public class BDPAuthContext {
 
     public boolean isViewBased() {
         return viewBased;
+    }
+
+    public String getUserType() {
+        return userType;
+    }
+
+    public String getBusinessLine() {
+        return businessLine;
     }
 
     public String toString() {

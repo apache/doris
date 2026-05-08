@@ -807,6 +807,11 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                     conf.set("BEE_USER", bdpAuthContext.getErp());
                     client = new ThriftHMSClient(bdpAuthContext.getHadoopUserName(), bdpAuthContext.getUserToken(),
                         hiveConf);
+                    if (bdpAuthContext.getUserType() != null && bdpAuthContext.getUserType().equalsIgnoreCase(
+                            "dev_personal")) {
+                        client.client.setMetaConf("USER_TYPE", bdpAuthContext.getUserType());
+                        client.client.setMetaConf("BUSINESS_LINE", bdpAuthContext.getBusinessLine());
+                    }
                     MetricRepo.HISTO_HMS_CREATE_CLIENT.update(System.currentTimeMillis() - start);
                     return client;
                 } catch (Exception e) {
