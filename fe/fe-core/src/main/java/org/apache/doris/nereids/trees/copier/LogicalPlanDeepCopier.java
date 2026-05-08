@@ -38,7 +38,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -47,7 +46,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -229,19 +227,6 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                 .map(p -> ExpressionDeepCopier.INSTANCE.deepCopy(p, context))
                 .collect(ImmutableSet.toImmutableSet());
         return new LogicalFilter<>(conjuncts, child);
-    }
-
-    @Override
-    public Plan visitLogicalDeferMaterializeOlapScan(LogicalDeferMaterializeOlapScan deferMaterializeOlapScan,
-            DeepCopierContext context) {
-        LogicalOlapScan newScan = (LogicalOlapScan) visitLogicalOlapScan(
-                deferMaterializeOlapScan.getLogicalOlapScan(), context);
-        Set<ExprId> newSlotIds = deferMaterializeOlapScan.getDeferMaterializeSlotIds().stream()
-                .map(context.exprIdReplaceMap::get)
-                .collect(ImmutableSet.toImmutableSet());
-        SlotReference newRowId = (SlotReference) ExpressionDeepCopier.INSTANCE
-                .deepCopy(deferMaterializeOlapScan.getColumnIdSlot(), context);
-        return new LogicalDeferMaterializeOlapScan(newScan, newSlotIds, newRowId);
     }
 
     @Override

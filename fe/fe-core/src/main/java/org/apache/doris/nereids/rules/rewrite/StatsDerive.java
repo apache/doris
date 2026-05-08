@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -177,14 +176,6 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
             stats = context.calculator.computeOlapScan(olapScan);
             olapScan.setStatistics(stats);
         }
-        return stats;
-    }
-
-    @Override
-    public Statistics visitLogicalDeferMaterializeOlapScan(LogicalDeferMaterializeOlapScan olapScan,
-            DeriveContext context) {
-        Statistics stats = context.calculator.computeOlapScan(olapScan);
-        olapScan.setStatistics(stats);
         return stats;
     }
 

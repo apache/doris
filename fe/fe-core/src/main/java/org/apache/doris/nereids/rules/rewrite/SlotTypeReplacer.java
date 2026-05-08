@@ -39,7 +39,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
-import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
@@ -356,23 +355,6 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
             return topN.withOrderKeys(replaced.second);
         }
         return topN;
-    }
-
-    @Override
-    public Plan visitLogicalDeferMaterializeOlapScan(
-            LogicalDeferMaterializeOlapScan deferMaterializeOlapScan, Void context) {
-
-        LogicalOlapScan logicalOlapScan
-                = (LogicalOlapScan) deferMaterializeOlapScan.getLogicalOlapScan().accept(this, context);
-
-        if (logicalOlapScan != deferMaterializeOlapScan.getLogicalOlapScan()) {
-            SlotReference replacedColumnIdSlot = replaceExpressions(
-                    ImmutableList.of(deferMaterializeOlapScan.getColumnIdSlot()), false, false).second.get(0);
-            return new LogicalDeferMaterializeOlapScan(
-                    logicalOlapScan, deferMaterializeOlapScan.getDeferMaterializeSlotIds(), replacedColumnIdSlot
-            );
-        }
-        return deferMaterializeOlapScan;
     }
 
     @Override

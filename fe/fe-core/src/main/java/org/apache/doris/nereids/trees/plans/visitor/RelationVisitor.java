@@ -21,7 +21,6 @@ import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
@@ -106,11 +105,6 @@ public interface RelationVisitor<R, C> {
 
     default R visitLogicalOlapScan(LogicalOlapScan olapScan, C context) {
         return visitLogicalCatalogRelation(olapScan, context);
-    }
-
-    default R visitLogicalDeferMaterializeOlapScan(
-            LogicalDeferMaterializeOlapScan deferMaterializeOlapScan, C context) {
-        return visitLogicalCatalogRelation(deferMaterializeOlapScan, context);
     }
 
     default R visitLogicalOneRowRelation(LogicalOneRowRelation oneRowRelation, C context) {

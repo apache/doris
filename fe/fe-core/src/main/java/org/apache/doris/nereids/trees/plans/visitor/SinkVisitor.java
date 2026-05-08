@@ -29,7 +29,6 @@ import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalConnectorTableSink;
-import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
@@ -157,11 +156,6 @@ public interface SinkVisitor<R, C> {
 
     default R visitLogicalDictionarySink(LogicalDictionarySink<? extends Plan> logicalDictionarySink, C context) {
         return visitLogicalTableSink(logicalDictionarySink, context);
-    }
-
-    default R visitLogicalDeferMaterializeResultSink(
-            LogicalDeferMaterializeResultSink<? extends Plan> logicalDeferMaterializeResultSink, C context) {
-        return visitLogicalSink(logicalDeferMaterializeResultSink, context);
     }
 
     default R visitLogicalBlackholeSink(
