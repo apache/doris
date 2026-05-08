@@ -112,7 +112,7 @@ Status PythonFunctionCall::execute_impl(FunctionContext* context, Block& block,
         return Status::InternalError("Python UDF client is null");
     }
 
-    int64_t input_rows = block.rows();
+    int64_t input_rows = num_rows;
     uint32_t input_columns = block.columns();
     DCHECK(input_columns > 0 && result < input_columns &&
            _argument_types.size() == arguments.size());
@@ -141,8 +141,12 @@ Status PythonFunctionCall::execute_impl(FunctionContext* context, Block& block,
     std::shared_ptr<arrow::RecordBatch> input_batch;
     std::shared_ptr<arrow::RecordBatch> output_batch;
     cctz::time_zone _timezone_obj; // default UTC
-    RETURN_IF_ERROR(convert_to_arrow_batch(input_block, schema, arrow::default_memory_pool(),
-                                           &input_batch, _timezone_obj));
+    if (arguments.empty()) {
+        RETURN_IF_ERROR(make_zero_column_arrow_batch(schema, input_rows, &input_batch));
+    } else {
+        RETURN_IF_ERROR(convert_to_arrow_batch(input_block, schema, arrow::default_memory_pool(),
+                                               &input_batch, _timezone_obj));
+    }
     RETURN_IF_ERROR(client->evaluate(*input_batch, &output_batch));
     int64_t output_rows = output_batch->num_rows();
 
