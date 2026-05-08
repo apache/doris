@@ -34,6 +34,7 @@
 #include "cloud/config.h"
 #include "common/cast_set.h"
 #include "common/logging.h"
+#include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "runtime/exec_env.h"
 #include "storage/index/inverted/inverted_index_desc.h"
@@ -613,12 +614,15 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_t
         file_cache_warm_up_failed_task_num << 1;
     } else {
         while (!finished) {
+            TEST_SYNC_POINT_CALLBACK("CloudWarmUpManager::warm_up_rowset.before_wait", &cv);
             cv.wait(lock);
         }
     }
 }
 
 void CloudWarmUpManager::_warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_timeout_ms) {
+    TEST_SYNC_POINT_CALLBACK("CloudWarmUpManager::_warm_up_rowset.enter", &rs_meta,
+                             &sync_wait_timeout_ms);
     bool cache_hit = false;
     auto replicas = get_replica_info(rs_meta.tablet_id(), false, cache_hit);
     if (replicas.empty()) {
