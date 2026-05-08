@@ -71,7 +71,8 @@ TEST_F(ScannerLateArrivalRfTest, applied_rf_num_advances_after_late_arrival) {
             TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build()};
 
     SlotDescriptor slot_desc;
-    slot_desc._type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, false);
+    slot_desc._type = vectorized::DataTypeFactory::instance().create_data_type(
+            PrimitiveType::TYPE_INT, false);
     TupleDescriptor tuple_desc;
     tuple_desc.add_slot(&slot_desc);
     RowDescriptor row_desc;
