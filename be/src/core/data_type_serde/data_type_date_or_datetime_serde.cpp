@@ -435,7 +435,16 @@ Status DataTypeDateSerDe<T>::from_olap_string(const std::string& str, Field& fie
                 ? DatelikeTargetType::DATE_TIME
                 : DatelikeTargetType::DATE > (StringRef(str), res, options.timezone, params))
             [[unlikely]] {
-        return Status::InvalidArgument("parse date or datetime fail, string: '{}'", str);
+        // In paths like partial update, we may fill default values into zonemap, while the default values for date-related
+        // types are filled with the default value 0 of the number base, corresponding to the date 0000-00-00, which is not always valid.
+        // so for the parse path of zonemap strings, we swallow the failure and return a default value. the value itself does not matter,
+        // after compaction it will be replaced.
+        res = VecDateTimeValue::FIRST_DAY;
+        if constexpr (IsDatetime) {
+            res.to_datetime();
+        } else {
+            res.cast_to_date();
+        }
     }
     field = Field::create_field<T>(std::move(res));
     return Status::OK();
