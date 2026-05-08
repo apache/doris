@@ -54,6 +54,8 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -186,8 +188,8 @@ public class AddMinMax implements ExpressionPatternRuleFactory, ValueDescVisitor
                     && range.lowerEndpoint().equals(range.upperEndpoint())
                     && range.lowerBoundType() == BoundType.CLOSED
                     && range.upperBoundType() == BoundType.CLOSED) {
-                Expression cmp = markInferredIfGenerated(new EqualTo(targetExpr, (Literal) range.lowerEndpoint()),
-                        nonInferredOriginPredicates);
+                Expression cmp = new EqualTo(targetExpr, (Literal) range.lowerEndpoint());
+                cmp = cmp.withInferred(!nonInferredOriginPredicates.contains(cmp));
                 addExprs.add(cmp);
                 continue;
             }
@@ -196,7 +198,7 @@ public class AddMinMax implements ExpressionPatternRuleFactory, ValueDescVisitor
                 Expression cmp = range.lowerBoundType() == BoundType.CLOSED
                         ? new GreaterThanEqual(targetExpr, (Literal) literal)
                         : new GreaterThan(targetExpr, (Literal) literal);
-                cmp = markInferredIfGenerated(cmp, nonInferredOriginPredicates);
+                cmp = cmp.withInferred(!nonInferredOriginPredicates.contains(cmp));
                 addExprs.add(cmp);
             }
             if (range.hasUpperBound()) {
@@ -204,7 +206,7 @@ public class AddMinMax implements ExpressionPatternRuleFactory, ValueDescVisitor
                 Expression cmp = range.upperBoundType() == BoundType.CLOSED
                         ? new LessThanEqual(targetExpr, (Literal) literal)
                         : new LessThan(targetExpr, (Literal) literal);
-                cmp = markInferredIfGenerated(cmp, nonInferredOriginPredicates);
+                cmp = cmp.withInferred(!nonInferredOriginPredicates.contains(cmp));
                 addExprs.add(cmp);
             }
         }
@@ -223,25 +225,17 @@ public class AddMinMax implements ExpressionPatternRuleFactory, ValueDescVisitor
 
     private Set<Expression> collectNonInferredPredicates(Expression expr) {
         Set<Expression> predicates = Sets.newHashSet();
-        collectNonInferredPredicates(expr, predicates);
-        return predicates;
-    }
-
-    private void collectNonInferredPredicates(Expression expr, Set<Expression> predicates) {
-        if (expr instanceof CompoundPredicate) {
-            for (Expression child : expr.children()) {
-                collectNonInferredPredicates(child, predicates);
+        Deque<Expression> expressions = new ArrayDeque<>();
+        expressions.add(expr);
+        while (!expressions.isEmpty()) {
+            Expression current = expressions.removeLast();
+            if (current instanceof CompoundPredicate) {
+                expressions.addAll(current.children());
+            } else if (!current.isInferred()) {
+                predicates.add(current);
             }
-            return;
         }
-        if (!expr.isInferred()) {
-            predicates.add(expr);
-        }
-    }
-
-    private Expression markInferredIfGenerated(Expression minMaxPredicate,
-            Set<Expression> nonInferredOriginPredicates) {
-        return minMaxPredicate.withInferred(!nonInferredOriginPredicates.contains(minMaxPredicate));
+        return predicates;
     }
 
     private Expression replaceCmpMinMax(Expression expr, Set<Expression> cmpMinMaxExprs) {
