@@ -53,11 +53,11 @@ bool SpillIcebergTableSinkLocalState::is_blockable() const {
 }
 
 size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool eos) {
-    if (!_writer || !_writer->current_writer()) {
+    if (!_writer) {
         return 0;
     }
-
-    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(_writer->current_writer().get());
+    auto current_writer = _writer->current_writer();
+    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(current_writer.get());
     if (!sort_writer) {
         return 0;
     }
@@ -66,11 +66,11 @@ size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state
 }
 
 size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* state) const {
-    if (!_writer || !_writer->current_writer()) {
+    if (!_writer) {
         return 0;
     }
-
-    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(_writer->current_writer().get());
+    auto current_writer = _writer->current_writer();
+    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(current_writer.get());
     if (!sort_writer) {
         return 0;
     }
@@ -79,17 +79,16 @@ size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* sta
 }
 
 Status SpillIcebergTableSinkLocalState::revoke_memory(RuntimeState* state) {
-    if (!_writer || !_writer->current_writer()) {
+    if (!_writer) {
         return Status::OK();
     }
-
-    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(_writer->current_writer().get());
-
+    auto current_writer = _writer->current_writer();
+    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(current_writer.get());
     if (!sort_writer) {
         return Status::OK();
     }
 
-    auto exception_catch_func = [sort_writer]() {
+    auto exception_catch_func = [current_writer, sort_writer]() {
         auto status = [&]() {
             RETURN_IF_CATCH_EXCEPTION({ return sort_writer->trigger_spill(); });
         }();
