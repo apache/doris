@@ -183,6 +183,8 @@ DEFINE_mInt32(peer_server_cache_fill_timeout_ms, "6000");
 // limit a burst of cross-CG cold misses can saturate the fill server's download pool.
 // Excess requests are rejected immediately so the client falls back to S3.
 DEFINE_mInt32(max_concurrent_peer_server_fills, "32");
+// Reject queued peer fetch tasks that wait too long in the peer fetch pool.
+DEFINE_mInt32(peer_fetch_queue_timeout_ms, "100");
 
 DEFINE_mBool(enable_file_cache_write_base_compaction_index_only, "false");
 DEFINE_mBool(enable_file_cache_write_cumu_compaction_index_only, "false");

@@ -19,6 +19,7 @@
 #include <brpc/server.h>
 #include <butil/endpoint.h>
 #include <butil/iobuf.h>
+#include <bvar/bvar.h>
 #include <gen_cpp/internal_service.pb.h>
 
 #include <algorithm>
@@ -51,9 +52,13 @@
 #include "util/defer_op.h"
 
 namespace doris {
+extern bvar::Adder<uint64_t> g_file_cache_get_by_peer_queue_timeout_num;
+
 Status test_handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request,
                                                  PFetchPeerDataResponse* response,
                                                  brpc::Controller* cntl);
+bool test_try_reject_if_queue_timed_out(std::chrono::steady_clock::time_point enqueue_ts,
+                                        PFetchPeerDataResponse* response);
 } // namespace doris
 
 namespace doris::io {
@@ -146,6 +151,19 @@ void populate_cache_block_with_content(BlockFileCache* cache, const fs::path& fi
     ASSERT_EQ(blocks[0]->get_or_set_downloader(), FileBlock::get_caller_id());
     ASSERT_TRUE(blocks[0]->append(Slice(content.data() + offset, size)).ok());
     ASSERT_TRUE(blocks[0]->finalize().ok());
+}
+
+PFetchPeerDataRequest create_peer_cache_block_request(const fs::path& file_path, size_t offset,
+                                                      size_t size, size_t file_size) {
+    PFetchPeerDataRequest request;
+    request.set_type(PFetchPeerDataRequest_Type_PEER_FILE_CACHE_BLOCK);
+    request.set_path(file_path.filename().native());
+    request.set_file_size(static_cast<int64_t>(file_size));
+    request.set_support_attachment(false);
+    auto* cache_req = request.add_cache_req();
+    cache_req->set_block_offset(offset);
+    cache_req->set_block_size(size);
+    return request;
 }
 
 FileBlockSPtr create_manual_peer_test_block(const fs::path& file_path, size_t offset, size_t size,
@@ -949,6 +967,78 @@ TEST_F(CachedRemoteFileReaderPeerTest,
     ASSERT_GE(response.status().error_msgs_size(), 1);
     EXPECT_NE(response.status().error_msgs(0).find("storage resource not found"),
               std::string::npos);
+}
+
+TEST_F(CachedRemoteFileReaderPeerTest, peer_file_cache_handler_allows_cached_block_read) {
+    const std::string content = "abcdefghijklmnop";
+    const fs::path file_path =
+            create_peer_test_file("cached_remote_reader_peer_cached_block_read.dat", content);
+    Defer cleanup_file {[&]() {
+        std::error_code ec;
+        fs::remove(file_path, ec);
+    }};
+
+    const fs::path cache_path = caches_dir / "cached_remote_reader_peer_cached_block_read_cache";
+    Defer cleanup_cache {[&]() {
+        std::error_code ec;
+        fs::remove_all(cache_path, ec);
+    }};
+
+    clear_cached_remote_reader_factory();
+    BlockFileCache* cache = create_peer_test_cache(cache_path, kPeerTestBlockSize);
+    populate_cache_block_with_content(cache, file_path, 0, kPeerTestBlockSize, content);
+
+    auto request =
+            create_peer_cache_block_request(file_path, 0, kPeerTestBlockSize, content.size());
+    PFetchPeerDataResponse response;
+    brpc::Controller cntl;
+
+    auto st = doris::test_handle_peer_file_cache_block_request(&request, &response, &cntl);
+
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(response.status().status_code(), TStatusCode::OK);
+    ASSERT_EQ(response.datas_size(), 1);
+    EXPECT_EQ(response.datas(0).block_offset(), 0);
+    EXPECT_EQ(response.datas(0).data(), content.substr(0, kPeerTestBlockSize));
+}
+
+TEST_F(CachedRemoteFileReaderPeerTest, peer_fetch_queue_timeout_rejects_expired_request) {
+    const int32_t old_peer_fetch_queue_timeout_ms = config::peer_fetch_queue_timeout_ms;
+    Defer restore_config {
+            [&]() { config::peer_fetch_queue_timeout_ms = old_peer_fetch_queue_timeout_ms; }};
+    config::peer_fetch_queue_timeout_ms = 500;
+
+    PFetchPeerDataResponse response;
+    const uint64_t before_queue_timeout =
+            doris::g_file_cache_get_by_peer_queue_timeout_num.get_value();
+
+    bool rejected = doris::test_try_reject_if_queue_timed_out(
+            std::chrono::steady_clock::now() - std::chrono::seconds(2), &response);
+
+    ASSERT_TRUE(rejected);
+    EXPECT_EQ(response.status().status_code(), TStatusCode::TOO_MANY_TASKS);
+    EXPECT_EQ(doris::g_file_cache_get_by_peer_queue_timeout_num.get_value() - before_queue_timeout,
+              1);
+}
+
+TEST_F(CachedRemoteFileReaderPeerTest, peer_fetch_queue_timeout_allows_fresh_request) {
+    const int32_t old_peer_fetch_queue_timeout_ms = config::peer_fetch_queue_timeout_ms;
+    Defer restore_config {
+            [&]() { config::peer_fetch_queue_timeout_ms = old_peer_fetch_queue_timeout_ms; }};
+    config::peer_fetch_queue_timeout_ms = 500;
+
+    PFetchPeerDataResponse response;
+    const uint64_t before_queue_timeout =
+            doris::g_file_cache_get_by_peer_queue_timeout_num.get_value();
+
+    bool rejected =
+            doris::test_try_reject_if_queue_timed_out(std::chrono::steady_clock::now(), &response);
+
+    ASSERT_FALSE(rejected);
+    EXPECT_EQ(response.status().status_code(), TStatusCode::OK);
+    EXPECT_EQ(response.status().error_msgs_size(), 0);
+    EXPECT_EQ(doris::g_file_cache_get_by_peer_queue_timeout_num.get_value() - before_queue_timeout,
+              0);
 }
 
 TEST_F(CachedRemoteFileReaderPeerTest, peer_file_cache_reader_clips_tail_block_by_file_size) {

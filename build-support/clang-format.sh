@@ -48,13 +48,13 @@ if [[ -z $(command -v clang-format) ]]; then
     exit 1
 fi
 
-CLANG_FORMAT_VERSION=$(clang-format --version | perl -nle 'print $& if m{version \K[0-9]+}')
+CLANG_FORMAT_VERSION=$(/mnt/disk2/dev/opt/ldb-toolchain/ldb-toolchain-16/bin/clang-format --version | perl -nle 'print $& if m{version \K[0-9]+}')
 if [[ ${CLANG_FORMAT_VERSION} -ne 16 ]]; then
     echo "clang-format version is not 16, please install clang-format version 16 or upgrade your clang-format version to 16"
     exit 1
 fi
 
-CLANG_FORMAT="${CLANG_FORMAT_BINARY:=$(command -v clang-format)}"
+CLANG_FORMAT="${CLANG_FORMAT_BINARY:=$(command -v /mnt/disk2/dev/opt/ldb-toolchain/ldb-toolchain-16/bin/clang-format)}"
 
 if command -v python3 &>/dev/null; then
     PYTHON=python3

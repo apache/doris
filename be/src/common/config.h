@@ -713,9 +713,11 @@ DECLARE_mInt64(load_error_log_limit_bytes);
 // each category has diffrent thread number
 // threads to handle heavy api interface, such as transmit_block etc
 DECLARE_Int32(brpc_heavy_work_pool_threads);
+DECLARE_Int32(brpc_peer_fetch_pool_threads);
 // threads to handle light api interface, such as exec_plan_fragment_prepare/exec_plan_fragment_start
 DECLARE_Int32(brpc_light_work_pool_threads);
 DECLARE_Int32(brpc_heavy_work_pool_max_queue_size);
+DECLARE_Int32(brpc_peer_fetch_pool_max_queue_size);
 DECLARE_Int32(brpc_light_work_pool_max_queue_size);
 DECLARE_mBool(enable_bthread_transmit_block);
 DECLARE_Int32(brpc_arrow_flight_work_pool_threads);

@@ -168,8 +168,17 @@ suite('test_balance_warm_up_use_peer_cache', 'docker') {
             .inject([:]) { acc, m -> mergeDirs(acc, m) }
 
         logger.info("after fe tablets {}, be tablets {}, cache dir {}", afterGetFromFe, afterGetFromBe, afterMergedCacheDir)
-        // v4 is inserted after addBackend; newBe can legitimately own and write
-        // that rowset directly. Keep the peer-warmup checks focused on v2/v3.
+        // All downstream assertions in this case (subset check, "no on-disk file
+        // before SELECT", "on-disk file after SELECT via peer read") only make
+        // sense for versions written BEFORE newBe joined (v2, v3). v4 is
+        // inserted after addBackend; the rebalancer can route the target
+        // tablet's primary BE mapping to newBe within the 5s sleep that
+        // follows, in which case newBe writes the rowset itself and
+        // S3FileWriter populates newBe's local file cache (write_file_cache=1)
+        // with blocks oldBe never saw. That is correct behavior, not a warmup
+        // miss; including v4 hashes here would assert against newBe's own
+        // direct writes and falsely fail. Restricting to v2/v3 keeps the
+        // assertions focused on the actual warmup-via-peer-cache invariant.
         def beforeWarmableCacheDir = [beforeCacheDirVersion2, beforeCacheDirVersion3]
             .inject([:]) { acc, m -> mergeDirs(acc, m) }
         def afterWarmableCacheDir = [afterCacheDirVersion2, afterCacheDirVersion3]
@@ -203,10 +212,13 @@ suite('test_balance_warm_up_use_peer_cache', 'docker') {
         collectDirs(dataPath)
         logger.info("BE {} file_cache subdirs: {}", newAddBe.Host, subDirs)
 
-        // check new be not have version 2,3,4 cache file
+        // check new be does not yet hold the v2/v3 cache files: the
+        // FileCacheBlockDownloader.download_blocks.balance_task DBUG point
+        // suppresses the actual rebalance-driven download, so before the
+        // SELECT below issues a peer read these hashes must NOT be on disk.
         newAddBeCacheDir.each { hashFile ->
-            assertFalse(subDirs.any { subDir -> subDir.startsWith(hashFile) }, 
-            "Expected cache file pattern ${hashFile} should not found in BE ${newAddBe.Host}'s file_cache directory. " + 
+            assertFalse(subDirs.any { subDir -> subDir.startsWith(hashFile) },
+            "Expected cache file pattern ${hashFile} should not found in BE ${newAddBe.Host}'s file_cache directory. " +
             "Available subdirs: ${subDirs}")
         }
 
@@ -257,10 +269,11 @@ suite('test_balance_warm_up_use_peer_cache', 'docker') {
         subDirs.clear()
         collectDirs(dataPath)
         logger.info("after query, BE {} file_cache subdirs: {}", newAddBe.Host, subDirs) 
-        // peer read cache, so it should have version 2,3,4 cache file
+        // peer read populated the cache, so the v2/v3 hashes that previously
+        // existed on oldBe must now be present in newBe's file_cache directory.
         newAddBeCacheDir.each { hashFile ->
-            assertTrue(subDirs.any { subDir -> subDir.startsWith(hashFile) }, 
-            "Expected cache file pattern ${hashFile} should found in BE ${newAddBe.Host}'s file_cache directory. " + 
+            assertTrue(subDirs.any { subDir -> subDir.startsWith(hashFile) },
+            "Expected cache file pattern ${hashFile} should found in BE ${newAddBe.Host}'s file_cache directory. " +
             "Available subdirs: ${subDirs}")
         }
         assert(getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "cached_remote_reader_peer_read") > peerReadBeforeQuery)

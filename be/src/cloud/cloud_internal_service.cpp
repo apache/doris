@@ -30,6 +30,7 @@
 #include <optional>
 #include <thread>
 #include <unordered_map>
+#include <vector>
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
@@ -61,6 +62,8 @@ bvar::LatencyRecorder g_file_cache_get_by_peer_read_cache_file_latency(
         "file_cache_get_by_peer_read_cache_file_latency");
 bvar::Adder<uint64_t> g_file_cache_get_by_peer_offer_failed_num(
         "file_cache_get_by_peer_offer_failed_num");
+bvar::Adder<uint64_t> g_file_cache_get_by_peer_queue_timeout_num(
+        "file_cache_get_by_peer_queue_timeout_num");
 bvar::LatencyRecorder g_file_cache_get_by_peer_queue_wait_latency(
         "file_cache_get_by_peer_queue_wait_latency");
 bvar::LatencyRecorder g_file_cache_get_by_peer_handle_cache_block_req_latency(
@@ -360,6 +363,27 @@ void set_error_response(PFetchPeerDataResponse* response, const std::string& err
     response->mutable_status()->set_status_code(TStatusCode::INTERNAL_ERROR);
 }
 
+void set_too_many_tasks_response(PFetchPeerDataResponse* response, const std::string& error_msg) {
+    response->mutable_status()->add_error_msgs(error_msg);
+    response->mutable_status()->set_status_code(TStatusCode::TOO_MANY_TASKS);
+}
+
+bool try_reject_if_queue_timed_out(std::chrono::steady_clock::time_point enqueue_ts,
+                                   PFetchPeerDataResponse* response) {
+    auto wait_us = elapsed_us(enqueue_ts);
+    g_file_cache_get_by_peer_queue_wait_latency << wait_us;
+    auto wait_ms = wait_us / 1000;
+    if (wait_ms <= config::peer_fetch_queue_timeout_ms) {
+        return false;
+    }
+
+    const std::string msg = fmt::format("fetch peer data queue timeout, wait_ms={}, timeout_ms={}",
+                                        wait_ms, config::peer_fetch_queue_timeout_ms);
+    g_file_cache_get_by_peer_queue_timeout_num << 1;
+    set_too_many_tasks_response(response, msg);
+    return true;
+}
+
 Status read_file_block(const std::shared_ptr<io::FileBlock>& file_block, size_t file_size,
                        doris::CacheBlockPB* output, butil::IOBuf* response_attachment) {
     auto total_start = std::chrono::steady_clock::now();
@@ -641,6 +665,13 @@ Status handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request
         if (size == 0) {
             continue;
         }
+        DBUG_EXECUTE_IF(
+                "CloudInternalServiceImpl::handle_peer_file_cache_block_request_hold_before_get_or_"
+                "set",
+                {
+                    int sleep_ms = dp->param<int>("sleep_ms", 300);
+                    bthread_usleep(sleep_ms * 1000);
+                });
         auto get_or_set_start = std::chrono::steady_clock::now();
         auto holder = cache->get_or_set(hash, offset, size, ctx);
         g_file_cache_get_by_peer_get_or_set_latency << elapsed_us(get_or_set_start);
@@ -751,6 +782,11 @@ Status test_handle_peer_file_cache_block_request(const PFetchPeerDataRequest* re
                                                  brpc::Controller* cntl) {
     return handle_peer_file_cache_block_request(request, response, cntl);
 }
+
+bool test_try_reject_if_queue_timed_out(std::chrono::steady_clock::time_point enqueue_ts,
+                                        PFetchPeerDataResponse* response) {
+    return try_reject_if_queue_timed_out(enqueue_ts, response);
+}
 #endif
 
 void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* controller,
@@ -762,10 +798,12 @@ void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* 
     // The ClosureGuard inside the lambda ensures done->Run() happens after all cntl usage,
     // so capturing the raw pointer by value is safe.
     auto* cntl = static_cast<brpc::Controller*>(controller);
-    bool ret = _heavy_work_pool.try_offer([request, response, done, enqueue_ts, cntl]() {
+    bool ret = _peer_fetch_pool.try_offer([request, response, done, enqueue_ts, cntl]() {
         brpc::ClosureGuard closure_guard(done);
         g_file_cache_get_by_peer_num << 1;
-        g_file_cache_get_by_peer_queue_wait_latency << elapsed_us(enqueue_ts);
+        if (try_reject_if_queue_timed_out(enqueue_ts, response)) {
+            return;
+        }
 
         if (!config::enable_file_cache) {
             LOG_WARNING("try to access file cache data, but file cache not enabled");
@@ -817,8 +855,16 @@ void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* 
         auto end_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                               std::chrono::steady_clock::now().time_since_epoch())
                               .count();
+        // Latency covers every completed callback (including failures) so the
+        // server-side fail-fast paths still show up in the latency histogram.
+        // success_num must only count actual OK results, otherwise dedup
+        // TOO_MANY_TASKS / NOT_FOUND / handler errors all fall through here
+        // and the success rate is meaningless. Use file_cache_get_by_peer_num
+        // for the total completed-callback count.
         g_file_cache_get_by_peer_server_latency << (end_ts - begin_ts);
-        g_file_cache_get_by_peer_success_num << 1;
+        if (status.ok()) {
+            g_file_cache_get_by_peer_success_num << 1;
+        }
 
         VLOG_DEBUG << "fetch cache request=" << request->DebugString()
                    << ", response=" << response->DebugString();
@@ -827,8 +873,11 @@ void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* 
     if (!ret) {
         g_file_cache_get_by_peer_offer_failed_num << 1;
         brpc::ClosureGuard closure_guard(done);
-        LOG(WARNING) << "fail to offer fetch peer data request to the work pool, pool="
-                     << _heavy_work_pool.get_info();
+        const std::string msg = fmt::format(
+                "fail to offer fetch peer data request to the peer fetch work pool, pool={}",
+                _peer_fetch_pool.get_info());
+        set_too_many_tasks_response(response, msg);
+        LOG(WARNING) << msg;
     }
 }
 

@@ -220,6 +220,8 @@ DECLARE_mString(peer_cache_fill_compute_group_id);
 DECLARE_mBool(enable_peer_server_cache_fill);
 DECLARE_mInt32(peer_server_cache_fill_timeout_ms);
 DECLARE_mInt32(max_concurrent_peer_server_fills);
+// Reject queued peer fetch tasks that wait too long in the peer fetch pool.
+DECLARE_mInt32(peer_fetch_queue_timeout_ms);
 
 // Base compaction output: only write index files to file cache, not data files
 DECLARE_mBool(enable_file_cache_write_base_compaction_index_only);

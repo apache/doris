@@ -44,6 +44,7 @@
 #include "util/block_compression.h"
 #include "util/coding.h"
 #include "util/concurrency_stats.h"
+#include "util/crc32c.h"
 #include "util/faststring.h"
 
 namespace doris {
