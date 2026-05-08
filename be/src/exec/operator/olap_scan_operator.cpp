@@ -409,9 +409,7 @@ Status OlapScanLocalState::_init_profile() {
 }
 
 static bool contains_expr_node_type(const VExprSPtr& expr, TExprNodeType::type node_type) {
-    if (expr == nullptr) {
-        return false;
-    }
+    DORIS_CHECK(expr != nullptr);
     if (expr->node_type() == node_type) {
         return true;
     }
