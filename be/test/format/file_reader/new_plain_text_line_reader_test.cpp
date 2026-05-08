@@ -181,8 +181,8 @@ TEST_F(EncloseCsvLineReaderTest, HiveTextInputFormatKeepsPhysicalLineBoundaries)
 
     // Default (allow_multiline=true) must still merge lines across an open quote so non-Hive
     // callers keep their previous behavior.
-    verify_csv_split("'a\nb',x\nplain,y", "\n", ",", '\'', '\\', false,
-                     {"'a\nb',x", "plain,y"}, {{5}, {5}});
+    verify_csv_split("'a\nb',x\nplain,y", "\n", ",", '\'', '\\', false, {"'a\nb',x", "plain,y"},
+                     {{5}, {5}});
 }
 
 } // namespace doris
