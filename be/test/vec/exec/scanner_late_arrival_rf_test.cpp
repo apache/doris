@@ -19,12 +19,12 @@
 #include <gtest/gtest.h>
 
 #include "pipeline/exec/mock_scan_operator.h"
+#include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime_filter/runtime_filter_consumer.h"
 #include "runtime_filter/runtime_filter_consumer_helper.h"
 #include "runtime_filter/runtime_filter_producer.h"
 #include "runtime_filter/runtime_filter_test_utils.h"
-#include "runtime/descriptors.h"
-#include "runtime/exec_env.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_number.h"
 #include "vec/exec/scan/scanner.h"
