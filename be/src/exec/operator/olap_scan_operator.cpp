@@ -428,16 +428,18 @@ static Status validate_residual_scan_conjuncts(RuntimeState* state,
         const auto& root = conjunct->root();
         if (contains_expr_node_type(root, TExprNodeType::SEARCH_EXPR)) {
             return Status::InvalidArgument(
-                    "SEARCH expressions require SegmentIterator inverted-index evaluation, but "
-                    "this expression remains as a residual scan predicate and cannot be executed "
-                    "correctly.");
+                    "SEARCH expression remains as a residual scan predicate. A valid search() "
+                    "must bind at least one indexed field and be evaluated in SegmentIterator. "
+                    "enable_segment_limit_pushdown only controls SegmentIterator LIMIT pushdown "
+                    "and cannot make residual SEARCH executable.");
         }
         if (!state->query_options().enable_match_without_inverted_index &&
             contains_expr_node_type(root, TExprNodeType::MATCH_PRED)) {
             return Status::InvalidArgument(
-                    "MATCH expressions require SegmentIterator inverted-index evaluation when "
-                    "enable_match_without_inverted_index is false, but this expression remains as "
-                    "a residual scan predicate and would fall back to a disabled slow path. Set "
+                    "MATCH expression remains as a residual scan predicate and would fall back to "
+                    "a disabled slow path because enable_match_without_inverted_index is false. "
+                    "enable_segment_limit_pushdown only controls SegmentIterator LIMIT pushdown "
+                    "and cannot make residual MATCH executable. Set "
                     "enable_match_without_inverted_index=true to allow slow MATCH execution.");
         }
     }
@@ -446,7 +448,9 @@ static Status validate_residual_scan_conjuncts(RuntimeState* state,
         return Status::InvalidArgument(
                 "COUNT_ON_INDEX pushdown cannot be used with residual scan predicates. "
                 "Residual predicates must be evaluated before COUNT_ON_INDEX counts rows; "
-                "otherwise the query may return incorrect results. Set "
+                "otherwise the query may return incorrect results. "
+                "enable_segment_limit_pushdown only controls SegmentIterator LIMIT pushdown and "
+                "does not make COUNT_ON_INDEX safe with residual predicates. Set "
                 "enable_count_on_index_pushdown=false to disable COUNT_ON_INDEX pushdown.");
     }
     return Status::OK();
@@ -520,7 +524,7 @@ Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* f
 }
 
 bool OlapScanLocalState::_should_push_down_common_expr(const VExprSPtr& expr) {
-    // Index-only expressions must also enter SegmentIterator even without slot children.
+    // SegmentIterator common exprs must eventually act on at least one scan slot.
     if (!_check_expr_storage_filter(expr, ExprStorageFilterCheckMode::HAS_SEGMENT_EVALUABLE_EXPR)) {
         return false;
     }
@@ -538,31 +542,14 @@ bool OlapScanLocalState::_should_push_down_common_expr(const VExprSPtr& expr) {
 
 bool OlapScanLocalState::_check_expr_storage_filter(const VExprSPtr& expr,
                                                     ExprStorageFilterCheckMode mode) {
-    DORIS_CHECK(expr != nullptr);
-    if (expr->node_type() == TExprNodeType::SEARCH_EXPR) {
-        if (mode == ExprStorageFilterCheckMode::HAS_NON_KEY_SLOT) {
-            if (expr->children().empty()) {
-                return true;
-            }
-            return std::ranges::any_of(expr->children(), [this, mode](const auto& child) {
-                return _check_expr_storage_filter(child, mode);
-            });
-        }
-        return mode == ExprStorageFilterCheckMode::HAS_SEGMENT_EVALUABLE_EXPR;
-    }
-    if (expr->node_type() == TExprNodeType::MATCH_PRED &&
-        mode == ExprStorageFilterCheckMode::HAS_SEGMENT_EVALUABLE_EXPR) {
-        return true;
-    }
     if (expr->is_slot_ref()) {
         const auto* slot_ref = assert_cast<const VSlotRef*>(expr.get());
         return mode == ExprStorageFilterCheckMode::HAS_SEGMENT_EVALUABLE_EXPR ||
                !_is_key_column(slot_ref->expr_name());
     }
     if (expr->is_virtual_slot_ref()) {
-        const auto* virtual_slot_ref = assert_cast<const VirtualSlotRef*>(expr.get());
-        DORIS_CHECK(virtual_slot_ref->get_virtual_column_expr() != nullptr);
-        return _check_expr_storage_filter(virtual_slot_ref->get_virtual_column_expr(), mode);
+        // Treat virtual slot ref as non-key because it may depend on non-key source columns.
+        return true;
     }
 
     return std::ranges::any_of(expr->children(), [this, mode](const auto& child) {
