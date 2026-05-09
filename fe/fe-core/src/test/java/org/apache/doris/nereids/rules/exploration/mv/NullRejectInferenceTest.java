@@ -24,6 +24,10 @@ import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.PlanChecker;
 
@@ -41,8 +45,10 @@ class NullRejectInferenceTest extends SqlTestBase {
     void testTwoHopNullRejectFromInnerJoinConditions() {
         connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext queryContext = createCascadesContext(
-                "select T1.id from T1 inner join T2 on T1.id = T2.id "
-                        + "inner join T3 on T2.id = T3.id where T3.score = 1",
+                "select lineitem.l_orderkey, supplier.s_name, nation.n_name from lineitem "
+                        + "inner join supplier on lineitem.l_suppkey = supplier.s_suppkey "
+                        + "inner join nation on supplier.s_nationkey = nation.n_nationkey "
+                        + "where nation.n_name = 'CHINA'",
                 connectContext
         );
         Plan queryPlan = PlanChecker.from(queryContext)
@@ -52,8 +58,9 @@ class NullRejectInferenceTest extends SqlTestBase {
                 .getAllPlan().get(0).child(0);
 
         CascadesContext viewContext = createCascadesContext(
-                "select T1.id from T1 left outer join T2 on T1.id = T2.id "
-                        + "left outer join T3 on T2.id = T3.id",
+                "select lineitem.l_orderkey, supplier.s_name, nation.n_name from lineitem "
+                        + "left outer join supplier on lineitem.l_suppkey = supplier.s_suppkey "
+                        + "left outer join nation on supplier.s_nationkey = nation.n_nationkey",
                 connectContext
         );
         Plan viewPlan = PlanChecker.from(viewContext)
@@ -79,6 +86,111 @@ class NullRejectInferenceTest extends SqlTestBase {
         SplitPredicate compensatePredicates = TEST_RULE.predicatesCompensateForTest(
                 queryStructInfo, viewStructInfo, viewToQuery, comparisonResult, queryContext);
         Assertions.assertFalse(compensatePredicates.isInvalid());
+        Assertions.assertTrue(compensatePredicates.toList().stream()
+                .anyMatch(expression -> isNotNullOnSlot(expression, "s_name")));
+    }
+
+    @Test
+    void testNullRejectCompensationForInnerJoinFullJoinRewrite() {
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
+        CascadesContext queryContext = createCascadesContext(
+                "select lineitem.l_shipdate, orders.o_orderdate from lineitem "
+                        + "inner join orders on lineitem.l_orderkey = orders.o_orderkey "
+                        + "where orders.o_orderdate = '2023-10-17'",
+                connectContext
+        );
+        Plan queryPlan = PlanChecker.from(queryContext)
+                .analyze()
+                .rewrite()
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .getAllPlan().get(0).child(0);
+
+        CascadesContext viewContext = createCascadesContext(
+                "select lineitem.l_shipdate, orders.o_orderdate from lineitem "
+                        + "full outer join orders on lineitem.l_orderkey = orders.o_orderkey",
+                connectContext
+        );
+        Plan viewPlan = PlanChecker.from(viewContext)
+                .analyze()
+                .rewrite()
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .getAllPlan().get(0).child(0);
+
+        StructInfo queryStructInfo = StructInfo.of(queryPlan, queryPlan, queryContext);
+        StructInfo viewStructInfo = StructInfo.of(viewPlan, viewPlan, viewContext);
+        RelationMapping relationMapping = RelationMapping.generate(
+                queryStructInfo.getRelations(), viewStructInfo.getRelations(), 8).get(0);
+        SlotMapping queryToView = SlotMapping.generate(relationMapping);
+        SlotMapping viewToQuery = queryToView.inverse();
+        LogicalCompatibilityContext compatibilityContext = LogicalCompatibilityContext.from(
+                relationMapping, viewToQuery, queryStructInfo, viewStructInfo);
+        ComparisonResult comparisonResult = StructInfo.isGraphLogicalEquals(
+                queryStructInfo, viewStructInfo, compatibilityContext);
+
+        Assertions.assertFalse(comparisonResult.isInvalid());
+        Assertions.assertFalse(comparisonResult.getViewNoNullableSlot().isEmpty());
+
+        SplitPredicate compensatePredicates = TEST_RULE.predicatesCompensateForTest(
+                queryStructInfo, viewStructInfo, viewToQuery, comparisonResult, queryContext);
+        Assertions.assertFalse(compensatePredicates.isInvalid());
+        Assertions.assertTrue(compensatePredicates.toList().stream()
+                .anyMatch(expression -> isNotNullOnSlot(expression, "l_shipdate")));
+    }
+
+    @Test
+    void testNullRejectCompensationForInnerJoinFullJoinRewriteOnRightSide() {
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
+        CascadesContext queryContext = createCascadesContext(
+                "select lineitem.l_shipdate, orders.o_orderdate from lineitem "
+                        + "inner join orders on lineitem.l_orderkey = orders.o_orderkey "
+                        + "where lineitem.l_shipdate = '2023-10-17'",
+                connectContext
+        );
+        Plan queryPlan = PlanChecker.from(queryContext)
+                .analyze()
+                .rewrite()
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .getAllPlan().get(0).child(0);
+
+        CascadesContext viewContext = createCascadesContext(
+                "select lineitem.l_shipdate, orders.o_orderdate from lineitem "
+                        + "full outer join orders on lineitem.l_orderkey = orders.o_orderkey",
+                connectContext
+        );
+        Plan viewPlan = PlanChecker.from(viewContext)
+                .analyze()
+                .rewrite()
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .getAllPlan().get(0).child(0);
+
+        StructInfo queryStructInfo = StructInfo.of(queryPlan, queryPlan, queryContext);
+        StructInfo viewStructInfo = StructInfo.of(viewPlan, viewPlan, viewContext);
+        RelationMapping relationMapping = RelationMapping.generate(
+                queryStructInfo.getRelations(), viewStructInfo.getRelations(), 8).get(0);
+        SlotMapping queryToView = SlotMapping.generate(relationMapping);
+        SlotMapping viewToQuery = queryToView.inverse();
+        LogicalCompatibilityContext compatibilityContext = LogicalCompatibilityContext.from(
+                relationMapping, viewToQuery, queryStructInfo, viewStructInfo);
+        ComparisonResult comparisonResult = StructInfo.isGraphLogicalEquals(
+                queryStructInfo, viewStructInfo, compatibilityContext);
+
+        Assertions.assertFalse(comparisonResult.isInvalid());
+        Assertions.assertFalse(comparisonResult.getViewNoNullableSlot().isEmpty());
+
+        SplitPredicate compensatePredicates = TEST_RULE.predicatesCompensateForTest(
+                queryStructInfo, viewStructInfo, viewToQuery, comparisonResult, queryContext);
+        Assertions.assertFalse(compensatePredicates.isInvalid());
+        Assertions.assertTrue(compensatePredicates.toList().stream()
+                .anyMatch(expression -> isNotNullOnSlot(expression, "o_orderdate")));
+    }
+
+    private static boolean isNotNullOnSlot(Expression expression, String slotName) {
+        if (!(expression instanceof Not) || ((Not) expression).isGeneratedIsNotNull()
+                || !(((Not) expression).child() instanceof IsNull)) {
+            return false;
+        }
+        Expression slot = ((IsNull) ((Not) expression).child()).child();
+        return slot instanceof SlotReference && slotName.equals(((SlotReference) slot).getName());
     }
 
     private static class TestMaterializedViewRule extends AbstractMaterializedViewRule {
