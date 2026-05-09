@@ -72,7 +72,7 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
           _tablet_reader_params({.tablet = std::move(params.tablet),
                                  .tablet_schema {},
                                  .reader_type = params.read_row_binlog ? ReaderType::READER_BINLOG
-                                                                      : ReaderType::READER_QUERY,
+                                                                       : ReaderType::READER_QUERY,
                                  .aggregation = params.aggregation,
                                  .version = {0, params.version},
                                  .start_key {},

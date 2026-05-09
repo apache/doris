@@ -155,9 +155,8 @@ Status EnginePublishVersionTask::execute() {
 
         map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
         map<TabletInfo, std::vector<RowsetSharedPtr>> tablet_related_attach_rowsets;
-        _engine.txn_manager()->get_txn_related_tablets(transaction_id, partition_id,
-                                                       &tablet_related_rs,
-                                                       &tablet_related_attach_rowsets);
+        _engine.txn_manager()->get_txn_related_tablets(
+                transaction_id, partition_id, &tablet_related_rs, &tablet_related_attach_rowsets);
 
         Version version(par_ver_info.version, par_ver_info.version);
 
@@ -408,13 +407,10 @@ void EnginePublishVersionTask::_calculate_tbl_num_delta_rows(
     }
 }
 
-TabletPublishTxnTask::TabletPublishTxnTask(StorageEngine& engine,
-                                           EnginePublishVersionTask* engine_task,
-                                           TabletSharedPtr tablet, RowsetSharedPtr rowset,
-                                           std::vector<RowsetSharedPtr> attach_rowsets,
-                                           int64_t partition_id, int64_t transaction_id,
-                                           Version version, const TabletInfo& tablet_info,
-                                           int64_t commit_tso)
+TabletPublishTxnTask::TabletPublishTxnTask(
+        StorageEngine& engine, EnginePublishVersionTask* engine_task, TabletSharedPtr tablet,
+        RowsetSharedPtr rowset, std::vector<RowsetSharedPtr> attach_rowsets, int64_t partition_id,
+        int64_t transaction_id, Version version, const TabletInfo& tablet_info, int64_t commit_tso)
         : _engine(engine),
           _engine_publish_version_task(engine_task),
           _tablet(std::move(tablet)),
@@ -501,8 +497,7 @@ void TabletPublishTxnTask::handle() {
     }
     _stats.schedule_time_us = MonotonicMicros() - _stats.submit_time_us;
     _result = publish_version_and_add_rowset(_engine, _partition_id, _tablet, _rowset,
-                                             _attach_rowsets,
-                                             _transaction_id, _version,
+                                             _attach_rowsets, _transaction_id, _version,
                                              _engine_publish_version_task, _stats, _commit_tso);
 
     if (!_result.ok()) {
@@ -534,23 +529,21 @@ void AsyncTabletPublishTask::handle() {
     _stats.schedule_time_us = MonotonicMicros() - _stats.submit_time_us;
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
     std::map<TabletInfo, std::vector<RowsetSharedPtr>> tablet_related_attach_rowsets;
-    _engine.txn_manager()->get_txn_related_tablets(_transaction_id, _partition_id,
-                                                   &tablet_related_rs,
-                                                   &tablet_related_attach_rowsets);
+    _engine.txn_manager()->get_txn_related_tablets(
+            _transaction_id, _partition_id, &tablet_related_rs, &tablet_related_attach_rowsets);
     auto iter = tablet_related_rs.find(TabletInfo(_tablet->tablet_id(), _tablet->tablet_uid()));
     if (iter == tablet_related_rs.end()) {
         return;
     }
-    auto attach_rowsets_it =
-            tablet_related_attach_rowsets.find(TabletInfo(_tablet->tablet_id(), _tablet->tablet_uid()));
+    auto attach_rowsets_it = tablet_related_attach_rowsets.find(
+            TabletInfo(_tablet->tablet_id(), _tablet->tablet_uid()));
     DCHECK(attach_rowsets_it != tablet_related_attach_rowsets.end());
     RowsetSharedPtr rowset = iter->second;
     Version version(_version, _version);
 
-    auto publish_status =
-            publish_version_and_add_rowset(_engine, _partition_id, _tablet, rowset,
-                                           attach_rowsets_it->second, _transaction_id,
-                                           version, nullptr, _stats, _commit_tso);
+    auto publish_status = publish_version_and_add_rowset(_engine, _partition_id, _tablet, rowset,
+                                                         attach_rowsets_it->second, _transaction_id,
+                                                         version, nullptr, _stats, _commit_tso);
 
     if (!publish_status.ok()) {
         return;

@@ -407,13 +407,12 @@ TEST_F(TxnManagerTest, PublishVersionWithCommitTSO) {
 TEST_F(TxnManagerTest, TxnWithRowBinlog) {
     auto binlog_rowset = create_binlog_rowset(30000, _rowset->version());
     std::vector<RowsetSharedPtr> attach_rowsets {binlog_rowset};
-    auto guard =
-            k_engine->pending_local_rowsets().add({_rowset->rowset_id(), binlog_rowset->rowset_id()});
+    auto guard = k_engine->pending_local_rowsets().add(
+            {_rowset->rowset_id(), binlog_rowset->rowset_id()});
 
-    auto st = k_engine->txn_manager()->commit_txn(_meta.get(), partition_id, transaction_id,
-                                                  tablet_id, _tablet_uid, load_id, _rowset,
-                                                  std::move(guard), false, nullptr,
-                                                  &attach_rowsets);
+    auto st = k_engine->txn_manager()->commit_txn(
+            _meta.get(), partition_id, transaction_id, tablet_id, _tablet_uid, load_id, _rowset,
+            std::move(guard), false, nullptr, &attach_rowsets);
     ASSERT_TRUE(st.ok()) << st;
 
     std::map<RowsetId, RowsetId> base_rowset_id_to_row_binlog;
@@ -503,13 +502,12 @@ TEST_F(TxnManagerTest, DeleteCommittedTxn) {
 TEST_F(TxnManagerTest, DeleteCommittedTxnWithBinlogRowset) {
     auto binlog_rowset = create_binlog_rowset(30002, _rowset->version());
     std::vector<RowsetSharedPtr> attach_rowsets {binlog_rowset};
-    auto guard =
-            k_engine->pending_local_rowsets().add({_rowset->rowset_id(), binlog_rowset->rowset_id()});
+    auto guard = k_engine->pending_local_rowsets().add(
+            {_rowset->rowset_id(), binlog_rowset->rowset_id()});
 
-    auto st = k_engine->txn_manager()->commit_txn(_meta.get(), partition_id, transaction_id,
-                                                  tablet_id, _tablet_uid, load_id, _rowset,
-                                                  std::move(guard), false, nullptr,
-                                                  &attach_rowsets);
+    auto st = k_engine->txn_manager()->commit_txn(
+            _meta.get(), partition_id, transaction_id, tablet_id, _tablet_uid, load_id, _rowset,
+            std::move(guard), false, nullptr, &attach_rowsets);
     ASSERT_TRUE(st.ok()) << st;
 
     std::map<RowsetId, RowsetId> base_rowset_id_to_row_binlog;

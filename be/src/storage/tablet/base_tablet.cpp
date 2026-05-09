@@ -39,12 +39,12 @@
 #include "exec/sink/autoinc_buffer.h" // GlobalAutoIncBuffers
 #include "load/memtable/memtable.h"
 #include "service/point_query_executor.h"
+#include "storage/binlog.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/delete/calc_delete_bitmap_executor.h"
 #include "storage/delete/delete_bitmap_calculator.h"
 #include "storage/index/primary_key_index.h"
 #include "storage/iterators.h"
-#include "storage/binlog.h"
 #include "storage/partial_update_info.h"
 #include "storage/rowid_conversion.h"
 #include "storage/rowset/beta_rowset.h"
@@ -128,7 +128,8 @@ BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta) : _tablet_meta(std::move
     // construct _timestamped_versioned_tracker from rs and stale rs meta
     _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
                                                              _tablet_meta->all_stale_rs_metas());
-    _row_binlog_version_tracker.construct_versioned_tracker(_tablet_meta->all_row_binlog_rs_metas());
+    _row_binlog_version_tracker.construct_versioned_tracker(
+            _tablet_meta->all_row_binlog_rs_metas());
 
     // if !_tablet_meta->all_rs_metas()[0]->tablet_schema(),
     // that mean the tablet_meta is still no upgrade to doris 1.2 versions.
@@ -844,8 +845,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 auto lsn_buffer = GlobalAutoIncBuffers::GetInstance()->get_auto_inc_buffer(
                         db_id, table_id, kBinlogLsnAutoIncId);
                 std::shared_ptr<std::vector<int128_t>> lsn_ids;
-                RETURN_IF_ERROR(
-                        allocate_binlog_lsn(lsn_buffer, ordered_block.rows(), &lsn_ids));
+                RETURN_IF_ERROR(allocate_binlog_lsn(lsn_buffer, ordered_block.rows(), &lsn_ids));
                 binlog_ctx.write_binlog_opt().write_binlog_config().insert_seg_lsn(
                         seg_id, std::move(lsn_ids));
             }
@@ -1460,11 +1460,12 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
     for (const auto& rs : txn_info->attach_rowsets) {
         if (rs != nullptr && rs->rowset_meta() != nullptr && rs->rowset_meta()->is_row_binlog()) {
             row_binlog_rowset = rs;
-            build_row_binlog = is_partial_update || self->tablet_meta()->binlog_config().need_historical_value();
+            build_row_binlog = is_partial_update ||
+                               self->tablet_meta()->binlog_config().need_historical_value();
             break;
         }
     }
-    
+
     // rewrite conflict only when partial update or need before
     if (is_partial_update || build_row_binlog) {
         if (txn_info->partial_update_info == nullptr) {
@@ -1600,11 +1601,10 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
         // Prepare source MOW context for historical row retrieval in binlog writer.
         auto& data_ctx = const_cast<RowsetWriterContext&>(transient_rs_writer->context());
         data_ctx.mow_context = std::make_shared<MowContext>(
-                cur_version - 1, txn_id, std::make_shared<RowsetIdUnorderedSet>(), specified_rowsets,
-                nullptr);
+                cur_version - 1, txn_id, std::make_shared<RowsetIdUnorderedSet>(),
+                specified_rowsets, nullptr);
 
-        auto& binlog_ctx =
-                const_cast<RowsetWriterContext&>(transient_row_binlog_writer->context());
+        auto& binlog_ctx = const_cast<RowsetWriterContext&>(transient_row_binlog_writer->context());
         auto& cfg = binlog_ctx.write_binlog_opt().write_binlog_config();
         cfg.source.tablet_schema = data_ctx.tablet_schema;
         cfg.source.partial_update_info = data_ctx.partial_update_info;
@@ -1694,7 +1694,7 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
                << ", new segment num: " << new_segments << ")";
 
             SegmentLoader::instance()->erase_segments(row_binlog_rowset->rowset_id(),
-                                                     row_binlog_rowset->num_segments());
+                                                      row_binlog_rowset->num_segments());
         }
 
         // update the shared_ptr to new bitmap, which is consistent with current rowset.

@@ -541,7 +541,8 @@ Status Tablet::_add_row_binlog_rowset_unlocked(const RowsetSharedPtr& rowset,
     DCHECK_EQ(row_binlog_rowset->version(), rowset->version());
 
     const auto& version = row_binlog_rowset->version();
-    if (auto it = _row_binlog_rs_version_map.find(version); it != _row_binlog_rs_version_map.end()) {
+    if (auto it = _row_binlog_rs_version_map.find(version);
+        it != _row_binlog_rs_version_map.end()) {
         if (it->second != nullptr && it->second->rowset_id() == row_binlog_rowset->rowset_id()) {
             return Status::OK();
         }
@@ -1613,7 +1614,8 @@ bool Tablet::do_tablet_meta_checkpoint() {
         }
 
         RETURN_FALSE_IF_ERROR(RowsetMetaManager::remove_row_binlog(
-                _data_dir->get_meta(), tablet_uid(), base_rs_meta->rowset_id(), rb_meta->rowset_id()));
+                _data_dir->get_meta(), tablet_uid(), base_rs_meta->rowset_id(),
+                rb_meta->rowset_id()));
         VLOG_NOTICE << "remove binlog<row> meta from meta store, base_rowset_id="
                     << base_rs_meta->rowset_id() << ", binlog_rowset_id=" << rb_meta->rowset_id();
         rb_meta->set_remove_from_rowset_meta();
@@ -2714,8 +2716,8 @@ Status Tablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
     // so row binlog reads can skip rows deleted by MOW conflict resolution.
     const bool build_row_binlog = !txn_info->attach_rowsets.empty();
     const RowsetId cur_build_rid = txn_info->rowset->rowset_id();
-    const RowsetId binlog_rid = build_row_binlog ? txn_info->attach_rowsets[0]->rowset_id()
-                                                 : cur_build_rid;
+    const RowsetId binlog_rid =
+            build_row_binlog ? txn_info->attach_rowsets[0]->rowset_id() : cur_build_rid;
     auto* binlog_delvec = txn_info->binlog_delvec.get();
     if (build_row_binlog) {
         DCHECK(txn_info->attach_rowsets[0] != nullptr);

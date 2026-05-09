@@ -165,8 +165,9 @@ inline void enable_row_binlog(TCreateTabletReq* request, int32_t row_binlog_sche
     request->__set_binlog_config(binlog_config);
 
     TTabletSchema row_binlog_schema = request->tablet_schema;
-    row_binlog_schema.schema_hash =
-            row_binlog_schema_hash > 0 ? row_binlog_schema_hash : request->tablet_schema.schema_hash + 1;
+    row_binlog_schema.schema_hash = row_binlog_schema_hash > 0
+                                            ? row_binlog_schema_hash
+                                            : request->tablet_schema.schema_hash + 1;
     row_binlog_schema.keys_type = TKeysType::DUP_KEYS;
 
     for (auto& col : row_binlog_schema.columns) {
@@ -175,15 +176,14 @@ inline void enable_row_binlog(TCreateTabletReq* request, int32_t row_binlog_sche
         }
     }
 
+    row_binlog_schema.columns.push_back(
+            create_tablet_column({std::string(kRowBinlogLsnColName), TPrimitiveType::LARGEINT,
+                                  false, true, TAggregationType::NONE}));
     row_binlog_schema.columns.push_back(create_tablet_column(
-            {std::string(kRowBinlogLsnColName), TPrimitiveType::LARGEINT, false, true,
-             TAggregationType::NONE}));
-    row_binlog_schema.columns.push_back(create_tablet_column(
-            {"__DORIS_BINLOG_OP__", TPrimitiveType::BIGINT, false, true,
-             TAggregationType::NONE}));
-    row_binlog_schema.columns.push_back(create_tablet_column(
-            {std::string(kRowBinlogTimestampColName), TPrimitiveType::BIGINT, false, true,
-             TAggregationType::NONE}));
+            {"__DORIS_BINLOG_OP__", TPrimitiveType::BIGINT, false, true, TAggregationType::NONE}));
+    row_binlog_schema.columns.push_back(
+            create_tablet_column({std::string(kRowBinlogTimestampColName), TPrimitiveType::BIGINT,
+                                  false, true, TAggregationType::NONE}));
     request->__set_row_binlog_schema(row_binlog_schema);
 }
 

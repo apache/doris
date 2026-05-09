@@ -2433,8 +2433,8 @@ void SegmentIterator::_update_lsn_col_if_needed(const std::vector<ColumnId>& col
     static constexpr Int128 kLow64Mask = (static_cast<Int128>(1) << 64) - 1;
     for (size_t j = 0; j < num_rows; j++) {
         const Int128 row_id = lsn_column->get_element(j);
-        const Int128 binlog_lsn = (static_cast<Int128>(_opts.version.second) << 64) |
-                                  (row_id & kLow64Mask);
+        const Int128 binlog_lsn =
+                (static_cast<Int128>(_opts.version.second) << 64) | (row_id & kLow64Mask);
         col_ptr->insert_value(binlog_lsn);
     }
     _current_return_columns[lsn_col_idx] = std::move(column);
@@ -2461,7 +2461,8 @@ void SegmentIterator::_update_tso_col_if_needed(const std::vector<ColumnId>& col
 
     if (_is_pred_column[tso_col_idx]) {
         // Nullable predicate column is represented as ColumnNullable(predicate_col)
-        if (auto* tso_nullable = typeid_cast<ColumnNullable*>(_current_return_columns[tso_col_idx].get())) {
+        if (auto* tso_nullable =
+                    typeid_cast<ColumnNullable*>(_current_return_columns[tso_col_idx].get())) {
             _current_return_columns[tso_col_idx]->clear();
             auto value = commit_tso;
             for (size_t j = 0; j < num_rows; j++) {

@@ -787,8 +787,10 @@ Status TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
                             << " partition_id: " << key.first << ", transaction_id: " << key.second
                             << ", tablet: " << tablet_info.to_string() << ", rowset: "
                             << (rowset != nullptr ? rowset->rowset_id().to_string() : "0")
-                            << ", binlog<row> rowset: " << (load_info->attach_rowsets.empty() ? 
-                                        "0" : load_info->attach_rowsets[0]->rowset_id().to_string());
+                            << ", binlog<row> rowset: "
+                            << (load_info->attach_rowsets.empty()
+                                        ? "0"
+                                        : load_info->attach_rowsets[0]->rowset_id().to_string());
             }
         }
         it->second.erase(load_itr);
@@ -847,21 +849,24 @@ void TxnManager::force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId ta
                     for (const auto& attach_rowset : load_info->attach_rowsets) {
                         Status status = RowsetMetaManager::remove_row_binlog(
                                 meta, tablet_uid, rowset->rowset_id(), attach_rowset->rowset_id());
-                        if (!status.ok())  {
+                        if (!status.ok()) {
                             if (status.is<META_KEY_NOT_FOUND>()) {
                                 continue;
                             }
                         }
                     }
-                    static_cast<void>(RowsetMetaManager::remove(meta, tablet_uid, rowset->rowset_id()));
+                    static_cast<void>(
+                            RowsetMetaManager::remove(meta, tablet_uid, rowset->rowset_id()));
                 }
                 LOG(INFO) << "remove tablet related txn."
                           << " partition_id: " << it->first.first
                           << ", transaction_id: " << it->first.second
                           << ", tablet: " << tablet_info.to_string() << ", rowset: "
                           << (rowset != nullptr ? rowset->rowset_id().to_string() : "0")
-                          << ", binlog<row> rowset: " << (load_info->attach_rowsets.empty() ? 
-                                    "0" : load_info->attach_rowsets[0]->rowset_id().to_string());
+                          << ", binlog<row> rowset: "
+                          << (load_info->attach_rowsets.empty()
+                                      ? "0"
+                                      : load_info->attach_rowsets[0]->rowset_id().to_string());
                 it->second.erase(load_itr);
             }
             if (it->second.empty()) {

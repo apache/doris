@@ -324,9 +324,8 @@ static void write_rowset(TabletSharedPtr* tablet, PUniqueId load_id, int64_t rep
     write_req.is_high_priority = false;
     write_req.table_schema_param = std::make_shared<OlapTableSchemaParam>();
 
-    auto delta_writer =
-            std::make_unique<DeltaWriter>(*engine_ref, std::make_shared<WriteRequest>(write_req),
-                                          profile.get(), TUniqueId {});
+    auto delta_writer = std::make_unique<DeltaWriter>(
+            *engine_ref, std::make_shared<WriteRequest>(write_req), profile.get(), TUniqueId {});
     ASSERT_NE(delta_writer, nullptr);
 
     Block block;

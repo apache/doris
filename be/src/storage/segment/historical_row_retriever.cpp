@@ -23,28 +23,28 @@
 #include "common/consts.h"
 #include "common/logging.h" // LOG
 #include "common/status.h"
-#include "service/point_query_executor.h"
-#include "storage/binlog.h"
-#include "storage/iterator/olap_data_convertor.h"
-#include "storage/rowset/rowset_writer_context.h"
-#include "storage/tablet/tablet.h"
-#include "storage/key_coder.h"
-#include "storage/rowset/rowset.h"
 #include "core/block/block.h"
+#include "core/block/column_with_type_and_name.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/string_ref.h"
-#include "core/block/column_with_type_and_name.h"
+#include "runtime/exec_env.h"
+#include "service/point_query_executor.h"
+#include "storage/binlog.h"
+#include "storage/data_dir.h"
+#include "storage/iterator/olap_data_convertor.h"
+#include "storage/key_coder.h"
+#include "storage/rowset/beta_rowset.h"
+#include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_reader_context.h"
+#include "storage/rowset/rowset_writer_context.h"
+#include "storage/segment/segment.h"
+#include "storage/storage_engine.h"
+#include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
-#include "storage/data_dir.h"
-#include "storage/storage_engine.h"
-#include "runtime/exec_env.h"
-#include "storage/rowset/beta_rowset.h"
-#include "storage/segment/segment.h"
 
 namespace doris {
 
@@ -115,8 +115,9 @@ Status PrimaryKeyModelRowRetriever::retrieve_historical_row(const Int8* delete_s
         RowLocation loc;
         // save rowset shared ptr so this rowset wouldn't delete
         RowsetSharedPtr rowset;
-        auto st = tablet->lookup_row_key(key, tablet->tablet_schema().get(), _seq_column != nullptr, specified_rowsets, &loc,
-                                         _mow_context->max_version, segment_caches, &rowset);
+        auto st = tablet->lookup_row_key(key, tablet->tablet_schema().get(), _seq_column != nullptr,
+                                         specified_rowsets, &loc, _mow_context->max_version,
+                                         segment_caches, &rowset);
         if (st.is<KEY_NOT_FOUND>()) {
             // it's an insert row
             _has_default_or_nullable = true;
@@ -143,7 +144,7 @@ Status PrimaryKeyModelRowRetriever::retrieve_historical_row(const Int8* delete_s
             _has_default_or_nullable = true;
             _use_default_or_null_flag.emplace_back(true);
             _operators.emplace_back(ROW_BINLOG_DELETE);
-        } else {    
+        } else {
             // partial update should not contain invisible columns
             _use_default_or_null_flag.emplace_back(false);
             _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
@@ -159,8 +160,7 @@ Status PrimaryKeyModelRowRetriever::retrieve_historical_row(const Int8* delete_s
     return Status::OK();
 }
 
-Status PrimaryKeyModelRowRetriever::build_after_block(Block* block,
-                                                      size_t row_pos,
+Status PrimaryKeyModelRowRetriever::build_after_block(Block* block, size_t row_pos,
                                                       size_t num_rows) {
     DCHECK_EQ(_use_default_or_null_flag.size(), num_rows);
     if (config::is_cloud_mode()) {
@@ -169,11 +169,9 @@ Status PrimaryKeyModelRowRetriever::build_after_block(Block* block,
     if (_context.partial_update_info == nullptr) {
         return Status::InternalError("partial update info is null");
     }
-    return _rssid_to_rid.fill_missing_columns(_context, _rsid_to_rowset,
-                                              *_context.tablet_schema, *block,
-                                              _use_default_or_null_flag,
-                                              _has_default_or_nullable,
-                                              cast_set<uint32_t>(row_pos), block);
+    return _rssid_to_rid.fill_missing_columns(
+            _context, _rsid_to_rowset, *_context.tablet_schema, *block, _use_default_or_null_flag,
+            _has_default_or_nullable, cast_set<uint32_t>(row_pos), block);
 }
 
 Status PrimaryKeyModelRowRetriever::build_before_block(Block* before_block,
@@ -207,8 +205,8 @@ Status PrimaryKeyModelRowRetriever::build_before_block(Block* before_block,
         if (it == read_index.end()) {
             // No historical row, fill BEFORE with NULL.
             for (size_t i = 0; i < value_cids.size(); ++i) {
-                auto* nullable_column = assert_cast<ColumnNullable*>(
-                        mutable_before_columns[i].get());
+                auto* nullable_column =
+                        assert_cast<ColumnNullable*>(mutable_before_columns[i].get());
                 nullable_column->insert_many_defaults(1);
             }
             continue;
@@ -227,15 +225,13 @@ Status PrimaryKeyModelRowRetriever::build_before_block(Block* before_block,
 }
 
 std::string PrimaryKeyModelRowRetriever::_full_encode_keys(
-        const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos,
-        bool null_first) {
+        const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos, bool null_first) {
     return _full_encode_keys(_key_coders, key_columns, pos, null_first);
 }
 
 std::string PrimaryKeyModelRowRetriever::_full_encode_keys(
         const std::vector<const KeyCoder*>& key_coders,
-        const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos,
-        bool null_first) {
+        const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos, bool null_first) {
     assert(key_columns.size() == key_coders.size());
 
     std::string encoded_keys;
@@ -260,7 +256,7 @@ std::string PrimaryKeyModelRowRetriever::_full_encode_keys(
 }
 
 void PrimaryKeyModelRowRetriever::_encode_seq_column(const IOlapColumnDataAccessor* seq_column,
-                                       size_t pos, std::string* encoded_keys) {
+                                                     size_t pos, std::string* encoded_keys) {
     auto field = seq_column->get_data_at(pos);
     // To facilitate the use of the primary key index, encode the seq column
     // to the minimum value of the corresponding length when the seq column

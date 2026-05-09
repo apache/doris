@@ -16,6 +16,7 @@
 // under the License.
 
 #include "storage/rowset/group_rowset_writer.h"
+
 #include "storage/rowset/beta_rowset_writer.h"
 #include "storage/segment/segment_writer.h"
 #include "util/debug_points.h"
@@ -26,7 +27,8 @@ void GroupRowsetWriter::set_data_writer(const RowsetWriterSharedPtr& txn_rowset_
     _txn_rowset_writer = txn_rowset_writer;
 }
 
-void GroupRowsetWriter::set_row_binlog_writer(const RowsetWriterSharedPtr& row_binlog_rowset_writer) {
+void GroupRowsetWriter::set_row_binlog_writer(
+        const RowsetWriterSharedPtr& row_binlog_rowset_writer) {
     _row_binlog_rowset_writer = row_binlog_rowset_writer;
 }
 
@@ -44,9 +46,8 @@ Status GroupRowsetWriter::build_rowsets(std::vector<RowsetSharedPtr>& rowsets) {
     RowsetSharedPtr row_binlog_rowset;
     RETURN_IF_ERROR(_txn_rowset_writer->build(txn_rowset));
     Status st = Status::OK();
-    DBUG_EXECUTE_IF("GroupRowsetWriter::build_rowsets.row_binlog_build_failed", {
-        st = Status::InternalError("debug row binlog build failed");
-    });
+    DBUG_EXECUTE_IF("GroupRowsetWriter::build_rowsets.row_binlog_build_failed",
+                    { st = Status::InternalError("debug row binlog build failed"); });
     if (st.ok()) {
         st = _row_binlog_rowset_writer->build(row_binlog_rowset);
     }

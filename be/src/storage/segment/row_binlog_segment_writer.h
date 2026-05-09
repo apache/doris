@@ -15,10 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
-#include "storage/segment/segment_writer.h"
-#include "storage/segment/historical_row_retriever.h"
 #include "storage/binlog.h"
+#include "storage/segment/historical_row_retriever.h"
+#include "storage/segment/segment_writer.h"
 namespace doris {
 
 namespace segment_v2 {
@@ -33,13 +32,13 @@ public:
     Status init();
 
     Status prepare_by_source_block(const Block* block, size_t row_pos, size_t num_rows,
-                                   std::vector<uint32_t>& partial_source_cids, 
+                                   std::vector<uint32_t>& partial_source_cids,
                                    Block* full_block = nullptr);
 
     Status prepare_seq_column(const ColumnWithTypeAndName& col, int32_t seq_col_id_in_schema,
                               size_t row_pos, size_t num_rows);
 
-    Status fill_normal_columns(std::vector<std::unique_ptr<ColumnWriter>>& column_writers, 
+    Status fill_normal_columns(std::vector<std::unique_ptr<ColumnWriter>>& column_writers,
                                size_t start, size_t end,
                                std::vector<uint32_t>& partial_source_cids);
 
@@ -77,7 +76,7 @@ public:
                                     TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                                     DataDir* data_dir, const SegmentWriterOptions& opts,
                                     const segment_v2::SegmentWriteBinlogOptions& row_binlog_opts);
-    
+
     ~RowBinlogSegmentWriter() override = default;
 
     Status init() override;
@@ -90,8 +89,8 @@ public:
     Status _fill_binlog_columns(size_t num_rows, const std::vector<int64_t>& op_types);
 
     Status _fill_before_columns(size_t num_rows);
-private:
 
+private:
     bool _write_before = false;
     bool _fill_empty_before_value = false;
 

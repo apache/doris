@@ -360,7 +360,8 @@ Status BaseBetaRowsetWriter::add_block(const Block* block) {
 
 Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     SCOPED_RAW_TIMER(&_delete_bitmap_ns);
-    if (_context.is_transient_rowset_writer || !_context.tablet->enable_unique_key_merge_on_write() ||
+    if (_context.is_transient_rowset_writer ||
+        !_context.tablet->enable_unique_key_merge_on_write() ||
         (_context.partial_update_info && _context.partial_update_info->is_partial_update())) {
         return Status::OK();
     }

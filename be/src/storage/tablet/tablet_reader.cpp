@@ -121,8 +121,8 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     }
 
     bool need_ordered_result = true;
-    if (read_params.reader_type == ReaderType::READER_QUERY
-                || read_params.reader_type == ReaderType::READER_BINLOG) {
+    if (read_params.reader_type == ReaderType::READER_QUERY ||
+        read_params.reader_type == ReaderType::READER_BINLOG) {
         if (_tablet_schema->keys_type() == DUP_KEYS) {
             // duplicated keys are allowed, no need to merge sort keys in rowset
             need_ordered_result = false;

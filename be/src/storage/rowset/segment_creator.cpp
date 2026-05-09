@@ -70,8 +70,8 @@ Status SegmentFlusher::flush_single_block(const Block* block, int32_t segment_id
     }
     Block flush_block(*block);
     bool no_compression = flush_block.bytes() <= config::segment_compression_threshold_kb * 1024;
-    bool use_vertical_segment_writer =
-            config::enable_vertical_segment_writer && !_context.write_binlog_opt().is_binlog_writer();
+    bool use_vertical_segment_writer = config::enable_vertical_segment_writer &&
+                                       !_context.write_binlog_opt().is_binlog_writer();
     if (use_vertical_segment_writer) {
         std::unique_ptr<segment_v2::VerticalSegmentWriter> writer;
         RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression));
@@ -130,7 +130,8 @@ Status SegmentFlusher::_create_segment_writer(std::unique_ptr<segment_v2::Segmen
     if (_context.write_binlog_opt().is_binlog_writer()) {
         writer = std::make_unique<segment_v2::RowBinlogSegmentWriter>(
                 segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
-                _context.data_dir, writer_options, _context.write_binlog_opt().write_binlog_config());
+                _context.data_dir, writer_options,
+                _context.write_binlog_opt().write_binlog_config());
     } else {
         writer = std::make_unique<segment_v2::SegmentWriter>(
                 segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,

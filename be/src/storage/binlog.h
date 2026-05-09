@@ -31,8 +31,8 @@
 #include "common/logging.h" // DCHECK
 #include "common/status.h"
 #include "exec/sink/autoinc_buffer.h"
-#include "storage/olap_define.h" // DataWriteType
 #include "storage/olap_common.h"
+#include "storage/olap_define.h"          // DataWriteType
 #include "storage/tablet/tablet_schema.h" // TabletSchemaSPtr
 
 namespace doris {
@@ -152,8 +152,7 @@ inline Status allocate_binlog_lsn(const std::shared_ptr<AutoIncIDBuffer>& lsn_bu
     ids->reserve(num_rows);
     for (const auto& [start, length] : ranges) {
         for (size_t i = 0; i < length; ++i) {
-            DCHECK_LE(start,
-                      std::numeric_limits<int64_t>::max() - static_cast<int64_t>(i));
+            DCHECK_LE(start, std::numeric_limits<int64_t>::max() - static_cast<int64_t>(i));
             ids->push_back(static_cast<int128_t>(start + static_cast<int64_t>(i)));
         }
     }
@@ -181,8 +180,7 @@ public:
         auto it = _seg_id_to_lsn_ids.find(seg_id);
         CHECK(it != _seg_id_to_lsn_ids.end())
                 << "SegmentWriteBinlogLsnMap::get_seg_lsn missing seg_id=" << seg_id
-                << ", existing_seg_ids=["
-                << ([&] {
+                << ", existing_seg_ids=[" << ([&] {
                        std::string s;
                        for (const auto& [id, _] : _seg_id_to_lsn_ids) {
                            if (!s.empty()) {

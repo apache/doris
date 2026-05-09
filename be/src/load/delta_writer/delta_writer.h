@@ -58,7 +58,7 @@ class RowsetBuilder;
 class BaseDeltaWriter {
 public:
     BaseDeltaWriter(std::shared_ptr<WriteRequest> req, RuntimeProfile* profile,
-                   const UniqueId& load_id);
+                    const UniqueId& load_id);
 
     virtual ~BaseDeltaWriter();
 

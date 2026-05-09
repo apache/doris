@@ -1015,8 +1015,7 @@ void StorageEngine::_clean_unused_rowset_metas() {
             return true;
         }
         if (tablet->tablet_uid() != row_binlog_rowset_meta->tablet_uid()) {
-            LOG(WARNING) << "binlog<row> meta's tablet uid "
-                         << row_binlog_rowset_meta->tablet_uid()
+            LOG(WARNING) << "binlog<row> meta's tablet uid " << row_binlog_rowset_meta->tablet_uid()
                          << " does not equal to tablet uid: " << tablet->tablet_uid();
             invalid_row_binlog_metas.emplace_back(rowset_id, row_binlog_rowset_meta);
             return true;
@@ -1059,8 +1058,8 @@ void StorageEngine::_clean_unused_rowset_metas() {
         LOG(INFO) << "remove " << invalid_rowset_metas.size()
                   << " invalid rowset meta from dir: " << data_dir->path();
 
-        static_cast<void>(RowsetMetaManager::traverse_row_binlog_metas(
-                data_dir->get_meta(), clean_row_binlog_rowsets));
+        static_cast<void>(RowsetMetaManager::traverse_row_binlog_metas(data_dir->get_meta(),
+                                                                       clean_row_binlog_rowsets));
         for (auto& rs_id_to_meta : invalid_row_binlog_metas) {
             static_cast<void>(RowsetMetaManager::remove_row_binlog(
                     data_dir->get_meta(), rs_id_to_meta.second->tablet_uid(), rs_id_to_meta.first,

@@ -159,13 +159,12 @@ public:
                                 Block& old_value_block,
                                 std::map<uint32_t, uint32_t>* read_index) const;
     Status fill_non_primary_key_columns(
-                                        const segment_v2::HistoricalRowRetrieverContext& historical_context,
-                                        const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
-                                        const TabletSchema& tablet_schema, Block& full_block,
-                                        const std::vector<bool>& use_default_or_null_flag,
-                                        bool has_default_or_nullable, uint32_t segment_start_pos,
-                                        uint32_t block_start_pos, const Block* block,
-                                        std::vector<BitmapValue>* skip_bitmaps) const;
+            const segment_v2::HistoricalRowRetrieverContext& historical_context,
+            const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+            const TabletSchema& tablet_schema, Block& full_block,
+            const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
+            uint32_t segment_start_pos, uint32_t block_start_pos, const Block* block,
+            std::vector<BitmapValue>* skip_bitmaps) const;
 
     Status fill_non_primary_key_columns_for_column_store(
             const segment_v2::HistoricalRowRetrieverContext& historical_context,

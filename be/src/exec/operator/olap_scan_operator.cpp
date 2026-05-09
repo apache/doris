@@ -615,19 +615,19 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
             for (auto& split : _read_sources[scan_range_idx].rs_splits) {
                 split.rs_reader = split.rs_reader->clone();
             }
-            auto scanner =
-                    OlapScanner::create_shared(this, OlapScanner::Params {
-                                                             state(),
-                                                             _scanner_profile.get(),
-                                                             scanner_ranges,
-                                                             _tablets[scan_range_idx].tablet,
-                                                             version,
-                                                             _read_sources[scan_range_idx],
-                                                             p._limit,
-                                                             p._olap_scan_node.is_preaggregation,
-                                                             p._olap_scan_node.__isset.read_row_binlog &&
-                                                                     p._olap_scan_node.read_row_binlog,
-                                                     });
+            auto scanner = OlapScanner::create_shared(
+                    this, OlapScanner::Params {
+                                  state(),
+                                  _scanner_profile.get(),
+                                  scanner_ranges,
+                                  _tablets[scan_range_idx].tablet,
+                                  version,
+                                  _read_sources[scan_range_idx],
+                                  p._limit,
+                                  p._olap_scan_node.is_preaggregation,
+                                  p._olap_scan_node.__isset.read_row_binlog &&
+                                          p._olap_scan_node.read_row_binlog,
+                          });
             RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
             scanners->push_back(std::move(scanner));
         }
@@ -795,10 +795,9 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
         _read_sources[i] = DORIS_TRY(_tablets[i].tablet->capture_read_source(
                 {0, _tablets[i].version},
                 {.skip_missing_versions = _state->skip_missing_version(),
-                 .enable_fetch_rowsets_from_peers =
-                         config::enable_fetch_rowsets_from_peer_replicas,
+                 .enable_fetch_rowsets_from_peers = config::enable_fetch_rowsets_from_peer_replicas,
                  .capture_row_binlog = olap_scan_node().__isset.read_row_binlog &&
-                         olap_scan_node().read_row_binlog,
+                                       olap_scan_node().read_row_binlog,
                  .enable_prefer_cached_rowset =
                          config::is_cloud_mode() ? _state->enable_prefer_cached_rowset() : false,
                  .query_freshness_tolerance_ms =

@@ -630,8 +630,7 @@ Status SegmentWriter::append_block_with_partial_content(const Block* block, size
     // read to fill full block
     RETURN_IF_ERROR(read_plan.fill_missing_columns(
             _opts.rowset_ctx->make_historical_row_retriever_context(), _rsid_to_rowset,
-            *_tablet_schema, full_block,
-            use_default_or_null_flag, has_default_or_nullable,
+            *_tablet_schema, full_block, use_default_or_null_flag, has_default_or_nullable,
             cast_set<uint32_t>(segment_start_pos), block));
 
     if (_tablet_schema->num_variant_columns() > 0) {
@@ -783,9 +782,8 @@ Status SegmentWriter::build_key_index(std::vector<IOlapColumnDataAccessor*>& key
         for (const auto& cid : _tablet_schema->cluster_key_uids()) {
             auto cluster_key_index = _tablet_schema->field_index(cid);
             if (cluster_key_index == -1) {
-                return Status::InternalError(
-                        "could not find cluster key column with unique_id=" + std::to_string(cid) +
-                        " in tablet schema");
+                return Status::InternalError("could not find cluster key column with unique_id=" +
+                                             std::to_string(cid) + " in tablet schema");
             }
             bool found = false;
             for (auto i = 0; i < _column_ids.size(); ++i) {

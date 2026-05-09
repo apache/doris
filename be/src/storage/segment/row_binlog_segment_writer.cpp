@@ -16,26 +16,27 @@
 // under the License.
 
 #include "storage/segment/row_binlog_segment_writer.h"
-#include "storage/rowset/rowset_writer_context.h"    // RowsetWriterContext
 
-#include "common/cast_set.h"
 #include "cloud/config.h"
-#include "storage/binlog.h"
-#include "storage/olap_utils.h"
+#include "common/cast_set.h"
+#include "core/block/column_with_type_and_name.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
-#include "core/block/column_with_type_and_name.h"
+#include "storage/binlog.h"
 #include "storage/iterator/olap_data_convertor.h"
+#include "storage/olap_utils.h"
+#include "storage/rowset/rowset_writer_context.h" // RowsetWriterContext
 
 namespace doris {
 namespace segment_v2 {
 
-RowBinlogSourceDataWriter::RowBinlogSourceDataWriter(const SegmentWriteBinlogOptions& opt): _opt(opt) {}
+RowBinlogSourceDataWriter::RowBinlogSourceDataWriter(const SegmentWriteBinlogOptions& opt)
+        : _opt(opt) {}
 
-RowBinlogSegmentWriter::RowBinlogSegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
-                             TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
-                             DataDir* data_dir, const SegmentWriterOptions& opts,
-                             const segment_v2::SegmentWriteBinlogOptions& row_binlog_opts)
+RowBinlogSegmentWriter::RowBinlogSegmentWriter(
+        io::FileWriter* file_writer, uint32_t segment_id, TabletSchemaSPtr tablet_schema,
+        BaseTabletSPtr tablet, DataDir* data_dir, const SegmentWriterOptions& opts,
+        const segment_v2::SegmentWriteBinlogOptions& row_binlog_opts)
         : SegmentWriter(file_writer, segment_id, tablet_schema, tablet, data_dir, opts, nullptr),
           _binlog_opts(row_binlog_opts) {
     if (_opts.write_type == DataWriteType::TYPE_DIRECT) {
@@ -121,21 +122,19 @@ Status RowBinlogSegmentWriter::append_block(const Block* block, size_t row_pos, 
     if (is_partial_update) {
         if (block->columns() <= source_schema->num_key_columns() ||
             block->columns() >= source_schema->num_columns()) {
-            return Status::InternalError(
-                    fmt::format("illegal partial update block columns: {}, num key columns: {}, total "
-                            "schema columns: {}",
-                            block->columns(), _tablet_schema->num_key_columns(),
-                            _tablet_schema->num_columns())); 
+            return Status::InternalError(fmt::format(
+                    "illegal partial update block columns: {}, num key columns: {}, total "
+                    "schema columns: {}",
+                    block->columns(), _tablet_schema->num_key_columns(),
+                    _tablet_schema->num_columns()));
         }
 
         // binlog don't need invisible column
-        auto erase_invisible_col = std::remove_if(partial_cids.begin(), partial_cids.end(),
-                [&](uint32_t cid) {
-            return cid >= source_schema->num_visible_columns();
-        });
+        auto erase_invisible_col = std::remove_if(
+                partial_cids.begin(), partial_cids.end(),
+                [&](uint32_t cid) { return cid >= source_schema->num_visible_columns(); });
         partial_cids.erase(erase_invisible_col, partial_cids.end());
     }
-
 
     // get delete_sign_column from source block if has
     const Int8* delete_sign_column_data = nullptr;
@@ -155,11 +154,10 @@ Status RowBinlogSegmentWriter::append_block(const Block* block, size_t row_pos, 
         }
     }
     if (delete_sign_column_id != -1) {
-        const ColumnWithTypeAndName& delete_sign_column
-                = block->get_by_position(delete_sign_column_id);
+        const ColumnWithTypeAndName& delete_sign_column =
+                block->get_by_position(delete_sign_column_id);
 
-        auto& delete_sign_col =
-                reinterpret_cast<const ColumnInt8&>(*(delete_sign_column.column));
+        auto& delete_sign_col = reinterpret_cast<const ColumnInt8&>(*(delete_sign_column.column));
         if (delete_sign_col.size() >= row_pos + num_rows) {
             delete_sign_column_data = delete_sign_col.get_data().data();
         }
@@ -168,16 +166,18 @@ Status RowBinlogSegmentWriter::append_block(const Block* block, size_t row_pos, 
     // use full_block to save entrie row data
     Block full_block = source_schema->create_block();
 
-    RETURN_IF_ERROR(_source_data_writer->prepare_by_source_block(block, row_pos, num_rows, partial_cids, &full_block));
+    RETURN_IF_ERROR(_source_data_writer->prepare_by_source_block(block, row_pos, num_rows,
+                                                                 partial_cids, &full_block));
 
     if (seq_col_id != -1) {
-        RETURN_IF_ERROR(_source_data_writer->prepare_seq_column(
-                block->get_by_position(seq_col_id), source_schema->sequence_col_idx(), row_pos,
-                num_rows));
+        RETURN_IF_ERROR(_source_data_writer->prepare_seq_column(block->get_by_position(seq_col_id),
+                                                                source_schema->sequence_col_idx(),
+                                                                row_pos, num_rows));
     }
 
     size_t max_normal_col_id = _normal_col_start_id + source_schema->num_visible_columns();
-    RETURN_IF_ERROR(_source_data_writer->fill_normal_columns(_column_writers, _normal_col_start_id, max_normal_col_id, partial_cids));
+    RETURN_IF_ERROR(_source_data_writer->fill_normal_columns(_column_writers, _normal_col_start_id,
+                                                             max_normal_col_id, partial_cids));
 
     // We read historical rows only when we really need them:
     // 1. partial update: build the full AFTER row.
@@ -191,8 +191,8 @@ Status RowBinlogSegmentWriter::append_block(const Block* block, size_t row_pos, 
         RETURN_IF_ERROR(pk_retriever->prepare_lookup_plan_from_source_columns(
                 _source_data_writer->source_key_columns(), _source_data_writer->seq_column(),
                 _binlog_opts.source.mow_context));
-        RETURN_IF_ERROR(
-                _historical_data_writer->retrieve_historical_row(delete_sign_column_data, row_pos, num_rows));
+        RETURN_IF_ERROR(_historical_data_writer->retrieve_historical_row(delete_sign_column_data,
+                                                                         row_pos, num_rows));
     }
 
     if (is_partial_update) {
@@ -215,8 +215,8 @@ Status RowBinlogSegmentWriter::append_block(const Block* block, size_t row_pos, 
                 return converted_result.first;
             }
             RETURN_IF_ERROR(_column_writers[converted_cid]->append(
-                    converted_result.second->get_nullmap(),
-                    converted_result.second->get_data(), num_rows));
+                    converted_result.second->get_nullmap(), converted_result.second->get_data(),
+                    num_rows));
         }
     }
 
@@ -229,8 +229,9 @@ Status RowBinlogSegmentWriter::append_block(const Block* block, size_t row_pos, 
                 cast_set<uint32_t>(i - _normal_col_start_id));
     }
 
-    std::vector<int64_t> no_operators = std::vector<int64_t>{};
-    std::vector<int64_t>& operators = _historical_data_writer ? _historical_data_writer->get_operators() : no_operators;
+    std::vector<int64_t> no_operators = std::vector<int64_t> {};
+    std::vector<int64_t>& operators =
+            _historical_data_writer ? _historical_data_writer->get_operators() : no_operators;
     if (operators.empty()) {
         // haven't search historical row, only delete or append
         for (size_t block_pos = row_pos; block_pos < row_pos + num_rows; block_pos++) {
@@ -264,7 +265,7 @@ Status RowBinlogSegmentWriter::append_block(const Block* block, size_t row_pos, 
 }
 
 Status RowBinlogSegmentWriter::_append_direct_block(const Block* block, size_t row_pos,
-                                                   size_t num_rows) {
+                                                    size_t num_rows) {
     _olap_data_convertor->set_source_content(block, row_pos, num_rows);
 
     // convert column data from endgine format to storage layer format
@@ -292,12 +293,9 @@ Status RowBinlogSegmentWriter::_append_direct_block(const Block* block, size_t r
 }
 
 Status RowBinlogSegmentWriter::_fill_binlog_columns(size_t num_rows,
-                                                   const std::vector<int64_t>& op_types) {
-    std::vector<uint32_t> binlog_cids= {
-            _binlog_col_start_id,
-            _binlog_col_start_id + 1,
-            _binlog_col_start_id + 2
-    };
+                                                    const std::vector<int64_t>& op_types) {
+    std::vector<uint32_t> binlog_cids = {_binlog_col_start_id, _binlog_col_start_id + 1,
+                                         _binlog_col_start_id + 2};
     Block binlog_prefix_block = _tablet_schema->create_block_by_cids(binlog_cids);
     MutableColumns binlog_prefix_columns = binlog_prefix_block.mutate_columns();
     // we can't get correct lsn number before commit, because we can't get the version before commit,
@@ -317,8 +315,7 @@ Status RowBinlogSegmentWriter::_fill_binlog_columns(size_t num_rows,
 
     CHECK(op_types.size() >= num_rows) << op_types.size() << " vs " << num_rows;
     CHECK(op_col_type == FieldType::OLAP_FIELD_TYPE_BIGINT)
-            << "row binlog op column type must be BIGINT, actual="
-            << static_cast<int>(op_col_type);
+            << "row binlog op column type must be BIGINT, actual=" << static_cast<int>(op_col_type);
     auto* op_int64_column = assert_cast<ColumnInt64*>(op_nested_column);
     for (int i = 0; i < num_rows; i++) {
         op_int64_column->insert_value(op_types[i]);
@@ -351,7 +348,8 @@ Status RowBinlogSegmentWriter::_fill_binlog_columns(size_t num_rows,
     size_t col_pos_in_block = 0;
     for (auto& cid : binlog_cids) {
         // convert to olap data
-        RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(binlog_prefix_block.get_by_position(col_pos_in_block++), 0, num_rows, cid));
+        RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
+                binlog_prefix_block.get_by_position(col_pos_in_block++), 0, num_rows, cid));
         auto converted_result = _olap_data_convertor->convert_column_data(cid);
         if (!converted_result.first.ok()) {
             return converted_result.first;
@@ -360,7 +358,8 @@ Status RowBinlogSegmentWriter::_fill_binlog_columns(size_t num_rows,
             _converted_key_columns[cid] = converted_result.second;
         }
         RETURN_IF_ERROR(_column_writers[cid]->append(converted_result.second->get_nullmap(),
-                                                    converted_result.second->get_data(), num_rows));
+                                                     converted_result.second->get_data(),
+                                                     num_rows));
     }
 
     return Status::OK();
@@ -391,8 +390,8 @@ Status RowBinlogSegmentWriter::_fill_before_columns(size_t num_rows) {
     if (_fill_empty_before_value) {
         MutableColumns before_mutable_columns = before_block.mutate_columns();
         for (auto& before_mutable_column : before_mutable_columns) {
-            auto* before_nullable_column = reinterpret_cast<ColumnNullable*>(
-                    before_mutable_column.get());
+            auto* before_nullable_column =
+                    reinterpret_cast<ColumnNullable*>(before_mutable_column.get());
             before_nullable_column->insert_many_defaults(num_rows);
         }
         before_block.set_columns(std::move(before_mutable_columns));
@@ -407,8 +406,8 @@ Status RowBinlogSegmentWriter::_fill_before_columns(size_t num_rows) {
         }
 
         DCHECK_EQ(before_cids.size(), value_cids.size());
-        RETURN_IF_ERROR(
-                _historical_data_writer->build_before_block(&before_block, value_cids, 0, num_rows));
+        RETURN_IF_ERROR(_historical_data_writer->build_before_block(&before_block, value_cids, 0,
+                                                                    num_rows));
     }
 
     size_t col_pos_in_block = 0;
@@ -443,9 +442,9 @@ Status RowBinlogSourceDataWriter::init() {
     return Status::OK();
 }
 
-Status RowBinlogSourceDataWriter::prepare_by_source_block(const Block* block, size_t row_pos, size_t num_rows,
-                                                          std::vector<uint32_t>& partial_source_cids,
-                                                          Block* full_block) {
+Status RowBinlogSourceDataWriter::prepare_by_source_block(
+        const Block* block, size_t row_pos, size_t num_rows,
+        std::vector<uint32_t>& partial_source_cids, Block* full_block) {
     _converted_columns.resize(_normal_column_ids.size());
 
     // LOG(INFO) << block->dump_data(0, num_rows);
@@ -453,11 +452,13 @@ Status RowBinlogSourceDataWriter::prepare_by_source_block(const Block* block, si
     // convert column data from engine format to storage layer format
     size_t col_pos_in_block = 0;
     TabletSchemaSPtr tablet_schema = _opt.source.tablet_schema;
-    const auto& including_cids = partial_source_cids.empty() ? _normal_column_ids : partial_source_cids;
+    const auto& including_cids =
+            partial_source_cids.empty() ? _normal_column_ids : partial_source_cids;
     for (auto& cid : including_cids) {
         const ColumnWithTypeAndName& col = block->get_by_position(col_pos_in_block++);
 
-        RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(col, row_pos, num_rows, cid));
+        RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
+                col, row_pos, num_rows, cid));
         // olap data convertor alway start from id = 0
         auto converted_result = _olap_data_convertor->convert_column_data(cid);
         if (!converted_result.first.ok()) {
@@ -476,8 +477,8 @@ Status RowBinlogSourceDataWriter::prepare_by_source_block(const Block* block, si
 }
 
 Status RowBinlogSourceDataWriter::prepare_seq_column(const ColumnWithTypeAndName& col,
-                                                     int32_t seq_col_id_in_schema,
-                                                     size_t row_pos, size_t num_rows) {
+                                                     int32_t seq_col_id_in_schema, size_t row_pos,
+                                                     size_t num_rows) {
     RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
             col, row_pos, num_rows, seq_col_id_in_schema));
     auto converted_result = _olap_data_convertor->convert_column_data(seq_col_id_in_schema);
@@ -488,18 +489,20 @@ Status RowBinlogSourceDataWriter::prepare_seq_column(const ColumnWithTypeAndName
     return Status::OK();
 }
 
-Status RowBinlogSourceDataWriter::fill_normal_columns(std::vector<std::unique_ptr<ColumnWriter>>& column_writers, 
-                                                      size_t start, size_t end,
-                                                      std::vector<uint32_t>& partial_source_cids) {
+Status RowBinlogSourceDataWriter::fill_normal_columns(
+        std::vector<std::unique_ptr<ColumnWriter>>& column_writers, size_t start, size_t end,
+        std::vector<uint32_t>& partial_source_cids) {
     DCHECK_EQ(end - start, _normal_column_ids.size());
-    
-    const auto& including_cids = partial_source_cids.empty() ? _normal_column_ids : partial_source_cids;
+
+    const auto& including_cids =
+            partial_source_cids.empty() ? _normal_column_ids : partial_source_cids;
     for (size_t cid : including_cids) {
         DCHECK(column_writers[start + cid]->get_field()->type() ==
                _opt.source.tablet_schema->columns()[cid]->type())
                 << cid;
         RETURN_IF_ERROR(column_writers[start + cid]->append(_converted_columns[cid]->get_nullmap(),
-                                                    _converted_columns[cid]->get_data(), _num_rows));  
+                                                            _converted_columns[cid]->get_data(),
+                                                            _num_rows));
     }
 
     return Status::OK();

@@ -25,11 +25,11 @@
 #include <gtest/gtest-test-part.h>
 
 #include <boost/algorithm/string/replace.hpp>
-#include <map>
-#include <set>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <new>
+#include <set>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -123,7 +123,8 @@ TEST_F(RowsetMetaManagerTest, SaveAndLoad) {
             create_rowset_meta(20001, RowsetStatePB::COMMITTED, Version {7, 7}, true);
 
     std::map<RowsetId, RowsetMetaPB> attach_rowset_map;
-    attach_rowset_map.emplace(attach_rowset_meta->rowset_id(), to_rowset_meta_pb(attach_rowset_meta));
+    attach_rowset_map.emplace(attach_rowset_meta->rowset_id(),
+                              to_rowset_meta_pb(attach_rowset_meta));
 
     auto st = RowsetMetaManager::save(meta(), tablet_uid(), base_rowset_meta->rowset_id(),
                                       to_rowset_meta_pb(base_rowset_meta), BinlogFormatPB::ROW,
@@ -138,15 +139,16 @@ TEST_F(RowsetMetaManagerTest, SaveAndLoad) {
     EXPECT_EQ(loaded_base_meta->tablet_uid().to_string(), tablet_uid().to_string());
     EXPECT_EQ(loaded_base_meta->version(), base_rowset_meta->version());
 
-    std::vector<std::tuple<TabletUid, RowsetId, RowsetId, RowsetMetaSharedPtr>> traversed_attach_metas;
+    std::vector<std::tuple<TabletUid, RowsetId, RowsetId, RowsetMetaSharedPtr>>
+            traversed_attach_metas;
     st = RowsetMetaManager::traverse_row_binlog_metas(
-            meta(), [&traversed_attach_metas](const TabletUid& tablet_uid, const RowsetId& base_rowset_id,
-                                              const RowsetId& row_binlog_rowset_id,
-                                              const std::string& value) {
+            meta(), [&traversed_attach_metas](
+                            const TabletUid& tablet_uid, const RowsetId& base_rowset_id,
+                            const RowsetId& row_binlog_rowset_id, const std::string& value) {
                 auto rowset_meta = std::make_shared<RowsetMeta>();
                 EXPECT_TRUE(rowset_meta->init(value));
-                traversed_attach_metas.emplace_back(tablet_uid, base_rowset_id, row_binlog_rowset_id,
-                                                    std::move(rowset_meta));
+                traversed_attach_metas.emplace_back(tablet_uid, base_rowset_id,
+                                                    row_binlog_rowset_id, std::move(rowset_meta));
                 return true;
             });
     ASSERT_TRUE(st.ok()) << st;
@@ -164,7 +166,8 @@ TEST_F(RowsetMetaManagerTest, Remove) {
             create_rowset_meta(20011, RowsetStatePB::VISIBLE, Version {9, 9}, true);
 
     std::map<RowsetId, RowsetMetaPB> attach_rowset_map;
-    attach_rowset_map.emplace(attach_rowset_meta->rowset_id(), to_rowset_meta_pb(attach_rowset_meta));
+    attach_rowset_map.emplace(attach_rowset_meta->rowset_id(),
+                              to_rowset_meta_pb(attach_rowset_meta));
 
     auto st = RowsetMetaManager::save(meta(), tablet_uid(), base_rowset_meta->rowset_id(),
                                       to_rowset_meta_pb(base_rowset_meta), BinlogFormatPB::ROW,
@@ -186,8 +189,8 @@ TEST_F(RowsetMetaManagerTest, Remove) {
 
     int traversed_attach_meta_count = 0;
     st = RowsetMetaManager::traverse_row_binlog_metas(
-            meta(), [&traversed_attach_meta_count](const TabletUid&, const RowsetId&, const RowsetId&,
-                                                   const std::string&) {
+            meta(), [&traversed_attach_meta_count](const TabletUid&, const RowsetId&,
+                                                   const RowsetId&, const std::string&) {
                 ++traversed_attach_meta_count;
                 return true;
             });
@@ -212,8 +215,8 @@ TEST_F(RowsetMetaManagerTest, Remove) {
 
     traversed_attach_meta_count = 0;
     st = RowsetMetaManager::traverse_row_binlog_metas(
-            meta(), [&traversed_attach_meta_count](const TabletUid&, const RowsetId&, const RowsetId&,
-                                                   const std::string&) {
+            meta(), [&traversed_attach_meta_count](const TabletUid&, const RowsetId&,
+                                                   const RowsetId&, const std::string&) {
                 ++traversed_attach_meta_count;
                 return true;
             });

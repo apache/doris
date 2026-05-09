@@ -46,8 +46,8 @@
 #include "storage/rowset/rowset_meta.h"
 #include "storage/rowset_builder.h"
 #include "storage/schema_change/schema_change.h"
-#include "storage/tablet/tablet_manager.h"
 #include "storage/storage_engine.h"
+#include "storage/tablet/tablet_manager.h"
 #include "storage/tablet_info.h"
 #include "storage/txn/txn_manager.h"
 #include "util/brpc_client_cache.h"
@@ -72,8 +72,8 @@ DeltaWriter::DeltaWriter(StorageEngine& engine, std::shared_ptr<WriteRequest> re
         : BaseDeltaWriter(std::move(req), profile, load_id), _engine(engine) {
     if (_req->write_req_type == WriteRequestType::GROUP) {
         auto* group_req = static_cast<GroupWriteRequest*>(_req.get());
-        _rowset_builder = std::make_unique<GroupRowsetBuilder>(
-                _engine, group_req->data_req, group_req->row_binlog_req, profile);
+        _rowset_builder = std::make_unique<GroupRowsetBuilder>(_engine, group_req->data_req,
+                                                               group_req->row_binlog_req, profile);
     } else {
         _rowset_builder = std::make_unique<RowsetBuilder>(_engine, *_req, profile);
     }

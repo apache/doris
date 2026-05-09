@@ -107,8 +107,8 @@ TEST_F(GroupRowsetBuilderTest, buildWithRowBinlogMeta) {
     const int64_t index_id = 10001;
     const int64_t row_binlog_index_id = 10002;
 
-    TDescriptorTable tdesc_tbl = testutil::create_descriptor_table(
-            {{TYPE_INT, "k1", false}, {TYPE_INT, "v1", false}});
+    TDescriptorTable tdesc_tbl =
+            testutil::create_descriptor_table({{TYPE_INT, "k1", false}, {TYPE_INT, "v1", false}});
     auto param = testutil::create_table_schema_param(
             tdesc_tbl, index_id, request.tablet_schema.schema_hash, request.tablet_schema.columns,
             row_binlog_index_id, request.row_binlog_schema.schema_hash,

@@ -66,9 +66,9 @@ public:
     static Status save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
                        const RowsetMetaPB& rowset_meta_pb, bool enable_binlog) {
         return save(meta, tablet_uid, rowset_id, rowset_meta_pb,
-                    enable_binlog ? std::optional<BinlogFormatPB>(
-                                            BinlogFormatPB::STATEMENT_AND_SNAPSHOT)
-                                  : std::nullopt);
+                    enable_binlog
+                            ? std::optional<BinlogFormatPB>(BinlogFormatPB::STATEMENT_AND_SNAPSHOT)
+                            : std::nullopt);
     }
 
     static std::vector<std::string> get_binlog_filenames(OlapMeta* meta, TabletUid tablet_uid,
@@ -101,9 +101,8 @@ public:
             std::map<RowsetId, RowsetId>& base_rowset_id_to_row_binlog,
             const std::set<RowsetId>& row_binlog_rowset_ids);
     static Status traverse_row_binlog_metas(
-            OlapMeta* meta,
-            std::function<bool(const TabletUid&, const RowsetId&, const RowsetId&,
-                               const std::string&)> const& func);
+            OlapMeta* meta, std::function<bool(const TabletUid&, const RowsetId&, const RowsetId&,
+                                               const std::string&)> const& func);
     static Status traverse_rowset_metas(OlapMeta* meta,
                                         std::function<bool(const TabletUid&, const RowsetId&,
                                                            std::string_view)> const& collector);

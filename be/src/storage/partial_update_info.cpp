@@ -400,9 +400,9 @@ Status FixedReadPlan::fill_missing_columns(
     }
     // build default value columns
     auto default_value_block = old_value_block.clone_empty();
-    RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
-            tablet_schema, missing_cids, partial_update_info.default_values,
-            old_value_block, default_value_block));
+    RETURN_IF_ERROR(BaseTablet::generate_default_value_block(tablet_schema, missing_cids,
+                                                             partial_update_info.default_values,
+                                                             old_value_block, default_value_block));
     auto mutable_default_value_columns = default_value_block.mutate_columns();
 
     // fill all missing value from mutable_old_columns, need to consider default value and null value
@@ -439,8 +439,8 @@ Status FixedReadPlan::fill_missing_columns(
                     auto* nullable_column = assert_cast<ColumnNullable*>(missing_col.get());
                     nullable_column->insert_many_defaults(1);
                 } else if (tablet_schema.auto_increment_column() == tablet_column.name()) {
-                    const auto& column =
-                            *DORIS_TRY(historical_context.tablet_schema->column(tablet_column.name()));
+                    const auto& column = *DORIS_TRY(
+                            historical_context.tablet_schema->column(tablet_column.name()));
                     DCHECK(column.type() == FieldType::OLAP_FIELD_TYPE_BIGINT);
                     auto* auto_inc_column = assert_cast<ColumnInt64*>(missing_col.get());
                     int pos = block->get_position_by_name(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL);
@@ -561,14 +561,14 @@ Status FlexibleReadPlan::fill_non_primary_key_columns(
 
     if (!use_row_store) {
         RETURN_IF_ERROR(fill_non_primary_key_columns_for_column_store(
-                historical_context, rsid_to_rowset, tablet_schema, non_sort_key_cids, old_value_block,
-                mutable_full_columns, use_default_or_null_flag, has_default_or_nullable,
-                segment_start_pos, block_start_pos, block, skip_bitmaps));
+                historical_context, rsid_to_rowset, tablet_schema, non_sort_key_cids,
+                old_value_block, mutable_full_columns, use_default_or_null_flag,
+                has_default_or_nullable, segment_start_pos, block_start_pos, block, skip_bitmaps));
     } else {
         RETURN_IF_ERROR(fill_non_primary_key_columns_for_row_store(
-                historical_context, rsid_to_rowset, tablet_schema, non_sort_key_cids, old_value_block,
-                mutable_full_columns, use_default_or_null_flag, has_default_or_nullable,
-                segment_start_pos, block_start_pos, block, skip_bitmaps));
+                historical_context, rsid_to_rowset, tablet_schema, non_sort_key_cids,
+                old_value_block, mutable_full_columns, use_default_or_null_flag,
+                has_default_or_nullable, segment_start_pos, block_start_pos, block, skip_bitmaps));
     }
     full_block.set_columns(std::move(mutable_full_columns));
     return Status::OK();

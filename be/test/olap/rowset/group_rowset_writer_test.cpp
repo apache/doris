@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "storage/rowset/group_rowset_writer.h"
+
 #include <gen_cpp/Types_types.h>
 #include <gtest/gtest.h>
 #include <unistd.h>
@@ -34,7 +36,6 @@
 #include "runtime/runtime_profile.h"
 #include "storage/binlog.h"
 #include "storage/olap_define.h"
-#include "storage/rowset/group_rowset_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_manager.h"
@@ -79,7 +80,8 @@ protected:
         ASSERT_TRUE(engine_ptr->create_tablet(_request, profile.get()).ok());
         _tablet = engine_ptr->tablet_manager()->get_tablet(_request.tablet_id);
         ASSERT_TRUE(_tablet != nullptr);
-        EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->row_binlog_path()).ok());
+        EXPECT_TRUE(
+                io::global_local_filesystem()->create_directory(_tablet->row_binlog_path()).ok());
 
         config::enable_debug_points = true;
     }
@@ -115,7 +117,8 @@ protected:
         data_context.is_transient_rowset_writer = true;
         data_context.write_binlog_opt().mark_primary_writer();
         *data_rowset_id = ExecEnv::GetInstance()->storage_engine().next_rowset_id();
-        auto data_writer_res = _tablet->create_transient_rowset_writer(data_context, *data_rowset_id);
+        auto data_writer_res =
+                _tablet->create_transient_rowset_writer(data_context, *data_rowset_id);
         if (!data_writer_res.has_value()) {
             return data_writer_res.error();
         }
@@ -144,10 +147,12 @@ protected:
         }
 
         *group_writer = std::make_unique<GroupRowsetWriter>();
-        (*group_writer)->set_data_writer(
-                std::shared_ptr<RowsetWriter>(std::move(data_writer_res.value())));
-        (*group_writer)->set_row_binlog_writer(
-                std::shared_ptr<RowsetWriter>(std::move(row_binlog_writer_res.value())));
+        (*group_writer)
+                ->set_data_writer(
+                        std::shared_ptr<RowsetWriter>(std::move(data_writer_res.value())));
+        (*group_writer)
+                ->set_row_binlog_writer(
+                        std::shared_ptr<RowsetWriter>(std::move(row_binlog_writer_res.value())));
         return Status::OK();
     }
 
@@ -212,8 +217,8 @@ TEST_F(GroupRowsetWriterTest, success) {
 
     const auto data_segment_path =
             local_segment_path(_tablet->tablet_path(), data_rowset_id.to_string(), 0);
-    const auto second_segment_path = local_segment_path(_tablet->row_binlog_path(),
-                                                        rowsets[1]->rowset_id().to_string(), 0);
+    const auto second_segment_path =
+            local_segment_path(_tablet->row_binlog_path(), rowsets[1]->rowset_id().to_string(), 0);
     EXPECT_TRUE(file_exists(data_segment_path));
     EXPECT_TRUE(file_exists(second_segment_path));
 }

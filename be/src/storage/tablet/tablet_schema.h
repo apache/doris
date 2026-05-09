@@ -458,9 +458,8 @@ public:
     const std::vector<TabletColumnPtr>& columns() const;
     size_t num_columns() const { return _num_columns; }
     size_t num_visible_columns() const {
-        return std::count_if(_cols.begin(), _cols.end(), [](const TabletColumnPtr& column) {
-            return column->visible();
-        });
+        return std::count_if(_cols.begin(), _cols.end(),
+                             [](const TabletColumnPtr& column) { return column->visible(); });
     }
     size_t num_visible_value_columns() const {
         return std::count_if(_cols.begin(), _cols.end(), [](const TabletColumnPtr& column) {

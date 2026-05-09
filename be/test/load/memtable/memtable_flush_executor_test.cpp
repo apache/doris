@@ -34,14 +34,14 @@
 #include "io/fs/local_file_system.h"
 #include "load/delta_writer/delta_writer.h"
 #include "load/memtable/memtable.h"
-#include "runtime/descriptors.h"
-#include "runtime/thread_context.h"
 #include "runtime/descriptor_helper.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "storage/rowset/group_rowset_writer.h"
-#include "storage/rowset/rowset_writer.h"
+#include "runtime/thread_context.h"
 #include "storage/field.h"
 #include "storage/options.h"
+#include "storage/rowset/group_rowset_writer.h"
+#include "storage/rowset/rowset_writer.h"
 #include "storage/schema.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
@@ -158,10 +158,10 @@ protected:
     void TearDown() override {
         ExecEnv::GetInstance()->set_storage_engine(nullptr);
         EXPECT_EQ(system("rm -rf ./flush_test"), 0);
-        EXPECT_TRUE(io::global_local_filesystem()
-                            ->delete_directory(std::string(getenv("DORIS_HOME")) + "/" +
-                                               UNUSED_PREFIX)
-                            .ok());
+        EXPECT_TRUE(
+                io::global_local_filesystem()
+                        ->delete_directory(std::string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX)
+                        .ok());
     }
 
     StorageEngine* storage_engine() { return &ExecEnv::GetInstance()->storage_engine().to_local(); }
@@ -227,11 +227,11 @@ protected:
 
     void prepare_group_flush_test_context(int64_t tablet_id, int32_t schema_hash,
                                           GroupFlushTestContext* ctx) {
-        ctx->request = testutil::create_tablet_request(
-                tablet_id, schema_hash, 30002, 3, TKeysType::UNIQUE_KEYS,
-                {{"k1", TPrimitiveType::TINYINT, true},
-                 {"k2", TPrimitiveType::SMALLINT, true},
-                 {"k3", TPrimitiveType::INT, true}});
+        ctx->request = testutil::create_tablet_request(tablet_id, schema_hash, 30002, 3,
+                                                       TKeysType::UNIQUE_KEYS,
+                                                       {{"k1", TPrimitiveType::TINYINT, true},
+                                                        {"k2", TPrimitiveType::SMALLINT, true},
+                                                        {"k3", TPrimitiveType::INT, true}});
         ctx->request.__set_enable_unique_key_merge_on_write(true);
         testutil::enable_row_binlog(&ctx->request);
         auto profile = std::make_unique<RuntimeProfile>("CreateTablet");
@@ -240,16 +240,16 @@ protected:
         ctx->tablet = storage_engine()->tablet_manager()->get_tablet(ctx->request.tablet_id);
         ASSERT_NE(ctx->tablet, nullptr);
 
-        ctx->tdesc_tbl = testutil::create_descriptor_table(
-                {{TYPE_TINYINT, "k1", false}, {TYPE_SMALLINT, "k2", false}, {TYPE_INT, "k3", false}});
+        ctx->tdesc_tbl = testutil::create_descriptor_table({{TYPE_TINYINT, "k1", false},
+                                                            {TYPE_SMALLINT, "k2", false},
+                                                            {TYPE_INT, "k3", false}});
         ASSERT_TRUE(DescriptorTbl::create(&ctx->obj_pool, ctx->tdesc_tbl, &ctx->desc_tbl).ok());
         ctx->tuple_desc = ctx->desc_tbl->get_tuple_descriptor(0);
         ASSERT_NE(ctx->tuple_desc, nullptr);
 
-        ctx->memtable = std::make_shared<MemTable>(ctx->request.tablet_id, ctx->tablet->tablet_schema(),
-                                                   &ctx->tuple_desc->slots(), ctx->tuple_desc,
-                                                   false, nullptr,
-                                                   thread_context()->resource_ctx());
+        ctx->memtable = std::make_shared<MemTable>(
+                ctx->request.tablet_id, ctx->tablet->tablet_schema(), &ctx->tuple_desc->slots(),
+                ctx->tuple_desc, false, nullptr, thread_context()->resource_ctx());
         Block block;
         for (const auto& slot : ctx->tuple_desc->slots()) {
             block.insert(ColumnWithTypeAndName(slot->get_empty_mutable_column(), slot->type(),
@@ -266,7 +266,8 @@ protected:
     }
 
     void drop_tablet(const TCreateTabletReq& request) {
-        EXPECT_TRUE(storage_engine()->tablet_manager()
+        EXPECT_TRUE(storage_engine()
+                            ->tablet_manager()
                             ->drop_tablet(request.tablet_id, request.replica_id, false)
                             .ok());
     }
@@ -451,7 +452,8 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushToken) {
         auto data_writer = std::make_shared<MockRowsetWriter>(&data_flush_cnt);
         auto binlog_writer = std::make_shared<MockRowsetWriter>(&binlog_flush_cnt);
         std::shared_ptr<GroupRowsetWriter> group_writer;
-        ASSERT_TRUE(create_group_rowset_writer(ctx, 1, data_writer, binlog_writer, &group_writer).ok());
+        ASSERT_TRUE(
+                create_group_rowset_writer(ctx, 1, data_writer, binlog_writer, &group_writer).ok());
 
         std::shared_ptr<FlushToken> flush_token;
         ASSERT_TRUE(create_group_flush_token(ctx, group_writer, 1000, &flush_token).ok());
@@ -460,8 +462,9 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushToken) {
         EXPECT_EQ(1, data_flush_cnt.load());
         EXPECT_EQ(1, binlog_flush_cnt.load());
         EXPECT_EQ(data_writer->last_segment_id(), binlog_writer->last_segment_id());
-        auto seg_lsn = binlog_writer->context().write_binlog_opt().write_binlog_config().get_seg_lsn(
-                binlog_writer->last_segment_id());
+        auto seg_lsn =
+                binlog_writer->context().write_binlog_opt().write_binlog_config().get_seg_lsn(
+                        binlog_writer->last_segment_id());
         ASSERT_NE(seg_lsn, nullptr);
         ASSERT_EQ(ctx.memtable->raw_rows(), seg_lsn->size());
         EXPECT_EQ(static_cast<int128_t>(1000), (*seg_lsn)[0]);
@@ -478,10 +481,11 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushToken) {
         std::atomic<int> data_flush_cnt = 0;
         std::atomic<int> binlog_flush_cnt = 0;
         auto data_writer = std::make_shared<MockRowsetWriter>(&data_flush_cnt);
-        auto binlog_writer = std::make_shared<MockRowsetWriter>(&binlog_flush_cnt, true,
-                                                                "binlog flush failed");
+        auto binlog_writer =
+                std::make_shared<MockRowsetWriter>(&binlog_flush_cnt, true, "binlog flush failed");
         std::shared_ptr<GroupRowsetWriter> group_writer;
-        ASSERT_TRUE(create_group_rowset_writer(ctx, 2, data_writer, binlog_writer, &group_writer).ok());
+        ASSERT_TRUE(
+                create_group_rowset_writer(ctx, 2, data_writer, binlog_writer, &group_writer).ok());
 
         std::shared_ptr<FlushToken> flush_token;
         ASSERT_TRUE(create_group_flush_token(ctx, group_writer, 2000, &flush_token).ok());
@@ -509,8 +513,8 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushTokenPartialSuccess) {
     std::atomic<int> data_flush_cnt = 0;
     std::atomic<int> binlog_flush_cnt = 0;
     auto data_writer = std::make_shared<MockRowsetWriter>(&data_flush_cnt);
-    auto binlog_writer = std::make_shared<MockRowsetWriter>(&binlog_flush_cnt, true,
-                                                            "binlog flush failed", 100);
+    auto binlog_writer =
+            std::make_shared<MockRowsetWriter>(&binlog_flush_cnt, true, "binlog flush failed", 100);
     std::shared_ptr<GroupRowsetWriter> group_writer;
     ASSERT_TRUE(create_group_rowset_writer(ctx, 3, data_writer, binlog_writer, &group_writer).ok());
 

@@ -210,9 +210,7 @@ public:
 
     Status commit_txn() override;
 
-    const BaseTabletSPtr& tablet_sptr() const override {
-        return _txn_rs_builder->tablet_sptr();
-    }
+    const BaseTabletSPtr& tablet_sptr() const override { return _txn_rs_builder->tablet_sptr(); }
 
     const RowsetSharedPtr& rowset() const override { return _txn_rs_builder->rowset(); }
 

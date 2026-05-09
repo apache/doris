@@ -83,8 +83,8 @@ class PartOfGroupMemtableFlushTask final : public MemtableFlushTask {
 
 public:
     PartOfGroupMemtableFlushTask(std::shared_ptr<FlushToken> flush_token,
-                            std::shared_ptr<SharedMemtable> shared_memtable,
-                           WriteRequestType write_req_type, int64_t submit_task_time)
+                                 std::shared_ptr<SharedMemtable> shared_memtable,
+                                 WriteRequestType write_req_type, int64_t submit_task_time)
             : MemtableFlushTask(flush_token, nullptr, 0, submit_task_time),
               _shared_memtable(std::move(shared_memtable)),
               _write_req_type(write_req_type) {}
@@ -125,8 +125,9 @@ SharedMemtable::~SharedMemtable() {
     block.reset();
 }
 
-Status FlushToken::_submit_sub_tasks(ThreadPool* pool, std::vector<std::shared_ptr<Runnable>> sub_tasks) {
-    for (int i = 0; i < sub_tasks.size(); ++i){
+Status FlushToken::_submit_sub_tasks(ThreadPool* pool,
+                                     std::vector<std::shared_ptr<Runnable>> sub_tasks) {
+    for (int i = 0; i < sub_tasks.size(); ++i) {
         {
             std::shared_lock rdlk(_flush_status_lock);
             DBUG_EXECUTE_IF("FlushToken.submit_sub_task_error", {
@@ -192,15 +193,18 @@ Status FlushToken::submit(std::shared_ptr<MemTable> mem_table) {
                 std::unique_lock<std::mutex> lock(_mutex);
                 if (_row_binlog_lsn_buffer == nullptr) {
                     if (_table_schema_param == nullptr) {
-                        return Status::InternalError<false>("need binlog but table_schema_param is null");
+                        return Status::InternalError<false>(
+                                "need binlog but table_schema_param is null");
                     }
-                    _row_binlog_lsn_buffer = GlobalAutoIncBuffers::GetInstance()->get_auto_inc_buffer(
-                            _table_schema_param->db_id(), _table_schema_param->table_id(),
-                            kBinlogLsnAutoIncId);
+                    _row_binlog_lsn_buffer =
+                            GlobalAutoIncBuffers::GetInstance()->get_auto_inc_buffer(
+                                    _table_schema_param->db_id(), _table_schema_param->table_id(),
+                                    kBinlogLsnAutoIncId);
                 }
             }
             std::shared_ptr<std::vector<int128_t>> lsn;
-            RETURN_IF_ERROR(allocate_binlog_lsn(_row_binlog_lsn_buffer, mem_table->raw_rows(), &lsn));
+            RETURN_IF_ERROR(
+                    allocate_binlog_lsn(_row_binlog_lsn_buffer, mem_table->raw_rows(), &lsn));
             DCHECK(lsn != nullptr && !lsn->empty());
             const_cast<RowsetWriterContext&>(binlog_writer->context())
                     .write_binlog_opt()
@@ -208,16 +212,16 @@ Status FlushToken::submit(std::shared_ptr<MemTable> mem_table) {
                     .insert_seg_lsn(shared_memtable->segment_id, lsn);
         }
 
-        tasks.emplace_back(PartOfGroupMemtableFlushTask::create_shared(shared_from_this(), shared_memtable,
-                                                                WriteRequestType::DATA_IN_GROUP,
-                                                                submit_task_time));
-        tasks.emplace_back(PartOfGroupMemtableFlushTask::create_shared(shared_from_this(), shared_memtable,
-                                                                WriteRequestType::BINLOG_IN_GROUP,
-                                                                submit_task_time));
+        tasks.emplace_back(PartOfGroupMemtableFlushTask::create_shared(
+                shared_from_this(), shared_memtable, WriteRequestType::DATA_IN_GROUP,
+                submit_task_time));
+        tasks.emplace_back(PartOfGroupMemtableFlushTask::create_shared(
+                shared_from_this(), shared_memtable, WriteRequestType::BINLOG_IN_GROUP,
+                submit_task_time));
     } else {
         tasks.emplace_back(MemtableFlushTask::create_shared(shared_from_this(), mem_table,
-                                                                _rowset_writer->allocate_segment_id(),
-                                                                submit_task_time));
+                                                            _rowset_writer->allocate_segment_id(),
+                                                            submit_task_time));
     }
     // NOTE: we should guarantee WorkloadGroup is not deconstructed when submit memtable flush task.
     // because currently WorkloadGroup's can only be destroyed when all queries in the group is finished,
@@ -233,8 +237,7 @@ Status FlushToken::submit(std::shared_ptr<MemTable> mem_table) {
 }
 
 void FlushToken::_flush_group_memtable(std::shared_ptr<SharedMemtable> shared_memtable,
-                                       WriteRequestType write_req_type,
-                                       int64_t submit_task_time) {
+                                       WriteRequestType write_req_type, int64_t submit_task_time) {
     DCHECK(shared_memtable != nullptr);
     DCHECK(shared_memtable->memtable != nullptr);
     DCHECK(write_req_type == WriteRequestType::DATA_IN_GROUP ||
@@ -313,8 +316,7 @@ Status FlushToken::_try_reserve_memory(const std::shared_ptr<ResourceContext>& r
     return st;
 }
 
-Status FlushToken::_memtable2block(MemTable* memtable,
-                                   SharedMemtable* shared_memtable,
+Status FlushToken::_memtable2block(MemTable* memtable, SharedMemtable* shared_memtable,
                                    std::shared_ptr<Block>& flush_block) {
     DCHECK(memtable != nullptr);
 
@@ -414,9 +416,10 @@ void FlushToken::_flush_memtable_impl(RowsetWriter* flush_writer, MemTable* memt
             // }};
             std::shared_ptr<Block> flush_block;
             RETURN_IF_ERROR(_memtable2block(memtable, shared_memtable, flush_block));
-            RETURN_IF_ERROR(flush_writer->flush_memtable(flush_block.get(), segment_id, &flush_size));
+            RETURN_IF_ERROR(
+                    flush_writer->flush_memtable(flush_block.get(), segment_id, &flush_size));
             memtable->set_flush_success();
-            
+
             return Status::OK();
         }();
 
@@ -522,11 +525,10 @@ void MemTableFlushExecutor::update_memtable_flush_threads() {
 }
 
 // NOTE: we use SERIAL mode here to ensure all mem-tables from one tablet are flushed in order.
-Status MemTableFlushExecutor::create_flush_token(std::shared_ptr<FlushToken>& flush_token,
-                                                 std::shared_ptr<RowsetWriter> rowset_writer,
-                                                 bool is_high_priority,
-                                                 std::shared_ptr<WorkloadGroup> wg_sptr,
-                                                 std::shared_ptr<OlapTableSchemaParam> table_schema_param) {
+Status MemTableFlushExecutor::create_flush_token(
+        std::shared_ptr<FlushToken>& flush_token, std::shared_ptr<RowsetWriter> rowset_writer,
+        bool is_high_priority, std::shared_ptr<WorkloadGroup> wg_sptr,
+        std::shared_ptr<OlapTableSchemaParam> table_schema_param) {
     switch (rowset_writer->type()) {
     case ALPHA_ROWSET:
         // alpha rowset do not support flush in CONCURRENT.  and not support alpha rowset now.

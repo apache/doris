@@ -40,21 +40,18 @@ struct HistoricalRowRetrieverContext {
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
 };
 
-class HistoricalRowRetriever
-{
+class HistoricalRowRetriever {
 public:
     HistoricalRowRetriever() = default;
     virtual ~HistoricalRowRetriever() = default;
 
     virtual Status init(const HistoricalRowRetrieverContext& rowset_writer_context) = 0;
 
-    virtual Status retrieve_historical_row(const Int8* delete_sign_column_data, 
-                                           size_t row_pos, size_t num_rows) = 0;
-    
-    virtual Status build_after_block(Block* block,
-                                     size_t row_pos, size_t num_rows) = 0;
-    virtual Status build_before_block(Block* before_block,
-                                      const std::vector<uint32_t>& value_cids,
+    virtual Status retrieve_historical_row(const Int8* delete_sign_column_data, size_t row_pos,
+                                           size_t num_rows) = 0;
+
+    virtual Status build_after_block(Block* block, size_t row_pos, size_t num_rows) = 0;
+    virtual Status build_before_block(Block* before_block, const std::vector<uint32_t>& value_cids,
                                       size_t row_pos, size_t num_rows) = 0;
     virtual void clear() = 0;
 
@@ -64,30 +61,25 @@ protected:
     HistoricalRowRetrieverContext _context;
 };
 
-class PrimaryKeyModelRowRetriever : public HistoricalRowRetriever
-{
+class PrimaryKeyModelRowRetriever : public HistoricalRowRetriever {
 public:
     Status init(const HistoricalRowRetrieverContext& context) override;
 
     Status prepare_lookup_plan_from_source_columns(
             const std::vector<IOlapColumnDataAccessor*>& key_columns,
-            const IOlapColumnDataAccessor* seq_column,
-            std::shared_ptr<MowContext> mow_context) {
+            const IOlapColumnDataAccessor* seq_column, std::shared_ptr<MowContext> mow_context) {
         _key_columns = key_columns;
         _seq_column = seq_column;
         _mow_context = mow_context;
         return Status::OK();
     }
 
-    Status retrieve_historical_row(const Int8* delete_sign_column_data, 
-                                   size_t row_pos, size_t num_rows) override;
+    Status retrieve_historical_row(const Int8* delete_sign_column_data, size_t row_pos,
+                                   size_t num_rows) override;
 
+    Status build_after_block(Block* block, size_t row_pos, size_t num_rows) override;
 
-    Status build_after_block(Block* block,
-                             size_t row_pos, size_t num_rows) override;
-    
-    Status build_before_block(Block* before_block,
-                              const std::vector<uint32_t>& value_cids,
+    Status build_before_block(Block* before_block, const std::vector<uint32_t>& value_cids,
                               size_t /*row_pos*/, size_t num_rows) override;
 
     void clear() override {
@@ -106,19 +98,17 @@ private:
     void _maybe_invalid_row_cache(const std::string& key);
 
     // used for unique-key with merge on write and segment min_max key
-    std::string _full_encode_keys(
-            const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos,
-            bool null_first = true);
+    std::string _full_encode_keys(const std::vector<IOlapColumnDataAccessor*>& key_columns,
+                                  size_t pos, bool null_first = true);
 
-    std::string _full_encode_keys(
-            const std::vector<const KeyCoder*>& key_coders,
-            const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos,
-            bool null_first = true);
+    std::string _full_encode_keys(const std::vector<const KeyCoder*>& key_coders,
+                                  const std::vector<IOlapColumnDataAccessor*>& key_columns,
+                                  size_t pos, bool null_first = true);
 
     // used for unique-key with merge on write
     void _encode_seq_column(const IOlapColumnDataAccessor* seq_column, size_t pos,
                             std::string* encoded_keys);
-    
+
     // get key_columns, seq column, delete data from source block, prepare for searching historial data
     std::vector<IOlapColumnDataAccessor*> _key_columns;
     const IOlapColumnDataAccessor* _seq_column = nullptr;

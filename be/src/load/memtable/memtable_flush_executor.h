@@ -69,9 +69,7 @@ struct SharedMemtable {
     // data + binlog
     std::atomic<int> total_sub_task_count {2};
 
-    int add_finished_sub_task() {
-        return finished_sub_task_count.fetch_add(1);
-    }
+    int add_finished_sub_task() { return finished_sub_task_count.fetch_add(1); }
 
     std::string debug_string() const {
         return "PartOfGroupMemtableFlushTask{segment_id=" + std::to_string(segment_id) +
@@ -117,7 +115,8 @@ public:
     }
 
 #ifdef BE_TEST
-    void set_row_binlog_lsn_buffer_for_test(std::shared_ptr<AutoIncIDBuffer> row_binlog_lsn_buffer) {
+    void set_row_binlog_lsn_buffer_for_test(
+            std::shared_ptr<AutoIncIDBuffer> row_binlog_lsn_buffer) {
         _row_binlog_lsn_buffer = std::move(row_binlog_lsn_buffer);
     }
 #endif
@@ -136,9 +135,8 @@ private:
 
     Status _submit_sub_tasks(ThreadPool* pool, std::vector<std::shared_ptr<Runnable>> sub_tasks);
 
-    void _flush_memtable_impl(RowsetWriter* flush_writer, MemTable* memtable,
-                              int32_t segment_id, int64_t submit_task_time,
-                              SharedMemtable* shared_memtable = nullptr);
+    void _flush_memtable_impl(RowsetWriter* flush_writer, MemTable* memtable, int32_t segment_id,
+                              int64_t submit_task_time, SharedMemtable* shared_memtable = nullptr);
 
     void _flush_memtable(std::shared_ptr<MemTable> memtable_ptr, int32_t segment_id,
                          int64_t submit_task_time);
@@ -146,8 +144,7 @@ private:
     void _flush_group_memtable(std::shared_ptr<SharedMemtable> shared_memtable,
                                WriteRequestType write_req_type, int64_t submit_task_time);
 
-    Status _memtable2block(MemTable* memtable,
-                           SharedMemtable* shared_memtable,
+    Status _memtable2block(MemTable* memtable, SharedMemtable* shared_memtable,
                            std::shared_ptr<Block>& flush_block);
 
     Status _try_reserve_memory(const std::shared_ptr<ResourceContext>& resource_context,

@@ -32,13 +32,13 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/packed_file_system.h"
 #include "runtime/exec_env.h"
+#include "storage/binlog.h"
 #include "storage/olap_define.h"
 #include "storage/partial_update_info.h"
+#include "storage/segment/historical_row_retriever.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_schema.h"
-#include "storage/segment/historical_row_retriever.h"
-#include "storage/binlog.h"
 
 namespace doris {
 
@@ -304,7 +304,8 @@ struct RowsetWriterContext {
     const BinlogOptions& write_binlog_opt() const { return _write_binlog_opt; }
 };
 
-inline segment_v2::HistoricalRowRetrieverContext RowsetWriterContext::make_historical_row_retriever_context() {
+inline segment_v2::HistoricalRowRetrieverContext
+RowsetWriterContext::make_historical_row_retriever_context() {
     return segment_v2::HistoricalRowRetrieverContext {
             .tablet = tablet,
             .tablet_schema = tablet_schema,

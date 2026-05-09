@@ -78,8 +78,8 @@ public:
     // Persist both normal delete bitmap and binlog delvec for a specific visible version.
     // `binlog_delvec` is optional.
     static Status save_delete_bitmap(DataDir* store, TTabletId tablet_id,
-                                     DeleteBitmapPtr delete_bitmap,
-                                     DeleteBitmapPtr binlog_delvec, int64_t version);
+                                     DeleteBitmapPtr delete_bitmap, DeleteBitmapPtr binlog_delvec,
+                                     int64_t version);
 
     static Status traverse_delete_bitmap(
             OlapMeta* meta, std::function<bool(int64_t, int64_t, std::string_view)> const& func);

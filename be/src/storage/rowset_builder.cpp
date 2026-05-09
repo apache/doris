@@ -88,10 +88,9 @@ void BaseRowsetBuilder::_init_profile(RuntimeProfile* profile) {
     }
 
     _profile = profile->create_child(
-            fmt::format(
-                    "RowsetBuilder {} {}", _req.tablet_id,
-                    _req.write_req_type == WriteRequestType::BINLOG_IN_GROUP ? "binlog<row>"
-                                                                             : "data"),
+            fmt::format("RowsetBuilder {} {}", _req.tablet_id,
+                        _req.write_req_type == WriteRequestType::BINLOG_IN_GROUP ? "binlog<row>"
+                                                                                 : "data"),
             true, true);
     _build_rowset_timer = ADD_TIMER(_profile, "BuildRowsetTime");
     _submit_delete_bitmap_timer = ADD_TIMER(_profile, "DeleteBitmapSubmitTime");
@@ -193,9 +192,9 @@ Status RowsetBuilder::check_tablet_version_count() {
         (version_count > max_version_config - 100) &&
         !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         // Trigger compaction
-        auto st = _engine.submit_compaction_task(
-                std::static_pointer_cast<Tablet>(tablet_sptr()),
-                CompactionType::CUMULATIVE_COMPACTION, true, true, 2);
+        auto st = _engine.submit_compaction_task(std::static_pointer_cast<Tablet>(tablet_sptr()),
+                                                 CompactionType::CUMULATIVE_COMPACTION, true, true,
+                                                 2);
         if (!st.ok()) [[unlikely]] {
             LOG(WARNING) << "failed to trigger compaction, tablet_id=" << _tablet->tablet_id()
                          << " : " << st;
@@ -532,14 +531,14 @@ Status GroupRowsetBuilder::init() {
 
     {
         const auto& data_ctx = _txn_rs_builder->rowset_writer()->context();
-        auto& binlog_ctx = const_cast<RowsetWriterContext&>(_row_binlog_rowset_builder->rowset_writer()->context());
+        auto& binlog_ctx = const_cast<RowsetWriterContext&>(
+                _row_binlog_rowset_builder->rowset_writer()->context());
         auto& cfg = binlog_ctx.write_binlog_opt().write_binlog_config();
         cfg.source.tablet_schema = data_ctx.tablet_schema;
         cfg.source.partial_update_info = data_ctx.partial_update_info;
         cfg.source.mow_context = data_ctx.mow_context;
         cfg.source.is_transient_rowset_writer = data_ctx.is_transient_rowset_writer;
         cfg.source.source_write_type = data_ctx.write_type;
-
     }
 
     _rowset_writer = std::move(group_writer);
