@@ -159,7 +159,7 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         if (tablet->tablet_state() == TABLET_NOTREADY) {
             // If tablet under alter, keep latest 10 version so that base tablet max version
             // not merged in new tablet, and then we can copy data from base tablet
-            if (rowset->version().second < max_version - 10) {
+            if (rowset->version().second > max_version - 10) {
                 continue;
             }
         }
