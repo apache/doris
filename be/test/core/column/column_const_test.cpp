@@ -48,9 +48,10 @@ TEST(ColumnConstTest, TestFilter) {
         IColumn::Filter filter = {1, 0, 1};
 
         auto res = column_const->filter(filter, 2);
+        const auto& res_column = assert_cast<const ColumnConst&>(*res);
         EXPECT_EQ(res->size(), 2);
-        EXPECT_EQ(assert_cast<const ColumnConst&>(*res).get_data_column_ptr()->size(), 1);
-        EXPECT_EQ(assert_cast<const ColumnConst&>(*res).get_data_column_ptr()->get_int(0), 7);
+        EXPECT_EQ(res_column.get_data_column_ptr()->size(), 1);
+        EXPECT_EQ(res_column.get_data_column_ptr()->get_int(0), 7);
     }
 
     {
@@ -60,9 +61,8 @@ TEST(ColumnConstTest, TestFilter) {
 
         auto size = column_const->filter(filter);
         EXPECT_EQ(size, 2);
-        EXPECT_EQ(assert_cast<const ColumnConst&>(*column_const).get_data_column_ptr()->size(), 1);
-        EXPECT_EQ(assert_cast<const ColumnConst&>(*column_const).get_data_column_ptr()->get_int(0),
-                  7);
+        EXPECT_EQ(column_const->get_data_column_ptr()->size(), 1);
+        EXPECT_EQ(column_const->get_data_column_ptr()->get_int(0), 7);
     }
 }
 

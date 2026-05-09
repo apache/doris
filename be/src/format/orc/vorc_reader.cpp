@@ -188,7 +188,7 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _state(state),
           _scan_params(params),
           _scan_range(range),
-          _batch_size(std::max(batch_size, _MIN_BATCH_SIZE)),
+          _batch_size(std::max(batch_size, 1UL)),
           _range_start_offset(range.start_offset),
           _range_size(range.size),
           _ctz(ctz),
@@ -213,7 +213,7 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _state(state),
           _scan_params(params),
           _scan_range(range),
-          _batch_size(std::max(batch_size, _MIN_BATCH_SIZE)),
+          _batch_size(std::max(batch_size, 1UL)),
           _range_start_offset(range.start_offset),
           _range_size(range.size),
           _ctz(ctz),
@@ -230,13 +230,27 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
     _init_file_description();
 }
 
+void OrcReader::set_batch_size(size_t batch_size) {
+    DCHECK_GT(batch_size, 0);
+    if (_batch_size == batch_size) {
+        return;
+    }
+
+    _batch_size = batch_size;
+    if (_row_reader != nullptr) {
+        // ORC stores the batch capacity inside the row batch object returned by createRowBatch().
+        // Rebuild it when the requested batch size changes so the next call uses the new limit.
+        _batch = _row_reader->createRowBatch(_batch_size);
+    }
+}
+
 OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                     const std::string& ctz, io::IOContext* io_ctx, FileMetaCache* meta_cache,
-                     bool enable_lazy_mat)
+                     size_t batch_size, const std::string& ctz, io::IOContext* io_ctx,
+                     FileMetaCache* meta_cache, bool enable_lazy_mat)
         : _profile(nullptr),
           _scan_params(params),
           _scan_range(range),
-          _batch_size(_MIN_BATCH_SIZE),
+          _batch_size(std::max(batch_size, 1UL)),
           _ctz(ctz),
           _file_system(nullptr),
           _io_ctx(io_ctx),
@@ -249,12 +263,13 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
 }
 
 OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                     const std::string& ctz, std::shared_ptr<io::IOContext> io_ctx_holder,
-                     FileMetaCache* meta_cache, bool enable_lazy_mat)
+                     size_t batch_size, const std::string& ctz,
+                     std::shared_ptr<io::IOContext> io_ctx_holder, FileMetaCache* meta_cache,
+                     bool enable_lazy_mat)
         : _profile(nullptr),
           _scan_params(params),
           _scan_range(range),
-          _batch_size(_MIN_BATCH_SIZE),
+          _batch_size(std::max(batch_size, 1UL)),
           _ctz(ctz),
           _file_system(nullptr),
           _io_ctx(io_ctx_holder ? io_ctx_holder.get() : nullptr),

@@ -37,7 +37,7 @@ Status VirtualColumnIterator::init(const ColumnIteratorOptions& opts) {
 }
 
 void VirtualColumnIterator::prepare_materialization(IColumn::Ptr column,
-                                                    std::unique_ptr<std::vector<uint64_t>> labels) {
+                                                    std::shared_ptr<std::vector<uint64_t>> labels) {
     DCHECK(labels->size() == column->size()) << "labels size: " << labels->size()
                                              << ", materialized column size: " << column->size();
     // 1. do sort to labels

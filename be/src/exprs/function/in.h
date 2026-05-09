@@ -219,9 +219,7 @@ public:
             if (materialized_column->is_nullable()) {
                 const auto* null_col_ptr =
                         check_and_get_column<ColumnNullable>(materialized_column.get());
-                const auto& null_map =
-                        assert_cast<const ColumnUInt8&>(null_col_ptr->get_null_map_column())
-                                .get_data();
+                const auto& null_map = null_col_ptr->get_null_map_column().get_data();
                 const auto* nested_col_ptr = null_col_ptr->get_nested_column_ptr().get();
 
                 if (nested_col_ptr->is_column_string()) {

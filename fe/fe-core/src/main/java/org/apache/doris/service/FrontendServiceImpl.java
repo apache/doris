@@ -3498,7 +3498,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     .getCloudWarmUpJob(request.getWarmUpJobId());
             if (job == null || job.isDone()) {
                 LOG.info("warmup job {} is not running, notify caller BE {} to cancel job",
-                        job.getJobId(), clientAddr);
+                        request.getWarmUpJobId(), clientAddr);
                 // notify client to cancel this job
                 result.setStatus(new TStatus(TStatusCode.CANCELLED));
                 return result;

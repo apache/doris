@@ -25,6 +25,8 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.SmallFileMgr;
@@ -227,19 +229,29 @@ public class StreamingJobUtils {
         return JdbcClient.createJdbcClient(config);
     }
 
-    public static Backend selectBackend() throws JobException {
-        Backend backend = null;
-        BeSelectionPolicy policy = null;
+    public static Backend selectBackend(String cloudCluster) throws JobException {
+        if (Config.isCloudMode() && StringUtils.isNotEmpty(cloudCluster)) {
+            List<Backend> bes = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getBackendsByClusterName(cloudCluster)
+                    .stream()
+                    .filter(Backend::isLoadAvailable)
+                    .collect(Collectors.toList());
+            if (bes.isEmpty()) {
+                throw new JobException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG
+                        + ", compute_group: " + cloudCluster);
+            }
+            int idx = getLastSelectedBackendIndexAndUpdate();
+            return bes.get(Math.floorMod(idx, bes.size()));
+        }
 
-        policy = new BeSelectionPolicy.Builder().setEnableRoundRobin(true).needLoadAvailable().build();
+        BeSelectionPolicy policy = new BeSelectionPolicy.Builder()
+                .setEnableRoundRobin(true).needLoadAvailable().build();
         policy.nextRoundRobinIndex = getLastSelectedBackendIndexAndUpdate();
-
-        List<Long> backendIds;
-        backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
+        List<Long> backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
         if (backendIds.isEmpty()) {
             throw new JobException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
-        backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
+        Backend backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
         if (backend == null) {
             throw new JobException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }

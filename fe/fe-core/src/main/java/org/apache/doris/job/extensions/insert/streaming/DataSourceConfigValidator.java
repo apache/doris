@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
 
 import java.util.Map;
@@ -55,10 +56,21 @@ public class DataSourceConfigValidator {
             DataSourceConfigKeys.PUBLICATION_NAME
     );
 
+    private static final Set<String> ALLOW_SSL_MODES = Sets.newHashSet(
+            DataSourceConfigKeys.SSL_MODE_DISABLE,
+            DataSourceConfigKeys.SSL_MODE_REQUIRE,
+            DataSourceConfigKeys.SSL_MODE_VERIFY_CA
+    );
+
     // Known suffixes for per-table config keys (format: "table.<tableName>.<suffix>")
     private static final Set<String> ALLOW_TABLE_LEVEL_SUFFIXES = Sets.newHashSet(
             DataSourceConfigKeys.TABLE_TARGET_TABLE_SUFFIX,
             DataSourceConfigKeys.TABLE_EXCLUDE_COLUMNS_SUFFIX
+    );
+
+    private static final Set<String> ALLOW_LOAD_KEYS = ImmutableSortedSet.of(
+            DataSourceConfigKeys.LOAD_PROPERTIES + LoadCommand.MAX_FILTER_RATIO_PROPERTY,
+            DataSourceConfigKeys.LOAD_PROPERTIES + LoadCommand.STRICT_MODE
     );
 
     private static final String TABLE_LEVEL_PREFIX = DataSourceConfigKeys.TABLE + ".";
@@ -96,23 +108,39 @@ public class DataSourceConfigValidator {
                 throw new IllegalArgumentException("Invalid value for key '" + key + "': " + value);
             }
         }
+
+        // Cross-field: verify-ca must be paired with a CA cert; otherwise the reader will
+        // silently fall back to the JVM default truststore and likely fail to connect.
+        if (DataSourceConfigKeys.SSL_MODE_VERIFY_CA.equals(input.get(DataSourceConfigKeys.SSL_MODE))
+                && (input.get(DataSourceConfigKeys.SSL_ROOTCERT) == null
+                        || input.get(DataSourceConfigKeys.SSL_ROOTCERT).trim().isEmpty())) {
+            throw new IllegalArgumentException(
+                    "ssl_mode '" + DataSourceConfigKeys.SSL_MODE_VERIFY_CA
+                            + "' requires ssl_rootcert to be set");
+        }
     }
 
     public static void validateTarget(Map<String, String> input) throws IllegalArgumentException {
         for (Map.Entry<String, String> entry : input.entrySet()) {
             String key = entry.getKey();
-            if (!key.startsWith(DataSourceConfigKeys.TABLE_PROPS_PREFIX)
-                    && !key.startsWith(DataSourceConfigKeys.LOAD_PROPERTIES)) {
-                throw new IllegalArgumentException("Not support target properties key " + key);
+            if (key.startsWith(DataSourceConfigKeys.TABLE_PROPS_PREFIX)) {
+                continue;
             }
-
-            if (key.equals(DataSourceConfigKeys.LOAD_PROPERTIES + LoadCommand.MAX_FILTER_RATIO_PROPERTY)) {
-                try {
-                    Double.parseDouble(entry.getValue());
-                } catch (NumberFormatException e) {
-                    throw new IllegalArgumentException("Invalid value for key '" + key + "': " + entry.getValue());
+            if (key.startsWith(DataSourceConfigKeys.LOAD_PROPERTIES)) {
+                if (!ALLOW_LOAD_KEYS.contains(key)) {
+                    throw new IllegalArgumentException("Unsupported load property: '" + key
+                            + "'. Supported keys: " + ALLOW_LOAD_KEYS);
                 }
+                if (key.equals(DataSourceConfigKeys.LOAD_PROPERTIES + LoadCommand.MAX_FILTER_RATIO_PROPERTY)) {
+                    try {
+                        Double.parseDouble(entry.getValue());
+                    } catch (NumberFormatException e) {
+                        throw new IllegalArgumentException("Invalid value for key '" + key + "': " + entry.getValue());
+                    }
+                }
+                continue;
             }
+            throw new IllegalArgumentException("Not support target properties key " + key);
         }
     }
 
@@ -131,6 +159,9 @@ public class DataSourceConfigValidator {
                 || key.equals(DataSourceConfigKeys.PUBLICATION_NAME)) {
             return value.length() <= PG_MAX_IDENTIFIER_LENGTH
                     && PG_IDENTIFIER_PATTERN.matcher(value).matches();
+        }
+        if (key.equals(DataSourceConfigKeys.SSL_MODE) && !ALLOW_SSL_MODES.contains(value)) {
+            return false;
         }
         return true;
     }

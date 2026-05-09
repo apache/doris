@@ -75,7 +75,8 @@ public class BinlogConfigCache {
         if (dBinlogConfig == null) {
             return false;
         }
-        return dBinlogConfig.isEnable();
+        // Only enable db binlog when format is STATEMENT_AND_SNAPSHOT (CCR snapshot mode).
+        return dBinlogConfig.isEnableForCCR();
     }
 
     public long getDBTtlSeconds(long dbId) {
@@ -168,7 +169,8 @@ public class BinlogConfigCache {
         if (tableBinlogConfig == null) {
             return false;
         }
-        return tableBinlogConfig.isEnable();
+        // Only enable table binlog when format is STATEMENT_AND_SNAPSHOT (CCR snapshot mode).
+        return tableBinlogConfig.isEnableForCCR();
     }
 
     public long getTableTtlSeconds(long dbId, long tableId) {

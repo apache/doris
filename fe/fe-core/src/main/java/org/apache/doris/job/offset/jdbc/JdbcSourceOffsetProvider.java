@@ -19,6 +19,7 @@ package org.apache.doris.job.offset.jdbc;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
@@ -64,6 +65,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 @Getter
@@ -93,6 +96,8 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     String tableSchemas;
 
     volatile boolean hasMoreData = true;
+
+    transient volatile String cloudCluster;
 
     /**
      * No-arg constructor for subclass use.
@@ -220,7 +225,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public void fetchRemoteMeta(Map<String, String> properties) throws Exception {
-        Backend backend = StreamingJobUtils.selectBackend();
+        Backend backend = StreamingJobUtils.selectBackend(cloudCluster);
         JobBaseConfig requestParams =
                 new JobBaseConfig(getJobId().toString(), sourceType.name(), sourceProperties, getFrontendAddress());
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
@@ -229,9 +234,9 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         InternalService.PRequestCdcClientResult result = null;
         try {
-            Future<PRequestCdcClientResult> future =
-                    BackendServiceProxy.getInstance().requestCdcClient(address, request);
-            result = future.get();
+            Future<PRequestCdcClientResult> future = BackendServiceProxy.getInstance()
+                    .requestCdcClient(address, request, Config.streaming_cdc_light_rpc_timeout_sec);
+            result = future.get(Config.streaming_cdc_light_rpc_timeout_sec, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
                 log.warn("Failed to get end offset from backend, {}", result.getStatus().getErrorMsgs(0));
@@ -256,6 +261,11 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 log.warn("Failed to parse end offset response: {}", response);
                 throw new JobException(response);
             }
+        } catch (TimeoutException te) {
+            log.warn("cdc_client RPC timeout api=/api/fetchEndOffset jobId={} backend={}:{} timeout_sec={}",
+                    getJobId(), backend.getHost(), backend.getBrpcPort(),
+                    Config.streaming_cdc_light_rpc_timeout_sec);
+            throw new JobException("cdc_client RPC timeout: /api/fetchEndOffset jobId=" + getJobId());
         } catch (ExecutionException | InterruptedException ex) {
             log.warn("Get end offset error: ", ex);
             throw new JobException(ex);
@@ -306,7 +316,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     private boolean compareOffset(Map<String, String> offsetFirst, Map<String, String> offsetSecond)
             throws JobException {
-        Backend backend = StreamingJobUtils.selectBackend();
+        Backend backend = StreamingJobUtils.selectBackend(cloudCluster);
         CompareOffsetRequest requestParams =
                 new CompareOffsetRequest(getJobId(), sourceType.name(), sourceProperties,
                         getFrontendAddress(), offsetFirst, offsetSecond);
@@ -316,9 +326,9 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         InternalService.PRequestCdcClientResult result = null;
         try {
-            Future<PRequestCdcClientResult> future =
-                    BackendServiceProxy.getInstance().requestCdcClient(address, request);
-            result = future.get();
+            Future<PRequestCdcClientResult> future = BackendServiceProxy.getInstance()
+                    .requestCdcClient(address, request, Config.streaming_cdc_light_rpc_timeout_sec);
+            result = future.get(Config.streaming_cdc_light_rpc_timeout_sec, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
                 log.warn("Failed to compare offset , {}", result.getStatus().getErrorMsgs(0));
@@ -338,6 +348,11 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 log.warn("Failed to parse compare offset response: {}", response);
                 throw new JobException("Failed to parse compare offset response: " + response);
             }
+        } catch (TimeoutException te) {
+            log.warn("cdc_client RPC timeout api=/api/compareOffset jobId={} backend={}:{} timeout_sec={}",
+                    getJobId(), backend.getHost(), backend.getBrpcPort(),
+                    Config.streaming_cdc_light_rpc_timeout_sec);
+            throw new JobException("cdc_client RPC timeout: /api/compareOffset jobId=" + getJobId());
         } catch (ExecutionException | InterruptedException ex) {
             log.warn("Compare offset error: ", ex);
             throw new JobException(ex);
@@ -549,7 +564,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     }
 
     private List<SnapshotSplit> requestTableSplits(String table) throws JobException {
-        Backend backend = StreamingJobUtils.selectBackend();
+        Backend backend = StreamingJobUtils.selectBackend(cloudCluster);
         FetchTableSplitsRequest requestParams =
                 new FetchTableSplitsRequest(getJobId(), sourceType.name(),
                         sourceProperties, getFrontendAddress(), table);
@@ -559,9 +574,9 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         InternalService.PRequestCdcClientResult result = null;
         try {
-            Future<PRequestCdcClientResult> future =
-                    BackendServiceProxy.getInstance().requestCdcClient(address, request);
-            result = future.get();
+            Future<PRequestCdcClientResult> future = BackendServiceProxy.getInstance()
+                    .requestCdcClient(address, request, Config.streaming_cdc_heavy_rpc_timeout_sec);
+            result = future.get(Config.streaming_cdc_heavy_rpc_timeout_sec, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
                 log.warn("Failed to get split from backend, {}", result.getStatus().getErrorMsgs(0));
@@ -582,6 +597,11 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 log.warn("Failed to parse split response: {}", response);
                 throw new JobException("Failed to parse split response: " + response);
             }
+        } catch (TimeoutException te) {
+            log.warn("cdc_client RPC timeout api=/api/fetchSplits jobId={} backend={}:{} table={} timeout_sec={}",
+                    getJobId(), backend.getHost(), backend.getBrpcPort(), table,
+                    Config.streaming_cdc_heavy_rpc_timeout_sec);
+            throw new JobException("cdc_client RPC timeout: /api/fetchSplits jobId=" + getJobId() + " table=" + table);
         } catch (ExecutionException | InterruptedException ex) {
             log.warn("Get splits error: ", ex);
             throw new JobException(ex);
@@ -664,7 +684,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
      * otherwise, conflicts will occur in multi-backends scenarios.
      */
     private void initSourceReader() throws JobException {
-        Backend backend = StreamingJobUtils.selectBackend();
+        Backend backend = StreamingJobUtils.selectBackend(cloudCluster);
         JobBaseConfig requestParams =
                 new JobBaseConfig(getJobId().toString(), sourceType.name(), sourceProperties, getFrontendAddress());
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
@@ -673,9 +693,9 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         InternalService.PRequestCdcClientResult result = null;
         try {
-            Future<PRequestCdcClientResult> future =
-                    BackendServiceProxy.getInstance().requestCdcClient(address, request);
-            result = future.get();
+            Future<PRequestCdcClientResult> future = BackendServiceProxy.getInstance()
+                    .requestCdcClient(address, request, Config.streaming_cdc_heavy_rpc_timeout_sec);
+            result = future.get(Config.streaming_cdc_heavy_rpc_timeout_sec, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
                 log.warn("Failed to init job {} reader, {}", getJobId(), result.getStatus().getErrorMsgs(0));
@@ -703,6 +723,11 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 log.warn("Failed to init {} source reader, {}", getJobId(), response);
                 throw new JobException("Failed to init source reader, cause " + e.getMessage());
             }
+        } catch (TimeoutException te) {
+            log.warn("cdc_client RPC timeout api=/api/initReader jobId={} backend={}:{} timeout_sec={}",
+                    getJobId(), backend.getHost(), backend.getBrpcPort(),
+                    Config.streaming_cdc_heavy_rpc_timeout_sec);
+            throw new JobException("cdc_client RPC timeout: /api/initReader jobId=" + getJobId());
         } catch (ExecutionException | InterruptedException ex) {
             log.warn("init source reader: ", ex);
             throw new JobException(ex);
@@ -712,7 +737,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     public void cleanMeta(Long jobId) throws JobException {
         // clean meta table
         StreamingJobUtils.deleteJobMeta(jobId);
-        Backend backend = StreamingJobUtils.selectBackend();
+        Backend backend = StreamingJobUtils.selectBackend(cloudCluster);
         JobBaseConfig requestParams =
                 new JobBaseConfig(getJobId().toString(), sourceType.name(), sourceProperties, getFrontendAddress());
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
@@ -721,13 +746,17 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         InternalService.PRequestCdcClientResult result = null;
         try {
-            Future<PRequestCdcClientResult> future =
-                    BackendServiceProxy.getInstance().requestCdcClient(address, request);
-            result = future.get();
+            Future<PRequestCdcClientResult> future = BackendServiceProxy.getInstance()
+                    .requestCdcClient(address, request, Config.streaming_cdc_light_rpc_timeout_sec);
+            result = future.get(Config.streaming_cdc_light_rpc_timeout_sec, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
                 log.warn("Failed to close job {} source {}", jobId, result.getStatus().getErrorMsgs(0));
             }
+        } catch (TimeoutException te) {
+            log.warn("cdc_client RPC timeout api=/api/close jobId={} backend={}:{} timeout_sec={}",
+                    jobId, backend.getHost(), backend.getBrpcPort(),
+                    Config.streaming_cdc_light_rpc_timeout_sec);
         } catch (ExecutionException | InterruptedException ex) {
             log.warn("Close job error: ", ex);
         }

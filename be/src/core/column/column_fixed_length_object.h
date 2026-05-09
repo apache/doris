@@ -68,7 +68,7 @@ public:
         auto res = create(_item_size);
 
         if (size > 0) {
-            auto& new_col = assert_cast<Self&>(*res);
+            auto& new_col = *res;
             new_col.resize(size);
             auto* new_data = new_col._data.data();
 

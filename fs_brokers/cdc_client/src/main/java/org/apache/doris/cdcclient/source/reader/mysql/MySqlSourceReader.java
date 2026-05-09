@@ -25,6 +25,7 @@ import org.apache.doris.cdcclient.source.reader.SnapshotReaderContext;
 import org.apache.doris.cdcclient.source.reader.SplitReadResult;
 import org.apache.doris.cdcclient.source.reader.SplitRecords;
 import org.apache.doris.cdcclient.utils.ConfigUtil;
+import org.apache.doris.cdcclient.utils.SmallFileMgr;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.CompareOffsetRequest;
 import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
@@ -878,6 +879,28 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         dbzProps.setProperty(
                 MySqlConnectorConfig.KEEP_ALIVE_INTERVAL_MS.name(),
                 DEBEZIUM_HEARTBEAT_INTERVAL_MS + "");
+
+        if (cdcConfig.containsKey(DataSourceConfigKeys.SSL_MODE)) {
+            String normalized =
+                    normalizeSslModeForMysql(cdcConfig.get(DataSourceConfigKeys.SSL_MODE));
+            dbzProps.put("database.ssl.mode", normalized);
+            // Flink CDC's forked MySqlConnection drops Debezium SSL props from the snapshot
+            // JDBC URL, so mirror to Connector/J native names.
+            jdbcProperteis.put("sslMode", normalized);
+        }
+        if (cdcConfig.containsKey(DataSourceConfigKeys.SSL_ROOTCERT)) {
+            String fileName = cdcConfig.get(DataSourceConfigKeys.SSL_ROOTCERT);
+            String truststorePath = SmallFileMgr.getPkcs12TruststorePath(fileName);
+            LOG.info("Using SSL truststore file path: {}", truststorePath);
+            dbzProps.put("database.ssl.truststore", truststorePath);
+            dbzProps.put("database.ssl.truststore.password", SmallFileMgr.TRUSTSTORE_PASSWORD);
+            jdbcProperteis.put("trustCertificateKeyStoreUrl", "file:" + truststorePath);
+            // Connector/J defaults keystore type to JKS; we generate PKCS12.
+            jdbcProperteis.put("trustCertificateKeyStoreType", "PKCS12");
+            jdbcProperteis.put(
+                    "trustCertificateKeyStorePassword", SmallFileMgr.TRUSTSTORE_PASSWORD);
+        }
+
         configFactory.debeziumProperties(dbzProps);
         configFactory.heartbeatInterval(Duration.ofMillis(DEBEZIUM_HEARTBEAT_INTERVAL_MS));
 
@@ -1054,6 +1077,31 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     public DeserializeResult deserialize(Map<String, String> config, SourceRecord element)
             throws IOException {
         return serializer.deserialize(config, element);
+    }
+
+    /** Map Doris ssl_mode (PG-style) to Debezium MySQL's underscore spelling. */
+    static String normalizeSslModeForMysql(String sslMode) {
+        if (sslMode == null) {
+            throw new IllegalArgumentException("ssl_mode must not be null");
+        }
+        switch (sslMode) {
+            case DataSourceConfigKeys.SSL_MODE_DISABLE:
+                return MySqlConnectorConfig.SecureConnectionMode.DISABLED.getValue();
+            case DataSourceConfigKeys.SSL_MODE_REQUIRE:
+                return MySqlConnectorConfig.SecureConnectionMode.REQUIRED.getValue();
+            case DataSourceConfigKeys.SSL_MODE_VERIFY_CA:
+                return MySqlConnectorConfig.SecureConnectionMode.VERIFY_CA.getValue();
+            default:
+                throw new IllegalArgumentException(
+                        "Unsupported ssl_mode for MySQL: '"
+                                + sslMode
+                                + "'. Allowed: "
+                                + String.join(
+                                        ", ",
+                                        DataSourceConfigKeys.SSL_MODE_DISABLE,
+                                        DataSourceConfigKeys.SSL_MODE_REQUIRE,
+                                        DataSourceConfigKeys.SSL_MODE_VERIFY_CA));
+        }
     }
 
     /**

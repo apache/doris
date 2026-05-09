@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -49,6 +50,7 @@ public class ShowSqlBlockRuleCommand extends ShowCommand {
                     .addColumn(new Column("Cardinality", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Global", ScalarType.createVarchar(4)))
                     .addColumn(new Column("Enable", ScalarType.createVarchar(4)))
+                    .addColumn(new Column("RequirePartitionFilter", ScalarType.createType(PrimitiveType.BOOLEAN)))
                     .build();
     private final String ruleName; // optional
 

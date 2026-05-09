@@ -127,9 +127,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalConnectorTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeResultSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
@@ -236,7 +233,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
-import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TResultSinkType;
@@ -494,16 +490,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TResultSinkType resultSinkType = context.getConnectContext() != null
                 ? context.getConnectContext().getResultSinkType() : null;
         planFragment.setSink(new ResultSink(planFragment.getPlanRoot().getId(), resultSinkType));
-        return planFragment;
-    }
-
-    @Override
-    public PlanFragment visitPhysicalDeferMaterializeResultSink(
-            PhysicalDeferMaterializeResultSink<? extends Plan> sink,
-            PlanTranslatorContext context) {
-        PlanFragment planFragment = visitPhysicalResultSink(sink.getPhysicalResultSink(), context);
-        TFetchOption fetchOption = sink.getOlapTable().generateTwoPhaseReadOption(sink.getSelectedIndexId());
-        ((ResultSink) planFragment.getSink()).setFetchOption(fetchOption);
         return planFragment;
     }
 
@@ -859,6 +845,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         scanNode.setNereidsId(fileScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(fileScan.getId(), scanNode.getId());
         scanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(fileScan.getRelationId()));
+        scanNode.setHasPartitionPredicate(fileScan.hasPartitionPredicate());
 
         if (fileScan.getStats() != null) {
             scanNode.setCardinality((long) fileScan.getStats().getRowCount());
@@ -954,6 +941,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         // TODO: Do we really need tableName here?
         olapScanNode.setSelectedPartitionIds(olapScan.getSelectedPartitionIds());
+        olapScanNode.setHasPartitionPredicate(olapScan.hasPartitionPredicate());
         olapScanNode.setNereidsPrunedTabletIds(new LinkedHashSet<>(olapScan.getSelectedTabletIds()));
         if (olapScan.getTableSample().isPresent()) {
             olapScanNode.setTableSample(new TableSample(olapScan.getTableSample().get().isPercent,
@@ -1008,17 +996,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         context.getTopnFilterContext().translateTarget(physicalRelation, scanNode, context);
-    }
-
-    @Override
-    public PlanFragment visitPhysicalDeferMaterializeOlapScan(
-            PhysicalDeferMaterializeOlapScan deferMaterializeOlapScan, PlanTranslatorContext context) {
-        PlanFragment planFragment = visitPhysicalOlapScan(deferMaterializeOlapScan.getPhysicalOlapScan(), context);
-        OlapScanNode olapScanNode = (OlapScanNode) planFragment.getPlanRoot();
-        TupleDescriptor tupleDescriptor = context.getTupleDesc(olapScanNode.getTupleId());
-        context.createSlotDesc(tupleDescriptor, deferMaterializeOlapScan.getColumnIdSlot());
-        context.getTopnFilterContext().translateTarget(deferMaterializeOlapScan, olapScanNode, context);
-        return planFragment;
     }
 
     @Override
@@ -2180,12 +2157,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Slot> slots = null;
         // TODO FE/BE do not support multi-layer-project on MultiDataSink now.
         if (project.hasMultiLayerProjection()
-                && !(inputFragment instanceof MultiCastPlanFragment)
-                // TODO support for two phase read with project, remove it after refactor
-                && !(project.child() instanceof PhysicalDeferMaterializeTopN)
-                && !(project.child() instanceof PhysicalDeferMaterializeOlapScan
-                || (project.child() instanceof PhysicalFilter
-                && ((PhysicalFilter<?>) project.child()).child() instanceof PhysicalDeferMaterializeOlapScan))) {
+                && !(inputFragment instanceof MultiCastPlanFragment)) {
             int layerCount = project.getMultiLayerProjects().size();
             for (int i = 0; i < layerCount; i++) {
                 List<NamedExpression> layer = project.getMultiLayerProjects().get(i);
@@ -2299,28 +2271,20 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         if (inputPlanNode instanceof ScanNode) {
-            // TODO support for two phase read with project, remove this if after refactor
-            if (!(project.child() instanceof PhysicalDeferMaterializeOlapScan
-                    || (project.child() instanceof PhysicalFilter
-                    && ((PhysicalFilter<?>) project.child()).child() instanceof PhysicalDeferMaterializeOlapScan))) {
-                TupleDescriptor projectionTuple = generateTupleDesc(slots,
-                        ((ScanNode) inputPlanNode).getTupleDesc().getTable(), context);
-                inputPlanNode.setProjectList(projectionExprs);
-                inputPlanNode.setOutputTupleDesc(projectionTuple);
-            }
+            TupleDescriptor projectionTuple = generateTupleDesc(slots,
+                    ((ScanNode) inputPlanNode).getTupleDesc().getTable(), context);
+            inputPlanNode.setProjectList(projectionExprs);
+            inputPlanNode.setOutputTupleDesc(projectionTuple);
+
             if (inputPlanNode instanceof OlapScanNode) {
                 ((OlapScanNode) inputPlanNode).updateRequiredSlots(context, requiredByProjectSlotIdSet);
             }
             updateScanSlotsMaterialization((ScanNode) inputPlanNode, requiredSlotIdSet,
                     requiredByProjectSlotIdSet, context);
         } else {
-            if (project.child() instanceof PhysicalDeferMaterializeTopN) {
-                inputFragment.setOutputExprs(allProjectionExprs);
-            } else {
-                TupleDescriptor tupleDescriptor = generateTupleDesc(slots, null, context);
-                inputPlanNode.setProjectList(projectionExprs);
-                inputPlanNode.setOutputTupleDesc(tupleDescriptor);
-            }
+            TupleDescriptor tupleDescriptor = generateTupleDesc(slots, null, context);
+            inputPlanNode.setProjectList(projectionExprs);
+            inputPlanNode.setOutputTupleDesc(tupleDescriptor);
         }
         return inputFragment;
     }
@@ -2618,21 +2582,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         updateLegacyPlanIdToPhysicalPlan(inputFragment.getPlanRoot(), topN);
         return inputFragment;
-    }
-
-    @Override
-    public PlanFragment visitPhysicalDeferMaterializeTopN(PhysicalDeferMaterializeTopN<? extends Plan> topN,
-            PlanTranslatorContext context) {
-        PlanFragment planFragment = visitPhysicalTopN(topN.getPhysicalTopN(), context);
-        if (planFragment.getPlanRoot() instanceof SortNode) {
-            SortNode sortNode = (SortNode) planFragment.getPlanRoot();
-            sortNode.setUseTwoPhaseReadOpt(true);
-            sortNode.getSortInfo().setUseTwoPhaseRead();
-            if (context.getTopnFilterContext().isTopnFilterSource(topN)) {
-                context.getTopnFilterContext().translateSource(topN, sortNode);
-            }
-        }
-        return planFragment;
     }
 
     @Override

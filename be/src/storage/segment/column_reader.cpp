@@ -1955,6 +1955,28 @@ Status StringFileColumnIterator::set_access_paths(
     // Raw paths look like ["col_name", "OFFSET"] or ["col_name", "NULL"].
     auto sub_all_access_paths = DORIS_TRY(_get_sub_access_paths(all_access_paths));
     _check_and_set_meta_read_mode(sub_all_access_paths);
+    // OFFSET_ONLY mode is fundamentally incompatible with CHAR columns:
+    // CHAR is stored padded to its declared length (see
+    // OlapColumnDataConvertorChar::clone_and_padding), so the per-row length
+    // recorded in dict word info / page headers is always the padded length
+    // (e.g. 25 for CHAR(25)) — never the logical length expected by length().
+    // Recovering the logical length requires scanning the chars buffer with
+    // strnlen() (shrink_padding_chars), which OFFSET_ONLY by definition skips.
+    // There is no partial-benefit path: any optimization that still produces
+    // the correct length() result must read the chars buffer in full.
+    //
+    // FE (NestedColumnPruning) already filters CHAR slots out of the
+    // OFFSET-only access plan, so reaching this branch means an FE/BE
+    // contract violation. Fail loudly instead of silently falling back.
+    if (read_offset_only() && get_reader() != nullptr &&
+        get_reader()->get_meta_type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
+        return Status::InternalError(
+                "OFFSET_ONLY access path is not supported on CHAR column '{}': CHAR is stored "
+                "padded so the per-row length information available without reading the chars "
+                "buffer is always the padded length, not the logical length. The FE planner "
+                "must not emit an OFFSET access path for CHAR columns.",
+                _column_name);
+    }
     if (read_offset_only()) {
         DLOG(INFO) << "String column iterator set column " << _column_name
                    << " to OFFSET_ONLY reading mode";

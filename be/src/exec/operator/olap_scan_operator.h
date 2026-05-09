@@ -313,6 +313,9 @@ private:
     // Variant subtree: times selecting doc snapshot all iterator (merge doc snapshot into root)
     RuntimeProfile::Counter* _variant_doc_value_column_iter_count = nullptr;
 
+    RuntimeProfile::Counter* _adaptive_batch_predict_min_rows_counter = nullptr;
+    RuntimeProfile::Counter* _adaptive_batch_predict_max_rows_counter = nullptr;
+
     std::vector<TabletWithVersion> _tablets;
     std::vector<TabletReadSource> _read_sources;
 

@@ -15,10 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite('test_pythonudaf_drop') {
+suite('test_pythonudaf_drop', "nonConcurrent") {
     def runtime_version = getPythonUdfRuntimeVersion()
     def zipA = """${context.file.parent}/udaf_scripts/python_udaf_drop_a/python_udaf_drop_test.zip"""
     def zipB = """${context.file.parent}/udaf_scripts/python_udaf_drop_b/python_udaf_drop_test.zip"""
+    def localDorisHome = System.getenv("DORIS_HOME")
+    def localUdfRoot = localDorisHome != null ? "${localDorisHome}/lib/udf" : "/tmp"
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
+
+    def execOnBackend = { be_ip, localCmd, remoteCmd ->
+        if (be_ip == "127.0.0.1" || be_ip == "localhost") {
+            cmd(localCmd)
+        } else {
+            sshExec("root", be_ip, remoteCmd, false)
+        }
+    }
 
     scp_udf_file_to_all_be(zipA)
     scp_udf_file_to_all_be(zipB)
@@ -88,9 +101,33 @@ suite('test_pythonudaf_drop') {
             sql '''SELECT py_drop_sum_a(v) FROM py_udaf_drop_tbl;'''
             exception 'Can not found function'
         }
+
+        // Case 3: kill Python servers between two aggregate queries, next CREATE handshake should recover
+        sql '''DROP FUNCTION IF EXISTS py_drop_sum_reconnect(INT)'''
+        sql """
+            CREATE AGGREGATE FUNCTION py_drop_sum_reconnect(INT) RETURNS BIGINT PROPERTIES (
+                "type" = "PYTHON_UDF",
+                "file" = "file://${zipA}",
+                "symbol" = "drop_udaf.SumAgg",
+                "runtime_version" = "${runtime_version}"
+            )
+        """
+
+        qt_py_udaf_drop_4 '''SELECT py_drop_sum_reconnect(v) FROM py_udaf_drop_tbl;'''
+
+        backendId_to_backendIP.values().each { be_ip ->
+            execOnBackend(
+                be_ip,
+                "pkill -f 'python_server.py grpc+unix:///tmp/doris_python_udf' || true",
+                "pkill -f 'python_server.py grpc+unix:///tmp/doris_python_udf' || true")
+        }
+
+        qt_py_udaf_drop_5 '''SELECT py_drop_sum_reconnect(v) FROM py_udaf_drop_tbl;'''
+        try_sql('DROP FUNCTION IF EXISTS py_drop_sum_reconnect(INT);')
     } finally {
         try_sql('DROP FUNCTION IF EXISTS py_drop_sum_once(INT);')
         try_sql('DROP FUNCTION IF EXISTS py_drop_sum_a(INT);')
         try_sql('DROP FUNCTION IF EXISTS py_drop_sum_b(INT);')
+        try_sql('DROP FUNCTION IF EXISTS py_drop_sum_reconnect(INT);')
     }
 }

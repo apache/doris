@@ -86,8 +86,7 @@ TEST_F(VRetentionTest, testEmpty) {
     auto column_result =
             ColumnArray::create(((DataTypePtr)std::make_shared<DataTypeUInt8>())->create_column());
     agg_function->insert_result_into(place, *column_result);
-    auto& result = assert_cast<ColumnUInt8&>(assert_cast<ColumnArray&>(*column_result).get_data())
-                           .get_data();
+    auto& result = assert_cast<ColumnUInt8&>(column_result->get_data()).get_data();
     for (int i = 0; i < result.size(); i++) {
         EXPECT_EQ(result[i], 0);
     }
@@ -95,8 +94,7 @@ TEST_F(VRetentionTest, testEmpty) {
     auto column_result2 =
             ColumnArray::create(((DataTypePtr)std::make_shared<DataTypeUInt8>())->create_column());
     agg_function->insert_result_into(place2, *column_result2);
-    auto& result2 = assert_cast<ColumnUInt8&>(assert_cast<ColumnArray&>(*column_result2).get_data())
-                            .get_data();
+    auto& result2 = assert_cast<ColumnUInt8&>(column_result2->get_data()).get_data();
     for (int i = 0; i < result2.size(); i++) {
         EXPECT_EQ(result2[i], 0);
     }
@@ -146,8 +144,7 @@ TEST_F(VRetentionTest, testSample) {
     auto column_result2 =
             ColumnArray::create(((DataTypePtr)std::make_shared<DataTypeUInt8>())->create_column());
     agg_function->insert_result_into(place2, *column_result2);
-    auto& result2 = assert_cast<ColumnUInt8&>(assert_cast<ColumnArray&>(*column_result2).get_data())
-                            .get_data();
+    auto& result2 = assert_cast<ColumnUInt8&>(column_result2->get_data()).get_data();
     for (int i = 0; i < result2.size(); i++) {
         EXPECT_EQ(result2[i], 1);
     }
@@ -190,8 +187,7 @@ TEST_F(VRetentionTest, testNoMerge) {
     auto column_result =
             ColumnArray::create(((DataTypePtr)std::make_shared<DataTypeUInt8>())->create_column());
     agg_function->insert_result_into(place, *column_result);
-    auto& result = assert_cast<ColumnUInt8&>(assert_cast<ColumnArray&>(*column_result).get_data())
-                           .get_data();
+    auto& result = assert_cast<ColumnUInt8&>(column_result->get_data()).get_data();
     for (int i = 0; i < result.size(); i++) {
         EXPECT_EQ(result[i], 1);
     }
@@ -240,8 +236,7 @@ TEST_F(VRetentionTest, testSerialize) {
     auto column_result =
             ColumnArray::create(((DataTypePtr)std::make_shared<DataTypeUInt8>())->create_column());
     agg_function->insert_result_into(place2, *column_result);
-    auto& result = assert_cast<ColumnUInt8&>(assert_cast<ColumnArray&>(*column_result).get_data())
-                           .get_data();
+    auto& result = assert_cast<ColumnUInt8&>(column_result->get_data()).get_data();
     for (int i = 0; i < result.size(); i++) {
         if (i == 0) {
             EXPECT_EQ(result[i], 1);
@@ -275,8 +270,7 @@ TEST_F(VRetentionTest, testSerialize) {
     auto column_result2 =
             ColumnArray::create(((DataTypePtr)std::make_shared<DataTypeUInt8>())->create_column());
     agg_function->insert_result_into(place2, *column_result2);
-    auto& result2 = assert_cast<ColumnUInt8&>(assert_cast<ColumnArray&>(*column_result2).get_data())
-                            .get_data();
+    auto& result2 = assert_cast<ColumnUInt8&>(column_result2->get_data()).get_data();
     for (int i = 0; i < result2.size(); i++) {
         if (i == result2.size() - 1) {
             EXPECT_EQ(result2[i], 0);
