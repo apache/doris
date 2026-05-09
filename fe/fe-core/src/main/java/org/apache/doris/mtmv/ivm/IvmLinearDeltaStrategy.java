@@ -164,10 +164,10 @@ public class IvmLinearDeltaStrategy extends PlanVisitor<IvmLinearDeltaStrategy.R
      * Otherwise, returns the literal {@code 1} (insert-only).
      */
     private Expression buildDmlFactorExpr(LogicalOlapScan scan) {
-        if (scan.getTable().getColumn(Column.BINLOG_OPERATION_COL) == null) {
+        if (scan.getTable().getColumn(Column.IVM_MOCK_BINLOG_OPERATION_COL) == null) {
             return new TinyIntLiteral((byte) 1);
         }
-        Slot opSlot = findSlotByName(scan.getOutput(), Column.BINLOG_OPERATION_COL);
+        Slot opSlot = findSlotByName(scan.getOutput(), Column.IVM_MOCK_BINLOG_OPERATION_COL);
         return new If(
                 new EqualTo(opSlot, new TinyIntLiteral((byte) 0)),
                 new TinyIntLiteral((byte) 1),
