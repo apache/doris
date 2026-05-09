@@ -165,6 +165,33 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
                     );
                 }
 
+                // test CTE with JOIN privilege checking
+                // Verifies that column-level privileges are enforced when CTE is
+                // referenced multiple times via JOIN (CTE won't be inlined due to
+                // inlineCTEReferencedThreshold). CheckPrivileges.visitLogicalCTEConsumer
+                // explicitly traverses the CTE producer plan to check privileges.
+                {
+                    // CTE + JOIN on fully-privileged table should succeed
+                    query("WITH cte AS (SELECT id, name FROM custom_catalog.test_db.test_tbl1) "
+                            + "SELECT a.id FROM cte a LEFT JOIN cte b ON a.id = b.id");
+
+                    // CTE + JOIN accessing restricted column should be denied
+                    Assertions.assertThrows(AnalysisException.class, () ->
+                            query("WITH cte AS (SELECT * FROM custom_catalog.test_db.test_tbl2) "
+                                    + "SELECT a.id FROM cte a LEFT JOIN cte b ON a.id = b.id")
+                    );
+
+                    // CTE + JOIN accessing only allowed columns should succeed
+                    query("WITH cte AS (SELECT id FROM custom_catalog.test_db.test_tbl2) "
+                            + "SELECT a.id FROM cte a LEFT JOIN cte b ON a.id = b.id");
+
+                    // CTE + INNER JOIN accessing restricted column should also be denied
+                    Assertions.assertThrows(AnalysisException.class, () ->
+                            query("WITH cte AS (SELECT * FROM custom_catalog.test_db.test_tbl2) "
+                                    + "SELECT a.id FROM cte a INNER JOIN cte b ON a.id = b.id")
+                    );
+                }
+
                 // test row policy with data masking
                 {
                     Function<NamedExpression, Boolean> checkId = (NamedExpression ne) -> {
