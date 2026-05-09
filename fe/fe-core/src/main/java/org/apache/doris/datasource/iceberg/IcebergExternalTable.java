@@ -459,4 +459,56 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         org.apache.iceberg.SortOrder sortOrder = table.sortOrder();
         return sortOrder != null && !sortOrder.isUnsorted();
     }
+
+    /** Reconstructs PARTITION BY LIST (...) () from the Iceberg PartitionSpec for SHOW CREATE TABLE. */
+    public String getPartitionSpecSql() {
+        makeSureInitialized();
+        Table table = getIcebergTable();
+        PartitionSpec spec = table.spec();
+        if (spec == null || spec.isUnpartitioned()) {
+            return "";
+        }
+        List<String> fields = new ArrayList<>();
+        for (PartitionField field : spec.fields()) {
+            String colName = table.schema().findColumnName(field.sourceId());
+            if (colName == null) {
+                continue;
+            }
+            org.apache.iceberg.transforms.Transform<?, ?> t = field.transform();
+            // isVoid() and isIdentity() are stable public interface methods (all Iceberg versions).
+            // toString() is used for the remaining transforms — it returns the canonical
+            // spec-defined names (e.g. "bucket[N]", "year") used in metadata serialization,
+            // so it is guaranteed stable across Iceberg versions.
+            if (t.isVoid()) {
+                // Dropped partition field from partition evolution; skip it.
+                continue;
+            } else if (t.isIdentity()) {
+                fields.add(colName);
+            } else {
+                String transformStr = t.toString();
+                if (transformStr.startsWith("bucket[")) {
+                    int n = Integer.parseInt(transformStr.substring(7, transformStr.length() - 1));
+                    fields.add("BUCKET(" + n + ", " + colName + ")");
+                } else if (transformStr.startsWith("truncate[")) {
+                    int w = Integer.parseInt(transformStr.substring(9, transformStr.length() - 1));
+                    fields.add("TRUNCATE(" + w + ", " + colName + ")");
+                } else if ("year".equals(transformStr)) {
+                    fields.add("YEAR(" + colName + ")");
+                } else if ("month".equals(transformStr)) {
+                    fields.add("MONTH(" + colName + ")");
+                } else if ("day".equals(transformStr)) {
+                    fields.add("DAY(" + colName + ")");
+                } else if ("hour".equals(transformStr)) {
+                    fields.add("HOUR(" + colName + ")");
+                } else {
+                    LOG.warn("Unsupported Iceberg partition transform '{}' on column '{}', "
+                            + "skipped in SHOW CREATE TABLE.", transformStr, colName);
+                }
+            }
+        }
+        if (fields.isEmpty()) {
+            return "";
+        }
+        return "PARTITION BY LIST (" + String.join(", ", fields) + ") ()";
+    }
 }

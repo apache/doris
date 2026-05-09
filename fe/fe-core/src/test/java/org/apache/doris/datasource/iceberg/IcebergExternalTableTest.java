@@ -30,9 +30,7 @@ import com.google.common.collect.Range;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
-import org.apache.iceberg.transforms.Days;
-import org.apache.iceberg.transforms.Hours;
-import org.apache.iceberg.transforms.Months;
+import org.apache.iceberg.transforms.Transform;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -124,7 +122,7 @@ public class IcebergExternalTableTest {
 
         Mockito.when(icebergTable.schema()).thenReturn(schema);
         Mockito.when(schema.findColumnName(ArgumentMatchers.anyInt())).thenReturn("col1");
-        Mockito.when(field.transform()).thenReturn(new Hours());
+        Mockito.doReturn(mockTransform("hour")).when(field).transform();
         Mockito.when(field.sourceId()).thenReturn(1);
 
         Assertions.assertTrue(spyTable.isValidRelatedTable());
@@ -132,13 +130,13 @@ public class IcebergExternalTableTest {
         Assertions.assertTrue(spyTable.validRelatedTableCache());
         Mockito.verify(schema, Mockito.times(1)).findColumnName(ArgumentMatchers.anyInt());
 
-        Mockito.when(field.transform()).thenReturn(new Days());
+        Mockito.doReturn(mockTransform("day")).when(field).transform();
         Mockito.when(field.sourceId()).thenReturn(1);
         spyTable.setIsValidRelatedTableCached(false);
         Assertions.assertFalse(spyTable.isValidRelatedTableCached());
         Assertions.assertTrue(spyTable.isValidRelatedTable());
 
-        Mockito.when(field.transform()).thenReturn(new Months());
+        Mockito.doReturn(mockTransform("month")).when(field).transform();
         Mockito.when(field.sourceId()).thenReturn(1);
         spyTable.setIsValidRelatedTableCached(false);
         Assertions.assertFalse(spyTable.isValidRelatedTableCached());
@@ -248,6 +246,146 @@ public class IcebergExternalTableTest {
         Assertions.assertTrue(map.containsKey("year1971"));
         Assertions.assertTrue(map.containsKey("month197204"));
         Assertions.assertTrue(map.containsKey("day19730101"));
+    }
+
+    // ── helpers ────────────────────────────────────────────────────────────
+
+    private IcebergExternalTable createSpyTable() {
+        IcebergExternalDatabase db = new IcebergExternalDatabase(mockCatalog, 1L, "db", "db");
+        IcebergExternalTable t = new IcebergExternalTable(1, "tbl", "tbl", mockCatalog, db);
+        IcebergExternalTable spy = Mockito.spy(t);
+        Mockito.doReturn(icebergTable).when(spy).getIcebergTable();
+        Mockito.doNothing().when(spy).makeSureInitialized();
+        return spy;
+    }
+
+    /** Creates a mock Transform with the given canonical toString() value.
+     *  Also stubs isIdentity() and isVoid() based on the value. */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static Transform mockTransform(String toStringValue) {
+        Transform t = Mockito.mock(Transform.class);
+        Mockito.when(t.toString()).thenReturn(toStringValue);
+        Mockito.when(t.isIdentity()).thenReturn("identity".equals(toStringValue));
+        Mockito.when(t.isVoid()).thenReturn("void".equals(toStringValue));
+        return t;
+    }
+
+    @SuppressWarnings("rawtypes")
+    private void setupSingleField(Transform transform, String colName) {
+        Mockito.when(icebergTable.spec()).thenReturn(spec);
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(spec.isUnpartitioned()).thenReturn(false);
+        Mockito.when(spec.fields()).thenReturn(Lists.newArrayList(field));
+        Mockito.when(field.sourceId()).thenReturn(1);
+        Mockito.when(schema.findColumnName(1)).thenReturn(colName);
+        Mockito.doReturn(transform).when(field).transform();
+    }
+
+    // ── getPartitionSpecSql tests ───────────────────────────────────────────
+
+    @Test
+    public void testGetPartitionSpecSqlNullSpec() {
+        IcebergExternalTable spy = createSpyTable();
+        Mockito.when(icebergTable.spec()).thenReturn(null);
+        Assertions.assertEquals("", spy.getPartitionSpecSql());
+    }
+
+    @Test
+    public void testGetPartitionSpecSqlUnpartitioned() {
+        IcebergExternalTable spy = createSpyTable();
+        Mockito.when(icebergTable.spec()).thenReturn(spec);
+        Mockito.when(spec.isUnpartitioned()).thenReturn(true);
+        Assertions.assertEquals("", spy.getPartitionSpecSql());
+    }
+
+    @Test
+    public void testGetPartitionSpecSqlIdentity() {
+        IcebergExternalTable spy = createSpyTable();
+        setupSingleField(mockTransform("identity"), "d_year");
+        Assertions.assertEquals("PARTITION BY LIST (d_year) ()", spy.getPartitionSpecSql());
+    }
+
+    @Test
+    public void testGetPartitionSpecSqlBucket() {
+        IcebergExternalTable spy = createSpyTable();
+        setupSingleField(mockTransform("bucket[2048]"), "ss_item_sk");
+        Assertions.assertEquals("PARTITION BY LIST (BUCKET(2048, ss_item_sk)) ()",
+                spy.getPartitionSpecSql());
+    }
+
+    @Test
+    public void testGetPartitionSpecSqlTruncate() {
+        IcebergExternalTable spy = createSpyTable();
+        setupSingleField(mockTransform("truncate[10]"), "category");
+        Assertions.assertEquals("PARTITION BY LIST (TRUNCATE(10, category)) ()",
+                spy.getPartitionSpecSql());
+    }
+
+    @Test
+    public void testGetPartitionSpecSqlTimeTransforms() {
+        IcebergExternalTable spy = createSpyTable();
+        Mockito.when(icebergTable.spec()).thenReturn(spec);
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(spec.isUnpartitioned()).thenReturn(false);
+        Mockito.when(spec.fields()).thenReturn(Lists.newArrayList(field));
+        Mockito.when(field.sourceId()).thenReturn(1);
+        Mockito.when(schema.findColumnName(ArgumentMatchers.anyInt())).thenReturn("ts");
+
+        Mockito.doReturn(mockTransform("year")).when(field).transform();
+        Assertions.assertEquals("PARTITION BY LIST (YEAR(ts)) ()", spy.getPartitionSpecSql());
+
+        Mockito.doReturn(mockTransform("month")).when(field).transform();
+        Assertions.assertEquals("PARTITION BY LIST (MONTH(ts)) ()", spy.getPartitionSpecSql());
+
+        Mockito.doReturn(mockTransform("day")).when(field).transform();
+        Assertions.assertEquals("PARTITION BY LIST (DAY(ts)) ()", spy.getPartitionSpecSql());
+
+        Mockito.doReturn(mockTransform("hour")).when(field).transform();
+        Assertions.assertEquals("PARTITION BY LIST (HOUR(ts)) ()", spy.getPartitionSpecSql());
+    }
+
+    @Test
+    public void testGetPartitionSpecSqlVoidSkipped() {
+        IcebergExternalTable spy = createSpyTable();
+        Mockito.when(icebergTable.spec()).thenReturn(spec);
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(spec.isUnpartitioned()).thenReturn(false);
+        Mockito.when(spec.fields()).thenReturn(Lists.newArrayList(field));
+        Mockito.doReturn(mockTransform("void")).when(field).transform();
+        Assertions.assertEquals("", spy.getPartitionSpecSql());
+    }
+
+    @Test
+    public void testGetPartitionSpecSqlMultipleFields() {
+        IcebergExternalTable spy = createSpyTable();
+        PartitionField field2 = Mockito.mock(PartitionField.class);
+
+        Mockito.when(icebergTable.spec()).thenReturn(spec);
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(spec.isUnpartitioned()).thenReturn(false);
+        Mockito.when(spec.fields()).thenReturn(Lists.newArrayList(field, field2));
+        Mockito.when(field.sourceId()).thenReturn(1);
+        Mockito.when(schema.findColumnName(1)).thenReturn("sold_date_sk");
+        Mockito.doReturn(mockTransform("identity")).when(field).transform();
+        Mockito.when(field2.sourceId()).thenReturn(2);
+        Mockito.when(schema.findColumnName(2)).thenReturn("item_sk");
+        Mockito.doReturn(mockTransform("bucket[128]")).when(field2).transform();
+
+        Assertions.assertEquals("PARTITION BY LIST (sold_date_sk, BUCKET(128, item_sk)) ()",
+                spy.getPartitionSpecSql());
+    }
+
+    @Test
+    public void testGetPartitionSpecSqlUnresolvableColumnSkipped() {
+        IcebergExternalTable spy = createSpyTable();
+        int unknownSourceId = 999;
+        Mockito.when(icebergTable.spec()).thenReturn(spec);
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(spec.isUnpartitioned()).thenReturn(false);
+        Mockito.when(spec.fields()).thenReturn(Lists.newArrayList(field));
+        Mockito.when(field.sourceId()).thenReturn(unknownSourceId);
+        Mockito.when(schema.findColumnName(unknownSourceId)).thenReturn(null);
+        Assertions.assertEquals("", spy.getPartitionSpecSql());
     }
 }
 
