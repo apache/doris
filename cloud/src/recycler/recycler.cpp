@@ -96,6 +96,21 @@ void sleep_for_packed_file_retry() {
     std::this_thread::sleep_for(std::chrono::milliseconds(packed_file_retry_sleep_ms()));
 }
 
+bool is_packed_slice_path(const doris::RowsetMetaCloudPB& rowset, const std::string& path) {
+    const auto& locations = rowset.packed_slice_locations();
+    auto it = locations.find(path);
+    return it != locations.end() && it->second.has_packed_file_path() &&
+           !it->second.packed_file_path().empty();
+}
+
+void add_file_to_delete_if_not_packed(const doris::RowsetMetaCloudPB& rowset,
+                                      const std::string& path,
+                                      std::vector<std::string>* file_paths) {
+    if (!is_packed_slice_path(rowset, path)) {
+        file_paths->push_back(path);
+    }
+}
+
 } // namespace
 
 // return 0 for success get a key, 1 for key not found, negative for error
@@ -2989,14 +3004,19 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
     int64_t tablet_id = rs_meta_pb.tablet_id();
     const auto& rowset_id = rs_meta_pb.rowset_id_v2();
     for (int64_t i = 0; i < num_segments; ++i) {
-        file_paths.push_back(segment_path(tablet_id, rowset_id, i));
+        add_file_to_delete_if_not_packed(rs_meta_pb, segment_path(tablet_id, rowset_id, i),
+                                         &file_paths);
         if (index_format == InvertedIndexStorageFormatPB::V1) {
             for (const auto& index_id : index_ids) {
-                file_paths.push_back(inverted_index_path_v1(tablet_id, rowset_id, i, index_id.first,
-                                                            index_id.second));
+                add_file_to_delete_if_not_packed(
+                        rs_meta_pb,
+                        inverted_index_path_v1(tablet_id, rowset_id, i, index_id.first,
+                                               index_id.second),
+                        &file_paths);
             }
         } else if (!index_ids.empty()) {
-            file_paths.push_back(inverted_index_path_v2(tablet_id, rowset_id, i));
+            add_file_to_delete_if_not_packed(
+                    rs_meta_pb, inverted_index_path_v2(tablet_id, rowset_id, i), &file_paths);
         }
     }
 
@@ -3740,11 +3760,15 @@ int InstanceRecycler::delete_rowset_data(
             continue;
         }
         for (int64_t i = 0; i < num_segments; ++i) {
-            file_paths.push_back(segment_path(tablet_id, rowset_id, i));
+            add_file_to_delete_if_not_packed(rs, segment_path(tablet_id, rowset_id, i),
+                                             &file_paths);
             if (index_format == InvertedIndexStorageFormatPB::V1) {
                 for (const auto& index_id : index_ids) {
-                    file_paths.push_back(inverted_index_path_v1(tablet_id, rowset_id, i,
-                                                                index_id.first, index_id.second));
+                    add_file_to_delete_if_not_packed(
+                            rs,
+                            inverted_index_path_v1(tablet_id, rowset_id, i, index_id.first,
+                                                   index_id.second),
+                            &file_paths);
                 }
             } else if (!index_ids.empty() || inverted_index_get_ret == 1) {
                 // try to recycle inverted index v2 when get_ret == 1
@@ -3756,7 +3780,8 @@ int InstanceRecycler::delete_rowset_data(
                             .tag("inverted index v2 path",
                                  inverted_index_path_v2(tablet_id, rowset_id, i));
                 }
-                file_paths.push_back(inverted_index_path_v2(tablet_id, rowset_id, i));
+                add_file_to_delete_if_not_packed(
+                        rs, inverted_index_path_v2(tablet_id, rowset_id, i), &file_paths);
             }
         }
     }
