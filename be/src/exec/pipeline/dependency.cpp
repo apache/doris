@@ -67,7 +67,7 @@ void Dependency::set_ready() {
     }
     std::vector<std::weak_ptr<PipelineTask>> local_block_task {};
     {
-        std::unique_lock<std::mutex> lc(_task_lock);
+        LockGuard lc(_task_lock);
         if (_ready) {
             return;
         }
@@ -77,14 +77,14 @@ void Dependency::set_ready() {
     }
     for (auto task : local_block_task) {
         if (auto t = task.lock()) {
-            std::unique_lock<std::mutex> lc(_task_lock);
+            LockGuard lc(_task_lock);
             t->wake_up(this, lc);
         }
     }
 }
 
 Dependency* Dependency::is_blocked_by(std::shared_ptr<PipelineTask> task) {
-    std::unique_lock<std::mutex> lc(_task_lock);
+    LockGuard lc(_task_lock);
     auto ready = _ready.load();
     if (!ready && task) {
         _add_block_task(task);
@@ -95,19 +95,34 @@ Dependency* Dependency::is_blocked_by(std::shared_ptr<PipelineTask> task) {
 }
 
 std::string Dependency::debug_string(int indentation_level) {
+    size_t blocked_task_size = 0;
+    {
+        LockGuard lc(_task_lock);
+        blocked_task_size = _blocked_task.size();
+    }
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}{}: id={}, block task = {}, ready={}, _always_ready={}",
-                   std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
+                   std::string(indentation_level * 2, ' '), _name, _node_id, blocked_task_size,
                    _ready, _always_ready);
     return fmt::to_string(debug_string_buffer);
 }
 
 std::string CountedFinishDependency::debug_string(int indentation_level) {
+    size_t blocked_task_size = 0;
+    uint32_t counter = 0;
+    {
+        LockGuard lc(_task_lock);
+        blocked_task_size = _blocked_task.size();
+    }
+    {
+        LockGuard lc(_mtx);
+        counter = _counter;
+    }
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer,
                    "{}{}: id={}, block_task={}, ready={}, _always_ready={}, count={}",
-                   std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
-                   _ready, _always_ready, _counter);
+                   std::string(indentation_level * 2, ' '), _name, _node_id, blocked_task_size,
+                   _ready, _always_ready, counter);
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -142,50 +157,47 @@ bool RuntimeFilterTimer::should_be_check_timeout() {
 
 void RuntimeFilterTimerQueue::start() {
     while (!_stop) {
-        std::unique_lock<std::mutex> lk(cv_m);
-
+        UniqueLock queue_lock {_que_lock};
         while (_que.empty() && !_stop) {
-            cv.wait_for(lk, std::chrono::seconds(3), [this] { return !_que.empty() || _stop; });
+            cv.wait_for(queue_lock, std::chrono::seconds(3));
         }
         if (_stop) {
             break;
         }
-        {
-            std::unique_lock<std::mutex> lc(_que_lock);
-            std::list<std::shared_ptr<RuntimeFilterTimer>> new_que;
-            for (auto& it : _que) {
-                if (it.use_count() == 1) {
-                    // `use_count == 1` means this runtime filter has been released
-                } else if (it->should_be_check_timeout()) {
-                    if (it->force_wait_timeout() || it->_parent->is_blocked_by()) {
-                        // This means runtime filter is not ready, so we call timeout or continue to poll this timer.
-                        int64_t ms_since_registration = MonotonicMillis() - it->registration_time();
-                        if (ms_since_registration > it->wait_time_ms()) {
-                            it->call_timeout();
-                        } else {
-                            new_que.push_back(std::move(it));
-                        }
+        std::list<std::shared_ptr<RuntimeFilterTimer>> new_que;
+        for (auto& it : _que) {
+            if (it.use_count() == 1) {
+                // `use_count == 1` means this runtime filter has been released
+            } else if (it->should_be_check_timeout()) {
+                if (it->force_wait_timeout() || it->_parent->is_blocked_by()) {
+                    // This means runtime filter is not ready, so we call timeout or continue to poll this timer.
+                    int64_t ms_since_registration = MonotonicMillis() - it->registration_time();
+                    if (ms_since_registration > it->wait_time_ms()) {
+                        it->call_timeout();
+                    } else {
+                        new_que.push_back(std::move(it));
                     }
-                } else {
-                    new_que.push_back(std::move(it));
                 }
+            } else {
+                new_que.push_back(std::move(it));
             }
-            new_que.swap(_que);
         }
+        new_que.swap(_que);
+        queue_lock.unlock();
         std::this_thread::sleep_for(std::chrono::milliseconds(interval));
     }
     _shutdown = true;
 }
 
 void LocalExchangeSharedState::sub_running_sink_operators() {
-    std::unique_lock<std::mutex> lc(le_lock);
+    LockGuard lc(le_lock);
     if (exchanger->_running_sink_operators.fetch_sub(1) == 1) {
         _set_always_ready();
     }
 }
 
 void LocalExchangeSharedState::sub_running_source_operators() {
-    std::unique_lock<std::mutex> lc(le_lock);
+    LockGuard lc(le_lock);
     if (exchanger->_running_source_operators.fetch_sub(1) == 1) {
         _set_always_ready();
         exchanger->finalize();

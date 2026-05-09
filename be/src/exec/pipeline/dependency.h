@@ -27,6 +27,7 @@
 #include <sqltypes.h>
 
 #include <atomic>
+#include <condition_variable>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -137,7 +138,7 @@ public:
         if (_always_ready) {
             return;
         }
-        std::unique_lock<std::mutex> lc(_always_ready_lock);
+        LockGuard lc(_always_ready_lock);
         if (_always_ready) {
             return;
         }
@@ -148,7 +149,7 @@ public:
         if (_always_ready) {
             return;
         }
-        std::unique_lock<std::mutex> lc(_always_ready_lock);
+        LockGuard lc(_always_ready_lock);
         if (_always_ready) {
             return;
         }
@@ -157,7 +158,7 @@ public:
     }
 
 protected:
-    void _add_block_task(std::shared_ptr<PipelineTask> task);
+    void _add_block_task(std::shared_ptr<PipelineTask> task) REQUIRES(_task_lock);
 
     const int _id;
     const int _node_id;
@@ -167,12 +168,12 @@ protected:
     BasicSharedState* _shared_state = nullptr;
     MonotonicStopWatch _watcher;
 
-    std::mutex _task_lock;
-    std::vector<std::weak_ptr<PipelineTask>> _blocked_task;
+    AnnotatedMutex _task_lock;
+    std::vector<std::weak_ptr<PipelineTask>> _blocked_task GUARDED_BY(_task_lock);
 
     // If `_always_ready` is true, `block()` will never block tasks.
     std::atomic<bool> _always_ready = false;
-    std::mutex _always_ready_lock;
+    AnnotatedMutex _always_ready_lock;
 };
 
 struct FakeSharedState final : public BasicSharedState {
@@ -186,7 +187,7 @@ public:
             : Dependency(id, node_id, std::move(name), true) {}
 
     void add(uint32_t count = 1) {
-        std::unique_lock<std::mutex> l(_mtx);
+        LockGuard l(_mtx);
         if (!_counter) {
             block();
         }
@@ -194,7 +195,7 @@ public:
     }
 
     void sub() {
-        std::unique_lock<std::mutex> l(_mtx);
+        LockGuard l(_mtx);
         // _counter is unsigned: a stray sub() when counter is already 0 would
         // underflow to UINT32_MAX and the dependency would never become ready,
         // hanging the query forever. Fail loudly instead.
@@ -211,8 +212,8 @@ public:
     std::string debug_string(int indentation_level = 0) override;
 
 private:
-    std::mutex _mtx;
-    uint32_t _counter = 0;
+    AnnotatedMutex _mtx;
+    uint32_t _counter GUARDED_BY(_mtx) = 0;
 };
 
 struct RuntimeFilterTimerQueue;
@@ -247,7 +248,7 @@ private:
     friend struct RuntimeFilterTimerQueue;
     std::shared_ptr<Dependency> _parent = nullptr;
     std::vector<std::shared_ptr<Dependency>> _local_runtime_filter_dependencies;
-    std::mutex _lock;
+    AnnotatedMutex _lock;
     int64_t _registration_time;
     const int32_t _wait_time_ms;
     // true only for group_commit_scan_operator
@@ -274,18 +275,17 @@ struct RuntimeFilterTimerQueue {
     ~RuntimeFilterTimerQueue() = default;
     RuntimeFilterTimerQueue() { _thread = std::thread(&RuntimeFilterTimerQueue::start, this); }
     void push_filter_timer(std::vector<std::shared_ptr<RuntimeFilterTimer>>&& filter) {
-        std::unique_lock<std::mutex> lc(_que_lock);
+        LockGuard queue_lock(_que_lock);
         _que.insert(_que.end(), filter.begin(), filter.end());
         cv.notify_all();
     }
 
     std::thread _thread;
-    std::condition_variable cv;
-    std::mutex cv_m;
-    std::mutex _que_lock;
+    std::condition_variable_any cv;
+    AnnotatedMutex _que_lock;
     std::atomic_bool _stop = false;
     std::atomic_bool _shutdown = false;
-    std::list<std::shared_ptr<RuntimeFilterTimer>> _que;
+    std::list<std::shared_ptr<RuntimeFilterTimer>> _que GUARDED_BY(_que_lock);
 };
 
 struct AggSharedState : public BasicSharedState {
@@ -887,7 +887,7 @@ public:
     std::atomic<int64_t> mem_usage = 0;
     std::atomic<size_t> _buffer_mem_limit = config::local_exchange_buffer_mem_limit;
     // We need to make sure to add mem_usage first and then enqueue, otherwise sub mem_usage may cause negative mem_usage during concurrent dequeue.
-    std::mutex le_lock;
+    AnnotatedMutex le_lock;
     void sub_running_sink_operators();
     void sub_running_source_operators();
     void _set_always_ready() {

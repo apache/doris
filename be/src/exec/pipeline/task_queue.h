@@ -17,18 +17,15 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <atomic>
 #include <condition_variable>
-#include <memory>
-#include <mutex>
-#include <ostream>
+#include <cstddef>
+#include <cstdint>
 #include <queue>
-#include <set>
 
 #include "common/status.h"
+#include "common/thread_safety_annotations.h"
 #include "exec/pipeline/pipeline_task.h"
 
 namespace doris {
@@ -82,21 +79,21 @@ public:
     }
 
 private:
-    PipelineTaskSPtr _try_take_unprotected(bool is_steal);
+    PipelineTaskSPtr _try_take_unprotected(bool is_steal) REQUIRES(_work_size_mutex);
     static constexpr auto LEVEL_QUEUE_TIME_FACTOR = 2;
     static constexpr size_t SUB_QUEUE_LEVEL = 6;
     SubTaskQueue _sub_queues[SUB_QUEUE_LEVEL];
     // 1s, 3s, 10s, 60s, 300s
     uint64_t _queue_level_limit[SUB_QUEUE_LEVEL - 1] = {1000000000, 3000000000, 10000000000,
                                                         60000000000, 300000000000};
-    std::mutex _work_size_mutex;
-    std::condition_variable _wait_task;
+    AnnotatedMutex _work_size_mutex;
+    std::condition_variable_any _wait_task;
     std::atomic<size_t> _total_task_size = 0;
-    bool _closed;
+    bool _closed GUARDED_BY(_work_size_mutex);
 
     // used to adjust vruntime of a queue when it's not empty
     // protected by lock _work_size_mutex
-    uint64_t _queue_level_min_vruntime = 0;
+    uint64_t _queue_level_min_vruntime GUARDED_BY(_work_size_mutex) = 0;
 
     int _compute_level(uint64_t real_runtime);
 };

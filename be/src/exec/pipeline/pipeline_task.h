@@ -118,7 +118,7 @@ public:
         return _op_shared_states[id].get();
     }
 
-    void wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* dep_lock */);
+    void wake_up(Dependency* dep, LockGuard<AnnotatedMutex>& /* dep_lock */);
 
     DataSinkOperatorPtr sink() const { return _sink; }
 
@@ -176,7 +176,7 @@ public:
     [[nodiscard]] size_t get_revocable_size() const;
     [[nodiscard]] Status revoke_memory(const std::shared_ptr<SpillContext>& spill_context);
 
-    Status blocked(Dependency* dependency, std::unique_lock<std::mutex>& /* dep_lock */) {
+    Status blocked(Dependency* dependency, LockGuard<AnnotatedMutex>& /* dep_lock */) {
         DCHECK_EQ(_blocked_dep, nullptr) << "task: " << debug_string();
         _blocked_dep = dependency;
         return _state_transition(PipelineTask::State::BLOCKED);
@@ -188,11 +188,11 @@ protected:
 
 private:
     // Whether this task is blocked before execution (FE 2-phase commit trigger, runtime filters)
-    bool _wait_to_start();
+    bool _wait_to_start() NO_THREAD_SAFETY_ANALYSIS;
     // Whether this task is blocked during execution (read dependency, write dependency)
-    bool _is_blocked();
+    bool _is_blocked() NO_THREAD_SAFETY_ANALYSIS;
     // Whether this task is blocked after execution (pending finish dependency)
-    bool _is_pending_finish();
+    bool _is_pending_finish() NO_THREAD_SAFETY_ANALYSIS;
 
     Status _extract_dependencies();
     void _init_profile();
@@ -251,11 +251,17 @@ private:
     OperatorXBase* _root;
     DataSinkOperatorPtr _sink;
 
+    // Protects dependency containers and the raw Dependency pointers they contain. It also
+    // serializes forced dependency unblocking with close()/finalize(): set_ready() may synchronously
+    // call wake_up() and submit this task, so close()/finalize() must not clear operator/shared
+    // state until forced unblocking finishes. wake_up() must not take this lock.
+    AnnotatedMutex _dependency_lifecycle_lock;
+
     // `_read_dependencies` is stored as same order as `_operators`
-    std::vector<std::vector<Dependency*>> _read_dependencies;
-    std::vector<Dependency*> _write_dependencies;
-    std::vector<Dependency*> _finish_dependencies;
-    std::vector<Dependency*> _execution_dependencies;
+    std::vector<std::vector<Dependency*>> _read_dependencies GUARDED_BY(_dependency_lifecycle_lock);
+    std::vector<Dependency*> _write_dependencies GUARDED_BY(_dependency_lifecycle_lock);
+    std::vector<Dependency*> _finish_dependencies GUARDED_BY(_dependency_lifecycle_lock);
+    std::vector<Dependency*> _execution_dependencies GUARDED_BY(_dependency_lifecycle_lock);
 
     // All shared states of this pipeline task.
     std::map<int, std::shared_ptr<BasicSharedState>> _op_shared_states;
@@ -271,11 +277,6 @@ private:
     Dependency* _blocked_dep = nullptr;
 
     Dependency* _memory_sufficient_dependency;
-    // Protects dependency containers and the raw Dependency pointers they contain. It also
-    // serializes forced dependency unblocking with close()/finalize(): set_ready() may synchronously
-    // call wake_up() and submit this task, so close()/finalize() must not clear operator/shared
-    // state until forced unblocking finishes. wake_up() must not take this lock.
-    std::mutex _dependency_lifecycle_lock;
 
     std::atomic<bool> _running {false};
     std::atomic<bool> _eos {false};

@@ -20,11 +20,9 @@
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <memory>
-#include <string>
 
 #include "common/logging.h"
 #include "exec/pipeline/pipeline_task.h"
-#include "runtime/workload_group/workload_group.h"
 
 namespace doris {
 
@@ -48,7 +46,7 @@ PriorityTaskQueue::PriorityTaskQueue() : _closed(false) {
 }
 
 void PriorityTaskQueue::close() {
-    std::unique_lock<std::mutex> lock(_work_size_mutex);
+    LockGuard lock(_work_size_mutex);
     _closed = true;
     _wait_task.notify_all();
     DorisMetrics::instance()->pipeline_task_queue_size->increment(-_total_task_size);
@@ -93,12 +91,12 @@ int PriorityTaskQueue::_compute_level(uint64_t runtime) {
 
 PipelineTaskSPtr PriorityTaskQueue::try_take(bool is_steal) {
     // TODO other efficient lock? e.g. if get lock fail, return null_ptr
-    std::unique_lock<std::mutex> lock(_work_size_mutex);
+    LockGuard lock(_work_size_mutex);
     return _try_take_unprotected(is_steal);
 }
 
 PipelineTaskSPtr PriorityTaskQueue::take(uint32_t timeout_ms) {
-    std::unique_lock<std::mutex> lock(_work_size_mutex);
+    UniqueLock lock {_work_size_mutex};
     auto task = _try_take_unprotected(false);
     if (task) {
         return task;
@@ -113,11 +111,11 @@ PipelineTaskSPtr PriorityTaskQueue::take(uint32_t timeout_ms) {
 }
 
 Status PriorityTaskQueue::push(PipelineTaskSPtr task) {
+    auto level = _compute_level(task->get_runtime_ns());
+    LockGuard lock(_work_size_mutex);
     if (_closed) {
         return Status::InternalError("WorkTaskQueue closed");
     }
-    auto level = _compute_level(task->get_runtime_ns());
-    std::unique_lock<std::mutex> lock(_work_size_mutex);
 
     // update empty queue's  runtime, to avoid too high priority
     if (_sub_queues[level].empty() &&

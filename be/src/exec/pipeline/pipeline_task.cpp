@@ -154,7 +154,7 @@ Status PipelineTask::prepare(const std::vector<TScanRangeParams>& scan_range, co
     {
         const auto& deps =
                 _state->get_local_state(_source->operator_id())->execution_dependencies();
-        std::unique_lock<std::mutex> lc(_dependency_lifecycle_lock);
+        LockGuard lc(_dependency_lifecycle_lock);
         std::copy(deps.begin(), deps.end(),
                   std::inserter(_execution_dependencies, _execution_dependencies.end()));
     }
@@ -200,7 +200,7 @@ Status PipelineTask::_extract_dependencies() {
         }
     }
     {
-        std::unique_lock<std::mutex> lc(_dependency_lifecycle_lock);
+        LockGuard lc(_dependency_lifecycle_lock);
         read_dependencies.swap(_read_dependencies);
         write_dependencies.swap(_write_dependencies);
         finish_dependencies.swap(_finish_dependencies);
@@ -347,7 +347,7 @@ bool PipelineTask::_is_blocked() {
 void PipelineTask::unblock_all_dependencies() {
     // Keep dependency pointers and task-owned operator/shared state stable because set_ready() may
     // synchronously call wake_up() and submit this task.
-    std::unique_lock<std::mutex> lock(_dependency_lifecycle_lock);
+    LockGuard lock(_dependency_lifecycle_lock);
     auto fragment = _fragment_context.lock();
     if (!is_finalized() && fragment) {
         try {
@@ -889,7 +889,7 @@ Status PipelineTask::finalize() {
     }
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(fragment->get_query_ctx()->query_mem_tracker());
     // Synchronize with unblock_all_dependencies() before clearing state used by wake_up()->submit().
-    std::unique_lock<std::mutex> lock(_dependency_lifecycle_lock);
+    LockGuard lock(_dependency_lifecycle_lock);
     RETURN_IF_ERROR(_state_transition(State::FINALIZED));
     _sink_shared_state.reset();
     _op_shared_states.clear();
@@ -928,7 +928,7 @@ Status PipelineTask::close(Status exec_status, bool close_sink) {
 
     if (close_sink) {
         // Synchronize FINISHED with forced unblocking so delayed wake_up() sees a stable state.
-        std::unique_lock<std::mutex> lock(_dependency_lifecycle_lock);
+        LockGuard lock(_dependency_lifecycle_lock);
         RETURN_IF_ERROR(_state_transition(State::FINISHED));
     }
     return s;
@@ -936,6 +936,20 @@ Status PipelineTask::close(Status exec_status, bool close_sink) {
 
 std::string PipelineTask::debug_string() {
     fmt::memory_buffer debug_string_buffer;
+    Dependency* cur_blocked_dep = nullptr;
+    std::vector<std::vector<Dependency*>> read_dependencies;
+    std::vector<Dependency*> write_dependencies;
+    std::vector<Dependency*> execution_dependencies;
+    std::vector<Dependency*> finish_dependencies;
+
+    {
+        LockGuard lc(_dependency_lifecycle_lock);
+        cur_blocked_dep = _blocked_dep;
+        read_dependencies = _read_dependencies;
+        write_dependencies = _write_dependencies;
+        execution_dependencies = _execution_dependencies;
+        finish_dependencies = _finish_dependencies;
+    }
 
     fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(_query_id));
     fmt::format_to(debug_string_buffer, "InstanceId: {}\n",
@@ -948,8 +962,6 @@ std::string PipelineTask::debug_string() {
                    _index, _opened, _eos, _to_string(_exec_state), _dry_run, _wake_up_early.load(),
                    _wake_by, _state_change_watcher.elapsed_time() / NANOS_PER_SEC, _spilling,
                    is_running());
-    std::unique_lock<std::mutex> lc(_dependency_lifecycle_lock);
-    auto* cur_blocked_dep = _blocked_dep;
     auto fragment = _fragment_context.lock();
     if (is_finalized() || !fragment) {
         fmt::format_to(debug_string_buffer, " pipeline name = {}", _pipeline_name);
@@ -979,10 +991,10 @@ std::string PipelineTask::debug_string() {
     fmt::format_to(debug_string_buffer, "\nRead Dependency Information: \n");
 
     size_t i = 0;
-    for (; i < _read_dependencies.size(); i++) {
-        for (size_t j = 0; j < _read_dependencies[i].size(); j++) {
+    for (; i < read_dependencies.size(); i++) {
+        for (size_t j = 0; j < read_dependencies[i].size(); j++) {
             fmt::format_to(debug_string_buffer, "{}. {}\n", i,
-                           _read_dependencies[i][j]->debug_string(cast_set<int>(i) + 1));
+                           read_dependencies[i][j]->debug_string(cast_set<int>(i) + 1));
         }
     }
 
@@ -990,21 +1002,21 @@ std::string PipelineTask::debug_string() {
                    _memory_sufficient_dependency->debug_string(cast_set<int>(i++)));
 
     fmt::format_to(debug_string_buffer, "\nWrite Dependency Information: \n");
-    for (size_t j = 0; j < _write_dependencies.size(); j++, i++) {
+    for (size_t j = 0; j < write_dependencies.size(); j++, i++) {
         fmt::format_to(debug_string_buffer, "{}. {}\n", i,
-                       _write_dependencies[j]->debug_string(cast_set<int>(j) + 1));
+                       write_dependencies[j]->debug_string(cast_set<int>(j) + 1));
     }
 
     fmt::format_to(debug_string_buffer, "\nExecution Dependency Information: \n");
-    for (size_t j = 0; j < _execution_dependencies.size(); j++, i++) {
+    for (size_t j = 0; j < execution_dependencies.size(); j++, i++) {
         fmt::format_to(debug_string_buffer, "{}. {}\n", i,
-                       _execution_dependencies[j]->debug_string(cast_set<int>(i) + 1));
+                       execution_dependencies[j]->debug_string(cast_set<int>(i) + 1));
     }
 
     fmt::format_to(debug_string_buffer, "Finish Dependency Information: \n");
-    for (size_t j = 0; j < _finish_dependencies.size(); j++, i++) {
+    for (size_t j = 0; j < finish_dependencies.size(); j++, i++) {
         fmt::format_to(debug_string_buffer, "{}. {}\n", i,
-                       _finish_dependencies[j]->debug_string(cast_set<int>(i) + 1));
+                       finish_dependencies[j]->debug_string(cast_set<int>(i) + 1));
     }
     return fmt::to_string(debug_string_buffer);
 }
@@ -1057,7 +1069,7 @@ Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_co
     return Status::OK();
 }
 
-void PipelineTask::wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* dep_lock */) {
+void PipelineTask::wake_up(Dependency* dep, LockGuard<AnnotatedMutex>& /* dep_lock */) {
     auto cancel_if_error = [&](const Status& st) {
         if (!st.ok()) {
             if (auto frag = fragment_context().lock()) {
