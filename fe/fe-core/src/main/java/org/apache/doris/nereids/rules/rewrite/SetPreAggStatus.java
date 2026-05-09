@@ -477,7 +477,8 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             }
 
             @Override
-            public PreAggStatus visitDataSketchesHllUnionAgg(DataSketchesHllUnionAgg dsHllUnionAgg, AggregateType aggregateType) {
+            public PreAggStatus visitDataSketchesHllUnionAgg(DataSketchesHllUnionAgg dsHllUnionAgg,
+                     AggregateType aggregateType) {
                 if (aggregateType == AggregateType.DATASKETCHES_HLL_UNION_AGG) {
                     return PreAggStatus.on();
                 } else {

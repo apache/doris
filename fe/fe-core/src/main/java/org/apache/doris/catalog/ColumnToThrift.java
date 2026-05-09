@@ -113,7 +113,7 @@ public class ColumnToThrift {
             case HLL_UNION:
                 return TAggregationType.HLL_UNION;
             case DATASKETCHES_HLL_UNION_AGG:
-                return TAggregationType.DATASKETCHES_HLL_UNION_AGG;
+                return TAggregationType.DATASKETCHES_HLL_UNION;
             case BITMAP_UNION:
                 return TAggregationType.BITMAP_UNION;
             case QUANTILE_UNION:
