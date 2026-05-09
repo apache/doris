@@ -215,4 +215,7 @@ DECLARE_mBool(enable_file_cache_write_base_compaction_index_only);
 // Cumulative compaction output: only write index files to file cache, not data files
 DECLARE_mBool(enable_file_cache_write_cumu_compaction_index_only);
 
+// Reject queued peer fetch tasks that wait too long in the peer fetch pool.
+DECLARE_mInt32(peer_fetch_queue_timeout_ms);
+
 } // namespace doris::config
