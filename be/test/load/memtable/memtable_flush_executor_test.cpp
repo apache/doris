@@ -491,7 +491,9 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushToken) {
         EXPECT_FALSE(wait_st.ok());
         EXPECT_NE(wait_st.to_string().find("binlog flush failed"), std::string::npos);
         EXPECT_EQ(1, binlog_flush_cnt.load());
-        EXPECT_EQ(1, flush_token->get_stats().flush_finish_count.load());
+        // Data and binlog flush tasks run concurrently. If binlog fails first,
+        // data flush may be skipped by the failed flush status.
+        EXPECT_LE(flush_token->get_stats().flush_finish_count.load(), 1);
         EXPECT_EQ(0, flush_token->get_stats().flush_submit_count.load());
 
         drop_tablet(ctx.request);

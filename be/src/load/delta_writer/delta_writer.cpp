@@ -80,12 +80,8 @@ DeltaWriter::DeltaWriter(StorageEngine& engine, std::shared_ptr<WriteRequest> re
 }
 
 void BaseDeltaWriter::_init_profile(RuntimeProfile* profile) {
-<<<<<<< HEAD
     DCHECK(profile != nullptr);
-    _profile = profile->create_child(fmt::format("DeltaWriter {}", _req.tablet_id), true, true);
-=======
     _profile = profile->create_child(fmt::format("DeltaWriter {}", _req->tablet_id), true, true);
->>>>>>> 08b68c31ba4... support row binlog write & read
     _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
     _wait_flush_limit_timer = ADD_TIMER(_profile, "WaitFlushLimitTime");
 }

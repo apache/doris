@@ -107,6 +107,6 @@ suite("test_row_binlog_schema_change", "nonConcurrent") {
 
     test {
         sql "ALTER TABLE test_mow_schema_change_with_binlog MODIFY COLUMN v2 VARCHAR(10)"
-        exception "Not allowed to perform current operation on Table With Row Binlog"
+        exception "Not allowed to perform current operation on Table With binlog<row>"
     }
 }

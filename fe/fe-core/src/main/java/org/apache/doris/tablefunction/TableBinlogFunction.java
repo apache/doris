@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -29,8 +30,6 @@ import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.info.TableNameInfo;
-import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -44,7 +43,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -107,19 +105,19 @@ public class TableBinlogFunction extends TableValuedFunctionIf {
         this.partitionNamesInfo = parsePartitionNamesInfo(validParams.get(PARTITION));
         this.specifiedTabletIds = parseTabletIds(validParams.get(TABLET));
 
-        DatabaseIf<?> dbObj;
-        TableIf tbl;
+        DatabaseIf<?> dbIf;
+        TableIf tableIf;
         try {
-            dbObj = Env.getCurrentEnv().getInternalCatalog().getDbOrMetaException(dbName);
-            tbl = dbObj.getTableOrMetaException(tableName, TableType.OLAP, TableType.MATERIALIZED_VIEW);
+            dbIf = Env.getCurrentEnv().getInternalCatalog().getDbOrMetaException(dbName);
+            tableIf = dbIf.getTableOrMetaException(tableName, TableType.OLAP);
         } catch (MetaNotFoundException e) {
             throw new AnalysisException(e.getMessage(), e);
         }
-        if (!(tbl instanceof OlapTable)) {
+        if (tableIf.getType() != TableType.OLAP) {
             throw new AnalysisException("binlog<row> only supports OLAP table, table=" + tableName);
         }
 
-        this.originTable = (OlapTable) tbl;
+        this.originTable = (OlapTable) tableIf;
         originTable.readLock();
         try {
             if (!originTable.needRowBinlog()) {
@@ -133,7 +131,7 @@ public class TableBinlogFunction extends TableValuedFunctionIf {
 
     @Override
     public String getTableName() {
-        return "BinlogTableValuedFunction";
+        return "BinlogTableFunction";
     }
 
     @Override
@@ -150,28 +148,34 @@ public class TableBinlogFunction extends TableValuedFunctionIf {
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
         // Replace tvf FunctionGenTable with the binlog<row> OlapTable wrapper.
         desc.setTable(rowBinlogTableWrapper);
-        // Provide partition/tablet restriction info for OlapScanNode.
-        TableRefInfo tableRefInfo = new TableRefInfo(
-                new TableNameInfo(dbName, tableName),
-                null,
-                partitionNamesInfo,
-                specifiedTabletIds == null ? Lists.newArrayList() : Lists.newArrayList(specifiedTabletIds),
-                null,
-                null,
-                new ArrayList<>());
-        desc.setRef(tableRefInfo);
-
         OlapScanNode olapScanNode = new OlapScanNode(id, desc, "OlapScanNode",
                 ScanContext.builder().clusterName(sv.resolveCloudClusterName()).build());
         olapScanNode.setSelectedIndexInfo(rowBinlogTableWrapper.getBaseIndexId(), false, "binlog<row> read");
         if (specifiedTabletIds != null && !specifiedTabletIds.isEmpty()) {
             olapScanNode.setSpecifiedTabletIds(specifiedTabletIds);
         }
-        try {
-            // Ensure partition prune is done for this synthetic table ref.
-            olapScanNode.computePartitionInfo();
-        } catch (org.apache.doris.common.AnalysisException e) {
-            throw new IllegalStateException(e.getMessage(), e);
+        // Resolve partition names to IDs, same pattern as Nereids PhysicalPlanTranslator.
+        if (partitionNamesInfo != null && !partitionNamesInfo.getPartitionNames().isEmpty()) {
+            List<Long> partitionIds = Lists.newArrayList();
+            originTable.readLock();
+            try {
+                for (String partName : partitionNamesInfo.getPartitionNames()) {
+                    Partition partition = originTable.getPartition(partName);
+                    if (partition == null) {
+                        throw new IllegalStateException("Partition not found: " + partName);
+                    }
+                    partitionIds.add(partition.getId());
+                }
+            } finally {
+                originTable.readUnlock();
+            }
+            olapScanNode.setSelectedPartitionIds(partitionIds);
+        } else {
+            try {
+                olapScanNode.computePartitionInfo();
+            } catch (AnalysisException e) {
+                throw new IllegalStateException(e.getMessage(), e);
+            }
         }
         return olapScanNode;
     }
@@ -181,13 +185,10 @@ public class TableBinlogFunction extends TableValuedFunctionIf {
             return null;
         }
         List<String> partitionNames = Lists.newArrayList(
-                partitions.split(",", -1))
-                .stream()
-                .map(StringUtils::trim)
-                .filter(s -> !s.isEmpty())
-                .collect(Collectors.toList());
+                partitions.split(",", -1)).stream().map(String::trim).filter(s -> !s.isEmpty()).collect(
+                Collectors.toList());
         if (partitionNames.isEmpty()) {
-            throw new AnalysisException("'partition' is invalid for binlog<row>");
+            throw new AnalysisException("Invalid partition names: " + partitions);
         }
         return new PartitionNamesInfo(false, partitionNames);
     }
@@ -196,21 +197,15 @@ public class TableBinlogFunction extends TableValuedFunctionIf {
         if (Strings.isNullOrEmpty(tabletIds)) {
             return null;
         }
-        List<String> parts = Lists.newArrayList(tabletIds.split(",", -1));
-        Set<Long> ids = parts.stream()
-                .map(StringUtils::trim)
-                .filter(s -> !s.isEmpty())
-                .map(s -> {
-                    try {
-                        return Long.parseLong(s);
-                    } catch (NumberFormatException e) {
-                        throw new IllegalArgumentException("invalid tablet id: " + s, e);
-                    }
-                })
-                .collect(Collectors.toSet());
-        if (ids.isEmpty()) {
-            throw new AnalysisException("'tablet' is invalid for binlog<row>");
+        try {
+            Set<Long> tabletIdSet = Lists.newArrayList(tabletIds.split(",", -1)).stream().map(String::trim).filter(
+                    s -> !s.isEmpty()).map(Long::parseLong).collect(Collectors.toSet());
+            if (tabletIdSet.isEmpty()) {
+                throw new AnalysisException("Invalid tablet ids: " + tabletIds);
+            }
+            return tabletIdSet;
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("Invalid tablet ids: " + tabletIds);
         }
-        return ids;
     }
 }

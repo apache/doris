@@ -179,6 +179,9 @@ Status RowsetMetaManager::_save_with_row_binlog(
 
     for (const auto& [row_binlog_rs_id, row_binlog_rs_meta_pb] : attach_rowset_map) {
         keys.emplace_back(make_row_binlog_key(tablet_uid, rowset_id, row_binlog_rs_id));
+        DCHECK(row_binlog_rs_meta_pb.has_is_row_binlog() &&
+               row_binlog_rs_meta_pb.is_row_binlog())
+                << row_binlog_rs_meta_pb.ShortDebugString();
         if (!row_binlog_rs_meta_pb.SerializeToString(&values.emplace_back())) {
             return Status::Error<SERIALIZE_PROTOBUF_ERROR>(
                     "serialize rowset pb failed. rowset id:{}", keys.back());

@@ -63,9 +63,11 @@ suite("test_row_binlog_multi_segment", "nonConcurrent") {
             String sequenceLoadContent = ""
             String partialUpdateLoadContent = ""
 
-            // first load: write base keys [1, 4064], then append keys [2048, 6081] in the same load.
-            // overlap keys are [2048, 4064], and newly added keys are [4065, 6081].
-            (1..4064).each {
+            // first load: write base keys [1, 4500], then append keys [2048, 6081] in the same load.
+            // Keep the first range larger than one csv batch so sampled overlap keys are not
+            // sensitive to the exact segment boundary. Do not include k1=5000 in the first range,
+            // otherwise skip_delete_bitmap=true would expose one more sampled physical row.
+            (1..4500).each {
                 overlappingLoadContent += "${it},${it},${it},${it},${it},1\n"
             }
             (2048..6081).each {
@@ -86,7 +88,7 @@ suite("test_row_binlog_multi_segment", "nonConcurrent") {
                     }
                     def json = parseJson(result)
                     assertEquals("success", json.Status.toLowerCase())
-                    assertEquals(8098, json.NumberTotalRows)
+                    assertEquals(8534, json.NumberTotalRows)
                     assertEquals(0, json.NumberFilteredRows)
                 }
             }
@@ -107,10 +109,10 @@ suite("test_row_binlog_multi_segment", "nonConcurrent") {
                 ORDER BY __DORIS_BINLOG_LSN__
             """
 
-            // second load: first write keys [2048, 6081] with seq=3.
+            // second load: first write keys [2048, 7000] with seq=3.
             // then write overlap keys [2800, 3400] again with lower seq=2, which should be ignored.
             // finally write keys [5000, 5600] again with higher seq=4, which should overwrite seq=3.
-            (2048..6081).each {
+            (2048..7000).each {
                 sequenceLoadContent += "${it},${it},${it},${it + 200000},${it + 200000},3\n"
             }
             (2800..3400).each {
@@ -134,7 +136,7 @@ suite("test_row_binlog_multi_segment", "nonConcurrent") {
                     }
                     def json = parseJson(result)
                     assertEquals("success", json.Status.toLowerCase())
-                    assertEquals(5236, json.NumberTotalRows)
+                    assertEquals(6155, json.NumberTotalRows)
                     assertEquals(0, json.NumberFilteredRows)
                 }
             }
@@ -165,7 +167,7 @@ suite("test_row_binlog_multi_segment", "nonConcurrent") {
                 }
                 return 3
             }
-            (2000..6081).each {
+            (2000..7000).each {
                 partialUpdateLoadContent += "${it},${it},${it},${it + 500000},${partialUpdateSeq(it)}\n"
             }
             (3000..3600).each {
@@ -192,7 +194,7 @@ suite("test_row_binlog_multi_segment", "nonConcurrent") {
                     }
                     def json = parseJson(result)
                     assertEquals("success", json.Status.toLowerCase())
-                    assertEquals(5284, json.NumberTotalRows)
+                    assertEquals(6203, json.NumberTotalRows)
                     assertEquals(0, json.NumberFilteredRows)
                 }
             }

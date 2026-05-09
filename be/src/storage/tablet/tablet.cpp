@@ -1587,22 +1587,31 @@ bool Tablet::do_tablet_meta_checkpoint() {
     //   {kRowBinlogPrefix}{tablet_uid}_{base_rowset_id}_{row_binlog_rowset_id}
     // Here we only have row binlog rowset metas, so locate base rowset by version.
     const auto& base_rs_metas = _tablet_meta->all_rs_metas();
+    const auto& stale_rs_metas = _tablet_meta->all_stale_rs_metas();
     for (const auto& [_, rb_meta] : _tablet_meta->all_row_binlog_rs_metas()) {
         // Reuse the same flag to avoid repeated removals across checkpoints.
         if (rb_meta->is_remove_from_rowset_meta()) {
             continue;
         }
 
-        const auto base_it = base_rs_metas.find(rb_meta->version());
-        if (base_it == base_rs_metas.end()) {
+        RowsetMetaSharedPtr base_rs_meta;
+        if (auto base_it = base_rs_metas.find(rb_meta->version()); base_it != base_rs_metas.end()) {
+            base_rs_meta = base_it->second;
+        } else if (auto stale_it = stale_rs_metas.find(rb_meta->version());
+                   stale_it != stale_rs_metas.end()) {
+            base_rs_meta = stale_it->second;
+        }
+        if (base_rs_meta == nullptr) {
             LOG(WARNING) << "failed to locate base rowset meta for binlog<row> by version, tablet="
                          << tablet_id() << ", version=" << rb_meta->version().to_string()
-                         << ", binlog_rowset_id=" << rb_meta->rowset_id();
+                         << ", binlog_rowset_id=" << rb_meta->rowset_id()
+                         << ", try to remove by scanning row-binlog meta store";
+            RETURN_FALSE_IF_ERROR(RowsetMetaManager::remove_row_binlog_metas(
+                    _data_dir->get_meta(), tablet_uid(), {rb_meta->rowset_id()}));
             rb_meta->set_remove_from_rowset_meta();
             continue;
         }
 
-        const auto& base_rs_meta = base_it->second;
         RETURN_FALSE_IF_ERROR(RowsetMetaManager::remove_row_binlog(
                 _data_dir->get_meta(), tablet_uid(), base_rs_meta->rowset_id(), rb_meta->rowset_id()));
         VLOG_NOTICE << "remove binlog<row> meta from meta store, base_rowset_id="

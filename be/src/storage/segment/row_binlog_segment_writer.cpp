@@ -73,8 +73,7 @@ Status RowBinlogSegmentWriter::init() {
     _before_col_start_id = _normal_col_start_id + normal_col_num;
 
     if (!_write_before && _tablet_schema->num_columns() > normal_col_num + BINLOG_COLNUM) {
-        // Compatibility path: if row-binlog schema contains BEFORE columns but config doesn't require
-        // BEFORE, fill null/default values for BEFORE columns.
+        // Compatibility path
         _fill_empty_before_value = true;
         _write_before = true;
     }
