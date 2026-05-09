@@ -29,6 +29,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.HMSPartitionsUtil;
+import org.apache.doris.common.util.IAMUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplit;
@@ -228,7 +229,7 @@ public class HiveScanNode extends FileQueryScanNode {
         BDPAuthContext currentBdpAuthContext = BDPAuthContext.get();
         Preconditions.checkNotNull(currentBdpAuthContext, "bdp auth info cannot be null");
         AtomicInteger numFinishedPartitions = new AtomicInteger(0);
-        CompletableFuture.runAsync(bindBdpAuth(currentBdpAuthContext, () -> {
+        CompletableFuture.runAsync(IAMUtil.bindBdpAuth(currentBdpAuthContext, () -> {
             for (HivePartition partition : prunedPartitions) {
                 if (batchException.get() != null || splitAssignment.isStop()) {
                     break;
@@ -269,13 +270,6 @@ public class HiveScanNode extends FileQueryScanNode {
                 splitAssignment.setException(batchException.get());
             }
         }));
-    }
-
-    static Runnable bindBdpAuth(BDPAuthContext bdpAuthContext, Runnable runnable) {
-        return () -> {
-            bdpAuthContext.setThreadLocalInfo();
-            runnable.run();
-        };
     }
 
     @Override

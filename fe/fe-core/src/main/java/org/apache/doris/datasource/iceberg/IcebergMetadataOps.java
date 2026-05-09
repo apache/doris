@@ -32,7 +32,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.DorisTypeVisitor;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -94,7 +93,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     protected Catalog catalog;
     protected ExternalCatalog dorisCatalog;
     protected SupportsNamespaces nsCatalog;
-    private ExecutionAuthenticator executionAuthenticator;
     // Generally, there should be only two levels under the catalog, namely <database>.<table>,
     // but the REST type catalog is obtained from an external server,
     // and the level provided by the external server may be three levels, <catalog>.<database>.<table>.
@@ -106,7 +104,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         this.dorisCatalog = dorisCatalog;
         this.catalog = catalog;
         nsCatalog = (SupportsNamespaces) catalog;
-        this.executionAuthenticator = dorisCatalog.getExecutionAuthenticator();
 
         if (dorisCatalog.getProperties().containsKey(IcebergExternalCatalog.EXTERNAL_CATALOG_NAME)) {
             externalCatalogName =
@@ -132,7 +129,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public boolean tableExist(String dbName, String tblName) {
         try {
-            return executionAuthenticator.execute(() -> catalog.tableExists(getTableIdentifier(dbName, tblName)));
+            return catalog.tableExists(getTableIdentifier(dbName, tblName));
         } catch (Exception e) {
             throw new RuntimeException("Failed to check table exist, error message is:" + e.getMessage(), e);
         }
@@ -140,7 +137,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     public boolean databaseExist(String dbName) {
         try {
-            return executionAuthenticator.execute(() -> nsCatalog.namespaceExists(getNamespace(dbName)));
+            return nsCatalog.namespaceExists(getNamespace(dbName));
         } catch (Exception e) {
             throw new RuntimeException("Failed to check database exist, error message is:" + e.getMessage(), e);
         }
@@ -148,7 +145,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     public List<String> listDatabaseNames() {
         try {
-            return executionAuthenticator.execute(() -> listNestedNamespaces(getNamespace()));
+            return listNestedNamespaces(getNamespace());
         } catch (Exception e) {
             LOG.warn("failed to list database names in catalog {}, root cause: {}",
                     dorisCatalog.getName(), Util.getRootCauseMessage(e), e);
@@ -183,27 +180,25 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public List<String> listTableNames(String dbName) {
         try {
-            return executionAuthenticator.execute(() -> {
-                List<TableIdentifier> tableIdentifiers = catalog.listTables(getNamespace(dbName));
-                List<String> views;
-                // Our original intention was simply to clearly define the responsibilities of ViewCatalog and Catalog.
-                // IcebergMetadataOps handles listTableNames and listViewNames separately.
-                // listTableNames should only focus on the table type,
-                // but in reality, Iceberg's return includes views. Therefore, we added a filter to exclude views.
-                if (isViewCatalogEnabled()) {
-                    views = ((ViewCatalog) catalog).listViews(getNamespace(dbName))
-                            .stream().map(TableIdentifier::name).collect(Collectors.toList());
-                } else {
-                    views = Collections.emptyList();
-                }
-                if (views.isEmpty()) {
-                    return tableIdentifiers.stream().map(TableIdentifier::name).collect(Collectors.toList());
-                } else {
-                    return tableIdentifiers.stream()
-                            .map(TableIdentifier::name)
-                            .filter(name -> !views.contains(name)).collect(Collectors.toList());
-                }
-            });
+            List<TableIdentifier> tableIdentifiers = catalog.listTables(getNamespace(dbName));
+            List<String> views;
+            // Our original intention was simply to clearly define the responsibilities of ViewCatalog and Catalog.
+            // IcebergMetadataOps handles listTableNames and listViewNames separately.
+            // listTableNames should only focus on the table type,
+            // but in reality, Iceberg's return includes views. Therefore, we added a filter to exclude views.
+            if (isViewCatalogEnabled()) {
+                views = ((ViewCatalog) catalog).listViews(getNamespace(dbName))
+                    .stream().map(TableIdentifier::name).collect(Collectors.toList());
+            } else {
+                views = Collections.emptyList();
+            }
+            if (views.isEmpty()) {
+                return tableIdentifiers.stream().map(TableIdentifier::name).collect(Collectors.toList());
+            } else {
+                return tableIdentifiers.stream()
+                    .map(TableIdentifier::name)
+                    .filter(name -> !views.contains(name)).collect(Collectors.toList());
+            }
         } catch (RuntimeException e) {
             // We want to catch real exception like NoSuchNamespaceException and throw it directly
             throw e;
@@ -216,7 +211,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     public boolean createDbImpl(String dbName, boolean ifNotExists, Map<String, String> properties)
             throws DdlException {
         try {
-            return executionAuthenticator.execute(() -> performCreateDb(dbName, ifNotExists, properties));
+            return performCreateDb(dbName, ifNotExists, properties);
         } catch (Exception e) {
             throw new DdlException("Failed to create database: "
                     + dbName + ": " + Util.getRootCauseMessage(e), e);
@@ -253,10 +248,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public void dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException {
         try {
-            executionAuthenticator.execute(() -> {
-                performDropDb(dbName, ifExists, force);
-                return null;
-            });
+            performDropDb(dbName, ifExists, force);
         } catch (Exception e) {
             throw new DdlException(
                 "Failed to drop database: " + dbName + ", error message is:" + e.getMessage(), e);
@@ -308,7 +300,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public boolean createTableImpl(CreateTableInfo createTableInfo) throws UserException {
         try {
-            return executionAuthenticator.execute(() -> performCreateTable(createTableInfo));
+            return performCreateTable(createTableInfo);
         } catch (Exception e) {
             throw new DdlException(
                 "Failed to create table: " + createTableInfo.getTableName() + ", error message is:" + e.getMessage(),
@@ -351,7 +343,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         List<Column> columns = createTableInfo.getColumns();
         List<StructField> collect = columns.stream()
                 .map(col -> new StructField(col.getName(), col.getType(), col.getComment(), col.isAllowNull()))
-                .collect(Collectors.toList());
+                    .collect(Collectors.toList());
         StructType structType = new StructType(new ArrayList<>(collect));
         Type visit =
                 DorisTypeVisitor.visit(structType, new DorisTypeToIcebergType(structType));
@@ -377,15 +369,12 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public void dropTableImpl(ExternalTable dorisTable, boolean ifExists) throws DdlException {
         try {
-            executionAuthenticator.execute(() -> {
-                if (getExternalCatalog().getMetadataOps()
-                        .viewExists(dorisTable.getRemoteDbName(), dorisTable.getRemoteName())) {
-                    performDropView(dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
-                } else {
-                    performDropTable(dorisTable.getRemoteDbName(), dorisTable.getRemoteName(), ifExists);
-                }
-                return null;
-            });
+            if (getExternalCatalog().getMetadataOps()
+                    .viewExists(dorisTable.getRemoteDbName(), dorisTable.getRemoteName())) {
+                performDropView(dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
+            } else {
+                performDropTable(dorisTable.getRemoteDbName(), dorisTable.getRemoteName(), ifExists);
+            }
         } catch (Exception e) {
             throw new DdlException(
                     "Failed to drop table: " + dorisTable.getName() + ", error message is:" + e.getMessage(), e);
@@ -416,10 +405,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     public void renameTableImpl(String dbName, String tblName, String newTblName) throws DdlException {
         try {
-            executionAuthenticator.execute(() -> {
-                catalog.renameTable(getTableIdentifier(dbName, tblName), getTableIdentifier(dbName, newTblName));
-                return null;
-            });
+            catalog.renameTable(getTableIdentifier(dbName, tblName), getTableIdentifier(dbName, newTblName));
         } catch (Exception e) {
             throw new DdlException(
                     "Failed to rename table: " + tblName + " to " + newTblName + ", error message is:" + e.getMessage(),
@@ -456,7 +442,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
         ManageSnapshots manageSnapshots;
         try {
-            manageSnapshots = executionAuthenticator.execute(icebergTable::manageSnapshots);
+            manageSnapshots = icebergTable.manageSnapshots();
         } catch (Exception e) {
             throw new RuntimeException(
                     "Failed to create ManageSnapshots for table: " + icebergTable.name()
@@ -474,13 +460,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         boolean ifNotExists = branchInfo.getIfNotExists();
         Runnable safeCreateBranch = () -> {
             try {
-                executionAuthenticator.execute(() -> {
-                    if (snapshotId == null) {
-                        manageSnapshots.createBranch(branchName);
-                    } else {
-                        manageSnapshots.createBranch(branchName, snapshotId);
-                    }
-                });
+                if (snapshotId == null) {
+                    manageSnapshots.createBranch(branchName);
+                } else {
+                    manageSnapshots.createBranch(branchName, snapshotId);
+                }
             } catch (Exception e) {
                 throw new RuntimeException(
                         "Failed to create branch: " + branchName + " in table: " + icebergTable.name()
@@ -510,7 +494,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         branchOptions.getRetention().ifPresent(n -> manageSnapshots.setMaxRefAgeMs(branchName, n));
 
         try {
-            executionAuthenticator.execute(manageSnapshots::commit);
+            manageSnapshots.commit();
         } catch (Exception e) {
             throw new RuntimeException(
                     "Failed to create or replace branch: " + branchName + " in table: " + icebergTable.name()
@@ -560,21 +544,19 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
 
         try {
-            executionAuthenticator.execute(() -> {
-                ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
-                if (create && replace && !refExists) {
-                    manageSnapshots.createTag(tagName, snapshotId);
-                } else if (replace) {
-                    manageSnapshots.replaceTag(tagName, snapshotId);
-                } else {
-                    if (refExists && ifNotExists) {
-                        return;
-                    }
-                    manageSnapshots.createTag(tagName, snapshotId);
+            ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
+            if (create && replace && !refExists) {
+                manageSnapshots.createTag(tagName, snapshotId);
+            } else if (replace) {
+                manageSnapshots.replaceTag(tagName, snapshotId);
+            } else {
+                if (refExists && ifNotExists) {
+                    return;
                 }
-                tagOptions.getRetain().ifPresent(n -> manageSnapshots.setMaxRefAgeMs(tagName, n));
-                manageSnapshots.commit();
-            });
+                manageSnapshots.createTag(tagName, snapshotId);
+            }
+            tagOptions.getRetain().ifPresent(n -> manageSnapshots.setMaxRefAgeMs(tagName, n));
+            manageSnapshots.commit();
         } catch (Exception e) {
             throw new RuntimeException(
                     "Failed to create or replace tag: " + tagName + " in table: " + icebergTable.name()
@@ -591,10 +573,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
         if (snapshotRef != null || !ifExists) {
             try {
-                executionAuthenticator.execute(() -> {
-                    ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
-                    manageSnapshots.removeTag(tagName).commit();
-                });
+                ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
+                manageSnapshots.removeTag(tagName).commit();
             } catch (Exception e) {
                 throw new RuntimeException(
                         "Failed to drop tag: " + tagName + " in table: " + icebergTable.name()
@@ -612,10 +592,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
         if (snapshotRef != null || !ifExists) {
             try {
-                executionAuthenticator.execute(() -> {
-                    ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
-                    manageSnapshots.removeBranch(branchName).commit();
-                });
+                ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
+                manageSnapshots.removeBranch(branchName).commit();
             } catch (Exception e) {
                 throw new RuntimeException(
                         "Failed to drop branch: " + branchName + " in table: " + icebergTable.name()
@@ -663,7 +641,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             applyPosition(updateSchema, position, column.getName());
         }
         try {
-            executionAuthenticator.execute(() -> updateSchema.commit());
+            updateSchema.commit();
         } catch (Exception e) {
             throw new UserException("Failed to add column: " + column.getName() + " to table: "
                     + icebergTable.name() + ", error message is: " + e.getMessage(), e);
@@ -680,7 +658,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             addOneColumn(updateSchema, column);
         }
         try {
-            executionAuthenticator.execute(() -> updateSchema.commit());
+            updateSchema.commit();
         } catch (Exception e) {
             throw new UserException("Failed to add columns to table: " + icebergTable.name()
                     + ", error message is: " + e.getMessage(), e);
@@ -694,7 +672,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         UpdateSchema updateSchema = icebergTable.updateSchema();
         updateSchema.deleteColumn(columnName);
         try {
-            executionAuthenticator.execute(() -> updateSchema.commit());
+            updateSchema.commit();
         } catch (Exception e) {
             throw new UserException("Failed to drop column: " + columnName + " from table: "
                     + icebergTable.name() + ", error message is: " + e.getMessage(), e);
@@ -709,7 +687,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         UpdateSchema updateSchema = icebergTable.updateSchema();
         updateSchema.renameColumn(oldName, newName);
         try {
-            executionAuthenticator.execute(() -> updateSchema.commit());
+            updateSchema.commit();
         } catch (Exception e) {
             throw new UserException("Failed to rename column: " + oldName + " to " + newName
                     + " in table: " + icebergTable.name() + ", error message is: " + e.getMessage(), e);
@@ -755,7 +733,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             applyPosition(updateSchema, position, column.getName());
         }
         try {
-            executionAuthenticator.execute(() -> updateSchema.commit());
+            updateSchema.commit();
         } catch (Exception e) {
             throw new UserException("Failed to modify column: " + column.getName() + " in table: "
                     + icebergTable.name() + ", error message is: " + e.getMessage(), e);
@@ -964,16 +942,12 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             updateSchema.moveAfter(newOrder.get(i), newOrder.get(i - 1));
         }
         try {
-            executionAuthenticator.execute(() -> updateSchema.commit());
+            updateSchema.commit();
         } catch (Exception e) {
             throw new UserException("Failed to reorder columns in table: " + icebergTable.name()
                     + ", error message is: " + e.getMessage(), e);
         }
         refreshTable(dorisTable, updateTime);
-    }
-
-    public ExecutionAuthenticator getExecutionAuthenticator() {
-        return executionAuthenticator;
     }
 
     private Term getTransform(String transformName, String columnName, Integer transformArg) throws UserException {
@@ -1029,7 +1003,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
 
         try {
-            executionAuthenticator.execute(() -> updateSpec.commit());
+            updateSpec.commit();
         } catch (Exception e) {
             throw new UserException("Failed to add partition field to table: " + icebergTable.name()
                     + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
@@ -1056,7 +1030,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
 
         try {
-            executionAuthenticator.execute(() -> updateSpec.commit());
+            updateSpec.commit();
         } catch (Exception e) {
             throw new UserException("Failed to drop partition field from table: " + icebergTable.name()
                     + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
@@ -1097,7 +1071,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
 
         try {
-            executionAuthenticator.execute(() -> updateSpec.commit());
+            updateSpec.commit();
         } catch (Exception e) {
             throw new UserException("Failed to replace partition field in table: " + icebergTable.name()
                     + ", error message is: " + ExceptionUtils.getRootCauseMessage(e), e);
@@ -1108,7 +1082,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public Table loadTable(String dbName, String tblName) {
         try {
-            return executionAuthenticator.execute(() -> catalog.loadTable(getTableIdentifier(dbName, tblName)));
+            return catalog.loadTable(getTableIdentifier(dbName, tblName));
         } catch (Exception e) {
             throw new RuntimeException("Failed to load table, error message is:" + e.getMessage(), e);
         }
@@ -1120,8 +1094,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             return false;
         }
         try {
-            return executionAuthenticator.execute(() ->
-                    ((ViewCatalog) catalog).viewExists(getTableIdentifier(remoteDbName, remoteViewName)));
+            return ((ViewCatalog) catalog).viewExists(getTableIdentifier(remoteDbName, remoteViewName));
         } catch (Exception e) {
             throw new RuntimeException("Failed to check view exist, error message is:" + e.getMessage(), e);
 
@@ -1135,8 +1108,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
         try {
             ViewCatalog viewCatalog = (ViewCatalog) catalog;
-            return executionAuthenticator.execute(
-                    () -> viewCatalog.loadView(TableIdentifier.of(getNamespace(dbName), tblName)));
+            return viewCatalog.loadView(TableIdentifier.of(getNamespace(dbName), tblName));
         } catch (Exception e) {
             throw new RuntimeException("Failed to load view, error message is:" + e.getMessage(), e);
         }
@@ -1148,9 +1120,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             return Collections.emptyList();
         }
         try {
-            return executionAuthenticator.execute(() ->
-                    ((ViewCatalog) catalog).listViews(getNamespace(db))
-                            .stream().map(TableIdentifier::name).collect(Collectors.toList()));
+            return ((ViewCatalog) catalog).listViews(getNamespace(db))
+                    .stream().map(TableIdentifier::name).collect(Collectors.toList());
         } catch (RuntimeException e) {
             // We want to catch real exception like NoSuchNamespaceException and throw it directly
             throw e;

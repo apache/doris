@@ -1071,8 +1071,8 @@ public class IcebergUtils {
         return dataLocation;
     }
 
-    public static HiveCatalog createIcebergHiveCatalog(ExternalCatalog externalCatalog, String name) {
-        HiveCatalog hiveCatalog = new HiveCatalog();
+    public static HiveIcebergCatalog createIcebergHiveCatalog(ExternalCatalog externalCatalog, String name) {
+        HiveIcebergCatalog hiveCatalog = new HiveIcebergCatalog();
         hiveCatalog.setConf(externalCatalog.getConfiguration());
 
         Map<String, String> catalogProperties = externalCatalog.getProperties();

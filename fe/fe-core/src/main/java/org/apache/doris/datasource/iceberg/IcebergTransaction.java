@@ -91,23 +91,20 @@ public class IcebergTransaction implements Transaction {
     public void beginInsert(ExternalTable dorisTable, Optional<InsertCommandContext> ctx) throws UserException {
         ctx.ifPresent(c -> this.insertCtx = (IcebergInsertCommandContext) c);
         try {
-            ops.getExecutionAuthenticator().execute(() -> {
-                // create and start the iceberg transaction
-                this.table = IcebergUtils.getIcebergTable(dorisTable);
-                // check branch
-                if (insertCtx != null && insertCtx.getBranchName().isPresent()) {
-                    this.branchName = insertCtx.getBranchName().get();
-                    SnapshotRef branchRef = table.refs().get(branchName);
-                    if (branchRef == null) {
-                        throw new RuntimeException(branchName + " is not founded in " + dorisTable.getName());
-                    } else if (!branchRef.isBranch()) {
-                        throw new RuntimeException(
-                                branchName
-                                        + " is a tag, not a branch. Tags cannot be targets for producing snapshots");
-                    }
+            // create and start the iceberg transaction
+            this.table = IcebergUtils.getIcebergTable(dorisTable);
+            // check branch
+            if (insertCtx != null && insertCtx.getBranchName().isPresent()) {
+                this.branchName = insertCtx.getBranchName().get();
+                SnapshotRef branchRef = table.refs().get(branchName);
+                if (branchRef == null) {
+                    throw new RuntimeException(branchName + " is not founded in " + dorisTable.getName());
+                } else if (!branchRef.isBranch()) {
+                    throw new RuntimeException(
+                        branchName + " is a tag, not a branch. Tags cannot be targets for producing snapshots");
                 }
-                this.transaction = table.newTransaction();
-            });
+            }
+            this.transaction = table.newTransaction();
         } catch (Exception e) {
             throw new UserException("Failed to begin insert for iceberg table " + dorisTable.getName()
                     + "because: " + e.getMessage(), e);
@@ -124,20 +121,16 @@ public class IcebergTransaction implements Transaction {
         this.isRewriteMode = true;
 
         try {
-            ops.getExecutionAuthenticator().execute(() -> {
-                // create and start the iceberg transaction
-                this.table = IcebergUtils.getIcebergTable(dorisTable);
+            // create and start the iceberg transaction
+            this.table = IcebergUtils.getIcebergTable(dorisTable);
 
-                // Capture the starting snapshot ID for validation during rewrite commit
-                this.startingSnapshotId = table.currentSnapshot().snapshotId();
+            // Capture the starting snapshot ID for validation during rewrite commit
+            this.startingSnapshotId = table.currentSnapshot().snapshotId();
 
-                // For rewrite operations, we work directly on the main table
-                // No branch information needed
-                this.transaction = table.newTransaction();
-                LOG.info("Started rewrite transaction for table: {} (main table)",
-                        dorisTable.getName());
-                return null;
-            });
+            // For rewrite operations, we work directly on the main table
+            // No branch information needed
+            this.transaction = table.newTransaction();
+            LOG.info("Started rewrite transaction for table: {} (main table)", dorisTable.getName());
         } catch (Exception e) {
             throw new UserException("Failed to begin rewrite for iceberg table " + dorisTable.getName()
                     + " because: " + e.getMessage(), e);
@@ -158,10 +151,7 @@ public class IcebergTransaction implements Transaction {
         }
 
         try {
-            ops.getExecutionAuthenticator().execute(() -> {
-                updateManifestAfterRewrite();
-                return null;
-            });
+            updateManifestAfterRewrite();
         } catch (Exception e) {
             LOG.error("Failed to finish rewrite transaction", e);
             throw new RuntimeException(e);
@@ -229,17 +219,12 @@ public class IcebergTransaction implements Transaction {
             LOG.info("iceberg table {} insert table finished!", nameMapping.getFullLocalName());
         }
         try {
-            ops.getExecutionAuthenticator().execute(() -> {
-                //create and start the iceberg transaction
-                TUpdateMode updateMode = TUpdateMode.APPEND;
-                if (insertCtx != null) {
-                    updateMode = insertCtx.isOverwrite()
-                            ? TUpdateMode.OVERWRITE
-                            : TUpdateMode.APPEND;
-                }
-                updateManifestAfterInsert(updateMode);
-                return null;
-            });
+            //create and start the iceberg transaction
+            TUpdateMode updateMode = TUpdateMode.APPEND;
+            if (insertCtx != null) {
+                updateMode = insertCtx.isOverwrite() ? TUpdateMode.OVERWRITE : TUpdateMode.APPEND;
+            }
+            updateManifestAfterInsert(updateMode);
         } catch (Exception e) {
             LOG.warn("Failed to finish insert for iceberg table {}.", nameMapping.getFullLocalName(), e);
             throw new RuntimeException(e);

@@ -30,8 +30,10 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.cache.IcebergManifestCache;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
+import org.apache.doris.qe.BDPAuthContext;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -47,6 +49,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
 
@@ -100,7 +103,12 @@ public class IcebergMetadataCache {
     }
 
     public Table getIcebergTable(ExternalTable dorisTable) {
-        IcebergMetadataCacheKey key = new IcebergMetadataCacheKey(dorisTable.getOrBuildNameMapping());
+        String hadoopUserName = "";
+        if (catalog instanceof HMSExternalCatalog) {
+            Preconditions.checkNotNull(BDPAuthContext.get(), "bdp auth info cannot be null");
+            hadoopUserName = BDPAuthContext.get().getHadoopUserName();
+        }
+        IcebergMetadataCacheKey key = new IcebergMetadataCacheKey(hadoopUserName, dorisTable.getOrBuildNameMapping());
         return tableCache.get(key).getIcebergTable();
     }
 
@@ -109,7 +117,12 @@ public class IcebergMetadataCache {
     }
 
     public IcebergSnapshotCacheValue getSnapshotCache(ExternalTable dorisTable) {
-        IcebergMetadataCacheKey key = new IcebergMetadataCacheKey(dorisTable.getOrBuildNameMapping());
+        String hadoopUserName = "";
+        if (catalog instanceof HMSExternalCatalog) {
+            Preconditions.checkNotNull(BDPAuthContext.get(), "bdp auth info cannot be null");
+            hadoopUserName = BDPAuthContext.get().getHadoopUserName();
+        }
+        IcebergMetadataCacheKey key = new IcebergMetadataCacheKey(hadoopUserName, dorisTable.getOrBuildNameMapping());
         IcebergTableCacheValue tableCacheValue = tableCache.get(key);
         return tableCacheValue.getSnapshotCacheValue(() -> loadSnapshot(dorisTable, tableCacheValue.getIcebergTable()));
     }
@@ -145,9 +158,7 @@ public class IcebergMetadataCache {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("load iceberg table {}", nameMapping, new Exception());
             }
-            Table table = ((ExternalCatalog) catalog).getExecutionAuthenticator()
-                    .execute(()
-                            -> ops.loadTable(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName()));
+            Table table = ops.loadTable(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName());
             return new IcebergTableCacheValue(table);
         } catch (Exception e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
@@ -189,7 +200,12 @@ public class IcebergMetadataCache {
     }
 
     public void invalidateTableCache(ExternalTable dorisTable) {
-        IcebergMetadataCacheKey key = IcebergMetadataCacheKey.of(dorisTable.getOrBuildNameMapping());
+        String hadoopUserName = "";
+        if (catalog instanceof HMSExternalCatalog) {
+            Preconditions.checkNotNull(BDPAuthContext.get(), "bdp auth info cannot be null");
+            hadoopUserName = BDPAuthContext.get().getHadoopUserName();
+        }
+        IcebergMetadataCacheKey key = IcebergMetadataCacheKey.of(hadoopUserName, dorisTable.getOrBuildNameMapping());
         IcebergTableCacheValue tableCacheValue = tableCache.getIfPresent(key);
         if (tableCacheValue != null) {
             invalidateTableCache(key, tableCacheValue);
@@ -251,14 +267,16 @@ public class IcebergMetadataCache {
     }
 
     static class IcebergMetadataCacheKey {
+        String hadoopUserName;
         NameMapping nameMapping;
 
-        private IcebergMetadataCacheKey(NameMapping nameMapping) {
+        private IcebergMetadataCacheKey(String hadoopUserName, NameMapping nameMapping) {
+            this.hadoopUserName = hadoopUserName;
             this.nameMapping = nameMapping;
         }
 
-        private static IcebergMetadataCacheKey of(NameMapping nameMapping) {
-            return new IcebergMetadataCacheKey(nameMapping);
+        private static IcebergMetadataCacheKey of(String hadoopUserName, NameMapping nameMapping) {
+            return new IcebergMetadataCacheKey(hadoopUserName, nameMapping);
         }
 
         @Override
@@ -270,12 +288,12 @@ public class IcebergMetadataCache {
                 return false;
             }
             IcebergMetadataCacheKey that = (IcebergMetadataCacheKey) o;
-            return nameMapping.equals(that.nameMapping);
+            return Objects.equals(hadoopUserName, that.hadoopUserName) && nameMapping.equals(that.nameMapping);
         }
 
         @Override
         public int hashCode() {
-            return nameMapping.hashCode();
+            return Objects.hash(hadoopUserName, nameMapping);
         }
     }
 
@@ -303,7 +321,12 @@ public class IcebergMetadataCache {
     }
 
     public View getIcebergView(ExternalTable dorisTable) {
-        IcebergMetadataCacheKey key = new IcebergMetadataCacheKey(dorisTable.getOrBuildNameMapping());
+        String hadoopUserName = "";
+        if (catalog instanceof HMSExternalCatalog) {
+            Preconditions.checkNotNull(BDPAuthContext.get(), "bdp auth info cannot be null");
+            hadoopUserName = BDPAuthContext.get().getHadoopUserName();
+        }
+        IcebergMetadataCacheKey key = new IcebergMetadataCacheKey(hadoopUserName, dorisTable.getOrBuildNameMapping());
         return viewCache.get(key);
     }
 }

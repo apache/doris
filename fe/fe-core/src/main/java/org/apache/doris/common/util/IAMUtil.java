@@ -18,6 +18,7 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.qe.BDPAuthContext;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -105,5 +106,12 @@ public class IAMUtil {
             LOG.warn("failed to get user token from iam endpoint", e);
         }
         return null;
+    }
+
+    public static Runnable bindBdpAuth(BDPAuthContext bdpAuthContext, Runnable runnable) {
+        return () -> {
+            bdpAuthContext.setThreadLocalInfo();
+            runnable.run();
+        };
     }
 }

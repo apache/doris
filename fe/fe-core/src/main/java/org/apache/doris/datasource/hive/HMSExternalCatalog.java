@@ -29,6 +29,7 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.iceberg.HiveIcebergCatalog;
 import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
@@ -40,7 +41,6 @@ import org.apache.doris.transaction.TransactionManagerFactory;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.lang3.math.NumberUtils;
-import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -241,7 +241,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public IcebergMetadataOps getIcebergMetadataOps() {
         makeSureInitialized();
         if (icebergMetadataOps == null) {
-            HiveCatalog icebergHiveCatalog = IcebergUtils.createIcebergHiveCatalog(this, getName());
+            HiveIcebergCatalog icebergHiveCatalog = IcebergUtils.createIcebergHiveCatalog(this, getName());
             icebergMetadataOps = ExternalMetadataOperations.newIcebergMetadataOps(this, icebergHiveCatalog);
         }
         return icebergMetadataOps;

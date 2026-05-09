@@ -28,7 +28,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
-import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.common.util.IAMUtil;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
@@ -50,6 +50,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
+import org.apache.doris.qe.BDPAuthContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
@@ -112,6 +113,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class IcebergScanNode extends FileQueryScanNode {
@@ -136,7 +138,6 @@ public class IcebergScanNode extends FileQueryScanNode {
     private Map<PartitionData, Map<String, String>> partitionMapInfos;
     private boolean isPartitionedTable;
     private int formatVersion;
-    private ExecutionAuthenticator preExecutionAuthenticator;
     private TableScan icebergTableScan;
     // Store PropertiesMap, including vended credentials or static credentials
     // get them in doInitialize() to ensure internal consistency of ScanNode
@@ -205,7 +206,6 @@ public class IcebergScanNode extends FileQueryScanNode {
         partitionMapInfos = new HashMap<>();
         isPartitionedTable = icebergTable.spec().isPartitioned();
         formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
-        preExecutionAuthenticator = source.getCatalog().getExecutionAuthenticator();
         storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
                 source.getCatalog().getCatalogProperty().getMetastoreProperties(),
                 source.getCatalog().getCatalogProperty().getStoragePropertiesMap(),
@@ -380,7 +380,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     public List<Split> getSplits(int numBackends) throws UserException {
 
         try {
-            return preExecutionAuthenticator.execute(() -> doGetSplits(numBackends));
+            return doGetSplits(numBackends);
         } catch (Exception e) {
             Optional<NotSupportedException> opt = checkNotSupportedException(e);
             if (opt.isPresent()) {
@@ -413,10 +413,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     @Override
     public void startSplit(int numBackends) throws UserException {
         try {
-            preExecutionAuthenticator.execute(() -> {
-                doStartSplit();
-                return null;
-            });
+            doStartSplit();
         } catch (Exception e) {
             throw new UserException(e.getMessage(), e);
         }
@@ -424,24 +421,21 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     public void doStartSplit() throws UserException {
         TableScan scan = createTableScan();
-        CompletableFuture.runAsync(() -> {
+        BDPAuthContext currentBdpAuthContext = BDPAuthContext.get();
+        Preconditions.checkNotNull(currentBdpAuthContext, "bdp auth info cannot be null");
+        CompletableFuture.runAsync(IAMUtil.bindBdpAuth(currentBdpAuthContext, () -> {
             AtomicReference<CloseableIterable<FileScanTask>> taskRef = new AtomicReference<>();
             try {
-                preExecutionAuthenticator.execute(
-                        () -> {
-                            CloseableIterable<FileScanTask> fileScanTasks = planFileScanTask(scan);
-                            taskRef.set(fileScanTasks);
-
-                            CloseableIterator<FileScanTask> iterator = fileScanTasks.iterator();
-                            while (splitAssignment.needMoreSplit() && iterator.hasNext()) {
-                                try {
-                                    splitAssignment.addToQueue(Lists.newArrayList(createIcebergSplit(iterator.next())));
-                                } catch (UserException e) {
-                                    throw new RuntimeException(e);
-                                }
-                            }
-                        }
-                );
+                CloseableIterable<FileScanTask> fileScanTasks = planFileScanTask(scan);
+                taskRef.set(fileScanTasks);
+                CloseableIterator<FileScanTask> iterator = fileScanTasks.iterator();
+                while (splitAssignment.needMoreSplit() && iterator.hasNext()) {
+                    try {
+                        splitAssignment.addToQueue(Lists.newArrayList(createIcebergSplit(iterator.next())));
+                    } catch (UserException e) {
+                        throw new RuntimeException(e);
+                    }
+                }
                 splitAssignment.finishSchedule();
                 recordManifestCacheProfile();
             } catch (Exception e) {
@@ -460,7 +454,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                     }
                 }
             }
-        }, Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor());
+        }), Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor());
     }
 
     @VisibleForTesting
@@ -517,17 +511,18 @@ public class IcebergScanNode extends FileQueryScanNode {
             return TableScanUtil.splitFiles(scan.planFiles(),
                     sessionVariable.getFileSplitSize());
         }
+        ExecutorService executor = Env.getCurrentEnv().getExtMetaCacheMgr().getFileListingExecutor();
         if (isBatchMode()) {
             // Currently iceberg batch split mode will use max split size.
             // TODO: dynamic split size in batch split mode need to customize iceberg splitter.
-            return TableScanUtil.splitFiles(scan.planFiles(), sessionVariable.getMaxSplitSize());
+            return TableScanUtil.splitFiles(scan.planWith(executor).planFiles(), sessionVariable.getMaxSplitSize());
         }
 
         // Non Batch Mode
         // Materialize planFiles() into a list to avoid iterating the CloseableIterable twice.
         // RISK: It will cost memory if the table is large.
         List<FileScanTask> fileScanTaskList = new ArrayList<>();
-        try (CloseableIterable<FileScanTask> scanTasksIter = scan.planFiles()) {
+        try (CloseableIterable<FileScanTask> scanTasksIter = scan.planWith(executor).planFiles()) {
             for (FileScanTask task : scanTasksIter) {
                 fileScanTaskList.add(task);
             }
@@ -868,25 +863,21 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
 
         try {
-            return preExecutionAuthenticator.execute(() -> {
-                try (CloseableIterator<ManifestFile> matchingManifest =
-                        IcebergUtils.getMatchingManifest(
-                                createTableScan().snapshot().dataManifests(icebergTable.io()),
-                                icebergTable.specs(),
-                                createTableScan().filter()).iterator()) {
-                    int cnt = 0;
-                    while (matchingManifest.hasNext()) {
-                        ManifestFile next = matchingManifest.next();
-                        cnt += next.addedFilesCount() + next.existingFilesCount();
-                        if (cnt >= sessionVariable.getNumFilesInBatchMode()) {
-                            isBatchMode = true;
-                            return true;
-                        }
+            try (CloseableIterator<ManifestFile> matchingManifest = IcebergUtils.getMatchingManifest(
+                    createTableScan().snapshot().dataManifests(icebergTable.io()), icebergTable.specs(),
+                    createTableScan().filter()).iterator()) {
+                int cnt = 0;
+                while (matchingManifest.hasNext()) {
+                    ManifestFile next = matchingManifest.next();
+                    cnt += next.addedFilesCount() + next.existingFilesCount();
+                    if (cnt >= sessionVariable.getNumFilesInBatchMode()) {
+                        isBatchMode = true;
+                        return true;
                     }
                 }
-                isBatchMode = false;
-                return false;
-            });
+            }
+            isBatchMode = false;
+            return false;
         } catch (Exception e) {
             Optional<NotSupportedException> opt = checkNotSupportedException(e);
             if (opt.isPresent()) {
