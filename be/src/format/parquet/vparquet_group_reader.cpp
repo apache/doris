@@ -162,8 +162,9 @@ RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
           _filter_column_ids(filter_column_ids) {}
 
 RowGroupReader::~RowGroupReader() {
-    _column_readers.clear();
-    _obj_pool->clear();
+    if (_obj_pool != nullptr) {
+        _obj_pool->clear();
+    }
 }
 
 Status RowGroupReader::init(
