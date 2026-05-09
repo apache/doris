@@ -660,8 +660,7 @@ public class NestedColumnPruning implements CustomRewriter {
                         children.values().iterator().next().pruneCastType(
                                 origin.children.values().iterator().next(),
                                 cast.children.values().iterator().next()
-                        ),
-                        ((ArrayType) cast.type).containsNull()
+                        )
                 );
             } else if (type instanceof MapType) {
                 return MapType.of(
@@ -874,7 +873,7 @@ public class NestedColumnPruning implements CustomRewriter {
                 }
                 return new StructType(newFields);
             } else if (dataType instanceof ArrayType) {
-                return ArrayType.of(newChildrenTypes.get(0).second, ((ArrayType) dataType).containsNull());
+                return ArrayType.of(newChildrenTypes.get(0).second);
             } else if (dataType instanceof MapType) {
                 return MapType.of(newChildrenTypes.get(0).second, newChildrenTypes.get(1).second);
             } else {

@@ -48,7 +48,13 @@ namespace ErrorCodes {
 extern const int NUMBER_OF_ARGUMENTS_DOESNT_MATCH;
 }
 
-DataTypeArray::DataTypeArray(const DataTypePtr& nested_) : nested {nested_} {}
+DataTypeArray::DataTypeArray(const DataTypePtr& nested_) {
+    DataTypePtr nullable_nested = make_nullable(nested_);
+    auto nested_type = std::dynamic_pointer_cast<const DataTypeNullable>(nullable_nested);
+    DORIS_CHECK(nested_type != nullptr);
+    nested = std::move(nested_type);
+    nested_as_base = nested;
+}
 
 MutableColumnPtr DataTypeArray::create_column() const {
     return ColumnArray::create(nested->create_column(), ColumnArray::ColumnOffsets::create());
@@ -66,9 +72,10 @@ bool DataTypeArray::equals(const IDataType& rhs) const {
 
 // here we should remove nullable, otherwise here always be 1
 size_t DataTypeArray::get_number_of_dimensions() const {
-    const DataTypeArray* nested_array =
-            typeid_cast<const DataTypeArray*>(remove_nullable(nested).get());
-    if (!nested_array) return 1;
+    auto* nested_array = typeid_cast<const DataTypeArray*>(remove_nullable(nested).get());
+    if (!nested_array) {
+        return 1;
+    }
     return 1 +
            nested_array
                    ->get_number_of_dimensions(); /// Every modern C++ compiler optimizes tail recursion.
@@ -127,7 +134,7 @@ const char* DataTypeArray::deserialize(const char* buf, MutableColumnPtr* column
 
 void DataTypeArray::to_pb_column_meta(PColumnMeta* col_meta) const {
     IDataType::to_pb_column_meta(col_meta);
-    auto children = col_meta->add_children();
+    auto* children = col_meta->add_children();
     get_nested_type()->to_pb_column_meta(children);
 }
 
