@@ -229,9 +229,12 @@ public class AddMinMax implements ExpressionPatternRuleFactory, ValueDescVisitor
         expressions.add(expr);
         while (!expressions.isEmpty()) {
             Expression current = expressions.removeLast();
+            if (ExpressionUtils.isInferred(current)) {
+                continue;
+            }
             if (current instanceof CompoundPredicate) {
                 expressions.addAll(current.children());
-            } else if (!current.isInferred()) {
+            } else {
                 predicates.add(current);
             }
         }

@@ -393,7 +393,7 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    void testAddMinMaxKeepsReplacedUserPredicateNonInferred() {
+    void testAddMinMaxMarksOriginalAndInferredBoundaryPredicates() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 bottomUp(
                         AddMinMax.INSTANCE
@@ -412,6 +412,14 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
                 .anyMatch(conjunct -> conjunct.equals(lowerPredicate) && !conjunct.isInferred()));
         Assertions.assertTrue(rewrittenConjuncts.stream()
                 .anyMatch(conjunct -> conjunct.equals(upperPredicate) && !conjunct.isInferred()));
+
+        Expression inferredExpression = expression.withInferred(true);
+        rewrittenExpression = executor.rewrite(inferredExpression, context);
+        rewrittenConjuncts = ExpressionUtils.extractConjunction(rewrittenExpression);
+        Assertions.assertTrue(rewrittenConjuncts.stream()
+                .anyMatch(conjunct -> conjunct.equals(lowerPredicate) && conjunct.isInferred()));
+        Assertions.assertTrue(rewrittenConjuncts.stream()
+                .anyMatch(conjunct -> conjunct.equals(upperPredicate) && conjunct.isInferred()));
     }
 
     @Test

@@ -294,23 +294,22 @@ public class Predicates {
         if (compensationCandidates == null) {
             return null;
         }
+        Expression combinedCompensationCandidates = buildCombinedPredicate(
+                compensationCandidates.getEquals().keySet(),
+                compensationCandidates.getRanges().keySet(),
+                compensationCandidates.getResiduals().keySet());
+
         Set<Expression> queryBasedViewResidualPredicates = collectNonInferredQueryBasedExpressions(
                 viewStructInfo.getSplitPredicate().getResidualPredicateMap().keySet(), viewToQuerySlotMapping);
-        return compensateCandidatesByViewResidual(queryBasedViewResidualPredicates, compensationCandidates);
-    }
+        Expression combinedQueryBasedViewResidual = buildCombinedPredicate(queryBasedViewResidualPredicates);
+        if (BooleanLiteral.TRUE.equals(combinedQueryBasedViewResidual)) {
+            // The target residual is TRUE, so implication always holds and DNF expansion is unnecessary.
+            return compensationCandidates;
+        }
 
-    private static PredicateCompensation compensateCandidatesByViewResidual(
-            Set<Expression> queryBasedViewResidualPredicates,
-            PredicateCompensation compensationCandidates) {
         try {
-            Expression combinedCompensationCandidates = buildCombinedPredicate(
-                    compensationCandidates.getEquals().keySet(),
-                    compensationCandidates.getRanges().keySet(),
-                    compensationCandidates.getResiduals().keySet());
-            Expression combinedQueryBasedViewResidual = buildCombinedPredicate(queryBasedViewResidualPredicates);
-
             // The compensation must not widen the view result:
-            // compensationCandidates => queryBasedViewResidual.
+            // compensationCandidates => combinedQueryBasedViewResidual.
             if (!impliesByDnf(combinedCompensationCandidates, combinedQueryBasedViewResidual)) {
                 return null;
             }

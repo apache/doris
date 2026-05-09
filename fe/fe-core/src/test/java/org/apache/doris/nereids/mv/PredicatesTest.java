@@ -248,17 +248,7 @@ public class PredicatesTest extends SqlTestBase {
 
     @Test
     public void testCompensateCandidatesByViewResidualReturnsNullWhenDnfBranchesOverflow() {
-        String overflowResidual = "(id = 1 or score = 101)"
-                + " and (id = 2 or score = 102)"
-                + " and (id = 3 or score = 103)"
-                + " and (id = 4 or score = 104)"
-                + " and (id = 5 or score = 105)"
-                + " and (id = 6 or score = 106)"
-                + " and (id = 7 or score = 107)"
-                + " and (id = 8 or score = 108)"
-                + " and (id = 9 or score = 109)"
-                + " and (id = 10 or score = 110)"
-                + " and (id = 11 or score = 111)";
+        String overflowResidual = buildDnfOverflowResidual();
         String sql = "select id, score from T1 where " + overflowResidual;
         PredicateRewriteContext rewriteContext = buildRewriteContext(sql, sql);
 
@@ -286,6 +276,43 @@ public class PredicatesTest extends SqlTestBase {
         PredicateCompensation finalPredicateCompensation = compensatePredicates(rewriteContext);
         // DNF branches exceed the guard threshold, so implication falls back conservatively.
         Assertions.assertNull(finalPredicateCompensation);
+    }
+
+    @Test
+    public void testCompensateCandidatesByViewResidualSkipsDnfWhenViewResidualEmpty() {
+        String overflowResidual = buildDnfOverflowResidual();
+        PredicateRewriteContext rewriteContext = buildRewriteContext(
+                "select id, score from T1",
+                "select id, score from T1 where " + overflowResidual);
+
+        PredicateCompensation compensationCandidates = Predicates.collectCompensationCandidates(
+                rewriteContext.queryStructInfo,
+                rewriteContext.viewStructInfo,
+                rewriteContext.viewToQuerySlotMapping,
+                rewriteContext.comparisonResult,
+                rewriteContext.queryContext);
+        Assertions.assertNotNull(compensationCandidates);
+        Assertions.assertEquals(11, compensationCandidates.getResiduals().size());
+
+        PredicateCompensation finalPredicateCompensation = compensatePredicates(rewriteContext);
+        Assertions.assertNotNull(finalPredicateCompensation);
+        Assertions.assertEquals(compensationCandidates.getEquals(), finalPredicateCompensation.getEquals());
+        Assertions.assertEquals(compensationCandidates.getRanges(), finalPredicateCompensation.getRanges());
+        Assertions.assertEquals(compensationCandidates.getResiduals(), finalPredicateCompensation.getResiduals());
+    }
+
+    private String buildDnfOverflowResidual() {
+        return "(id = 1 or score = 101)"
+                + " and (id = 2 or score = 102)"
+                + " and (id = 3 or score = 103)"
+                + " and (id = 4 or score = 104)"
+                + " and (id = 5 or score = 105)"
+                + " and (id = 6 or score = 106)"
+                + " and (id = 7 or score = 107)"
+                + " and (id = 8 or score = 108)"
+                + " and (id = 9 or score = 109)"
+                + " and (id = 10 or score = 110)"
+                + " and (id = 11 or score = 111)";
     }
 
     private PredicateRewriteContext buildRewriteContext(String viewSql, String querySql) {
