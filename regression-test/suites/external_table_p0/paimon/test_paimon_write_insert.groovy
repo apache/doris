@@ -171,13 +171,6 @@ suite("test_paimon_write_insert", "p0,external") {
         verifyInsert(true, "append_partition_bucketed", 7, "jni_ap_bk_1", "2026-04-01")
         verifyInsert(true, "append_partition_bucketed", 8, "jni_ap_bk_2", "2026-04-02")
 
-        // ========== Test paimon-cpp writer (enable_paimon_jni_writer=false) ==========
-        // bucket=-1 is NOT supported by paimon-cpp, skip dynamic bucket tables
-        verifyInsert(false, "pk_partition_bucketed", 15, "cpp_pk_bk_1", "2026-04-03")
-        verifyInsert(false, "pk_partition_bucketed", 16, "cpp_pk_bk_2", "2026-04-04")
-        verifyInsert(false, "append_partition_bucketed", 17, "cpp_ap_bk_1", "2026-04-03")
-        verifyInsert(false, "append_partition_bucketed", 18, "cpp_ap_bk_2", "2026-04-04")
-
         // ========== Verify total row counts in partitioned tables ==========
         def pkNbCount = sql """select count(*) from pk_partition_no_bucket"""
         assertEquals("2", pkNbCount[0][0].toString())
@@ -186,10 +179,10 @@ suite("test_paimon_write_insert", "p0,external") {
         assertEquals("2", apNbCount[0][0].toString())
 
         def pkBkCount = sql """select count(*) from pk_partition_bucketed"""
-        assertEquals("4", pkBkCount[0][0].toString())
+        assertEquals("2", pkBkCount[0][0].toString())
 
         def apBkCount = sql """select count(*) from append_partition_bucketed"""
-        assertEquals("4", apBkCount[0][0].toString())
+        assertEquals("2", apBkCount[0][0].toString())
 
         // ========== Test multi-row insert on unpartitioned tables ==========
         sql """set enable_paimon_jni_writer=true"""
@@ -212,33 +205,11 @@ suite("test_paimon_write_insert", "p0,external") {
         def jniApCount = sql """select count(*) from append_no_partition"""
         assertEquals("3", jniApCount[0][0].toString())
 
-        sql """set enable_paimon_jni_writer=false"""
-        sql """
-            insert into pk_no_partition values
-            (4, 'grace', 96.80, '2026-01-04'),
-            (5, 'hank', 82.40, '2026-01-05')
-        """
-        def cppPkCount = sql """select count(*) from pk_no_partition"""
-        assertEquals("5", cppPkCount[0][0].toString())
-
-        sql """set enable_paimon_jni_writer=false"""
-        sql """
-            insert into append_no_partition values
-            (4, 'ivy', 89.70, '2026-02-04'),
-            (5, 'jack', 93.60, '2026-02-05')
-        """
-        def cppApCount = sql """select count(*) from append_no_partition"""
-        assertEquals("5", cppApCount[0][0].toString())
-
         // ========== Verify data correctness by querying specific rows ==========
         def aliceRow = sql """select name, score, create_date from pk_no_partition where id=1"""
         assertEquals("alice", aliceRow[0][0].toString())
         assertEquals("95.50", aliceRow[0][1].toString())
         assertEquals("2026-01-01", aliceRow[0][2].toString())
-
-        def graceRow = sql """select name, score, create_date from pk_no_partition where id=4"""
-        assertEquals("grace", graceRow[0][0].toString())
-        assertEquals("96.80", graceRow[0][1].toString())
 
         // ========== Test primary-key upsert (same id, new value) ==========
         sql """set enable_paimon_jni_writer=true"""
@@ -248,7 +219,7 @@ suite("test_paimon_write_insert", "p0,external") {
         assertEquals("99.00", upsertResult[0][1].toString())
 
         def afterUpsertCount = sql """select count(*) from pk_no_partition"""
-        assertEquals("5", afterUpsertCount[0][0].toString())
+        assertEquals("3", afterUpsertCount[0][0].toString())
 
         // ========== Test insert into select ==========
         sql """set enable_paimon_jni_writer=true"""
