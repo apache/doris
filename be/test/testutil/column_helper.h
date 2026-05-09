@@ -127,14 +127,15 @@ public:
         return block;
     }
 
-    template <typename DataType>
-    static Block create_block(const std::vector<typename DataType::FieldType>& data1,
-                              const std::vector<typename DataType::FieldType>& data2) {
-        auto column1 = create_column<DataType>(data1);
-        auto column2 = create_column<DataType>(data2);
-        auto data_type = std::make_shared<DataType>();
-        Block block({ColumnWithTypeAndName(column1, data_type, "column1"),
-                     ColumnWithTypeAndName(column2, data_type, "column2")});
+    template <typename DataType1, typename DataType2 = DataType1>
+    static Block create_block(const std::vector<typename DataType1::FieldType>& data1,
+                              const std::vector<typename DataType2::FieldType>& data2) {
+        auto column1 = create_column<DataType1>(data1);
+        auto column2 = create_column<DataType2>(data2);
+        auto data_type1 = std::make_shared<DataType1>();
+        auto data_type2 = std::make_shared<DataType2>();
+        Block block({ColumnWithTypeAndName(column1, data_type1, "column1"),
+                     ColumnWithTypeAndName(column2, data_type2, "column2")});
         return block;
     }
 

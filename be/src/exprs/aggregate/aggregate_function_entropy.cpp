@@ -1,0 +1,65 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+// This file is copied from
+// https://github.com/ClickHouse/ClickHouse/blob/master/src/AggregateFunctions/AggregateFunctionEntropy.cpp
+// and modified by Doris
+
+#include "exprs/aggregate/aggregate_function_entropy.h"
+
+#include "core/data_type/define_primitive_type.h"
+#include "exprs/aggregate/aggregate_function_simple_factory.h"
+#include "exprs/aggregate/helpers.h"
+
+namespace doris {
+#include "common/compile_check_begin.h"
+
+AggregateFunctionPtr create_aggregate_function_entropy(const std::string& name,
+                                                       const DataTypes& argument_types,
+                                                       const DataTypePtr& result_type,
+                                                       const bool result_is_nullable,
+                                                       const AggregateFunctionAttr& attr) {
+    if (argument_types.size() == 1) {
+        auto creator_numeric = creator_with_type_list<
+                TYPE_BOOLEAN, TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_LARGEINT,
+                TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I, TYPE_DECIMAL256, TYPE_DECIMALV2,
+                TYPE_FLOAT, TYPE_DOUBLE, TYPE_DATE, TYPE_DATETIME, TYPE_DATEV2, TYPE_DATETIMEV2,
+                TYPE_TIME, TYPE_TIMEV2, TYPE_TIMESTAMPTZ, TYPE_IPV4, TYPE_IPV6>::
+                create<AggregateFunctionEntropy, AggregateFunctionEntropySingleNumericData>(
+                        argument_types, result_is_nullable, attr);
+        if (creator_numeric) {
+            return creator_numeric;
+        }
+
+        auto creator_string = creator_with_type_list<TYPE_STRING, TYPE_VARCHAR, TYPE_CHAR,
+                                                     TYPE_VARBINARY, TYPE_JSONB>::
+                create<AggregateFunctionEntropy, AggregateFunctionEntropySingleStringData>(
+                        argument_types, result_is_nullable, attr);
+        if (creator_string) {
+            return creator_string;
+        }
+    }
+
+    return creator_without_type::create<
+            AggregateFunctionEntropy<AggregateFunctionEntropyGenericData>>(
+            argument_types, result_is_nullable, attr);
+}
+
+void register_aggregate_function_entropy(AggregateFunctionSimpleFactory& factory) {
+    factory.register_function_both("entropy", create_aggregate_function_entropy);
+}
+
+} // namespace doris
