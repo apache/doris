@@ -695,6 +695,11 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_fs(BlockFileCache* mgr
             context.expiration_time = expiration_time;
             for (; offset_it != std::filesystem::directory_iterator(); ++offset_it) {
                 size_t size = offset_it->file_size(ec);
+                if (ec) [[unlikely]] {
+                    LOG(WARNING) << "skip cache file, file_size failed, file="
+                                 << offset_it->path().native() << " err=" << ec.message();
+                    continue;
+                }
                 size_t offset = 0;
                 bool is_tmp = false;
                 FileCacheType cache_type = FileCacheType::NORMAL;

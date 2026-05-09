@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.util.TreeStringUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
@@ -252,6 +253,24 @@ public class Group {
             return lowestCostPlans.get(properties).second;
         }
         return null;
+    }
+
+    /**
+     * extract the best physical plan's corresponding logical plan
+     */
+    public Plan getBestLogicalPlan(GroupExpression groupExpression) {
+        List<Group> childrenGroups = groupExpression.children();
+        for (GroupExpression logicalExpression : logicalExpressions) {
+            if (childrenGroups.equals(logicalExpression.children())) {
+                return logicalExpression.getPlan();
+            }
+        }
+        if (groupExpression.getPlan() instanceof PhysicalDistribute
+                || groupExpression.getPlan() instanceof PhysicalQuickSort || logicalExpressions.isEmpty()) {
+            return null;
+        } else {
+            return getLogicalExpression().getPlan();
+        }
     }
 
     /**

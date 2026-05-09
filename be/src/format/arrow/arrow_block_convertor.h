@@ -19,6 +19,7 @@
 
 #include <cctz/time_zone.h>
 
+#include <cstdint>
 #include <memory>
 
 #include "common/status.h"
@@ -115,6 +116,9 @@ Status convert_to_arrow_batch(const Block& block, const std::shared_ptr<arrow::S
                               arrow::MemoryPool* pool, std::shared_ptr<arrow::RecordBatch>* result,
                               const cctz::time_zone& timezone_obj, size_t start_row,
                               size_t end_row);
+
+Status make_zero_column_arrow_batch(const std::shared_ptr<arrow::Schema>& schema, int64_t rows,
+                                    std::shared_ptr<arrow::RecordBatch>* result);
 
 Status convert_from_arrow_batch(const std::shared_ptr<arrow::RecordBatch>& batch,
                                 const DataTypes& types, Block* block,

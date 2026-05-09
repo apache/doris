@@ -44,16 +44,6 @@ DataTypeMap::DataTypeMap(const DataTypePtr& key_type_, const DataTypePtr& value_
     value_type = value_type_;
 }
 
-Field DataTypeMap::get_default() const {
-    Map m;
-    Array key, val;
-    key.push_back(key_type->get_default());
-    val.push_back(value_type->get_default());
-    m.push_back(Field::create_field<TYPE_ARRAY>(key));
-    m.push_back(Field::create_field<TYPE_ARRAY>(val));
-    return Field::create_field<TYPE_MAP>(m);
-};
-
 MutableColumnPtr DataTypeMap::create_column() const {
     return ColumnMap::create(key_type->create_column(), value_type->create_column(),
                              ColumnArray::ColumnOffsets::create());

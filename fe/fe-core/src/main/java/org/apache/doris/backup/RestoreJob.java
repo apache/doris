@@ -767,6 +767,12 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             }
                         }
 
+                        st = remoteOlapTbl.checkPropertiesForRestore();
+                        if (!st.ok()) {
+                            status = st;
+                            return;
+                        }
+
                         checkStorageVault(localOlapTbl);
                         if (!status.ok()) {
                             return;
@@ -872,9 +878,15 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         }
                     }
 
+                    Status st = remoteOlapTbl.checkPropertiesForRestore();
+                    if (!st.ok()) {
+                        status = st;
+                        return;
+                    }
+
                     // reset all ids in this table
                     String srcDbName = jobInfo.dbName;
-                    Status st = remoteOlapTbl.resetIdsForRestore(env, db, replicaAlloc, reserveReplica,
+                    st = remoteOlapTbl.resetIdsForRestore(env, db, replicaAlloc, reserveReplica,
                             reserveColocate, colocatePersistInfos, srcDbName);
                     if (!st.ok()) {
                         status = st;

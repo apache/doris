@@ -17,10 +17,23 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.datasource.CatalogProperty;
+
+import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.SupportsNamespaces;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.catalog.ViewCatalog;
 import org.junit.Assert;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public class IcebergMetadataOpTest {
@@ -44,5 +57,61 @@ public class IcebergMetadataOpTest {
 
         ns = IcebergMetadataOps.getNamespace(Optional.empty(), "");
         Assert.assertEquals(0, ns.length());
+    }
+
+    @Test
+    public void testListTableNamesSkipsViewsWhenRestViewDisabled() {
+        IcebergRestExternalCatalog dorisCatalog = Mockito.mock(IcebergRestExternalCatalog.class);
+        Catalog icebergCatalog = Mockito.mock(Catalog.class,
+                Mockito.withSettings().extraInterfaces(SupportsNamespaces.class, ViewCatalog.class));
+
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "iceberg");
+        props.put("iceberg.catalog.type", "rest");
+        props.put("iceberg.rest.uri", "http://localhost:8181");
+        props.put("iceberg.rest.view-enabled", "false");
+
+        Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
+        });
+        Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.emptyMap());
+        Mockito.when(dorisCatalog.getCatalogProperty()).thenReturn(new CatalogProperty(null, props));
+
+        Namespace namespace = Namespace.of("PUBLIC");
+        TableIdentifier table = TableIdentifier.of(namespace, "DORIS_HORIZON_T");
+        Mockito.when(icebergCatalog.listTables(namespace)).thenReturn(Collections.singletonList(table));
+
+        IcebergMetadataOps ops = new IcebergMetadataOps(dorisCatalog, icebergCatalog);
+        List<String> tableNames = ops.listTableNames("PUBLIC");
+
+        Assert.assertEquals(Collections.singletonList("DORIS_HORIZON_T"), tableNames);
+        Mockito.verify((ViewCatalog) icebergCatalog, Mockito.never()).listViews(Mockito.any());
+    }
+
+    @Test
+    public void testListTableNamesFiltersViewsWhenRestViewEnabled() {
+        IcebergRestExternalCatalog dorisCatalog = Mockito.mock(IcebergRestExternalCatalog.class);
+        Catalog icebergCatalog = Mockito.mock(Catalog.class,
+                Mockito.withSettings().extraInterfaces(SupportsNamespaces.class, ViewCatalog.class));
+
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "iceberg");
+        props.put("iceberg.catalog.type", "rest");
+        props.put("iceberg.rest.uri", "http://localhost:8181");
+
+        Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
+        });
+        Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.emptyMap());
+        Mockito.when(dorisCatalog.getCatalogProperty()).thenReturn(new CatalogProperty(null, props));
+
+        Namespace namespace = Namespace.of("PUBLIC");
+        TableIdentifier table = TableIdentifier.of(namespace, "DORIS_HORIZON_T");
+        TableIdentifier view = TableIdentifier.of(namespace, "DORIS_HORIZON_V");
+        Mockito.when(icebergCatalog.listTables(namespace)).thenReturn(Arrays.asList(table, view));
+        Mockito.when(((ViewCatalog) icebergCatalog).listViews(namespace)).thenReturn(Collections.singletonList(view));
+
+        IcebergMetadataOps ops = new IcebergMetadataOps(dorisCatalog, icebergCatalog);
+        List<String> tableNames = ops.listTableNames("PUBLIC");
+
+        Assert.assertEquals(Collections.singletonList("DORIS_HORIZON_T"), tableNames);
     }
 }

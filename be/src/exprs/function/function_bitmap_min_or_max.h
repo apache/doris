@@ -57,8 +57,7 @@ public:
         ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
 
         execute_straight(assert_cast<const ColumnBitmap*>(argument_column.get()),
-                         assert_cast<ColumnInt64*>(result_column.get()),
-                         assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
+                         result_column.get(), result_null_map_column.get()->get_data(),
                          input_rows_count);
 
         block.get_by_position(result).column =

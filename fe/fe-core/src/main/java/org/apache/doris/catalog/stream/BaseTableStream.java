@@ -20,9 +20,10 @@ package org.apache.doris.catalog.stream;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TRow;
 
@@ -104,7 +105,7 @@ public abstract class BaseTableStream extends Table {
         return baseTable;
     }
 
-    public void setProperties(Map<String, String> properties) throws AnalysisException {
+    public void setProperties(Map<String, String> properties) throws org.apache.doris.common.AnalysisException {
         showInitialRows = PropertyAnalyzer.analyzeBooleanProp(properties,
                 PropertyAnalyzer.PROPERTIES_STREAM_SHOW_INITIAL_ROWS,
                 false);
@@ -163,4 +164,27 @@ public abstract class BaseTableStream extends Table {
     // @param dataBatch the data batch to fill
     // DB_NAME, STREAM_NAME, STREAM_ID, UNIT, CONSUMPTION_STATUS, LAG, LAST_CONSUMPTION_TIME
     abstract void fillTableStreamConsumptionInfo(List<TRow> dataBatch);
+
+    public <E extends Exception> TableIf getBaseTableOrException(java.util.function.Function<String, E> e)
+            throws E {
+        TableIf table = getBaseTableNullable();
+        if (table == null) {
+            throw e.apply(streamTableInfo.getTableName());
+        }
+        return table;
+    }
+
+    public TableIf getBaseTableOrNereidsAnalysisException() throws AnalysisException {
+        return getBaseTableOrException(
+                t -> new AnalysisException(String.format("Unknown base table '%s'", t)));
+    }
+
+    public List<String> getBaseTableFullQualifiers() {
+        return streamTableInfo.getFullQualifiers();
+    }
+
+    public abstract void unprotectedCheckStreamUpdate(AbstractTableStreamUpdate update)
+            throws UserException;
+
+    public abstract void unprotectedUpdateStreamUpdate(AbstractTableStreamUpdate update, Long ts);
 }

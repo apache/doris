@@ -63,7 +63,7 @@ public class ScannerLoader {
             }
 
             // Point log4j2 to our configuration file in classpath
-            System.setProperty("log4j2.configurationFile", "log4j2.xml");
+            System.setProperty("log4j2.configurationFile", "log4j2.properties");
 
             // Disable log4j2's shutdown hook to prevent premature shutdown in JNI environment
             System.setProperty("log4j.shutdownHookEnabled", "false");

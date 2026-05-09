@@ -18,11 +18,11 @@
 #pragma once
 
 #include <cstdint>
-#include <mutex>
 #include <set>
 #include <string>
 
 #include "common/status.h"
+#include "common/thread_safety_annotations.h"
 #include "core/field.h"
 #include "exec/common/util.hpp"
 #include "exec/operator/operator.h"
@@ -125,7 +125,7 @@ protected:
     RuntimeProfile::Counter* _scan_rows = nullptr;
     RuntimeProfile::Counter* _scan_bytes = nullptr;
 
-    std::mutex _conjuncts_lock;
+    AnnotatedMutex _conjuncts_lock;
     RuntimeFilterConsumerHelper _helper;
     // magic number as seed to generate hash value for condition cache
     uint64_t _condition_cache_digest = 0;

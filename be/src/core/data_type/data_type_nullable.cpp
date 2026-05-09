@@ -142,10 +142,6 @@ Status DataTypeNullable::check_column(const IColumn& column) const {
     return nested_data_type->check_column(column_nullable->get_nested_column());
 }
 
-Field DataTypeNullable::get_default() const {
-    return Field();
-}
-
 bool DataTypeNullable::equals(const IDataType& rhs) const {
     return rhs.is_nullable() &&
            nested_data_type->equals(*static_cast<const DataTypeNullable&>(rhs).nested_data_type);

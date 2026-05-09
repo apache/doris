@@ -160,15 +160,13 @@ public:
             std::tie(argument_columns[1], is_consts[1]) =
                     unpack_if_const(block.get_by_position(arguments[1]).column);
             execute_for_two_argument<ColVecData, T>(argument_columns, is_consts,
-                                                    assert_cast<ColumnString*>(result_column.get()),
-                                                    input_rows_count);
+                                                    result_column.get(), input_rows_count);
         } else {
             for (size_t i = 0; i < argument_size; ++i) {
                 argument_columns[i] = block.get_by_position(arguments[i])
                                               .column->convert_to_full_column_if_const();
             }
-            execute_for_others_arg<ColVecData, T>(argument_columns,
-                                                  assert_cast<ColumnString*>(result_column.get()),
+            execute_for_others_arg<ColVecData, T>(argument_columns, result_column.get(),
                                                   argument_size, input_rows_count);
         }
 

@@ -1178,7 +1178,9 @@ bool VariantColumnWriterImpl::_can_use_nested_group_streaming_compaction() const
 }
 
 Status VariantColumnWriterImpl::init() {
-    if (_can_use_nested_group_streaming_compaction()) {
+    const bool can_use_streaming = _can_use_nested_group_streaming_compaction();
+
+    if (can_use_streaming) {
         _streaming_compaction_writer = std::make_unique<VariantStreamingCompactionWriter>(
                 _opts, _tablet_column, _nested_group_provider.get(), &_statistics);
         return _streaming_compaction_writer->init();
