@@ -25,11 +25,13 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.expression.rules.PartitionPrunablePredicate;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionPruneResult;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionTableType;
@@ -40,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -47,6 +50,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -92,12 +96,32 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
                         }
                         if (rewrittenLogicalRelation instanceof LogicalEmptyRelation) {
                             return rewrittenLogicalRelation;
-                        } else {
-                            return PartitionPruner.prunePredicate(
-                                    ctx.connectContext.getSessionVariable().skipPrunePredicate
-                                            || ctx.statementContext.isDelete(),
-                                    prunedRes.second, filter, rewrittenLogicalRelation);
                         }
+                        boolean skipPrunePredicate = ctx.connectContext.getSessionVariable().skipPrunePredicate
+                                || ctx.statementContext.isDelete();
+                        if (!skipPrunePredicate && prunedRes.second.isPresent()) {
+                            // Defer the predicate removal to PlanPostProcessor so that materialized-view
+                            // rewrite still sees the original predicates. Otherwise, partition predicates
+                            // that are equivalent to the surviving partition list would be silently
+                            // dropped, leading to wrong results when an MV definition predicate matches
+                            // the remaining conjuncts.
+                            LogicalOlapScan prunedScan = (LogicalOlapScan) rewrittenLogicalRelation;
+                            Set<Expression> prunableConjuncts = ExpressionUtils.extractConjunctionToSet(
+                                    prunedRes.second.get());
+                            List<Slot> partitionSlots = getPartitionSlots(prunedScan, prunedScan.getTable());
+                            if (partitionSlots != null) {
+                                TableIdentifier tableIdentifier = new TableIdentifier(prunedScan.getTable());
+                                PartitionPrunablePredicate entry = new PartitionPrunablePredicate(
+                                        tableIdentifier,
+                                        new HashSet<>(prunedScan.getSelectedPartitionIds()),
+                                        partitionSlots,
+                                        prunableConjuncts);
+                                ctx.statementContext.getPartitionPrunablePredicates()
+                                        .computeIfAbsent(tableIdentifier, k -> new HashSet<>())
+                                        .add(entry);
+                            }
+                        }
+                        return filter.withChildren(ImmutableList.of(rewrittenLogicalRelation));
                     }).toRule(RuleType.OLAP_SCAN_PARTITION_PRUNE)
         );
     }

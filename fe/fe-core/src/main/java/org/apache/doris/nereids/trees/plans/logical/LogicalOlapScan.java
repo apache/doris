@@ -334,7 +334,13 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
 
     @Override
     public String toString() {
+        String partitions = "";
+        int partitionCount = this.table.getPartitionNames().size();
+        if (selectedPartitionIds.size() != partitionCount) {
+            partitions = " partitions(" + selectedPartitionIds.size() + "/" + partitionCount + ")";
+        }
         return Utils.toSqlStringSkipNull("LogicalOlapScan[" + id.asInt() + "]",
+                "partitions", partitions,
                 "qualified", qualifiedName(),
                 "alias", tableAlias,
                 "indexName", getSelectedMaterializedIndexName().orElse("<index_not_selected>"),
