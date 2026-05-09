@@ -172,22 +172,24 @@ Status JniConnector::close() {
             COUNTER_UPDATE(_fill_block_time, _fill_block_watcher);
 
             RETURN_ERROR_IF_EXC(env);
-            int64_t _append = 0;
+            jlong _append = 0;
             RETURN_IF_ERROR(
                     _jni_scanner_obj.call_long_method(env, _jni_scanner_get_append_data_time)
                             .call(&_append));
 
-            COUNTER_UPDATE(_java_append_data_time, _append);
+            COUNTER_UPDATE(_java_append_data_time, static_cast<int64_t>(_append));
 
-            int64_t _create = 0;
+            jlong _create = 0;
             RETURN_IF_ERROR(
                     _jni_scanner_obj
                             .call_long_method(env, _jni_scanner_get_create_vector_table_time)
                             .call(&_create));
 
-            COUNTER_UPDATE(_java_create_vector_table_time, _create);
+            COUNTER_UPDATE(_java_create_vector_table_time, static_cast<int64_t>(_create));
 
-            COUNTER_UPDATE(_java_scan_time, _java_scan_watcher - _append - _create);
+            COUNTER_UPDATE(_java_scan_time,
+                           _java_scan_watcher - static_cast<int64_t>(_append) -
+                                   static_cast<int64_t>(_create));
 
             _max_time_split_weight_counter->conditional_update(
                     _jni_scanner_open_watcher + _fill_block_watcher + _java_scan_watcher,

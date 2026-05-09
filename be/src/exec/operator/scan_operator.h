@@ -317,7 +317,7 @@ protected:
     VExprContextSPtrs _stale_expr_ctxs;
     VExprContextSPtrs _common_expr_ctxs_push_down;
 
-    atomic_shared_ptr<ScannerContext> _scanner_ctx = nullptr;
+    atomic_shared_ptr<ScannerContext> _scanner_ctx;
 
     // colname -> cast dst type
     std::map<std::string, DataTypePtr> _cast_types_for_variants;

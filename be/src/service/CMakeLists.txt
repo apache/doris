@@ -41,6 +41,19 @@ if (${MAKE_TEST} STREQUAL "OFF" AND ${BUILD_BENCHMARK} STREQUAL "OFF")
     # This permits libraries loaded by dlopen to link to the symbols in the program.
     set_target_properties(doris_be PROPERTIES ENABLE_EXPORTS 1)
 
+    if (OS_MACOSX)
+        get_filename_component(CXX_COMPILER_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
+        get_filename_component(CXX_COMPILER_PREFIX "${CXX_COMPILER_DIR}" DIRECTORY)
+        set(CXX_RUNTIME_DIR "${CXX_COMPILER_PREFIX}/lib/c++")
+        if (EXISTS "${CXX_RUNTIME_DIR}/libc++.dylib"
+                AND EXISTS "${CXX_RUNTIME_DIR}/libc++abi.dylib")
+            target_link_options(doris_be PRIVATE "-Wl,-rpath,${CXX_RUNTIME_DIR}")
+            target_link_libraries(doris_be
+                "${CXX_RUNTIME_DIR}/libc++.dylib"
+                "${CXX_RUNTIME_DIR}/libc++abi.dylib")
+        endif()
+    endif()
+
     target_link_libraries(doris_be
         ${DORIS_LINK_LIBS}
     )

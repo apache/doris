@@ -94,7 +94,11 @@ Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
             LOG_ERROR("").tag("file cache path", cache_base_path).tag("error", strerror(errno));
             return Status::IOError("{} statfs error {}", cache_base_path, strerror(errno));
         }
+#if defined(__APPLE__)
+        const auto block_size = stat.f_bsize;
+#else
         const auto block_size = stat.f_frsize ? stat.f_frsize : stat.f_bsize;
+#endif
         size_t disk_capacity = static_cast<size_t>(static_cast<size_t>(stat.f_blocks) *
                                                    static_cast<size_t>(block_size));
         if (file_cache_settings.capacity == 0 || disk_capacity < file_cache_settings.capacity) {
@@ -289,7 +293,11 @@ std::string validate_capacity(const std::string& path, int64_t new_capacity,
         valid_capacity = 0; // caller will handle the error
         return ret;
     }
+#if defined(__APPLE__)
+    const auto block_size = stat.f_bsize;
+#else
     const auto block_size = stat.f_frsize ? stat.f_frsize : stat.f_bsize;
+#endif
     size_t disk_capacity = static_cast<size_t>(static_cast<size_t>(stat.f_blocks) *
                                                static_cast<size_t>(block_size));
     if (new_capacity == 0 || disk_capacity < new_capacity) {
