@@ -313,6 +313,7 @@ public:
 
 private:
     // Task-level progress counters for current query.
+    friend class QueryTaskController;
 
     int _timeout_second;
     TUniqueId _query_id;
