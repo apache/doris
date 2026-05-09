@@ -649,6 +649,7 @@ Status NestedLoopJoinProbeLocalState::_process_lazy_probe_build_block(Block* pro
 Status NestedLoopJoinProbeLocalState::_generate_lazy_block_base_probe(RuntimeState* state,
                                                                       Block* probe_block,
                                                                       bool ignore_null) {
+    auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
     while (_join_block.rows() < state->batch_size()) {
         while (_current_build_pos == _shared_state->build_blocks.size() ||
                _probe_block_pos == probe_block->rows()) {
@@ -670,6 +671,10 @@ Status NestedLoopJoinProbeLocalState::_generate_lazy_block_base_probe(RuntimeSta
         }
         RETURN_IF_ERROR(_process_lazy_probe_build_block(probe_block, build_block, build_block_idx,
                                                         ignore_null));
+        if (p._enable_lazy_mark_finalize &&
+            _cur_probe_row_mark_flags[_probe_block_pos] == MARK_TRUE) {
+            _current_build_pos = _shared_state->build_blocks.size();
+        }
     }
     return Status::OK();
 }
