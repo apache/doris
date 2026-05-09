@@ -32,7 +32,9 @@ suite("test_ivm_complete_refresh_rowid", "mtmv") {
         DUPLICATE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 1
         PROPERTIES (
-            "replication_num" = "1"
+            "replication_num" = "1",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW"
         );
     """
 

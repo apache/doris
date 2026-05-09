@@ -50,7 +50,8 @@ public class ShowCreateMTMVTest extends SqlTestBase {
                 + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
                 + "PROPERTIES (\n"
                 + "  \"replication_num\" = \"1\",\n"
-                + "  \"binlog.enable\" = \"true\"\n"
+                + "  \"binlog.enable\" = \"true\",\n"
+                + "  \"binlog.format\" = \"ROW\"\n"
                 + ")\n");
     }
 

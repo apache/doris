@@ -166,8 +166,8 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
     @Override
     public Plan visitLogicalOlapScan(LogicalOlapScan scan, Boolean isFirstNonSink) {
         OlapTable table = scan.getTable();
-        validateBinlogEnabled(table);
         Pair<Expression, Boolean> rowId = buildRowId(table, scan);
+        validateBinlogEnabled(table);
         Alias rowIdAlias = new Alias(rowId.first, Column.IVM_ROW_ID_COL);
         normalizeResult.addRowId(rowIdAlias.toSlot(), rowId.second);
         List<NamedExpression> outputs = ImmutableList.<NamedExpression>builder()
@@ -670,10 +670,11 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
         if (isExcludedTriggerTable(table)) {
             return;
         }
-        if (!table.getBinlogConfig().isEnable()) {
+        if (!table.getBinlogConfig().isEnableForStreaming()) {
             throw new IvmException(IvmFailureReason.BINLOG_NOT_ENABLED,
-                    "SQL can be incrementally refreshed, but binlog is not enabled for table: "
-                            + table.getName());
+                    "SQL can be incrementally refreshed, but row binlog is not enabled for table: "
+                            + table.getName()
+                            + ". Please set 'binlog.enable' = 'true' and 'binlog.format' = 'ROW'.");
         }
     }
 

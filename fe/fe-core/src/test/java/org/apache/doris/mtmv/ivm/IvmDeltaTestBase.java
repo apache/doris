@@ -18,6 +18,7 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
@@ -79,7 +80,7 @@ abstract class IvmDeltaTestBase {
 
     protected LogicalOlapScan buildScan() {
         OlapTable table = PlanConstructor.newOlapTable(0, "t1", 0);
-        table.getBinlogConfig().setEnable(true);
+        enableRowBinlog(table);
         table.setQualifiedDbName("test_db");
         LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,
                 ImmutableList.of("test_db"));
@@ -89,7 +90,7 @@ abstract class IvmDeltaTestBase {
     /** Builds a scan with isDelta=false for the given table id and name (for delta plan generator tests). */
     protected LogicalOlapScan buildScanForTable(long tableId, String tableName) {
         OlapTable table = PlanConstructor.newOlapTable(tableId, tableName, 0);
-        table.getBinlogConfig().setEnable(true);
+        enableRowBinlog(table);
         table.setQualifiedDbName("test_db");
         return new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,
                 ImmutableList.of("test_db"));
@@ -109,7 +110,7 @@ abstract class IvmDeltaTestBase {
                 new RandomDistributionInfo(3));
         table.setIndexMeta(-1, "t_op", table.getFullSchema(),
                 0, 0, (short) 0, TStorageType.COLUMN, KeysType.DUP_KEYS);
-        table.getBinlogConfig().setEnable(true);
+        enableRowBinlog(table);
         table.setQualifiedDbName("test_db");
         LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,
                 ImmutableList.of("test_db"));
@@ -242,6 +243,11 @@ abstract class IvmDeltaTestBase {
         Alias minAlias = new Alias(new Min(nameSlot), "mn");
         return new LogicalAggregate<>(ImmutableList.of(idSlot), ImmutableList.of(idSlot, minAlias),
                 true, Optional.empty(), scan);
+    }
+
+    protected void enableRowBinlog(OlapTable table) {
+        table.getBinlogConfig().setEnable(true);
+        table.getBinlogConfig().setBinlogFormat(BinlogConfig.BinlogFormat.ROW);
     }
 
     /** Scalar MIN — no group-by keys. */
