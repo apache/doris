@@ -318,12 +318,21 @@ ObjectStorageResponse S3ObjStorageClient::get_object(const ObjectStoragePathOpti
                                                      size_t* size_return) {
     Aws::S3::Model::GetObjectRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
-    request.SetRange(fmt::format("bytes={}-{}", offset, offset + bytes_read - 1));
+    auto range = fmt::format("bytes={}-{}", offset, offset + bytes_read - 1);
+    request.SetRange(range);
     request.SetResponseStreamFactory(AwsWriteableStreamFactory(buffer, bytes_read));
 
     SCOPED_BVAR_LATENCY(s3_bvar::s3_get_latency);
     auto outcome = s3_get_rate_limit([&]() { return _client->GetObject(request); });
     if (!outcome.IsSuccess()) {
+        LOG(WARNING) << "S3_GET_FAIL"
+                     << " bucket=" << opts.bucket << " key=" << opts.key << " range=" << range
+                     << " expected_nbytes=" << bytes_read
+                     << " response_code=" << static_cast<int>(outcome.GetError().GetResponseCode())
+                     << " exception_name=" << outcome.GetError().GetExceptionName()
+                     << " error_type=" << static_cast<int>(outcome.GetError().GetErrorType())
+                     << " message=" << outcome.GetError().GetMessage()
+                     << " request_id=" << outcome.GetError().GetRequestId();
         return {convert_to_obj_response(s3fs_error(
                         outcome.GetError(), fmt::format("failed to read from {}", opts.key))),
                 static_cast<int>(outcome.GetError().GetResponseCode()),
@@ -333,6 +342,11 @@ ObjectStorageResponse S3ObjStorageClient::get_object(const ObjectStoragePathOpti
     // case for incomplete read
     SYNC_POINT_CALLBACK("s3_obj_storage_client::get_object", size_return);
     if (*size_return != bytes_read) {
+        LOG(WARNING) << "S3_GET_SIZE_MISMATCH"
+                     << " bucket=" << opts.bucket << " key=" << opts.key << " range=" << range
+                     << " expected_nbytes=" << bytes_read << " content_length=" << *size_return
+                     << " content_range=" << outcome.GetResult().GetContentRange()
+                     << " request_id=" << outcome.GetResult().GetRequestId();
         return {convert_to_obj_response(Status::InternalError(
                 "failed to read from {}(bytes read: {}, bytes req: {}), request_id: {}", opts.key,
                 *size_return, bytes_read, outcome.GetResult().GetRequestId()))};

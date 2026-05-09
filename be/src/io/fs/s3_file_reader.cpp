@@ -168,6 +168,12 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
         // clang-format on
         _s3_stats.total_get_request_counter++;
         if (resp.status.code != ErrorCode::OK) {
+            LOG(WARNING) << "S3_READ_FAIL"
+                         << " path=" << _path.native() << " key=" << _key << " offset=" << offset
+                         << " bytes_req=" << bytes_req << " bytes_read=" << *bytes_read
+                         << " file_size=" << _file_size << " http_code=" << resp.http_code
+                         << " request_id=" << resp.request_id << " status_code=" << resp.status.code
+                         << " status_msg=" << resp.status.msg;
             if (resp.http_code ==
                 static_cast<int>(Aws::Http::HttpResponseCode::TOO_MANY_REQUESTS)) {
                 s3_file_reader_too_many_request_counter << 1;
@@ -186,6 +192,10 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
             }
         }
         if (*bytes_read != bytes_req) {
+            LOG(WARNING) << "S3_READ_SIZE_MISMATCH"
+                         << " path=" << _path.native() << " key=" << _key << " offset=" << offset
+                         << " bytes_req=" << bytes_req << " bytes_read=" << *bytes_read
+                         << " file_size=" << _file_size;
             std::string msg = fmt::format(
                     "failed to get object, path={} offset={} bytes_req={} bytes_read={} "
                     "file_size={} tries={}",
