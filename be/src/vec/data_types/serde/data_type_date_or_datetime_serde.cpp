@@ -408,7 +408,15 @@ Status DataTypeDateSerDe<T>::from_olap_string(const std::string& str, Field& fie
     // Exception!
     if (!CastToDateOrDatetime::from_string_non_strict_mode<IsDatetime>(
                 StringRef(str), res, options.timezone, params)) [[unlikely]] {
-        return Status::InvalidArgument("parse date or datetime fail, string: '{}'", str);
+        // Keep the same datelike Field-parser convention as DateV2/DateTimeV2: invalid OLAP
+        // strings fall back to the type-specific minimum. VecDateTimeValue stores DateV1 and
+        // DateTimeV1 values, whose minimum valid date is FIRST_DAY.
+        res = VecDateTimeValue::FIRST_DAY;
+        if constexpr (IsDatetime) {
+            res.to_datetime();
+        } else {
+            res.cast_to_date();
+        }
     }
     field = Field::create_field<T>(std::move(res));
     return Status::OK();

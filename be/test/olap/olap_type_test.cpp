@@ -24,7 +24,11 @@
 #include "gtest/gtest_pred_impl.h"
 #include "olap/olap_common.h"
 #include "olap/types.h"
+#include "vec/core/field.h"
+#include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/serde/data_type_serde.h"
 #include "vec/functions/cast/cast_to_string.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 
@@ -38,6 +42,16 @@ public:
         test_data_dir = root_dir + "/be/test/data/olap";
     }
 };
+
+static void expect_from_olap_string_default(const vectorized::DataTypePtr& data_type,
+                                            const std::string& input,
+                                            const vectorized::Field& expected_field) {
+    vectorized::Field field;
+    vectorized::DataTypeSerDe::FormatOptions options;
+    auto status = data_type->get_serde()->from_olap_string(input, field, options);
+    ASSERT_TRUE(status.ok()) << data_type->get_name() << " failed: " << status.to_string();
+    EXPECT_EQ(field, expected_field) << data_type->get_name();
+}
 
 // deserialize float string serialized by old version of Doris
 TEST_F(OlapTypeTest, deser_float_old) {
@@ -575,5 +589,32 @@ TEST_F(OlapTypeTest, ser_deser_double) {
                 << ", deser double value: " << fmt::format("{:.17g}", deser_float_value)
                 << ", diff_ratio: " << fmt::format("{:.17g}", diff_ratio);
     }
+}
+
+TEST_F(OlapTypeTest, datelike_from_olap_string_parse_failure_defaults) {
+    const std::string invalid = "not-a-valid-datelike-value";
+
+    auto datev1_default = VecDateTimeValue::FIRST_DAY;
+    datev1_default.cast_to_date();
+    expect_from_olap_string_default(
+            vectorized::DataTypeFactory::instance().create_data_type(TYPE_DATE, false), invalid,
+            vectorized::Field::create_field<TYPE_DATE>(datev1_default));
+
+    auto datetimev1_default = VecDateTimeValue::FIRST_DAY;
+    datetimev1_default.to_datetime();
+    expect_from_olap_string_default(
+            vectorized::DataTypeFactory::instance().create_data_type(TYPE_DATETIME, false), invalid,
+            vectorized::Field::create_field<TYPE_DATETIME>(datetimev1_default));
+
+    expect_from_olap_string_default(
+            vectorized::DataTypeFactory::instance().create_data_type(TYPE_DATEV2, false), invalid,
+            vectorized::Field::create_field<TYPE_DATEV2>(
+                    DateV2Value<DateV2ValueType>(MIN_DATE_V2)));
+
+    expect_from_olap_string_default(
+            vectorized::DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false),
+            invalid,
+            vectorized::Field::create_field<TYPE_DATETIMEV2>(
+                    DateV2Value<DateTimeV2ValueType>(MIN_DATETIME_V2)));
 }
 } // namespace doris
