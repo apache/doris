@@ -153,9 +153,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
         }
         analyzeProperties();
         if (isAutoRefresh()) {
-            if (!analyzeAutoRefreshQuery(ctx)) {
-                analyzeQuery(ctx);
-            }
+            analyzeAutoRefreshQuery(ctx);
         } else {
             enableIvm = isExplicitIncremental();
             analyzeQuery(ctx);
@@ -197,19 +195,18 @@ public class CreateMTMVInfo extends CreateTableInfo {
         setTableInformation(ctx);
     }
 
-    private boolean analyzeAutoRefreshQuery(ConnectContext ctx) throws UserException {
+    private void analyzeAutoRefreshQuery(ConnectContext ctx) throws UserException {
         AnalyzeQueryState origin = AnalyzeQueryState.capture(this);
         try {
             enableIvm = true;
             analyzeQuery(ctx);
-            return true;
         } catch (IvmException e) {
             LOG.info("AUTO refresh materialized view {} fallback to non-IVM: {}",
                     tableNameInfo.getTbl(), e.getMessage());
             origin.restore(this);
             resetStatementContext(ctx);
             enableIvm = false;
-            return false;
+            analyzeQuery(ctx);
         }
     }
 

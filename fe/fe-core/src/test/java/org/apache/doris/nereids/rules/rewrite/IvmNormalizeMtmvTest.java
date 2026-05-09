@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.HashDistributionInfo;
@@ -341,6 +342,20 @@ class IvmNormalizeMtmvTest {
                         newJobContextForRoot(noBinlogScan, true, Collections.emptySet())));
         Assertions.assertEquals(IvmFailureReason.BINLOG_NOT_ENABLED, exception.getFailureReason());
         Assertions.assertTrue(exception.getMessage().contains("no_binlog"));
+    }
+
+    @Test
+    void testBaseTableWithCcrBinlogThrowsIvmException() {
+        OlapTable ccrBinlogTable = PlanConstructor.newOlapTable(17, "ccr_binlog", 0, KeysType.DUP_KEYS);
+        ccrBinlogTable.getBinlogConfig().setEnable(true);
+        LogicalOlapScan ccrBinlogScan = new LogicalOlapScan(
+                PlanConstructor.getNextRelationId(), ccrBinlogTable, ImmutableList.of("db"));
+
+        IvmException exception = Assertions.assertThrows(IvmException.class,
+                () -> new IvmNormalizeMtmv().rewriteRoot(ccrBinlogScan,
+                        newJobContextForRoot(ccrBinlogScan, true, Collections.emptySet())));
+        Assertions.assertEquals(IvmFailureReason.BINLOG_NOT_ENABLED, exception.getFailureReason());
+        Assertions.assertTrue(exception.getMessage().contains("row binlog is not enabled"));
     }
 
     @Test
@@ -823,5 +838,6 @@ class IvmNormalizeMtmvTest {
 
     private void enableBinlog(OlapTable table) {
         table.getBinlogConfig().setEnable(true);
+        table.getBinlogConfig().setBinlogFormat(BinlogConfig.BinlogFormat.ROW);
     }
 }
