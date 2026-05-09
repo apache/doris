@@ -1134,19 +1134,6 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
                                                            : info_it->second;
         auto& paths_set_info = uid_to_paths_set_info[column->unique_id()];
         const bool use_nested_group_compaction_schema = ng_root_uids.contains(column->unique_id());
-        if (!use_nested_group_compaction_schema) {
-            if (!should_check_variant_path_stats(*column)) {
-                VLOG_DEBUG << "skip extended schema compaction for variant uid="
-                           << column->unique_id()
-                           << " because the column disables variant path stats";
-                continue;
-            }
-            if (extended_info.has_nested_group) {
-                LOG(INFO) << "Variant column uid=" << column->unique_id()
-                          << " has nested group, keep original column in compaction schema";
-                continue;
-            }
-        }
 
         if (use_nested_group_compaction_schema) {
             // 1. append typed columns. Keep this shared with the non-NG typed helper; only the
