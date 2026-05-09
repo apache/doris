@@ -1069,5 +1069,110 @@ TEST_F(ColumnZoneMapTest, TimestamptzPage) {
     delete field;
 }
 
+// Regression test for "all-null page after a value page" — int variant.
+//
+// Page 1 has integers, page 2 is all nulls. The fix in flush() guards the
+// segment merge with `if (_page_has_minmax)`. For ints the OLD code was
+// incidentally correct because _reset_zone_map() doesn't touch min/max,
+// so the stale page values still equal segment min/max and the merge is
+// a no-op. This test pins that behavior.
+TEST_F(ColumnZoneMapTest, AllNullPageAfterIntValues_SegmentMinMaxPreserved) {
+    TabletColumnPtr int_column = create_int_key(0);
+    std::unique_ptr<StorageField> field(StorageFieldFactory::create(*int_column));
+    auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_INT, false);
+
+    std::unique_ptr<ZoneMapIndexWriter> writer;
+    ASSERT_TRUE(ZoneMapIndexWriter::create(data_type_ptr, field.get(), writer).ok());
+
+    // Page 1: integers spanning [100, 200].
+    std::vector<int32_t> values = {100, 150, 200};
+    for (int32_t v : values) {
+        writer->add_values(&v, 1);
+    }
+    ASSERT_TRUE(writer->flush().ok());
+
+    // Page 2: all nulls. Without the _page_has_minmax guard the segment
+    // merge still runs with page 1's stale min/max; for ints this happens
+    // to be benign (identity merge), but the assertion keeps it that way.
+    writer->add_nulls(5);
+    ASSERT_TRUE(writer->flush().ok());
+
+    std::string file_path = kTestDir + "/all_null_after_int";
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(file_path, &file_writer).ok());
+    ColumnIndexMetaPB index_meta;
+    ASSERT_TRUE(writer->finish(file_writer.get(), &index_meta).ok());
+    ASSERT_TRUE(file_writer->close().ok());
+
+    const auto& seg_zm = index_meta.zone_map_index().segment_zone_map();
+    EXPECT_TRUE(seg_zm.has_null());
+    EXPECT_TRUE(seg_zm.has_not_null());
+    EXPECT_EQ(std::to_string(100), seg_zm.min());
+    EXPECT_EQ(std::to_string(200), seg_zm.max());
+}
+
+// Demonstrates the actual bug fixed by the `if (_page_has_minmax)` guard.
+//
+// Page 1 stores a single string of exactly MAX_ZONE_MAP_INDEX_SIZE bytes
+// ending in 'x'; page 2 is all nulls. Trace on OLD code:
+//   * page 1 flush:
+//       - segment.max := page.max == "xxx...x" (un-modified copy)
+//       - modify_index_before_flush(_page_zone_map) increments the last
+//         byte of _page_zone_map.max_value in place: "xxx...x" -> "xxx...y"
+//       - _reset_zone_map() only clears flags; the modified "xxx...y"
+//         persists in _page_zone_map.max_value
+//   * page 2 flush (OLD, no _page_has_minmax guard):
+//       - segment.max("xxx...x") < _page_zone_map.max("xxx...y") -> TRUE
+//       - segment.max gets overwritten to "xxx...y"
+//   * finish():
+//       - modify_index_before_flush(_segment_zone_map) increments again:
+//         "xxx...y" -> "xxx...z"  // double-increment
+// With the guard the page-2 segment merge is skipped, so segment.max
+// stays "xxx...x" and finish() produces the correct single-incremented
+// "xxx...y".
+TEST_F(ColumnZoneMapTest, AllNullPageAfterMaxLenStringPage_NoSegmentMaxDoubleIncrement) {
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_STRING, true);
+    auto tab_col = create_string_key(0);
+    std::unique_ptr<StorageField> field(StorageFieldFactory::create(*tab_col));
+
+    std::unique_ptr<ZoneMapIndexWriter> writer;
+    ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, field.get(), writer).ok());
+
+    // Page 1: one string of exactly MAX_ZONE_MAP_INDEX_SIZE bytes, all 'x'.
+    std::string long_x(MAX_ZONE_MAP_INDEX_SIZE, 'x');
+    Slice s(long_x);
+    writer->add_values(&s, 1);
+    ASSERT_TRUE(writer->flush().ok());
+
+    // Page 2: only nulls — triggers the all-null-page flush path.
+    writer->add_nulls(3);
+    ASSERT_TRUE(writer->flush().ok());
+
+    std::string file_path = kTestDir + "/all_null_after_long_string";
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(file_path, &file_writer).ok());
+    ColumnIndexMetaPB index_meta;
+    ASSERT_TRUE(writer->finish(file_writer.get(), &index_meta).ok());
+    ASSERT_TRUE(file_writer->close().ok());
+
+    const auto& seg_zm = index_meta.zone_map_index().segment_zone_map();
+    EXPECT_TRUE(seg_zm.has_null());
+    EXPECT_TRUE(seg_zm.has_not_null());
+
+    ASSERT_EQ(seg_zm.min().size(), MAX_ZONE_MAP_INDEX_SIZE);
+    EXPECT_EQ(seg_zm.min(), long_x);
+
+    // Expected segment.max: long_x with last byte single-incremented to 'y'.
+    // Without the fix the last byte would be 'z' (double-incremented).
+    std::string expected_max = long_x;
+    expected_max.back() = 'y';
+    ASSERT_EQ(seg_zm.max().size(), MAX_ZONE_MAP_INDEX_SIZE);
+    EXPECT_EQ(seg_zm.max(), expected_max)
+            << "BUG: all-null page 2 merged the already-modified "
+               "_page_zone_map.max_value into _segment_zone_map.max_value, "
+               "causing finish() to increment the last byte a second time.";
+    EXPECT_EQ(static_cast<unsigned char>(seg_zm.max().back()), static_cast<unsigned char>('y'));
+}
+
 } // namespace segment_v2
 } // namespace doris
