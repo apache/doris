@@ -72,18 +72,23 @@ public:
 
     const BaseTabletSPtr& tablet() const { return _tablet; }
 
-    const RowsetSharedPtr& rowset() const { return _rowset; }
+    virtual const BaseTabletSPtr& tablet_sptr() const { return _tablet; }
 
-    const TabletSchemaSPtr& tablet_schema() const { return _tablet_schema; }
+    virtual const RowsetSharedPtr& rowset() const { return _rowset; }
+
+    virtual const TabletSchemaSPtr& tablet_schema() const { return _tablet_schema; }
 
     // For UT
     const DeleteBitmapPtr& get_delete_bitmap() { return _delete_bitmap; }
 
-    const std::shared_ptr<PartialUpdateInfo>& get_partial_update_info() const {
+    virtual const std::shared_ptr<PartialUpdateInfo>& get_partial_update_info() const {
         return _partial_update_info;
     }
 
-    bool is_data_builder() const { return _req.write_req_type == WriteRequestType::DATA; }
+    bool is_data_builder() const {
+        return _req.write_req_type == WriteRequestType::DATA ||
+               _req.write_req_type == WriteRequestType::DATA_IN_GROUP;
+    }
 
     // Attach an extra rowset (e.g. binlog rowset) to the same txn.
     Status attach_rowset_to_txn(const RowsetSharedPtr& rowset);
@@ -160,8 +165,6 @@ private:
 
     void _garbage_collection(bool cancel_txn);
 
-    TabletSharedPtr tablet_sptr();
-
     StorageEngine& _engine;
     RuntimeProfile::Counter* _commit_txn_timer = nullptr;
 };
@@ -183,6 +186,7 @@ public:
     // the owner of rowset will be changed, so cleaning rowset is handed to the
     // data(txn) rowset builder.
     Status commit_txn() override {
+        std::lock_guard<std::mutex> l(_lock);
         _is_committed = true;
         return Status::OK();
     }
@@ -205,6 +209,20 @@ public:
     Status wait_calc_delete_bitmap() override;
 
     Status commit_txn() override;
+
+    const BaseTabletSPtr& tablet_sptr() const override {
+        return _txn_rs_builder->tablet_sptr();
+    }
+
+    const RowsetSharedPtr& rowset() const override { return _txn_rs_builder->rowset(); }
+
+    const TabletSchemaSPtr& tablet_schema() const override {
+        return _txn_rs_builder->tablet_schema();
+    }
+
+    const std::shared_ptr<PartialUpdateInfo>& get_partial_update_info() const override {
+        return _txn_rs_builder->get_partial_update_info();
+    }
 
     RowsetBuilder* txn_rowset_builder() { return _txn_rs_builder.get(); }
     RowsetBuilder* row_binlog_builder() { return _row_binlog_rowset_builder.get(); }

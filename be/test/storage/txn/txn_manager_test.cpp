@@ -26,8 +26,10 @@
 
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <memory>
 #include <new>
+#include <set>
 #include <string>
 
 #include "common/config.h"
@@ -108,6 +110,38 @@ public:
         auto tablet = std::make_shared<Tablet>(*k_engine, std::move(tablet_meta), nullptr);
         auto& tablet_map = k_engine->tablet_manager()->_get_tablet_map(tablet_id);
         tablet_map[tablet_id] = std::move(tablet);
+    }
+
+    std::string read_rowset_meta_json(const std::string& path) {
+        std::ifstream infile(path);
+        std::string json_rowset_meta;
+        char buffer[1024];
+        while (!infile.eof()) {
+            infile.getline(buffer, 1024);
+            json_rowset_meta += buffer;
+            json_rowset_meta += "\n";
+        }
+        return json_rowset_meta.substr(0, json_rowset_meta.size() - 1);
+    }
+
+    RowsetSharedPtr create_binlog_rowset(int64_t rowset_id, const Version& version) {
+        auto json_rowset_meta = read_rowset_meta_json(rowset_meta_path);
+        RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
+        rowset_meta->init_from_json(json_rowset_meta);
+        RowsetId rs_id;
+        rs_id.init(rowset_id);
+        rowset_meta->set_rowset_id(rs_id);
+        rowset_meta->set_tablet_id(tablet_id);
+        rowset_meta->set_tablet_uid(_tablet_uid);
+        rowset_meta->set_txn_id(transaction_id);
+        rowset_meta->set_rowset_state(RowsetStatePB::COMMITTED);
+        rowset_meta->set_version(version);
+        rowset_meta->mark_row_binlog();
+
+        RowsetSharedPtr rowset;
+        EXPECT_EQ(Status::OK(),
+                  RowsetFactory::create_rowset(_schema, rowset_meta_path, rowset_meta, &rowset));
+        return rowset;
     }
 
     virtual void SetUp() {
@@ -370,6 +404,60 @@ TEST_F(TxnManagerTest, PublishVersionWithCommitTSO) {
     EXPECT_EQ(rowset_meta->commit_tso(), commit_tso);
 }
 
+TEST_F(TxnManagerTest, TxnWithRowBinlog) {
+    auto binlog_rowset = create_binlog_rowset(30000, _rowset->version());
+    std::vector<RowsetSharedPtr> attach_rowsets {binlog_rowset};
+    auto guard =
+            k_engine->pending_local_rowsets().add({_rowset->rowset_id(), binlog_rowset->rowset_id()});
+
+    auto st = k_engine->txn_manager()->commit_txn(_meta.get(), partition_id, transaction_id,
+                                                  tablet_id, _tablet_uid, load_id, _rowset,
+                                                  std::move(guard), false, nullptr,
+                                                  &attach_rowsets);
+    ASSERT_TRUE(st.ok()) << st;
+
+    std::map<RowsetId, RowsetId> base_rowset_id_to_row_binlog;
+    st = RowsetMetaManager::get_row_binlog_base_rowset_ids(
+            _meta.get(), _tablet_uid, base_rowset_id_to_row_binlog,
+            std::set<RowsetId> {binlog_rowset->rowset_id()});
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(base_rowset_id_to_row_binlog.begin()->first, _rowset->rowset_id());
+    EXPECT_EQ(base_rowset_id_to_row_binlog.begin()->second, binlog_rowset->rowset_id());
+
+    Version new_version(10, 10);
+    TabletPublishStatistics stats;
+    std::shared_ptr<TabletTxnInfo> tablet_txn_info = nullptr;
+    st = k_engine->txn_manager()->publish_txn(_meta.get(), partition_id, transaction_id, tablet_id,
+                                              _tablet_uid, new_version, &stats, tablet_txn_info);
+    ASSERT_TRUE(st.ok()) << st;
+
+    RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
+    st = RowsetMetaManager::get_rowset_meta(_meta.get(), _tablet_uid, _rowset->rowset_id(),
+                                            rowset_meta);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(rowset_meta->start_version(), 10);
+    EXPECT_EQ(rowset_meta->end_version(), 10);
+
+    bool found_binlog_rowset = false;
+    st = RowsetMetaManager::traverse_row_binlog_metas(
+            _meta.get(), [&](const TabletUid&, const RowsetId& base_rowset_id,
+                             const RowsetId& row_binlog_rowset_id, const std::string& value) {
+                if (row_binlog_rowset_id != binlog_rowset->rowset_id()) {
+                    return true;
+                }
+                found_binlog_rowset = true;
+                EXPECT_EQ(base_rowset_id, _rowset->rowset_id());
+                RowsetMetaSharedPtr binlog_rowset_meta(new RowsetMeta());
+                EXPECT_TRUE(binlog_rowset_meta->init(value));
+                EXPECT_EQ(binlog_rowset_meta->version(), new_version);
+                EXPECT_EQ(binlog_rowset_meta->rowset_state(), RowsetStatePB::VISIBLE);
+                EXPECT_TRUE(binlog_rowset_meta->is_row_binlog());
+                return true;
+            });
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_TRUE(found_binlog_rowset);
+}
+
 // 1. publish version failed if not found related txn and rowset
 TEST_F(TxnManagerTest, PublishNotExistedTxn) {
     Version new_version(10, 11);
@@ -410,6 +498,37 @@ TEST_F(TxnManagerTest, DeleteCommittedTxn) {
                                             rowset_meta2);
     ASSERT_FALSE(st.ok()) << st;
     EXPECT_FALSE(k_engine->pending_local_rowsets().contains(_rowset->rowset_id()));
+}
+
+TEST_F(TxnManagerTest, DeleteCommittedTxnWithBinlogRowset) {
+    auto binlog_rowset = create_binlog_rowset(30002, _rowset->version());
+    std::vector<RowsetSharedPtr> attach_rowsets {binlog_rowset};
+    auto guard =
+            k_engine->pending_local_rowsets().add({_rowset->rowset_id(), binlog_rowset->rowset_id()});
+
+    auto st = k_engine->txn_manager()->commit_txn(_meta.get(), partition_id, transaction_id,
+                                                  tablet_id, _tablet_uid, load_id, _rowset,
+                                                  std::move(guard), false, nullptr,
+                                                  &attach_rowsets);
+    ASSERT_TRUE(st.ok()) << st;
+
+    std::map<RowsetId, RowsetId> base_rowset_id_to_row_binlog;
+    st = RowsetMetaManager::get_row_binlog_base_rowset_ids(
+            _meta.get(), _tablet_uid, base_rowset_id_to_row_binlog,
+            std::set<RowsetId> {binlog_rowset->rowset_id()});
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(base_rowset_id_to_row_binlog.begin()->first, _rowset->rowset_id());
+    EXPECT_EQ(base_rowset_id_to_row_binlog.begin()->second, binlog_rowset->rowset_id());
+
+    st = k_engine->txn_manager()->delete_txn(_meta.get(), partition_id, transaction_id, tablet_id,
+                                             _tablet_uid);
+    ASSERT_TRUE(st.ok()) << st;
+
+    EXPECT_TRUE(RowsetMetaManager::exists(_meta.get(), _tablet_uid, _rowset->rowset_id())
+                        .is<ErrorCode::META_KEY_NOT_FOUND>());
+
+    EXPECT_FALSE(RowsetMetaManager::row_binlog_meta_exists(_meta.get(), _tablet_uid,
+                                                           binlog_rowset->rowset_id()));
 }
 
 TEST_F(TxnManagerTest, TabletVersionCache) {

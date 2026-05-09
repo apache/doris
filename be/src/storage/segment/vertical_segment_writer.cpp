@@ -58,6 +58,7 @@
 #include "storage/index/primary_key_index.h"
 #include "storage/index/short_key_index.h"
 #include "storage/iterator/olap_data_convertor.h"
+#include "storage/segment/historical_row_retriever.h"
 #include "storage/key_coder.h"
 #include "storage/olap_common.h"
 #include "storage/partial_update_info.h"
@@ -84,8 +85,8 @@ namespace doris::segment_v2 {
 using namespace ErrorCode;
 using namespace KeyConsts;
 
-static const char* k_segment_magic = "D0R1";
-static const uint32_t k_segment_magic_length = 4;
+static constexpr const char* k_segment_magic = "D0R1";
+static constexpr uint32_t k_segment_magic_length = 4;
 
 inline std::string vertical_segment_writer_mem_tracker_name(uint32_t segment_id) {
     return "VerticalSegmentWriter:Segment-" + std::to_string(segment_id);
@@ -632,7 +633,8 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
 
     // read to fill full_block
     RETURN_IF_ERROR(read_plan.fill_missing_columns(
-            _opts.rowset_ctx, _rsid_to_rowset, *_tablet_schema, full_block,
+            _opts.rowset_ctx->make_historical_row_retriever_context(), _rsid_to_rowset,
+            *_tablet_schema, full_block,
             use_default_or_null_flag, has_default_or_nullable, segment_start_pos, data.block));
 
     if (_tablet_schema->num_variant_columns() > 0) {
@@ -797,7 +799,8 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(RowsIn
 
     // 6. read according plan to fill full_block
     RETURN_IF_ERROR(read_plan.fill_non_primary_key_columns(
-            _opts.rowset_ctx, _rsid_to_rowset, *_tablet_schema, full_block,
+            _opts.rowset_ctx->make_historical_row_retriever_context(), _rsid_to_rowset,
+            *_tablet_schema, full_block,
             use_default_or_null_flag, has_default_or_nullable, segment_start_pos,
             cast_set<uint32_t>(data.row_pos), data.block, skip_bitmaps));
 

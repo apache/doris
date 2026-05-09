@@ -480,6 +480,9 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
                 _gen_tablet_dir(data_dir->path(), tablet_meta->shard_id(), request.tablet_id);
         string schema_hash_dir = path_util::join_path_segments(
                 tablet_dir, std::to_string(request.tablet_schema.schema_hash));
+        bool has_row_binlog = tablet_meta->binlog_config().is_enable() &&
+                              tablet_meta->binlog_config().isRowBinlogFormat();
+        string row_binlog_dir = path_util::join_path_segments(schema_hash_dir, "_row_binlog");
 
         // Because the tablet is removed asynchronously, so that the dir may still exist when BE
         // receive create-tablet request again, For example retried schema-change request
@@ -494,6 +497,15 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
         } else {
             Status st = io::global_local_filesystem()->create_directory(schema_hash_dir);
             if (!st.ok()) {
+                continue;
+            }
+        }
+
+        if (has_row_binlog) {
+            Status st = io::global_local_filesystem()->create_directory(row_binlog_dir);
+            if (!st.ok()) {
+                WARN_IF_ERROR(io::global_local_filesystem()->delete_directory(schema_hash_dir),
+                              "failed to cleanup tablet dir after create sub directory failed");
                 continue;
             }
         }

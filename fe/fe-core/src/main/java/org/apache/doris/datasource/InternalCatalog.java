@@ -2967,7 +2967,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 baseIndexStorageType, keysType, olapTable.getIndexes());
 
         if (olapTable.getBinlogConfig().isEnableForStreaming()) {
-            olapTable.createNewRowBinlogMeta(idGeneratorBuffer);
+            olapTable.createNewRowBinlogMeta(idGeneratorBuffer, db.getId());
         }
 
         for (AlterOp alterOp : createTableInfo.getAddRollupOps()) {

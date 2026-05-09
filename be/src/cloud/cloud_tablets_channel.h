@@ -32,7 +32,8 @@ public:
 
     ~CloudTabletsChannel() override;
 
-    std::unique_ptr<BaseDeltaWriter> create_delta_writer(const WriteRequest& request) override;
+    std::unique_ptr<BaseDeltaWriter> create_delta_writer(
+            const std::shared_ptr<WriteRequest>& request) override;
 
     Status add_batch(const PTabletWriterAddBlockRequest& request,
                      PTabletWriterAddBlockResult* response) override;

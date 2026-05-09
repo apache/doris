@@ -29,10 +29,10 @@ namespace doris {
 bvar::Adder<int64_t> g_cloud_commit_rowset_count("cloud_commit_rowset_count");
 bvar::Adder<int64_t> g_cloud_commit_empty_rowset_count("cloud_commit_empty_rowset_count");
 
-CloudDeltaWriter::CloudDeltaWriter(CloudStorageEngine& engine, const WriteRequest& req,
+CloudDeltaWriter::CloudDeltaWriter(CloudStorageEngine& engine, std::shared_ptr<WriteRequest> req,
                                    RuntimeProfile* profile, const UniqueId& load_id)
-        : BaseDeltaWriter(req, profile, load_id), _engine(engine) {
-    _rowset_builder = std::make_unique<CloudRowsetBuilder>(engine, req, profile);
+        : BaseDeltaWriter(std::move(req), profile, load_id), _engine(engine) {
+    _rowset_builder = std::make_unique<CloudRowsetBuilder>(engine, *_req, profile);
     _resource_ctx = thread_context()->resource_ctx();
 }
 

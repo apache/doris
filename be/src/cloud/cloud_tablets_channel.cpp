@@ -25,6 +25,7 @@
 #include "cloud/config.h"
 #include "load/channel/tablets_channel.h"
 #include "load/delta_writer/delta_writer.h"
+#include "storage/tablet_info.h"
 
 namespace doris {
 
@@ -36,12 +37,15 @@ CloudTabletsChannel::CloudTabletsChannel(CloudStorageEngine& engine, const Table
 CloudTabletsChannel::~CloudTabletsChannel() = default;
 
 std::unique_ptr<BaseDeltaWriter> CloudTabletsChannel::create_delta_writer(
-        const WriteRequest& request) {
+        const std::shared_ptr<WriteRequest>& request) {
     return std::make_unique<CloudDeltaWriter>(_engine, request, _profile, _load_id);
 }
 
 Status CloudTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                                       PTabletWriterAddBlockResult* response) {
+    if (_schema != nullptr && _schema->row_binlog_index_schema() != nullptr) {
+        return Status::NotSupported("cloud mode does not support binlog<row> now");
+    }
     // FIXME(plat1ko): Too many duplicate code with `TabletsChannel`
     SCOPED_TIMER(_add_batch_timer);
     int64_t cur_seq = 0;

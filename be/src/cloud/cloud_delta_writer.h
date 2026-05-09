@@ -29,8 +29,8 @@ class CloudRowsetBuilder;
 
 class CloudDeltaWriter final : public BaseDeltaWriter {
 public:
-    CloudDeltaWriter(CloudStorageEngine& engine, const WriteRequest& req, RuntimeProfile* profile,
-                     const UniqueId& load_id);
+    CloudDeltaWriter(CloudStorageEngine& engine, std::shared_ptr<WriteRequest> req,
+                     RuntimeProfile* profile, const UniqueId& load_id);
     ~CloudDeltaWriter() override;
 
     Status write(const Block* block, const DorisVector<uint32_t>& row_idxs) override;

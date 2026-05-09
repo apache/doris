@@ -259,7 +259,8 @@ TEST_F(TestDeltaWriterClusterKey, vec_sequence_col) {
     write_req.table_schema_param = param;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
     auto delta_writer =
-            std::make_unique<DeltaWriter>(*engine_ref, write_req, profile.get(), TUniqueId {});
+            std::make_unique<DeltaWriter>(*engine_ref, std::make_shared<WriteRequest>(write_req),
+                                          profile.get(), TUniqueId {});
 
     Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {

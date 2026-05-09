@@ -58,7 +58,7 @@ Result<std::unique_ptr<RowsetWriter>> RowsetFactory::create_rowset_writer(
     if (context.write_binlog_opt().is_binlog_writer()) {
         std::unique_ptr<RowsetWriter> writer;
         if (is_vertical) {
-            writer = std::make_unique<VerticalRowBinlogRowsetWriter<BetaRowsetWriter>>(engine);
+            writer = std::make_unique<VerticalBetaRowsetWriter<RowBinlogRowsetWriter>>(engine);
             RETURN_IF_ERROR_RESULT(writer->init(context));
             return writer;
         } else {

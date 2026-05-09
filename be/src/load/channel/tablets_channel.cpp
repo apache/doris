@@ -44,6 +44,7 @@
 #include "core/block/block.h"
 #include "load/channel/load_channel.h"
 #include "load/delta_writer/delta_writer.h"
+#include "storage/tablet/tablet_manager.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet_info.h"
 #include "storage/txn/txn_manager.h"
@@ -240,9 +241,10 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
         wrequest.is_high_priority = _is_high_priority;
         wrequest.table_schema_param = _schema;
         wrequest.txn_expiration = params.txn_expiration(); // Required by CLOUD.
+        wrequest.write_file_cache = params.write_file_cache();
         wrequest.storage_vault_id = params.storage_vault_id();
 
-        auto delta_writer = create_delta_writer(wrequest);
+        auto delta_writer = create_delta_writer(std::make_shared<WriteRequest>(wrequest));
         {
             // here we modify _tablet_writers. so need lock.
             std::lock_guard<std::mutex> lt(_tablet_writers_lock);
@@ -259,8 +261,39 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
     return Status::OK();
 }
 
-std::unique_ptr<BaseDeltaWriter> TabletsChannel::create_delta_writer(const WriteRequest& request) {
-    return std::make_unique<DeltaWriter>(_engine, request, _profile, _load_id);
+std::unique_ptr<BaseDeltaWriter> TabletsChannel::create_delta_writer(
+        const std::shared_ptr<WriteRequest>& request) {
+    DCHECK(request->write_req_type == WriteRequestType::DATA);
+    DCHECK(request->table_schema_param != nullptr);
+
+    int64_t row_binlog_index_id = 0;
+    for (const auto* index_schema : request->table_schema_param->indexes()) {
+        if (index_schema->index_id == request->index_id) {
+            row_binlog_index_id = index_schema->row_binlog_id;
+            break;
+        }
+    }
+    if (row_binlog_index_id <= 0) {
+        return std::make_unique<DeltaWriter>(_engine, request, _profile, _load_id);
+    }
+
+    const auto* row_binlog_index_schema = request->table_schema_param->row_binlog_index_schema();
+    DCHECK(row_binlog_index_schema != nullptr);
+    DCHECK(row_binlog_index_schema->index_id == row_binlog_index_id);
+
+    auto group_req = std::make_shared<GroupWriteRequest>();
+    static_cast<WriteRequest&>(*group_req) = *request;
+    group_req->write_req_type = WriteRequestType::GROUP;
+
+    group_req->data_req = *request;
+    group_req->data_req.write_req_type = WriteRequestType::DATA_IN_GROUP;
+
+    group_req->row_binlog_req = *request;
+    group_req->row_binlog_req.write_req_type = WriteRequestType::BINLOG_IN_GROUP;
+    group_req->row_binlog_req.index_id = row_binlog_index_schema->index_id;
+    group_req->row_binlog_req.schema_hash = row_binlog_index_schema->schema_hash;
+
+    return std::make_unique<DeltaWriter>(_engine, std::move(group_req), _profile, _load_id);
 }
 
 Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockRequest& req,
@@ -527,7 +560,7 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
                 .storage_vault_id = request.storage_vault_id(),
         };
 
-        auto delta_writer = create_delta_writer(wrequest);
+        auto delta_writer = create_delta_writer(std::make_shared<WriteRequest>(wrequest));
         {
             std::lock_guard<std::mutex> l(_tablet_writers_lock);
             _tablet_writers.emplace(tablet.tablet_id(), std::move(delta_writer));

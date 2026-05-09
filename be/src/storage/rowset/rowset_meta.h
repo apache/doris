@@ -94,6 +94,14 @@ public:
 
     void set_tablet_id(int64_t tablet_id) { _rowset_meta_pb.set_tablet_id(tablet_id); }
 
+    int64_t db_id() const { return _rowset_meta_pb.db_id(); }
+
+    void set_db_id(int64_t db_id) { _rowset_meta_pb.set_db_id(db_id); }
+
+    int64_t table_id() const { return _rowset_meta_pb.table_id(); }
+
+    void set_table_id(int64_t table_id) { _rowset_meta_pb.set_table_id(table_id); }
+
     int64_t index_id() const { return _rowset_meta_pb.index_id(); }
 
     void set_index_id(int64_t index_id) { _rowset_meta_pb.set_index_id(index_id); }

@@ -45,6 +45,7 @@
 #include "service/backend_options.h"
 #include "storage/index/ann/ann_topn_runtime.h"
 #include "storage/storage_engine.h"
+#include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_manager.h"
 #include "util/to_string.h"
 
@@ -624,6 +625,8 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
                                                              _read_sources[scan_range_idx],
                                                              p._limit,
                                                              p._olap_scan_node.is_preaggregation,
+                                                             p._olap_scan_node.__isset.read_row_binlog &&
+                                                                     p._olap_scan_node.read_row_binlog,
                                                      });
             RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
             scanners->push_back(std::move(scanner));
@@ -792,7 +795,10 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
         _read_sources[i] = DORIS_TRY(_tablets[i].tablet->capture_read_source(
                 {0, _tablets[i].version},
                 {.skip_missing_versions = _state->skip_missing_version(),
-                 .enable_fetch_rowsets_from_peers = config::enable_fetch_rowsets_from_peer_replicas,
+                 .enable_fetch_rowsets_from_peers =
+                         config::enable_fetch_rowsets_from_peer_replicas,
+                 .capture_row_binlog = olap_scan_node().__isset.read_row_binlog &&
+                         olap_scan_node().read_row_binlog,
                  .enable_prefer_cached_rowset =
                          config::is_cloud_mode() ? _state->enable_prefer_cached_rowset() : false,
                  .query_freshness_tolerance_ms =
@@ -866,7 +872,10 @@ void OlapScanLocalState::set_scan_ranges(RuntimeState* state,
                                          const std::vector<TScanRangeParams>& scan_ranges) {
     const auto& cache_param = _parent->cast<OlapScanOperatorX>()._cache_param;
     bool hit_cache = false;
-    if (!cache_param.digest.empty() && !cache_param.force_refresh_query_cache) {
+    // read binlog<row> scan should not participate in query cache.
+    if (olap_scan_node().__isset.read_row_binlog && olap_scan_node().read_row_binlog) {
+        hit_cache = false;
+    } else if (!cache_param.digest.empty() && !cache_param.force_refresh_query_cache) {
         std::string cache_key;
         int64_t version = 0;
         auto status = QueryCache::build_cache_key(scan_ranges, cache_param, &cache_key, &version);

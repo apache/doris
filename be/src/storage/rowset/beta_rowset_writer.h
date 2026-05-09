@@ -168,9 +168,18 @@ public:
 
     int32_t allocate_segment_id() override { return _segment_creator.allocate_segment_id(); };
 
+    int32_t get_allocated_segment_id() override { return _segment_creator.get_allocated_segment_id(); };
+
     void set_segment_start_id(int32_t start_id) override {
         _segment_creator.set_segment_start_id(start_id);
         _segment_start_id = start_id;
+    }
+
+    Status force_rollback() override {
+        DCHECK(_context.is_transient_rowset_writer);
+        DCHECK(_already_built);
+        _already_built = false;
+        return Status::OK();
     }
 
     int64_t delete_bitmap_ns() override { return _delete_bitmap_ns; }

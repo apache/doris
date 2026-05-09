@@ -51,6 +51,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_variant.h"
 #include "core/column/column_vector.h"
+#include "core/column/predicate_column.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
@@ -2388,6 +2389,118 @@ void SegmentIterator::_replace_version_col_if_needed(const std::vector<ColumnId>
     VLOG_DEBUG << "replaced version column in segment iterator, version_col_idx:" << version_idx;
 }
 
+void SegmentIterator::_update_lsn_col_if_needed(const std::vector<ColumnId>& column_ids,
+                                                size_t num_rows) {
+    // | real version(64) | auto-inc row_id(64) |
+    if (_opts.version.first != _opts.version.second) {
+        return;
+    }
+
+    if (_opts.io_ctx.reader_type != ReaderType::READER_BINLOG &&
+        _opts.io_ctx.reader_type != ReaderType::READER_BINLOG_COMPACTION) {
+        return;
+    }
+
+    int32_t lsn_col_idx = _schema->lsn_col_idx();
+    if (lsn_col_idx < 0 || std::ranges::find(column_ids, lsn_col_idx) == column_ids.end()) {
+        return;
+    }
+
+    if (_is_pred_column[lsn_col_idx]) {
+        auto* lsn_column = assert_cast<PredicateColumnType<TYPE_LARGEINT>*>(
+                _current_return_columns[lsn_col_idx].get());
+        std::vector<Int128> binlog_lsns;
+        binlog_lsns.reserve(num_rows);
+        static constexpr Int128 kLow64Mask = (static_cast<Int128>(1) << 64) - 1;
+        for (size_t j = 0; j < num_rows; j++) {
+            const Int128 row_id = lsn_column->get_data()[j];
+            binlog_lsns.emplace_back((static_cast<Int128>(_opts.version.second) << 64) |
+                                     (row_id & kLow64Mask));
+        }
+        _current_return_columns[lsn_col_idx]->clear();
+        for (const auto& binlog_lsn : binlog_lsns) {
+            lsn_column->insert_data(reinterpret_cast<const char*>(&binlog_lsn), 0);
+        }
+        return;
+    }
+
+    auto* lsn_column = assert_cast<ColumnInt128*>(_current_return_columns[lsn_col_idx].get());
+    const auto* column_desc = _schema->column(lsn_col_idx);
+    auto column = Schema::get_data_type_ptr(*column_desc)->create_column();
+    DCHECK(column_desc->type() == FieldType::OLAP_FIELD_TYPE_LARGEINT);
+    auto* col_ptr = assert_cast<ColumnInt128*>(column.get());
+
+    static constexpr Int128 kLow64Mask = (static_cast<Int128>(1) << 64) - 1;
+    for (size_t j = 0; j < num_rows; j++) {
+        const Int128 row_id = lsn_column->get_element(j);
+        const Int128 binlog_lsn = (static_cast<Int128>(_opts.version.second) << 64) |
+                                  (row_id & kLow64Mask);
+        col_ptr->insert_value(binlog_lsn);
+    }
+    _current_return_columns[lsn_col_idx] = std::move(column);
+}
+
+void SegmentIterator::_update_tso_col_if_needed(const std::vector<ColumnId>& column_ids,
+                                                size_t num_rows) {
+    // use commit tso to replace timestamp col
+    if (_opts.version.first != _opts.version.second) {
+        return;
+    }
+
+    if (_opts.io_ctx.reader_type != ReaderType::READER_BINLOG &&
+        _opts.io_ctx.reader_type != ReaderType::READER_BINLOG_COMPACTION) {
+        return;
+    }
+
+    int32_t tso_col_idx = _schema->tso_col_idx();
+    if (tso_col_idx < 0 || std::ranges::find(column_ids, tso_col_idx) == column_ids.end()) {
+        return;
+    }
+
+    Int64 commit_tso = _opts.commit_tso == -1 ? 0 : _opts.commit_tso;
+
+    if (_is_pred_column[tso_col_idx]) {
+        // Nullable predicate column is represented as ColumnNullable(predicate_col)
+        if (auto* tso_nullable = typeid_cast<ColumnNullable*>(_current_return_columns[tso_col_idx].get())) {
+            _current_return_columns[tso_col_idx]->clear();
+            auto value = commit_tso;
+            for (size_t j = 0; j < num_rows; j++) {
+                tso_nullable->get_nested_column_ptr()->insert_data(
+                        reinterpret_cast<const char*>(&value), 0);
+                tso_nullable->get_null_map_data().emplace_back(0);
+            }
+            return;
+        }
+
+        auto* tso_column = assert_cast<PredicateColumnType<TYPE_BIGINT>*>(
+                _current_return_columns[tso_col_idx].get());
+        _current_return_columns[tso_col_idx]->clear();
+        auto value = commit_tso;
+        for (size_t j = 0; j < num_rows; j++) {
+            tso_column->insert_data(reinterpret_cast<const char*>(&value), 0);
+        }
+        return;
+    }
+
+    const auto* column_desc = _schema->column(tso_col_idx);
+    auto column = Schema::get_data_type_ptr(*column_desc)->create_column();
+    DCHECK(column_desc->type() == FieldType::OLAP_FIELD_TYPE_BIGINT);
+
+    if (auto* tso_nullable = typeid_cast<ColumnNullable*>(column.get())) {
+        auto* col_ptr = assert_cast<ColumnInt64*>(&tso_nullable->get_nested_column());
+        for (size_t j = 0; j < num_rows; j++) {
+            col_ptr->insert_value(commit_tso);
+            tso_nullable->get_null_map_data().emplace_back(0);
+        }
+    } else {
+        auto* col_ptr = assert_cast<ColumnInt64*>(column.get());
+        for (size_t j = 0; j < num_rows; j++) {
+            col_ptr->insert_value(commit_tso);
+        }
+    }
+    _current_return_columns[tso_col_idx] = std::move(column);
+}
+
 uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
                                                             uint16_t selected_size) {
     SCOPED_RAW_TIMER(&_opts.stats->vec_cond_ns);
@@ -2703,6 +2816,8 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
     _selected_size = 0;
     RETURN_IF_ERROR(_read_columns_by_index(nrows_read_limit, _selected_size));
     _replace_version_col_if_needed(_predicate_column_ids, _selected_size);
+    _update_lsn_col_if_needed(_predicate_column_ids, _selected_size);
+    _update_tso_col_if_needed(_predicate_column_ids, _selected_size);
 
     _opts.stats->blocks_load += 1;
     _opts.stats->raw_rows_read += _selected_size;
@@ -2746,6 +2861,8 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                                 _common_expr_column_ids, _block_rowids, _sel_rowid_idx.data(),
                                 _selected_size, &_current_return_columns));
                         _replace_version_col_if_needed(_common_expr_column_ids, _selected_size);
+                        _update_lsn_col_if_needed(_common_expr_column_ids, _selected_size);
+                        _update_tso_col_if_needed(_common_expr_column_ids, _selected_size);
                         RETURN_IF_ERROR(_process_columns(_common_expr_column_ids, block));
                     }
 
@@ -2777,6 +2894,8 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                         _selected_size, &_current_return_columns,
                         _opts.condition_cache_digest && !_find_condition_cache));
                 _replace_version_col_if_needed(_non_predicate_columns, _selected_size);
+                _update_lsn_col_if_needed(_non_predicate_columns, _selected_size);
+                _update_tso_col_if_needed(_non_predicate_columns, _selected_size);
             } else {
                 if (_opts.condition_cache_digest && !_find_condition_cache) {
                     auto& condition_cache = *_condition_cache;

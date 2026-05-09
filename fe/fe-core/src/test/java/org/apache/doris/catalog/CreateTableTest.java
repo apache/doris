@@ -265,6 +265,59 @@ public class CreateTableTest extends TestWithFeService {
                 () -> createTable("CREATE TABLE test.row_binlog_agg (k1 INT, v1 INT SUM) "
                         + "AGGREGATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                         + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');"));
+    }
+
+    public void testCreateTempTable() throws Exception {
+        String create = "CREATE TEMPORARY TABLE test.temp_normal (k1 INT) "
+                + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1');";
+        createTable(create);
+    }
+
+    @Test
+    public void testCreateTempTableWithRowBinlog() throws Exception {
+        String create = "CREATE TEMPORARY TABLE test.temp_row_binlog (k1 INT) "
+                + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');";
+        createTable(create);
+    }
+
+    @Test
+    public void testCreateRowBinlogTable() throws Exception {
+        String create = "CREATE TABLE test.row_binlog_normal (k1 INT) "
+                + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');";
+        createTable(create);
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrDdlException("row_binlog_normal");
+        Assert.assertTrue(tbl.needRowBinlog());
+        Assert.assertNotNull(tbl.getAutoIncrementGenerator());
+        Assert.assertEquals((long) Column.BINLOG_LSN_AUTO_INC_ID, tbl.getAutoIncrementGenerator().getColumnId());
+    }
+
+    @Test
+    public void testCreateRowBinlogUniqueKeyTable() throws Exception {
+        String create = "CREATE TABLE test.row_binlog_unique (k1 INT, v1 INT) "
+                + "UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1','enable_unique_key_merge_on_write'='true',"
+                + "'binlog.enable'='true','binlog.format'='ROW');";
+        createTable(create);
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrDdlException("row_binlog_unique");
+        Assert.assertTrue(tbl.needRowBinlog());
+        Assert.assertNotNull(tbl.getAutoIncrementGenerator());
+        Assert.assertEquals((long) Column.BINLOG_LSN_AUTO_INC_ID, tbl.getAutoIncrementGenerator().getColumnId());
+    }
+
+    @Test
+    public void testCreateRowBinlogAggregateKeyNotSupported() throws Exception {
+        String create = "CREATE TABLE test.row_binlog_agg (k1 INT, v1 INT SUM) "
+                + "AGGREGATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');";
+        Exception exception = Assert.assertThrows(Exception.class, () -> createTable(create));
+>>>>>>> 08b68c31ba4... support row binlog write & read
         Assert.assertTrue(exception.getMessage(), exception.getMessage().contains("binlog<Row>"));
 
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,

@@ -201,7 +201,8 @@ static void add_rowset(int64_t tablet_id, int32_t schema_hash, int64_t partition
     write_req.table_schema_param = param;
     auto profile = std::make_unique<RuntimeProfile>("LoadChannels");
     auto delta_writer =
-            std::make_unique<DeltaWriter>(*engine_ref, write_req, profile.get(), TUniqueId {});
+            std::make_unique<DeltaWriter>(*engine_ref, std::make_shared<WriteRequest>(write_req),
+                                          profile.get(), TUniqueId {});
 
     Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {

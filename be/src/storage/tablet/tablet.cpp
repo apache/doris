@@ -330,7 +330,7 @@ Status Tablet::_init_once_action() {
         RowsetSharedPtr rowset;
         res = create_rowset(row_binlog_rs_meta, &rowset);
         if (!res.ok()) {
-            LOG(WARNING) << "fail to init row_binlog rowset. tablet_id:" << tablet_id()
+            LOG(WARNING) << "fail to init binlog<row> rowset. tablet_id:" << tablet_id()
                          << ", schema_hash:" << schema_hash() << ", version=" << version
                          << ", res:" << res;
             return res;
@@ -501,7 +501,8 @@ Status Tablet::add_rowset(RowsetSharedPtr rowset, RowsetSharedPtr row_binlog_row
     // If the rowset already exist, just return directly.  The rowset_id is an unique-id,
     // we can use it to check this situation.
     if (_contains_rowset(rowset->rowset_id())) {
-        return Status::OK();
+        // Ensure binlog<row> is also added on retry.
+        return _add_row_binlog_rowset_unlocked(rowset, row_binlog_rowset);
     }
     // Otherwise, the version should be not contained in any existing rowset.
     RETURN_IF_ERROR(_contains_version(rowset->version()));
@@ -511,11 +512,7 @@ Status Tablet::add_rowset(RowsetSharedPtr rowset, RowsetSharedPtr row_binlog_row
     _timestamped_version_tracker.add_version(rowset->version());
     add_compaction_score(rowset->rowset_meta()->get_compaction_score());
 
-    if (row_binlog_rowset != nullptr) {
-        RETURN_IF_ERROR(_tablet_meta->add_row_binlog_rs_meta(row_binlog_rowset->rowset_meta()));
-        _row_binlog_rs_version_map[rowset->version()] = row_binlog_rowset;
-        _row_binlog_version_tracker.add_version(row_binlog_rowset->version());
-    }
+    RETURN_IF_ERROR(_add_row_binlog_rowset_unlocked(rowset, row_binlog_rowset));
 
     std::vector<RowsetSharedPtr> rowsets_to_delete;
     // yiguolei: temp code, should remove the rowset contains by this rowset
@@ -532,6 +529,31 @@ Status Tablet::add_rowset(RowsetSharedPtr rowset, RowsetSharedPtr row_binlog_row
     std::vector<RowsetSharedPtr> empty_vec;
     RETURN_IF_ERROR(modify_rowsets(empty_vec, rowsets_to_delete));
     ++_newly_created_rowset_num;
+    return Status::OK();
+}
+
+Status Tablet::_add_row_binlog_rowset_unlocked(const RowsetSharedPtr& rowset,
+                                               const RowsetSharedPtr& row_binlog_rowset) {
+    if (row_binlog_rowset == nullptr) {
+        return Status::OK();
+    }
+    DCHECK(rowset != nullptr);
+    DCHECK_EQ(row_binlog_rowset->version(), rowset->version());
+
+    const auto& version = row_binlog_rowset->version();
+    if (auto it = _row_binlog_rs_version_map.find(version); it != _row_binlog_rs_version_map.end()) {
+        if (it->second != nullptr && it->second->rowset_id() == row_binlog_rowset->rowset_id()) {
+            return Status::OK();
+        }
+        return Status::Error<PUSH_VERSION_ALREADY_EXIST>(
+                "binlog<row> version already exists. existing rowset_id={}, version={}, tablet={}",
+                it->second != nullptr ? it->second->rowset_id().to_string() : "0",
+                version.to_string(), tablet_id());
+    }
+
+    RETURN_IF_ERROR(_tablet_meta->add_row_binlog_rs_meta(row_binlog_rowset->rowset_meta()));
+    _row_binlog_rs_version_map[version] = row_binlog_rowset;
+    _row_binlog_version_tracker.add_version(version);
     return Status::OK();
 }
 
@@ -710,12 +732,14 @@ RowsetSharedPtr Tablet::_rowset_with_largest_size() {
 }
 
 // add inc rowset should not persist tablet meta, because it will be persisted when publish txn.
-Status Tablet::add_inc_rowset(const RowsetSharedPtr& rowset) {
+Status Tablet::add_inc_rowset(const RowsetSharedPtr& rowset,
+                              const RowsetSharedPtr& row_binlog_rowset) {
     DCHECK(rowset != nullptr);
     std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
     SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     if (_contains_rowset(rowset->rowset_id())) {
-        return Status::OK();
+        // Ensure binlog<row> is also added on retry.
+        return _add_row_binlog_rowset_unlocked(rowset, row_binlog_rowset);
     }
     RETURN_IF_ERROR(_contains_version(rowset->version()));
 
@@ -728,7 +752,7 @@ Status Tablet::add_inc_rowset(const RowsetSharedPtr& rowset) {
 
     add_compaction_score(rowset->rowset_meta()->get_compaction_score());
 
-    return Status::OK();
+    return _add_row_binlog_rowset_unlocked(rowset, row_binlog_rowset);
 }
 
 void Tablet::_delete_stale_rowset_by_version(const Version& version) {
@@ -1558,6 +1582,34 @@ bool Tablet::do_tablet_meta_checkpoint() {
         rs_meta->set_remove_from_rowset_meta();
     }
 
+    // Remove row binlog metas from rowset meta store after tablet meta is checkpointed.
+    // Row binlog metas are stored in meta KV with key:
+    //   {kRowBinlogPrefix}{tablet_uid}_{base_rowset_id}_{row_binlog_rowset_id}
+    // Here we only have row binlog rowset metas, so locate base rowset by version.
+    const auto& base_rs_metas = _tablet_meta->all_rs_metas();
+    for (const auto& [_, rb_meta] : _tablet_meta->all_row_binlog_rs_metas()) {
+        // Reuse the same flag to avoid repeated removals across checkpoints.
+        if (rb_meta->is_remove_from_rowset_meta()) {
+            continue;
+        }
+
+        const auto base_it = base_rs_metas.find(rb_meta->version());
+        if (base_it == base_rs_metas.end()) {
+            LOG(WARNING) << "failed to locate base rowset meta for binlog<row> by version, tablet="
+                         << tablet_id() << ", version=" << rb_meta->version().to_string()
+                         << ", binlog_rowset_id=" << rb_meta->rowset_id();
+            rb_meta->set_remove_from_rowset_meta();
+            continue;
+        }
+
+        const auto& base_rs_meta = base_it->second;
+        RETURN_FALSE_IF_ERROR(RowsetMetaManager::remove_row_binlog(
+                _data_dir->get_meta(), tablet_uid(), base_rs_meta->rowset_id(), rb_meta->rowset_id()));
+        VLOG_NOTICE << "remove binlog<row> meta from meta store, base_rowset_id="
+                    << base_rs_meta->rowset_id() << ", binlog_rowset_id=" << rb_meta->rowset_id();
+        rb_meta->set_remove_from_rowset_meta();
+    }
+
     if (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write()) {
         RETURN_FALSE_IF_ERROR(TabletMetaManager::remove_old_version_delete_bitmap(
                 _data_dir, tablet_id(), max_version_unlocked()));
@@ -1585,6 +1637,16 @@ bool Tablet::rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta) {
         }
         if (stale_version_rowset.second->contains_version(rowset_meta->version())) {
             find_version = true;
+        }
+    }
+    if (rowset_meta->is_row_binlog()) {
+        for (auto& version_rowset : _row_binlog_rs_version_map) {
+            if (version_rowset.second->rowset_id() == rowset_meta->rowset_id()) {
+                return true;
+            }
+            if (version_rowset.second->contains_version(rowset_meta->version())) {
+                find_version = true;
+            }
         }
     }
     return !find_version;
@@ -1983,16 +2045,10 @@ Status Tablet::create_initial_rowset(const int64_t req_version) {
 
         RETURN_IF_ERROR(group_rowset_writer->flush_rowsets());
 
-        RowsetSharedPtr new_data_rowset;
-        RowsetSharedPtr new_row_binlog_rowset;
         std::vector<RowsetSharedPtr> waited_build_rowsets;
-        waited_build_rowsets.push_back(std::move(new_data_rowset));
-        waited_build_rowsets.push_back(std::move(new_row_binlog_rowset));
 
         RETURN_IF_ERROR(group_rowset_writer->build_rowsets(waited_build_rowsets));
-        // don't need to think rollback when only one rowset build success becuase they had not been persisted.
-        RETURN_IF_ERROR(
-                add_rowset(std::move(waited_build_rowsets.at(0)), waited_build_rowsets.at(1)));
+        RETURN_IF_ERROR(add_rowset(waited_build_rowsets.at(0), waited_build_rowsets.at(1)));
     }
 
     set_cumulative_layer_point(req_version + 1);
@@ -2010,10 +2066,12 @@ Result<std::unique_ptr<RowsetWriter>> Tablet::create_rowset_writer(RowsetWriterC
 // after writer, merge this transient rowset with original rowset
 Result<std::unique_ptr<RowsetWriter>> Tablet::create_transient_rowset_writer(
         const Rowset& rowset, std::shared_ptr<PartialUpdateInfo> partial_update_info,
-        int64_t txn_expiration) {
+        int64_t txn_expiration, bool build_row_binlog) {
     RowsetWriterContext context;
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
+    context.db_id = rowset.rowset_meta()->db_id();
+    context.table_id = rowset.rowset_meta()->table_id();
     context.tablet_schema = std::make_shared<TabletSchema>();
     // During a partial update, the extracted columns of a variant should not be included in the tablet schema.
     // This is because the partial update for a variant needs to ignore the extracted columns.
@@ -2034,6 +2092,15 @@ Result<std::unique_ptr<RowsetWriter>> Tablet::create_transient_rowset_writer(
     context.write_type = DataWriteType::TYPE_DIRECT;
     context.partial_update_info = std::move(partial_update_info);
     context.is_transient_rowset_writer = true;
+
+    if (build_row_binlog) {
+        if (rowset.rowset_meta() != nullptr && rowset.rowset_meta()->is_row_binlog()) {
+            context.write_binlog_opt().mark_binlog_writer();
+        } else {
+            context.write_binlog_opt().mark_primary_writer();
+        }
+    }
+
     return create_transient_rowset_writer(context, rowset.rowset_id())
             .transform([&](auto&& writer) {
                 writer->set_segment_start_id(cast_set<int32_t>(rowset.num_segments()));
@@ -2049,6 +2116,13 @@ Result<std::unique_ptr<RowsetWriter>> Tablet::create_transient_rowset_writer(
 }
 
 void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
+    if (context.db_id <= 0) {
+        context.db_id = tablet_meta()->tablet_schema()->db_id();
+    }
+    if (context.table_id <= 0) {
+        context.table_id = tablet_meta()->tablet_schema()->table_id();
+    }
+
     context.tablet_uid = tablet_uid();
     context.tablet_id = tablet_id();
     context.partition_id = partition_id();
@@ -2627,6 +2701,20 @@ Status Tablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
     RowsetSharedPtr rowset = txn_info->rowset;
     int64_t cur_version = rowset->start_version();
 
+    // For binlog<Row> publish, sync current rowset delete bitmap deltas to `binlog_delvec`
+    // so row binlog reads can skip rows deleted by MOW conflict resolution.
+    const bool build_row_binlog = !txn_info->attach_rowsets.empty();
+    const RowsetId cur_build_rid = txn_info->rowset->rowset_id();
+    const RowsetId binlog_rid = build_row_binlog ? txn_info->attach_rowsets[0]->rowset_id()
+                                                 : cur_build_rid;
+    auto* binlog_delvec = txn_info->binlog_delvec.get();
+    if (build_row_binlog) {
+        DCHECK(txn_info->attach_rowsets[0] != nullptr);
+        DCHECK(txn_info->attach_rowsets[0]->rowset_meta() != nullptr);
+        DCHECK(txn_info->attach_rowsets[0]->rowset_meta()->is_row_binlog());
+        DCHECK(binlog_delvec != nullptr);
+    }
+
     // update version without write lock, compaction and publish_txn
     // will update delete bitmap, handle compaction with _rowset_update_lock
     // and publish_txn runs sequential so no need to lock here
@@ -2635,6 +2723,15 @@ Status Tablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
         if (std::get<1>(key) != DeleteBitmap::INVALID_SEGMENT_ID) {
             _tablet_meta->delete_bitmap().merge({std::get<0>(key), std::get<1>(key), cur_version},
                                                 bitmap);
+
+            if (build_row_binlog && std::get<0>(key) == cur_build_rid) {
+                const DeleteBitmap::SegmentId& sid = std::get<1>(key);
+                // Merge current delete bitmap deltas to binlog delvec because publish-phase
+                // partial-update and seq replace will influence the binlog file.
+                binlog_delvec->merge({binlog_rid, sid, cast_set<uint64_t>(cur_version)}, bitmap);
+                _tablet_meta->binlog_delvec().merge(
+                        {binlog_rid, sid, cast_set<uint64_t>(cur_version)}, bitmap);
+            }
         }
     }
 

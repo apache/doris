@@ -16,37 +16,59 @@
 // under the License.
 
 #include "storage/rowset/group_rowset_writer.h"
-
 #include "storage/rowset/beta_rowset_writer.h"
+#include "storage/segment/segment_writer.h"
+#include "util/debug_points.h"
 
 namespace doris {
 
 void GroupRowsetWriter::set_data_writer(const RowsetWriterSharedPtr& txn_rowset_writer) {
-    _txn_rowset_writer = std::dynamic_pointer_cast<BaseBetaRowsetWriter>(txn_rowset_writer);
+    _txn_rowset_writer = txn_rowset_writer;
 }
 
-void GroupRowsetWriter::set_row_binlog_writer(
-        const RowsetWriterSharedPtr& row_binlog_rowset_writer) {
+void GroupRowsetWriter::set_row_binlog_writer(const RowsetWriterSharedPtr& row_binlog_rowset_writer) {
     _row_binlog_rowset_writer = row_binlog_rowset_writer;
 }
 
 Status GroupRowsetWriter::flush_rowsets() {
     RETURN_IF_ERROR(_txn_rowset_writer->flush());
-    if (_row_binlog_rowset_writer) {
-        RETURN_IF_ERROR(_row_binlog_rowset_writer->flush());
-    }
+    RETURN_IF_ERROR(_row_binlog_rowset_writer->flush());
     return Status::OK();
 }
 
 Status GroupRowsetWriter::build_rowsets(std::vector<RowsetSharedPtr>& rowsets) {
-    if (rowsets.size() < 2) {
-        return Status::InvalidArgument(
-                "GroupRowsetWriter::build_rowsets expects at least 2 rowset slots");
+    rowsets.clear();
+    rowsets.reserve(2);
+
+    RowsetSharedPtr txn_rowset;
+    RowsetSharedPtr row_binlog_rowset;
+    RETURN_IF_ERROR(_txn_rowset_writer->build(txn_rowset));
+    Status st = Status::OK();
+    DBUG_EXECUTE_IF("GroupRowsetWriter::build_rowsets.row_binlog_build_failed", {
+        st = Status::InternalError("debug row binlog build failed");
+    });
+    if (st.ok()) {
+        st = _row_binlog_rowset_writer->build(row_binlog_rowset);
     }
-    RETURN_IF_ERROR(_txn_rowset_writer->build(rowsets[0]));
-    if (_row_binlog_rowset_writer) {
-        RETURN_IF_ERROR(_row_binlog_rowset_writer->build(rowsets[1]));
+    if (!st.ok()) {
+        RETURN_IF_ERROR(_txn_rowset_writer->force_rollback());
+        return st;
     }
+
+    rowsets.emplace_back(std::move(txn_rowset));
+    rowsets.emplace_back(std::move(row_binlog_rowset));
+    return Status::OK();
+}
+
+Status GroupRowsetWriter::flush_memtable(Block* block, int32_t segment_id, int64_t* flush_size) {
+    RETURN_IF_ERROR(_txn_rowset_writer->flush_memtable(block, segment_id, flush_size));
+    RETURN_IF_ERROR(_row_binlog_rowset_writer->flush_memtable(block, segment_id, flush_size));
+    return Status::OK();
+}
+
+Status GroupRowsetWriter::flush_single_block(const Block* block) {
+    RETURN_IF_ERROR(_txn_rowset_writer->flush_single_block(block));
+    RETURN_IF_ERROR(_row_binlog_rowset_writer->flush_single_block(block));
     return Status::OK();
 }
 

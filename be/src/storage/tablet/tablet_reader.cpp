@@ -121,7 +121,8 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     }
 
     bool need_ordered_result = true;
-    if (read_params.reader_type == ReaderType::READER_QUERY) {
+    if (read_params.reader_type == ReaderType::READER_QUERY
+                || read_params.reader_type == ReaderType::READER_BINLOG) {
         if (_tablet_schema->keys_type() == DUP_KEYS) {
             // duplicated keys are allowed, no need to merge sort keys in rowset
             need_ordered_result = false;
@@ -272,7 +273,8 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
 
 Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_init_return_columns_timer_ns);
-    if (read_params.reader_type == ReaderType::READER_QUERY) {
+    if (read_params.reader_type == ReaderType::READER_QUERY ||
+        read_params.reader_type == ReaderType::READER_BINLOG) {
         _return_columns = read_params.return_columns;
         _tablet_columns_convert_to_null_set = read_params.tablet_columns_convert_to_null_set;
         for (auto id : read_params.return_columns) {

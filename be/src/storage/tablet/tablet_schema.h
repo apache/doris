@@ -457,6 +457,16 @@ public:
     void replace_column(size_t pos, TabletColumn new_col);
     const std::vector<TabletColumnPtr>& columns() const;
     size_t num_columns() const { return _num_columns; }
+    size_t num_visible_columns() const {
+        return std::count_if(_cols.begin(), _cols.end(), [](const TabletColumnPtr& column) {
+            return column->visible();
+        });
+    }
+    size_t num_visible_value_columns() const {
+        return std::count_if(_cols.begin(), _cols.end(), [](const TabletColumnPtr& column) {
+            return column->visible() && !column->is_key();
+        });
+    }
     size_t num_key_columns() const { return _num_key_columns; }
     const std::vector<uint32_t>& cluster_key_uids() const { return _cluster_key_uids; }
     size_t num_null_columns() const { return _num_null_columns; }

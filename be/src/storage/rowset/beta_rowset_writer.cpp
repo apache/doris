@@ -96,6 +96,8 @@ void build_rowset_meta_with_spec_field(RowsetMeta& rowset_meta,
     rowset_meta.set_rowset_state(spec_rowset_meta.rowset_state());
     rowset_meta.set_segments_key_bounds_truncated(
             spec_rowset_meta.is_segments_key_bounds_truncated());
+    rowset_meta.set_db_id(spec_rowset_meta.db_id());
+    rowset_meta.set_table_id(spec_rowset_meta.table_id());
     std::vector<KeyBoundsPB> segments_key_bounds;
     spec_rowset_meta.get_segments_key_bounds(&segments_key_bounds);
     // Preserve source layout: if source was aggregated (size 1), re-aggregating
@@ -318,6 +320,7 @@ BetaRowsetWriter::~BetaRowsetWriter() {
 
 Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
     _context = rowset_writer_context;
+    DCHECK(_context.tablet_schema != nullptr);
     _rowset_meta.reset(new RowsetMeta);
     if (_context.storage_resource) {
         _rowset_meta->set_remote_storage_resource(*_context.storage_resource);
@@ -325,6 +328,8 @@ Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_conte
     _rowset_meta->set_rowset_id(_context.rowset_id);
     _rowset_meta->set_partition_id(_context.partition_id);
     _rowset_meta->set_tablet_id(_context.tablet_id);
+    _rowset_meta->set_db_id(_context.db_id);
+    _rowset_meta->set_table_id(_context.table_id);
     _rowset_meta->set_index_id(_context.index_id);
     _rowset_meta->set_tablet_schema_hash(_context.tablet_schema_hash);
     _rowset_meta->set_rowset_type(_context.rowset_type);
@@ -343,6 +348,7 @@ Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_conte
     if (_context.write_binlog_opt().is_binlog_writer()) {
         _rowset_meta->mark_row_binlog();
     }
+    _rowset_meta->set_compaction_level(_context.compaction_level);
     _context.segment_collector = std::make_shared<SegmentCollectorT<BaseBetaRowsetWriter>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BaseBetaRowsetWriter>>(this);
     return Status::OK();
@@ -354,7 +360,7 @@ Status BaseBetaRowsetWriter::add_block(const Block* block) {
 
 Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     SCOPED_RAW_TIMER(&_delete_bitmap_ns);
-    if (!_context.tablet->enable_unique_key_merge_on_write() ||
+    if (_context.is_transient_rowset_writer || !_context.tablet->enable_unique_key_merge_on_write() ||
         (_context.partial_update_info && _context.partial_update_info->is_partial_update())) {
         return Status::OK();
     }

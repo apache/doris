@@ -174,6 +174,10 @@ message RowsetMetaPB {
     optional string job_id = 1014;
 
     optional int64 commit_tso = 1015 [default = -1];
+
+    // For row binlog LSN allocation (FE auto-inc RPC)
+    optional int64 db_id = 1016;
+    optional int64 table_id = 1017;
 }
 
 message SchemaDictKeyList {
@@ -287,6 +291,10 @@ message RowsetMetaCloudPB {
     optional bool is_recycled = 112;
     optional string job_id = 113;
     optional int64 commit_tso = 114 [default = -1];
+
+    // For row binlog LSN allocation (FE auto-inc RPC)
+    optional int64 db_id = 115;
+    optional int64 table_id = 116;
 
 }
 
