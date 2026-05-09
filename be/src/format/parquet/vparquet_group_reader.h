@@ -252,8 +252,6 @@ private:
     Status _append_iceberg_rowid_column(Block* block, size_t read_rows, bool is_current_row_ids);
 
     io::FileReaderSPtr _file_reader;
-    std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>>
-            _column_readers; // table_column_name
     std::vector<std::string> _read_table_columns;
 
     const int32_t _row_group_id;
@@ -265,6 +263,9 @@ private:
     std::shared_ptr<RowLineageColumns> _row_lineage_columns;
     // merge the row ranges generated from page index and position delete.
     RowRanges _read_ranges;
+    // ParquetColumnReader keeps a reference to _read_ranges, so readers must be destroyed first.
+    std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>>
+            _column_readers; // table_column_name
 
     LazyReadContext _lazy_read_ctx;
     int64_t _lazy_read_filtered_rows = 0;

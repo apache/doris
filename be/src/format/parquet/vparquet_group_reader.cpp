@@ -162,8 +162,9 @@ RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
           _filter_column_ids(filter_column_ids) {}
 
 RowGroupReader::~RowGroupReader() {
-    _column_readers.clear();
-    _obj_pool->clear();
+    if (_obj_pool != nullptr) {
+        _obj_pool->clear();
+    }
 }
 
 Status RowGroupReader::init(
@@ -512,9 +513,9 @@ Status RowGroupReader::_read_column_data(Block* block,
                     block->get_by_position(block_pos).type =
                             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
                     block->replace_by_position(
-                            block_pos, ColumnNullable::create(
-                                               std::move(dict_column),
-                                               ColumnUInt8::create(dict_column->size(), 0)));
+                            block_pos,
+                            ColumnNullable::create(std::move(dict_column),
+                                                   ColumnUInt8::create(dict_column->size(), 0)));
                 } else {
                     block->get_by_position(block_pos).type = std::make_shared<DataTypeInt32>();
                     block->replace_by_position(block_pos, std::move(dict_column));
@@ -882,8 +883,8 @@ Status RowGroupReader::_fill_missing_columns(
                 result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
                 auto origin_column_type = block->get_by_position(block_pos).type;
                 bool is_nullable = origin_column_type->is_nullable();
-                block->replace_by_position(
-                        block_pos, is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
+                block->replace_by_position(block_pos, is_nullable ? make_nullable(result_column_ptr)
+                                                                  : result_column_ptr);
             }
         }
     }
@@ -894,7 +895,8 @@ Status RowGroupReader::_get_block_column_pos(const Block& block, const std::stri
                                              uint32_t* position) const {
     if (_col_name_to_block_idx == nullptr) {
         return Status::InternalError(
-                "Column name to block index map is not set when reading parquet column '{}', block: "
+                "Column name to block index map is not set when reading parquet column '{}', "
+                "block: "
                 "{}",
                 column_name, block.dump_structure());
     }
@@ -1369,8 +1371,8 @@ Status RowGroupReader::_convert_dict_cols_to_string_cols(Block* block) {
             const auto* dict_column = assert_cast<const ColumnInt32*>(nested_column.get());
             DCHECK(dict_column);
 
-            auto string_column =
-                    DORIS_TRY(reader_iter->second->convert_dict_column_to_string_column(dict_column));
+            auto string_column = DORIS_TRY(
+                    reader_iter->second->convert_dict_column_to_string_column(dict_column));
 
             column_with_type_and_name.type =
                     std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
@@ -1379,8 +1381,8 @@ Status RowGroupReader::_convert_dict_cols_to_string_cols(Block* block) {
                                                       nullable_column->get_null_map_column_ptr()));
         } else {
             const auto* dict_column = assert_cast<const ColumnInt32*>(column.get());
-            auto string_column =
-                    DORIS_TRY(reader_iter->second->convert_dict_column_to_string_column(dict_column));
+            auto string_column = DORIS_TRY(
+                    reader_iter->second->convert_dict_column_to_string_column(dict_column));
 
             column_with_type_and_name.type = std::make_shared<DataTypeString>();
             block->replace_by_position(block_pos, std::move(string_column));
