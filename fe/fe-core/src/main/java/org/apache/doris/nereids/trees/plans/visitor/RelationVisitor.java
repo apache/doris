@@ -21,7 +21,6 @@ import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
@@ -36,7 +35,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTestScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHudiScan;
@@ -109,11 +107,6 @@ public interface RelationVisitor<R, C> {
         return visitLogicalCatalogRelation(olapScan, context);
     }
 
-    default R visitLogicalDeferMaterializeOlapScan(
-            LogicalDeferMaterializeOlapScan deferMaterializeOlapScan, C context) {
-        return visitLogicalCatalogRelation(deferMaterializeOlapScan, context);
-    }
-
     default R visitLogicalOneRowRelation(LogicalOneRowRelation oneRowRelation, C context) {
         return visitLogicalRelation(oneRowRelation, context);
     }
@@ -160,11 +153,6 @@ public interface RelationVisitor<R, C> {
 
     default R visitPhysicalOlapScan(PhysicalOlapScan olapScan, C context) {
         return visitPhysicalCatalogRelation(olapScan, context);
-    }
-
-    default R visitPhysicalDeferMaterializeOlapScan(
-            PhysicalDeferMaterializeOlapScan deferMaterializeOlapScan, C context) {
-        return visitPhysicalCatalogRelation(deferMaterializeOlapScan, context);
     }
 
     default R visitPhysicalWorkTableReference(PhysicalWorkTableReference workTableReference, C context) {

@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.cloud.proto.Cloud;
@@ -29,12 +28,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.resource.Tag;
-import org.apache.doris.resource.computegroup.ComputeGroup;
-import org.apache.doris.system.Backend;
-import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TStorageType;
-import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -257,37 +251,6 @@ public class OlapTableTest {
         Assert.assertTrue(schemaAllIndexes.contains(col4));
         Assert.assertFalse(schemaAllIndexes.contains(col1));
         Assert.assertTrue(schemaAllIndexes.contains(col2));
-    }
-
-    @Test
-    public void testTopNPushDownWithTag() throws Exception {
-        FeConstants.runningUnitTest = true;
-
-        Tag taga = Tag.create(Tag.TYPE_LOCATION, "taga");
-        Backend be1 = new Backend(10001, "192.168.1.1", 9050);
-        be1.setTagMap(taga.toMap());
-        be1.setAlive(true);
-
-        Tag tagb = Tag.create(Tag.TYPE_LOCATION, "tagb");
-        Backend be2 = new Backend(10002, "192.168.1.2", 9050);
-        be2.setAlive(true);
-        be2.setTagMap(tagb.toMap());
-
-        Env.getCurrentSystemInfo().addBackend(be1);
-        Env.getCurrentSystemInfo().addBackend(be2);
-
-        ConnectContext connectContext = UtFrameUtils.createDefaultCtx();
-        connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
-        OlapTable tab = new OlapTable();
-        TFetchOption tfetchOption = tab.generateTwoPhaseReadOption(-1);
-        Assert.assertTrue(tfetchOption.nodes_info.nodes.size() == 2);
-
-        connectContext.setComputeGroup(new ComputeGroup("taga", "taga", Env.getCurrentSystemInfo()));
-
-        TFetchOption tfetchOption2 = tab.generateTwoPhaseReadOption(-1);
-        Assert.assertTrue(tfetchOption2.nodes_info.nodes.size() == 1);
-        ConnectContext.remove();
-
     }
 
     @Test
