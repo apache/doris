@@ -32,7 +32,6 @@
 #include "udf/python/python_env.h"
 #include "udf/python/python_udf_client.h"
 #include "udf/python/python_udf_meta.h"
-#include "udf/python/python_udf_runtime.h"
 
 namespace doris {
 
@@ -324,6 +323,26 @@ TEST_F(PythonServerTest, ClearModuleCacheWithoutProcessesIsNoOp) {
 
     auto status = mgr.clear_module_cache("/tmp/python_udf_cache");
     EXPECT_TRUE(status.ok()) << status.to_string();
+}
+
+TEST_F(PythonServerTest, BroadcastActionWithInvalidProcessUriReturnsError) {
+    PythonServerManager mgr;
+    PythonVersion version("3.9.16", test_dir_, test_dir_ + "/bin/python3");
+    ProcessPtr process = create_sleep_process();
+    ASSERT_NE(process, nullptr);
+    ASSERT_TRUE(process->is_alive());
+    process->set_uri_for_test("invalid-python-flight-uri");
+
+    mgr.set_process_pool_for_test(version, {process});
+    auto status = mgr.broadcast_action_to_processes_for_test(
+            "clear_udaf_state_cache", R"({"function_id": 12345})", "function_id=12345");
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("clear_udaf_state_cache failed for function_id=12345"),
+              std::string::npos);
+    EXPECT_NE(status.to_string().find("success=0, failed=1"), std::string::npos);
+
+    mgr.shutdown();
 }
 
 // ============================================================================

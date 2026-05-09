@@ -65,6 +65,12 @@ public:
                                    bool initialized = true);
 
     std::vector<ProcessPtr>& process_pool_for_test(const PythonVersion& version);
+
+    Status broadcast_action_to_processes_for_test(const std::string& action_type,
+                                                  const std::string& body,
+                                                  const std::string& log_name) {
+        return _broadcast_action_to_processes(action_type, body, log_name);
+    }
 #endif
 
 private:
