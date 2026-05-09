@@ -239,6 +239,15 @@ private:
                                DorisUniqueBufferPtr<uint8_t>& filter_map_data,
                                size_t pre_read_rows) const;
 
+    Status _fill_partition_columns(
+            Block* block, size_t rows,
+            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                    partition_columns);
+    Status _fill_missing_columns(
+            Block* block, size_t rows,
+            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns);
+    Status _get_block_column_pos(const Block& block, const std::string& column_name,
+                                 uint32_t* position) const;
     Status _build_pos_delete_filter(size_t read_rows);
     Status _filter_block(Block* block, int column_to_keep,
                          const std::vector<uint32_t>& columns_to_filter);
@@ -259,7 +268,7 @@ private:
     io::FileReaderSPtr _file_reader;
     std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>>
             _column_readers; // table_column_name
-    const std::vector<std::string>& _read_table_columns;
+    std::vector<std::string> _read_table_columns;
 
     const int32_t _row_group_id;
     const tparquet::RowGroup& _row_group_meta;
@@ -271,7 +280,7 @@ private:
     // merge the row ranges generated from page index and position delete.
     RowRanges _read_ranges;
 
-    const LazyReadContext& _lazy_read_ctx;
+    LazyReadContext _lazy_read_ctx;
     int64_t _lazy_read_filtered_rows = 0;
     int64_t _predicate_filter_time = 0;
     int64_t _dict_filter_rewrite_time = 0;
