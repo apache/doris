@@ -1222,13 +1222,15 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
         TabletSchemaSPtr& output_schema) {
     const auto& parent_indexes = target->inverted_indexs(parent_column->unique_id());
     for (const auto& [path, data_types] : path_to_data_types) {
-        if (data_types.empty() || path.empty() || path.has_nested_part()) {
+        // Typed paths are materialized by get_compaction_typed_columns(); this helper only
+        // materializes regular subcolumns inferred from rowset data types.
+        if (data_types.empty() || path.empty() || path.get_is_typed() || path.has_nested_part()) {
             continue;
         }
         DataTypePtr data_type;
         get_least_supertype_jsonb(data_types, &data_type);
         auto column_name = parent_column->name_lower_case() + "." + path.get_path();
-        auto column_path = PathInData(column_name, path.get_is_typed());
+        auto column_path = PathInData(column_name);
         TabletColumn sub_column =
                 get_column_by_type(data_type, column_name,
                                    ExtraInfo {.unique_id = -1,
@@ -1237,15 +1239,8 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
         inherit_column_attributes(*parent_column, sub_column);
         TabletIndexes sub_column_indexes;
         inherit_index(parent_indexes, sub_column_indexes, sub_column);
-        if (path.get_is_typed()) {
-            TabletSchema::SubColumnInfo sub_column_info {.column = sub_column,
-                                                         .indexes = std::move(sub_column_indexes)};
-            paths_set_info.typed_path_set.emplace(path.get_path(), std::move(sub_column_info));
-        } else {
-            paths_set_info.sub_path_set.emplace(path.get_path());
-            paths_set_info.subcolumn_indexes.emplace(path.get_path(),
-                                                     std::move(sub_column_indexes));
-        }
+        paths_set_info.sub_path_set.emplace(path.get_path());
+        paths_set_info.subcolumn_indexes.emplace(path.get_path(), std::move(sub_column_indexes));
         output_schema->append_column(sub_column);
         VLOG_DEBUG << "append sub column " << path.get_path() << " data type "
                    << data_type->get_name();
