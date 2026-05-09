@@ -586,7 +586,10 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_t
         auto rs_meta_pb = std::make_shared<RowsetMetaPB>(rs_meta.get_rowset_pb());
         auto st = _thread_pool_token->submit_func([this, rs_meta_pb, sync_wait_timeout_ms]() {
             RowsetMeta async_rs_meta;
-            if (!async_rs_meta.init_from_pb(*rs_meta_pb)) {
+            bool init_succeed = async_rs_meta.init_from_pb(*rs_meta_pb);
+            TEST_SYNC_POINT_CALLBACK("CloudWarmUpManager::warm_up_rowset.async_init_from_pb",
+                                     &init_succeed);
+            if (!init_succeed) {
                 LOG(WARNING) << "Failed to init rowset meta when warming up rowset asynchronously";
                 return;
             }

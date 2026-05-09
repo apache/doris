@@ -173,6 +173,48 @@ TEST_F(CloudWarmUpManagerTest, NonPositiveTimeoutQueuesBackgroundCopyAndReturns)
     EXPECT_EQ(-1, observed_timeout_ms);
 }
 
+TEST_F(CloudWarmUpManagerTest, NonPositiveTimeoutSkipsWarmupWhenAsyncRowsetMetaInitFails) {
+    CloudWarmUpManager manager(_engine);
+    auto rs_meta = create_rowset_meta(10002);
+
+    std::mutex observed_mtx;
+    std::condition_variable observed_cv;
+    bool init_attempted = false;
+    bool warmup_entered = false;
+
+    SyncPoint::CallbackGuard init_guard;
+    SyncPoint::get_instance()->set_call_back(
+            "CloudWarmUpManager::warm_up_rowset.async_init_from_pb",
+            [&](std::vector<std::any>&& args) {
+                auto* init_succeed = try_any_cast<bool*>(args[0]);
+                *init_succeed = false;
+                {
+                    std::lock_guard lock(observed_mtx);
+                    init_attempted = true;
+                }
+                observed_cv.notify_all();
+            },
+            &init_guard);
+
+    SyncPoint::CallbackGuard warmup_enter_guard;
+    SyncPoint::get_instance()->set_call_back(
+            "CloudWarmUpManager::_warm_up_rowset.enter",
+            [&](std::vector<std::any>&&) {
+                std::lock_guard lock(observed_mtx);
+                warmup_entered = true;
+                observed_cv.notify_all();
+            },
+            &warmup_enter_guard);
+
+    manager.warm_up_rowset(*rs_meta, -1);
+
+    {
+        std::unique_lock lock(observed_mtx);
+        ASSERT_TRUE(observed_cv.wait_for(lock, 5s, [&] { return init_attempted; }));
+        EXPECT_FALSE(observed_cv.wait_for(lock, 200ms, [&] { return warmup_entered; }));
+    }
+}
+
 TEST_F(CloudWarmUpManagerTest, PositiveTimeoutIgnoresSpuriousWakeupUntilWorkerFinishes) {
     CloudWarmUpManager manager(_engine);
     auto rs_meta = create_rowset_meta(10003);
