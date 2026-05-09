@@ -648,6 +648,7 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
         key.meta.tablet_id = context.tablet_id;
         key.meta.table_name = context.table_name;
         key.meta.partition_name = context.partition_name;
+        key.meta.context_id = context.context_id;
         _storage->load_blocks_directly_unlocked(this, key, cache_lock);
 
         it = _files.find(hash);
@@ -926,6 +927,7 @@ FileBlocks BlockFileCache::split_range_into_cells(const UInt128Wrapper& hash,
             key.meta.tablet_id = context.tablet_id;
             key.meta.table_name = context.table_name;
             key.meta.partition_name = context.partition_name;
+            key.meta.context_id = context.context_id;
             auto file_block = std::make_shared<FileBlock>(key, current_size, this,
                                                           FileBlock::State::SKIP_CACHE);
             file_blocks.push_back(std::move(file_block));
@@ -1119,6 +1121,7 @@ FileBlockCell* BlockFileCache::add_cell(const UInt128Wrapper& hash, const CacheC
     key.meta.tablet_id = context.tablet_id;
     key.meta.table_name = context.table_name;
     key.meta.partition_name = context.partition_name;
+    key.meta.context_id = context.context_id;
     FileBlockCell cell(std::make_shared<FileBlock>(key, size, this, state), cache_lock);
     Status st;
     if (context.expiration_time == 0 && context.cache_type == FileCacheType::TTL) {

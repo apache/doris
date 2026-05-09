@@ -120,6 +120,7 @@ struct KeyMeta {
     int64_t tablet_id {0};
     std::string table_name;
     std::string partition_name;
+    uint64_t context_id {0};
 };
 
 struct FileCacheKey {
@@ -193,6 +194,7 @@ struct CacheContext {
     bool admit_cache_write_by_remote_scan_limiter {false};
     std::string table_name;
     std::string partition_name;
+    uint64_t context_id {0};
 };
 
 template <class Lock>

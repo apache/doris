@@ -294,7 +294,7 @@ Status FSFileCacheStorage::abort(const FileCacheKey& key) {
     return Status::OK();
 }
 
-Status FSFileCacheStorage::finalize(const FileCacheKey& key, const size_t size) {
+Status FSFileCacheStorage::finalize(FileCacheKey& key, const size_t size) {
     FileWriterPtr file_writer;
     {
         auto file_writer_map_key = std::make_pair(key.hash, key.offset);
@@ -328,6 +328,7 @@ Status FSFileCacheStorage::finalize(const FileCacheKey& key, const size_t size) 
         // failure must degrade to an empty context id instead of affecting cache writes.
         context_id =
                 _meta_store->get_or_create_context_id(key.meta.table_name, key.meta.partition_name);
+        key.meta.context_id = context_id;
         _meta_store->put(mkey,
                          BlockMeta(key.meta.type, size, key.meta.expiration_time, context_id));
     }
@@ -458,7 +459,7 @@ Status FSFileCacheStorage::change_key_meta_type(const FileCacheKey& key, const F
     // file operation
     if (key.meta.type != type) {
         BlockMetaKey mkey(key.meta.tablet_id, UInt128Wrapper(key.hash), key.offset);
-        BlockMeta meta(type, size, key.meta.expiration_time);
+        BlockMeta meta(type, size, key.meta.expiration_time, key.meta.context_id);
         _meta_store->put(mkey, meta);
     }
     return Status::OK();
@@ -1059,6 +1060,7 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* mgr
         ctx.expiration_time = meta_value.ttl;
         ctx.tablet_id =
                 meta_key.tablet_id; //TODO(zhengyu): zero if loaded from v2, we can use this to decide whether the block is loaded from v2 or v3
+        ctx.context_id = meta_value.context_id;
         if (meta_value.context_id != 0) {
             if (auto it = context_cache.find(meta_value.context_id); it != context_cache.end()) {
                 ctx.table_name = it->second.first;

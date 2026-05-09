@@ -77,7 +77,7 @@ Status MemFileCacheStorage::abort(const FileCacheKey& key) {
     return Status::OK();
 }
 
-Status MemFileCacheStorage::finalize(const FileCacheKey& key, const size_t size) {
+Status MemFileCacheStorage::finalize(FileCacheKey& key, const size_t size) {
     // do nothing for in memory cache coz nothing to persist
     // download state in FileBlock::finalize will inform the readers when finish
     return Status::OK();

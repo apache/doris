@@ -36,7 +36,7 @@ public:
     Status appendv(const FileCacheKey& key, const Slice* values, size_t value_cnt) override;
     Status append_iobuf(const FileCacheKey& key, const butil::IOBuf& value) override;
     Status abort(const FileCacheKey& key);
-    Status finalize(const FileCacheKey& key, const size_t size) override;
+    Status finalize(FileCacheKey& key, const size_t size) override;
     Status read(const FileCacheKey& key, size_t value_offset, Slice buffer) override;
     Status read_to_iobuf(const FileCacheKey& key, size_t value_offset, size_t bytes_req,
                          butil::IOBuf* out, size_t* bytes_read) override;
