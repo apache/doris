@@ -18,6 +18,6 @@
 suite("load") {
     connect {
         sql """DROP DATABASE IF EXISTS ${context.dbName} FORCE"""
-        sql """CREATE DATABASE ${context.dbName} PROPERTIES ("binlog.enable" = "true")"""
+        sql """CREATE DATABASE ${context.dbName}"""
     }
 }

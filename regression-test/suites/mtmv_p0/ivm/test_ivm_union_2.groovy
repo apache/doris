@@ -42,6 +42,8 @@ suite("test_ivm_union_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -54,7 +56,9 @@ suite("test_ivm_union_2") {
         DUPLICATE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
-            "replication_num" = "1"
+            "replication_num" = "1",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW"
         );
     """
 
@@ -117,6 +121,8 @@ suite("test_ivm_union_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -130,6 +136,8 @@ suite("test_ivm_union_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -143,6 +151,8 @@ suite("test_ivm_union_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -156,6 +166,8 @@ suite("test_ivm_union_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -220,6 +232,8 @@ suite("test_ivm_union_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -233,6 +247,8 @@ suite("test_ivm_union_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -246,6 +262,8 @@ suite("test_ivm_union_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -310,6 +328,8 @@ suite("test_ivm_union_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -323,6 +343,8 @@ suite("test_ivm_union_2") {
         DISTRIBUTED BY HASH(k2) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -384,6 +406,8 @@ suite("test_ivm_union_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -397,6 +421,8 @@ suite("test_ivm_union_2") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW",
             "enable_unique_key_merge_on_write" = "true"
         );
     """

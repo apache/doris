@@ -39,6 +39,8 @@ suite("test_ivm_agg_4") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -157,6 +159,8 @@ suite("test_ivm_agg_4") {
         DISTRIBUTED BY HASH(id) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -258,6 +262,8 @@ suite("test_ivm_agg_4") {
         DISTRIBUTED BY HASH(id) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
@@ -345,6 +351,8 @@ suite("test_ivm_agg_4") {
         DISTRIBUTED BY HASH(id) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW",
             "enable_unique_key_merge_on_write" = "true"
         );
     """
