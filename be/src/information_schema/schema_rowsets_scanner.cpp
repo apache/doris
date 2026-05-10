@@ -275,7 +275,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(Block* block) {
             RowsetSharedPtr rowset = rowsets_[i];
             commit_tsos[i - fill_idx_begin] = rowset->commit_tso().to_string();
             srcs[i - fill_idx_begin] = StringRef(commit_tsos[i - fill_idx_begin].c_str(),
-                                                commit_tsos[i - fill_idx_begin].size());
+                                                 commit_tsos[i - fill_idx_begin].size());
             datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 13, datas));
