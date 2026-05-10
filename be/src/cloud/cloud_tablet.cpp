@@ -1279,6 +1279,15 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     calc_compaction_output_rowset_delete_bitmap(
             input_rowsets, rowid_conversion, 0, version.second + 1, missed_rows.get(),
             location_map.get(), tablet_meta()->delete_bitmap(), output_rowset_delete_bitmap.get());
+
+    // In cluster-key MOW compaction, rows are sorted by cluster key, so duplicate unique keys
+    // may be non-adjacent in merge order. Scan the output primary key index to delete older
+    // duplicate rows inside the output rowset.
+    if (!tablet_schema()->cluster_key_uids().empty()) {
+        RETURN_IF_ERROR(calc_compaction_output_rowset_internal_delete_bitmap(
+                input_rowsets, output_rowset, rowid_conversion, output_rowset_delete_bitmap.get()));
+    }
+
     if (missed_rows) {
         missed_rows_size = missed_rows->size();
         if (!allow_delete_in_cumu_compaction) {
