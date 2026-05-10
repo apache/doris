@@ -17,7 +17,7 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.common.util.BitUtil;
+import org.apache.doris.foundation.util.BitUtil;
 import org.apache.doris.qe.SessionVariable;
 
 /**

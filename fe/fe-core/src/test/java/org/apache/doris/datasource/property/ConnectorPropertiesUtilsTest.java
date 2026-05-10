@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.property;
 
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
+import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.nereids.types.UnsupportedType;
 
 import  org.junit.jupiter.api.Assertions;

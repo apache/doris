@@ -19,9 +19,9 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.ConnectorProperty;
-import org.apache.doris.datasource.property.ParamRules;
 import org.apache.doris.datasource.property.storage.exception.AzureAuthType;
+import org.apache.doris.foundation.property.ConnectorProperty;
+import org.apache.doris.foundation.property.ParamRules;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;

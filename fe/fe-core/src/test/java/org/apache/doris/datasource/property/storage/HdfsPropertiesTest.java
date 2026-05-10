@@ -21,7 +21,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.HadoopKerberosAuthenticator;
 import org.apache.doris.common.security.authentication.HadoopSimpleAuthenticator;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 
 import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
