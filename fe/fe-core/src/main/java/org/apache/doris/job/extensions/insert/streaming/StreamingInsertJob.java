@@ -638,6 +638,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         this.jobStatistic.setFileNumber(this.jobStatistic.getFileNumber() + attachment.getNumFiles());
         this.jobStatistic.setFileSize(this.jobStatistic.getFileSize() + attachment.getFileBytes());
         offsetProvider.updateOffset(offsetProvider.deserializeOffset(attachment.getOffset()));
+        // Sync offsetProviderPersist after each offset update so the checkpoint thread
+        // (which replays journals on its own Env) writes the latest offset into the image.
+        this.offsetProviderPersist = offsetProvider.getPersistInfo();
 
         //update metric
         if (MetricRepo.isInit && !isReplay) {
@@ -744,6 +747,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty()) && this.tvfType != null) {
             Offset offset = validateOffset(inputStreamProps.getOffsetProperty());
             this.offsetProvider.updateOffset(offset);
+            this.offsetProviderPersist = offsetProvider.getPersistInfo();
             if (Config.isCloudMode()) {
                 resetCloudProgress(offset);
             }
@@ -1101,6 +1105,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (offsetProvider == null) {
             if (tvfType != null) {
                 offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(tvfType);
+                offsetProvider.restoreFromPersistInfo(offsetProviderPersist);
             } else {
                 offsetProvider = new JdbcSourceOffsetProvider(getJobId(), dataSourceType, sourceProperties);
             }
