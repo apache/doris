@@ -407,36 +407,12 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
     int32_t col_uid =
             target_col.unique_id() >= 0 ? target_col.unique_id() : target_col.parent_unique_id();
     auto relative_path = target_col.path_info_ptr()->copy_pop_front();
-    const auto* root = _subcolumns_meta_info->get_root();
-    const auto* node =
-            target_col.has_path_info() ? _subcolumns_meta_info->find_leaf(relative_path) : nullptr;
-
-    if (relative_path.empty()) {
-        plan->type = create_variant_type(target_col);
-        plan->relative_path = relative_path;
-        plan->needs_root_merge = _needs_root_nested_group_merge(relative_path);
-        if (_statistics->has_doc_value_column_non_null_size()) {
-            plan->kind = ReadKind::HIERARCHICAL_DOC;
-            plan->root = root;
-            return Status::OK();
-        }
-        plan->kind = ReadKind::ROOT_FLAT;
-        return Status::OK();
-    }
+    const auto* node = (!relative_path.empty() && target_col.has_path_info())
+                               ? _subcolumns_meta_info->find_leaf(relative_path)
+                               : nullptr;
 
     if (!relative_path.empty() && _can_use_nested_group_read_path() &&
         _try_fill_nested_group_plan(plan, target_col, opts, col_uid, relative_path)) {
-        return Status::OK();
-    }
-
-    const std::string dot_prefix = relative_path.get_path() + ".";
-    if (target_col.variant_enable_doc_mode() &&
-        _statistics->has_prefix_path_in_doc_value_column(dot_prefix)) {
-        plan->kind = ReadKind::HIERARCHICAL_DOC;
-        plan->type = create_variant_type(target_col);
-        plan->relative_path = relative_path;
-        plan->root = root;
-        plan->needs_root_merge = _needs_root_nested_group_merge(relative_path);
         return Status::OK();
     }
 
@@ -492,6 +468,16 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
             plan->relative_path = relative_path;
             return Status::OK();
         }
+
+        if (relative_path.empty()) {
+            // root path, use VariantRootColumnIterator
+            plan->kind = ReadKind::ROOT_FLAT;
+            plan->type = create_variant_type(target_col);
+            plan->relative_path = relative_path;
+            plan->needs_root_merge = _needs_root_nested_group_merge(relative_path);
+            return Status::OK();
+        }
+
         // If the path is typed, it means the path is not a sparse column, so we can't read the sparse column
         // even if the sparse column size is reached limit
         bool existed_in_sparse_column =

@@ -1193,7 +1193,8 @@ TEST_F(SchemaUtilTest, TestGetCompactionSchema) {
     EXPECT_EQ(variant_col.get_sub_columns().size(), 0);
 }
 
-TEST_F(SchemaUtilTest, get_extended_compaction_schema_nested_group_preserves_typed_subcolumns) {
+TEST_F(SchemaUtilTest,
+       get_extended_compaction_schema_nested_group_ignores_existing_extracted_subcolumns) {
     TabletColumn variant;
     variant.set_unique_id(1);
     variant.set_name("v1");
@@ -1224,20 +1225,16 @@ TEST_F(SchemaUtilTest, get_extended_compaction_schema_nested_group_preserves_typ
             rowsets, target_schema);
     ASSERT_TRUE(status.ok()) << status.to_string();
 
-    EXPECT_EQ(target_schema->num_columns(), 2);
+    // get_extended_compaction_schema rebuilds from the base columns. Real compaction targets do
+    // not carry pre-existing extracted columns, so NG compaction must rely on rowset metadata for
+    // regular paths and on get_compaction_typed_columns() for typed paths.
+    EXPECT_EQ(target_schema->num_columns(), 1);
     const PathInData typed_path("v1.owner", true);
-    const auto typed_column_index = target_schema->field_index(typed_path);
-    ASSERT_NE(typed_column_index, -1);
-
-    const auto& preserved_typed_column = target_schema->column(typed_column_index);
-    EXPECT_TRUE(preserved_typed_column.path_info_ptr()->get_is_typed());
-    EXPECT_EQ(preserved_typed_column.type(), FieldType::OLAP_FIELD_TYPE_STRING);
+    EXPECT_EQ(target_schema->field_index(typed_path), -1);
 
     const auto* path_set_info = target_schema->try_path_set_info(1);
     ASSERT_NE(path_set_info, nullptr);
-    ASSERT_TRUE(path_set_info->typed_path_set.contains("owner"));
-    EXPECT_EQ(path_set_info->typed_path_set.at("owner").indexes.size(), 1);
-    EXPECT_EQ(path_set_info->typed_path_set.at("owner").indexes[0]->index_name(), "v1_owner_idx");
+    EXPECT_FALSE(path_set_info->typed_path_set.contains("owner"));
 }
 
 TEST_F(SchemaUtilTest, TestGetSortedSubcolumns) {
@@ -1617,7 +1614,6 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
     path_to_data_types[PathInData("b")] = {std::make_shared<DataTypeString>()}; // -> STRING
     path_to_data_types[PathInData("typed", true)] = {std::make_shared<DataTypeString>()};
     path_to_data_types[PathInData("shared")] = {std::make_shared<DataTypeInt32>()};
-    path_to_data_types[PathInData("shared", true)] = {std::make_shared<DataTypeString>()};
 
     TabletSchemaSPtr output_schema = std::make_shared<TabletSchema>();
     TabletSchema::PathsSetInfo paths_set_info;
@@ -1625,9 +1621,8 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
     variant_util::VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
             paths_set_info, parent_column, target, path_to_data_types, output_schema);
 
-    EXPECT_EQ(output_schema->num_columns(), 5);
-    bool found_a = false, found_b = false, found_typed = false, found_shared = false,
-         found_typed_shared = false;
+    EXPECT_EQ(output_schema->num_columns(), 3);
+    bool found_a = false, found_b = false, found_typed = false, found_shared = false;
     for (const auto& col : output_schema->columns()) {
         if (col->name() == "v1.a") {
             found_a = true;
@@ -1652,14 +1647,10 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
             EXPECT_EQ(col->type(), FieldType::OLAP_FIELD_TYPE_INT);
             EXPECT_EQ(col->parent_unique_id(), 1);
             EXPECT_EQ(col->path_info_ptr()->get_path(), "v1.shared");
-        } else if (col->name() == "v1.shared" && col->path_info_ptr()->get_is_typed()) {
-            found_typed_shared = true;
-            EXPECT_EQ(col->type(), FieldType::OLAP_FIELD_TYPE_STRING);
-            EXPECT_EQ(col->parent_unique_id(), 1);
-            EXPECT_EQ(col->path_info_ptr()->get_path(), "v1.shared");
         }
     }
-    EXPECT_TRUE(found_a && found_b && found_typed && found_shared && found_typed_shared);
+    EXPECT_TRUE(found_a && found_b && found_shared);
+    EXPECT_FALSE(found_typed);
 
     ASSERT_TRUE(paths_set_info.subcolumn_indexes.find("a") !=
                 paths_set_info.subcolumn_indexes.end());
@@ -1668,12 +1659,13 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
     EXPECT_EQ(paths_set_info.subcolumn_indexes["a"].size(), 1);
     EXPECT_EQ(paths_set_info.subcolumn_indexes["b"].size(), 1);
     EXPECT_FALSE(paths_set_info.subcolumn_indexes.contains("typed"));
-    ASSERT_TRUE(paths_set_info.typed_path_set.contains("typed"));
-    EXPECT_EQ(paths_set_info.typed_path_set.at("typed").indexes.size(), 1);
     ASSERT_TRUE(paths_set_info.subcolumn_indexes.contains("shared"));
-    ASSERT_TRUE(paths_set_info.typed_path_set.contains("shared"));
     EXPECT_EQ(paths_set_info.subcolumn_indexes.at("shared").size(), 1);
-    EXPECT_EQ(paths_set_info.typed_path_set.at("shared").indexes.size(), 1);
+    EXPECT_FALSE(paths_set_info.typed_path_set.contains("typed"));
+    EXPECT_TRUE(paths_set_info.sub_path_set.contains("a"));
+    EXPECT_TRUE(paths_set_info.sub_path_set.contains("b"));
+    EXPECT_TRUE(paths_set_info.sub_path_set.contains("shared"));
+    EXPECT_FALSE(paths_set_info.sub_path_set.contains("typed"));
 }
 
 // Test has_different_structure_in_same_path function indirectly through check_variant_has_no_ambiguous_paths
