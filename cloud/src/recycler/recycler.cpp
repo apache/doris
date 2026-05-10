@@ -4767,6 +4767,42 @@ int InstanceRecycler::recycle_rowsets() {
     // rowset_id -> rowset_meta
     // store rowset id and meta for statistics rs size when delete
     std::map<std::string, doris::RowsetMetaCloudPB> rowsets;
+    int64_t current_tablet_id = -1;
+    int64_t recycled_rowset_count_for_current_tablet = 0;
+    bool current_tablet_skip_logged = false;
+    std::string next_scan_begin;
+    const int64_t rowset_batch_size_per_tablet =
+            std::max(1, config::recycle_rowsets_per_tablet_batch_size);
+    auto try_reserve_tablet_recycle_slot = [&](int64_t tablet_id) -> bool {
+        if (current_tablet_id != tablet_id) {
+            current_tablet_id = tablet_id;
+            recycled_rowset_count_for_current_tablet = 0;
+            current_tablet_skip_logged = false;
+        }
+        if (recycled_rowset_count_for_current_tablet >= rowset_batch_size_per_tablet) {
+            if (!current_tablet_skip_logged) {
+                LOG_INFO(
+                        "skip recycle rowsets for tablet because per-tablet batch limit is reached")
+                        .tag("instance_id", instance_id_)
+                        .tag("tablet_id", tablet_id)
+                        .tag("limit", rowset_batch_size_per_tablet);
+                current_tablet_skip_logged = true;
+            }
+            const int64_t next_tablet_id = tablet_id == INT64_MAX ? INT64_MAX : tablet_id + 1;
+            recycle_rowset_key({instance_id_, next_tablet_id, ""}, &next_scan_begin);
+            return false;
+        }
+        ++recycled_rowset_count_for_current_tablet;
+        return true;
+    };
+    auto next_scan_begin_getter = [&](std::string* begin) -> bool {
+        if (next_scan_begin.empty()) {
+            return false;
+        }
+        *begin = std::move(next_scan_begin);
+        next_scan_begin.clear();
+        return true;
+    };
 
     // Store keys of rowset recycled by background workers
     std::mutex async_recycled_rowset_keys_mutex;
@@ -4852,6 +4888,12 @@ int InstanceRecycler::recycle_rowsets() {
         }
         ++num_expired;
         expired_rowset_size += v.size();
+
+        int64_t tablet_id =
+                rowset.has_type() ? rowset.rowset_meta().tablet_id() : rowset.tablet_id();
+        if (!try_reserve_tablet_recycle_slot(tablet_id)) {
+            return 0;
+        }
 
         if (!rowset.has_type()) {                         // old version `RecycleRowsetPB`
             if (!rowset.has_resource_id()) [[unlikely]] { // impossible
@@ -4994,8 +5036,9 @@ int InstanceRecycler::recycle_rowsets() {
     if (config::enable_recycler_stats_metrics) {
         scan_and_statistics_rowsets();
     }
-    int ret = scan_recycle_rowsets_by_tablet(recyc_rs_key0, recyc_rs_key1,
-                                             std::move(handle_rowset_kv), std::move(loop_done));
+    // recycle_func and loop_done for scan and recycle
+    int ret = scan_and_recycle(recyc_rs_key0, recyc_rs_key1, std::move(handle_rowset_kv),
+                               std::move(loop_done), std::move(next_scan_begin_getter));
 
     worker_pool->stop();
 
@@ -5908,7 +5951,7 @@ int InstanceRecycler::recycle_tmp_rowsets() {
 int InstanceRecycler::scan_and_recycle(
         std::string begin, std::string_view end,
         std::function<int(std::string_view k, std::string_view v)> recycle_func,
-        std::function<int()> loop_done) {
+        std::function<int()> loop_done, std::function<bool(std::string*)> next_begin_getter) {
     LOG(INFO) << "begin scan_and_recycle key_range=[" << hex(begin) << "," << hex(end) << ")";
     int ret = 0;
     int64_t cnt = 0;
@@ -5940,6 +5983,7 @@ int InstanceRecycler::scan_and_recycle(
             LOG(INFO) << "no keys in the given range=[" << hex(begin) << "," << hex(end) << ")";
             break; // scan finished
         }
+        bool begin_updated = false;
         while (it->has_next()) {
             ++cnt;
             // recycle corresponding resources
@@ -5953,9 +5997,30 @@ int InstanceRecycler::scan_and_recycle(
                 err = "recycle_func error";
                 ret = -1;
             }
+            if (next_begin_getter) {
+                std::string next_begin;
+                if (next_begin_getter(&next_begin)) {
+                    if (next_begin > k) {
+                        begin = std::move(next_begin);
+                        begin_updated = true;
+                        VLOG_DEBUG << "scan_and_recycle updates begin to " << hex(begin)
+                                   << " after key=" << hex(k);
+                        break;
+                    }
+                    LOG_WARNING("ignore invalid next begin in scan_and_recycle")
+                            .tag("next_begin", hex(next_begin))
+                            .tag("current_key", hex(k));
+                }
+            }
         }
-        begin.push_back('\x00'); // Update to next smallest key for iteration
+        if (!begin_updated) {
+            begin.push_back('\x00'); // Update to next smallest key for iteration
+        } else {
+            it.reset();
+        }
+
         // FIXME(gavin): if we want to continue scanning, the loop_done should not return non-zero
+        // if we want to continue scanning, the recycle_func should not return non-zero
         if (loop_done && loop_done() != 0) {
             err = "loop_done error";
             ret = -1;

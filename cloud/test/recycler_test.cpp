@@ -1684,6 +1684,75 @@ TEST(RecyclerTest, recycle_rowsets_with_data_ref_count) {
     check_delete_bitmap_file_size(accessor, tablet_id, 3);
 }
 
+TEST(RecyclerTest, recycle_rowsets_limit_per_tablet_batch) {
+    config::retention_seconds = 0;
+    auto origin_worker_pool_size = config::instance_recycler_worker_pool_size;
+    auto origin_batch_size = config::recycle_rowsets_per_tablet_batch_size;
+    config::instance_recycler_worker_pool_size = 4;
+    config::recycle_rowsets_per_tablet_batch_size = 2;
+    DORIS_CLOUD_DEFER {
+        config::instance_recycler_worker_pool_size = origin_worker_pool_size;
+        config::recycle_rowsets_per_tablet_batch_size = origin_batch_size;
+    };
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("recycle_rowsets_limit_per_tablet_batch");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("recycle_rowsets_limit_per_tablet_batch");
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = recycler.accessor_map_.begin()->second;
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+
+    constexpr int index_id = 10001;
+    constexpr int64_t tablet_id0 = 100020;
+    constexpr int64_t tablet_id1 = 100021;
+    for (int64_t tablet_id : {tablet_id0, tablet_id1}) {
+        for (int i = 0; i < 5; ++i) {
+            auto rowset = create_rowset("recycle_rowsets_limit_per_tablet_batch", tablet_id,
+                                        index_id, 1, schema);
+            ASSERT_EQ(0, create_recycle_rowset(txn_kv.get(), accessor.get(), rowset,
+                                               RecycleRowsetPB::COMPACT, true));
+        }
+    }
+
+    auto count_recycle_rowsets = [&](int64_t tablet_id) {
+        std::unique_ptr<Transaction> txn;
+        EXPECT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::unique_ptr<RangeGetIterator> it;
+        auto begin_key = recycle_rowset_key({instance_id, tablet_id, ""});
+        auto end_key = recycle_rowset_key({instance_id, tablet_id, "\xff"});
+        EXPECT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+        return it->size();
+    };
+
+    ASSERT_EQ(recycler.recycle_rowsets(), 0);
+    EXPECT_EQ(count_recycle_rowsets(tablet_id0), 3);
+    EXPECT_EQ(count_recycle_rowsets(tablet_id1), 3);
+
+    ASSERT_EQ(recycler.recycle_rowsets(), 0);
+    EXPECT_EQ(count_recycle_rowsets(tablet_id0), 1);
+    EXPECT_EQ(count_recycle_rowsets(tablet_id1), 1);
+
+    ASSERT_EQ(recycler.recycle_rowsets(), 0);
+    EXPECT_EQ(count_recycle_rowsets(tablet_id0), 0);
+    EXPECT_EQ(count_recycle_rowsets(tablet_id1), 0);
+}
+
 TEST(RecyclerTest, bench_recycle_rowsets) {
     config::retention_seconds = 0;
     auto txn_kv = std::make_shared<MemTxnKv>();

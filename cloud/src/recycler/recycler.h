@@ -447,7 +447,8 @@ private:
      */
     int scan_and_recycle(std::string begin, std::string_view end,
                          std::function<int(std::string_view k, std::string_view v)> recycle_func,
-                         std::function<int()> loop_done = nullptr);
+                         std::function<int()> loop_done = nullptr,
+                         std::function<bool(std::string*)> next_begin_getter = nullptr);
 
     static int next_recycle_rowset_tablet_key(const std::string& instance_id, int64_t tablet_id,
                                               std::string* next_key);
