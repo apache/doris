@@ -81,8 +81,6 @@ public:
     MutableColumnPtr create_column() const override;
     Status check_column(const IColumn& column) const override;
 
-    Field get_default() const override;
-
     Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Unimplemented get_field for struct");

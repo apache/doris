@@ -365,6 +365,11 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
                 && replica.getSchemaHash() != backendTabletInfo.getSchemaHash()) {
             replica.setSchemaHash(backendTabletInfo.getSchemaHash());
         }
+
+        if (backendTabletInfo.isSetBinlogSize()) {
+            replica.setBinlogSize(backendTabletInfo.getBinlogSize());
+            replica.setBinlogFileNum(backendTabletInfo.getBinlogFileNum());
+        }
     }
 
     /**

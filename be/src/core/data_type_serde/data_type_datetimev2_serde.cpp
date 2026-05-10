@@ -32,7 +32,6 @@
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "exprs/function/cast/cast_to_string.h"
-#include "util/io_helper.h"
 
 enum {
     DIVISOR_FOR_SECOND = 1,
@@ -50,7 +49,7 @@ Status DataTypeDateTimeV2SerDe::from_string_batch(const ColumnString& col_str,
                                                   ColumnNullable& col_res,
                                                   const FormatOptions& options) const {
     auto& col_data = assert_cast<ColumnDateTimeV2&>(col_res.get_nested_column());
-    auto& col_nullmap = assert_cast<ColumnBool&>(col_res.get_null_map_column());
+    auto& col_nullmap = col_res.get_null_map_column();
     size_t row = col_str.size();
     col_res.resize(row);
 
@@ -134,7 +133,9 @@ Status DataTypeDateTimeV2SerDe::from_string(StringRef& str, IColumn& column,
 //   "2023-10-15 14:30:00.123000"  => scale 6, microsecond = 123000
 //   "2023-10-15 14:30:00.123"     => scale 3, microsecond = 123000
 //
-// On parse failure, falls back to MIN_DATETIME_V2.
+// On parse failure, falls back to MIN_DATETIME_V2, the packed lower-bound
+// DateTimeV2 value. This is MIN_DATE_V2 shifted into the DateTimeV2 date part,
+// not VecDateTimeValue::FIRST_DAY, which belongs to the V1 representation.
 Status DataTypeDateTimeV2SerDe::from_olap_string(const std::string& str, Field& field,
                                                  const FormatOptions& options) const {
     CastParameters params {.status = Status::OK(), .is_strict = false};
@@ -142,6 +143,10 @@ Status DataTypeDateTimeV2SerDe::from_olap_string(const std::string& str, Field& 
     DateV2Value<DateTimeV2ValueType> res;
     std::string date_format = "%Y-%m-%d %H:%i:%s.%f";
 
+    // In paths like partial update, we may fill default values into zonemap, while the default values for date-related
+    // types are filled with the default value 0 of the number base, corresponding to the date 0000-00-00, which is not always valid.
+    // so for the parse path of zonemap strings, we swallow the failure and return a default value. the value itself does not matter,
+    // after compaction it will be replaced.
     if (!res.from_date_format_str(date_format.data(), date_format.size(), str.data(), str.size())) {
         res = DateV2Value<DateTimeV2ValueType>(MIN_DATETIME_V2);
     }
@@ -171,7 +176,7 @@ template <typename IntDataType>
 Status DataTypeDateTimeV2SerDe::from_int_batch(const typename IntDataType::ColumnType& int_col,
                                                ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnDateTimeV2&>(target_col.get_nested_column());
-    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    auto& col_nullmap = target_col.get_null_map_column();
     col_data.resize(int_col.size());
     col_nullmap.resize(int_col.size());
 
@@ -216,7 +221,7 @@ template <typename FloatDataType>
 Status DataTypeDateTimeV2SerDe::from_float_batch(
         const typename FloatDataType::ColumnType& float_col, ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnDateTimeV2&>(target_col.get_nested_column());
-    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    auto& col_nullmap = target_col.get_null_map_column();
     col_data.resize(float_col.size());
     col_nullmap.resize(float_col.size());
 
@@ -261,7 +266,7 @@ template <typename DecimalDataType>
 Status DataTypeDateTimeV2SerDe::from_decimal_batch(
         const typename DecimalDataType::ColumnType& decimal_col, ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnDateTimeV2&>(target_col.get_nested_column());
-    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    auto& col_nullmap = target_col.get_null_map_column();
     col_data.resize(decimal_col.size());
     col_nullmap.resize(decimal_col.size());
 
@@ -345,7 +350,9 @@ Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_json(IColumn& column, 
         slice.trim_quote();
     }
     DateV2Value<DateTimeV2ValueType> val;
-    if (StringRef str(slice.data, slice.size); !read_datetime_v2_text_impl(val, str, _scale)) {
+    StringRef str(slice.data, slice.size);
+    CastParameters params;
+    if (!CastToDatetimeV2::from_string_non_strict_mode(str, val, nullptr, _scale, params)) {
         return Status::InvalidArgument("parse date fail, string: '{}'", str.to_string());
     }
     column_data.insert_value(val);
@@ -421,9 +428,8 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
         const auto* base_ptr = reinterpret_cast<const uint8_t*>(concrete_array->raw_values());
         const size_t element_size = sizeof(int64_t);
         for (auto value_i = start; value_i < end; ++value_i) {
-            int64_t date_value = 0;
             const uint8_t* raw_byte_ptr = base_ptr + value_i * element_size;
-            memcpy(&date_value, raw_byte_ptr, element_size);
+            auto date_value = unaligned_load<int64_t>(raw_byte_ptr);
             auto utc_epoch = static_cast<UInt64>(date_value);
 
             DateV2Value<DateTimeV2ValueType> v;

@@ -39,15 +39,16 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import mockit.Expectations;
-import mockit.Injectable;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class SchemaChangeHandlerTest extends TestWithFeService {
     private static final Logger LOG = LogManager.getLogger(SchemaChangeHandlerTest.class);
@@ -162,6 +163,238 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             Assertions.assertTrue(e.getMessage().contains(expectedErrorMsg),
                     "Actual error: " + e.getMessage() + "\nExpected: " + expectedErrorMsg);
         }
+    }
+
+    @Test
+    public void testWithRowBinlogSchemaChangeNoHistoricalValue() throws Exception {
+        String tableName = "binlog_no_hist";
+        String create = "CREATE TABLE IF NOT EXISTS test." + tableName + " (\n"
+                + "k1 INT NOT NULL,\n"
+                + "v1 INT\n"
+                + ")\n"
+                + "UNIQUE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES('replication_num'='1','light_schema_change'='true',"
+                + "'enable_unique_key_merge_on_write'='true',"
+                + "'binlog.enable'='true','binlog.format'='ROW','binlog.need_historical_value'='false');";
+        createTable(create);
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+
+        List<String> cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName)
+                .collect(Collectors.toList());
+        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v1")));
+
+        // single add column
+        alterTable("ALTER TABLE test." + tableName + " ADD COLUMN v2 INT AFTER v1", connectContext);
+        jobSize++;
+        waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+
+        cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
+        Assert.assertEquals(2, cols.indexOf("v2"));
+        Assert.assertEquals(3, cols.indexOf(Column.BINLOG_LSN_COL));
+        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v2")));
+
+        // multiple add column clauses in one ALTER
+        alterTable("ALTER TABLE test." + tableName
+                + " ADD COLUMN v3 INT AFTER v2, ADD COLUMN v4 INT AFTER v3", connectContext);
+        jobSize++;
+        waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+
+        cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
+        Assert.assertEquals(3, cols.indexOf("v3"));
+        Assert.assertEquals(4, cols.indexOf("v4"));
+        Assert.assertEquals(5, cols.indexOf(Column.BINLOG_LSN_COL));
+        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v3")));
+        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v4")));
+
+        // AddColumnsOp: ADD COLUMN (colDef1, colDef2)
+        alterTable("ALTER TABLE test." + tableName + " ADD COLUMN (v5 INT, v6 INT)", connectContext);
+        jobSize++;
+        waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+
+        cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
+        Assert.assertEquals(5, cols.indexOf("v5"));
+        Assert.assertEquals(6, cols.indexOf("v6"));
+        Assert.assertEquals(7, cols.indexOf(Column.BINLOG_LSN_COL));
+        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v5")));
+        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v6")));
+
+        // drop column
+        alterTable("ALTER TABLE test." + tableName + " DROP COLUMN v6", connectContext);
+        jobSize++;
+        waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+
+        cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
+        Assert.assertFalse(cols.contains("v6"));
+        Assert.assertEquals(6, cols.indexOf(Column.BINLOG_LSN_COL));
+    }
+
+    @Test
+    public void testWithRowBinlogSchemaChangeWithHistoricalValue() throws Exception {
+        String tableName = "binlog_hist";
+        String create = "CREATE TABLE IF NOT EXISTS test." + tableName + " (\n"
+                + "k1 INT NOT NULL,\n"
+                + "v1 INT\n"
+                + ")\n"
+                + "UNIQUE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES('replication_num'='1','light_schema_change'='true',"
+                + "'enable_unique_key_merge_on_write'='true',"
+                + "'binlog.enable'='true','binlog.format'='ROW','binlog.need_historical_value'='true');";
+        createTable(create);
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+
+        List<String> cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName)
+                .collect(Collectors.toList());
+        Assert.assertTrue(cols.contains(Column.generateBeforeColName("v1")));
+
+        // single add column
+        alterTable("ALTER TABLE test." + tableName + " ADD COLUMN v2 INT AFTER v1", connectContext);
+        jobSize++;
+        waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+
+        cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
+        Assert.assertEquals(2, cols.indexOf("v2"));
+        Assert.assertTrue(cols.contains(Column.generateBeforeColName("v2")));
+        Assert.assertEquals(cols.indexOf(Column.generateBeforeColName("v1")) + 1,
+                cols.indexOf(Column.generateBeforeColName("v2")));
+
+        // multiple add column clauses in one ALTER
+        alterTable("ALTER TABLE test." + tableName
+                + " ADD COLUMN v3 INT AFTER v2, ADD COLUMN v4 INT AFTER v3", connectContext);
+        jobSize++;
+        waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+
+        cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
+        Assert.assertEquals(3, cols.indexOf("v3"));
+        Assert.assertEquals(4, cols.indexOf("v4"));
+        Assert.assertTrue(cols.contains(Column.generateBeforeColName("v3")));
+        Assert.assertTrue(cols.contains(Column.generateBeforeColName("v4")));
+        Assert.assertEquals(cols.indexOf(Column.generateBeforeColName("v2")) + 1,
+                cols.indexOf(Column.generateBeforeColName("v3")));
+        Assert.assertEquals(cols.indexOf(Column.generateBeforeColName("v3")) + 1,
+                cols.indexOf(Column.generateBeforeColName("v4")));
+
+        // AddColumnsOp: ADD COLUMN (colDef1, colDef2)
+        alterTable("ALTER TABLE test." + tableName + " ADD COLUMN (v5 INT, v6 INT)", connectContext);
+        jobSize++;
+        waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+
+        cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
+        Assert.assertEquals(5, cols.indexOf("v5"));
+        Assert.assertEquals(6, cols.indexOf("v6"));
+        Assert.assertTrue(cols.contains(Column.generateBeforeColName("v5")));
+        Assert.assertTrue(cols.contains(Column.generateBeforeColName("v6")));
+        Assert.assertEquals(cols.indexOf(Column.generateBeforeColName("v4")) + 1,
+                cols.indexOf(Column.generateBeforeColName("v5")));
+        Assert.assertEquals(cols.indexOf(Column.generateBeforeColName("v5")) + 1,
+                cols.indexOf(Column.generateBeforeColName("v6")));
+
+        // drop column
+        alterTable("ALTER TABLE test." + tableName + " DROP COLUMN v6", connectContext);
+        jobSize++;
+        waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+        cols = tbl.getRowBinlogMeta().getSchema(true).stream().map(Column::getName).collect(Collectors.toList());
+        Assert.assertFalse(cols.contains("v6"));
+        Assert.assertFalse(cols.contains(Column.generateBeforeColName("v6")));
+    }
+
+    @Test
+    public void testWithRowBinlogOpNotSupported() throws Exception {
+        // 1) MODIFY COLUMN not supported
+        String tableName = "binlog_mod";
+        String create = "CREATE TABLE IF NOT EXISTS test." + tableName + " (\n"
+                + "k1 INT NOT NULL,\n"
+                + "v1 INT\n"
+                + ")\n"
+                + "UNIQUE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES('replication_num'='1','light_schema_change'='true',"
+                + "'enable_unique_key_merge_on_write'='true',"
+                + "'binlog.enable'='true','binlog.format'='ROW','binlog.need_historical_value'='false');";
+        createTable(create);
+        expectException("ALTER TABLE test." + tableName + " MODIFY COLUMN v1 BIGINT", "Table With binlog<row>");
+
+        // 2) VARIANT not supported
+        String createVariant = "CREATE TABLE test.binlog_variant (k1 INT NOT NULL, v1 VARIANT) "
+                + "UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1','light_schema_change'='true',"
+                + "'enable_unique_key_merge_on_write'='true',"
+                + "'binlog.enable'='true','binlog.format'='ROW');";
+        try {
+            createTable(createVariant);
+            Assertions.fail("Expected exception for VARIANT column");
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().toLowerCase().contains("variant"));
+        }
+
+        String tableName2 = "binlog_add_variant";
+        String create2 = "CREATE TABLE test." + tableName2 + " (k1 INT NOT NULL, v1 INT) "
+                + "UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1','light_schema_change'='true',"
+                + "'enable_unique_key_merge_on_write'='true',"
+                + "'binlog.enable'='true','binlog.format'='ROW');";
+        createTable(create2);
+        expectException("ALTER TABLE test." + tableName2 + " ADD COLUMN v2 VARIANT", "VARIANT");
+
+        // 3) AUTO_INCREMENT not supported
+        String createAutoinc = "CREATE TABLE test.binlog_autoinc (k1 BIGINT NOT NULL AUTO_INCREMENT, v1 INT) "
+                + "UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1','light_schema_change'='true',"
+                + "'enable_unique_key_merge_on_write'='true',"
+                + "'binlog.enable'='true','binlog.format'='ROW');";
+        try {
+            createTable(createAutoinc);
+            Assertions.fail("Expected exception for AUTO_INCREMENT column");
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().toLowerCase().contains("auto"));
+        }
+    }
+
+    @Test
+    public void testWithRowBinlogPartitionOps() throws Exception {
+        String tableName = "row_binlog_part";
+        String create = "CREATE TABLE IF NOT EXISTS test." + tableName + " (\n"
+                + "k1 INT NOT NULL\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "PARTITION BY RANGE(k1) (\n"
+                + "PARTITION p1 VALUES LESS THAN (\"10\"),\n"
+                + "PARTITION p2 VALUES LESS THAN (\"20\")\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');";
+        createTable(create);
+
+        alterTable("ALTER TABLE test." + tableName + " ADD PARTITION p3 VALUES LESS THAN (\"30\")",
+                connectContext);
+        alterTable("ALTER TABLE test." + tableName
+                        + " ADD TEMPORARY PARTITION tp1 VALUES LESS THAN (\"10\")",
+                connectContext);
+        alterTable("ALTER TABLE test." + tableName
+                        + " REPLACE PARTITION (p1) WITH TEMPORARY PARTITION (tp1)",
+                connectContext);
+        alterTable("ALTER TABLE test." + tableName + " DROP PARTITION p2", connectContext);
+    }
+
+    @Test
+    public void testReplaceTableWithRowBinlog() throws Exception {
+        String target = "CREATE TABLE test.row_binlog_replace_target (k1 INT) "
+                + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');";
+        String source = "CREATE TABLE test.row_binlog_replace_source (k1 INT) "
+                + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1');";
+        createTable(target);
+        createTable(source);
+        String alterStmt = "ALTER TABLE test.row_binlog_replace_target REPLACE WITH TABLE "
+                + "row_binlog_replace_source PROPERTIES('swap' = 'true')";
+        alterTable(alterStmt, connectContext);
+        waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
     }
 
     // In this test we should cover this following cases:
@@ -307,7 +540,6 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
             jobSize++;
             waitAlterJobDone(alterJobs);
-
 
             // positive test
             testAddSingleSubColumn(tbl, tableName, defaultVal);
@@ -617,21 +849,18 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     }
 
     @Test
-    public void testAddValueColumnOnAggMV(@Injectable OlapTable olapTable, @Injectable Column newColumn,
-            @Injectable ColumnPosition columnPosition) {
+    public void testAddValueColumnOnAggMV() {
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
+        Column newColumn = Mockito.mock(Column.class);
+        ColumnPosition columnPosition = Mockito.mock(ColumnPosition.class);
         SchemaChangeHandler schemaChangeHandler = new SchemaChangeHandler();
-        new Expectations() {
-            {
-                olapTable.getKeysType();
-                result = KeysType.DUP_KEYS;
-                newColumn.getAggregationType();
-                result = null;
-                olapTable.getIndexMetaByIndexId(2).getKeysType();
-                result = KeysType.AGG_KEYS;
-                newColumn.isKey();
-                result = false;
-            }
-        };
+
+        Mockito.when(olapTable.getKeysType()).thenReturn(KeysType.DUP_KEYS);
+        Mockito.when(newColumn.getAggregationType()).thenReturn(null);
+        MaterializedIndexMeta mockMeta = Mockito.mock(MaterializedIndexMeta.class);
+        Mockito.when(olapTable.getIndexMetaByIndexId(2)).thenReturn(mockMeta);
+        Mockito.when(mockMeta.getKeysType()).thenReturn(KeysType.AGG_KEYS);
+        Mockito.when(newColumn.isKey()).thenReturn(false);
 
         try {
             Deencapsulation.invoke(schemaChangeHandler, "addColumnInternal", olapTable, newColumn, columnPosition,

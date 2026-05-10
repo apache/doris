@@ -50,9 +50,9 @@ import org.apache.doris.nereids.types.IntegerType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Map;
@@ -69,8 +69,7 @@ public class ImplementationTest {
             .put(LogicalTopN.class.getName(), (new LogicalTopNToPhysicalTopN()).build())
             .put(LogicalLimit.class.getName(), (new LogicalLimitToPhysicalLimit()).build())
             .build();
-    @Mocked
-    private CascadesContext cascadesContext;
+    private CascadesContext cascadesContext = Mockito.mock(CascadesContext.class);
 
     private GroupExpression ge = new GroupExpression(
             new LogicalOneRowRelation(

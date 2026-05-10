@@ -40,11 +40,11 @@ struct PythonUDFMeta {
     std::string checksum;
     std::string runtime_version;
     std::string inline_code;
-    bool always_nullable;
+    bool always_nullable = false;
     DataTypes input_types;
     DataTypePtr return_type;
-    PythonUDFLoadType type;
-    PythonClientType client_type;
+    PythonUDFLoadType type = PythonUDFLoadType::UNKNOWN;
+    PythonClientType client_type = PythonClientType::UNKNOWN;
 
     static Status convert_types_to_schema(const DataTypes& types, const std::string& timezone,
                                           std::shared_ptr<arrow::Schema>* schema);

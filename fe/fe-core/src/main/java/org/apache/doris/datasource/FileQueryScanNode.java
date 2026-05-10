@@ -44,6 +44,7 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
+import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
@@ -168,11 +169,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
         for (SlotDescriptor slot : desc.getSlots()) {
             TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
             slotInfo.setSlotId(slot.getId().asInt());
-            boolean isFileSlot = !partitionKeys.contains(slot.getColumn().getName());
-            if (isIcebergRowIdColumn(slot)) {
-                isFileSlot = false;
-            }
-            slotInfo.setIsFileSlot(isFileSlot);
+            TColumnCategory category = classifyColumn(slot, partitionKeys);
+            slotInfo.setCategory(category);
+            slotInfo.setIsFileSlot(category == TColumnCategory.REGULAR || category == TColumnCategory.GENERATED);
             params.addToRequiredSlots(slotInfo);
         }
         setDefaultValueExprs(getTargetTable(), destSlotDescByName, null, params, false);
@@ -185,23 +184,38 @@ public abstract class FileQueryScanNode extends FileScanNode {
     }
 
     private void updateRequiredSlots() throws UserException {
-        params.unsetRequiredSlots();
-        for (SlotDescriptor slot : desc.getSlots()) {
-            TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
-            slotInfo.setSlotId(slot.getId().asInt());
-            boolean isFileSlot = !getPathPartitionKeys().contains(slot.getColumn().getName());
-            if (isIcebergRowIdColumn(slot)) {
-                isFileSlot = false;
+        Map<Integer, TFileScanSlotInfo> existingSlotInfoById = Maps.newHashMap();
+        if (params.getRequiredSlots() != null) {
+            for (TFileScanSlotInfo slotInfo : params.getRequiredSlots()) {
+                existingSlotInfoById.put(slotInfo.getSlotId(), slotInfo);
             }
-            slotInfo.setIsFileSlot(isFileSlot);
+        }
+        params.unsetRequiredSlots();
+        List<String> partitionKeys = getPathPartitionKeys();
+        for (SlotDescriptor slot : desc.getSlots()) {
+            TFileScanSlotInfo slotInfo = existingSlotInfoById.get(slot.getId().asInt());
+            if (slotInfo == null) {
+                slotInfo = new TFileScanSlotInfo();
+            }
+            slotInfo.setSlotId(slot.getId().asInt());
+            TColumnCategory category = classifyColumn(slot, partitionKeys);
+            slotInfo.setCategory(category);
+            slotInfo.setIsFileSlot(category == TColumnCategory.REGULAR || category == TColumnCategory.GENERATED);
             params.addToRequiredSlots(slotInfo);
         }
         // Update required slots and column_idxs in scanRangeLocations.
         setColumnPositionMapping();
     }
 
-    private boolean isIcebergRowIdColumn(SlotDescriptor slot) {
-        return Column.ICEBERG_ROWID_COL.equalsIgnoreCase(slot.getColumn().getName());
+    /**
+     * Classify a column's category for the BE reader.
+     * Subclasses override this for format-specific classification.
+     */
+    protected TColumnCategory classifyColumn(SlotDescriptor slot, List<String> partitionKeys) {
+        if (partitionKeys.contains(slot.getColumn().getName())) {
+            return TColumnCategory.PARTITION_KEY;
+        }
+        return TColumnCategory.REGULAR;
     }
 
     public void setTableSample(TableSample tSample) {
@@ -396,6 +410,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             if (inputSplits.isEmpty() && !isFileStreamType()) {
                 return;
             }
+            Set<String> distinctFilePaths = new HashSet<>();
             Multimap<Backend, Split> assignment =  backendPolicy.computeScanRangeAssignment(inputSplits);
             for (Backend backend : assignment.keySet()) {
                 Collection<Split> splits = assignment.get(backend);
@@ -403,9 +418,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
                     scanRangeLocations.add(splitToScanRange(backend, locationProperties, split, pathPartitionKeys,
                             admissionResult));
                     totalFileSize += split.getLength();
+                    if (split instanceof FileSplit) {
+                        distinctFilePaths.add(((FileSplit) split).getPathString());
+                    }
                 }
                 scanBackendIds.add(backend.getId());
             }
+            selectedFileNum = distinctFilePaths.size();
         }
 
         getSerializedTable().ifPresent(params::setSerializedTable);
@@ -525,8 +544,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
         // fileSize only be used when format is orc or parquet and TFileType is broker
         // When TFileType is other type, it is not necessary
         rangeDesc.setFileSize(fileSplit.getFileLength());
-        rangeDesc.setColumnsFromPath(columnsFromPath);
-        rangeDesc.setColumnsFromPathKeys(columnsFromPathKeys);
+        if (!columnsFromPathKeys.isEmpty()) {
+            rangeDesc.setColumnsFromPath(columnsFromPath);
+            rangeDesc.setColumnsFromPathKeys(columnsFromPathKeys);
+        }
 
         rangeDesc.setFileType(fileSplit.getLocationType());
         rangeDesc.setPath(fileSplit.getPath().toStorageLocation().toString());

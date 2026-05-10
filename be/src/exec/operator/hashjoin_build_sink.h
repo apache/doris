@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/thread_safety_annotations.h"
 #include "exec/operator/join_build_sink_operator.h"
 #include "exec/operator/operator.h"
 #include "exec/runtime_filter/runtime_filter_producer_helper.h"
@@ -196,8 +197,8 @@ private:
 
     bool _use_shared_hash_table = false;
     std::atomic<bool> _signaled = false;
-    std::mutex _mutex;
-    std::vector<std::shared_ptr<Dependency>> _finish_dependencies;
+    AnnotatedMutex _mutex;
+    std::vector<std::shared_ptr<Dependency>> _finish_dependencies GUARDED_BY(_mutex);
     std::map<int, std::shared_ptr<RuntimeFilterWrapper>> _runtime_filters;
 };
 

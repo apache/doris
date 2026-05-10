@@ -18,14 +18,25 @@
 package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
 
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 public class DataSourceConfigValidator {
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
+    // PostgreSQL unquoted identifier: lowercase letters, digits, underscores, not starting with a digit.
+    private static final Pattern PG_IDENTIFIER_PATTERN = Pattern.compile("^[a-z_][a-z0-9_]*$");
+    private static final int PG_MAX_IDENTIFIER_LENGTH = 63;
+
     private static final Set<String> ALLOW_SOURCE_KEYS = Sets.newHashSet(
             DataSourceConfigKeys.JDBC_URL,
             DataSourceConfigKeys.USER,
@@ -40,7 +51,15 @@ public class DataSourceConfigValidator {
             DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE,
             DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
             DataSourceConfigKeys.SSL_MODE,
-            DataSourceConfigKeys.SSL_ROOTCERT
+            DataSourceConfigKeys.SSL_ROOTCERT,
+            DataSourceConfigKeys.SLOT_NAME,
+            DataSourceConfigKeys.PUBLICATION_NAME
+    );
+
+    private static final Set<String> ALLOW_SSL_MODES = Sets.newHashSet(
+            DataSourceConfigKeys.SSL_MODE_DISABLE,
+            DataSourceConfigKeys.SSL_MODE_REQUIRE,
+            DataSourceConfigKeys.SSL_MODE_VERIFY_CA
     );
 
     // Known suffixes for per-table config keys (format: "table.<tableName>.<suffix>")
@@ -49,9 +68,15 @@ public class DataSourceConfigValidator {
             DataSourceConfigKeys.TABLE_EXCLUDE_COLUMNS_SUFFIX
     );
 
+    private static final Set<String> ALLOW_LOAD_KEYS = ImmutableSortedSet.of(
+            DataSourceConfigKeys.LOAD_PROPERTIES + LoadCommand.MAX_FILTER_RATIO_PROPERTY,
+            DataSourceConfigKeys.LOAD_PROPERTIES + LoadCommand.STRICT_MODE
+    );
+
     private static final String TABLE_LEVEL_PREFIX = DataSourceConfigKeys.TABLE + ".";
 
-    public static void validateSource(Map<String, String> input) throws IllegalArgumentException {
+    public static void validateSource(Map<String, String> input,
+            String dataSourceType) throws IllegalArgumentException {
         for (Map.Entry<String, String> entry : input.entrySet()) {
             String key = entry.getKey();
             String value = entry.getValue();
@@ -79,42 +104,102 @@ public class DataSourceConfigValidator {
                 throw new IllegalArgumentException("Unexpected key: '" + key + "'");
             }
 
-            if (!isValidValue(key, value)) {
+            if (!isValidValue(key, value, dataSourceType)) {
                 throw new IllegalArgumentException("Invalid value for key '" + key + "': " + value);
             }
+        }
+
+        // Cross-field: verify-ca must be paired with a CA cert; otherwise the reader will
+        // silently fall back to the JVM default truststore and likely fail to connect.
+        if (DataSourceConfigKeys.SSL_MODE_VERIFY_CA.equals(input.get(DataSourceConfigKeys.SSL_MODE))
+                && (input.get(DataSourceConfigKeys.SSL_ROOTCERT) == null
+                        || input.get(DataSourceConfigKeys.SSL_ROOTCERT).trim().isEmpty())) {
+            throw new IllegalArgumentException(
+                    "ssl_mode '" + DataSourceConfigKeys.SSL_MODE_VERIFY_CA
+                            + "' requires ssl_rootcert to be set");
         }
     }
 
     public static void validateTarget(Map<String, String> input) throws IllegalArgumentException {
         for (Map.Entry<String, String> entry : input.entrySet()) {
             String key = entry.getKey();
-            if (!key.startsWith(DataSourceConfigKeys.TABLE_PROPS_PREFIX)
-                    && !key.startsWith(DataSourceConfigKeys.LOAD_PROPERTIES)) {
-                throw new IllegalArgumentException("Not support target properties key " + key);
+            if (key.startsWith(DataSourceConfigKeys.TABLE_PROPS_PREFIX)) {
+                continue;
             }
-
-            if (key.equals(DataSourceConfigKeys.LOAD_PROPERTIES + LoadCommand.MAX_FILTER_RATIO_PROPERTY)) {
-                try {
-                    Double.parseDouble(entry.getValue());
-                } catch (NumberFormatException e) {
-                    throw new IllegalArgumentException("Invalid value for key '" + key + "': " + entry.getValue());
+            if (key.startsWith(DataSourceConfigKeys.LOAD_PROPERTIES)) {
+                if (!ALLOW_LOAD_KEYS.contains(key)) {
+                    throw new IllegalArgumentException("Unsupported load property: '" + key
+                            + "'. Supported keys: " + ALLOW_LOAD_KEYS);
                 }
+                if (key.equals(DataSourceConfigKeys.LOAD_PROPERTIES + LoadCommand.MAX_FILTER_RATIO_PROPERTY)) {
+                    try {
+                        Double.parseDouble(entry.getValue());
+                    } catch (NumberFormatException e) {
+                        throw new IllegalArgumentException("Invalid value for key '" + key + "': " + entry.getValue());
+                    }
+                }
+                continue;
             }
+            throw new IllegalArgumentException("Not support target properties key " + key);
         }
     }
 
-    private static boolean isValidValue(String key, String value) {
+    private static boolean isValidValue(String key, String value, String dataSourceType) {
         if (value == null || value.isEmpty()) {
             return false;
         }
 
-        if (key.equals(DataSourceConfigKeys.OFFSET)
-                && !(value.equals(DataSourceConfigKeys.OFFSET_INITIAL)
-                || value.equals(DataSourceConfigKeys.OFFSET_LATEST)
-                || value.equals(DataSourceConfigKeys.OFFSET_SNAPSHOT))) {
+        if (key.equals(DataSourceConfigKeys.OFFSET)) {
+            return isValidOffset(value, dataSourceType);
+        }
+
+        // slot_name / publication_name are interpolated into PG DDL without quoting,
+        // so enforce unquoted-identifier grammar to prevent injection and runtime errors.
+        if (key.equals(DataSourceConfigKeys.SLOT_NAME)
+                || key.equals(DataSourceConfigKeys.PUBLICATION_NAME)) {
+            return value.length() <= PG_MAX_IDENTIFIER_LENGTH
+                    && PG_IDENTIFIER_PATTERN.matcher(value).matches();
+        }
+        if (key.equals(DataSourceConfigKeys.SSL_MODE) && !ALLOW_SSL_MODES.contains(value)) {
             return false;
         }
         return true;
+    }
+
+    /**
+     * Check if the offset value is valid for the given data source type.
+     * Supported: initial, snapshot, latest, JSON binlog/lsn position.
+     * earliest is only supported for MySQL.
+     */
+    public static boolean isValidOffset(String offset, String dataSourceType) {
+        if (offset == null || offset.isEmpty()) {
+            return false;
+        }
+        if (DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(offset)
+                || DataSourceConfigKeys.OFFSET_LATEST.equalsIgnoreCase(offset)
+                || DataSourceConfigKeys.OFFSET_SNAPSHOT.equalsIgnoreCase(offset)) {
+            return true;
+        }
+        // earliest only for MySQL
+        if (DataSourceConfigKeys.OFFSET_EARLIEST.equalsIgnoreCase(offset)) {
+            return DataSourceType.MYSQL.name().equalsIgnoreCase(dataSourceType);
+        }
+        if (isJsonOffset(offset)) {
+            return true;
+        }
+        return false;
+    }
+
+    public static boolean isJsonOffset(String offset) {
+        if (offset == null || offset.trim().isEmpty()) {
+            return false;
+        }
+        try {
+            JsonNode node = OBJECT_MAPPER.readTree(offset);
+            return node.isObject();
+        } catch (Exception e) {
+            return false;
+        }
     }
 
 }

@@ -60,14 +60,14 @@ TEST_F(VirtualColumnIteratorTest, ReadByRowIdsint32_tColumn) {
 
     // Create a materialized int32_t column with values [10, 20, 30, 40, 50]
     auto int_column = ColumnVector<TYPE_INT>::create();
-    std::unique_ptr<std::vector<uint64_t>> labels = std::make_unique<std::vector<uint64_t>>();
+    std::shared_ptr<std::vector<uint64_t>> labels = std::make_shared<std::vector<uint64_t>>();
     for (int i = 0; i < 5; i++) {
         int_column->insert_value(10 * (i + 1));
         labels->push_back(i);
     }
     // Set the materialized column
 
-    iterator.prepare_materialization(std::move(int_column), std::move(labels));
+    iterator.prepare_materialization(std::move(int_column), labels);
 
     // Create destination column
     MutableColumnPtr dst = ColumnVector<TYPE_INT>::create();
@@ -98,13 +98,13 @@ TEST_F(VirtualColumnIteratorTest, ReadByRowIdsStringColumn) {
     string_column->insert_value("cherry");
     string_column->insert_value("date");
     string_column->insert_value("elderberry");
-    auto labels = std::make_unique<std::vector<uint64_t>>();
+    auto labels = std::make_shared<std::vector<uint64_t>>();
     for (int i = 0; i < 5; i++) {
         labels->push_back(i);
     }
 
     // Set the materialized column
-    iterator.prepare_materialization(std::move(string_column), std::move(labels));
+    iterator.prepare_materialization(std::move(string_column), labels);
 
     // Create destination column
     MutableColumnPtr dst = ColumnString::create();
@@ -129,14 +129,14 @@ TEST_F(VirtualColumnIteratorTest, ReadByRowIdsEmptyRowIds) {
 
     // Create a materialized int32_t column with values [10, 20, 30, 40, 50]
     auto int_column = ColumnVector<TYPE_INT>::create();
-    auto labels = std::make_unique<std::vector<uint64_t>>();
+    auto labels = std::make_shared<std::vector<uint64_t>>();
     for (int i = 0; i < 5; i++) {
         int_column->insert_value(10 * (i + 1));
         labels->push_back(i);
     }
 
     // Set the materialized column
-    iterator.prepare_materialization(std::move(int_column), std::move(labels));
+    iterator.prepare_materialization(std::move(int_column), labels);
 
     // Create destination column
     MutableColumnPtr dst = ColumnVector<TYPE_INT>::create();
@@ -159,7 +159,7 @@ TEST_F(VirtualColumnIteratorTest, TestLargeRowset) {
 
     // Create a large materialized int32_t column (1000 values)
     auto int_column = ColumnVector<TYPE_INT>::create();
-    auto labels = std::make_unique<std::vector<uint64_t>>();
+    auto labels = std::make_shared<std::vector<uint64_t>>();
 
     for (int i = 0; i < 1000; i++) {
         int_column->insert_value(i);
@@ -167,7 +167,7 @@ TEST_F(VirtualColumnIteratorTest, TestLargeRowset) {
     }
 
     // Set the materialized column
-    iterator.prepare_materialization(std::move(int_column), std::move(labels));
+    iterator.prepare_materialization(std::move(int_column), labels);
 
     // Create destination column
     MutableColumnPtr dst = ColumnVector<TYPE_INT>::create();
@@ -193,7 +193,7 @@ TEST_F(VirtualColumnIteratorTest, TestLargeRowset) {
 TEST_F(VirtualColumnIteratorTest, ReadByRowIdsNoContinueRowIds) {
     // Create a column with 1000 values (0-999)
     auto column = ColumnVector<TYPE_INT>::create();
-    auto labels = std::make_unique<std::vector<uint64_t>>();
+    auto labels = std::make_shared<std::vector<uint64_t>>();
 
     // Generate non-consecutive row IDs by multiplying by 2 (0,2,4,...)
     for (size_t i = 0; i < 1000; i++) {
@@ -202,7 +202,7 @@ TEST_F(VirtualColumnIteratorTest, ReadByRowIdsNoContinueRowIds) {
     }
 
     VirtualColumnIterator iterator;
-    iterator.prepare_materialization(std::move(column), std::move(labels));
+    iterator.prepare_materialization(std::move(column), labels);
 
     // Verify row_id_to_idx mapping is correct
     for (size_t i = 0; i < 1000; i++) {
@@ -291,12 +291,12 @@ TEST_F(VirtualColumnIteratorTest, NextBatchTest1) {
 
     // Construct an int32 column with 100 rows, values from 0 to 99
     auto int_column = ColumnVector<TYPE_INT>::create();
-    auto labels = std::make_unique<std::vector<uint64_t>>();
+    auto labels = std::make_shared<std::vector<uint64_t>>();
     for (int i = 0; i < 100; ++i) {
         int_column->insert_value(i);
         labels->push_back(i);
     }
-    iterator.prepare_materialization(std::move(int_column), std::move(labels));
+    iterator.prepare_materialization(std::move(int_column), labels);
 
     // 1. Seek to row 10, next_batch reads 10 rows
     {
@@ -364,14 +364,14 @@ TEST_F(VirtualColumnIteratorTest, TestPrepare1) {
     int_column->insert_value(30);
     int_column->insert_value(40);
     int_column->insert_value(50);
-    auto labels = std::make_unique<std::vector<uint64_t>>();
+    auto labels = std::make_shared<std::vector<uint64_t>>();
     labels->push_back(100);
     labels->push_back(11);
     labels->push_back(33);
     labels->push_back(22);
     labels->push_back(55);
     // Set the materialized column
-    iterator.prepare_materialization(std::move(int_column), std::move(labels));
+    iterator.prepare_materialization(std::move(int_column), labels);
 
     // Verify row_id_to_idx mapping
     const auto& row_id_to_idx = iterator.get_row_id_to_idx();
@@ -401,14 +401,14 @@ TEST_F(VirtualColumnIteratorTest, TestColumnNothing) {
     int_column->insert_value(30);
     int_column->insert_value(40);
     int_column->insert_value(50);
-    auto labels = std::make_unique<std::vector<uint64_t>>();
+    auto labels = std::make_shared<std::vector<uint64_t>>();
     labels->push_back(100);
     labels->push_back(11);
     labels->push_back(33);
     labels->push_back(22);
     labels->push_back(55);
     // Set the materialized column
-    iterator.prepare_materialization(std::move(int_column), std::move(labels));
+    iterator.prepare_materialization(std::move(int_column), labels);
 
     // Create destination column
     MutableColumnPtr dst = ColumnNothing::create(0);
@@ -445,12 +445,12 @@ TEST_F(VirtualColumnIteratorTest, SeekAndNextBatchCombination) {
         int_column->insert_value(val);
     }
 
-    auto labels = std::make_unique<std::vector<uint64_t>>();
+    auto labels = std::make_shared<std::vector<uint64_t>>();
     for (uint64_t id : global_row_ids) {
         labels->push_back(id);
     }
 
-    iterator.prepare_materialization(std::move(int_column), std::move(labels));
+    iterator.prepare_materialization(std::move(int_column), labels);
 
     // Row IDs are already in order: [0, 1, 2, 3]
     // Corresponding values:         [100, 200, 300, 400]
@@ -512,12 +512,12 @@ TEST_F(VirtualColumnIteratorTest, ReadByRowidsComprehensive) {
         int_column->insert_value(val);
     }
 
-    auto labels = std::make_unique<std::vector<uint64_t>>();
+    auto labels = std::make_shared<std::vector<uint64_t>>();
     for (uint64_t id : global_row_ids) {
         labels->push_back(id);
     }
 
-    iterator.prepare_materialization(std::move(int_column), std::move(labels));
+    iterator.prepare_materialization(std::move(int_column), labels);
 
     // After sorting by global_row_id: [25, 50, 100, 200]
     // Corresponding original values:  [4000, 2000, 1000, 3000]
@@ -560,12 +560,12 @@ TEST_F(VirtualColumnIteratorTest, MixedOperationsCombination) {
         int_column->insert_value(val);
     }
 
-    auto labels = std::make_unique<std::vector<uint64_t>>();
+    auto labels = std::make_shared<std::vector<uint64_t>>();
     for (uint64_t id : global_row_ids) {
         labels->push_back(id);
     }
 
-    iterator.prepare_materialization(std::move(int_column), std::move(labels));
+    iterator.prepare_materialization(std::move(int_column), labels);
 
     // Row IDs are consecutive: [0, 1, 2, 3], values [10, 20, 30, 40]
     // _row_id_to_idx: {0->0, 1->1, 2->2, 3->3}
@@ -610,12 +610,12 @@ TEST_F(VirtualColumnIteratorTest, DstColumnNothingHandling) {
         int_column->insert_value(val);
     }
 
-    auto labels = std::make_unique<std::vector<uint64_t>>();
+    auto labels = std::make_shared<std::vector<uint64_t>>();
     for (uint64_t id : global_row_ids) {
         labels->push_back(id);
     }
 
-    iterator.prepare_materialization(std::move(int_column), std::move(labels));
+    iterator.prepare_materialization(std::move(int_column), labels);
 
     // Row IDs are consecutive: [0, 1, 2] -> [100, 200, 300]
 

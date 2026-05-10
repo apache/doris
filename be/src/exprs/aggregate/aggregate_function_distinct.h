@@ -260,7 +260,7 @@ struct AggregateFunctionDistinctMultipleGenericData
   * Adding -Distinct suffix to aggregate function
 **/
 template <template <bool stable> typename Data, bool stable = false>
-class AggregateFunctionDistinct
+class AggregateFunctionDistinct final
         : public IAggregateFunctionDataHelper<Data<stable>,
                                               AggregateFunctionDistinct<Data, stable>>,
           VarargsExpression,

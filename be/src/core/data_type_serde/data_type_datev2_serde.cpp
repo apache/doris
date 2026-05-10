@@ -31,7 +31,6 @@
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "exprs/function/cast/cast_to_string.h"
-#include "util/io_helper.h"
 
 namespace doris {
 
@@ -80,7 +79,9 @@ Status DataTypeDateV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     }
     auto& column_data = assert_cast<ColumnDateV2&>(column);
     DateV2Value<DateV2ValueType> val;
-    if (StringRef str(slice.data, slice.size); !read_date_v2_text_impl(val, str)) {
+    StringRef str(slice.data, slice.size);
+    CastParameters params;
+    if (!CastToDateV2::from_string_non_strict_mode(str, val, nullptr, params)) {
         return Status::InvalidArgument("parse date fail, string: '{}'", str.to_string());
     }
     column_data.insert_value(val);
@@ -114,9 +115,8 @@ Status DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow:
     const auto* base_ptr = reinterpret_cast<const uint8_t*>(concrete_array->raw_values());
     const size_t element_size = sizeof(int32_t);
     for (auto value_i = start; value_i < end; ++value_i) {
-        int32_t date_value = 0;
         const uint8_t* raw_byte_ptr = base_ptr + value_i * element_size;
-        memcpy(&date_value, raw_byte_ptr, element_size);
+        auto date_value = unaligned_load<int32_t>(raw_byte_ptr);
 
         DateV2Value<DateV2ValueType> v;
         v.get_date_from_daynr(date_value + date_threshold);
@@ -203,7 +203,7 @@ void DataTypeDateV2SerDe::write_one_cell_to_binary(const IColumn& src_column,
 Status DataTypeDateV2SerDe::from_string_batch(const ColumnString& col_str, ColumnNullable& col_res,
                                               const FormatOptions& options) const {
     auto& col_data = assert_cast<ColumnDateV2&>(col_res.get_nested_column());
-    auto& col_nullmap = assert_cast<ColumnBool&>(col_res.get_null_map_column());
+    auto& col_nullmap = col_res.get_null_map_column();
     size_t row = col_str.size();
     col_res.resize(row);
 
@@ -234,7 +234,7 @@ Status DataTypeDateV2SerDe::from_string_batch(const ColumnString& col_str, Colum
 //   uint32_t value = (year << 9) | (month << 5) | day
 //
 // Expected input format: "YYYY-MM-DD", e.g. "2023-10-15"
-// On parse failure, falls back to MIN_DATE_V2.
+// On parse failure, falls back to MIN_DATE_V2, the packed lower-bound DateV2 value.
 Status DataTypeDateV2SerDe::from_olap_string(const std::string& str, Field& field,
                                              const FormatOptions& options) const {
     CastParameters params {.status = Status::OK(), .is_strict = false};
@@ -243,6 +243,10 @@ Status DataTypeDateV2SerDe::from_olap_string(const std::string& str, Field& fiel
     tm time_tm;
     char* tmp = strptime(str.c_str(), "%Y-%m-%d", &time_tm);
 
+    // In paths like partial update, we may fill default values into zonemap, while the default values for date-related
+    // types are filled with the default value 0 of the number base, corresponding to the date 0000-00-00, which is not always valid.
+    // so for the parse path of zonemap strings, we swallow the failure and return a default value. the value itself does not matter,
+    // after compaction it will be replaced.
     if (nullptr != tmp) {
         uint32_t value =
                 ((time_tm.tm_year + 1900) << 9) | ((time_tm.tm_mon + 1) << 5) | time_tm.tm_mday;
@@ -323,7 +327,7 @@ template <typename IntDataType>
 Status DataTypeDateV2SerDe::from_int_batch(const typename IntDataType::ColumnType& int_col,
                                            ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnDateV2&>(target_col.get_nested_column());
-    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    auto& col_nullmap = target_col.get_null_map_column();
     col_data.resize(int_col.size());
     col_nullmap.resize(int_col.size());
 
@@ -366,7 +370,7 @@ template <typename FloatDataType>
 Status DataTypeDateV2SerDe::from_float_batch(const typename FloatDataType::ColumnType& float_col,
                                              ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnDateV2&>(target_col.get_nested_column());
-    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    auto& col_nullmap = target_col.get_null_map_column();
     col_data.resize(float_col.size());
     col_nullmap.resize(float_col.size());
 
@@ -410,7 +414,7 @@ template <typename DecimalDataType>
 Status DataTypeDateV2SerDe::from_decimal_batch(
         const typename DecimalDataType::ColumnType& decimal_col, ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnDateV2&>(target_col.get_nested_column());
-    auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
+    auto& col_nullmap = target_col.get_null_map_column();
     col_data.resize(decimal_col.size());
     col_nullmap.resize(decimal_col.size());
 

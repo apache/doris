@@ -25,7 +25,8 @@
 namespace doris {
 const static std::string AGG_UNION_SUFFIX = "_union";
 
-class AggregateStateUnion : public IAggregateFunctionHelper<AggregateStateUnion> {
+class AggregateStateUnion : public AggregateFunctionNonFinalBase,
+                            public IAggregateFunctionHelper<AggregateStateUnion> {
 public:
     AggregateStateUnion(AggregateFunctionPtr function, const DataTypes& argument_types_,
                         DataTypePtr return_type)

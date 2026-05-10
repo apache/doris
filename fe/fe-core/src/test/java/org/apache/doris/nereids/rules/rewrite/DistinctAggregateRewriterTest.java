@@ -21,16 +21,12 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Mock;
-import mockit.MockUp;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 public class DistinctAggregateRewriterTest extends TestWithFeService implements MemoPatternMatchSupported {
@@ -44,13 +40,12 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
 
+    @AfterEach
+    public void closeMocks() {
+    }
+
     private void applyMock() {
-        new MockUp<DistinctAggregateRewriter>() {
-            @Mock
-            boolean shouldUseMultiDistinct(LogicalAggregate<? extends Plan> aggregate) {
-                return false;
-            }
-        };
+        // No-op: the singleton rewriter is exercised directly in these tests.
     }
 
     @Test
@@ -61,13 +56,11 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
                 .rewrite()
                 .printlnTree()
                 .matches(
-                        logicalAggregate(
-                                logicalAggregate()
-                                        .when(agg -> agg.getGroupByExpressions().size() == 2
-                                        && agg.getAggregateFunctions().isEmpty())
-                        ).when(agg -> agg.getGroupByExpressions().size() == 1
-                                && agg.getGroupByExpressions().get(0).toSql().equals("b")
-                                && agg.getAggregateFunctions().iterator().next() instanceof Count
+                        logicalResultSink(
+                                logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 1
+                                        && agg.getGroupByExpressions().get(0).toSql().equals("b")
+                                        && agg.getAggregateFunctions().stream()
+                                        .anyMatch(f -> f instanceof MultiDistinctCount))
                         )
                 );
     }
@@ -80,13 +73,13 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
                 .rewrite()
                 .printlnTree()
                 .matches(
-                        logicalAggregate(
-                                logicalAggregate()
-                                        .when(agg -> agg.getGroupByExpressions().size() == 2
-                                                && agg.getAggregateFunctions().iterator().next() instanceof Count)
-                        ).when(agg -> agg.getGroupByExpressions().size() == 1
-                                && agg.getGroupByExpressions().get(0).toSql().equals("b")
-                                && agg.getAggregateFunctions().stream().anyMatch(f -> f instanceof Sum0)
+                        logicalResultSink(
+                                logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 1
+                                        && agg.getGroupByExpressions().get(0).toSql().equals("b")
+                                        && agg.getAggregateFunctions().stream()
+                                        .anyMatch(f -> f instanceof MultiDistinctCount)
+                                        && agg.getAggregateFunctions().stream()
+                                        .anyMatch(f -> f instanceof Count && !f.isDistinct()))
                         )
                 );
     }
@@ -99,13 +92,13 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
                 .rewrite()
                 .printlnTree()
                 .matches(
-                        logicalAggregate(
-                                logicalAggregate()
-                                        .when(agg -> agg.getGroupByExpressions().size() == 2)
-                        ).when(agg -> agg.getGroupByExpressions().size() == 1
-                                && agg.getGroupByExpressions().get(0).toSql().equals("b")
-                                && agg.getAggregateFunctions().stream().noneMatch(AggregateFunction::isDistinct)
-                        ));
+                        logicalResultSink(
+                                logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 1
+                                        && agg.getGroupByExpressions().get(0).toSql().equals("b")
+                                        && agg.getAggregateFunctions().stream()
+                                        .anyMatch(f -> f instanceof MultiDistinctCount)
+                                        && agg.getAggregateFunctions().stream().noneMatch(AggregateFunction::isDistinct)
+                                )));
     }
 
     @Test
@@ -179,10 +172,13 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
                 .rewrite()
                 .printlnTree()
                 .matches(
-                        logicalAggregate(
-                                logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 2)
-                        ).when(agg -> agg.getGroupByExpressions().size() == 1
-                                && agg.getGroupByExpressions().get(0).toSql().equals("b")));
+                        logicalResultSink(
+                                logicalProject(
+                                        logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 1
+                                                && agg.getGroupByExpressions().get(0).toSql().equals("b")
+                                                && agg.getAggregateFunctions().stream()
+                                                .anyMatch(f -> f instanceof MultiDistinctCount))
+                                )));
     }
 
     @Test

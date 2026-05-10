@@ -21,18 +21,16 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include "common/factory_creator.h"
 #include "common/status.h"
-#include "exec/common/hash_table/phmap_fwd_decl.h"
-#include "format/table/table_format_reader.h"
-#include "storage/olap_scan_common.h"
+#include "format/orc/vorc_reader.h"
+#include "format/table/table_schema_change_helper.h"
+#include "format/table/transactional_hive_common.h"
 
 namespace doris {
 class RuntimeState;
-class SlotDescriptor;
 class TFileRangeDesc;
 class TFileScanRangeParams;
 
@@ -41,63 +39,34 @@ struct IOContext;
 } // namespace io
 
 class Block;
-class GenericReader;
 class ShardedKVCache;
 class VExprContext;
 
-class TransactionalHiveReader : public TableFormatReader, public TableSchemaChangeHelper {
+// TransactionalHiveReader: directly inherits OrcReader (no composition wrapping).
+// ACID column expansion/shrinking done via on_before_read_block/on_after_read_block hooks.
+// Delete delta reading done via on_after_init_reader hook.
+class TransactionalHiveReader final : public OrcReader, public TableSchemaChangeHelper {
     ENABLE_FACTORY_CREATOR(TransactionalHiveReader);
 
 public:
-    struct AcidRowID {
-        int64_t original_transaction;
-        int64_t bucket;
-        int64_t row_id;
-
-        struct Hash {
-            size_t operator()(const AcidRowID& transactional_row_id) const {
-                size_t hash_value = 0;
-                hash_value ^= std::hash<int64_t> {}(transactional_row_id.original_transaction) +
-                              0x9e3779b9 + (hash_value << 6) + (hash_value >> 2);
-                hash_value ^= std::hash<int64_t> {}(transactional_row_id.bucket) + 0x9e3779b9 +
-                              (hash_value << 6) + (hash_value >> 2);
-                hash_value ^= std::hash<int64_t> {}(transactional_row_id.row_id) + 0x9e3779b9 +
-                              (hash_value << 6) + (hash_value >> 2);
-                return hash_value;
-            }
-        };
-
-        struct Eq {
-            bool operator()(const AcidRowID& lhs, const AcidRowID& rhs) const {
-                return lhs.original_transaction == rhs.original_transaction &&
-                       lhs.bucket == rhs.bucket && lhs.row_id == rhs.row_id;
-            }
-        };
-    };
-
-    using AcidRowIDSet = flat_hash_set<AcidRowID, AcidRowID::Hash, AcidRowID::Eq>;
-
-    TransactionalHiveReader(std::unique_ptr<GenericReader> file_format_reader,
-                            RuntimeProfile* profile, RuntimeState* state,
+    TransactionalHiveReader(RuntimeProfile* profile, RuntimeState* state,
                             const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                            io::IOContext* io_ctx, FileMetaCache* meta_cache);
-    ~TransactionalHiveReader() override = default;
+                            size_t batch_size, const std::string& ctz, io::IOContext* io_ctx,
+                            FileMetaCache* meta_cache = nullptr);
+    ~TransactionalHiveReader() final = default;
 
-    Status init_row_filters() final;
+protected:
+    // Hook: ACID schema mapping (add transactional columns, map row.* fields)
+    Status on_before_init_reader(ReaderInitContext* ctx) override;
 
-    Status get_next_block_inner(Block* block, size_t* read_rows, bool* eof) final;
+    // Hook: read delete delta files
+    Status on_after_init_reader(ReaderInitContext* /*ctx*/) override;
 
-    bool has_delete_operations() const override {
-        return !_delete_rows.empty() || TableFormatReader::has_delete_operations();
-    }
+    // Hook: expand ACID columns into block before reading
+    Status on_before_read_block(Block* block) override;
 
-    Status init_reader(
-            const std::vector<std::string>& column_names,
-            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
-            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
-            const RowDescriptor* row_descriptor,
-            const VExprContextSPtrs* not_single_slot_filter_conjuncts,
-            const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
+    // Hook: shrink ACID columns from block after reading
+    Status on_after_read_block(Block* block, size_t* read_rows) override;
 
 private:
     struct TransactionalHiveProfile {
@@ -107,24 +76,8 @@ private:
     };
 
     TransactionalHiveProfile _transactional_orc_profile;
-    AcidRowIDSet _delete_rows;
-    std::unique_ptr<IColumn::Filter> _delete_rows_filter_ptr;
+    AcidRowIDSet _acid_delete_rows;
     std::vector<std::string> _col_names;
-    // Column name to block index map, passed from FileScanner
-    std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
 };
-
-inline bool operator<(const TransactionalHiveReader::AcidRowID& lhs,
-                      const TransactionalHiveReader::AcidRowID& rhs) {
-    if (lhs.original_transaction != rhs.original_transaction) {
-        return lhs.original_transaction < rhs.original_transaction;
-    } else if (lhs.bucket != rhs.bucket) {
-        return lhs.bucket < rhs.bucket;
-    } else if (lhs.row_id != rhs.row_id) {
-        return lhs.row_id < rhs.row_id;
-    } else {
-        return false;
-    }
-}
 
 } // namespace doris

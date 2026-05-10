@@ -24,6 +24,7 @@ import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
 import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
@@ -183,6 +184,47 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
             return true;
         }
         return false;
+    }
+
+    @Override
+    public String getPersistInfo() {
+        if (currentOffset == null) {
+            return null;
+        }
+        return currentOffset.toSerializedJson();
+    }
+
+    @Override
+    public void restoreFromPersistInfo(String persistInfo) {
+        if (persistInfo == null) {
+            return;
+        }
+        try {
+            this.currentOffset = GsonUtils.GSON.fromJson(
+                    persistInfo, S3Offset.class);
+        } catch (Exception e) {
+            log.warn("Failed to restore S3 offset from persistInfo", e);
+        }
+    }
+
+    @Override
+    public void replayIfNeed(StreamingInsertJob job) {
+        // If currentOffset was already set by EditLog replay (replayOnCommitted -> updateOffset),
+        // it reflects the latest committed state and should not be overwritten by
+        // offsetProviderPersist which may be stale (e.g. txn replay runs after ALTER replay).
+        if (currentOffset != null) {
+            log.info("S3 offset for job {} already set by EditLog replay: endFile={}",
+                    job.getJobId(), currentOffset.getEndFile());
+            return;
+        }
+        // Only restore from offsetProviderPersist when currentOffset is null,
+        // which means recovery is from checkpoint image without subsequent EditLog replay.
+        String persist = job.getOffsetProviderPersist();
+        if (persist != null) {
+            this.currentOffset = GsonUtils.GSON.fromJson(persist, S3Offset.class);
+            log.info("Restored S3 offset from checkpoint for job {}: endFile={}",
+                    job.getJobId(), currentOffset.getEndFile());
+        }
     }
 
     @Override

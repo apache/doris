@@ -17,6 +17,8 @@
 
 package org.apache.doris.clone;
 
+import org.apache.doris.alter.Alter;
+import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
@@ -49,36 +51,37 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletInfo;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
+import org.apache.doris.transaction.TransactionIdGenerator;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.MoreCollectors;
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.core.config.Configurator;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 
 public class RebalanceTest {
     private static final Logger LOG = LogManager.getLogger(RebalanceTest.class);
 
-    @Mocked
     private Env env;
-    @Mocked
     private InternalCatalog catalog;
+    private MockedStatic<Env> mockedEnvStatic;
 
     private long id = 10086;
 
@@ -93,55 +96,36 @@ public class RebalanceTest {
     public void setUp() throws Exception {
         FeConstants.runningUnitTest = true;
         db = new Database(1, "test db");
-        new Expectations() {
-            {
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
 
-                catalog.getDbIds();
-                minTimes = 0;
-                result = db.getId();
+        env = Mockito.mock(Env.class);
+        catalog = Mockito.mock(InternalCatalog.class);
+        Alter alter = Mockito.mock(Alter.class);
+        ColocateTableIndex colocateTableIndex = Mockito.mock(ColocateTableIndex.class);
 
-                catalog.getDbNullable(anyLong);
-                minTimes = 0;
-                result = db;
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getDbIds()).thenReturn(Lists.newArrayList(db.getId()));
+        Mockito.when(catalog.getDbNullable(Mockito.anyLong())).thenReturn(db);
+        Mockito.when(catalog.getDbOrException(Mockito.anyLong(), Mockito.any())).thenReturn(db);
+        Mockito.when(env.getNextId()).thenAnswer(inv -> id++);
+        Mockito.when(env.getAlterInstance()).thenReturn(alter);
+        Mockito.when(alter.getUnfinishedAlterTableIds()).thenReturn(Collections.emptySet());
+        Mockito.when(env.getColocateTableIndex()).thenReturn(colocateTableIndex);
+        Mockito.when(colocateTableIndex.isColocateTable(Mockito.anyLong())).thenReturn(false);
 
-                catalog.getDbOrException(anyLong, (Function<Long, SchedException>) any);
-                minTimes = 0;
-                result = db;
+        mockedEnvStatic = Mockito.mockStatic(Env.class);
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        mockedEnvStatic.when(Env::getCurrentEnvJournalVersion).thenReturn(FeConstants.meta_version);
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+        mockedEnvStatic.when(Env::getCurrentInvertedIndex).thenReturn(invertedIndex);
+        mockedEnvStatic.when(Env::getCurrentColocateIndex).thenReturn(colocateTableIndex);
 
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+        GlobalTransactionMgrIface mockGtm = Mockito.mock(GlobalTransactionMgrIface.class);
+        TransactionIdGenerator mockTig = Mockito.mock(TransactionIdGenerator.class);
+        mockedEnvStatic.when(Env::getCurrentGlobalTransactionMgr).thenReturn(mockGtm);
+        Mockito.when(mockGtm.getTransactionIDGenerator()).thenReturn(mockTig);
+        Mockito.when(mockTig.getNextTransactionId()).thenReturn(111L);
+        Mockito.when(mockGtm.isPreviousTransactionsFinished(Mockito.anyLong(), Mockito.anyLong(), Mockito.anyList())).thenReturn(true);
 
-                Env.getCurrentEnvJournalVersion();
-                minTimes = 0;
-                result = FeConstants.meta_version;
-
-                env.getNextId();
-                minTimes = 0;
-                result = new Delegate() {
-                    long ignored() {
-                        return id++;
-                    }
-                };
-
-                Env.getCurrentSystemInfo();
-                minTimes = 0;
-                result = systemInfoService;
-
-                Env.getCurrentInvertedIndex();
-                minTimes = 0;
-                result = invertedIndex;
-
-                Env.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
-                result = 111;
-
-                Env.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(anyLong, anyLong, (List<Long>) any);
-                result = true;
-            }
-        };
         // Test mock validation
         Assert.assertEquals(111,
                 Env.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId());
@@ -174,6 +158,13 @@ public class RebalanceTest {
         // be4(10004) doesn't have any replica
 
         generateStatisticMap();
+    }
+
+    @After
+    public void tearDown() {
+        if (mockedEnvStatic != null) {
+            mockedEnvStatic.close();
+        }
     }
 
     private void generateStatisticMap() {

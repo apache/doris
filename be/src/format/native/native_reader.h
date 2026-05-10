@@ -25,7 +25,7 @@
 #include <unordered_set>
 
 #include "common/status.h"
-#include "format/generic_reader.h"
+#include "format/table/table_format_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 
 namespace doris {
@@ -44,7 +44,7 @@ class Block;
 // it will read a sequence of Blocks encoded in Doris Native binary format.
 //
 // NOTE: current implementation is just a skeleton and will be filled step by step.
-class NativeReader : public GenericReader {
+class NativeReader : public TableFormatReader {
 public:
     ENABLE_FACTORY_CREATOR(NativeReader);
 
@@ -56,10 +56,9 @@ public:
     // Initialize underlying file reader and any format specific state.
     Status init_reader();
 
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
-    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                       std::unordered_set<std::string>* missing_cols) override;
+    Status _get_columns_impl(std::unordered_map<std::string, DataTypePtr>* name_to_type) override;
 
     Status init_schema_reader() override;
 
@@ -72,6 +71,7 @@ public:
 
 protected:
     void _collect_profile_before_close() override {}
+    Status _do_init_reader(ReaderInitContext* /*ctx*/) override { return init_reader(); }
 
 private:
     RuntimeProfile* _profile = nullptr;

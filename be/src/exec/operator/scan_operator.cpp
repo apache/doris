@@ -27,7 +27,6 @@
 #include "common/global_types.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
-#include "exec/operator/es_scan_operator.h"
 #include "exec/operator/file_scan_operator.h"
 #include "exec/operator/group_commit_scan_operator.h"
 #include "exec/operator/jdbc_scan_operator.h"
@@ -74,7 +73,7 @@ bool ScanLocalState<Derived>::should_run_serial() const {
 Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* state,
                                                               int& arrived_rf_num) {
     // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads
-    std::unique_lock lock(_conjuncts_lock);
+    LockGuard lock(_conjuncts_lock);
     RETURN_IF_ERROR(_helper.try_append_late_arrival_runtime_filter(state, _parent->row_descriptor(),
                                                                    arrived_rf_num, _conjuncts));
     if (state->enable_adjust_conjunct_order_by_cost()) {
@@ -87,7 +86,7 @@ Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* stat
 
 Status ScanLocalStateBase::clone_conjunct_ctxs(VExprContextSPtrs& scanner_conjuncts) {
     // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads
-    std::unique_lock lock(_conjuncts_lock);
+    LockGuard lock(_conjuncts_lock);
     scanner_conjuncts.resize(_conjuncts.size());
     for (size_t i = 0; i != _conjuncts.size(); ++i) {
         RETURN_IF_ERROR(_conjuncts[i]->clone(_state, scanner_conjuncts[i]));
@@ -1365,8 +1364,6 @@ template class ScanOperatorX<JDBCScanLocalState>;
 template class ScanLocalState<JDBCScanLocalState>;
 template class ScanOperatorX<FileScanLocalState>;
 template class ScanLocalState<FileScanLocalState>;
-template class ScanOperatorX<EsScanLocalState>;
-template class ScanLocalState<EsScanLocalState>;
 template class ScanLocalState<MetaScanLocalState>;
 template class ScanOperatorX<MetaScanLocalState>;
 template class ScanOperatorX<GroupCommitLocalState>;

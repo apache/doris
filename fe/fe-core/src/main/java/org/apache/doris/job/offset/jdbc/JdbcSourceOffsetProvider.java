@@ -18,6 +18,8 @@
 package org.apache.doris.job.offset.jdbc;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
@@ -29,6 +31,7 @@ import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.extensions.insert.streaming.DataSourceConfigValidator;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
 import org.apache.doris.job.offset.Offset;
@@ -62,6 +65,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 @Getter
@@ -92,6 +97,8 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     volatile boolean hasMoreData = true;
 
+    transient volatile String cloudCluster;
+
     /**
      * No-arg constructor for subclass use.
      */
@@ -109,6 +116,15 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         this.chunkHighWatermarkMap = new HashMap<>();
         this.snapshotParallelism = Integer.parseInt(
                 sourceProperties.getOrDefault(DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
+                        DataSourceConfigKeys.SNAPSHOT_PARALLELISM_DEFAULT));
+    }
+
+    // Refresh fields that may be changed via ALTER JOB; called before each use.
+    @Override
+    public void ensureInitialized(Long jobId, Map<String, String> newProps) throws JobException {
+        this.sourceProperties = newProps;
+        this.snapshotParallelism = Integer.parseInt(
+                newProps.getOrDefault(DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
                         DataSourceConfigKeys.SNAPSHOT_PARALLELISM_DEFAULT));
     }
 
@@ -209,7 +225,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public void fetchRemoteMeta(Map<String, String> properties) throws Exception {
-        Backend backend = StreamingJobUtils.selectBackend();
+        Backend backend = StreamingJobUtils.selectBackend(cloudCluster);
         JobBaseConfig requestParams =
                 new JobBaseConfig(getJobId().toString(), sourceType.name(), sourceProperties, getFrontendAddress());
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
@@ -218,9 +234,9 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         InternalService.PRequestCdcClientResult result = null;
         try {
-            Future<PRequestCdcClientResult> future =
-                    BackendServiceProxy.getInstance().requestCdcClient(address, request);
-            result = future.get();
+            Future<PRequestCdcClientResult> future = BackendServiceProxy.getInstance()
+                    .requestCdcClient(address, request, Config.streaming_cdc_light_rpc_timeout_sec);
+            result = future.get(Config.streaming_cdc_light_rpc_timeout_sec, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
                 log.warn("Failed to get end offset from backend, {}", result.getStatus().getErrorMsgs(0));
@@ -235,15 +251,21 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                         new TypeReference<ResponseBody<Map<String, String>>>() {
                         }
                 );
-                if (endBinlogOffset != null
-                        && !endBinlogOffset.equals(responseObj.getData())) {
+                Map<String, String> newEndOffset = responseObj.getData();
+                // null→value also counts as a change: upstream may have advanced while fetch was blocked.
+                if (endBinlogOffset == null || !endBinlogOffset.equals(newEndOffset)) {
                     hasMoreData = true;
                 }
-                endBinlogOffset = responseObj.getData();
+                endBinlogOffset = newEndOffset;
             } catch (JsonProcessingException e) {
                 log.warn("Failed to parse end offset response: {}", response);
                 throw new JobException(response);
             }
+        } catch (TimeoutException te) {
+            log.warn("cdc_client RPC timeout api=/api/fetchEndOffset jobId={} backend={}:{} timeout_sec={}",
+                    getJobId(), backend.getHost(), backend.getBrpcPort(),
+                    Config.streaming_cdc_light_rpc_timeout_sec);
+            throw new JobException("cdc_client RPC timeout: /api/fetchEndOffset jobId=" + getJobId());
         } catch (ExecutionException | InterruptedException ex) {
             log.warn("Get end offset error: ", ex);
             throw new JobException(ex);
@@ -280,7 +302,8 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                     // snapshot to binlog phase
                     return true;
                 }
-                return compareOffset(endBinlogOffset, new HashMap<>(binlogSplit.getStartingOffset()));
+                hasMoreData = compareOffset(endBinlogOffset, new HashMap<>(binlogSplit.getStartingOffset()));
+                return hasMoreData;
             } else {
                 // snapshot means has data to consume
                 return true;
@@ -293,7 +316,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     private boolean compareOffset(Map<String, String> offsetFirst, Map<String, String> offsetSecond)
             throws JobException {
-        Backend backend = StreamingJobUtils.selectBackend();
+        Backend backend = StreamingJobUtils.selectBackend(cloudCluster);
         CompareOffsetRequest requestParams =
                 new CompareOffsetRequest(getJobId(), sourceType.name(), sourceProperties,
                         getFrontendAddress(), offsetFirst, offsetSecond);
@@ -303,9 +326,9 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         InternalService.PRequestCdcClientResult result = null;
         try {
-            Future<PRequestCdcClientResult> future =
-                    BackendServiceProxy.getInstance().requestCdcClient(address, request);
-            result = future.get();
+            Future<PRequestCdcClientResult> future = BackendServiceProxy.getInstance()
+                    .requestCdcClient(address, request, Config.streaming_cdc_light_rpc_timeout_sec);
+            result = future.get(Config.streaming_cdc_light_rpc_timeout_sec, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
                 log.warn("Failed to compare offset , {}", result.getStatus().getErrorMsgs(0));
@@ -325,6 +348,11 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 log.warn("Failed to parse compare offset response: {}", response);
                 throw new JobException("Failed to parse compare offset response: " + response);
             }
+        } catch (TimeoutException te) {
+            log.warn("cdc_client RPC timeout api=/api/compareOffset jobId={} backend={}:{} timeout_sec={}",
+                    getJobId(), backend.getHost(), backend.getBrpcPort(),
+                    Config.streaming_cdc_light_rpc_timeout_sec);
+            throw new JobException("cdc_client RPC timeout: /api/compareOffset jobId=" + getJobId());
         } catch (ExecutionException | InterruptedException ex) {
             log.warn("Compare offset error: ", ex);
             throw new JobException(ex);
@@ -360,8 +388,31 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public Offset deserializeOffsetProperty(String offset) {
-        // no need cause cdc_stream has offset property
+        if (offset == null || offset.trim().isEmpty()) {
+            return null;
+        }
+        // JSON format: {"file":"binlog.000003","pos":154} or {"lsn":"123456"}
+        if (DataSourceConfigValidator.isJsonOffset(offset)) {
+            try {
+                Map<String, String> offsetMap = objectMapper.readValue(offset,
+                        new TypeReference<Map<String, String>>() {});
+                return new JdbcOffset(Collections.singletonList(new BinlogSplit(offsetMap)));
+            } catch (Exception e) {
+                log.warn("Failed to parse JSON offset: {}", offset, e);
+                return null;
+            }
+        }
         return null;
+    }
+
+    @Override
+    public void validateAlterOffset(String offset) throws Exception {
+        if (!DataSourceConfigValidator.isJsonOffset(offset)) {
+            throw new AnalysisException(
+                    "ALTER JOB for CDC only supports JSON specific offset, "
+                    + "e.g. '{\"file\":\"binlog.000001\",\"pos\":\"154\"}' for MySQL "
+                    + "or '{\"lsn\":\"12345678\"}' for PostgreSQL");
+        }
     }
 
     /**
@@ -431,9 +482,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     protected List<SnapshotSplit> recalculateRemainingSplits(
             Map<String, Map<String, Map<String, String>>> chunkHighWatermarkMap,
             Map<String, List<SnapshotSplit>> snapshotSplits) {
-        if (this.finishedSplits == null) {
-            this.finishedSplits = new ArrayList<>();
-        }
+        this.finishedSplits = new ArrayList<>();
         for (Map.Entry<String, Map<String, Map<String, String>>> entry : chunkHighWatermarkMap.entrySet()) {
             String tableId = entry.getKey();
             Map<String, Map<String, String>> splitIdToHighWatermark = entry.getValue();
@@ -515,7 +564,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     }
 
     private List<SnapshotSplit> requestTableSplits(String table) throws JobException {
-        Backend backend = StreamingJobUtils.selectBackend();
+        Backend backend = StreamingJobUtils.selectBackend(cloudCluster);
         FetchTableSplitsRequest requestParams =
                 new FetchTableSplitsRequest(getJobId(), sourceType.name(),
                         sourceProperties, getFrontendAddress(), table);
@@ -525,9 +574,9 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         InternalService.PRequestCdcClientResult result = null;
         try {
-            Future<PRequestCdcClientResult> future =
-                    BackendServiceProxy.getInstance().requestCdcClient(address, request);
-            result = future.get();
+            Future<PRequestCdcClientResult> future = BackendServiceProxy.getInstance()
+                    .requestCdcClient(address, request, Config.streaming_cdc_heavy_rpc_timeout_sec);
+            result = future.get(Config.streaming_cdc_heavy_rpc_timeout_sec, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
                 log.warn("Failed to get split from backend, {}", result.getStatus().getErrorMsgs(0));
@@ -548,6 +597,11 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 log.warn("Failed to parse split response: {}", response);
                 throw new JobException("Failed to parse split response: " + response);
             }
+        } catch (TimeoutException te) {
+            log.warn("cdc_client RPC timeout api=/api/fetchSplits jobId={} backend={}:{} table={} timeout_sec={}",
+                    getJobId(), backend.getHost(), backend.getBrpcPort(), table,
+                    Config.streaming_cdc_heavy_rpc_timeout_sec);
+            throw new JobException("cdc_client RPC timeout: /api/fetchSplits jobId=" + getJobId() + " table=" + table);
         } catch (ExecutionException | InterruptedException ex) {
             log.warn("Get splits error: ", ex);
             throw new JobException(ex);
@@ -566,6 +620,48 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     protected boolean isSnapshotOnlyMode() {
         String offset = sourceProperties.get(DataSourceConfigKeys.OFFSET);
         return DataSourceConfigKeys.OFFSET_SNAPSHOT.equalsIgnoreCase(offset);
+    }
+
+    @Override
+    public String getLag() {
+        if (currentOffset == null || currentOffset.snapshotSplit()) {
+            return "";
+        }
+        // Source is idle (last task consumed no data), report zero lag
+        if (!hasMoreData) {
+            return "0";
+        }
+        BinlogSplit binlogSplit = (BinlogSplit) currentOffset.getSplits().get(0);
+        Map<String, String> offsetMap = binlogSplit.getStartingOffset();
+        if (MapUtils.isEmpty(offsetMap)) {
+            return "";
+        }
+        long eventTimeMs = extractEventTimeMs(offsetMap);
+        if (eventTimeMs <= 0) {
+            return "0";
+        }
+        long lagSec = (System.currentTimeMillis() - eventTimeMs) / 1000;
+        return String.valueOf(Math.max(lagSec, 0));
+    }
+
+    /**
+     * Extract event timestamp in milliseconds from binlog offset map.
+     * MySQL: ts_sec (seconds), PostgreSQL: ts_usec (microseconds).
+     */
+    protected long extractEventTimeMs(Map<String, String> offsetMap) {
+        try {
+            String tsSec = offsetMap.get("ts_sec");
+            if (tsSec != null) {
+                return Long.parseLong(tsSec) * 1000;
+            }
+            String tsUsec = offsetMap.get("ts_usec");
+            if (tsUsec != null) {
+                return Long.parseLong(tsUsec) / 1000;
+            }
+        } catch (NumberFormatException e) {
+            log.warn("Failed to parse event timestamp from offset: {}", offsetMap, e);
+        }
+        return -1;
     }
 
     @Override
@@ -588,7 +684,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
      * otherwise, conflicts will occur in multi-backends scenarios.
      */
     private void initSourceReader() throws JobException {
-        Backend backend = StreamingJobUtils.selectBackend();
+        Backend backend = StreamingJobUtils.selectBackend(cloudCluster);
         JobBaseConfig requestParams =
                 new JobBaseConfig(getJobId().toString(), sourceType.name(), sourceProperties, getFrontendAddress());
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
@@ -597,9 +693,9 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         InternalService.PRequestCdcClientResult result = null;
         try {
-            Future<PRequestCdcClientResult> future =
-                    BackendServiceProxy.getInstance().requestCdcClient(address, request);
-            result = future.get();
+            Future<PRequestCdcClientResult> future = BackendServiceProxy.getInstance()
+                    .requestCdcClient(address, request, Config.streaming_cdc_heavy_rpc_timeout_sec);
+            result = future.get(Config.streaming_cdc_heavy_rpc_timeout_sec, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
                 log.warn("Failed to init job {} reader, {}", getJobId(), result.getStatus().getErrorMsgs(0));
@@ -627,6 +723,11 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 log.warn("Failed to init {} source reader, {}", getJobId(), response);
                 throw new JobException("Failed to init source reader, cause " + e.getMessage());
             }
+        } catch (TimeoutException te) {
+            log.warn("cdc_client RPC timeout api=/api/initReader jobId={} backend={}:{} timeout_sec={}",
+                    getJobId(), backend.getHost(), backend.getBrpcPort(),
+                    Config.streaming_cdc_heavy_rpc_timeout_sec);
+            throw new JobException("cdc_client RPC timeout: /api/initReader jobId=" + getJobId());
         } catch (ExecutionException | InterruptedException ex) {
             log.warn("init source reader: ", ex);
             throw new JobException(ex);
@@ -636,7 +737,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     public void cleanMeta(Long jobId) throws JobException {
         // clean meta table
         StreamingJobUtils.deleteJobMeta(jobId);
-        Backend backend = StreamingJobUtils.selectBackend();
+        Backend backend = StreamingJobUtils.selectBackend(cloudCluster);
         JobBaseConfig requestParams =
                 new JobBaseConfig(getJobId().toString(), sourceType.name(), sourceProperties, getFrontendAddress());
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
@@ -645,13 +746,17 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         InternalService.PRequestCdcClientResult result = null;
         try {
-            Future<PRequestCdcClientResult> future =
-                    BackendServiceProxy.getInstance().requestCdcClient(address, request);
-            result = future.get();
+            Future<PRequestCdcClientResult> future = BackendServiceProxy.getInstance()
+                    .requestCdcClient(address, request, Config.streaming_cdc_light_rpc_timeout_sec);
+            result = future.get(Config.streaming_cdc_light_rpc_timeout_sec, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
                 log.warn("Failed to close job {} source {}", jobId, result.getStatus().getErrorMsgs(0));
             }
+        } catch (TimeoutException te) {
+            log.warn("cdc_client RPC timeout api=/api/close jobId={} backend={}:{} timeout_sec={}",
+                    jobId, backend.getHost(), backend.getBrpcPort(),
+                    Config.streaming_cdc_light_rpc_timeout_sec);
         } catch (ExecutionException | InterruptedException ex) {
             log.warn("Close job error: ", ex);
         }

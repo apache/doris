@@ -31,6 +31,7 @@ import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
 import org.apache.doris.datasource.metacache.MetaCacheEntryDef;
 import org.apache.doris.datasource.metacache.MetaCacheEntryInvalidation;
 
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.common.FileUtils;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.engine.HoodieLocalEngineContext;
@@ -148,10 +149,11 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
     private HoodieTableMetaClient createHoodieTableMetaClient(HudiMetaClientCacheKey key) {
         LOG.debug("create hudi table meta client for {}", key.getNameMapping().getFullLocalName());
         HMSExternalTable hudiTable = findHudiTable(key.getNameMapping());
-        HadoopStorageConfiguration hadoopStorageConfiguration =
-                new HadoopStorageConfiguration(hudiTable.getCatalog().getConfiguration());
+        Configuration conf = ExternalCatalog.buildHadoopConfiguration(
+                hudiTable.getCatalog().getHadoopProperties());
+        HadoopStorageConfiguration hadoopStorageConfiguration = new HadoopStorageConfiguration(conf);
         return HiveMetaStoreClientHelper.ugiDoAs(
-                hudiTable.getCatalog().getConfiguration(),
+                conf,
                 () -> HoodieTableMetaClient.builder()
                         .setConf(hadoopStorageConfiguration)
                         .setBasePath(hudiTable.getRemoteTable().getSd().getLocation())

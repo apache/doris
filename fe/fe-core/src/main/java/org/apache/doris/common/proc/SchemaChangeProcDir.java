@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -140,12 +141,27 @@ public class SchemaChangeProcDir implements ProcDirInterface {
             return true;
         }
 
-        if (subExpr instanceof ComparisonPredicate) {
-            return filterSubExpression(subExpr, element);
-        } else if (subExpr instanceof Not) {
-            subExpr = subExpr.child(0);
-            if (subExpr instanceof EqualTo) {
-                return !filterSubExpression(subExpr, element);
+        return evaluateFilterExpression(subExpr, element);
+    }
+
+    private boolean evaluateFilterExpression(Expression expr, Comparable element) throws AnalysisException {
+        if (expr instanceof And) {
+            for (Expression child : expr.children()) {
+                if (!evaluateFilterExpression(child, element)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        if (expr instanceof ComparisonPredicate) {
+            return filterSubExpression(expr, element);
+        }
+
+        if (expr instanceof Not) {
+            Expression childExpr = expr.child(0);
+            if (childExpr instanceof EqualTo) {
+                return !filterSubExpression(childExpr, element);
             }
         }
 

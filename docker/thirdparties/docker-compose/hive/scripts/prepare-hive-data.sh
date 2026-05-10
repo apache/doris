@@ -21,6 +21,8 @@ CUR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 . "${CUR_DIR}/bootstrap/bootstrap-groups.sh"
 
 BOOTSTRAP_GROUPS="$(bootstrap_normalize_groups "${HIVE_BOOTSTRAP_GROUPS:-}")"
+PIPELINE_DATA_URL_PREFIX="https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data"
+HIVE_AUXLIB_URL_PREFIX="https://${s3BucketName}.${s3Endpoint}/regression/docker/hive3"
 echo "Prepare hive data with bootstrap groups: ${BOOTSTRAP_GROUPS}"
 
 extract_archives=()
@@ -45,46 +47,41 @@ download_archive_if_missing() {
     local workdir="$2"
     local remote_path="$3"
     local archive_name="$4"
+    local target_dir="${CUR_DIR}/${relative_dir}"
 
     if ! bootstrap_item_selected "${BOOTSTRAP_GROUPS}" "download_dir" "${relative_dir}"; then
         return
     fi
 
-    if [[ ! -d "${CUR_DIR}/${relative_dir}" ]]; then
-        echo "${CUR_DIR}/${relative_dir} does not exist"
+    if [[ ! -d "${target_dir}" ]] || [[ -z "$(find "${target_dir}" -mindepth 1 -print -quit 2>/dev/null)" ]]; then
+        echo "${target_dir} is missing or empty"
+        rm -rf "${target_dir}"
         pushd "${CUR_DIR}/${workdir}" >/dev/null
-        curl -O "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/${remote_path}"
+        curl -O "${PIPELINE_DATA_URL_PREFIX}/${remote_path}"
         tar -xzf "${archive_name}"
         rm -rf "${archive_name}"
         popd >/dev/null
     else
-        echo "${CUR_DIR}/${relative_dir} exist, continue !"
+        echo "${target_dir} exists and is non-empty, continue !"
     fi
 }
 
-# download tpch1_data
-download_archive_if_missing "tpch1.db" "." "tpch1.db.tar.gz" "tpch1.db.tar.gz"
+download_specs=(
+    "tpch1.db|.|tpch1.db.tar.gz|tpch1.db.tar.gz"
+    "tvf_data|.|tvf_data.tar.gz|tvf_data.tar.gz"
+    "data/multi_catalog/test_complex_types/data|data/multi_catalog/test_complex_types|multi_catalog/test_complex_types/data.tar.gz|data.tar.gz"
+    "data/multi_catalog/test_compress_partitioned/data|data/multi_catalog/test_compress_partitioned|multi_catalog/test_compress_partitioned/data.tar.gz|data.tar.gz"
+    "data/multi_catalog/test_wide_table/data|data/multi_catalog/test_wide_table|multi_catalog/test_wide_table/data.tar.gz|data.tar.gz"
+    "data/tvf/test_hdfs_tvf_compression/test_data|data/tvf/test_hdfs_tvf_compression|test_hdfs_tvf_compression/test_data.tar.gz|test_data.tar.gz"
+    "data/tvf/test_tvf/tvf|data/tvf/test_tvf|test_tvf/data.tar.gz|data.tar.gz"
+    "data/multi_catalog/logs1_parquet/data|data/multi_catalog/logs1_parquet|multi_catalog/logs1_parquet/data.tar.gz|data.tar.gz"
+)
 
-# download tvf_data
-download_archive_if_missing "tvf_data" "." "tvf_data.tar.gz" "tvf_data.tar.gz"
-
-# download test_complex_types data
-download_archive_if_missing "data/multi_catalog/test_complex_types/data" "data/multi_catalog/test_complex_types" "multi_catalog/test_complex_types/data.tar.gz" "data.tar.gz"
-
-# download test_compress_partitioned data
-download_archive_if_missing "data/multi_catalog/test_compress_partitioned/data" "data/multi_catalog/test_compress_partitioned" "multi_catalog/test_compress_partitioned/data.tar.gz" "data.tar.gz"
-
-# download test_wide_table data
-download_archive_if_missing "data/multi_catalog/test_wide_table/data" "data/multi_catalog/test_wide_table" "multi_catalog/test_wide_table/data.tar.gz" "data.tar.gz"
-
-# download test_hdfs_tvf_compression data
-download_archive_if_missing "data/tvf/test_hdfs_tvf_compression/test_data" "data/tvf/test_hdfs_tvf_compression" "test_hdfs_tvf_compression/test_data.tar.gz" "test_data.tar.gz"
-
-# download test_tvf data
-download_archive_if_missing "data/tvf/test_tvf/tvf" "data/tvf/test_tvf" "test_tvf/data.tar.gz" "data.tar.gz"
-
-# download logs1_parquet data
-download_archive_if_missing "data/multi_catalog/logs1_parquet/data" "data/multi_catalog/logs1_parquet" "multi_catalog/logs1_parquet/data.tar.gz" "data.tar.gz"
+download_spec=""
+for download_spec in "${download_specs[@]}"; do
+    IFS='|' read -r relative_dir workdir remote_path archive_name <<<"${download_spec}"
+    download_archive_if_missing "${relative_dir}" "${workdir}" "${remote_path}" "${archive_name}"
+done
 
 # download auxiliary jars
 jars=(
@@ -107,5 +104,9 @@ jars=(
 
 cd ${CUR_DIR}/auxlib
 for jar in "${jars[@]}"; do
-    curl -O "https://${s3BucketName}.${s3Endpoint}/regression/docker/hive3/${jar}"
+    if [[ -f "${CUR_DIR}/auxlib/${jar}" ]]; then
+        echo "Reuse cached hive aux jar ${jar}"
+        continue
+    fi
+    curl -O "${HIVE_AUXLIB_URL_PREFIX}/${jar}"
 done

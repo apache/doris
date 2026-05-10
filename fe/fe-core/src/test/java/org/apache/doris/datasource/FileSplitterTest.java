@@ -196,6 +196,30 @@ public class FileSplitterTest {
     }
 
     @Test
+    public void testZeroLengthFileProducesNoSplits() throws Exception {
+        LocationPath loc = LocationPath.of("hdfs://example.com/path/emptyfile");
+        BlockLocation[] locations = new BlockLocation[]{new BlockLocation(null, new String[]{"h1"}, 0L, 0L)};
+        FileSplitter fileSplitter = new FileSplitter(32 * MB, 64 * MB, DEFAULT_INITIAL_SPLITS);
+        // Non-splittable zero-length file
+        List<Split> splits = fileSplitter.splitFile(
+                loc, 0L, locations, 0L, 0L, false,
+                Collections.emptyList(), FileSplit.FileSplitCreator.DEFAULT);
+        Assert.assertTrue("Zero-length file should produce no splits", splits.isEmpty());
+        // Splittable zero-length file
+        splits = fileSplitter.splitFile(
+                loc, 0L, locations, 0L, 0L, true,
+                Collections.emptyList(), FileSplit.FileSplitCreator.DEFAULT);
+        Assert.assertTrue("Zero-length splittable file should produce no splits", splits.isEmpty());
+        // Null block locations with zero-length file
+        splits = fileSplitter.splitFile(
+                loc, 0L, null, 0L, 0L, true,
+                Collections.emptyList(), FileSplit.FileSplitCreator.DEFAULT);
+        Assert.assertTrue("Zero-length file with null locations should produce no splits", splits.isEmpty());
+        // Counter should not be decremented for skipped zero-length files
+        Assert.assertEquals(DEFAULT_INITIAL_SPLITS, fileSplitter.getRemainingInitialSplitNum());
+    }
+
+    @Test
     public void testSmallFileNoSplit() throws Exception {
         LocationPath loc = LocationPath.of("hdfs://example.com/path/small");
         BlockLocation[] locations = new BlockLocation[]{new BlockLocation(null, new String[]{"h1"}, 0L, 2 * MB)};

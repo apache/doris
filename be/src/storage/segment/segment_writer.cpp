@@ -329,11 +329,14 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
         _opts.compression_type = _tablet_schema->compression_type();
     }
 
+    // Vertical compaction calls init() multiple times against the same writer; the footer accumulates entries
+    // across calls, so this init()'s slice of footer columns starts at the current size.
+    const int variant_stats_footer_offset = _footer.columns_size();
     RETURN_IF_ERROR(_create_writers(_tablet_schema, col_ids));
 
     // Initialize variant statistics calculator
-    _variant_stats_calculator =
-            std::make_unique<VariantStatsCaculator>(&_footer, _tablet_schema, col_ids);
+    _variant_stats_calculator = std::make_unique<VariantStatsCaculator>(
+            &_footer, _tablet_schema, col_ids, variant_stats_footer_offset);
 
     // we don't need the short key index for unique key merge on write table.
     if (_has_key) {

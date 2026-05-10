@@ -305,7 +305,7 @@ suite("join_elim_star_pattern") {
     create_async_mv(db, mv_name, mv_stmt_2)
     for (int j = 1; j < query_list.size() + 1; j++) {
         logger.info("left mv current query index: " + j)
-        if (j in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13]) {
+        if (j in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]) {
             mv_rewrite_success(query_list[j - 1], mv_name)
             compare_res(query_list[j - 1], 4)
         } else {
@@ -336,7 +336,7 @@ suite("join_elim_star_pattern") {
     create_async_mv(db, mv_name, mv_stmt_2)
     for (int j = 1; j < query_list.size() + 1; j++) {
         logger.info("left mv current query index: " + j)
-        if (j in [9, 11, 13]) {
+        if (j in [8, 9, 10, 11, 12, 13]) {
             mv_rewrite_success(query_list[j - 1], mv_name)
             compare_res(query_list[j - 1], 4)
         } else {
@@ -368,7 +368,7 @@ suite("join_elim_star_pattern") {
     create_async_mv(db, mv_name, mv_stmt_2)
     for (int j = 1; j < query_list.size() + 1; j++) {
         logger.info("left mv current query index: " + j)
-        if (j in [3, 5, 7]) {
+        if (j in [2, 3, 4, 5, 6, 7]) {
             mv_rewrite_success(query_list[j - 1], mv_name)
             compare_res(query_list[j - 1], 4)
         } else {
@@ -403,7 +403,7 @@ suite("join_elim_star_pattern") {
     create_async_mv(db, mv_name, mv_stmt_2)
     for (int j = 1; j < query_list.size() + 1; j++) {
         logger.info("left mv current query index: " + j)
-        if (j in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13]) {
+        if (j in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]) {
             mv_rewrite_success(query_list[j - 1], mv_name)
             compare_res(query_list[j - 1], 4)
         } else {
@@ -438,7 +438,7 @@ suite("join_elim_star_pattern") {
     create_async_mv(db, mv_name, mv_stmt_2)
     for (int j = 1; j < query_list.size() + 1; j++) {
         logger.info("left mv current query index: " + j)
-        if (j in [1, 2, 3, 4, 5, 6, 7, 9, 11, 13]) {
+        if (j in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]) {
             mv_rewrite_success(query_list[j - 1], mv_name)
             compare_res(query_list[j - 1], 4)
         } else {
@@ -472,7 +472,7 @@ suite("join_elim_star_pattern") {
     create_async_mv(db, mv_name, mv_stmt_2)
     for (int j = 1; j < query_list.size() + 1; j++) {
         logger.info("left mv current query index: " + j)
-        if (j in [1, 2, 3, 4, 5, 6, 7, 9, 11, 13]) {
+        if (j in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]) {
             mv_rewrite_success(query_list[j - 1], mv_name)
             compare_res(query_list[j - 1], 4)
         } else {
@@ -502,7 +502,7 @@ suite("join_elim_star_pattern") {
     create_async_mv(db, mv_name, mv_stmt_2)
     for (int j = 1; j < query_list.size() + 1; j++) {
         logger.info("left mv current query index: " + j)
-        if (j in [9, 11, 13]) {
+        if (j in [8, 9, 10, 11, 12, 13]) {
             mv_rewrite_success(query_list[j - 1], mv_name)
             compare_res(query_list[j - 1], 4)
         } else {
@@ -533,7 +533,7 @@ suite("join_elim_star_pattern") {
     create_async_mv(db, mv_name, mv_stmt_2)
     for (int j = 1; j < query_list.size() + 1; j++) {
         logger.info("left mv current query index: " + j)
-        if (j in [3, 5, 7]) {
+        if (j in [2, 3, 4, 5, 6, 7]) {
             mv_rewrite_success(query_list[j - 1], mv_name)
             compare_res(query_list[j - 1], 4)
         } else {

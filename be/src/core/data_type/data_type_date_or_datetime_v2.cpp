@@ -35,7 +35,6 @@
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "exprs/function/cast/cast_to_string.h"
-#include "util/io_helper.h"
 
 namespace doris {
 class IColumn;

@@ -128,6 +128,14 @@ public class TypeTest {
         Assert.assertFalse(Type.matchExactType(v1, v4, false));
     }
 
+    @Test
+    public void testVariantToSqlDoesNotSerializeUnsupportedNestedGroupProperty() {
+        VariantType variantType = new VariantType(new ArrayList<>(), 0, false, 10000, 0,
+                false, 0L, 64, true);
+
+        Assert.assertFalse(variantType.toSql().contains("variant_enable_nested_group"));
+    }
+
     // ===================== Mixed Nesting & Precision =====================
     @Test
     public void testArrayMapStructCombinationWithPrecision() {

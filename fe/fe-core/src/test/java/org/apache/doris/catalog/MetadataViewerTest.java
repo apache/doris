@@ -25,12 +25,13 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -41,14 +42,13 @@ public class MetadataViewerTest {
     private static Method getTabletStatusMethod;
     private static Method getTabletDistributionMethod;
 
-    @Mocked
-    private Env env;
+    private Env env = Mockito.mock(Env.class);
 
-    @Mocked
-    private InternalCatalog internalCatalog;
+    private InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
 
-    @Mocked
-    private SystemInfoService infoService;
+    private SystemInfoService infoService = Mockito.mock(SystemInfoService.class);
+
+    private MockedStatic<Env> mockedEnvStatic;
 
     private static Database db;
 
@@ -67,38 +67,21 @@ public class MetadataViewerTest {
 
     @Before
     public void before() throws Exception {
+        mockedEnvStatic = Mockito.mockStatic(Env.class);
 
-        new Expectations() {
-            {
-                internalCatalog.getDbOrDdlException(anyString);
-                minTimes = 0;
-                result = db;
-            }
-        };
+        Mockito.when(internalCatalog.getDbOrDdlException(Mockito.anyString())).thenReturn(db);
 
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+        mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        Mockito.when(env.getInternalCatalog()).thenReturn(internalCatalog);
 
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = internalCatalog;
-            }
-        };
+        mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(infoService);
+        Mockito.when(infoService.getAllBackendIds(Mockito.anyBoolean()))
+                .thenReturn(Lists.newArrayList(10000L, 10001L, 10002L));
+    }
 
-        new Expectations() {
-            {
-                Env.getCurrentSystemInfo();
-                minTimes = 0;
-                result = infoService;
-
-                infoService.getAllBackendIds(anyBoolean);
-                minTimes = 0;
-                result = Lists.newArrayList(10000L, 10001L, 10002L);
-            }
-        };
+    @After
+    public void after() {
+        mockedEnvStatic.close();
     }
 
     @Test

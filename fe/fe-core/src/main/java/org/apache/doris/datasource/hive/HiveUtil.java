@@ -111,8 +111,42 @@ public final class HiveUtil {
 
     public static boolean isSplittable(FileSystem remoteFileSystem, String inputFormat,
             String location) throws UserException {
-        // All supported hive input format are splittable
+        // LZO files are not splittable (unless .lzo.index exists, but Doris does not support indexed split).
+        // Use contains("lzo") to cover LzoTextInputFormat, DeprecatedLzoTextInputFormat, and future variants.
+        if (isLzoInputFormat(inputFormat)) {
+            return false;
+        }
+        // All other supported hive input formats are splittable
         return HMSExternalTable.SUPPORTED_HIVE_FILE_FORMATS.contains(inputFormat);
+    }
+
+    /**
+     * Returns true if the given InputFormat class name is one of the hadoop-lzo text InputFormat variants.
+     * These formats only read *.lzo data files and must exclude *.lzo.index sidecar files.
+     */
+    public static boolean isLzoInputFormat(String inputFormat) {
+        return inputFormat != null && inputFormat.toLowerCase().contains("lzo");
+    }
+
+    /**
+     * For LZO text InputFormats, only *.lzo files are data files.
+     * *.lzo.index and any other non-*.lzo files are sidecar/metadata files that must be excluded.
+     * This mirrors the filtering semantics of Hive's LzoTextInputFormat.listStatus().
+     *
+     * @param filePath the full path of the file entry
+     * @return true if the file should be included in the scan set for an LZO InputFormat
+     */
+    public static boolean isLzoDataFile(String filePath) {
+        // Normalise: strip query-string/fragment if any
+        String path = filePath;
+        int q = path.indexOf('?');
+        if (q >= 0) {
+            path = path.substring(0, q);
+        }
+        // Only include files whose name ends with ".lzo"
+        // Files ending with ".lzo.index" or any other extension are excluded.
+        String lower = path.toLowerCase();
+        return lower.endsWith(".lzo");
     }
 
     // "c1=a/c2=b/c3=c" ---> List(["c1","a"], ["c2","b"], ["c3","c"])

@@ -73,4 +73,61 @@ class S3UriTest {
     void noSchemeThrows() {
         Assertions.assertThrows(IllegalArgumentException.class, () -> S3Uri.parse("bucket/key", false));
     }
+
+    // ------------------------------------------------------------------
+    // Path-style HTTP(S) parsing (#9)
+    // ------------------------------------------------------------------
+
+    @Test
+    void parsePathStyleHttpsTreatsFirstPathSegmentAsBucket() {
+        S3Uri uri = S3Uri.parse("https://endpoint.example.com/my-bucket/key/x.csv", true);
+        Assertions.assertEquals("my-bucket", uri.bucket());
+        Assertions.assertEquals("key/x.csv", uri.key());
+    }
+
+    @Test
+    void parsePathStyleHttpAlsoSupported() {
+        S3Uri uri = S3Uri.parse("http://10.0.0.1:9000/data/dir/file", true);
+        Assertions.assertEquals("data", uri.bucket());
+        Assertions.assertEquals("dir/file", uri.key());
+    }
+
+    @Test
+    void parsePathStyleBucketOnly() {
+        S3Uri uri = S3Uri.parse("https://endpoint/my-bucket", true);
+        Assertions.assertEquals("my-bucket", uri.bucket());
+        Assertions.assertEquals("", uri.key());
+    }
+
+    @Test
+    void parsePathStyleTrailingSlashIsEmptyKey() {
+        S3Uri uri = S3Uri.parse("https://endpoint/my-bucket/", true);
+        Assertions.assertEquals("my-bucket", uri.bucket());
+        Assertions.assertEquals("", uri.key());
+    }
+
+    @Test
+    void parsePathStyleMissingBucketThrows() {
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> S3Uri.parse("https://endpoint", true));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> S3Uri.parse("https://endpoint/", true));
+    }
+
+    @Test
+    void parseS3SchemeIgnoresPathStyleFlag() {
+        // pathStyleAccess only affects http/https URIs; s3:// is always virtual-hosted.
+        S3Uri uri = S3Uri.parse("s3://my-bucket/path/to/file", true);
+        Assertions.assertEquals("my-bucket", uri.bucket());
+        Assertions.assertEquals("path/to/file", uri.key());
+    }
+
+    @Test
+    void parseHttpsWithoutPathStyleKeepsHostAsBucket() {
+        // Backwards compatibility: when pathStyleAccess=false, https://endpoint/bucket/key
+        // is parsed with the host as the "bucket" (existing behaviour preserved).
+        S3Uri uri = S3Uri.parse("https://s3.amazonaws.com/my-bucket/key", false);
+        Assertions.assertEquals("s3.amazonaws.com", uri.bucket());
+        Assertions.assertEquals("my-bucket/key", uri.key());
+    }
 }

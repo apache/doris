@@ -1,4 +1,5 @@
-CREATE TABLE `datapage_v1_snappy_compressed_checksum`(
+drop table if exists `datapage_v1_snappy_compressed_checksum`;
+create table `datapage_v1_snappy_compressed_checksum`(
   `a` int,
   `b` int
   )
@@ -12,7 +13,3 @@ LOCATION
   '/user/doris/preinstalled_data/different_types_parquet/datapage_v1-snappy-compressed-checksum'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1661955829');
-
-msck repair table datapage_v1_snappy_compressed_checksum;
-
-

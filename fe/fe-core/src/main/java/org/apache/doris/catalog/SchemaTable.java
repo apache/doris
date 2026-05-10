@@ -805,6 +805,8 @@ public class SchemaTable extends Table {
                                     .column("CARDINALITY", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("GLOBAL", ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .column("ENABLE", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .column("REQUIRE_PARTITION_FILTER",
+                                            ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .column("BLOCKS", ScalarType.createType(PrimitiveType.BIGINT),
                                             SchemaTableAggregateType.SUM, false)
                                     .column("AVERAGE_DURATION", ScalarType.createType(PrimitiveType.BIGINT),
@@ -924,6 +926,14 @@ public class SchemaTable extends Table {
                                     .column("VERTICAL_TOTAL_GROUPS", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("VERTICAL_COMPLETED_GROUPS", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("STATUS_MSG", ScalarType.createVarchar(1024))
+                                    .build()))
+            .put("backend_ms_rpc_table_throttlers",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "backend_ms_rpc_table_throttlers", TableType.SCHEMA,
+                            builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("TABLE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("RPC_TYPE", ScalarType.createVarchar(64))
+                                    .column("QPS_LIMIT", ScalarType.createType(PrimitiveType.DOUBLE))
+                                    .column("CURRENT_QPS", ScalarType.createType(PrimitiveType.DOUBLE))
                                     .build()))
             .build();
 

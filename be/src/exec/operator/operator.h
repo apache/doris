@@ -23,6 +23,7 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -45,6 +46,7 @@
 #include "runtime/runtime_profile_counter_names.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "util/block_budget.h"
 
 namespace doris {
 class RowDescriptor;
@@ -239,11 +241,28 @@ public:
     RuntimeProfile::Counter* memory_used_counter() { return _memory_used_counter; }
     OperatorXBase* parent() { return _parent; }
     RuntimeState* state() { return _state; }
+    [[nodiscard]] const BlockBudget& block_budget() const { return _budget; }
     VExprContextSPtrs& conjuncts() { return _conjuncts; }
     VExprContextSPtrs& projections() { return _projections; }
     [[nodiscard]] int64_t num_rows_returned() const { return _num_rows_returned; }
     void add_num_rows_returned(int64_t delta) { _num_rows_returned += delta; }
     void set_num_rows_returned(int64_t value) { _num_rows_returned = value; }
+    void update_output_block_counters(const Block& block) {
+        if (auto rows = block.rows()) {
+            COUNTER_UPDATE(_rows_returned_counter, rows);
+            COUNTER_UPDATE(_blocks_returned_counter, 1);
+            auto block_bytes = static_cast<int64_t>(block.bytes());
+            COUNTER_UPDATE(_output_block_bytes_counter, block_bytes);
+            if (block_bytes > _max_output_block_bytes) {
+                _max_output_block_bytes = block_bytes;
+                COUNTER_SET(_max_output_block_bytes_counter, block_bytes);
+            }
+            if (block_bytes < _min_output_block_bytes) {
+                _min_output_block_bytes = block_bytes;
+                COUNTER_SET(_min_output_block_bytes_counter, block_bytes);
+            }
+        }
+    }
 
     [[nodiscard]] virtual std::string debug_string(int indentation_level = 0) const = 0;
     [[nodiscard]] virtual bool is_blockable() const;
@@ -298,6 +317,11 @@ protected:
 
     RuntimeProfile::Counter* _rows_returned_counter = nullptr;
     RuntimeProfile::Counter* _blocks_returned_counter = nullptr;
+    RuntimeProfile::Counter* _output_block_bytes_counter = nullptr;
+    RuntimeProfile::Counter* _max_output_block_bytes_counter = nullptr;
+    RuntimeProfile::Counter* _min_output_block_bytes_counter = nullptr;
+    int64_t _max_output_block_bytes = 0;
+    int64_t _min_output_block_bytes = std::numeric_limits<int64_t>::max();
     RuntimeProfile::Counter* _wait_for_dependency_timer = nullptr;
     // Account for current memory and peak memory used by this node
     RuntimeProfile::HighWaterMarkCounter* _memory_used_counter = nullptr;
@@ -309,6 +333,8 @@ protected:
 
     OperatorXBase* _parent = nullptr;
     RuntimeState* _state = nullptr;
+    // Execution-scoped row/byte budget derived from the session batch settings.
+    const BlockBudget _budget;
     VExprContextSPtrs _conjuncts;
     VExprContextSPtrs _projections;
     std::shared_ptr<ScoreRuntime> _score_runtime;

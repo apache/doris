@@ -18,11 +18,11 @@
 #pragma once
 
 #include <cstdint>
-#include <mutex>
 #include <set>
 #include <string>
 
 #include "common/status.h"
+#include "common/thread_safety_annotations.h"
 #include "core/field.h"
 #include "exec/common/util.hpp"
 #include "exec/operator/operator.h"
@@ -125,7 +125,7 @@ protected:
     RuntimeProfile::Counter* _scan_rows = nullptr;
     RuntimeProfile::Counter* _scan_bytes = nullptr;
 
-    std::mutex _conjuncts_lock;
+    AnnotatedMutex _conjuncts_lock;
     RuntimeFilterConsumerHelper _helper;
     // magic number as seed to generate hash value for condition cache
     uint64_t _condition_cache_digest = 0;
@@ -347,11 +347,7 @@ public:
     Status get_block_after_projects(RuntimeState* state, Block* block, bool* eos) override {
         Status status = get_block(state, block, eos);
         if (status.ok()) {
-            if (auto rows = block->rows()) {
-                auto* local_state = state->get_local_state(operator_id());
-                COUNTER_UPDATE(local_state->_rows_returned_counter, rows);
-                COUNTER_UPDATE(local_state->_blocks_returned_counter, 1);
-            }
+            state->get_local_state(operator_id())->update_output_block_counters(*block);
         }
         return status;
     }

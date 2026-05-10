@@ -25,11 +25,12 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
@@ -41,19 +42,20 @@ import java.util.TimeZone;
 
 public class TimeUtilsTest {
 
-    @Mocked
-    TimeUtils timeUtils;
+    private MockedStatic<TimeUtils> mockedTimeUtils;
 
     @Before
     public void setUp() {
         TimeZone tz = TimeZone.getTimeZone(ZoneId.of("Asia/Shanghai"));
-        new Expectations(timeUtils) {
-            {
-                TimeUtils.getTimeZone();
-                minTimes = 0;
-                result = tz;
-            }
-        };
+        mockedTimeUtils = Mockito.mockStatic(TimeUtils.class, Mockito.CALLS_REAL_METHODS);
+        mockedTimeUtils.when(TimeUtils::getTimeZone).thenReturn(tz);
+    }
+
+    @After
+    public void tearDown() {
+        if (mockedTimeUtils != null) {
+            mockedTimeUtils.close();
+        }
     }
 
     @Test

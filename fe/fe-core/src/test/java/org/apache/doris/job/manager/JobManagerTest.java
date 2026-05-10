@@ -23,9 +23,10 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Sets;
-import mockit.Expectations;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.util.HashSet;
@@ -35,31 +36,28 @@ public class JobManagerTest {
     public void testJobAuth() throws IOException, AnalysisException {
         UserIdentity user1 = new UserIdentity("testJobAuthUser", "%");
         user1.analyze();
-        new Expectations() {
-            {
-                ConnectContext.get();
-                minTimes = 0;
-                result = TestWithFeService.createCtx(user1, "%");
+        ConnectContext ctx = TestWithFeService.createCtx(user1, "%");
+        try (MockedStatic<ConnectContext> mocked = Mockito.mockStatic(ConnectContext.class)) {
+            mocked.when(ConnectContext::get).thenReturn(ctx);
+            JobManager manager = new JobManager();
+            HashSet<String> tableNames = Sets.newHashSet();
+            try {
+                // should check db auth
+                manager.checkJobAuth("ctl1", "db1", tableNames);
+                throw new RuntimeException("should exception");
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains("Admin_priv,Load_priv"));
+                Assert.assertTrue(e.getMessage().contains("db1"));
             }
-        };
-        JobManager manager = new JobManager();
-        HashSet<String> tableNames = Sets.newHashSet();
-        try {
-            // should check db auth
-            manager.checkJobAuth("ctl1", "db1", tableNames);
-            throw new RuntimeException("should exception");
-        } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("Admin_priv,Load_priv"));
-            Assert.assertTrue(e.getMessage().contains("db1"));
-        }
-        tableNames.add("table1");
-        try {
-            // should check db auth
-            manager.checkJobAuth("ctl1", "db1", tableNames);
-            throw new RuntimeException("should exception");
-        } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("Admin_priv,Load_priv"));
-            Assert.assertTrue(e.getMessage().contains("table1"));
+            tableNames.add("table1");
+            try {
+                // should check db auth
+                manager.checkJobAuth("ctl1", "db1", tableNames);
+                throw new RuntimeException("should exception");
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains("Admin_priv,Load_priv"));
+                Assert.assertTrue(e.getMessage().contains("table1"));
+            }
         }
     }
 }

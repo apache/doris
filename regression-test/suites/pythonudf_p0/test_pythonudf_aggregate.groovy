@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_pythonudf_aggregate") {
-    def runtime_version = "3.8.10"
+    def runtime_version = getPythonUdfRuntimeVersion()
 
     try {
         // Test 1: Create simple aggregate function (although Python UDF is mainly for scalar functions)

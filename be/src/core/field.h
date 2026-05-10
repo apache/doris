@@ -213,9 +213,7 @@ public:
         auto f = Field(PType);
         typename PrimitiveTypeTraits<PType>::CppType cpp_value;
         if constexpr (is_string_type(PType)) {
-            auto min_size =
-                    MAX_ZONE_MAP_INDEX_SIZE >= data.size ? data.size : MAX_ZONE_MAP_INDEX_SIZE;
-            cpp_value = String(data.data, min_size);
+            cpp_value = String(data.data, data.size);
         } else if constexpr (is_date_or_datetime(PType)) {
             if constexpr (PType == TYPE_DATE) {
                 cpp_value.from_olap_date(data);
