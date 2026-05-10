@@ -21,11 +21,11 @@
 #include <utility>
 #include <vector>
 
-#include "vec/functions/function_jsonb_transform.cpp"
 #include "util/jsonb_document.h"
 #include "util/jsonb_parser_simd.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
+#include "vec/functions/function_jsonb_transform.cpp"
 
 namespace doris {
 
