@@ -2237,8 +2237,6 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
         const size_t base_size = null_map_data.size();
         null_map_data.resize(base_size + count);
 
-        nullable_col.get_nested_column().insert_many_defaults(count);
-
         size_t remaining = count;
         size_t total_read_count = 0;
         size_t nrows_to_read = 0;
