@@ -235,22 +235,22 @@ std::string QueryTaskController::get_user() {
         return query_ctx->user;
     }
     return "";
-void QueryTaskController::add_total_task_num(int delta) {
-    _total_task_num.fetch_add(delta, std::memory_order_relaxed);
-}
+    void QueryTaskController::add_total_task_num(int delta) {
+        _total_task_num.fetch_add(delta, std::memory_order_relaxed);
+    }
 
-void QueryTaskController::inc_finished_task_num() {
-    _finished_task_num.fetch_add(1, std::memory_order_relaxed);
-}
+    void QueryTaskController::inc_finished_task_num() {
+        _finished_task_num.fetch_add(1, std::memory_order_relaxed);
+    }
 
-int QueryTaskController::get_total_task_num() const {
-    // Read from controller-owned counters to avoid lifecycle dependency on QueryContext.
-    return _total_task_num.load(std::memory_order_relaxed);
-}
+    int QueryTaskController::get_total_task_num() const {
+        // Read from controller-owned counters to avoid lifecycle dependency on QueryContext.
+        return _total_task_num.load(std::memory_order_relaxed);
+    }
 
-int QueryTaskController::get_finished_task_num() const {
-    // Read from controller-owned counters to avoid lifecycle dependency on QueryContext.
-    return _finished_task_num.load(std::memory_order_relaxed);
-}
+    int QueryTaskController::get_finished_task_num() const {
+        // Read from controller-owned counters to avoid lifecycle dependency on QueryContext.
+        return _finished_task_num.load(std::memory_order_relaxed);
+    }
 
 } // namespace doris
