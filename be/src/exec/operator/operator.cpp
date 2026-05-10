@@ -423,6 +423,7 @@ void PipelineXLocalStateBase::reached_limit(Block* block, bool* eos) {
 
     if (auto rows = block->rows()) {
         _num_rows_returned += rows;
+        _state->get_query_ctx()->resource_ctx()->io_context()->update_process_rows(rows);
     }
 }
 
