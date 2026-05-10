@@ -16,7 +16,7 @@
 // under the License.
 
 #include <bvar/bvar.h>
-#include <cpp/s3_rate_limiter.h>
+#include <cpp/token_bucket_rate_limiter.h>
 #include <gtest/gtest.h>
 
 #include <atomic>

@@ -1881,6 +1881,33 @@ public final class MetricRepo {
         MetricRepo.DORIS_METRIC_REGISTER.addMetrics(counter);
     }
 
+    public static void increaseVirtualComputeGroupSwitch(String virtualComputeGroupId, String virtualComputeGroupName,
+                                                         String srcComputeGroupId, String srcComputeGroupName,
+                                                         String dstComputeGroupId, String dstComputeGroupName) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(virtualComputeGroupId)
+                || Strings.isNullOrEmpty(virtualComputeGroupName) || Strings.isNullOrEmpty(srcComputeGroupId)
+                || Strings.isNullOrEmpty(srcComputeGroupName) || Strings.isNullOrEmpty(dstComputeGroupId)
+                || Strings.isNullOrEmpty(dstComputeGroupName)) {
+            return;
+        }
+        String key = virtualComputeGroupId + CloudMetrics.CLOUD_CLUSTER_DELIMITER + srcComputeGroupId
+                + CloudMetrics.CLOUD_CLUSTER_DELIMITER + dstComputeGroupId;
+        LongCounterMetric counter = CloudMetrics.VIRTUAL_COMPUTE_GROUP_SWITCH_COUNTER.getOrAdd(key);
+        List<MetricLabel> labels = new ArrayList<>();
+        counter.increase(1L);
+        labels.add(new MetricLabel("virtual_compute_group_id", virtualComputeGroupId));
+        labels.add(new MetricLabel("virtual_compute_group_name", virtualComputeGroupName));
+        labels.add(new MetricLabel("src_compute_group_id", srcComputeGroupId));
+        labels.add(new MetricLabel("src_compute_group_name", srcComputeGroupName));
+        labels.add(new MetricLabel("dst_compute_group_id", dstComputeGroupId));
+        labels.add(new MetricLabel("dst_compute_group_name", dstComputeGroupName));
+        if (!counter.getLabels().isEmpty()) {
+            MetricRepo.DORIS_METRIC_REGISTER.removeMetricsByNameAndLabels(counter.getName(), counter.getLabels());
+        }
+        counter.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(counter);
+    }
+
     public static void unregisterCloudMetrics(String clusterId, String clusterName, List<Backend> backends) {
         if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(clusterId)) {
             return;
@@ -1960,6 +1987,18 @@ public final class MetricRepo {
             CloudMetrics.CLUSTER_CLOUD_WARM_UP_CACHE_BALANCE_NUM.remove(clusterId);
             MetricRepo.DORIS_METRIC_REGISTER
                 .removeMetricsByNameAndLabels(clusterCloudWarmUpBalanceNum.getName(), labels);
+
+            String delimiter = CloudMetrics.CLOUD_CLUSTER_DELIMITER;
+            for (String key : new ArrayList<>(
+                    CloudMetrics.VIRTUAL_COMPUTE_GROUP_SWITCH_COUNTER.getMetrics().keySet())) {
+                if (key.startsWith(clusterId + delimiter) || key.contains(delimiter + clusterId + delimiter)
+                        || key.endsWith(delimiter + clusterId)) {
+                    LongCounterMetric switchCounter = CloudMetrics.VIRTUAL_COMPUTE_GROUP_SWITCH_COUNTER.getOrAdd(key);
+                    CloudMetrics.VIRTUAL_COMPUTE_GROUP_SWITCH_COUNTER.remove(key);
+                    MetricRepo.DORIS_METRIC_REGISTER
+                        .removeMetricsByNameAndLabels(switchCounter.getName(), switchCounter.getLabels());
+                }
+            }
 
             METRIC_REGISTER.getHistograms().keySet().stream()
                     .filter(k -> k.contains(clusterId))

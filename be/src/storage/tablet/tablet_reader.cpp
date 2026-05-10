@@ -67,8 +67,6 @@ void TabletReader::ReaderParams::check_validation() const {
 }
 
 Status TabletReader::init(const ReaderParams& read_params) {
-    SCOPED_RAW_TIMER(&_stats.tablet_reader_init_timer_ns);
-
     Status res = _init_params(read_params);
     if (!res.ok()) {
         LOG(WARNING) << "fail to init reader when init params. res:" << res

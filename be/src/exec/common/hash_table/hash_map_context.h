@@ -1071,9 +1071,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
                 // nullable_col is obtained via key_columns and is itself a mutable element. However, when accessed
                 // through get_raw_data().data, it yields a const char*, necessitating the use of const_cast.
                 data = const_cast<char*>(nullable_col.get_nested_column().get_raw_data().data);
-                UInt8* nullmap = assert_cast<ColumnUInt8*>(&nullable_col.get_null_map_column())
-                                         ->get_data()
-                                         .data();
+                UInt8* nullmap = nullable_col.get_null_map_column().get_data().data();
 
                 // The current column is nullable. Check if the value of the
                 // corresponding key is nullable. Update the null map accordingly.

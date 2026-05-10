@@ -122,11 +122,36 @@ public class PlanConstructor {
         return table;
     }
 
+    public static OlapTable newDpHyperOlapTable(long tableId, String tableName, int hashColumn) {
+        // Use two INT columns to increase chance of join matches in randomized tests
+        List<Column> columns = ImmutableList.of(
+                new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
+                new Column("age", Type.INT, true, AggregateType.NONE, "0", ""));
+
+        HashDistributionInfo hashDistributionInfo = new HashDistributionInfo(3,
+                ImmutableList.of(columns.get(hashColumn)));
+
+        OlapTable table = new OlapTable(tableId, tableName, columns,
+                KeysType.DUP_KEYS, new PartitionInfo(), hashDistributionInfo);
+        table.setIndexMeta(-1,
+                tableName,
+                table.getFullSchema(),
+                0, 0, (short) 0,
+                TStorageType.COLUMN,
+                KeysType.DUP_KEYS);
+        return table;
+    }
+
     // With OlapTable.
     // Warning: equals() of Table depends on tableId.
     public static LogicalOlapScan newLogicalOlapScan(long tableId, String tableName, int hashColumn) {
         return new LogicalOlapScan(RELATION_ID_GENERATOR.getNextId(), newOlapTable(tableId, tableName, hashColumn),
                 ImmutableList.of("db"));
+    }
+
+    public static LogicalOlapScan newDpHyperLogicalOlapScan(long tableId, String tableName, int hashColumn) {
+        return new LogicalOlapScan(RELATION_ID_GENERATOR.getNextId(),
+                newDpHyperOlapTable(tableId, tableName, hashColumn), ImmutableList.of("db"));
     }
 
     public static LogicalOlapScan newLogicalOlapScanWithSameId(long tableId, String tableName,

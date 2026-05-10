@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.algebra.Union;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
@@ -265,7 +264,6 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
         return relation instanceof PhysicalOlapScan
                 || relation instanceof PhysicalOdbcScan
                 || relation instanceof PhysicalFileScan
-                || relation instanceof PhysicalDeferMaterializeOlapScan
                 || relation instanceof PhysicalLazyMaterializeOlapScan;
     }
 }

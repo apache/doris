@@ -39,8 +39,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
-import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
@@ -228,21 +226,6 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
     }
 
     @Override
-    public Plan visitLogicalDeferMaterializeTopN(LogicalDeferMaterializeTopN<? extends Plan> topN, Void context) {
-        topN = visitChildren(this, topN, context);
-
-        LogicalTopN logicalTopN = (LogicalTopN) topN.getLogicalTopN().accept(this, context);
-        if (logicalTopN != topN.getLogicalTopN()) {
-            SlotReference replacedColumnIdSlot = replaceExpressions(
-                    ImmutableList.of(topN.getColumnIdSlot()), false, false).second.get(0);
-            return new LogicalDeferMaterializeTopN(
-                    logicalTopN, topN.getDeferMaterializeSlotIds(), replacedColumnIdSlot);
-        }
-
-        return topN;
-    }
-
-    @Override
     public Plan visitLogicalExcept(LogicalExcept except, Void context) {
         except = visitChildren(this, except, context);
 
@@ -372,23 +355,6 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
             return topN.withOrderKeys(replaced.second);
         }
         return topN;
-    }
-
-    @Override
-    public Plan visitLogicalDeferMaterializeOlapScan(
-            LogicalDeferMaterializeOlapScan deferMaterializeOlapScan, Void context) {
-
-        LogicalOlapScan logicalOlapScan
-                = (LogicalOlapScan) deferMaterializeOlapScan.getLogicalOlapScan().accept(this, context);
-
-        if (logicalOlapScan != deferMaterializeOlapScan.getLogicalOlapScan()) {
-            SlotReference replacedColumnIdSlot = replaceExpressions(
-                    ImmutableList.of(deferMaterializeOlapScan.getColumnIdSlot()), false, false).second.get(0);
-            return new LogicalDeferMaterializeOlapScan(
-                    logicalOlapScan, deferMaterializeOlapScan.getDeferMaterializeSlotIds(), replacedColumnIdSlot
-            );
-        }
-        return deferMaterializeOlapScan;
     }
 
     @Override

@@ -38,6 +38,7 @@
 #include "common/config.h"
 #include "common/metrics/metrics.h"
 #include "common/status.h"
+#include "storage/binlog.h"
 #include "storage/binlog_config.h"
 #include "storage/data_dir.h"
 #include "storage/olap_common.h"
@@ -116,6 +117,15 @@ public:
     int64_t replica_id() const { return _tablet_meta->replica_id(); }
 
     std::string tablet_path() const override { return _tablet_path; }
+    std::string row_binlog_path() const {
+        return fmt::format("{}/{}", _tablet_path, FDRowBinlogSuffix);
+    }
+    std::string get_rowset_path(const RowsetMetaSharedPtr& rowset_meta) const {
+        if (!rowset_meta->is_local()) {
+            return "";
+        }
+        return rowset_meta->is_row_binlog() ? row_binlog_path() : tablet_path();
+    }
 
     bool set_tablet_schema_into_rowset_meta();
     Status init();
@@ -164,7 +174,7 @@ public:
     int64_t avg_rs_meta_serialize_size() const;
 
     // operation in rowsets
-    Status add_rowset(RowsetSharedPtr rowset);
+    Status add_rowset(RowsetSharedPtr rowset, RowsetSharedPtr row_binlog_rowset = nullptr);
     Status create_initial_rowset(const int64_t version);
 
     // MUST hold EXCLUSIVE `_meta_lock`.
@@ -377,6 +387,8 @@ public:
     const auto& rowset_map() const { return _rs_version_map; }
     // MUST hold SHARED `_meta_lock`
     const auto& stale_rowset_map() const { return _stale_rs_version_map; }
+    // MUST hold SHARED `_meta_lock`
+    const auto& row_binlog_rowset_map() const { return _row_binlog_rs_version_map; }
 
     ////////////////////////////////////////////////////////////////////////////
     // begin cooldown functions
@@ -467,12 +479,28 @@ public:
     int64_t get_table_id() { return _tablet_meta->table_id(); }
 
     // binlog related functions
-    bool is_enable_binlog();
-    bool is_binlog_enabled() { return _tablet_meta->binlog_config().is_enable(); }
+    bool enable_binlog() const {
+        return config::enable_feature_binlog && _tablet_meta->binlog_config().is_enable();
+    }
+    bool enable_ccr_binlog() const {
+        return enable_binlog() && _tablet_meta->binlog_config().isCCRBinlogFormat();
+    }
+    bool enable_row_binlog() const {
+        return _tablet_meta->binlog_config().is_enable() &&
+               _tablet_meta->binlog_config().isRowBinlogFormat();
+    }
+
     int64_t binlog_ttl_ms() const { return _tablet_meta->binlog_config().ttl_seconds(); }
     int64_t binlog_max_bytes() const { return _tablet_meta->binlog_config().max_bytes(); }
 
     void set_binlog_config(BinlogConfig binlog_config);
+
+    // row_binlog
+    int32_t row_binlog_schema_hash() const { return _tablet_meta->row_binlog_schema_hash(); }
+    TabletSchemaSPtr row_binlog_tablet_schema() {
+        std::shared_lock rdlock(_meta_lock);
+        return _tablet_meta->row_binlog_schema();
+    }
 
     void set_is_full_compaction_running(bool is_full_compaction_running) {
         _is_full_compaction_running = is_full_compaction_running;

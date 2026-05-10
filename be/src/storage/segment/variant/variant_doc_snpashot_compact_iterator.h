@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-namespace doris::segment_v2 {
-
 #include "core/column/column_variant.h"
 #include "storage/segment/column_reader.h"
+
+namespace doris::segment_v2 {
 
 class VariantDocValueCompactIterator : public ColumnIterator {
 public:

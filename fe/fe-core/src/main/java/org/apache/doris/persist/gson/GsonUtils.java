@@ -125,7 +125,9 @@ import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
+import org.apache.doris.catalog.stream.AbstractTableStreamUpdate;
 import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
 import org.apache.doris.cloud.backup.CloudRestoreJob;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
@@ -530,7 +532,9 @@ public class GsonUtils {
         } else {
             // compatible with old cloud code.
             tabletTypeAdapterFactory.registerDefaultSubtype(CloudTablet.class);
+            tabletTypeAdapterFactory.registerCompatibleSubtype(CloudTablet.class, Tablet.class.getSimpleName());
             replicaTypeAdapterFactory.registerDefaultSubtype(CloudReplica.class);
+            replicaTypeAdapterFactory.registerCompatibleSubtype(CloudReplica.class, Replica.class.getSimpleName());
         }
     }
 
@@ -584,6 +588,11 @@ public class GsonUtils {
                     .registerSubtype(ListPartitionItem.class, ListPartitionItem.class.getSimpleName())
                     .registerSubtype(RangePartitionItem.class, RangePartitionItem.class.getSimpleName());
 
+    // runtime adapter for class "AbstractTableStreamUpdate"
+    private static RuntimeTypeAdapterFactory<AbstractTableStreamUpdate> streamUpdateTypeAdapterFactory
+                    = RuntimeTypeAdapterFactory.of(AbstractTableStreamUpdate.class, "clazz")
+                    .registerSubtype(OlapTableStreamUpdate.class, OlapTableStreamUpdate.class.getSimpleName());
+
     // the builder of GSON instance.
     // Add any other adapters if necessary.
     //
@@ -629,6 +638,7 @@ public class GsonUtils {
             .registerTypeAdapterFactory(jobBackupTypeAdapterFactory)
             .registerTypeAdapterFactory(loadJobTypeAdapterFactory)
             .registerTypeAdapterFactory(partitionItemTypeAdapterFactory)
+            .registerTypeAdapterFactory(streamUpdateTypeAdapterFactory)
             .registerTypeAdapter(PartitionKey.class, new PartitionKey.PartitionKeySerializer())
             .registerTypeAdapter(Range.class, new RangeUtils.RangeSerializer());
 

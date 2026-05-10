@@ -1068,7 +1068,7 @@ identityOrFunction
     ;
 
 dataDesc
-    : ((WITH)? mergeType)? DATA INFILE LEFT_PAREN filePaths+=STRING_LITERAL (COMMA filePath+=STRING_LITERAL)* RIGHT_PAREN
+    : ((WITH)? mergeType)? DATA INFILE LEFT_PAREN filePaths+=STRING_LITERAL (COMMA filePaths+=STRING_LITERAL)* RIGHT_PAREN
         (negative=NEGATIVE)?
         INTO TABLE targetTableName=identifier
         (partitionSpec)?
@@ -1148,7 +1148,7 @@ userIdentify
     ;
 
 grantUserIdentify
-    : userIdentify (IDENTIFIED BY PASSWORD? STRING_LITERAL)?
+    : userIdentify (IDENTIFIED BY PASSWORD? pwd=STRING_LITERAL)?
     ;
 
 explain

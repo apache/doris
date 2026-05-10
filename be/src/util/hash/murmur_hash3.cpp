@@ -26,6 +26,10 @@
 
 #include "util/hash/murmur_hash3.h"
 
+#if defined(_MSC_VER)
+#include <stdlib.h>
+#endif
+
 #include "util/unaligned.h"
 
 namespace doris {
@@ -33,8 +37,6 @@ namespace doris {
 #if defined(_MSC_VER)
 
 #define FORCE_INLINE __forceinline
-
-#include <stdlib.h>
 
 #define ROTL32(x, y) _rotl(x, y)
 #define ROTL64(x, y) _rotl64(x, y)
