@@ -249,6 +249,16 @@ struct Version {
     std::string to_string() const { return fmt::format("[{}-{}]", first, second); }
 };
 
+struct TsoRange : public Version {
+    TsoRange() : Version(-1, -1) {}
+    TsoRange(int64_t start_tso, int64_t end_tso) : Version(start_tso, end_tso) {}
+
+    int64_t start_tso() const { return first; }
+    int64_t end_tso() const { return second; }
+
+    bool contains(const TsoRange& other) const { return Version::contains(other); }
+};
+
 using Versions = std::vector<Version>;
 
 inline std::ostream& operator<<(std::ostream& os, const Version& version) {

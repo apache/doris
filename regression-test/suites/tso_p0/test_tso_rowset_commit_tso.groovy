@@ -58,7 +58,10 @@ suite("test_tso_rowset_commit_tso", "nonConcurrent") {
                 order by TXN_ID desc limit 1
             """
             if (rowsets.size() > 0) {
-                commitTso = ((Number) rowsets[0]["COMMIT_TSO"]).longValue()
+                def matcher = rowsets[0]["COMMIT_TSO"].toString() =~ /\[(-?\d+)-(-?\d+)\]/
+                assertTrue(matcher.matches())
+                assertEquals(matcher[0][1], matcher[0][2])
+                commitTso = Long.parseLong(matcher[0][2])
             }
             if (commitTso > 0) {
                 break

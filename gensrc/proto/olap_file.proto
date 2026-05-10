@@ -72,6 +72,11 @@ message PackedSliceLocationPB {
     optional int64 packed_file_size = 4;  // Total size of the packed file
 }
 
+message TsoRangePB {
+    optional int64 start_tso = 1 [default = -1];
+    optional int64 end_tso = 2 [default = -1];
+}
+
 // ATTN: When adding or deleting fields, please update `message RowsetMetaCloudPB`
 // simultaneously and modify the conversion function in the be/src/cloud/pb_convert.{h,cpp}.
 message RowsetMetaPB {
@@ -173,7 +178,7 @@ message RowsetMetaPB {
     optional bool is_recycled = 1013; // for recycler mark rowset as recycled
     optional string job_id = 1014;
 
-    optional int64 commit_tso = 1015 [default = -1];
+    optional TsoRangePB commit_tso = 1015;
 
     // For row binlog LSN allocation (FE auto-inc RPC)
     optional int64 db_id = 1016;
@@ -290,7 +295,7 @@ message RowsetMetaCloudPB {
 
     optional bool is_recycled = 112;
     optional string job_id = 113;
-    optional int64 commit_tso = 114 [default = -1];
+    optional TsoRangePB commit_tso = 114;
 
     // For row binlog LSN allocation (FE auto-inc RPC)
     optional int64 db_id = 115;

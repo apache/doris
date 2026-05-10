@@ -3336,9 +3336,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             }
         }
 
-        // use auto-increment allocator to improve locality of Binlog LSN.
-        Preconditions.checkState(autoIncrementGenerator == null);
         if (needRowBinlog()) {
+            // use auto-increment allocator to improve locality of Binlog LSN.
+            Preconditions.checkState(autoIncrementGenerator == null);
             MaterializedIndexMeta rowBinlogMeta = getRowBinlogMeta();
             Preconditions.checkNotNull(rowBinlogMeta);
             autoIncrementGenerator = new AutoIncrementGenerator(dbId, id, Column.BINLOG_LSN_AUTO_INC_ID, 1L);

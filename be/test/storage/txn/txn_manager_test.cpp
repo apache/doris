@@ -401,7 +401,7 @@ TEST_F(TxnManagerTest, PublishVersionWithCommitTSO) {
     ASSERT_TRUE(st.ok()) << st;
     EXPECT_EQ(rowset_meta->start_version(), 10);
     EXPECT_EQ(rowset_meta->end_version(), 11);
-    EXPECT_EQ(rowset_meta->commit_tso(), commit_tso);
+    EXPECT_EQ(rowset_meta->commit_tso(), TsoRange(commit_tso, commit_tso));
 }
 
 TEST_F(TxnManagerTest, TxnWithRowBinlog) {

@@ -2457,7 +2457,8 @@ void SegmentIterator::_update_tso_col_if_needed(const std::vector<ColumnId>& col
         return;
     }
 
-    Int64 commit_tso = _opts.commit_tso == -1 ? 0 : _opts.commit_tso;
+    DCHECK_EQ(_opts.commit_tso.start_tso(), _opts.commit_tso.end_tso());
+    Int64 commit_tso = _opts.commit_tso.end_tso() == -1 ? 0 : _opts.commit_tso.end_tso();
 
     if (_is_pred_column[tso_col_idx]) {
         // Nullable predicate column is represented as ColumnNullable(predicate_col)

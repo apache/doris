@@ -486,9 +486,18 @@ public:
                 [algorithm]() -> Result<EncryptionAlgorithmPB> { return algorithm; });
     }
 
-    int64_t commit_tso() const { return _rowset_meta_pb.commit_tso(); }
+    TsoRange commit_tso() const {
+        const auto& commit_tso_pb = _rowset_meta_pb.commit_tso();
+        return {commit_tso_pb.start_tso(), commit_tso_pb.end_tso()};
+    }
 
-    void set_commit_tso(int64_t commit_tso) { _rowset_meta_pb.set_commit_tso(commit_tso); }
+    void set_commit_tso(const TsoRange& commit_tso) {
+        auto* commit_tso_pb = _rowset_meta_pb.mutable_commit_tso();
+        commit_tso_pb->set_start_tso(commit_tso.start_tso());
+        commit_tso_pb->set_end_tso(commit_tso.end_tso());
+    }
+
+    void set_commit_tso(int64_t commit_tso) { set_commit_tso({commit_tso, commit_tso}); }
 
     void set_cloud_fields_after_visible(int64_t visible_version, int64_t version_update_time_ms) {
         // Update rowset meta with correct version and visible_ts
