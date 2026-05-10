@@ -2989,29 +2989,6 @@ public:
         }
     }
 
-    // Sanity probe: confirm type_limit<decimal12_t> is specialised and not
-    // falling through to the zero-init default of an unspecialised
-    // numeric_limits. TypedInvertedIndexQueryParam<TYPE_DECIMALV2>::encode_min/
-    // max_ascending depend on this specialisation for valid +/-infinity
-    // sentinels — without it both bounds collapse to encoded({0,0}) and BKD
-    // half-bounded range queries on DecimalV2 columns silently miss negative
-    // (for LESS_THAN) or positive (for GREATER_THAN) values.
-    void test_type_limit_decimal12_specialisation() {
-        auto lo = type_limit<decimal12_t>::min();
-        auto hi = type_limit<decimal12_t>::max();
-        EXPECT_EQ(lo.integer, -999999999999999999LL);
-        EXPECT_EQ(lo.fraction, -999999999);
-        EXPECT_EQ(hi.integer, +999999999999999999LL);
-        EXPECT_EQ(hi.fraction, +999999999);
-    }
-
-    // Same regression as decimal12_t but for uint24_t (TYPE_DATE storage).
-    // Values match OLAP DATE packing: 0001-01-01 / 9999-12-31.
-    void test_type_limit_uint24_specialisation() {
-        EXPECT_EQ(static_cast<uint32_t>(type_limit<uint24_t>::min()), 33u);
-        EXPECT_EQ(static_cast<uint32_t>(type_limit<uint24_t>::max()), 5119903u);
-    }
-
     // Generic BKD range-query verifier. Writes `values` into the BKD index
     // for `column_name`, then runs EQUAL / LESS_THAN / LESS_EQUAL /
     // GREATER_THAN / GREATER_EQUAL queries against `threshold`. Expected
@@ -3020,7 +2997,8 @@ public:
     //
     // Locks in:
     //  * the typed-param interface (TypedInvertedIndexQueryParam<PT>)
-    //  * the +/-infinity sentinels from type_limit<storage_val>
+    //  * the +/-infinity sentinels routed through type_limit<compute_t> +
+    //    PrimitiveTypeConvertor<PT>
     //  * BKD's writer/reader/visitor agreement on KeyCoder-encoded bytes
     template <PrimitiveType PT, typename T>
     void verify_bkd_range_queries(int col_id, std::string_view rowset_id,
@@ -4083,25 +4061,15 @@ TEST_F(InvertedIndexReaderTest, BkdIndexRead) {
     test_bkd_index_read();
 }
 
-// Regression: type_limit<decimal12_t> must be specialised, otherwise both
-// min() and max() collapse to decimal12_t{0, 0} (zero-init default of an
-// unspecialised numeric_limits) and TypedInvertedIndexQueryParam<TYPE_DECIMALV2>
-// produces invalid +/-infinity sentinels.
-TEST_F(InvertedIndexReaderTest, TypeLimitDecimal12Specialisation) {
-    test_type_limit_decimal12_specialisation();
-}
-
 // BKD half-bounded range query regression suite, one TEST_F per BKD-supported
 // PrimitiveType. They all share `verify_bkd_range_queries`, which:
 //  - writes 6 sorted values into a fresh BKD index
 //  - asserts EQUAL / LESS_THAN / LESS_EQUAL / GREATER_THAN / GREATER_EQUAL
 //    cardinalities derived from the values via std::count_if.
 //
-// Locks in the typed-param interface, the +/-infinity sentinels from
-// type_limit<storage_val>, and BKD writer/reader/visitor agreement.
-TEST_F(InvertedIndexReaderTest, TypeLimitUint24Specialisation) {
-    test_type_limit_uint24_specialisation();
-}
+// Locks in the typed-param interface, the +/-infinity sentinels routed
+// through type_limit<compute_t> + PrimitiveTypeConvertor<PT>, and BKD
+// writer/reader/visitor agreement.
 TEST_F(InvertedIndexReaderTest, BkdRangeIntRangeQuery) {
     test_bkd_range_int();
 }

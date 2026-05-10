@@ -63,17 +63,26 @@
 
 namespace {
 
-template <doris::FieldType FT>
+// Sentinel values are sourced from the compute-layer `type_limit<CppType>` and
+// then projected onto the storage-layer POD via `PrimitiveTypeConvertor<PT>`.
+// Routing through the compute layer keeps the +/- infinity constants
+// single-sourced (e.g. DecimalV2 max lives only in DecimalV2Value::get_max_decimal,
+// DATE bounds only in VecDateTimeValue::datetime_min/max_value), so types like
+// decimal12_t and uint24_t — which have no std::numeric_limits specialisation —
+// no longer need their own type_limit<> entries.
+template <doris::PrimitiveType PT>
 static void bkd_encode_min(const doris::KeyCoder* coder, std::string* out) {
-    using key_t = typename doris::CppTypeTraits<FT>::CppType;
-    key_t v = doris::type_limit<key_t>::min();
+    using compute_t = typename doris::PrimitiveTypeTraits<PT>::CppType;
+    auto compute_v = doris::type_limit<compute_t>::min();
+    auto v = doris::PrimitiveTypeConvertor<PT>::to_storage_field_type(compute_v);
     coder->full_encode_ascending(&v, out);
 }
 
-template <doris::FieldType FT>
+template <doris::PrimitiveType PT>
 static void bkd_encode_max(const doris::KeyCoder* coder, std::string* out) {
-    using key_t = typename doris::CppTypeTraits<FT>::CppType;
-    key_t v = doris::type_limit<key_t>::max();
+    using compute_t = typename doris::PrimitiveTypeTraits<PT>::CppType;
+    auto compute_v = doris::type_limit<compute_t>::max();
+    auto v = doris::PrimitiveTypeConvertor<PT>::to_storage_field_type(compute_v);
     coder->full_encode_ascending(&v, out);
 }
 
@@ -110,9 +119,9 @@ static doris::Status encode_bkd_field_ascending(doris::FieldType ft, const doris
 
 static doris::Status encode_bkd_min_ascending(doris::FieldType ft, const doris::KeyCoder* coder,
                                               std::string* out) {
-#define CASE(FT, PT)                                      \
-    case doris::FieldType::FT:                            \
-        bkd_encode_min<doris::FieldType::FT>(coder, out); \
+#define CASE(FT, PT)                                          \
+    case doris::FieldType::FT:                                \
+        bkd_encode_min<doris::PrimitiveType::PT>(coder, out); \
         return doris::Status::OK();
     switch (ft) {
         DORIS_APPLY_FOR_KEY_ENCODABLE_NON_STRING_TYPES(CASE)
@@ -125,9 +134,9 @@ static doris::Status encode_bkd_min_ascending(doris::FieldType ft, const doris::
 
 static doris::Status encode_bkd_max_ascending(doris::FieldType ft, const doris::KeyCoder* coder,
                                               std::string* out) {
-#define CASE(FT, PT)                                      \
-    case doris::FieldType::FT:                            \
-        bkd_encode_max<doris::FieldType::FT>(coder, out); \
+#define CASE(FT, PT)                                          \
+    case doris::FieldType::FT:                                \
+        bkd_encode_max<doris::PrimitiveType::PT>(coder, out); \
         return doris::Status::OK();
     switch (ft) {
         DORIS_APPLY_FOR_KEY_ENCODABLE_NON_STRING_TYPES(CASE)
