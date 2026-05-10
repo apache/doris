@@ -482,10 +482,11 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithFooterOffset) {
     std::vector<uint32_t> column_ids = {0};
     VariantStatsCaculator calculator(_footer.get(), _tablet_schema, column_ids, footer_offset);
 
-    Block block;
+    vectorized::Block block;
     auto nullable_column = create_nullable_column({false, true, false}, {"a", "", "c"});
     block.insert({std::move(nullable_column),
-                  std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
+                  std::make_shared<vectorized::DataTypeNullable>(
+                          std::make_shared<vectorized::DataTypeString>()),
                   "sub_column"});
 
     auto status = calculator.calculate_variant_stats(&block, 0, 3);
