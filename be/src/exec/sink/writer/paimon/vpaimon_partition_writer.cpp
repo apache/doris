@@ -42,7 +42,6 @@
 #endif
 
 namespace doris {
-namespace vectorized {
 
 #ifdef WITH_PAIMON_CPP
 namespace {
@@ -277,5 +276,4 @@ Status VPaimonPartitionWriter::close(const Status& status) {
     return status;
 }
 
-} // namespace vectorized
 } // namespace doris

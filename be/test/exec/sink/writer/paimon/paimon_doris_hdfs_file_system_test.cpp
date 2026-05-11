@@ -19,7 +19,7 @@
 
 #include <gtest/gtest.h>
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(PaimonDorisHdfsFileSystemTest, ExtractsFsNameFromSupportedSchemes) {
     EXPECT_EQ("hdfs://namenode:8020",
@@ -43,4 +43,4 @@ TEST(PaimonDorisHdfsFileSystemTest, RegisterFunctionIsSafeToCall) {
     EXPECT_NO_THROW(ensure_paimon_doris_hdfs_file_system_registered());
 }
 
-} // namespace doris::vectorized
+} // namespace doris

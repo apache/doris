@@ -28,7 +28,6 @@
 #include "exec/sink/writer/paimon/vpaimon_table_writer.h"
 
 namespace doris {
-namespace vectorized {
 
 class VPaimonJniTableWriter : public VPaimonTableWriter {
 public:
@@ -93,5 +92,4 @@ private:
     size_t _row_count = 0;
 };
 
-} // namespace vectorized
 } // namespace doris

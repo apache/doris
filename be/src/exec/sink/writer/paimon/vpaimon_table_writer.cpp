@@ -72,7 +72,6 @@ namespace parquet {}
 #endif
 
 namespace doris {
-namespace vectorized {
 
 #ifdef WITH_PAIMON_CPP
 namespace {
@@ -753,5 +752,4 @@ Status VPaimonTableWriter::close(Status status) {
 #endif
 }
 
-} // namespace vectorized
 } // namespace doris

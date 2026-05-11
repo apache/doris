@@ -41,7 +41,7 @@
 #include "runtime/runtime_state.h"
 #include "exec/sink/writer/paimon/paimon_doris_memory_pool.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct PaimonBucketIdState {
     int32_t bucket_num = 0;
@@ -188,12 +188,12 @@ void register_function_paimon(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionPaimonBucketId>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #else
 
-namespace doris::vectorized {
+namespace doris {
 void register_function_paimon(SimpleFunctionFactory&) {}
-} // namespace doris::vectorized
+} // namespace doris
 
 #endif

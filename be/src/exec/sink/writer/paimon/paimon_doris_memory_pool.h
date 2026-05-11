@@ -30,7 +30,7 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class PaimonDorisMemoryPool final : public ::paimon::MemoryPool {
 public:
@@ -57,6 +57,6 @@ private:
     std::shared_ptr<::doris::MemTrackerLimiter> _query_mem_tracker;
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #endif

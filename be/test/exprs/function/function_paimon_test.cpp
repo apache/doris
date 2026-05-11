@@ -31,8 +31,6 @@
 
 namespace doris {
 
-namespace vectorized {
-
 namespace {
 
 FunctionBasePtr create_function() {
@@ -166,7 +164,5 @@ TEST(FunctionPaimonTest, ExecuteComputesBucketIds) {
     EXPECT_LT(result_col[0], 4);
     EXPECT_LT(result_col[2], 4);
 }
-
-} // namespace vectorized
 
 } // namespace doris

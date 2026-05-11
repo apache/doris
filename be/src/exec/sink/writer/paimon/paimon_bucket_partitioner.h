@@ -31,7 +31,7 @@ class MemoryPool;
 } // namespace paimon
 #endif
 
-namespace doris::vectorized {
+namespace doris {
 
 struct PaimonBucketShuffleParams {
     int32_t bucket_num = 0;
@@ -68,4 +68,4 @@ private:
 #endif
 };
 
-} // namespace doris::vectorized
+} // namespace doris

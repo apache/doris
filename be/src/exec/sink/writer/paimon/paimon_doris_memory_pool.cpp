@@ -25,7 +25,7 @@
 
 #include "util/defer_op.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 namespace {
 
@@ -156,6 +156,6 @@ uint64_t PaimonDorisMemoryPool::MaxMemoryUsage() const {
     return _max_bytes_allocated.load(std::memory_order_acquire);
 }
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #endif

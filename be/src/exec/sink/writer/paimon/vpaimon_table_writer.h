@@ -43,7 +43,9 @@ class ObjectPool;
 class RuntimeProfile;
 class RuntimeState;
 
-namespace vectorized {
+} // namespace doris
+
+namespace doris {
 
 class VPaimonPartitionWriter;
 
@@ -134,5 +136,4 @@ private:
 #endif
 };
 
-} // namespace vectorized
 } // namespace doris

@@ -31,7 +31,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 namespace {
 
@@ -118,4 +118,4 @@ TEST(VPaimonJniTableWriterTest, CloseReturnsOkWhenJvmUnavailableAndInputOk) {
     ASSERT_TRUE(writer.close(Status::OK()).ok());
 }
 
-} // namespace doris::vectorized
+} // namespace doris

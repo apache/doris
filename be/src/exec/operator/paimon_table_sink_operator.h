@@ -24,7 +24,7 @@ namespace doris {
 
 bool should_use_paimon_jni_writer(const TDataSink& tsink);
 
-std::unique_ptr<vectorized::VPaimonTableWriter> create_paimon_table_writer(
+std::unique_ptr<VPaimonTableWriter> create_paimon_table_writer(
         const TDataSink& tsink, const VExprContextSPtrs& output_vexpr_ctxs,
         std::shared_ptr<Dependency> async_writer_dependency = nullptr,
         std::shared_ptr<Dependency> finish_dependency = nullptr);
@@ -32,9 +32,9 @@ std::unique_ptr<vectorized::VPaimonTableWriter> create_paimon_table_writer(
 class PaimonTableSinkOperatorX;
 
 class PaimonTableSinkLocalState final
-        : public AsyncWriterSink<vectorized::VPaimonTableWriter, PaimonTableSinkOperatorX> {
+        : public AsyncWriterSink<VPaimonTableWriter, PaimonTableSinkOperatorX> {
 public:
-    using Base = AsyncWriterSink<vectorized::VPaimonTableWriter, PaimonTableSinkOperatorX>;
+    using Base = AsyncWriterSink<VPaimonTableWriter, PaimonTableSinkOperatorX>;
     using Parent = PaimonTableSinkOperatorX;
     ENABLE_FACTORY_CREATOR(PaimonTableSinkLocalState);
     PaimonTableSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)

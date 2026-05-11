@@ -35,18 +35,18 @@ bool should_use_paimon_jni_writer(const TDataSink& tsink) {
     return it->second == "true" || it->second == "1";
 }
 
-std::unique_ptr<vectorized::VPaimonTableWriter> create_paimon_table_writer(
+std::unique_ptr<VPaimonTableWriter> create_paimon_table_writer(
         const TDataSink& tsink, const VExprContextSPtrs& output_vexpr_ctxs,
         std::shared_ptr<Dependency> async_writer_dependency,
         std::shared_ptr<Dependency> finish_dependency) {
     if (should_use_paimon_jni_writer(tsink)) {
-        return std::make_unique<vectorized::VPaimonJniTableWriter>(
+        return std::make_unique<VPaimonJniTableWriter>(
                 tsink, output_vexpr_ctxs, std::move(async_writer_dependency),
                 std::move(finish_dependency));
     }
-    return std::make_unique<vectorized::VPaimonTableWriter>(tsink, output_vexpr_ctxs,
-                                                            std::move(async_writer_dependency),
-                                                            std::move(finish_dependency));
+    return std::make_unique<VPaimonTableWriter>(tsink, output_vexpr_ctxs,
+                                                std::move(async_writer_dependency),
+                                                std::move(finish_dependency));
 }
 
 Status PaimonTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {

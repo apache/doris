@@ -19,7 +19,7 @@
 
 #include <gtest/gtest.h>
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(PaimonWriterUtilsTest, KeepsConfiguredSizeWhenAdaptiveDisabled) {
     EXPECT_EQ(256L * 1024L * 1024L, get_paimon_write_buffer_size(256L * 1024L * 1024L, false, 500));
@@ -38,4 +38,4 @@ TEST(PaimonWriterUtilsTest, NeverGrowsBeyondConfiguredSize) {
     EXPECT_EQ(48L * 1024L * 1024L, get_paimon_write_buffer_size(48L * 1024L * 1024L, true, 200));
 }
 
-} // namespace doris::vectorized
+} // namespace doris

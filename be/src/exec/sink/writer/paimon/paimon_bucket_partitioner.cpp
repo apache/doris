@@ -33,7 +33,7 @@
 #include "format/parquet/arrow_memory_pool.h"
 #include "exec/sink/writer/paimon/paimon_doris_memory_pool.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 PaimonBucketPartitioner::PaimonBucketPartitioner(HashValType partition_count,
                                                  PaimonBucketShuffleParams params)
@@ -182,6 +182,6 @@ Status PaimonBucketPartitioner::clone(RuntimeState* state,
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #endif

@@ -38,7 +38,7 @@
 #include "util/jni_native_method.h"
 #include "exec/sink/writer/paimon/paimon_writer_utils.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 namespace {
 uint64_t to_ms_ceil(int64_t ns) {
@@ -547,4 +547,4 @@ jobject VPaimonJniTableWriter::_to_java_options(JNIEnv* env,
     return map_obj;
 }
 
-} // namespace doris::vectorized
+} // namespace doris

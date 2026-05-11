@@ -462,7 +462,7 @@ private:
 class DorisHdfsFileSystemFactory final : public paimon::FileSystemFactory {
 public:
     const char* Identifier() const override {
-        return doris::vectorized::kPaimonDorisHdfsFsIdentifier;
+        return doris::kPaimonDorisHdfsFsIdentifier;
     }
 
     paimon::Result<std::unique_ptr<paimon::FileSystem>> Create(
@@ -486,7 +486,7 @@ public:
 
 } // namespace
 
-namespace doris::vectorized {
+namespace doris {
 
 std::string extract_hdfs_fs_name_for_test(const std::string& uri) {
     return _extract_hdfs_fs_name(uri);
@@ -507,6 +507,6 @@ void ensure_paimon_doris_hdfs_file_system_registered() {
     });
 }
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #endif

@@ -42,7 +42,9 @@ class ObjectPool;
 class RuntimeProfile;
 class RuntimeState;
 
-namespace vectorized {
+} // namespace doris
+
+namespace doris {
 
 // Single write unit for a specific Paimon partition + bucket.
 // It writes RecordBatch into a shared paimon-cpp FileStoreWrite instance.
@@ -97,5 +99,4 @@ private:
 #endif
 };
 
-} // namespace vectorized
 } // namespace doris

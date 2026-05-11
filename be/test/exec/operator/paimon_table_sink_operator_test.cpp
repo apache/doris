@@ -48,14 +48,14 @@ TEST(PaimonTableSinkOperatorTest, CreatesNativeWriterByDefault) {
     TDataSink sink = build_sink_with_option("false");
     auto writer = create_paimon_table_writer(sink, {});
     ASSERT_NE(nullptr, writer.get());
-    EXPECT_EQ(nullptr, dynamic_cast<vectorized::VPaimonJniTableWriter*>(writer.get()));
+    EXPECT_EQ(nullptr, dynamic_cast<VPaimonJniTableWriter*>(writer.get()));
 }
 
 TEST(PaimonTableSinkOperatorTest, CreatesJniWriterWhenEnabled) {
     TDataSink sink = build_sink_with_option("true");
     auto writer = create_paimon_table_writer(sink, {});
     ASSERT_NE(nullptr, writer.get());
-    EXPECT_NE(nullptr, dynamic_cast<vectorized::VPaimonJniTableWriter*>(writer.get()));
+    EXPECT_NE(nullptr, dynamic_cast<VPaimonJniTableWriter*>(writer.get()));
 }
 
 } // namespace doris

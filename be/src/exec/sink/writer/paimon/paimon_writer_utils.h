@@ -20,7 +20,7 @@
 #include <algorithm>
 #include <cstdint>
 
-namespace doris::vectorized {
+namespace doris {
 
 inline int64_t get_paimon_write_buffer_size(int64_t configured_buffer_size, bool enable_adaptive,
                                             int32_t bucket_num) {
@@ -39,4 +39,4 @@ inline int64_t get_paimon_write_buffer_size(int64_t configured_buffer_size, bool
     return configured_buffer_size;
 }
 
-} // namespace doris::vectorized
+} // namespace doris

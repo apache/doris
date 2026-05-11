@@ -40,7 +40,7 @@
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class VPaimonTableWriterTest : public testing::Test {
 protected:
@@ -362,4 +362,4 @@ TEST_F(VPaimonTableWriterTest, TestPartitionWriterCloseWithErrorClearsBufferedSt
     ASSERT_EQ(0, writer._buffered_bytes);
 }
 
-} // namespace doris::vectorized
+} // namespace doris
