@@ -340,8 +340,13 @@ Status DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const Null
     // now we default set key value in map is nullable
     DCHECK(nested_keys_column.is_nullable());
     DCHECK(nested_values_column.is_nullable());
-    const auto* keys_nullmap_data =
-            check_and_get_column<ColumnNullable>(nested_keys_column)->get_null_map_data().data();
+    const auto nullable_keys_column =
+            check_and_get_column_guard<ColumnNullable>(nested_keys_column);
+    if (!nullable_keys_column.check()) {
+        return Status::InternalError("Expected nullable map keys column, actual type={}",
+                                     nested_keys_column.get_name());
+    }
+    const auto* keys_nullmap_data = nullable_keys_column.get()->get_null_map_data().data();
     const auto& offsets = map_column.get_offsets();
     auto* key_builder = builder.key_builder();
     auto* value_builder = builder.item_builder();

@@ -39,6 +39,19 @@
 #include "exec/sort/hybrid_sorter.h"
 #include "storage/olap_common.h"
 
+#if defined(__clang__) && __has_attribute(consumable) && __has_attribute(callable_when) && \
+    __has_attribute(test_typestate) && __has_attribute(return_typestate)
+#define DORIS_CLANG_CONSUMABLE_UNKNOWN __attribute__((consumable(unknown)))
+#define DORIS_CLANG_CALLABLE_WHEN_UNCONSUMED __attribute__((callable_when("unconsumed")))
+#define DORIS_CLANG_TEST_UNCONSUMED __attribute__((test_typestate(unconsumed)))
+#define DORIS_CLANG_RETURN_UNKNOWN __attribute__((return_typestate(unknown)))
+#else
+#define DORIS_CLANG_CONSUMABLE_UNKNOWN
+#define DORIS_CLANG_CALLABLE_WHEN_UNCONSUMED
+#define DORIS_CLANG_TEST_UNCONSUMED
+#define DORIS_CLANG_RETURN_UNKNOWN
+#endif
+
 namespace doris {
 class SipHash;
 }
@@ -816,6 +829,41 @@ bool is_column(const IColumn& column) {
 template <typename Type>
 bool is_column(const IColumn* column) {
     return check_and_get_column<Type>(column);
+}
+
+template <typename PointerType>
+class DORIS_CLANG_CONSUMABLE_UNKNOWN ColumnPtrGuard {
+public:
+    explicit ColumnPtrGuard(PointerType column) : _column(column) {}
+
+    bool check() const DORIS_CLANG_TEST_UNCONSUMED { return _column != nullptr; }
+
+    PointerType get() const DORIS_CLANG_CALLABLE_WHEN_UNCONSUMED { return _column; }
+
+private:
+    PointerType _column;
+};
+
+template <typename Type>
+DORIS_CLANG_RETURN_UNKNOWN ColumnPtrGuard<const Type*> check_and_get_column_guard(
+        const IColumn& column) {
+    return ColumnPtrGuard<const Type*>(check_and_get_column<Type>(column));
+}
+
+template <typename Type>
+DORIS_CLANG_RETURN_UNKNOWN ColumnPtrGuard<Type*> check_and_get_column_guard(IColumn& column) {
+    return ColumnPtrGuard<Type*>(check_and_get_column<Type>(column));
+}
+
+template <typename Type>
+DORIS_CLANG_RETURN_UNKNOWN ColumnPtrGuard<const Type*> check_and_get_column_guard(
+        const IColumn* column) {
+    return ColumnPtrGuard<const Type*>(check_and_get_column<Type>(column));
+}
+
+template <typename Type>
+DORIS_CLANG_RETURN_UNKNOWN ColumnPtrGuard<Type*> check_and_get_column_guard(IColumn* column) {
+    return ColumnPtrGuard<Type*>(check_and_get_column<Type>(column));
 }
 
 // check_and_get_column_ptr is used to return a ColumnPtr of a specific column type,
