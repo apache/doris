@@ -27,6 +27,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "core/decimal12.h"
+#include "core/field.h"
 #include "core/string_ref.h"
 #include "core/type_limit.h"
 #include "core/types.h"
@@ -161,23 +162,20 @@ public:
         roaring::Roaring indices;
         HybridSetBase::IteratorBase* iter = _values->begin();
         while (iter->has_next()) {
-            std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
+            Field field_value;
             if constexpr (is_string_type(Type)) {
-                // get_value() returns StringRef*, not std::string*
+                // HybridSet's iter->get_value() yields StringRef*, not std::string*.
                 const auto* ref = (const StringRef*)(iter->get_value());
-                T str(ref->data, ref->size);
-                RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value<Type>(
-                        &str, query_param));
+                field_value = Field::create_field<Type>(std::string(ref->data, ref->size));
             } else {
                 const T* value = (const T*)(iter->get_value());
-                RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value<Type>(
-                        value, query_param));
+                field_value = Field::create_field<Type>(*value);
             }
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
             InvertedIndexParam param;
             param.column_name = name_with_type.first;
             param.column_type = name_with_type.second;
-            param.query_value = query_param->get_value();
+            param.query_value = field_value;
             param.query_type = query_type;
             param.num_rows = num_rows;
             param.roaring = std::make_shared<roaring::Roaring>();

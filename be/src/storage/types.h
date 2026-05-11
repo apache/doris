@@ -69,9 +69,6 @@ public:
     virtual ~TypeInfo() = default;
     virtual int cmp(const void* left, const void* right) const = 0;
 
-    virtual void set_to_max(void* buf) const = 0;
-    virtual void set_to_min(void* buf) const = 0;
-
     virtual size_t size() const = 0;
 
     virtual FieldType type() const = 0;
@@ -81,8 +78,6 @@ class ScalarTypeInfo : public TypeInfo {
 public:
     int cmp(const void* left, const void* right) const override { return _cmp(left, right); }
 
-    void set_to_max(void* buf) const override { _set_to_max(buf); }
-    void set_to_min(void* buf) const override { _set_to_min(buf); }
     size_t size() const override { return _size; }
 
     FieldType type() const override { return _field_type; }
@@ -90,16 +85,11 @@ public:
     template <typename TypeTraitsClass>
     ScalarTypeInfo(TypeTraitsClass t)
             : _cmp(TypeTraitsClass::cmp),
-              _set_to_max(TypeTraitsClass::set_to_max),
-              _set_to_min(TypeTraitsClass::set_to_min),
               _size(TypeTraitsClass::size),
               _field_type(TypeTraitsClass::type) {}
 
 private:
     int (*_cmp)(const void* left, const void* right);
-
-    void (*_set_to_max)(void* buf);
-    void (*_set_to_min)(void* buf);
 
     const size_t _size;
     const FieldType _field_type;
@@ -158,14 +148,6 @@ public:
         }
     }
 
-    void set_to_max(void* buf) const override {
-        DCHECK(false) << "set_to_max of list is not implemented.";
-    }
-
-    void set_to_min(void* buf) const override {
-        DCHECK(false) << "set_to_min of list is not implemented.";
-    }
-
     size_t size() const override { return sizeof(CollectionValue); }
 
     FieldType type() const override { return FieldType::OLAP_FIELD_TYPE_ARRAY; }
@@ -207,14 +189,6 @@ public:
                 return val_arr->cmp(l_v, r_v);
             }
         }
-    }
-
-    void set_to_max(void* buf) const override {
-        DCHECK(false) << "set_to_max of list is not implemented.";
-    }
-
-    void set_to_min(void* buf) const override {
-        DCHECK(false) << "set_to_min of list is not implemented.";
     }
 
     size_t size() const override { return sizeof(MapValue); }
@@ -280,14 +254,6 @@ public:
         } else {
             return 0;
         }
-    }
-
-    void set_to_max(void* buf) const override {
-        DCHECK(false) << "set_to_max of list is not implemented.";
-    }
-
-    void set_to_min(void* buf) const override {
-        DCHECK(false) << "set_to_min of list is not implemented.";
     }
 
     size_t size() const override { return sizeof(StructValue); }
@@ -509,14 +475,6 @@ struct BaseFieldTypeTraits : public CppTypeTraits<field_type> {
             return 0;
         }
     }
-
-    static inline void set_to_max(void* buf) {
-        set_cpp_type_value(buf, type_limit<CppType>::max());
-    }
-
-    static inline void set_to_min(void* buf) {
-        set_cpp_type_value(buf, type_limit<CppType>::min());
-    }
 };
 
 // Using NumericFieldtypeTraits to Derived code for FieldType::OLAP_FIELD_TYPE_XXXINT, FieldType::OLAP_FIELD_TYPE_FLOAT,
@@ -538,122 +496,43 @@ struct FieldTypeTraits
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_BOOL>
-        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_BOOL> {
-    static void set_to_max(void* buf) { (*(uint8_t*)buf) = 1; }
-    static void set_to_min(void* buf) { (*(uint8_t*)buf) = 0; }
-};
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_BOOL> {};
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT>
-        : public NumericFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT, true> {
-    static void set_to_max(void* buf) {
-        *reinterpret_cast<PackedInt128*>(buf) = ~((int128_t)(1) << 127);
-    }
-    static void set_to_min(void* buf) {
-        *reinterpret_cast<PackedInt128*>(buf) = (int128_t)(1) << 127;
-    }
-};
+        : public NumericFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT, true> {};
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4>
-        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4> {
-    static void set_to_max(void* buf) {
-        *reinterpret_cast<uint32_t*>(buf) = 0xFFFFFFFF; // 255.255.255.255
-    }
-
-    static void set_to_min(void* buf) {
-        *reinterpret_cast<uint32_t*>(buf) = 0; // 0.0.0.0
-    }
-};
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4> {};
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6>
-        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6> {
-    static void set_to_max(void* buf) {
-        *reinterpret_cast<int128_t*>(buf) = -1; // ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
-    }
-
-    static void set_to_min(void* buf) {
-        *reinterpret_cast<uint128_t*>(buf) = 0; // ::
-    }
-};
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6> {};
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL>
-        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL> {
-    static void set_to_max(void* buf) {
-        CppType* data = reinterpret_cast<CppType*>(buf);
-        data->integer = 999999999999999999L;
-        data->fraction = 999999999;
-    }
-    static void set_to_min(void* buf) {
-        CppType* data = reinterpret_cast<CppType*>(buf);
-        data->integer = -999999999999999999;
-        data->fraction = -999999999;
-    }
-};
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL> {};
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>
-        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE> {
-    static void set_to_max(void* buf) {
-        // max is 9999 * 16 * 32 + 12 * 32 + 31;
-        *reinterpret_cast<CppType*>(buf) = 5119903;
-    }
-    static void set_to_min(void* buf) {
-        // min is 0 * 16 * 32 + 1 * 32 + 1;
-        *reinterpret_cast<CppType*>(buf) = 33;
-    }
-};
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE> {};
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>
-        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2> {
-    static void set_to_max(void* buf) {
-        // max is 9999 * 16 * 32 + 12 * 32 + 31;
-        *reinterpret_cast<CppType*>(buf) = MAX_DATE_V2;
-    }
-    static void set_to_min(void* buf) {
-        // min is 0 * 16 * 32 + 1 * 32 + 1;
-        *reinterpret_cast<CppType*>(buf) = MIN_DATE_V2;
-    }
-};
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2> {};
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>
-        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2> {
-    static void set_to_max(void* buf) {
-        // max is 9999 * 16 * 32 + 12 * 32 + 31;
-        *reinterpret_cast<CppType*>(buf) = MAX_DATETIME_V2;
-    }
-    static void set_to_min(void* buf) {
-        // min is 0 * 16 * 32 + 1 * 32 + 1;
-        *reinterpret_cast<CppType*>(buf) = MIN_DATETIME_V2;
-    }
-};
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2> {};
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME>
-        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME> {
-    static void set_to_max(void* buf) {
-        // 9999-12-31 23:59:59
-        *reinterpret_cast<CppType*>(buf) = 99991231235959L;
-    }
-    static void set_to_min(void* buf) { *reinterpret_cast<CppType*>(buf) = 101000000; }
-};
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME> {};
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>
-        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ> {
-    static void set_to_max(void* buf) {
-        // max is 9999 * 16 * 32 + 12 * 32 + 31;
-        *reinterpret_cast<CppType*>(buf) = MAX_DATETIME_V2;
-    }
-    static void set_to_min(void* buf) {
-        // min is 0 * 16 * 32 + 1 * 32 + 1;
-        *reinterpret_cast<CppType*>(buf) = MIN_DATETIME_V2;
-    }
-};
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ> {};
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR>
@@ -663,32 +542,15 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR>
         auto r_slice = reinterpret_cast<const Slice*>(right);
         return l_slice->compare(*r_slice);
     }
-    // Using field.set_to_max to set varchar/char,not here.
-    static void (*set_to_max)(void*);
-
-    static void set_to_min(void* buf) {
-        auto slice = reinterpret_cast<Slice*>(buf);
-        memset(slice->data, 0, slice->size);
-    }
 };
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR>
-        : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR> {
-    static void set_to_min(void* buf) {
-        auto slice = reinterpret_cast<Slice*>(buf);
-        slice->size = 0;
-    }
-};
+        : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR> {};
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_STRING>
-        : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR> {
-    static void set_to_min(void* buf) {
-        auto slice = reinterpret_cast<Slice*>(buf);
-        slice->size = 0;
-    }
-};
+        : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR> {};
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_JSONB>
@@ -696,16 +558,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_JSONB>
     static int cmp(const void* left, const void* right) {
         LOG(WARNING) << "can not compare JSONB values";
         return -1; // always update ?
-    }
-
-    static void set_to_min(void* buf) {
-        auto slice = reinterpret_cast<Slice*>(buf);
-        slice->size = 0;
-    }
-
-    static void set_to_max(void* buf) {
-        auto slice = reinterpret_cast<Slice*>(buf);
-        slice->size = 0;
     }
 };
 
