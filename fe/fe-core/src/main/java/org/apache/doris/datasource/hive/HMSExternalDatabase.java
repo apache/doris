@@ -74,15 +74,27 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
     @Override
     public HMSExternalTable getTableNullable(String tableName) {
         makeSureInitialized();
-        // must use full qualified name to generate id.
-        // otherwise, if 2 databases have the same table name, the id will be the same.
-        if (!tableName.contains("$")) {
+        // For multi-tenant isolation, we use auth info as part of the cache key,
+        // so that different auth identities (e.g. different hadoopUserName) get
+        // independent HMSExternalTable instances and metadata caches.
+        // However, the tableId (used by upstream consumers like MTMV/BaseTableInfo
+        // and id-based lookups) MUST NOT depend on auth info, otherwise the same
+        // physical table will get different ids under different users, which breaks
+        // materialized view routing and other id-based logic.
+        String authTableName;
+        if (tableName.contains("$")) {
+            // already a composite cache key, e.g. tbl + auth-suffix
+            authTableName = tableName;
+            tableName = tableName.split("\\$")[0];
+        } else {
             Preconditions.checkArgument(BDPAuthContext.get() != null, "tableName can't be without auth info");
-            tableName = tableName + "$" + BDPAuthContext.get().getHadoopUserName()
+            authTableName = tableName + "$" + BDPAuthContext.get().getHadoopUserName()
                     + "$" + BDPAuthContext.get().isViewBased();
         }
 
-        return metaCache.getMetaObj(tableName,
+        // tableId is generated from the pure table name only, so it stays stable
+        // across different auth identities for the same physical table.
+        return metaCache.getMetaObj(authTableName,
             Util.genIdByName(extCatalog.getName(), name, tableName)).orElse(null);
     }
 

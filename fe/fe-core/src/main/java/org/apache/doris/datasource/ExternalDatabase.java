@@ -169,11 +169,28 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                     OptionalLong.empty(),
                     Math.max(Config.max_meta_object_cache_num, 1),
                     ignored -> listTableNames(),
-                    localTableName -> Optional.ofNullable(
-                            buildTableForInit(null, localTableName.split("\\$")[0],
-                                    Util.genIdByName(extCatalog.getName(), name, localTableName),
-                                    extCatalog,
-                                    this, true)), null);
+                    // The pure (auth-free) table name is the part before the
+                    // first dollar sign. HMSExternalDatabase.getTableNullable
+                    // composes its metaCache key as tableName + dollar +
+                    // hadoopUserName + dollar + viewBased for multi-tenant
+                    // isolation; for all other external sources the cacheKey
+                    // never contains a dollar sign and the split is a no-op.
+                    // Both the localTableName argument and the tblId argument
+                    // MUST be derived from the pure name, so that the
+                    // resulting external table has a clean name and a stable
+                    // id across auth identities. This is required by
+                    // BaseTableInfo / MTMV id-based lookups and by async
+                    // materialized view routing.
+                    localTableName -> {
+                        // BaseTableInfo / MTMV id-based lookups and by async
+                        // materialized view routing.
+                        String pureLocalTableName = localTableName.split("\\$")[0];
+                        return Optional.ofNullable(
+                                buildTableForInit(null, pureLocalTableName,
+                                        Util.genIdByName(extCatalog.getName(), name, pureLocalTableName),
+                                        extCatalog,
+                                        this, true));
+                    }, null);
         }
     }
 
