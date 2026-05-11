@@ -18,6 +18,7 @@
 #include "runtime_filter/runtime_filter_consumer.h"
 
 #include "exprs/minmax_predicate.h"
+#include "runtime_filter/runtime_filter_selectivity.h"
 #include "util/runtime_profile.h"
 #include "vec/exprs/vbitmap_predicate.h"
 #include "vec/exprs/vbloom_predicate.h"
@@ -84,11 +85,11 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
     auto real_filter_type = _wrapper->get_real_type();
     bool null_aware = _wrapper->contain_null();
 
-    // Set sampling frequency based on disable_always_true_logic status
+    // Determine sampling frequency for the always_true optimization.
+    // This will be propagated to VExprContext in VRuntimeFilterWrapper::open().
     int sampling_frequency = _wrapper->disable_always_true_logic()
                                      ? RuntimeFilterSelectivity::DISABLE_SAMPLING
                                      : config::runtime_filter_sampling_frequency;
-    probe_ctx->get_runtime_filter_selectivity().set_sampling_frequency(sampling_frequency);
 
     switch (real_filter_type) {
     case RuntimeFilterType::IN_FILTER: {
@@ -106,7 +107,7 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
         in_pred->add_child(probe_ctx->root());
         auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(
                 node, in_pred, get_in_list_ignore_thredhold(_wrapper->hybrid_set()->size()),
-                null_aware, _wrapper->filter_id());
+                null_aware, _wrapper->filter_id(), sampling_frequency);
         container.push_back(wrapper);
         break;
     }
@@ -124,7 +125,7 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
         DCHECK(null_aware == false) << "only min predicate do not support null aware";
         container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(
                 min_pred_node, min_pred, get_comparison_ignore_thredhold(), null_aware,
-                _wrapper->filter_id()));
+                _wrapper->filter_id(), sampling_frequency));
         break;
     }
     case RuntimeFilterType::MAX_FILTER: {
@@ -141,7 +142,7 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
         DCHECK(null_aware == false) << "only max predicate do not support null aware";
         container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(
                 max_pred_node, max_pred, get_comparison_ignore_thredhold(), null_aware,
-                _wrapper->filter_id()));
+                _wrapper->filter_id(), sampling_frequency));
         break;
     }
     case RuntimeFilterType::MINMAX_FILTER: {
@@ -157,7 +158,7 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
         max_pred->add_child(max_literal);
         container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(
                 max_pred_node, max_pred, get_comparison_ignore_thredhold(), null_aware,
-                _wrapper->filter_id()));
+                _wrapper->filter_id(), sampling_frequency));
 
         vectorized::VExprContextSPtr new_probe_ctx;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(probe_expr, new_probe_ctx));
@@ -174,7 +175,7 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
         min_pred->add_child(min_literal);
         container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(
                 min_pred_node, min_pred, get_comparison_ignore_thredhold(), null_aware,
-                _wrapper->filter_id()));
+                _wrapper->filter_id(), sampling_frequency));
         break;
     }
     case RuntimeFilterType::BLOOM_FILTER: {
@@ -191,7 +192,7 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
         bloom_pred->add_child(probe_ctx->root());
         auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(
                 node, bloom_pred, get_bloom_filter_ignore_thredhold(), null_aware,
-                _wrapper->filter_id());
+                _wrapper->filter_id(), sampling_frequency);
         container.push_back(wrapper);
         break;
     }
@@ -209,7 +210,7 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
         bitmap_pred->add_child(probe_ctx->root());
         DCHECK(null_aware == false) << "bitmap predicate do not support null aware";
         auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(
-                node, bitmap_pred, 0, null_aware, _wrapper->filter_id());
+                node, bitmap_pred, 0, null_aware, _wrapper->filter_id(), sampling_frequency);
         container.push_back(wrapper);
         break;
     }
