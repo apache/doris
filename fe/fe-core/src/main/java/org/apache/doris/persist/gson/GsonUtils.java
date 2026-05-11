@@ -29,6 +29,7 @@ import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CaseExpr;
 import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.ColumnRefExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
@@ -58,6 +59,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.StructLiteral;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
+import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.analysis.VirtualSlotRef;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.RestoreJob;
@@ -345,7 +347,10 @@ public class GsonUtils {
             .registerSubtype(ArithmeticExpr.class, ArithmeticExpr.class.getSimpleName())
             .registerSubtype(SlotRef.class, SlotRef.class.getSimpleName())
             .registerSubtype(VirtualSlotRef.class, VirtualSlotRef.class.getSimpleName())
-            .registerSubtype(InformationFunction.class, InformationFunction.class.getSimpleName());
+            .registerSubtype(InformationFunction.class, InformationFunction.class.getSimpleName())
+            .registerSubtype(ColumnRefExpr.class, ColumnRefExpr.class.getSimpleName())
+            .registerSubtype(VariableExpr.class, VariableExpr.class.getSimpleName());
+
 
     // runtime adapter for class "DistributionInfo"
     private static RuntimeTypeAdapterFactory<DistributionInfo> distributionInfoTypeAdapterFactory
