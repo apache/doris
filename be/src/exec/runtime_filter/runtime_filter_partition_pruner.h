@@ -91,8 +91,10 @@ public:
     // the conjunct). `leaf_slot_id` is the unique VSlotRef leaf inside it
     // (FE asserted target_expr has exactly one input slot). `leaf_column_id`
     // is that slot ref's `column_id()` -- the position in the runtime block.
-    // `direction` is the FE-side cumulative monotonicity. `ctx` is the
-    // conjunct's VExprContext (used to execute the sub-expression).
+    // `global_direction` is the FE-side scan-level monotonicity. When
+    // `partition_directions` is non-null, only partitions present in that map
+    // are projected and each partition uses its own FE-proven local direction.
+    // `ctx` is the conjunct's VExprContext (used to execute the sub-expression).
     //
     // Returns an empty vector if projection is unsupported (e.g. non-RANGE
     // partition, unsupported primitive type) -- caller then skips this RF.
@@ -108,7 +110,9 @@ public:
     //   conservatively keeps the partition.
     std::shared_ptr<const std::vector<ParsedBoundary>> get_or_compute_projection(
             int filter_id, const VExprSPtr& target_expr, SlotId leaf_slot_id, int leaf_column_id,
-            TTargetExprMonotonicity::type direction, VExprContext* ctx) const;
+            TTargetExprMonotonicity::type global_direction,
+            const std::unordered_map<int64_t, TTargetExprMonotonicity::type>* partition_directions,
+            VExprContext* ctx) const;
 
 private:
     std::unordered_map<SlotId, std::vector<ParsedBoundary>> _slot_to_boundaries;

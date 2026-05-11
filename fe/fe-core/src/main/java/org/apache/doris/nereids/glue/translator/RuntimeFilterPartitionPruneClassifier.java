@@ -19,16 +19,29 @@ package org.apache.doris.nereids.glue.translator;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.RangePartitionItem;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.thrift.TTargetExprMonotonicity;
 
+import com.google.common.collect.Range;
+
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Classifies whether one runtime-filter target can safely drive BE-side partition pruning.
@@ -41,15 +54,13 @@ final class RuntimeFilterPartitionPruneClassifier {
     private RuntimeFilterPartitionPruneClassifier() {
     }
 
-    static Classification classify(Expr targetExpr, PlanNode scanNode) {
+    static Classification classify(Expr targetExpr, Expression nereidsTargetExpr, PlanNode scanNode) {
         if (!(scanNode instanceof OlapScanNode)) {
             return Classification.unsupported("target scan is not an OlapScanNode");
         }
-        if (!(targetExpr instanceof SlotRef)) {
-            return Classification.unsupported("target expression is not an identity SlotRef");
-        }
 
-        OlapTable table = ((OlapScanNode) scanNode).getOlapTable();
+        OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+        OlapTable table = olapScanNode.getOlapTable();
         if (table == null) {
             return Classification.unsupported("target scan has no OlapTable");
         }
@@ -63,11 +74,28 @@ final class RuntimeFilterPartitionPruneClassifier {
             return Classification.unsupported("automatic partition expression boundary is not modeled");
         }
 
-        SlotRef slotRef = (SlotRef) targetExpr;
-        if (!isPartitionColumnSlot(slotRef, partitionInfo.getPartitionColumns())) {
-            return Classification.unsupported("target SlotRef is not a partition column");
+        if (targetExpr instanceof SlotRef) {
+            SlotRef slotRef = (SlotRef) targetExpr;
+            if (!isPartitionColumnSlot(slotRef, partitionInfo.getPartitionColumns())) {
+                return Classification.unsupported("target SlotRef is not a partition column");
+            }
+            return Classification.supportedIdentity(slotRef);
         }
-        return Classification.supported(slotRef, TTargetExprMonotonicity.MONOTONIC_INCREASING);
+
+        SlotRef leafSlot = findUniqueSlotRef(targetExpr);
+        if (leafSlot == null || !isPartitionColumnSlot(leafSlot, partitionInfo.getPartitionColumns())) {
+            return Classification.unsupported("target expression is not rooted on one partition column");
+        }
+        if (partType != PartitionType.RANGE) {
+            return Classification.unsupported("local monotonicity is only supported for RANGE partition");
+        }
+
+        Map<Long, TTargetExprMonotonicity> partitionMonotonicity =
+                classifyLocalMonotonicity(nereidsTargetExpr, olapScanNode, partitionInfo, leafSlot);
+        if (partitionMonotonicity.isEmpty()) {
+            return Classification.unsupported("target expression is not monotonic on selected partitions");
+        }
+        return Classification.supportedPartitions(leafSlot, partitionMonotonicity);
     }
 
     private static boolean hasUnsupportedAutomaticPartitionExpression(PartitionInfo partitionInfo) {
@@ -121,24 +149,117 @@ final class RuntimeFilterPartitionPruneClassifier {
         return targetColumn.equals(partitionColumn);
     }
 
+    private static SlotRef findUniqueSlotRef(Expr expr) {
+        if (expr instanceof SlotRef) {
+            return (SlotRef) expr;
+        }
+        SlotRef result = null;
+        for (Expr child : expr.getChildren()) {
+            SlotRef childSlot = findUniqueSlotRef(child);
+            if (childSlot == null) {
+                continue;
+            }
+            if (result != null && result.getSlotId().asInt() != childSlot.getSlotId().asInt()) {
+                return null;
+            }
+            result = childSlot;
+        }
+        return result;
+    }
+
+    private static Map<Long, TTargetExprMonotonicity> classifyLocalMonotonicity(
+            Expression nereidsTargetExpr, OlapScanNode scanNode, PartitionInfo partitionInfo, SlotRef leafSlot) {
+        Map<Long, TTargetExprMonotonicity> result = new HashMap<>();
+        if (!(nereidsTargetExpr instanceof Monotonic) || nereidsTargetExpr.getInputSlots().size() != 1) {
+            return result;
+        }
+
+        Monotonic monotonic = (Monotonic) nereidsTargetExpr;
+        int childIndex = monotonic.getMonotonicFunctionChildIndex();
+        if (childIndex < 0 || childIndex >= nereidsTargetExpr.arity()
+                || !(nereidsTargetExpr.child(childIndex) instanceof Slot)) {
+            return result;
+        }
+
+        Column partitionColumn = leafSlot.getColumn();
+        for (Long partitionId : scanNode.getSelectedPartitionIds()) {
+            PartitionItem item = partitionInfo.getItem(partitionId);
+            if (!(item instanceof RangePartitionItem)) {
+                continue;
+            }
+            Range<PartitionKey> range = ((RangePartitionItem) item).getItems();
+            Literal lower = null;
+            Literal upper = null;
+            if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
+                lower = toNereidsLiteral(range.lowerEndpoint().getKeys().get(0), partitionColumn);
+                if (lower == null) {
+                    continue;
+                }
+            }
+            if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
+                upper = toNereidsLiteral(range.upperEndpoint().getKeys().get(0), partitionColumn);
+                if (upper == null) {
+                    continue;
+                }
+            }
+            if (monotonic.isMonotonic(lower, upper)) {
+                result.put(partitionId, monotonic.isPositive()
+                        ? TTargetExprMonotonicity.MONOTONIC_INCREASING
+                        : TTargetExprMonotonicity.MONOTONIC_DECREASING);
+            }
+        }
+        return result;
+    }
+
+    private static Literal toNereidsLiteral(LiteralExpr literalExpr, Column column) {
+        try {
+            return Literal.fromLegacyLiteral(literalExpr, column.getType());
+        } catch (AnalysisException e) {
+            return null;
+        }
+    }
+
     static final class Classification {
+        private final boolean canPrunePartitions;
+        private final boolean emitTargetMonotonicity;
         private final SlotRef partitionSlot;
         private final TTargetExprMonotonicity monotonicity;
+        private final Map<Long, TTargetExprMonotonicity> partitionMonotonicity;
         private final String unsupportedReason;
 
-        private Classification(SlotRef partitionSlot, TTargetExprMonotonicity monotonicity,
-                String unsupportedReason) {
+        private Classification(boolean canPrunePartitions, boolean emitTargetMonotonicity,
+                SlotRef partitionSlot, TTargetExprMonotonicity monotonicity,
+                Map<Long, TTargetExprMonotonicity> partitionMonotonicity, String unsupportedReason) {
+            this.canPrunePartitions = canPrunePartitions;
+            this.emitTargetMonotonicity = emitTargetMonotonicity;
             this.partitionSlot = partitionSlot;
             this.monotonicity = monotonicity;
+            this.partitionMonotonicity = partitionMonotonicity;
             this.unsupportedReason = unsupportedReason;
         }
 
-        static Classification supported(SlotRef partitionSlot, TTargetExprMonotonicity monotonicity) {
-            return new Classification(partitionSlot, monotonicity, "");
+        static Classification supportedIdentity(SlotRef partitionSlot) {
+            return new Classification(true, false, partitionSlot,
+                    TTargetExprMonotonicity.NON_MONOTONIC, new HashMap<>(), "");
+        }
+
+        static Classification supportedPartitions(SlotRef partitionSlot,
+                Map<Long, TTargetExprMonotonicity> partitionMonotonicity) {
+            return new Classification(true, false, partitionSlot, TTargetExprMonotonicity.NON_MONOTONIC,
+                    partitionMonotonicity, "");
         }
 
         static Classification unsupported(String reason) {
-            return new Classification(null, TTargetExprMonotonicity.NON_MONOTONIC, reason);
+            return new Classification(false, false, null, TTargetExprMonotonicity.NON_MONOTONIC,
+                    new HashMap<>(), reason);
+        }
+
+        boolean canPrunePartitions() {
+            return canPrunePartitions;
+        }
+
+        boolean emitTargetMonotonicity() {
+            return emitTargetMonotonicity;
         }
 
         SlotRef getPartitionSlot() {
@@ -147,6 +268,10 @@ final class RuntimeFilterPartitionPruneClassifier {
 
         TTargetExprMonotonicity getMonotonicity() {
             return monotonicity;
+        }
+
+        Map<Long, TTargetExprMonotonicity> getPartitionMonotonicity() {
+            return partitionMonotonicity;
         }
 
         String getUnsupportedReason() {

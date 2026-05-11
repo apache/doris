@@ -170,6 +170,7 @@ public class RuntimeFilterTranslator {
             List<Expr> targetExprList = new ArrayList<>();
             List<Map<TupleId, List<SlotId>>> targetTupleIdMapList = new ArrayList<>();
             List<ScanNode> scanNodeList = new ArrayList<>();
+            List<Expression> nereidsTargetExprList = new ArrayList<>();
             boolean hasInvalidTarget = false;
             for (RuntimeFilter filter : group) {
                 Slot curTargetSlot = filter.getTargetSlot();
@@ -200,6 +201,7 @@ public class RuntimeFilterTranslator {
                 SlotId targetSlotId = targetSlotRef.getSlotId();
                 scanNodeList.add(scanNode);
                 targetExprList.add(targetExpr);
+                nereidsTargetExprList.add(curTargetExpression);
                 targetTupleIdMapList.add(ImmutableMap.of(targetTupleId, ImmutableList.of(targetSlotId)));
             }
             if (!hasInvalidTarget) {
@@ -223,9 +225,18 @@ public class RuntimeFilterTranslator {
                     Expr targetExpr = targetExprList.get(i);
                     origFilter.addTarget(new RuntimeFilterTarget(
                             scanNode, targetExpr, true, isLocalTarget));
-                    origFilter.setTargetMonotonicity(scanNode.getId(),
-                            RuntimeFilterPartitionPruneClassifier.classify(targetExpr, scanNode)
-                                    .getMonotonicity());
+                    RuntimeFilterPartitionPruneClassifier.Classification classification =
+                            RuntimeFilterPartitionPruneClassifier.classify(
+                                    targetExpr, nereidsTargetExprList.get(i), scanNode);
+                    if (classification.canPrunePartitions()) {
+                        origFilter.markTargetCanPrunePartitions(scanNode.getId());
+                    }
+                    if (classification.emitTargetMonotonicity()) {
+                        origFilter.setTargetMonotonicity(scanNode.getId(),
+                                classification.getMonotonicity());
+                    }
+                    origFilter.setTargetPartitionMonotonicity(
+                            scanNode.getId(), classification.getPartitionMonotonicity());
                 }
                 origFilter.setBitmapFilterNotIn(head.isBitmapFilterNotIn());
                 origFilter.setBloomFilterSizeCalculatedByNdv(head.isBloomFilterSizeCalculatedByNdv());
@@ -318,9 +329,18 @@ public class RuntimeFilterTranslator {
                     Expr targetExpr = targetExprList.get(i);
                     origFilter.addTarget(new RuntimeFilterTarget(
                             scanNode, targetExpr, true, isLocalTarget));
-                    origFilter.setTargetMonotonicity(scanNode.getId(),
-                            RuntimeFilterPartitionPruneClassifier.classify(targetExpr, scanNode)
-                                    .getMonotonicity());
+                    RuntimeFilterPartitionPruneClassifier.Classification classification =
+                            RuntimeFilterPartitionPruneClassifier.classify(
+                                    targetExpr, filter.getTargetExpressions().get(i), scanNode);
+                    if (classification.canPrunePartitions()) {
+                        origFilter.markTargetCanPrunePartitions(scanNode.getId());
+                    }
+                    if (classification.emitTargetMonotonicity()) {
+                        origFilter.setTargetMonotonicity(scanNode.getId(),
+                                classification.getMonotonicity());
+                    }
+                    origFilter.setTargetPartitionMonotonicity(
+                            scanNode.getId(), classification.getPartitionMonotonicity());
                 }
                 origFilter.setBitmapFilterNotIn(filter.isBitmapFilterNotIn());
                 origFilter.setBloomFilterSizeCalculatedByNdv(filter.isBloomFilterSizeCalculatedByNdv());

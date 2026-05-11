@@ -76,6 +76,19 @@ suite("rf_partition_pruning", "nonConcurrent") {
         }
     }
 
+    def assertNoPartitionPruningProfile = { String queryBody, String rfType ->
+        def token = UUID.randomUUID().toString()
+        sql """
+            SELECT /*+ SET_VAR(runtime_filter_type='${rfType}') */ "${token}", ${queryBody}
+        """
+        def profile = getProfileByToken(token)
+        def total = extractCounterSum(profile, "TotalPartitionsForRFPruning")
+        def pruned = extractCounterSum(profile, "PartitionsPrunedByRuntimeFilter")
+        logger.info("No-prune profile [${token}]: total=${total}, pruned=${pruned}")
+        assertTrue(total == 0, "TotalPartitionsForRFPruning: expected 0, got ${total}")
+        assertTrue(pruned == 0, "PartitionsPrunedByRuntimeFilter: expected 0, got ${pruned}")
+    }
+
     // ============================================================
     // Setup: Range-partitioned fact table (INT partition column)
     // ============================================================
@@ -1100,15 +1113,12 @@ suite("rf_partition_pruning", "nonConcurrent") {
     // VARCHAR columns as RANGE partition keys.
 
     // ============================================================
-    // Tests 42-47: Monotonic / non-monotonic target_expr pruning
+    // Tests 42-49: Expression target pruning
     //
-    // FE classifier is currently conservative: only an identity SlotRef on a
-    // partition column is treated as MONOTONIC_INCREASING; any wrapping
-    // expression (including Cast and other Nereids `Monotonic` functions) is
-    // classified NON_MONOTONIC and therefore does not drive partition pruning.
-    // This will be revisited once the `Monotonic.isMonotonic(lower, upper)`
-    // implementations are completed/audited so we can safely walk through
-    // monotonic chains. Until then these tests pin the conservative behavior.
+    // Identity partition slots still drive pruning without monotonicity metadata.
+    // Non-identity target expressions must be rooted on a partition column and be
+    // locally monotonic on each selected RANGE partition. Unsupported expressions
+    // must not serialize partition boundaries for that RF target.
     //
     // NOTE: Nereids' RuntimeFilterPushDownVisitor itself only allows
     // non-trivial target expressions when the input is either (a) a numeric
@@ -1129,39 +1139,22 @@ suite("rf_partition_pruning", "nonConcurrent") {
     """
     sql """INSERT INTO rf_prune_dim_bigint VALUES (50, 'x')"""
 
-    // Test 42: target_expr = cast(part_col as bigint). Cast is monotonic in
-    // theory but the conservative FE classifier treats any non-Slot target
-    // expression as NON_MONOTONIC, so partition pruning does not fire.
-    def token_cast = UUID.randomUUID().toString()
-    sql """
-        SELECT /*+ SET_VAR(runtime_filter_type='IN_OR_BLOOM_FILTER') */
-            "${token_cast}", f.id
-        FROM rf_prune_range_int f
-        JOIN rf_prune_dim_bigint d ON cast(f.part_col as bigint) = d.dim_key
-    """
-    def profile_cast = getProfileByToken(token_cast)
-    def pruned_cast = extractCounterSum(profile_cast, "PartitionsPrunedByRuntimeFilter")
-    logger.info("conservative cast: pruned=${pruned_cast}")
-    assertTrue(pruned_cast == 0,
-        "Conservative classifier: Cast wrapper should not drive pruning, got ${pruned_cast}")
+    // Test 42: numeric Cast is not locally monotonic according to the current
+    // Nereids Cast implementation, so it must not drive partition pruning.
+    assertNoPartitionPruningProfile(
+        "f.id FROM rf_prune_range_int f JOIN rf_prune_dim_bigint d "
+                + "ON cast(f.part_col as bigint) = d.dim_key",
+        "IN_OR_BLOOM_FILTER")
 
-    // Test 43: chained Cast — same reasoning as Test 42, expect no pruning.
-    def token_cast2 = UUID.randomUUID().toString()
-    sql """
-        SELECT /*+ SET_VAR(runtime_filter_type='IN_OR_BLOOM_FILTER') */
-            "${token_cast2}", f.id
-        FROM rf_prune_range_int f
-        JOIN rf_prune_dim_int d ON cast(cast(f.part_col as bigint) as int) = d.dim_key
-    """
-    def profile_cast2 = getProfileByToken(token_cast2)
-    def pruned_cast2 = extractCounterSum(profile_cast2, "PartitionsPrunedByRuntimeFilter")
-    logger.info("conservative chained cast: pruned=${pruned_cast2}")
-    assertTrue(pruned_cast2 == 0,
-        "Conservative classifier: chained Cast should not drive pruning, got ${pruned_cast2}")
+    // Test 43: chained Cast is not handled by the local-monotonic classifier yet.
+    assertNoPartitionPruningProfile(
+        "f.id FROM rf_prune_range_int f JOIN rf_prune_dim_int d "
+                + "ON cast(cast(f.part_col as bigint) as int) = d.dim_key",
+        "IN_OR_BLOOM_FILTER")
 
     // Test 44: target_expr = cast(dt as datetime) on a DATE partition column.
-    // Cast on DATE→DATETIME is non-trivial and the RF generator emits the
-    // filter, but the conservative classifier still rejects the wrapper.
+    // Cast on DATE->DATETIME is locally monotonic on every selected RANGE
+    // partition, so RF {'2024-02-20'} should keep Q1 and prune Q2-Q4.
     sql "drop table if exists rf_prune_dim_dt"
     sql """
         CREATE TABLE rf_prune_dim_dt (
@@ -1172,18 +1165,10 @@ suite("rf_partition_pruning", "nonConcurrent") {
         PROPERTIES("replication_num" = "1")
     """
     sql """INSERT INTO rf_prune_dim_dt VALUES ('2024-02-20 00:00:00', 'x')"""
-    def token_castdt = UUID.randomUUID().toString()
-    sql """
-        SELECT /*+ SET_VAR(runtime_filter_type='IN_OR_BLOOM_FILTER') */
-            "${token_castdt}", f.id
-        FROM rf_prune_range_date f
-        JOIN rf_prune_dim_dt d ON cast(f.dt as datetime) = d.dim_dt
-    """
-    def profile_castdt = getProfileByToken(token_castdt)
-    def pruned_castdt = extractCounterSum(profile_castdt, "PartitionsPrunedByRuntimeFilter")
-    logger.info("conservative cast date->datetime: pruned=${pruned_castdt}")
-    assertTrue(pruned_castdt == 0,
-        "Conservative classifier: Cast date->datetime should not drive pruning, got ${pruned_castdt}")
+    assertPruningProfile(
+        "f.id FROM rf_prune_range_date f JOIN rf_prune_dim_dt d "
+                + "ON cast(f.dt as datetime) = d.dim_dt",
+        "IN_OR_BLOOM_FILTER", 4, 3)
 
     // Test 45: target_expr = -part_col (Negative). Numeric input slot lets
     // the RF generator emit a filter, but Negative is not declared Monotonic
@@ -1198,25 +1183,16 @@ suite("rf_partition_pruning", "nonConcurrent") {
         PROPERTIES("replication_num" = "1")
     """
     sql """INSERT INTO rf_prune_dim_neg2 VALUES (-50, 'x')"""
-    def token_neg = UUID.randomUUID().toString()
-    sql """
-        SELECT /*+ SET_VAR(runtime_filter_type='IN_OR_BLOOM_FILTER') */
-            "${token_neg}", f.id
-        FROM rf_prune_range_int f
-        JOIN rf_prune_dim_neg2 d ON (-f.part_col) = d.dim_key
-    """
-    def profile_neg = getProfileByToken(token_neg)
-    def pruned_neg = extractCounterSum(profile_neg, "PartitionsPrunedByRuntimeFilter")
-    logger.info("non_monotonic neg: pruned=${pruned_neg}")
-    assertTrue(pruned_neg == 0,
-        "Negative is not declared Monotonic in Nereids; should not prune, got ${pruned_neg}")
+    assertNoPartitionPruningProfile(
+        "f.id FROM rf_prune_range_int f JOIN rf_prune_dim_neg2 d ON (-f.part_col) = d.dim_key",
+        "IN_OR_BLOOM_FILTER")
 
     // Test 46: Test for non-monotonic Add was removed because Nereids
     // constant-folds `part_col + 10 = 60` into `part_col = 50`, so the RF
     // ends up identity and pruning happens. The Negative case in Test 45
     // already covers the non-monotonic single-slot probe path.
 
-    // Test 47: Cast wrapping a non-partition column — cast(f.id as bigint).
+    // Test 47: Cast wrapping a non-partition column - cast(f.id as bigint).
     // Cast is monotonic, but f.id is not a partition column of the table
     // (rf_prune_range_int is partitioned on part_col). Classifier walks the
     // Cast, lands on a non-partition slot, returns NON_MONOTONIC → no
@@ -1231,21 +1207,51 @@ suite("rf_partition_pruning", "nonConcurrent") {
         PROPERTIES("replication_num" = "1")
     """
     sql """INSERT INTO rf_prune_dim_id_bigint VALUES (5, 'x')"""
-    def token_id = UUID.randomUUID().toString()
+    assertNoPartitionPruningProfile(
+        "f.id FROM rf_prune_range_int f JOIN rf_prune_dim_id_bigint d "
+                + "ON cast(f.id as bigint) = d.dim_key",
+        "IN_OR_BLOOM_FILTER")
+
+    // Test 48: implicit target-side widening cast. The final legacy target
+    // expression contains a Cast, but the original Nereids scan target is a bare
+    // Slot, so the classifier must not treat the late-added Cast as proven safe.
+    assertNoPartitionPruningProfile(
+        "f.id FROM rf_prune_range_int f JOIN rf_prune_dim_bigint d ON f.part_col = d.dim_key",
+        "IN_OR_BLOOM_FILTER")
+
+    // Test 49: automatic partition expression boundaries are in expression
+    // domain. Until FE/BE model that domain explicitly, RF partition pruning must
+    // not use them as base-column boundaries.
+    sql "drop table if exists rf_prune_auto_expr_date"
     sql """
-        SELECT /*+ SET_VAR(runtime_filter_type='IN_OR_BLOOM_FILTER') */
-            "${token_id}", f.id
-        FROM rf_prune_range_int f
-        JOIN rf_prune_dim_id_bigint d ON cast(f.id as bigint) = d.dim_key
+        CREATE TABLE rf_prune_auto_expr_date (
+            id INT NOT NULL,
+            dt DATEV2 NOT NULL,
+            value VARCHAR(64)
+        )
+        DUPLICATE KEY(id, dt)
+        AUTO PARTITION BY RANGE (date_trunc(dt, 'month')) ()
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES("replication_num" = "1")
     """
-    def profile_id = getProfileByToken(token_id)
-    def pruned_id = extractCounterSum(profile_id, "PartitionsPrunedByRuntimeFilter")
-    logger.info("monotonic chain on non-partition col: pruned=${pruned_id}")
-    assertTrue(pruned_id == 0,
-        "Monotonic chain on non-partition col should not prune, got ${pruned_id}")
+    sql """INSERT INTO rf_prune_auto_expr_date VALUES
+        (1, '2024-01-15', 'jan'), (2, '2024-02-20', 'feb'), (3, '2024-03-10', 'mar')"""
+    sql "drop table if exists rf_prune_dim_datev2"
+    sql """
+        CREATE TABLE rf_prune_dim_datev2 (
+            dim_dt DATEV2 NOT NULL,
+            dim_val VARCHAR(32)
+        )
+        DISTRIBUTED BY HASH(dim_dt) BUCKETS 1
+        PROPERTIES("replication_num" = "1")
+    """
+    sql """INSERT INTO rf_prune_dim_datev2 VALUES ('2024-02-20', 'x')"""
+    assertNoPartitionPruningProfile(
+        "f.id FROM rf_prune_auto_expr_date f JOIN rf_prune_dim_datev2 d ON f.dt = d.dim_dt",
+        "IN_OR_BLOOM_FILTER")
 
     // ============================================================
-    // Test 47b: String partition column (LIST partition on VARCHAR).
+    // Test 50: String partition column (LIST partition on VARCHAR).
     //
     // Regression coverage for the BE pruner string path. ColumnValueRange
     // for string types uses CppType=std::string while RF literals/HybridSet
@@ -1289,7 +1295,7 @@ suite("rf_partition_pruning", "nonConcurrent") {
         "IN_OR_BLOOM_FILTER", 4, 3)
 
     // ============================================================
-    // Test 48: Grouped RF with multiple targets.
+    // Test 51: Grouped RF with multiple targets.
     //
     // The RF generated from d.dim_key -> f1.part_col is expanded through the
     // inner join f1.part_col = f2.part_col, so Nereids creates two RF objects
@@ -1326,7 +1332,7 @@ suite("rf_partition_pruning", "nonConcurrent") {
         "IN_OR_BLOOM_FILTER", 8, 6)
 
     // ============================================================
-    // Test 49: Switch off enable_runtime_filter_partition_prune → no pruning
+    // Test 52: Switch off enable_runtime_filter_partition_prune -> no pruning
     // ============================================================
     sql "set enable_runtime_filter_partition_prune=false"
     def token_off = UUID.randomUUID().toString()

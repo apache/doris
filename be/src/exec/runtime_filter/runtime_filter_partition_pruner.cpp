@@ -219,10 +219,11 @@ static const VSlotRef* find_unique_slot_ref(const VExpr* expr) {
 
 // NOLINTBEGIN(readability-function-cognitive-complexity,readability-function-size)
 std::shared_ptr<const std::vector<ParsedBoundary>>
-ParsedPartitionBoundaries::get_or_compute_projection(int filter_id, const VExprSPtr& target_expr,
-                                                     SlotId leaf_slot_id, int leaf_column_id,
-                                                     TTargetExprMonotonicity::type direction,
-                                                     VExprContext* ctx) const {
+ParsedPartitionBoundaries::get_or_compute_projection(
+        int filter_id, const VExprSPtr& target_expr, SlotId leaf_slot_id, int leaf_column_id,
+        TTargetExprMonotonicity::type global_direction,
+        const std::unordered_map<int64_t, TTargetExprMonotonicity::type>* partition_directions,
+        VExprContext* ctx) const {
     {
         std::lock_guard<std::mutex> lock(_projection_cache_mutex);
         auto it = _projection_cache.find(filter_id);
@@ -250,6 +251,25 @@ ParsedPartitionBoundaries::get_or_compute_projection(int filter_id, const VExprS
         return cache_projection(std::move(projected));
     }
 
+    std::vector<std::pair<size_t, TTargetExprMonotonicity::type>> selected_boundaries;
+    selected_boundaries.reserve(orig_boundaries.size());
+    if (partition_directions != nullptr) {
+        for (size_t i = 0; i < orig_boundaries.size(); ++i) {
+            auto it = partition_directions->find(orig_boundaries[i].partition_id);
+            if (it != partition_directions->end() &&
+                it->second != TTargetExprMonotonicity::NON_MONOTONIC) {
+                selected_boundaries.emplace_back(i, it->second);
+            }
+        }
+    } else if (global_direction != TTargetExprMonotonicity::NON_MONOTONIC) {
+        for (size_t i = 0; i < orig_boundaries.size(); ++i) {
+            selected_boundaries.emplace_back(i, global_direction);
+        }
+    }
+    if (selected_boundaries.empty()) {
+        return cache_projection(std::move(projected));
+    }
+
     auto slot_type_it = _slot_data_types.find(leaf_slot_id);
     if (slot_type_it == _slot_data_types.end()) {
         return cache_projection(std::move(projected));
@@ -262,7 +282,7 @@ ParsedPartitionBoundaries::get_or_compute_projection(int filter_id, const VExprS
     {
         bool any_list = false;
         std::visit([&](const auto& cvr) { any_list = cvr.is_fixed_value_range(); },
-                   orig_boundaries[0].boundary_cvr);
+                   orig_boundaries[selected_boundaries[0].first].boundary_cvr);
         if (any_list) {
             return cache_projection(std::move(projected));
         }
@@ -273,7 +293,7 @@ ParsedPartitionBoundaries::get_or_compute_projection(int filter_id, const VExprS
     DataTypePtr inner_type = input_is_nullable ? remove_nullable(input_type) : input_type;
     PrimitiveType input_ptype = input_type->get_primitive_type();
 
-    size_t N = orig_boundaries.size();
+    size_t N = selected_boundaries.size();
 
     // Track open bounds (low_value == TYPE_MIN or high_value == TYPE_MAX)
     // externally so we can propagate null_in_projection regardless of whether
@@ -317,7 +337,7 @@ ParsedPartitionBoundaries::get_or_compute_projection(int filter_id, const VExprS
         lo_nulls->reserve(N);                                                                    \
         hi_nulls->reserve(N);                                                                    \
         for (size_t i = 0; i < N; ++i) {                                                         \
-            const auto& boundary = orig_boundaries[i];                                           \
+            const auto& boundary = orig_boundaries[selected_boundaries[i].first];                \
             bool null_lo = boundary.only_null;                                                   \
             bool null_hi = boundary.only_null;                                                   \
             const auto* cvr =                                                                    \
@@ -413,11 +433,13 @@ ParsedPartitionBoundaries::get_or_compute_projection(int filter_id, const VExprS
     case TYPE_##OUTPUT_PT: {                                                                   \
         using OutputCppType = typename PrimitiveTypeTraits<TYPE_##OUTPUT_PT>::CppType;         \
         for (size_t i = 0; i < N; ++i) {                                                       \
-            projected[i].partition_id = orig_boundaries[i].partition_id;                       \
+            const auto& orig_boundary = orig_boundaries[selected_boundaries[i].first];         \
+            TTargetExprMonotonicity::type direction = selected_boundaries[i].second;           \
+            projected[i].partition_id = orig_boundary.partition_id;                            \
             projected[i].slot_id = leaf_slot_id;                                               \
             projected[i].is_nullable = out_nullable;                                           \
-            projected[i].only_null = orig_boundaries[i].only_null;                             \
-            projected[i].contains_null = orig_boundaries[i].contains_null;                     \
+            projected[i].only_null = orig_boundary.only_null;                                  \
+            projected[i].contains_null = orig_boundary.contains_null;                          \
             bool lo_is_null = ext_null_lo[i] || lo_result_col->is_null_at(i);                  \
             bool hi_is_null = ext_null_hi[i] || hi_result_col->is_null_at(i);                  \
             if (lo_is_null || hi_is_null) {                                                    \
@@ -634,13 +656,30 @@ int64_t RuntimeFilterPartitionPruner::prune_by_runtime_filters(
     }
     const auto& partition_column_slot_ids = parsed.partition_column_slot_ids();
 
-    // Build filter_id -> monotonicity map
+    // Build filter_id -> monotonicity maps.
     std::unordered_map<int, TTargetExprMonotonicity::type> filter_id_to_monotonicity;
+    std::unordered_map<int, std::unordered_map<int64_t, TTargetExprMonotonicity::type>>
+            filter_id_to_partition_monotonicity;
     for (const auto& desc : rf_descs) {
         if (desc.__isset.planId_to_target_monotonicity) {
             auto it = desc.planId_to_target_monotonicity.find(scan_node_id);
             if (it != desc.planId_to_target_monotonicity.end()) {
                 filter_id_to_monotonicity[desc.filter_id] = it->second;
+            }
+        }
+        if (desc.__isset.planId_to_partition_target_monotonicity) {
+            auto it = desc.planId_to_partition_target_monotonicity.find(scan_node_id);
+            if (it != desc.planId_to_partition_target_monotonicity.end()) {
+                auto& partition_monotonicity = filter_id_to_partition_monotonicity[desc.filter_id];
+                for (const auto& partition_entry : it->second) {
+                    if (!partition_entry.__isset.partition_id ||
+                        !partition_entry.__isset.monotonicity ||
+                        partition_entry.monotonicity == TTargetExprMonotonicity::NON_MONOTONIC) {
+                        continue;
+                    }
+                    partition_monotonicity[partition_entry.partition_id] =
+                            partition_entry.monotonicity;
+                }
             }
         }
     }
@@ -689,8 +728,13 @@ int64_t RuntimeFilterPartitionPruner::prune_by_runtime_filters(
         } else {
             // Non-identity case: check if it's a monotonic target
             auto mono_it = filter_id_to_monotonicity.find(filter_id);
-            if (mono_it == filter_id_to_monotonicity.end() ||
-                mono_it->second == TTargetExprMonotonicity::NON_MONOTONIC) {
+            auto partition_mono_it = filter_id_to_partition_monotonicity.find(filter_id);
+            bool has_global_mono = mono_it != filter_id_to_monotonicity.end() &&
+                                   mono_it->second != TTargetExprMonotonicity::NON_MONOTONIC;
+            bool has_partition_mono =
+                    partition_mono_it != filter_id_to_partition_monotonicity.end() &&
+                    !partition_mono_it->second.empty();
+            if (!has_global_mono && !has_partition_mono) {
                 continue;
             }
 
@@ -705,11 +749,14 @@ int64_t RuntimeFilterPartitionPruner::prune_by_runtime_filters(
             }
 
             int leaf_column_id = leaf_slot->column_id();
-            TTargetExprMonotonicity::type direction = mono_it->second;
+            TTargetExprMonotonicity::type direction =
+                    has_global_mono ? mono_it->second : TTargetExprMonotonicity::NON_MONOTONIC;
+            const auto* partition_directions =
+                    has_partition_mono ? &partition_mono_it->second : nullptr;
 
-            auto projected =
-                    parsed.get_or_compute_projection(filter_id, target_subtree, leaf_slot_id,
-                                                     leaf_column_id, direction, conjunct_ctx.get());
+            auto projected = parsed.get_or_compute_projection(
+                    filter_id, target_subtree, leaf_slot_id, leaf_column_id, direction,
+                    partition_directions, conjunct_ctx.get());
 
             if (projected == nullptr || projected->empty()) {
                 continue;
