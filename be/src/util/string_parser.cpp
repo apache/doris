@@ -188,7 +188,7 @@ typename PrimitiveTypeTraits<P>::CppType::NativeType StringParser::string_to_dec
             }
             int_part_number = int_part_number * 10 + (s[digit_index] - '0');
         }
-        auto total_significant_digit_count = i - ((found_dot && int_part_count > 0) ? 1 : 0);
+        auto total_significant_digit_count = end_digit_index - ((found_dot && int_part_count > 0) ? 1 : 0);
         if (result_int_part_digit_count > total_significant_digit_count) {
             int_part_number *= get_scale_multiplier<T>(result_int_part_digit_count -
                                                        total_significant_digit_count);
