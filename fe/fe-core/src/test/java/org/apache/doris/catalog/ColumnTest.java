@@ -38,6 +38,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 
 public class ColumnTest {
 
@@ -172,6 +173,206 @@ public class ColumnTest {
         Column newColumn = new Column("a", ArrayType.create(Type.TINYINT, true), false, null, true, "0", "");
         oldColumn.checkSchemaChangeAllowed(newColumn);
         Assert.fail("No exception throws.");
+    }
+
+    @Test
+    public void testVariantSchemaTemplateAppendAllowed() throws DdlException {
+        Column oldColumn = variantColumn("v",
+                variantField("a", Type.STRING, PatternType.MATCH_NAME));
+        Column newColumn = variantColumn("v",
+                variantField("a", Type.STRING, PatternType.MATCH_NAME),
+                variantField("b", Type.INT, PatternType.MATCH_NAME));
+        oldColumn.checkSchemaChangeAllowed(newColumn);
+    }
+
+    @Test
+    public void testVariantDocMaterializationMinRowsChangeAllowed() throws DdlException {
+        Column oldColumn = variantColumnWithDocMaterializationMinRows("v", 10);
+        Column newColumn = variantColumnWithDocMaterializationMinRows("v", 2);
+        oldColumn.checkSchemaChangeAllowed(newColumn);
+    }
+
+    @Test
+    public void testVariantSchemaTemplateAppendWithDocMaterializationMinRowsChangeRejected() {
+        assertSchemaChangeFails(
+                variantColumnWithDocMaterializationMinRows("v", 10,
+                        variantField("a", Type.STRING, PatternType.MATCH_NAME)),
+                variantColumnWithDocMaterializationMinRows("v", 2,
+                        variantField("a", Type.STRING, PatternType.MATCH_NAME),
+                        variantField("b", Type.INT, PatternType.MATCH_NAME)),
+                "materialization min rows when changing variant schema templates");
+    }
+
+    @Test
+    public void testVariantSchemaTemplateIncompatibleChanges() {
+        assertSchemaChangeFails(
+                variantColumn("v", variantField("a", Type.STRING, PatternType.MATCH_NAME),
+                        variantField("b", Type.INT, PatternType.MATCH_NAME)),
+                variantColumn("v", variantField("a", Type.STRING, PatternType.MATCH_NAME)),
+                "reduce variant schema templates");
+        assertSchemaChangeFails(
+                variantColumn("v", variantField("a", Type.STRING, PatternType.MATCH_NAME),
+                        variantField("b", Type.INT, PatternType.MATCH_NAME)),
+                variantColumn("v", variantField("b", Type.INT, PatternType.MATCH_NAME),
+                        variantField("a", Type.STRING, PatternType.MATCH_NAME)),
+                "reorder or rename variant schema templates");
+        assertSchemaChangeFails(
+                variantColumn("v", variantField("a", Type.STRING, PatternType.MATCH_NAME)),
+                variantColumn("v", variantField("a", Type.INT, PatternType.MATCH_NAME)),
+                "schema template type");
+        assertSchemaChangeFails(
+                variantColumn("v", variantField("a", Type.STRING, PatternType.MATCH_NAME)),
+                variantColumn("v", variantField("a", Type.STRING, PatternType.MATCH_NAME_GLOB)),
+                "pattern type");
+        assertSchemaChangeFails(
+                variantColumn("v", new VariantField("a", Type.STRING, "old", PatternType.MATCH_NAME)),
+                variantColumn("v", new VariantField("a", Type.STRING, "new", PatternType.MATCH_NAME)),
+                "schema template comment");
+    }
+
+    @Test
+    public void testVariantSchemaTemplateAppendShadowedExactPath() {
+        assertSchemaChangeFails(
+                variantColumn("v", variantField("metric.*", Type.STRING, PatternType.MATCH_NAME_GLOB)),
+                variantColumn("v", variantField("metric.*", Type.STRING, PatternType.MATCH_NAME_GLOB),
+                        variantField("metric.name", Type.STRING, PatternType.MATCH_NAME)),
+                "already matches it");
+    }
+
+    @Test
+    public void testVariantSchemaTemplateAppendShadowedExactPathInSameAlter() {
+        assertSchemaChangeFails(
+                variantColumn("v"),
+                variantColumn("v", variantField("metric.*", Type.STRING, PatternType.MATCH_NAME_GLOB),
+                        variantField("metric.name", Type.STRING, PatternType.MATCH_NAME)),
+                "already matches it");
+    }
+
+    @Test
+    public void testVariantSchemaTemplateAppendShadowedGlobPath() {
+        assertSchemaChangeFails(
+                variantColumn("v", variantField("*", Type.STRING, PatternType.MATCH_NAME_GLOB)),
+                variantColumn("v", variantField("*", Type.STRING, PatternType.MATCH_NAME_GLOB),
+                        variantField("content?", Type.STRING, PatternType.MATCH_NAME_GLOB)),
+                "can shadow it");
+    }
+
+    @Test
+    public void testVariantSchemaTemplateAppendShadowedGlobPathInSameAlter() {
+        assertSchemaChangeFails(
+                variantColumn("v"),
+                variantColumn("v", variantField("metric.*", Type.STRING, PatternType.MATCH_NAME_GLOB),
+                        variantField("metric.name*", Type.STRING, PatternType.MATCH_NAME_GLOB)),
+                "can shadow it");
+    }
+
+    @Test
+    public void testVariantSchemaTemplateAppendShadowedQuestionGlobPath() {
+        assertSchemaChangeFails(
+                variantColumn("v", variantField("metric.?", Type.STRING, PatternType.MATCH_NAME_GLOB)),
+                variantColumn("v", variantField("metric.?", Type.STRING, PatternType.MATCH_NAME_GLOB),
+                        variantField("metric.[0-9]", Type.STRING, PatternType.MATCH_NAME_GLOB)),
+                "can shadow it");
+    }
+
+    @Test
+    public void testVariantSchemaTemplateAppendShadowedMiddleStarGlobPath() {
+        assertSchemaChangeFails(
+                variantColumn("v", variantField("a*b", Type.STRING, PatternType.MATCH_NAME_GLOB)),
+                variantColumn("v", variantField("a*b", Type.STRING, PatternType.MATCH_NAME_GLOB),
+                        variantField("a?b", Type.STRING, PatternType.MATCH_NAME_GLOB)),
+                "can shadow it");
+    }
+
+    @Test
+    public void testVariantSchemaTemplateAppendShadowedLiteralGlobPath() {
+        assertSchemaChangeFails(
+                variantColumn("v", variantField("a*b", Type.STRING, PatternType.MATCH_NAME_GLOB)),
+                variantColumn("v", variantField("a*b", Type.STRING, PatternType.MATCH_NAME_GLOB),
+                        variantField("ab", Type.STRING, PatternType.MATCH_NAME_GLOB)),
+                "can shadow it");
+    }
+
+    @Test
+    public void testVariantSchemaTemplateAppendDifferentGlobPrefixAllowed() throws DdlException {
+        Column oldColumn = variantColumn("v",
+                variantField("metric.*", Type.STRING, PatternType.MATCH_NAME_GLOB));
+        Column newColumn = variantColumn("v",
+                variantField("metric.*", Type.STRING, PatternType.MATCH_NAME_GLOB),
+                variantField("other.*", Type.STRING, PatternType.MATCH_NAME_GLOB));
+        oldColumn.checkSchemaChangeAllowed(newColumn);
+    }
+
+    @Test
+    public void testVariantSchemaTemplateAppendOverlappingGlobAllowed() throws DdlException {
+        Column oldColumn = variantColumn("v",
+                variantField("a*b", Type.STRING, PatternType.MATCH_NAME_GLOB));
+        Column newColumn = variantColumn("v",
+                variantField("a*b", Type.STRING, PatternType.MATCH_NAME_GLOB),
+                variantField("a*", Type.STRING, PatternType.MATCH_NAME_GLOB));
+        oldColumn.checkSchemaChangeAllowed(newColumn);
+    }
+
+    @Test
+    public void testVariantSchemaTemplateAppendComplexGlobContainmentRejected() {
+        assertSchemaChangeFails(
+                variantColumn("v", variantField("a?*", Type.STRING, PatternType.MATCH_NAME_GLOB)),
+                variantColumn("v", variantField("a?*", Type.STRING, PatternType.MATCH_NAME_GLOB),
+                        variantField("ab*", Type.STRING, PatternType.MATCH_NAME_GLOB)),
+                "can shadow it");
+    }
+
+    @Test
+    public void testVariantSchemaTemplateAppendDuplicateExactPathInSameAlter() {
+        assertSchemaChangeFails(
+                variantColumn("v"),
+                variantColumn("v", variantField("metric.name", Type.STRING, PatternType.MATCH_NAME),
+                        variantField("metric.name", Type.STRING, PatternType.MATCH_NAME)),
+                "duplicate variant schema template");
+    }
+
+    @Test
+    public void testVariantSchemaTemplateAppendDuplicateGlobPathInSameAlter() {
+        assertSchemaChangeFails(
+                variantColumn("v"),
+                variantColumn("v", variantField("metric.*", Type.STRING, PatternType.MATCH_NAME_GLOB),
+                        variantField("metric.*", Type.STRING, PatternType.MATCH_NAME_GLOB)),
+                "duplicate variant schema template");
+    }
+
+    private static Column variantColumn(String name, VariantField... fields) {
+        return new Column(name, variantType(fields), false, null, true, null, "");
+    }
+
+    private static Column variantColumnWithDocMaterializationMinRows(String name, long materializationMinRows,
+            VariantField... fields) {
+        return new Column(name, new VariantType(predefinedFields(fields), 0, false, 10000, 0, true,
+                materializationMinRows, 64, false), false, null, true, null, "");
+    }
+
+    private static VariantType variantType(VariantField... fields) {
+        return new VariantType(predefinedFields(fields));
+    }
+
+    private static ArrayList<VariantField> predefinedFields(VariantField... fields) {
+        ArrayList<VariantField> predefinedFields = new ArrayList<>();
+        for (VariantField field : fields) {
+            predefinedFields.add(field);
+        }
+        return predefinedFields;
+    }
+
+    private static VariantField variantField(String pattern, Type type, PatternType patternType) {
+        return new VariantField(pattern, type, "", patternType);
+    }
+
+    private static void assertSchemaChangeFails(Column oldColumn, Column newColumn, String expectedMessage) {
+        try {
+            oldColumn.checkSchemaChangeAllowed(newColumn);
+            Assert.fail("No exception throws.");
+        } catch (DdlException e) {
+            Assert.assertTrue(e.getMessage(), e.getMessage().contains(expectedMessage));
+        }
     }
 
     @Test

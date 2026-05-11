@@ -21,7 +21,6 @@ import com.google.re2j.Pattern;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-
 public class GlobRegexUtilTest {
 
     private void assertGlobToRegex(String globPattern, String expectedRegex) {
@@ -44,7 +43,6 @@ public class GlobRegexUtilTest {
         assertGlobToRegex("?*", "^..*$");
         assertGlobToRegex("*?", "^.*.$");
     }
-
 
     @Test
     public void testGlobToRegexEscaping() {
@@ -77,11 +75,11 @@ public class GlobRegexUtilTest {
         assertGlobToRegex("", "^$");
     }
 
-
     @Test
     public void testGlobToRegexWeirdClasses() {
         assertGlobToRegex("a[[]b", "^a[[]b$");
-        assertGlobToRegex("a[]b", "^a[]b$");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> GlobRegexUtil.globToRegex("a[]b"));
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> GlobRegexUtil.globToRegex("a[\\]b"));
     }
@@ -92,12 +90,14 @@ public class GlobRegexUtilTest {
                 () -> GlobRegexUtil.globToRegex("int_[0-9"));
     }
 
-
     @Test
     public void testGlobToRegexMoreWeirdCases() {
-        assertGlobToRegex("[]", "^[]$");
-        assertGlobToRegex("[!]", "^[^]$");
-        assertGlobToRegex("[^]", "^[^]$");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> GlobRegexUtil.globToRegex("[]"));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> GlobRegexUtil.globToRegex("[!]"));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> GlobRegexUtil.globToRegex("[^]"));
         assertGlobToRegex("\\", "^\\\\$");
         assertGlobToRegex("\\*", "^\\*$");
         assertGlobToRegex("a\\*b", "^a\\*b$");
@@ -109,5 +109,14 @@ public class GlobRegexUtilTest {
         Pattern first = GlobRegexUtil.getOrCompilePattern("num_*");
         Pattern second = GlobRegexUtil.getOrCompilePattern("num_*");
         Assertions.assertSame(first, second);
+    }
+
+    @Test
+    public void testGlobSubsetOf() {
+        Assertions.assertTrue(GlobRegexUtil.isGlobSubsetOf("ab*", "a?*"));
+        Assertions.assertTrue(GlobRegexUtil.isGlobSubsetOf("metric.[0-9]", "metric.?"));
+        Assertions.assertTrue(GlobRegexUtil.isGlobSubsetOf("ab", "a*b"));
+        Assertions.assertFalse(GlobRegexUtil.isGlobSubsetOf("a*", "a*b"));
+        Assertions.assertFalse(GlobRegexUtil.isGlobSubsetOf("other.*", "metric.*"));
     }
 }

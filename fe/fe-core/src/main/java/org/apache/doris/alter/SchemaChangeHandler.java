@@ -45,6 +45,7 @@ import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.PatternType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.Replica;
@@ -55,6 +56,8 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.VariantField;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.cloud.qe.ComputeGroupException;
@@ -62,6 +65,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.GlobRegexUtil;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -92,6 +96,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReorderColumnsOp;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.persist.AlterLightSchemaChangeInfo;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
@@ -1874,6 +1879,17 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
 
+            // Variant field pattern type and comment are not part of Column.equals(),
+            // so validate variant templates before the no-op shortcut.
+            for (Column alterColumn : alterSchema) {
+                for (Column oriColumn : originSchema) {
+                    if (alterColumn.nameEquals(oriColumn.getName(), true /* ignore prefix */)
+                            && alterColumn.getType().isVariantType() && oriColumn.getType().isVariantType()) {
+                        oriColumn.checkSchemaChangeAllowed(alterColumn);
+                    }
+                }
+            }
+
             if (!needAlter) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("index[{}] is not changed. ignore", alterIndexId);
@@ -1907,7 +1923,9 @@ public class SchemaChangeHandler extends AlterHandler {
             for (Column alterColumn : alterSchema) {
                 for (Column oriColumn : originSchema) {
                     if (alterColumn.nameEquals(oriColumn.getName(), true /* ignore prefix */)) {
-                        if (!alterColumn.equals(oriColumn)) {
+                        boolean variantTemplateChecked = alterColumn.getType().isVariantType()
+                                && oriColumn.getType().isVariantType();
+                        if (!variantTemplateChecked && !alterColumn.equals(oriColumn)) {
                             // 3.1 check type
                             oriColumn.checkSchemaChangeAllowed(alterColumn);
                         }
@@ -2522,9 +2540,25 @@ public class SchemaChangeHandler extends AlterHandler {
                     }
                     lightSchemaChange = false;
 
-                    // ngram_bf index can do light_schema_change in both local and cloud mode
-                    // inverted index and ann index can only do light_schema_change in local mode
-                    if (index.isLightAddIndexSupported(enableAddIndexForNewData)) {
+                    if (isVariantFieldPatternIndex(index, olapTable)) {
+                        if (alterOps.size() != 1) {
+                            throw new DdlException("Variant field pattern index can not be mixed with other alter ops");
+                        }
+                        if (!enableAddIndexForNewData) {
+                            throw new DdlException("Variant field pattern index only supports adding index for "
+                                    + "new data. Please set enable_add_index_for_new_data = true");
+                        }
+                        if (!Config.enable_light_index_change) {
+                            throw new DdlException("Variant field pattern index requires light index change");
+                        }
+                        // Variant field_pattern indexes are new-rowset metadata changes; historical rowsets keep the
+                        // existing fallback path, so parser indexes do not need a cloud physical build job here.
+                        alterIndexes.add(index);
+                        isDropIndex = false;
+                        lightIndexChange = true;
+                    } else if (index.isLightAddIndexSupported(enableAddIndexForNewData)) {
+                        // ngram_bf index can do light_schema_change in both local and cloud mode
+                        // inverted index and ann index can only do light_schema_change in local mode
                         alterIndexes.add(index);
                         isDropIndex = false;
                         lightIndexChange = true;
@@ -2583,6 +2617,9 @@ public class SchemaChangeHandler extends AlterHandler {
                         if (found.getIndexType() != IndexType.INVERTED) {
                             throw new DdlException(
                                     "Only inverted index supports DROP INDEX ON PARTITION");
+                        }
+                        if (!InvertedIndexUtil.getInvertedIndexFieldPattern(found.getProperties()).isEmpty()) {
+                            throw new DdlException("Can not drop index with field pattern");
                         }
                         if (!olapTable.isPartitionedTable()) {
                             throw new DdlException("table " + olapTable.getName()
@@ -3253,7 +3290,7 @@ public class SchemaChangeHandler extends AlterHandler {
                         olapTable.getEnableUniqueKeyMergeOnWrite(),
                         olapTable.getInvertedIndexFileStorageFormat());
                 if (!InvertedIndexUtil.getInvertedIndexFieldPattern(indexDef.getProperties()).isEmpty()) {
-                    throw new DdlException("Can not create index with field pattern");
+                    checkVariantFieldPatternIndex(indexDef, column, olapTable);
                 }
             } else {
                 throw new DdlException("index column does not exist in table. invalid column: " + col);
@@ -3267,6 +3304,86 @@ public class SchemaChangeHandler extends AlterHandler {
         alterIndex.setColumns(indexDef.getColumnNames());
         newIndexes.add(alterIndex);
         return false;
+    }
+
+    private boolean isVariantFieldPatternIndex(Index index, OlapTable olapTable) {
+        if (index == null || index.getIndexType() != IndexType.INVERTED
+                || InvertedIndexUtil.getInvertedIndexFieldPattern(index.getProperties()).isEmpty()
+                || index.getColumns().size() != 1) {
+            return false;
+        }
+        Column column = olapTable.getColumn(index.getColumns().get(0));
+        return column != null && column.getType().isVariantType();
+    }
+
+    private void checkVariantFieldPatternIndex(IndexDefinition indexDef, Column column, OlapTable olapTable)
+            throws DdlException {
+        String fieldPattern = InvertedIndexUtil.getInvertedIndexFieldPattern(indexDef.getProperties());
+        if (indexDef.getIndexType() != IndexType.INVERTED) {
+            throw new DdlException("field pattern only supports inverted index");
+        }
+        if (indexDef.getColumnNames().size() != 1) {
+            throw new DdlException("field pattern only supports single column index");
+        }
+        if (!column.getType().isVariantType()) {
+            throw new DdlException("column: " + column.getName() + " cannot have field pattern in index.");
+        }
+        Optional<VariantField> field = findReachableVariantField(column, fieldPattern);
+        if (!field.isPresent()) {
+            throw new DdlException("can not find field pattern: " + fieldPattern + " in column: "
+                    + column.getName());
+        }
+
+        try {
+            InvertedIndexUtil.checkVariantSubcolumnInvertedIndex(column.getName(), fieldPattern,
+                    DataType.fromCatalogType(field.get().getType()),
+                    indexDef.getProperties(), olapTable.getInvertedIndexFileStorageFormat());
+        } catch (AnalysisException ex) {
+            throw new DdlException(ex.getMessage(), ex);
+        }
+    }
+
+    private Optional<VariantField> findReachableVariantField(Column column, String fieldPattern) throws DdlException {
+        if (!(column.getType() instanceof VariantType)) {
+            return Optional.empty();
+        }
+        VariantType variantType = (VariantType) column.getType();
+        List<VariantField> previousFields = new ArrayList<>();
+        for (VariantField field : variantType.getPredefinedFields()) {
+            if (field.getPattern().equals(fieldPattern)) {
+                Optional<VariantField> shadowingField = findShadowingVariantField(previousFields, field);
+                if (shadowingField.isPresent()) {
+                    throw new DdlException("field pattern: " + fieldPattern
+                            + " is shadowed by earlier variant schema template: "
+                            + shadowingField.get().getPattern());
+                }
+                return Optional.of(field);
+            }
+            previousFields.add(field);
+        }
+        return Optional.empty();
+    }
+
+    private Optional<VariantField> findShadowingVariantField(List<VariantField> previousFields,
+            VariantField targetField) throws DdlException {
+        for (VariantField previousField : previousFields) {
+            if (previousField.getPatternType() != PatternType.MATCH_NAME_GLOB) {
+                continue;
+            }
+            try {
+                if (targetField.getPatternType() == PatternType.MATCH_NAME
+                        && GlobRegexUtil.matches(previousField.getPattern(), targetField.getPattern())) {
+                    return Optional.of(previousField);
+                }
+                if (targetField.getPatternType() == PatternType.MATCH_NAME_GLOB
+                        && GlobRegexUtil.isGlobSubsetOf(targetField.getPattern(), previousField.getPattern())) {
+                    return Optional.of(previousField);
+                }
+            } catch (IllegalArgumentException e) {
+                throw new DdlException("Invalid variant schema template pattern: " + previousField.getPattern());
+            }
+        }
+        return Optional.empty();
     }
 
     private boolean checkDuplicateIndexes(List<Index> indexes, IndexDefinition indexDef, Set<String> newColset,
@@ -3290,6 +3407,30 @@ public class SchemaChangeHandler extends AlterHandler {
                     Column column = olapTable.getColumn(columnName);
                     if (column != null && (column.getType().isStringType() || column.getType().isVariantType())) {
                         if (index.getIndexType() == IndexType.INVERTED) {
+                            if (column.getType().isVariantType()) {
+                                String existingFieldPattern = InvertedIndexUtil
+                                        .getInvertedIndexFieldPattern(index.getProperties());
+                                String newFieldPattern = InvertedIndexUtil
+                                        .getInvertedIndexFieldPattern(indexDef.getProperties());
+                                if (!Objects.equals(existingFieldPattern, newFieldPattern)) {
+                                    existedIndexIdSet.add(index.getIndexId());
+                                    continue;
+                                }
+                                String existingIdentity = InvertedIndexUtil.getAnalyzerIdentity(index);
+                                String newIdentity = indexDef.getAnalyzerIdentity();
+                                if (Objects.equals(existingIdentity, newIdentity)) {
+                                    String analyzerDesc = "__default__".equals(newIdentity)
+                                            ? "default analyzer"
+                                            : "analyzer identity '" + newIdentity + "'";
+                                    String fieldPatternDesc = Strings.isNullOrEmpty(newFieldPattern)
+                                            ? "" : " with field pattern '" + newFieldPattern + "'";
+                                    throw new DdlException(indexDef.getIndexType()
+                                            + " index for column (" + columnName + ")" + fieldPatternDesc
+                                            + " with analyzer " + analyzerDesc + " already exists.");
+                                }
+                                existedIndexIdSet.add(index.getIndexId());
+                                continue;
+                            }
                             String existingIdentity = InvertedIndexUtil.getAnalyzerIdentity(index);
                             String newIdentity = indexDef.getAnalyzerIdentity();
                             if (Objects.equals(existingIdentity, newIdentity)) {
@@ -3346,10 +3487,6 @@ public class SchemaChangeHandler extends AlterHandler {
                 return true;
             }
             throw new DdlException("index " + indexName + " does not exist");
-        }
-
-        if (!InvertedIndexUtil.getInvertedIndexFieldPattern(found.getProperties()).isEmpty()) {
-            throw new DdlException("Can not drop index with field pattern");
         }
 
         Iterator<Index> itr = indexes.iterator();

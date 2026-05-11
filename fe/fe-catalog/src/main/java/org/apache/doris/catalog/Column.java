@@ -22,6 +22,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.GlobRegexUtil;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 
@@ -723,9 +724,100 @@ public class Column implements GsonPostProcessable {
             if (this.getVariantEnableNestedGroup() != other.getVariantEnableNestedGroup()) {
                 throw new DdlException("Can not change variant enable nested group");
             }
-            if (CollectionUtils.isNotEmpty(this.getChildren()) || CollectionUtils.isNotEmpty(other.getChildren())) {
-                throw new DdlException("Can not change variant schema templates");
+            if (hasVariantSchemaTemplateChange(other)
+                    && this.getvariantDocMaterializationMinRows() != other.getvariantDocMaterializationMinRows()) {
+                throw new DdlException("Can not change variant doc snapshot materialization min rows "
+                        + "when changing variant schema templates");
             }
+            checkVariantSchemaTemplateChange(other);
+        }
+    }
+
+    private boolean hasVariantSchemaTemplateChange(Column other) {
+        ArrayList<VariantField> oldFields = ((VariantType) type).getPredefinedFields();
+        ArrayList<VariantField> newFields = ((VariantType) other.type).getPredefinedFields();
+        if (oldFields.size() != newFields.size()) {
+            return true;
+        }
+        for (int i = 0; i < oldFields.size(); i++) {
+            VariantField oldField = oldFields.get(i);
+            VariantField newField = newFields.get(i);
+            if (!Objects.equals(oldField.getPattern(), newField.getPattern())
+                    || !Objects.equals(oldField.getPatternType(), newField.getPatternType())
+                    || !Objects.equals(oldField.getType(), newField.getType())
+                    || !Objects.equals(oldField.getComment(), newField.getComment())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void checkVariantSchemaTemplateChange(Column other) throws DdlException {
+        ArrayList<VariantField> oldFields = ((VariantType) type).getPredefinedFields();
+        ArrayList<VariantField> newFields = ((VariantType) other.type).getPredefinedFields();
+        if (oldFields.size() > newFields.size()) {
+            throw new DdlException("Can not reduce variant schema templates");
+        }
+
+        for (int i = 0; i < oldFields.size(); i++) {
+            VariantField oldField = oldFields.get(i);
+            VariantField newField = newFields.get(i);
+            if (!Objects.equals(oldField.getPattern(), newField.getPattern())) {
+                throw new DdlException("Can not reorder or rename variant schema templates");
+            }
+            if (!Objects.equals(oldField.getPatternType(), newField.getPatternType())) {
+                throw new DdlException("Can not change variant schema template pattern type");
+            }
+            if (!Objects.equals(oldField.getType(), newField.getType())) {
+                throw new DdlException("Can not change variant schema template type");
+            }
+            if (!Objects.equals(oldField.getComment(), newField.getComment())) {
+                throw new DdlException("Can not change variant schema template comment");
+            }
+        }
+
+        List<VariantField> previousFields = new ArrayList<>(oldFields);
+        for (int i = oldFields.size(); i < newFields.size(); i++) {
+            VariantField newField = newFields.get(i);
+            checkAppendedVariantField(previousFields, newField);
+            previousFields.add(newField);
+        }
+    }
+
+    private static void checkAppendedVariantField(List<VariantField> previousFields, VariantField newField)
+            throws DdlException {
+        for (VariantField previousField : previousFields) {
+            if (Objects.equals(previousField.getPattern(), newField.getPattern())) {
+                throw new DdlException("Can not add duplicate variant schema template: " + newField.getPattern());
+            }
+            if (previousField.getPatternType() != PatternType.MATCH_NAME_GLOB) {
+                continue;
+            }
+            if (newField.getPatternType() == PatternType.MATCH_NAME) {
+                if (variantGlobMatches(previousField.getPattern(), newField.getPattern())) {
+                    throw new DdlException("Can not add variant schema template " + newField.getPattern()
+                            + " because existing pattern " + previousField.getPattern() + " already matches it");
+                }
+            } else if (variantGlobShadowsAppendedGlob(previousField.getPattern(), newField.getPattern())) {
+                throw new DdlException("Can not add variant schema template " + newField.getPattern()
+                        + " because existing pattern " + previousField.getPattern() + " can shadow it");
+            }
+        }
+    }
+
+    private static boolean variantGlobMatches(String globPattern, String candidatePath) throws DdlException {
+        try {
+            return GlobRegexUtil.matches(globPattern, candidatePath);
+        } catch (IllegalArgumentException e) {
+            throw new DdlException("Invalid variant schema template pattern: " + globPattern);
+        }
+    }
+
+    private static boolean variantGlobShadowsAppendedGlob(String previousGlob, String newGlob) throws DdlException {
+        try {
+            return GlobRegexUtil.isGlobSubsetOf(newGlob, previousGlob);
+        } catch (IllegalArgumentException e) {
+            throw new DdlException("Invalid variant schema template pattern: " + previousGlob);
         }
     }
 

@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.PatternType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.catalog.info.TableNameInfo;
@@ -37,6 +38,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.GlobRegexUtil;
 import org.apache.doris.common.util.AutoBucketUtils;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.GeneratedColumnUtil;
@@ -1424,37 +1426,17 @@ public class CreateTableInfo {
                             fieldPatternToDataType.put(fieldPattern, column.getType());
                             continue;
                         }
-                        boolean findFieldPattern = false;
-                        VariantType variantType = (VariantType) column.getType();
-                        List<VariantField> predefinedFields = variantType.getPredefinedFields();
-                        for (VariantField field : predefinedFields) {
-                            if (field.getPattern().equals(fieldPattern)) {
-                                findFieldPattern = true;
-                                if (!IndexDefinition.isSupportIdxType(field.getDataType())) {
-                                    throw new AnalysisException("field pattern: "
-                                            + fieldPattern + " is not supported for inverted index"
-                                            + " of column: " + column.getName());
-                                }
-
-                                // keep variant subcolumn checks aligned with ordinary column rules
-                                try {
-                                    InvertedIndexUtil.checkInvertedIndexParser(column.getName(),
-                                            field.getDataType().toCatalogDataType().getPrimitiveType(),
-                                            indexDef.getProperties(), invertedIndexFileStorageFormat);
-                                } catch (Exception ex) {
-                                    throw new AnalysisException("invalid INVERTED index: field pattern: "
-                                            + fieldPattern + ", " + ex.getMessage(), ex);
-                                }
-                                fieldPatternToIndexDef.computeIfAbsent(fieldPattern, k -> new ArrayList<>())
-                                                                                                    .add(indexDef);
-                                fieldPatternToDataType.put(fieldPattern, field.getDataType());
-                                break;
-                            }
+                        VariantField field = findReachableVariantField(column, fieldPattern);
+                        try {
+                            InvertedIndexUtil.checkVariantSubcolumnInvertedIndex(column.getName(),
+                                    fieldPattern, field.getDataType(), indexDef.getProperties(),
+                                    invertedIndexFileStorageFormat);
+                        } catch (org.apache.doris.common.AnalysisException ex) {
+                            throw new AnalysisException(ex.getMessage(), ex);
                         }
-                        if (!findFieldPattern) {
-                            throw new AnalysisException("can not find field pattern: " + fieldPattern
-                                        + " in column: " + column.getName());
-                        }
+                        fieldPatternToIndexDef.computeIfAbsent(fieldPattern, k -> new ArrayList<>())
+                                .add(indexDef);
+                        fieldPatternToDataType.put(fieldPattern, field.getDataType());
                     }
                     for (Map.Entry<String, List<IndexDefinition>> fieldIndexEntry : fieldPatternToIndexDef.entrySet()) {
                         String fieldPattern = fieldIndexEntry.getKey();
@@ -1489,6 +1471,46 @@ public class CreateTableInfo {
                 }
             }
         }
+    }
+
+    private VariantField findReachableVariantField(ColumnDefinition column, String fieldPattern) {
+        VariantType variantType = (VariantType) column.getType();
+        List<VariantField> previousFields = new ArrayList<>();
+        for (VariantField field : variantType.getPredefinedFields()) {
+            if (field.getPattern().equals(fieldPattern)) {
+                VariantField shadowingField = findShadowingVariantField(previousFields, field);
+                if (shadowingField != null) {
+                    throw new AnalysisException("field pattern: " + fieldPattern
+                            + " is shadowed by earlier variant schema template: "
+                            + shadowingField.getPattern());
+                }
+                return field;
+            }
+            previousFields.add(field);
+        }
+        throw new AnalysisException("can not find field pattern: " + fieldPattern
+                + " in column: " + column.getName());
+    }
+
+    private VariantField findShadowingVariantField(List<VariantField> previousFields, VariantField targetField) {
+        for (VariantField previousField : previousFields) {
+            if (previousField.getPatternType() != PatternType.MATCH_NAME_GLOB) {
+                continue;
+            }
+            try {
+                if (targetField.getPatternType() == PatternType.MATCH_NAME
+                        && GlobRegexUtil.matches(previousField.getPattern(), targetField.getPattern())) {
+                    return previousField;
+                }
+                if (targetField.getPatternType() == PatternType.MATCH_NAME_GLOB
+                        && GlobRegexUtil.isGlobSubsetOf(targetField.getPattern(), previousField.getPattern())) {
+                    return previousField;
+                }
+            } catch (IllegalArgumentException e) {
+                throw new AnalysisException("Invalid variant schema template pattern: " + previousField.getPattern());
+            }
+        }
+        return null;
     }
 
     /**
