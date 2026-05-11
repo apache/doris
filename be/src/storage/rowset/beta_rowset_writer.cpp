@@ -30,6 +30,7 @@
 #include <mutex>
 #include <sstream>
 #include <thread>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -42,6 +43,7 @@
 #include "core/block/block.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "exec/common/variant_util.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
@@ -105,9 +107,58 @@ void build_rowset_meta_with_spec_field(RowsetMeta& rowset_meta,
     std::vector<uint32_t> num_segment_rows;
     spec_rowset_meta.get_num_segment_rows(&num_segment_rows);
     rowset_meta.set_num_segment_rows(num_segment_rows);
+    rowset_meta.clear_variant_schema_metadata();
+    if (spec_rowset_meta.has_variant_schema_representatives()) {
+        bool has_complete_representatives = true;
+        for (const auto& representative : spec_rowset_meta.variant_schema_representatives()) {
+            if (!representative.has_segment_id()) {
+                has_complete_representatives = false;
+                break;
+            }
+        }
+        if (has_complete_representatives) {
+            const auto [hash_lo, hash_hi] = spec_rowset_meta.variant_schema_hash();
+            rowset_meta.set_variant_schema_hash(hash_lo, hash_hi);
+            for (const auto& representative : spec_rowset_meta.variant_schema_representatives()) {
+                rowset_meta.add_variant_schema_representative(representative.segment_id());
+            }
+        }
+    }
     if (spec_rowset_meta.is_row_binlog()) {
         rowset_meta.mark_row_binlog();
     }
+}
+
+void set_variant_schema_representatives(
+        RowsetMeta* rowset_meta, const std::map<uint32_t, SegmentStatistics>& segment_statistics,
+        int64_t segment_num, const TabletSchemaSPtr& tablet_schema, int32_t segment_start_id) {
+    rowset_meta->clear_variant_schema_metadata();
+    if (tablet_schema == nullptr || tablet_schema->num_variant_columns() == 0 || segment_num == 0) {
+        return;
+    }
+    // Transient writers append segments to an existing rowset. Since this metadata only stores final
+    // representative segment ids, keep correctness simple and force DESCRIBE to use the full scan.
+    if (segment_start_id != 0 || segment_statistics.size() != static_cast<size_t>(segment_num)) {
+        return;
+    }
+
+    std::unordered_set<std::string> seen_schema_keys;
+    std::vector<std::string> unique_schema_keys;
+    unique_schema_keys.reserve(segment_statistics.size());
+    for (int64_t segment_id = 0; segment_id < segment_num; ++segment_id) {
+        auto it = segment_statistics.find(cast_set<uint32_t>(segment_id));
+        if (it == segment_statistics.end() || !it->second.has_variant_schema_key) {
+            rowset_meta->clear_variant_schema_metadata();
+            return;
+        }
+        if (seen_schema_keys.insert(it->second.variant_schema_key).second) {
+            unique_schema_keys.push_back(it->second.variant_schema_key);
+            rowset_meta->add_variant_schema_representative(cast_set<int32_t>(segment_id));
+        }
+    }
+
+    auto rowset_hash = variant_util::build_rowset_variant_schema_hash(unique_schema_keys);
+    rowset_meta->set_variant_schema_hash(rowset_hash.lo, rowset_hash.hi);
 }
 
 } // namespace
@@ -984,8 +1035,10 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     int64_t total_index_size = 0;
     std::vector<KeyBoundsPB> segments_encoded_key_bounds;
     std::vector<uint32_t> segment_rows;
+    std::map<uint32_t, SegmentStatistics> segment_statistics;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
+        segment_statistics = _segid_statistics_map;
         for (const auto& itr : _segid_statistics_map) {
             num_rows_written += itr.second.row_num;
             total_data_size += itr.second.data_size;
@@ -1038,6 +1091,8 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     }
 
     rowset_meta->set_num_segments(segment_num);
+    set_variant_schema_representatives(rowset_meta, segment_statistics, segment_num,
+                                       _context.tablet_schema, _segment_start_id);
     rowset_meta->set_num_rows(num_rows_written + _num_rows_written);
     rowset_meta->set_total_disk_size(total_data_size + _total_data_size + total_index_size +
                                      _total_index_size);
@@ -1244,6 +1299,11 @@ Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
     segstat.data_size = segment_size;
     segstat.index_size = inverted_index_file_size;
     segstat.key_bounds = key_bounds;
+    if ((*writer)->variant_schema_key().has_value()) {
+        const auto& schema_key = (*writer)->variant_schema_key().value();
+        segstat.has_variant_schema_key = true;
+        segstat.variant_schema_key = schema_key.key;
+    }
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
         CHECK_EQ(_segid_statistics_map.find(segid) == _segid_statistics_map.end(), true);

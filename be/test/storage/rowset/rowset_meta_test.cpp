@@ -33,6 +33,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "storage/olap_common.h"
 #include "storage/olap_meta.h"
+#include "storage/rowset/rowset_writer.h"
 
 using ::testing::_;
 using ::testing::Return;
@@ -165,6 +166,25 @@ TEST_F(RowsetMetaTest, TestNumSegmentRowsSetAndGet) {
     EXPECT_EQ(retrieved_rows_2[2], 300);
 }
 
+TEST(SegmentStatisticsTest, TestVariantSchemaMetadataStaysInMemoryOnly) {
+    SegmentStatistics segstat;
+    segstat.row_num = 10;
+    segstat.data_size = 20;
+    segstat.index_size = 30;
+    segstat.has_variant_schema_key = true;
+    segstat.variant_schema_key = "variant-schema-key";
+
+    SegmentStatisticsPB pb;
+    segstat.to_pb(&pb);
+    EXPECT_EQ(pb.row_num(), 10);
+    EXPECT_EQ(pb.data_size(), 20);
+    EXPECT_EQ(pb.index_size(), 30);
+
+    SegmentStatistics decoded(pb);
+    EXPECT_FALSE(decoded.has_variant_schema_key);
+    EXPECT_TRUE(decoded.variant_schema_key.empty());
+}
+
 TEST_F(RowsetMetaTest, TestNumSegmentRowsEmpty) {
     RowsetMeta rowset_meta;
     EXPECT_TRUE(rowset_meta.init_from_json(_json_rowset_meta));
@@ -232,6 +252,39 @@ TEST_F(RowsetMetaTest, TestMergeRowsetMetaWithNumSegmentRows) {
 
     // Check merged disk sizes
     EXPECT_EQ(rowset_meta_1.total_disk_size(), 3000);
+}
+
+TEST_F(RowsetMetaTest, TestMergeRowsetMetaClearsVariantSchemaRepresentatives) {
+    RowsetMeta rowset_meta_1;
+    EXPECT_TRUE(rowset_meta_1.init_from_json(_json_rowset_meta));
+    rowset_meta_1.set_num_segments(2);
+    rowset_meta_1.set_variant_schema_hash(11, 22);
+    rowset_meta_1.add_variant_schema_representative(0);
+    ASSERT_TRUE(rowset_meta_1.has_variant_schema_representatives());
+
+    RowsetMeta rowset_meta_2;
+    EXPECT_TRUE(rowset_meta_2.init_from_json(_json_rowset_meta));
+    rowset_meta_2.set_num_segments(3);
+    rowset_meta_2.set_variant_schema_hash(33, 44);
+    rowset_meta_2.add_variant_schema_representative(0);
+
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back("RowsetMeta::merge_rowset_meta:skip_schema_merge", [&](auto&& args) {
+        auto pred = try_any_cast<bool*>(args.back());
+        *pred = true;
+    });
+    sp->enable_processing();
+
+    rowset_meta_1.merge_rowset_meta(rowset_meta_2);
+
+    sp->clear_all_call_backs();
+    sp->disable_processing();
+    sp->clear_trace();
+
+    EXPECT_EQ(rowset_meta_1.num_segments(), 5);
+    EXPECT_FALSE(rowset_meta_1.has_variant_schema_hash());
+    EXPECT_FALSE(rowset_meta_1.has_variant_schema_representatives());
+    EXPECT_EQ(rowset_meta_1.variant_schema_representatives().size(), 0);
 }
 
 TEST_F(RowsetMetaTest, TestMergeRowsetMetaWithPartialNumSegmentRows) {

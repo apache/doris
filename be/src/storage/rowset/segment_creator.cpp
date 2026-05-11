@@ -22,6 +22,7 @@
 #include <chrono>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <thread>
 #include <utility>
@@ -40,6 +41,7 @@
 #include "core/column/column_variant.h"
 #include "core/data_type/data_type.h"
 #include "core/types.h"
+#include "exec/common/variant_util.h"
 #include "io/fs/file_writer.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset_writer.h" // SegmentStatistics
@@ -54,6 +56,19 @@
 
 namespace doris {
 using namespace ErrorCode;
+
+namespace {
+
+void set_variant_schema_key(const std::optional<variant_util::VariantSchemaKey>& schema_key,
+                            SegmentStatistics* segstat) {
+    if (!schema_key.has_value()) {
+        return;
+    }
+    segstat->has_variant_schema_key = true;
+    segstat->variant_schema_key = schema_key->key;
+}
+
+} // namespace
 
 SegmentFlusher::SegmentFlusher(RowsetWriterContext& context, SegmentFileCollection& seg_files,
                                InvertedIndexFileCollection& idx_files)
@@ -232,6 +247,7 @@ Status SegmentFlusher::_flush_segment_writer(
     segstat.data_size = segment_file_size;
     segstat.index_size = inverted_index_file_size;
     segstat.key_bounds = key_bounds;
+    set_variant_schema_key(writer->variant_schema_key(), &segstat);
 
     writer.reset();
 
@@ -310,6 +326,7 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
     segstat.data_size = segment_file_size;
     segstat.index_size = inverted_index_file_size;
     segstat.key_bounds = key_bounds;
+    set_variant_schema_key(writer->variant_schema_key(), &segstat);
 
     writer.reset();
 

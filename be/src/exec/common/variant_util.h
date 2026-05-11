@@ -44,6 +44,7 @@ namespace doris {
 class TabletSchema;
 enum class FieldType;
 namespace segment_v2 {
+class SegmentFooterPB;
 struct VariantStatisticsPB;
 } // namespace segment_v2
 class Block;
@@ -62,6 +63,23 @@ using JsonParser = JSONDataParser<SimdJSONParser>;
 const std::string SPARSE_COLUMN_PATH = "__DORIS_VARIANT_SPARSE__";
 const std::string DOC_VALUE_COLUMN_PATH = "__DORIS_VARIANT_DOC_VALUE__";
 namespace doris::variant_util {
+
+struct VariantSchemaHash {
+    uint64_t lo = 0;
+    uint64_t hi = 0;
+};
+
+struct VariantSchemaKey {
+    std::string key;
+    VariantSchemaHash hash;
+};
+
+VariantSchemaHash hash_variant_schema_key(std::string_view key);
+
+bool build_segment_variant_schema_key(const segment_v2::SegmentFooterPB& footer,
+                                      VariantSchemaKey* schema_key);
+
+VariantSchemaHash build_rowset_variant_schema_hash(const std::vector<std::string>& schema_keys);
 
 // Convert a restricted glob pattern into a regex (for tests/internal use).
 Status glob_to_regex(const std::string& glob_pattern, std::string* regex_pattern);

@@ -120,6 +120,13 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     if (in.has_commit_tso()) {
         out->set_commit_tso(in.commit_tso());
     }
+    if (in.has_variant_schema_hash_lo()) {
+        out->set_variant_schema_hash_lo(in.variant_schema_hash_lo());
+    }
+    if (in.has_variant_schema_hash_hi()) {
+        out->set_variant_schema_hash_hi(in.variant_schema_hash_hi());
+    }
+    out->mutable_variant_schema_representatives()->CopyFrom(in.variant_schema_representatives());
     if (in.has_is_row_binlog()) {
         out->set_is_row_binlog(in.is_row_binlog());
     }
@@ -210,6 +217,14 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
     if (in.has_commit_tso()) {
         out->set_commit_tso(in.commit_tso());
     }
+    if (in.has_variant_schema_hash_lo()) {
+        out->set_variant_schema_hash_lo(in.variant_schema_hash_lo());
+    }
+    if (in.has_variant_schema_hash_hi()) {
+        out->set_variant_schema_hash_hi(in.variant_schema_hash_hi());
+    }
+    out->mutable_variant_schema_representatives()->Swap(
+            in.mutable_variant_schema_representatives());
     if (in.has_is_row_binlog()) {
         out->set_is_row_binlog(in.is_row_binlog());
     }
@@ -310,6 +325,13 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) 
     if (in.has_commit_tso()) {
         out->set_commit_tso(in.commit_tso());
     }
+    if (in.has_variant_schema_hash_lo()) {
+        out->set_variant_schema_hash_lo(in.variant_schema_hash_lo());
+    }
+    if (in.has_variant_schema_hash_hi()) {
+        out->set_variant_schema_hash_hi(in.variant_schema_hash_hi());
+    }
+    out->mutable_variant_schema_representatives()->CopyFrom(in.variant_schema_representatives());
     if (in.has_is_row_binlog()) {
         out->set_is_row_binlog(in.is_row_binlog());
     }
@@ -399,6 +421,14 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
     if (in.has_commit_tso()) {
         out->set_commit_tso(in.commit_tso());
     }
+    if (in.has_variant_schema_hash_lo()) {
+        out->set_variant_schema_hash_lo(in.variant_schema_hash_lo());
+    }
+    if (in.has_variant_schema_hash_hi()) {
+        out->set_variant_schema_hash_hi(in.variant_schema_hash_hi());
+    }
+    out->mutable_variant_schema_representatives()->Swap(
+            in.mutable_variant_schema_representatives());
     if (in.has_is_row_binlog()) {
         out->set_is_row_binlog(in.is_row_binlog());
     }

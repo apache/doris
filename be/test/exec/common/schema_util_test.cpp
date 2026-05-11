@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/segment_v2.pb.h>
 #include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
@@ -33,6 +34,7 @@
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/segment/variant/variant_column_writer_impl.h"
 #include "testutil/variant_util.h"
+#include "util/json/path_in_data.h"
 
 using namespace doris;
 
@@ -45,6 +47,126 @@ public:
     SchemaUtilTest() = default;
     ~SchemaUtilTest() override = default;
 };
+
+void add_variant_root(SegmentFooterPB* footer, int32_t unique_id) {
+    auto* column = footer->add_columns();
+    column->set_unique_id(unique_id);
+    column->set_type(static_cast<int>(FieldType::OLAP_FIELD_TYPE_VARIANT));
+}
+
+void add_variant_subcolumn(SegmentFooterPB* footer, int32_t parent_unique_id,
+                           const std::string& full_path, FieldType type, bool nullable) {
+    auto* column = footer->add_columns();
+    column->set_type(static_cast<int>(type));
+    column->set_is_nullable(nullable);
+    PathInData path(full_path);
+    path.to_protobuf(column->mutable_column_path_info(), parent_unique_id);
+}
+
+TEST_F(SchemaUtilTest, TestVariantSegmentSchemaKeyIsStableAndTypeAware) {
+    SegmentFooterPB footer_1;
+    add_variant_root(&footer_1, 1);
+    add_variant_subcolumn(&footer_1, 1, "v.a", FieldType::OLAP_FIELD_TYPE_INT, true);
+    add_variant_subcolumn(&footer_1, 1, "v.b", FieldType::OLAP_FIELD_TYPE_STRING, true);
+
+    SegmentFooterPB footer_2;
+    add_variant_subcolumn(&footer_2, 1, "v.b", FieldType::OLAP_FIELD_TYPE_STRING, true);
+    add_variant_root(&footer_2, 1);
+    add_variant_subcolumn(&footer_2, 1, "v.a", FieldType::OLAP_FIELD_TYPE_INT, true);
+    footer_2.mutable_columns(0)->set_column_id(100);
+    footer_2.mutable_columns(0)->set_unique_id(200);
+    footer_2.mutable_columns(0)->set_num_rows(300);
+    footer_2.mutable_columns(0)->set_compressed_data_bytes(400);
+    footer_2.mutable_columns(2)->mutable_column_path_info()->set_has_nested(false);
+    footer_2.mutable_columns(2)->mutable_column_path_info()->set_nested_group_depth(0);
+
+    variant_util::VariantSchemaKey key_1;
+    variant_util::VariantSchemaKey key_2;
+    ASSERT_TRUE(variant_util::build_segment_variant_schema_key(footer_1, &key_1));
+    ASSERT_TRUE(variant_util::build_segment_variant_schema_key(footer_2, &key_2));
+    EXPECT_EQ(key_1.key, key_2.key);
+    EXPECT_EQ(key_1.hash.lo, key_2.hash.lo);
+    EXPECT_EQ(key_1.hash.hi, key_2.hash.hi);
+
+    SegmentFooterPB footer_3;
+    add_variant_root(&footer_3, 1);
+    add_variant_subcolumn(&footer_3, 1, "v.a", FieldType::OLAP_FIELD_TYPE_BIGINT, true);
+    add_variant_subcolumn(&footer_3, 1, "v.b", FieldType::OLAP_FIELD_TYPE_STRING, true);
+
+    variant_util::VariantSchemaKey key_3;
+    ASSERT_TRUE(variant_util::build_segment_variant_schema_key(footer_3, &key_3));
+    EXPECT_NE(key_1.key, key_3.key);
+}
+
+TEST_F(SchemaUtilTest, TestVariantRowsetSchemaHashIsSegmentOrderInsensitive) {
+    const auto hash_ab = variant_util::build_rowset_variant_schema_hash({"schema_a", "schema_b"});
+    const auto hash_ba = variant_util::build_rowset_variant_schema_hash({"schema_b", "schema_a"});
+    EXPECT_EQ(hash_ab.lo, hash_ba.lo);
+    EXPECT_EQ(hash_ab.hi, hash_ba.hi);
+
+    const auto hash_a = variant_util::build_rowset_variant_schema_hash({"schema_a"});
+    EXPECT_TRUE(hash_ab.lo != hash_a.lo || hash_ab.hi != hash_a.hi);
+}
+
+TEST_F(SchemaUtilTest, TestVariantSegmentSchemaKeyRejectsUnsupportedShapes) {
+    {
+        SegmentFooterPB footer;
+        add_variant_root(&footer, 1);
+        variant_util::VariantSchemaKey key;
+        EXPECT_FALSE(variant_util::build_segment_variant_schema_key(footer, &key));
+    }
+
+    {
+        SegmentFooterPB footer;
+        add_variant_root(&footer, 1);
+        footer.mutable_columns(0)->set_variant_enable_doc_mode(true);
+        add_variant_subcolumn(&footer, 1, "v.a", FieldType::OLAP_FIELD_TYPE_INT, true);
+        variant_util::VariantSchemaKey key;
+        EXPECT_FALSE(variant_util::build_segment_variant_schema_key(footer, &key));
+    }
+
+    {
+        SegmentFooterPB footer;
+        add_variant_root(&footer, 1);
+        add_variant_subcolumn(&footer, 1, "v.a", FieldType::OLAP_FIELD_TYPE_INT, true);
+        add_variant_subcolumn(&footer, 1, "v.__DORIS_VARIANT_DOC_VALUE__.b0",
+                              FieldType::OLAP_FIELD_TYPE_STRING, true);
+        variant_util::VariantSchemaKey key;
+        EXPECT_FALSE(variant_util::build_segment_variant_schema_key(footer, &key));
+    }
+
+    {
+        SegmentFooterPB footer;
+        add_variant_root(&footer, 1);
+        add_variant_subcolumn(&footer, 1, "v.a", FieldType::OLAP_FIELD_TYPE_INT, true);
+        add_variant_subcolumn(&footer, 1, "v.a.__D0_ng__.b", FieldType::OLAP_FIELD_TYPE_INT, true);
+        variant_util::VariantSchemaKey key;
+        EXPECT_FALSE(variant_util::build_segment_variant_schema_key(footer, &key));
+    }
+
+    {
+        SegmentFooterPB footer;
+        add_variant_root(&footer, 1);
+        add_variant_subcolumn(&footer, 1, "v.a", FieldType::OLAP_FIELD_TYPE_INT, true);
+        add_variant_subcolumn(&footer, 1, "v.__DORIS_VARIANT_SPARSE__",
+                              FieldType::OLAP_FIELD_TYPE_MAP, true);
+        variant_util::VariantSchemaKey key;
+        EXPECT_TRUE(variant_util::build_segment_variant_schema_key(footer, &key));
+    }
+
+    {
+        SegmentFooterPB footer;
+        add_variant_root(&footer, 1);
+        add_variant_subcolumn(&footer, 1, "v.a", FieldType::OLAP_FIELD_TYPE_INT, true);
+        add_variant_subcolumn(&footer, 1, "v.__DORIS_VARIANT_SPARSE__",
+                              FieldType::OLAP_FIELD_TYPE_MAP, true);
+        (*footer.mutable_columns(2)
+                  ->mutable_variant_statistics()
+                  ->mutable_sparse_column_non_null_size())["a"] = 1;
+        variant_util::VariantSchemaKey key;
+        EXPECT_FALSE(variant_util::build_segment_variant_schema_key(footer, &key));
+    }
+}
 
 void construct_column(ColumnPB* column_pb, TabletIndexPB* tablet_index, int64_t index_id,
                       const std::string& index_name, int32_t col_unique_id,

@@ -19,12 +19,14 @@
 #include <set>
 #include <thread>
 
+#include "cloud/pb_convert.h"
 #include "common/config.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "gtest/gtest.h"
 #include "storage/rowset/rowset_factory.h"
+#include "storage/rowset/rowset_meta.h"
 #include "storage/segment/column_meta_accessor.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/column_reader_cache.h"
@@ -38,6 +40,7 @@
 #include "storage/segment/variant/variant_doc_snpashot_compact_iterator.h"
 #include "storage/storage_engine.h"
 #include "testutil/variant_util.h"
+#include "util/debug_points.h"
 
 using namespace doris;
 
@@ -255,6 +258,29 @@ protected:
         return rowset;
     }
 
+    RowsetSharedPtr manual_build_variant_rowset(const RowsetMetaSharedPtr& spec_rowset_meta,
+                                                int64_t version) {
+        RowsetWriterContext ctx;
+        RowsetId rowset_id;
+        rowset_id.init(version + 1000);
+        ctx.rowset_id = rowset_id;
+        ctx.rowset_type = BETA_ROWSET;
+        ctx.data_dir = _data_dir.get();
+        ctx.rowset_state = VISIBLE;
+        ctx.tablet_schema = _tablet_schema;
+        ctx.tablet_path = _tablet->tablet_path();
+        ctx.tablet_id = _tablet->tablet_id();
+        ctx.tablet = _tablet;
+        ctx.version = Version(version, version);
+        ctx.segments_overlap = NONOVERLAPPING;
+        ctx.write_type = DataWriteType::TYPE_DIRECT;
+
+        auto res = RowsetFactory::create_rowset_writer(*_engine_ref, ctx, false);
+        EXPECT_TRUE(res.has_value()) << res.error();
+        auto rowset_writer = std::move(res).value();
+        return rowset_writer->manual_build(spec_rowset_meta);
+    }
+
     std::vector<RowsetReaderSharedPtr> create_rowset_readers(
             const std::vector<RowsetSharedPtr>& rowsets) const {
         std::vector<RowsetReaderSharedPtr> readers;
@@ -344,6 +370,16 @@ protected:
     std::string _absolute_dir;
     std::string _current_dir;
 };
+
+static std::set<std::string> collect_variant_subcolumn_names(const TabletSchemaSPtr& schema) {
+    std::set<std::string> column_names;
+    for (const auto& column : schema->columns()) {
+        if (column->parent_unique_id() > 0) {
+            column_names.insert(column->name());
+        }
+    }
+    return column_names;
+}
 
 void check_column_meta(const ColumnMetaPB& column_meta, auto& path_with_size) {
     EXPECT_TRUE(column_meta.has_column_path_info());
@@ -4205,6 +4241,314 @@ TEST_F(VariantColumnWriterReaderTest,
     EXPECT_EQ(plan.regular_subcolumns[2].path, "tags");
     ASSERT_NE(plan.regular_subcolumns[2].data_type, nullptr);
     EXPECT_NE(plan.regular_subcolumns[2].data_type->get_name().find("Array"), std::string::npos);
+}
+
+TEST_F(VariantColumnWriterReaderTest,
+       test_variant_describe_metadata_written_for_multi_segment_rowset) {
+    init_variant_tablet(41002, 10);
+
+    auto rowset =
+            create_variant_rowset({{R"({"a": 1})"}, {R"({"b": "x"})"}, {R"({"a": 2})"}}, 3, 10);
+    ASSERT_EQ(rowset->num_segments(), 3);
+    auto rowset_meta = rowset->rowset_meta();
+    ASSERT_TRUE(rowset_meta->has_variant_schema_hash());
+    ASSERT_TRUE(rowset_meta->has_variant_schema_representatives());
+    const auto& representatives = rowset_meta->variant_schema_representatives();
+    ASSERT_EQ(representatives.size(), 2);
+    EXPECT_EQ(representatives[0].segment_id(), 0);
+    EXPECT_EQ(representatives[1].segment_id(), 1);
+    EXPECT_FALSE(representatives[0].has_schema_hash_lo());
+    EXPECT_FALSE(representatives[0].has_schema_hash_hi());
+    EXPECT_FALSE(representatives[1].has_schema_hash_lo());
+    EXPECT_FALSE(representatives[1].has_schema_hash_hi());
+}
+
+TEST_F(VariantColumnWriterReaderTest,
+       test_variant_describe_manual_build_clears_incomplete_representative) {
+    init_variant_tablet(41010, 10);
+
+    auto source_rowset = create_variant_rowset({{R"({"a": 1})"}, {R"({"b": "x"})"}}, 17, 10);
+    auto source_meta = source_rowset->rowset_meta();
+    ASSERT_TRUE(source_meta->has_variant_schema_hash());
+    ASSERT_TRUE(source_meta->has_variant_schema_representatives());
+    const auto rowset_hash = source_meta->variant_schema_hash();
+
+    auto valid_output = manual_build_variant_rowset(source_meta, 18);
+    ASSERT_NE(valid_output, nullptr);
+    auto valid_meta = valid_output->rowset_meta();
+    EXPECT_EQ(valid_meta->variant_schema_hash(), rowset_hash);
+    ASSERT_TRUE(valid_meta->has_variant_schema_representatives());
+    ASSERT_EQ(valid_meta->variant_schema_representatives().size(), 2);
+    EXPECT_EQ(valid_meta->variant_schema_representatives()[0].segment_id(), 0);
+    EXPECT_EQ(valid_meta->variant_schema_representatives()[1].segment_id(), 1);
+
+    RowsetMetaPB incomplete_representative = source_meta->get_rowset_pb();
+    incomplete_representative.set_variant_schema_hash_lo(rowset_hash.first);
+    incomplete_representative.set_variant_schema_hash_hi(rowset_hash.second);
+    incomplete_representative.clear_variant_schema_representatives();
+    incomplete_representative.add_variant_schema_representatives();
+    ASSERT_TRUE(source_meta->init_from_pb(incomplete_representative));
+    ASSERT_TRUE(source_meta->has_variant_schema_representatives());
+    ASSERT_FALSE(source_meta->variant_schema_representatives()[0].has_segment_id());
+
+    auto malformed_output = manual_build_variant_rowset(source_meta, 19);
+    ASSERT_NE(malformed_output, nullptr);
+    auto malformed_meta = malformed_output->rowset_meta();
+    EXPECT_FALSE(malformed_meta->has_variant_schema_hash());
+    EXPECT_FALSE(malformed_meta->has_variant_schema_representatives());
+    EXPECT_EQ(malformed_meta->variant_schema_representatives().size(), 0);
+}
+
+TEST_F(VariantColumnWriterReaderTest,
+       test_variant_describe_metadata_dedups_many_same_schema_segments_for_cloud) {
+    init_variant_tablet(41008, 10);
+
+    std::vector<std::vector<std::string>> batches;
+    batches.reserve(50);
+    for (int i = 0; i < 50; ++i) {
+        batches.push_back({R"({"a": 1, "b": "x"})"});
+    }
+    auto rowset = create_variant_rowset(batches, 12, 1);
+    ASSERT_EQ(rowset->num_segments(), 50);
+
+    auto rowset_meta = rowset->rowset_meta();
+    ASSERT_TRUE(rowset_meta->has_variant_schema_hash());
+    ASSERT_TRUE(rowset_meta->has_variant_schema_representatives());
+    const auto& representatives = rowset_meta->variant_schema_representatives();
+    ASSERT_EQ(representatives.size(), 1);
+    EXPECT_EQ(representatives[0].segment_id(), 0);
+
+    auto cloud_meta = cloud::doris_rowset_meta_to_cloud(rowset_meta->get_rowset_pb());
+    ASSERT_EQ(cloud_meta.variant_schema_representatives_size(), 1);
+    EXPECT_EQ(cloud_meta.variant_schema_representatives(0).segment_id(), 0);
+    EXPECT_FALSE(cloud_meta.variant_schema_representatives(0).has_schema_hash_lo());
+    EXPECT_FALSE(cloud_meta.variant_schema_representatives(0).has_schema_hash_hi());
+}
+
+TEST_F(VariantColumnWriterReaderTest, test_variant_describe_metadata_skipped_for_sparse_fast_path) {
+    init_variant_tablet(41007, 1);
+
+    auto rowset = create_variant_rowset({{R"({"a": 1})"}, {R"({"a": 2, "b": "x"})"}}, 11, 10);
+    ASSERT_EQ(rowset->num_segments(), 2);
+    auto rowset_meta = rowset->rowset_meta();
+    EXPECT_FALSE(rowset_meta->has_variant_schema_hash());
+    EXPECT_FALSE(rowset_meta->has_variant_schema_representatives());
+
+    auto schema = variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
+            {rowset}, _tablet_schema);
+    ASSERT_NE(schema, nullptr);
+    const auto fallback_names = collect_variant_subcolumn_names(schema);
+    EXPECT_TRUE(fallback_names.count("v1.a") != 0);
+
+    rowset_meta->clear_variant_schema_metadata();
+    auto full_scan_schema = variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
+            {rowset}, _tablet_schema);
+    ASSERT_NE(full_scan_schema, nullptr);
+    EXPECT_EQ(fallback_names, collect_variant_subcolumn_names(full_scan_schema));
+}
+
+TEST_F(VariantColumnWriterReaderTest,
+       test_variant_describe_rowset_schema_hash_is_segment_order_insensitive) {
+    init_variant_tablet(41003, 10);
+
+    auto rowset_ab = create_variant_rowset({{R"({"a": 1})"}, {R"({"b": "x"})"}}, 4, 10);
+    auto rowset_ba = create_variant_rowset({{R"({"b": "x"})"}, {R"({"a": 1})"}}, 5, 10);
+
+    ASSERT_TRUE(rowset_ab->rowset_meta()->has_variant_schema_representatives());
+    ASSERT_TRUE(rowset_ba->rowset_meta()->has_variant_schema_representatives());
+    const auto hash_ab = rowset_ab->rowset_meta()->variant_schema_hash();
+    const auto hash_ba = rowset_ba->rowset_meta()->variant_schema_hash();
+    EXPECT_EQ(hash_ab.first, hash_ba.first);
+    EXPECT_EQ(hash_ab.second, hash_ba.second);
+
+    const auto& representatives_ab = rowset_ab->rowset_meta()->variant_schema_representatives();
+    const auto& representatives_ba = rowset_ba->rowset_meta()->variant_schema_representatives();
+    ASSERT_EQ(representatives_ab.size(), 2);
+    ASSERT_EQ(representatives_ba.size(), 2);
+    EXPECT_EQ(representatives_ab[0].segment_id(), 0);
+    EXPECT_EQ(representatives_ab[1].segment_id(), 1);
+    EXPECT_EQ(representatives_ba[0].segment_id(), 0);
+    EXPECT_EQ(representatives_ba[1].segment_id(), 1);
+
+    auto rowset_field_ab = create_variant_rowset({{R"({"a": 1, "b": "x"})"}}, 13, 10);
+    auto rowset_field_ba = create_variant_rowset({{R"({"b": "x", "a": 1})"}}, 14, 10);
+    ASSERT_TRUE(rowset_field_ab->rowset_meta()->has_variant_schema_representatives());
+    ASSERT_TRUE(rowset_field_ba->rowset_meta()->has_variant_schema_representatives());
+    const auto hash_field_ab = rowset_field_ab->rowset_meta()->variant_schema_hash();
+    const auto hash_field_ba = rowset_field_ba->rowset_meta()->variant_schema_hash();
+    EXPECT_EQ(hash_field_ab.first, hash_field_ba.first);
+    EXPECT_EQ(hash_field_ab.second, hash_field_ba.second);
+    EXPECT_EQ(rowset_field_ab->rowset_meta()->variant_schema_representatives().size(), 1);
+    EXPECT_EQ(rowset_field_ba->rowset_meta()->variant_schema_representatives().size(), 1);
+}
+
+TEST_F(VariantColumnWriterReaderTest,
+       test_variant_describe_dedups_rowsets_with_different_json_key_order) {
+    struct DebugPointGuard {
+        DebugPointGuard() : old_enable_debug_points(config::enable_debug_points) {
+            config::enable_debug_points = true;
+            DebugPoints::instance()->clear();
+        }
+
+        ~DebugPointGuard() {
+            DebugPoints::instance()->clear();
+            config::enable_debug_points = old_enable_debug_points;
+        }
+
+        bool old_enable_debug_points;
+    } guard;
+
+    init_variant_tablet(41009, 10);
+
+    std::vector<RowsetSharedPtr> rowsets;
+    rowsets.push_back(create_variant_rowset({{R"({"a": 1, "b": "x"})"}}, 15, 10));
+    rowsets.push_back(create_variant_rowset({{R"({"b": "y", "a": 2})"}}, 16, 10));
+
+    const auto hash_ab = rowsets[0]->rowset_meta()->variant_schema_hash();
+    const auto hash_ba = rowsets[1]->rowset_meta()->variant_schema_hash();
+    ASSERT_EQ(hash_ab.first, hash_ba.first);
+    ASSERT_EQ(hash_ab.second, hash_ba.second);
+
+    constexpr std::string_view debug_point =
+            "VariantCompactionUtil.calculate_variant_extended_schema.check_scan_segments";
+    DebugPoints::instance()->add_with_params(
+            std::string(debug_point), {{"selected_rowsets", "1"}, {"selected_segments", "1"}});
+
+    auto schema = variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
+            rowsets, _tablet_schema);
+    ASSERT_NE(schema, nullptr);
+    const auto names = collect_variant_subcolumn_names(schema);
+    EXPECT_TRUE(names.count("v1.a") != 0);
+    EXPECT_TRUE(names.count("v1.b") != 0);
+}
+
+TEST_F(VariantColumnWriterReaderTest,
+       test_variant_describe_representative_fast_path_matches_full_scan) {
+    init_variant_tablet(41004, 10);
+
+    std::vector<RowsetSharedPtr> rowsets;
+    rowsets.push_back(
+            create_variant_rowset({{R"({"a": 1})"}, {R"({"b": "x"})"}, {R"({"a": 2})"}}, 6, 10));
+    rowsets.push_back(create_variant_rowset({{R"({"a": 3})"}, {R"({"b": "y"})"}}, 7, 10));
+
+    auto fast_schema = variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
+            rowsets, _tablet_schema);
+    ASSERT_NE(fast_schema, nullptr);
+    auto fast_names = collect_variant_subcolumn_names(fast_schema);
+    EXPECT_TRUE(fast_names.count("v1.a") != 0);
+    EXPECT_TRUE(fast_names.count("v1.b") != 0);
+
+    for (const auto& rowset : rowsets) {
+        rowset->rowset_meta()->clear_variant_schema_metadata();
+    }
+    auto full_scan_schema = variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
+            rowsets, _tablet_schema);
+    ASSERT_NE(full_scan_schema, nullptr);
+    EXPECT_EQ(fast_names, collect_variant_subcolumn_names(full_scan_schema));
+}
+
+TEST_F(VariantColumnWriterReaderTest, test_variant_describe_debug_point_checks_selected_segments) {
+    struct DebugPointGuard {
+        DebugPointGuard() : old_enable_debug_points(config::enable_debug_points) {
+            config::enable_debug_points = true;
+            DebugPoints::instance()->clear();
+        }
+
+        ~DebugPointGuard() {
+            DebugPoints::instance()->clear();
+            config::enable_debug_points = old_enable_debug_points;
+        }
+
+        bool old_enable_debug_points;
+    } guard;
+
+    init_variant_tablet(41006, 10);
+
+    std::vector<RowsetSharedPtr> rowsets;
+    rowsets.push_back(
+            create_variant_rowset({{R"({"a": 1})"}, {R"({"b": "x"})"}, {R"({"a": 2})"}}, 9, 10));
+    rowsets.push_back(create_variant_rowset({{R"({"a": 3})"}, {R"({"b": "y"})"}}, 10, 10));
+
+    constexpr std::string_view debug_point =
+            "VariantCompactionUtil.calculate_variant_extended_schema.check_scan_segments";
+    DebugPoints::instance()->add_with_params(
+            std::string(debug_point), {{"selected_rowsets", "1"}, {"selected_segments", "2"}});
+
+    auto schema = variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
+            rowsets, _tablet_schema);
+    ASSERT_NE(schema, nullptr);
+    auto names = collect_variant_subcolumn_names(schema);
+    EXPECT_TRUE(names.count("v1.a") != 0);
+    EXPECT_TRUE(names.count("v1.b") != 0);
+
+    DebugPoints::instance()->add_with_params(
+            std::string(debug_point), {{"selected_rowsets", "2"}, {"selected_segments", "4"}});
+    auto mismatched_schema = variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
+            rowsets, _tablet_schema);
+    ASSERT_NE(mismatched_schema, nullptr);
+    EXPECT_TRUE(collect_variant_subcolumn_names(mismatched_schema).empty());
+}
+
+TEST_F(VariantColumnWriterReaderTest,
+       test_variant_describe_fallback_for_malformed_representatives) {
+    init_variant_tablet(41005, 10);
+
+    auto rowset = create_variant_rowset({{R"({"a": 1})"}, {R"({"b": "x"})"}}, 8, 10);
+    auto rowset_meta = rowset->rowset_meta();
+    ASSERT_TRUE(rowset_meta->has_variant_schema_representatives());
+    const auto rowset_hash = rowset_meta->variant_schema_hash();
+
+    auto expect_full_scan_result = [&]() {
+        auto schema = variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
+                {rowset}, _tablet_schema);
+        ASSERT_NE(schema, nullptr);
+        const auto names = collect_variant_subcolumn_names(schema);
+        EXPECT_TRUE(names.count("v1.a") != 0);
+        EXPECT_TRUE(names.count("v1.b") != 0);
+    };
+
+    rowset_meta->clear_variant_schema_metadata();
+    rowset_meta->add_variant_schema_representative(0);
+    expect_full_scan_result();
+
+    rowset_meta->clear_variant_schema_metadata();
+    rowset_meta->set_variant_schema_hash(rowset_hash.first, rowset_hash.second);
+    expect_full_scan_result();
+
+    RowsetMetaPB missing_hi = rowset_meta->get_rowset_pb();
+    missing_hi.set_variant_schema_hash_lo(rowset_hash.first);
+    missing_hi.clear_variant_schema_hash_hi();
+    missing_hi.clear_variant_schema_representatives();
+    missing_hi.add_variant_schema_representatives()->set_segment_id(0);
+    ASSERT_TRUE(rowset_meta->init_from_pb(missing_hi));
+    expect_full_scan_result();
+
+    RowsetMetaPB missing_lo = rowset_meta->get_rowset_pb();
+    missing_lo.clear_variant_schema_hash_lo();
+    missing_lo.set_variant_schema_hash_hi(rowset_hash.second);
+    missing_lo.clear_variant_schema_representatives();
+    missing_lo.add_variant_schema_representatives()->set_segment_id(0);
+    ASSERT_TRUE(rowset_meta->init_from_pb(missing_lo));
+    expect_full_scan_result();
+
+    RowsetMetaPB incomplete_representative = rowset_meta->get_rowset_pb();
+    incomplete_representative.set_variant_schema_hash_lo(rowset_hash.first);
+    incomplete_representative.set_variant_schema_hash_hi(rowset_hash.second);
+    incomplete_representative.clear_variant_schema_representatives();
+    incomplete_representative.add_variant_schema_representatives();
+    ASSERT_TRUE(rowset_meta->init_from_pb(incomplete_representative));
+    expect_full_scan_result();
+
+    rowset_meta->clear_variant_schema_metadata();
+    rowset_meta->set_variant_schema_hash(rowset_hash.first, rowset_hash.second);
+    rowset_meta->add_variant_schema_representative(static_cast<int32_t>(rowset->num_segments()));
+    expect_full_scan_result();
+
+    rowset_meta->clear_variant_schema_metadata();
+    rowset_meta->set_variant_schema_hash(rowset_hash.first, rowset_hash.second);
+    rowset_meta->add_variant_schema_representative(0);
+    rowset_meta->add_variant_schema_representative(0);
+    expect_full_scan_result();
 }
 
 TEST_F(VariantColumnWriterReaderTest,
