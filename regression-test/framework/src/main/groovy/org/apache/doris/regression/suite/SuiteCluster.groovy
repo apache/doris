@@ -74,6 +74,9 @@ class ClusterOptions {
     // environment variables, each environment should be 'name=value'
     List<String> environments = []
 
+    // cloud store overrides for cloud docker clusters, each item should be 'name=value'
+    List<String> cloudStoreConfigs = []
+
     boolean connectToFollower = false
 
     // 1. cloudMode = true, only create cloud cluster.
@@ -376,6 +379,10 @@ class SuiteCluster {
             cmd += ['--env']
             cmd += options.environments
         }
+        if (!options.cloudStoreConfigs.isEmpty()) {
+            cmd += ['--cloud-config']
+            cmd += options.cloudStoreConfigs
+        }
         if (config.dockerCoverageOutputDir != null && config.dockerCoverageOutputDir != '') {
             cmd += ['--coverage-dir', config.dockerCoverageOutputDir]
         }
@@ -670,6 +677,18 @@ class SuiteCluster {
     }
 
     // indices start from 1, not 0
+    // if not specific meta-service indices, then start all meta services
+    void startMetaServices(int... indices) {
+        runMsCmd(START_WAIT_TIMEOUT + 5, "start  --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
+    }
+
+    // indices start from 1, not 0
+    // if not specific recycler indices, then start all recyclers
+    void startRecyclers(int... indices) {
+        runRecyclerCmd(START_WAIT_TIMEOUT + 5, "start  --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
+    }
+
+    // indices start from 1, not 0
     // if not specific fe indices, then stop all frontends
     void stopFrontends(int... indices) {
         runFrontendsCmd(STOP_WAIT_TIMEOUT + 5, "stop --wait-timeout ${STOP_WAIT_TIMEOUT}".toString(), indices)
@@ -680,6 +699,20 @@ class SuiteCluster {
     // if not specific be indices, then stop all backends
     void stopBackends(int... indices) {
         runBackendsCmd(STOP_WAIT_TIMEOUT + 5, "stop --wait-timeout ${STOP_WAIT_TIMEOUT}".toString(), indices)
+        waitHbChanged()
+    }
+
+    // indices start from 1, not 0
+    // if not specific meta-service indices, then stop all meta services
+    void stopMetaServices(int... indices) {
+        runMsCmd(STOP_WAIT_TIMEOUT + 5, "stop --wait-timeout ${STOP_WAIT_TIMEOUT}".toString(), indices)
+        waitHbChanged()
+    }
+
+    // indices start from 1, not 0
+    // if not specific recycler indices, then stop all recyclers
+    void stopRecyclers(int... indices) {
+        runRecyclerCmd(STOP_WAIT_TIMEOUT + 5, "stop --wait-timeout ${STOP_WAIT_TIMEOUT}".toString(), indices)
         waitHbChanged()
     }
 
