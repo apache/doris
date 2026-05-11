@@ -56,7 +56,7 @@ public class MultiDistinctSum extends NullableAggregateFunction implements Unary
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = child().getDataType();
+        DataType argType = getArgument(0).getDataType();
         if ((!argType.isNumericType() && !argType.isBooleanType() && !argType.isNullType())
                 || argType.isOnlyMetricType()) {
             throw new AnalysisException("sum requires a numeric or boolean parameter: " + this.toSql());

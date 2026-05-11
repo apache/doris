@@ -49,10 +49,10 @@ public class StructElement extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (!(child(0).getDataType() instanceof StructType)) {
+        if (!(getArgument(0).getDataType() instanceof StructType)) {
             SearchSignature.throwCanNotFoundFunctionException(this.getName(), this.getArguments());
         }
-        if (!(child(1) instanceof StringLikeLiteral || child(1) instanceof IntegerLikeLiteral)) {
+        if (!(getArgument(1) instanceof StringLikeLiteral || getArgument(1) instanceof IntegerLikeLiteral)) {
             throw new AnalysisException("struct_element only allows"
                     + " constant int or string second parameter: " + this.toSql());
         }
@@ -74,17 +74,17 @@ public class StructElement extends ScalarFunction
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        StructType structArgType = (StructType) child(0).getDataType();
+        StructType structArgType = (StructType) getArgument(0).getDataType();
         DataType retType;
-        if (child(1) instanceof IntegerLikeLiteral) {
-            int offset = ((IntegerLikeLiteral) child(1)).getIntValue();
+        if (getArgument(1) instanceof IntegerLikeLiteral) {
+            int offset = ((IntegerLikeLiteral) getArgument(1)).getIntValue();
             if (offset <= 0 || offset > structArgType.getFields().size()) {
                 throw new AnalysisException("the specified field index out of bound: " + this.toSql());
             } else {
                 retType = structArgType.getFields().get(offset - 1).getDataType();
             }
-        } else if (child(1) instanceof StringLikeLiteral) {
-            String name = ((StringLikeLiteral) child(1)).getStringValue();
+        } else if (getArgument(1) instanceof StringLikeLiteral) {
+            String name = ((StringLikeLiteral) getArgument(1)).getStringValue();
             if (!structArgType.getNameToFields().containsKey(name)) {
                 throw new AnalysisException("the specified field name " + name + " was not found: " + this.toSql());
             } else {
@@ -94,6 +94,6 @@ public class StructElement extends ScalarFunction
             throw new AnalysisException("struct_element only allows"
                     + " constant int or string second parameter: " + this.toSql());
         }
-        return ImmutableList.of(FunctionSignature.ret(retType).args(structArgType, child(1).getDataType()));
+        return ImmutableList.of(FunctionSignature.ret(retType).args(structArgType, getArgument(1).getDataType()));
     }
 }

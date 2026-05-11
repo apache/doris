@@ -52,7 +52,7 @@ public class ArraySort extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = child().getDataType();
+        DataType argType = getArgument(0).getDataType();
         if (((ArrayType) argType).getItemType().isComplexType()) {
             throw new AnalysisException("array_sort does not support complex types: " + toSql());
         }

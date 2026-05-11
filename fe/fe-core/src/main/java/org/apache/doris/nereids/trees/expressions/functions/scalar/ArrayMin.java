@@ -53,7 +53,7 @@ public class ArrayMin extends ScalarFunction implements ExplicitlyCastableSignat
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = child().getDataType();
+        DataType argType = getArgument(0).getDataType();
         if (((ArrayType) argType).getItemType().isComplexType()) {
             throw new AnalysisException("array_min does not support complex types: " + toSql());
         }
