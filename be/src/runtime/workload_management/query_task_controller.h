@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <atomic>
+
 #include "common/factory_creator.h"
 #include "runtime/workload_management/task_controller.h"
 
@@ -46,11 +48,19 @@ public:
     size_t get_revocable_size() override;
     Status revoke_memory() override;
     std::vector<PipelineTask*> get_revocable_tasks() override;
+    // Expose task progress counters without leaking full QueryContext.
+    void add_total_task_num(int delta);
+    void inc_finished_task_num();
+    int get_total_task_num() const;
+    int get_finished_task_num() const;
 
 protected:
     QueryTaskController(const std::shared_ptr<QueryContext>& query_ctx) : query_ctx_(query_ctx) {}
 
     const std::weak_ptr<QueryContext> query_ctx_;
+    // Keep task progress counters in controller so they outlive QueryContext if needed.
+    std::atomic<int> _total_task_num {0};
+    std::atomic<int> _finished_task_num {0};
 };
 
 #include "common/compile_check_end.h"
