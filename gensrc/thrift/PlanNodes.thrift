@@ -992,13 +992,10 @@ struct TOlapScanNode {
   25: optional bool read_mor_as_dup
   // Read row binlog index instead of base index
   26: optional bool read_row_binlog
-  // Partition-id → tablet-id list mapping; used together with partition_boundaries
-  // for BE-side runtime filter partition pruning.
-  27: optional map<Types.TPartitionId, list<Types.TTabletId>> partition_to_tablets
   // Partition boundary descriptors for BE-side runtime filter partition pruning.
   // Only partitions that are candidates for pruning are included; partitions FE
   // does not want pruned (e.g. default catch-all) are omitted from this list.
-  28: optional list<TPartitionBoundary> partition_boundaries
+  27: optional list<TPartitionBoundary> partition_boundaries
 }
 
 struct TEqJoinCondition {
