@@ -398,9 +398,9 @@ StringRef JSONDataParser<ParserImpl>::getNameOfNested(const PathInData::Parts& p
         return {};
     }
     /// Find first key that is marked as nested,
-    /// because we may have tuple of Nested and there could be
+    /// because we may have struct of Nested and there could be
     /// several arrays with the same prefix, but with independent sizes.
-    /// Consider we have array element with type `k2 Tuple(k3 Nested(...), k5 Nested(...))`
+    /// Consider we have array element with type `k2 Struct(k3 Nested(...), k5 Nested(...))`
     /// Then subcolumns `k2.k3` and `k2.k5` may have indepented sizes and we should extract
     /// `k3` and `k5` keys instead of `k2`.
     for (const auto& part : path) {
