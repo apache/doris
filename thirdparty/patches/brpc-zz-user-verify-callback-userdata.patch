@@ -1,0 +1,225 @@
+diff --git a/src/brpc/ssl_options.h b/src/brpc/ssl_options.h
+--- a/src/brpc/ssl_options.h
++++ b/src/brpc/ssl_options.h
+@@ -22,6 +22,12 @@
+ #include <string>
+ #include <vector>
+
++struct x509_store_ctx_st;
++
+ namespace brpc {
+
++typedef int (*SSLVerifyCallback)(int preverify_ok,
++                                 x509_store_ctx_st* store_ctx,
++                                 void* userdata);
++
+ struct CertInfo {
+@@ -62,2 +62,9 @@
+    std::string ca_file_path;
++
++    // Optional user verify callback invoked during handshake.
++    // Return 1 to continue, 0 to fail.
++    SSLVerifyCallback verify_callback;
++
++    // Opaque pointer passed to verify_callback.
++    void* verify_userdata;
+ };
+diff --git a/src/brpc/ssl_options.cpp b/src/brpc/ssl_options.cpp
+--- a/src/brpc/ssl_options.cpp
++++ b/src/brpc/ssl_options.cpp
+@@ -23,1 +23,4 @@
+-VerifyOptions::VerifyOptions() : verify_depth(0) {}
++VerifyOptions::VerifyOptions()
++    : verify_depth(0)
++    , verify_callback(NULL)
++    , verify_userdata(NULL) {}
+diff --git a/src/brpc/details/ssl_helper.cpp b/src/brpc/details/ssl_helper.cpp
+--- a/src/brpc/details/ssl_helper.cpp
++++ b/src/brpc/details/ssl_helper.cpp
+@@ -51,4 +51,70 @@ static bool IsPemString(const std::string& input) {
+     return false;
+ }
+
++struct VerifyCallbackWrapper {
++    SSLVerifyCallback callback;
++    void* userdata;
++};
++
++static void FreeVerifyCallbackWrapper(void* parent, void* ptr,
++                                      CRYPTO_EX_DATA* ad, int idx,
++                                      long argl, void* argp) {
++    delete static_cast<VerifyCallbackWrapper*>(ptr);
++}
++
++static int GetVerifyCallbackWrapperIndex() {
++    static int index = SSL_CTX_get_ex_new_index(
++            0, const_cast<char*>("brpc_ssl_verify_cb"),
++            NULL, NULL, FreeVerifyCallbackWrapper);
++    return index;
++}
++
++static VerifyCallbackWrapper* GetVerifyCallbackWrapper(SSL_CTX* ctx) {
++    const int index = GetVerifyCallbackWrapperIndex();
++    if (index < 0) {
++        return NULL;
++    }
++    return static_cast<VerifyCallbackWrapper*>(SSL_CTX_get_ex_data(ctx, index));
++}
++
++static int SetVerifyCallbackWrapper(SSL_CTX* ctx,
++                                    SSLVerifyCallback callback,
++                                    void* userdata) {
++    const int index = GetVerifyCallbackWrapperIndex();
++    if (index < 0) {
++        LOG(ERROR) << "Fail to get SSL_CTX ex data index for verify callback";
++        return -1;
++    }
++    VerifyCallbackWrapper* wrapper = new (std::nothrow) VerifyCallbackWrapper();
++    if (wrapper == NULL) {
++        LOG(ERROR) << "Fail to allocate verify callback wrapper";
++        return -1;
++    }
++    wrapper->callback = callback;
++    wrapper->userdata = userdata;
++    if (SSL_CTX_set_ex_data(ctx, index, wrapper) != 1) {
++        delete wrapper;
++        LOG(ERROR) << "Fail to set SSL_CTX ex data for verify callback";
++        return -1;
++    }
++    return 0;
++}
++
++static int SSLVerifyCallbackProxy(int preverify_ok, X509_STORE_CTX* store_ctx) {
++    SSL* ssl = static_cast<SSL*>(X509_STORE_CTX_get_ex_data(
++            store_ctx, SSL_get_ex_data_X509_STORE_CTX_idx()));
++    if (ssl == NULL) {
++        return preverify_ok;
++    }
++    SSL_CTX* ctx = SSL_get_SSL_CTX(ssl);
++    if (ctx == NULL) {
++        return preverify_ok;
++    }
++    VerifyCallbackWrapper* wrapper = GetVerifyCallbackWrapper(ctx);
++    if (wrapper == NULL || wrapper->callback == NULL) {
++        return preverify_ok;
++    }
++    return wrapper->callback(preverify_ok, store_ctx, wrapper->userdata);
++}
++
+ const char* SSLStateToString(SSLState s) {
+@@ -413,4 +479,11 @@ static int SetSSLOptions(SSL_CTX* ctx, const std::string& ciphers,
+     // TODO: Verify the CNAME in certificate matches the requesting host
+     if (verify.verify_depth > 0) {
+-        SSL_CTX_set_verify(ctx, (SSL_VERIFY_PEER
+-                                 | SSL_VERIFY_FAIL_IF_NO_PEER_CERT), NULL);
++        const int verify_mode = SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
++        int (*verify_cb)(int, X509_STORE_CTX*) = NULL;
++        if (verify.verify_callback != NULL) {
++            if (SetVerifyCallbackWrapper(ctx, verify.verify_callback,
++                                         verify.verify_userdata) != 0) {
++                return -1;
++            }
++            verify_cb = SSLVerifyCallbackProxy;
++        }
++        SSL_CTX_set_verify(ctx, verify_mode, verify_cb);
++        SSL_CTX_set_verify_depth(ctx, verify.verify_depth);
+
+ diff --git a/src/brpc/details/mesalink_ssl_helper.cpp b/src/brpc/details/mesalink_ssl_helper.cpp
+--- a/src/brpc/details/mesalink_ssl_helper.cpp
++++ b/src/brpc/details/mesalink_ssl_helper.cpp
+@@ -45,4 +45,70 @@ static bool IsPemString(const std::string& input) {
+     return false;
+ }
+
++struct VerifyCallbackWrapper {
++    SSLVerifyCallback callback;
++    void* userdata;
++};
++
++static void FreeVerifyCallbackWrapper(void* parent, void* ptr,
++                                      CRYPTO_EX_DATA* ad, int idx,
++                                      long argl, void* argp) {
++    delete static_cast<VerifyCallbackWrapper*>(ptr);
++}
++
++static int GetVerifyCallbackWrapperIndex() {
++    static int index = SSL_CTX_get_ex_new_index(
++            0, const_cast<char*>("brpc_ssl_verify_cb"),
++            NULL, NULL, FreeVerifyCallbackWrapper);
++    return index;
++}
++
++static VerifyCallbackWrapper* GetVerifyCallbackWrapper(SSL_CTX* ctx) {
++    const int index = GetVerifyCallbackWrapperIndex();
++    if (index < 0) {
++        return NULL;
++    }
++    return static_cast<VerifyCallbackWrapper*>(SSL_CTX_get_ex_data(ctx, index));
++}
++
++static int SetVerifyCallbackWrapper(SSL_CTX* ctx,
++                                    SSLVerifyCallback callback,
++                                    void* userdata) {
++    const int index = GetVerifyCallbackWrapperIndex();
++    if (index < 0) {
++        LOG(ERROR) << "Fail to get SSL_CTX ex data index for verify callback";
++        return -1;
++    }
++    VerifyCallbackWrapper* wrapper = new (std::nothrow) VerifyCallbackWrapper();
++    if (wrapper == NULL) {
++        LOG(ERROR) << "Fail to allocate verify callback wrapper";
++        return -1;
++    }
++    wrapper->callback = callback;
++    wrapper->userdata = userdata;
++    if (SSL_CTX_set_ex_data(ctx, index, wrapper) != 1) {
++        delete wrapper;
++        LOG(ERROR) << "Fail to set SSL_CTX ex data for verify callback";
++        return -1;
++    }
++    return 0;
++}
++
++static int SSLVerifyCallbackProxy(int preverify_ok, X509_STORE_CTX* store_ctx) {
++    SSL* ssl = static_cast<SSL*>(X509_STORE_CTX_get_ex_data(
++            store_ctx, SSL_get_ex_data_X509_STORE_CTX_idx()));
++    if (ssl == NULL) {
++        return preverify_ok;
++    }
++    SSL_CTX* ctx = SSL_get_SSL_CTX(ssl);
++    if (ctx == NULL) {
++        return preverify_ok;
++    }
++    VerifyCallbackWrapper* wrapper = GetVerifyCallbackWrapper(ctx);
++    if (wrapper == NULL || wrapper->callback == NULL) {
++        return preverify_ok;
++    }
++    return wrapper->callback(preverify_ok, store_ctx, wrapper->userdata);
++}
++
+ const char* SSLStateToString(SSLState s) {
+@@ -243,3 +309,10 @@ static int SetSSLOptions(SSL_CTX* ctx, const std::string& ciphers,
+     if (verify.verify_depth > 0) {
+-        SSL_CTX_set_verify(ctx, (SSL_VERIFY_PEER
+-                                 | SSL_VERIFY_FAIL_IF_NO_PEER_CERT), NULL);
++        const int verify_mode = SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
++        if (verify.verify_callback != NULL) {
++            if (SetVerifyCallbackWrapper(ctx, verify.verify_callback,
++                                         verify.verify_userdata) != 0) {
++                return -1;
++            }
++            SSL_CTX_set_verify(ctx, verify_mode, SSLVerifyCallbackProxy);
++        } else {
++            SSL_CTX_set_verify(ctx, verify_mode, NULL);
++        }
+    } else {
+        SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL);
+    }
+
+diff --git a/src/brpc/details/ssl_helper.h b/src/brpc/details/ssl_helper.h
+--- a/src/brpc/details/ssl_helper.h
++++ b/src/brpc/details/ssl_helper.h
+@@ -22,1 +22,2 @@
+-#include <string.h>
++#include <new>
++#include <string.h>
