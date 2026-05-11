@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <memory>
 #include <mutex>
 #include <shared_mutex>
 #include <unordered_map>
@@ -93,8 +94,10 @@ public:
     // `direction` is the FE-side cumulative monotonicity. `ctx` is the
     // conjunct's VExprContext (used to execute the sub-expression).
     //
-    // Returns nullptr if projection is unsupported (e.g. non-RANGE partition,
-    // unsupported primitive type) -- caller then skips this RF.
+    // Returns an empty vector if projection is unsupported (e.g. non-RANGE
+    // partition, unsupported primitive type) -- caller then skips this RF.
+    // The shared_ptr keeps the cached vector alive even if another pipeline
+    // instance inserts into the shared cache and triggers unordered_map rehash.
     //
     // Direction:
     //   MONOTONIC_INCREASING: projected lo and hi keep their roles
@@ -103,7 +106,7 @@ public:
     // NULL: any input value that projects to NULL marks
     //   null_in_projection=true; the existing _try_prune_by_single_rf
     //   conservatively keeps the partition.
-    const std::vector<ParsedBoundary>* get_or_compute_projection(
+    std::shared_ptr<const std::vector<ParsedBoundary>> get_or_compute_projection(
             int filter_id, const VExprSPtr& target_expr, SlotId leaf_slot_id, int leaf_column_id,
             TTargetExprMonotonicity::type direction, VExprContext* ctx) const;
 
@@ -114,7 +117,9 @@ private:
     std::unordered_map<SlotId, DataTypePtr> _slot_data_types;
 
     mutable std::mutex _projection_cache_mutex;
-    mutable std::unordered_map<int /*filter_id*/, std::vector<ParsedBoundary>> _projection_cache;
+    mutable std::unordered_map<int /*filter_id*/,
+                               std::shared_ptr<const std::vector<ParsedBoundary>>>
+            _projection_cache;
 };
 
 // Per-instance pruning state for runtime-filter partition pruning.

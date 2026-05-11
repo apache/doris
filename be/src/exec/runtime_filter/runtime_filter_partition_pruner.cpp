@@ -218,39 +218,41 @@ static const VSlotRef* find_unique_slot_ref(const VExpr* expr) {
 }
 
 // NOLINTBEGIN(readability-function-cognitive-complexity,readability-function-size)
-const std::vector<ParsedBoundary>* ParsedPartitionBoundaries::get_or_compute_projection(
-        int filter_id, const VExprSPtr& target_expr, SlotId leaf_slot_id, int leaf_column_id,
-        TTargetExprMonotonicity::type direction, VExprContext* ctx) const {
+std::shared_ptr<const std::vector<ParsedBoundary>>
+ParsedPartitionBoundaries::get_or_compute_projection(int filter_id, const VExprSPtr& target_expr,
+                                                     SlotId leaf_slot_id, int leaf_column_id,
+                                                     TTargetExprMonotonicity::type direction,
+                                                     VExprContext* ctx) const {
     {
         std::lock_guard<std::mutex> lock(_projection_cache_mutex);
         auto it = _projection_cache.find(filter_id);
         if (it != _projection_cache.end()) {
-            return &it->second;
+            return it->second;
         }
     }
 
     // Build projection
     std::vector<ParsedBoundary> projected;
+    auto cache_projection = [&](std::vector<ParsedBoundary>&& boundaries) {
+        auto cached = std::make_shared<const std::vector<ParsedBoundary>>(std::move(boundaries));
+        std::lock_guard<std::mutex> lock(_projection_cache_mutex);
+        auto [it, inserted] = _projection_cache.emplace(filter_id, cached);
+        return inserted ? cached : it->second;
+    };
 
     auto slot_boundaries_it = _slot_to_boundaries.find(leaf_slot_id);
     if (slot_boundaries_it == _slot_to_boundaries.end()) {
-        std::lock_guard<std::mutex> lock(_projection_cache_mutex);
-        _projection_cache[filter_id] = std::move(projected);
-        return &_projection_cache[filter_id];
+        return cache_projection(std::move(projected));
     }
 
     const auto& orig_boundaries = slot_boundaries_it->second;
     if (orig_boundaries.empty()) {
-        std::lock_guard<std::mutex> lock(_projection_cache_mutex);
-        _projection_cache[filter_id] = std::move(projected);
-        return &_projection_cache[filter_id];
+        return cache_projection(std::move(projected));
     }
 
     auto slot_type_it = _slot_data_types.find(leaf_slot_id);
     if (slot_type_it == _slot_data_types.end()) {
-        std::lock_guard<std::mutex> lock(_projection_cache_mutex);
-        _projection_cache[filter_id] = std::move(projected);
-        return &_projection_cache[filter_id];
+        return cache_projection(std::move(projected));
     }
 
     // LIST partitions: TODO(rf-partition-prune) -- projecting through a
@@ -262,9 +264,7 @@ const std::vector<ParsedBoundary>* ParsedPartitionBoundaries::get_or_compute_pro
         std::visit([&](const auto& cvr) { any_list = cvr.is_fixed_value_range(); },
                    orig_boundaries[0].boundary_cvr);
         if (any_list) {
-            std::lock_guard<std::mutex> lock(_projection_cache_mutex);
-            _projection_cache[filter_id] = std::move(projected);
-            return &_projection_cache[filter_id];
+            return cache_projection(std::move(projected));
         }
     }
 
@@ -388,9 +388,7 @@ const std::vector<ParsedBoundary>* ParsedPartitionBoundaries::get_or_compute_pro
 #undef BUILD_INPUT_COLUMNS
 
     if (!input_built) {
-        std::lock_guard<std::mutex> lock(_projection_cache_mutex);
-        _projection_cache[filter_id] = std::move(projected);
-        return &_projection_cache[filter_id];
+        return cache_projection(std::move(projected));
     }
 
     int lo_result_id = -1;
@@ -398,9 +396,7 @@ const std::vector<ParsedBoundary>* ParsedPartitionBoundaries::get_or_compute_pro
     auto status_lo = target_expr->execute(ctx, &lo_block, &lo_result_id);
     auto status_hi = target_expr->execute(ctx, &hi_block, &hi_result_id);
     if (!status_lo.ok() || !status_hi.ok() || lo_result_id < 0 || hi_result_id < 0) {
-        std::lock_guard<std::mutex> lock(_projection_cache_mutex);
-        _projection_cache[filter_id] = std::move(projected);
-        return &_projection_cache[filter_id];
+        return cache_projection(std::move(projected));
     }
 
     const auto& lo_result_col = lo_block.get_by_position(lo_result_id).column;
@@ -479,9 +475,7 @@ const std::vector<ParsedBoundary>* ParsedPartitionBoundaries::get_or_compute_pro
 
 #undef BUILD_PROJECTED_CVR
 
-    std::lock_guard<std::mutex> lock(_projection_cache_mutex);
-    _projection_cache[filter_id] = std::move(projected);
-    return &_projection_cache[filter_id];
+    return cache_projection(std::move(projected));
 }
 // NOLINTEND(readability-function-cognitive-complexity,readability-function-size)
 
@@ -713,7 +707,7 @@ int64_t RuntimeFilterPartitionPruner::prune_by_runtime_filters(
             int leaf_column_id = leaf_slot->column_id();
             TTargetExprMonotonicity::type direction = mono_it->second;
 
-            const std::vector<ParsedBoundary>* projected =
+            auto projected =
                     parsed.get_or_compute_projection(filter_id, target_subtree, leaf_slot_id,
                                                      leaf_column_id, direction, conjunct_ctx.get());
 
