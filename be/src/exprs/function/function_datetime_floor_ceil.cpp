@@ -772,18 +772,13 @@ struct DateTimeFloorCeilCore {
         // For TimestampTzValue on date-based units, convert result from local time back to UTC
         if constexpr (need_tz_conversion) {
             if (result) {
-                cctz::civil_second local_result_cs(ts_res.year(), ts_res.month(), ts_res.day(),
-                                                   ts_res.hour(), ts_res.minute(), ts_res.second());
-                cctz::time_point<cctz::sys_seconds> local_tp = cctz::convert(local_result_cs, tz);
-                auto utc_result_cs = cctz::convert(local_tp, cctz::utc_time_zone());
-
-                ts_origin.unchecked_set_time(static_cast<uint16_t>(utc_result_cs.year()),
-                                             static_cast<uint8_t>(utc_result_cs.month()),
-                                             static_cast<uint8_t>(utc_result_cs.day()),
-                                             static_cast<uint8_t>(utc_result_cs.hour()),
-                                             static_cast<uint8_t>(utc_result_cs.minute()),
-                                             static_cast<uint8_t>(utc_result_cs.second()),
-                                             ts_res.microsecond());
+                DateV2Value<DateTimeV2ValueType> local_result(ts_res.to_date_int_val());
+                if constexpr (Flag::Unit == HOUR || Flag::Unit == MINUTE) {
+                    const int preferred_offset = ts_arg.utc_offset(tz);
+                    ts_origin.convert_local_to_utc(tz, local_result, preferred_offset);
+                } else {
+                    ts_origin.convert_local_to_utc(tz, local_result);
+                }
             }
         }
 

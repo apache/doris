@@ -24,12 +24,18 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.Objects;
 
 /**
@@ -168,6 +174,15 @@ public class TimestampTzLiteral extends DateTimeLiteral {
         if (targetType.isTimeStampTzType()) {
             return new TimestampTzLiteral((TimeStampTzType) targetType,
                     year, month, day, hour, minute, second, microSecond);
+        } else if (targetType.isCharType()) {
+            String desc = getStringValueInSessionTimeZone();
+            if (((CharType) targetType).getLen() >= desc.length()) {
+                return new CharLiteral(desc, ((CharType) targetType).getLen());
+            }
+        } else if (targetType.isVarcharType()) {
+            return new VarcharLiteral(getStringValueInSessionTimeZone(), ((VarcharType) targetType).getLen());
+        } else if (targetType instanceof StringType) {
+            return new StringLiteral(getStringValueInSessionTimeZone());
         } else if (targetType.isDateTimeV2Type()) {
             DateTimeV2Literal dtV2Lit = new DateTimeV2Literal((DateTimeV2Type) targetType,
                     year, month, day, hour, minute, second, microSecond);
@@ -178,6 +193,29 @@ public class TimestampTzLiteral extends DateTimeLiteral {
             return dtV2Lit;
         }
         throw new AnalysisException(String.format("Cast from %s to %s not supported", this, targetType));
+    }
+
+    private String getStringValueInSessionTimeZone() {
+        ZoneId sessionZone = DateUtils.getTimeZone();
+        ZonedDateTime localDateTime = toJavaDateType().atZone(ZoneId.of("UTC")).withZoneSameInstant(sessionZone);
+        String offset = localDateTime.getOffset().getId();
+        if ("Z".equals(offset)) {
+            offset = "+00:00";
+        }
+        return formatDateTime(localDateTime.toLocalDateTime()) + offset;
+    }
+
+    private String formatDateTime(LocalDateTime dateTime) {
+        String base = String.format("%04d-%02d-%02d %02d:%02d:%02d", dateTime.getYear(),
+                dateTime.getMonthValue(), dateTime.getDayOfMonth(), dateTime.getHour(),
+                dateTime.getMinute(), dateTime.getSecond());
+        int scale = getDataType().getScale();
+        if (scale <= 0) {
+            return base;
+        }
+        long scaledMicroSecond = (dateTime.getNano() / 1000)
+                / (int) Math.pow(10, TimeStampTzType.MAX_SCALE - scale);
+        return base + "." + String.format("%0" + scale + "d", scaledMicroSecond);
     }
 
     public Expression plusDays(long days) {
