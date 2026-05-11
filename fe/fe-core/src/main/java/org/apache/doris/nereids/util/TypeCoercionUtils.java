@@ -20,6 +20,7 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
@@ -476,10 +477,27 @@ public class TypeCoercionUtils {
         }
     }
 
+    /**
+     * Wrap {@code expression} in a cast to {@code targetType} when the source type can
+     * already be resolved (Literal, or any expression whose {@code getDataType()} does
+     * not throw {@link UnboundException}). For Literals, defers to
+     * {@link #castIfNotSameType}; for other resolvable expressions, validates the cast
+     * via {@link #checkCanCastTo} before constructing it. Used by INSERT VALUES so that
+     * illegal casts (e.g. {@code variant<config_A>} → {@code variant<config_B>}) are
+     * rejected at parse time instead of slipping past analysis and crashing BE.
+     * Truly unbound expressions are wrapped without validation; the normal analysis
+     * pipeline's CheckCast pass will validate them after binding.
+     */
     public static Expression castUnbound(Expression expression, DataType targetType) {
         if (expression instanceof Literal) {
             return TypeCoercionUtils.castIfNotSameType(expression, targetType);
         } else {
+            try {
+                checkCanCastTo(expression.getDataType(), targetType);
+            } catch (UnboundException e) {
+                // Source type not yet known (UnboundFunction, UnboundSlot, ...);
+                // CheckCast in the normal analysis pipeline validates after binding.
+            }
             return TypeCoercionUtils.unSafeCast(expression, targetType);
         }
     }
