@@ -65,10 +65,6 @@ public:
     const std::string& name() const { return _name; }
     const PathInDataPtr& path() const { return _path; }
 
-    virtual void set_to_max(char* buf) const { return _type_info->set_to_max(buf); }
-
-    virtual void set_to_min(char* buf) const { return _type_info->set_to_min(buf); }
-
     virtual StorageField* clone() const {
         auto* local = new StorageField(_desc);
         this->clone(local);
@@ -89,6 +85,8 @@ public:
     void full_encode_ascending(const void* value, std::string* buf) const {
         _key_coder->full_encode_ascending(value, buf);
     }
+
+    const KeyCoder* key_coder() const { return _key_coder; }
     void add_sub_field(std::unique_ptr<StorageField> sub_field) {
         _sub_fields.emplace_back(std::move(sub_field));
     }
@@ -173,12 +171,6 @@ public:
         StorageField::clone(local);
         return local;
     }
-
-    void set_to_max(char* ch) const override {
-        auto slice = reinterpret_cast<Slice*>(ch);
-        slice->size = _length;
-        memset(slice->data, 0xFF, slice->size);
-    }
 };
 
 class VarcharField : public StorageField {
@@ -190,12 +182,6 @@ public:
         StorageField::clone(local);
         return local;
     }
-
-    void set_to_max(char* ch) const override {
-        auto slice = reinterpret_cast<Slice*>(ch);
-        slice->size = _length - OLAP_VARCHAR_MAX_BYTES;
-        memset(slice->data, 0xFF, slice->size);
-    }
 };
 class StringField : public StorageField {
 public:
@@ -205,11 +191,6 @@ public:
         auto* local = new StringField(_desc);
         StorageField::clone(local);
         return local;
-    }
-
-    void set_to_max(char* ch) const override {
-        auto slice = reinterpret_cast<Slice*>(ch);
-        memset(slice->data, 0xFF, slice->size);
     }
 };
 

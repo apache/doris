@@ -27,6 +27,7 @@
 
 #include "CLucene/StdHeader.h"
 #include "CLucene/config/repl_wchar.h"
+#include "core/field.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
 #include "storage/compaction/base_compaction.h"
@@ -163,10 +164,6 @@ class IndexCompactionUtils {
 
         for (int i = 0; i < query_data.size(); i++) {
             Field param_value = Field::create_field<TYPE_INT>(int32_t(query_data[i]));
-            std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
-            EXPECT_TRUE(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
-                                PrimitiveType::TYPE_INT, &param_value, query_param)
-                                .ok());
             auto result = std::make_shared<roaring::Roaring>();
             OlapReaderStatistics stats;
 
@@ -174,7 +171,7 @@ class IndexCompactionUtils {
             context->stats = &stats;
 
             EXPECT_TRUE(idx_reader
-                                ->invoke_bkd_query(context, query_param->get_value(),
+                                ->invoke_bkd_query(context, param_value,
                                                    InvertedIndexQueryType::EQUAL_QUERY,
                                                    *bkd_searcher, result)
                                 .ok());
