@@ -57,7 +57,7 @@ suite("test_pythonudf_file_protocol") {
         // Test 3: Load float_test.py from zip package using file:// protocol
         sql """ DROP FUNCTION IF EXISTS py_file_float_process(FLOAT, FLOAT); """
         sql """
-        CREATE FUNCTION py_file_float_process(FLOAT, FLOAT) 
+        CREATE FUNCTION py_file_float_process(FLOAT, FLOAT)
         RETURNS FLOAT 
         PROPERTIES (
             "type" = "PYTHON_UDF",

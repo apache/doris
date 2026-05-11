@@ -121,6 +121,77 @@ class InlineFinishErrorUDAF:
             exception "inline_udaf_error_42"
         }
 
+        sql """ DROP FUNCTION IF EXISTS py_inline_raise_udaf_accumulate(INT); """
+        sql """
+        CREATE AGGREGATE FUNCTION py_inline_raise_udaf_accumulate(INT)
+        RETURNS BIGINT
+        PROPERTIES (
+            "type" = "PYTHON_UDF",
+            "symbol" = "InlineAccumulateErrorUDAF",
+            "runtime_version" = "${runtime_version}",
+            "always_nullable" = "true"
+        ) AS \$\$
+class InlineAccumulateErrorUDAF:
+    def __init__(self):
+        self.count = 0
+
+    @property
+    def aggregate_state(self):
+        return self.count
+
+    def accumulate(self, value):
+        if value == 2:
+            raise TypeError("inline_udaf_accumulate_error_42")
+        self.count += 1
+
+    def merge(self, other_state):
+        self.count += other_state
+
+    def finish(self):
+        return self.count
+\$\$;
+        """
+
+        test {
+            sql """ SELECT py_inline_raise_udaf_accumulate(val) FROM python_raise_error_test; """
+            exception "inline_udaf_accumulate_error_42"
+        }
+
+        sql """ DROP FUNCTION IF EXISTS py_inline_raise_udaf_merge(INT); """
+        sql """
+        CREATE AGGREGATE FUNCTION py_inline_raise_udaf_merge(INT)
+        RETURNS BIGINT
+        PROPERTIES (
+            "type" = "PYTHON_UDF",
+            "symbol" = "InlineMergeErrorUDAF",
+            "runtime_version" = "${runtime_version}",
+            "always_nullable" = "true"
+        ) AS \$\$
+class InlineMergeErrorUDAF:
+    def __init__(self):
+        self.count = 0
+
+    @property
+    def aggregate_state(self):
+        return self.count
+
+    def accumulate(self, value):
+        if value is not None:
+            self.count += 1
+
+    def merge(self, other_state):
+        raise TypeError("inline_udaf_merge_error_42")
+
+    def finish(self):
+        return self.count
+\$\$;
+        """
+
+        test {
+            sql """ SELECT py_inline_raise_udaf_merge(val) FROM python_raise_error_test; """
+            exception "inline_udaf_merge_error_42"
+        }
+
         sql """ DROP FUNCTION IF EXISTS py_module_raise_udaf(INT); """
         sql """
         CREATE AGGREGATE FUNCTION py_module_raise_udaf(INT)
@@ -188,6 +259,8 @@ def inline_raise_udtf(x):
         try_sql("DROP FUNCTION IF EXISTS py_inline_raise_udf(INT);")
         try_sql("DROP FUNCTION IF EXISTS py_module_raise_udf(INT);")
         try_sql("DROP FUNCTION IF EXISTS py_inline_raise_udaf(INT);")
+        try_sql("DROP FUNCTION IF EXISTS py_inline_raise_udaf_accumulate(INT);")
+        try_sql("DROP FUNCTION IF EXISTS py_inline_raise_udaf_merge(INT);")
         try_sql("DROP FUNCTION IF EXISTS py_module_raise_udaf(INT);")
         try_sql("DROP FUNCTION IF EXISTS py_inline_raise_udtf(INT);")
         try_sql("DROP FUNCTION IF EXISTS py_module_raise_udtf(INT);")
