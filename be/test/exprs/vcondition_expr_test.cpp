@@ -165,7 +165,7 @@ TEST_F(VConditionExprCoalesceTest, Float64_NaN_NotPolluteResult) {
     auto st = coalesce_expr->execute_column_impl(&context, /*block=*/nullptr,
                                                  /*selector=*/nullptr, /*count=*/2, result);
     ASSERT_TRUE(st.ok()) << st.to_string();
-    ASSERT_TRUE(result != nullptr);
+    ASSERT_TRUE(result.get() != nullptr);
     ASSERT_EQ(result->size(), 2);
 
     bool is_null = false;
