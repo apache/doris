@@ -183,15 +183,14 @@ void RowCursor::_encode_field(const StorageField* storage_field, const Field& f,
         return;
     }
 
+    // Non-string scalar keys are fixed-width; their KeyCoder::encode_ascending
+    // ignores `index_size` and delegates to full_encode_ascending, so the
+    // `full_encode` flag here is a no-op and we always call the full helper.
     const KeyCoder* coder = storage_field->key_coder();
     switch (ft) {
-#define CASE(FT, PT)                                                                            \
-    case FieldType::FT:                                                                         \
-        if (full_encode) {                                                                      \
-            full_encode_field_as_key<PrimitiveType::PT>(f, coder, buf);                         \
-        } else {                                                                                \
-            encode_field_as_key<PrimitiveType::PT>(f, coder, storage_field->index_size(), buf); \
-        }                                                                                       \
+#define CASE(FT, PT)                                                \
+    case FieldType::FT:                                             \
+        full_encode_field_as_key<PrimitiveType::PT>(f, coder, buf); \
         break;
         DORIS_APPLY_FOR_KEY_ENCODABLE_NON_STRING_TYPES(CASE)
 #undef CASE
