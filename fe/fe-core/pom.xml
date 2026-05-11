@@ -517,7 +517,7 @@ under the License.
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
-            <version>42.7.3</version>
+            <version>42.7.11</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
@@ -761,7 +761,7 @@ under the License.
         <dependency>
             <groupId>com.taobao.arthas</groupId>
             <artifactId>arthas-packaging</artifactId>
-            <version>4.0.5</version>
+            <version>4.1.9</version>
         </dependency>
         <dependency>
             <groupId>org.mockito</groupId>
