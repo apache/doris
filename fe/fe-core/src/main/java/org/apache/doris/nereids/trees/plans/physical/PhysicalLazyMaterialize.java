@@ -292,4 +292,8 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
     public List<Slot> getRowIds() {
         return rowIdList;
     }
+
+    public List<Slot> getLazySlots(Relation relation) {
+        return relationToLazySlotMap.getOrDefault(relation, ImmutableList.of());
+    }
 }

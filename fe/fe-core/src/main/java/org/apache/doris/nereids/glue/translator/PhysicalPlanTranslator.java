@@ -190,6 +190,7 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.nereids.util.RowStoreFetchChecker;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.AnalyticEvalNode;
@@ -2902,7 +2903,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         List<Boolean> rowStoreFlags = new ArrayList<>();
         for (Relation relation : materialize.getRelations()) {
-            rowStoreFlags.add(shouldUseRowStore(relation));
+            rowStoreFlags.add(shouldUseRowStore(relation, materialize.getLazySlots(relation)));
         }
         materializeNode.setRowStoreFlags(rowStoreFlags);
 
@@ -2915,14 +2916,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return inputPlanFragment;
     }
 
-    private boolean shouldUseRowStore(Relation rel) {
+    static boolean canUseRowStoreForLazySlots(List<Slot> lazySlots) {
+        return RowStoreFetchChecker.canUseRowStoreForLazySlots(lazySlots);
+    }
+
+    private boolean shouldUseRowStore(Relation rel, List<Slot> lazySlots) {
         boolean useRowStore = false;
         if (rel instanceof PhysicalOlapScan) {
             OlapTable olapTable = ((PhysicalOlapScan) rel).getTable();
             useRowStore = olapTable.storeRowColumn()
                     && CollectionUtils.isEmpty(olapTable.getTableProperty().getCopiedRowStoreColumns());
         }
-        return useRowStore;
+        return useRowStore && canUseRowStoreForLazySlots(lazySlots);
     }
 
     @Override
