@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
+import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -147,10 +148,19 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             return new DateTimeLiteral((DateTimeType) targetType, datetime.year, datetime.month, datetime.day,
                     datetime.hour, datetime.minute, datetime.second, datetime.microSecond);
         } else if (targetType.isTimeStampTzType()) {
+            // Explicit offsets must not round-trip through session local time; that loses the selected
+            // branch in DST fold hours. Wildcard targets still need a concrete scale before parsing.
+            TimeStampTzType timeStampTzType = (TimeStampTzType) targetType;
+            if (timeStampTzType.getScale() < 0) {
+                timeStampTzType = TimeStampTzType.forTypeFromString(value);
+            }
+            if (DateTimeChecker.hasTimeZone(value)) {
+                return new TimestampTzLiteral(timeStampTzType, value);
+            }
             DateTimeV2Literal expression = castToDateTime(DateTimeV2Type.MAX, strictCast, true);
             expression = (DateTimeV2Literal) (DateTimeExtractAndTransform.convertTz(expression,
                     new StringLiteral(ConnectContext.get().getSessionVariable().timeZone), new StringLiteral("UTC")));
-            return new TimestampTzLiteral((TimeStampTzType) targetType, expression.year, expression.month,
+            return new TimestampTzLiteral(timeStampTzType, expression.year, expression.month,
                     expression.day, expression.hour, expression.minute, expression.second, expression.microSecond);
         } else if (targetType.isDateTimeV2Type()) {
             return castToDateTime(targetType, strictCast, true);

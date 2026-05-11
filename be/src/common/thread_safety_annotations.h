@@ -118,3 +118,54 @@ public:
 private:
     MutexType& _mu;
 };
+
+// RAII unique lock annotated for thread safety analysis.
+// Supports manual lock/unlock while preserving capability tracking.
+template <typename MutexType>
+class SCOPED_CAPABILITY UniqueLock {
+public:
+    explicit UniqueLock(MutexType& mu) ACQUIRE(mu) : _mu(&mu), _locked(true) {
+#ifdef BE_TEST
+        doris::mock_random_sleep();
+#endif
+        _mu->lock();
+    }
+
+    UniqueLock(MutexType& mu, std::adopt_lock_t) REQUIRES(mu) : _mu(&mu), _locked(true) {}
+
+    UniqueLock(MutexType& mu, std::defer_lock_t) EXCLUDES(mu) : _mu(&mu), _locked(false) {}
+
+    ~UniqueLock() RELEASE() {
+        if (_locked) {
+            _mu->unlock();
+#ifdef BE_TEST
+            doris::mock_random_sleep();
+#endif
+        }
+    }
+
+    void lock() ACQUIRE() {
+#ifdef BE_TEST
+        doris::mock_random_sleep();
+#endif
+        _mu->lock();
+        _locked = true;
+    }
+
+    void unlock() RELEASE() {
+        _mu->unlock();
+        _locked = false;
+#ifdef BE_TEST
+        doris::mock_random_sleep();
+#endif
+    }
+
+    bool owns_lock() const { return _locked; }
+
+    UniqueLock(const UniqueLock&) = delete;
+    UniqueLock& operator=(const UniqueLock&) = delete;
+
+private:
+    MutexType* _mu;
+    bool _locked;
+};

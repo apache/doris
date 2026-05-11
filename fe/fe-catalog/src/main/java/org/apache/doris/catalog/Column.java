@@ -71,6 +71,10 @@ public class Column implements GsonPostProcessable {
     public static final int COLUMN_UNIQUE_ID_INIT_VALUE = -1;
     private static final String COLUMN_MAP_KEY = "key";
     private static final String COLUMN_MAP_VALUE = "value";
+    public static final Column STREAM_SEQ_VIRTUAL_COLUMN =
+            new Column(STREAM_SEQ_COL, Type.BIGINT, false, null, false, null, false);
+    public static final Column STREAM_CHANGE_TYPE_VIRTUAL_COLUMN =
+            new Column(STREAM_CHANGE_TYPE_COL, Type.STRING, false, null, false, null, false);
 
     // columns for binlog schema
     // explicit columns
@@ -240,6 +244,12 @@ public class Column implements GsonPostProcessable {
         this(name, type, isKey, aggregateType, isAllowNull, -1, defaultValue, comment, true, null,
                 COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue, false, null, null,
                 Sets.newHashSet(), null);
+    }
+
+    public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
+                  String comment, boolean visible) {
+        this(name, type, isKey, aggregateType, isAllowNull, -1, null, comment, visible, null,
+                COLUMN_UNIQUE_ID_INIT_VALUE, null, false, null, null, Sets.newHashSet(), null);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,

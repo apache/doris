@@ -45,20 +45,6 @@ void common_test(typename TypeTraits<field_type>::CppType src_val) {
 
     EXPECT_EQ(field_type, type->type());
     EXPECT_EQ(sizeof(src_val), type->size());
-    // test min
-    {
-        typename TypeTraits<field_type>::CppType dst_val;
-        type->set_to_min((char*)&dst_val);
-
-        EXPECT_TRUE(type->cmp((char*)&src_val, (char*)&dst_val) > 0);
-    }
-    // test max
-    {
-        typename TypeTraits<field_type>::CppType dst_val;
-        type->set_to_max((char*)&dst_val);
-        // NOTE: bool input is true, this will return 0
-        EXPECT_TRUE(type->cmp((char*)&src_val, (char*)&dst_val) <= 0);
-    }
 }
 
 template <FieldType fieldType>
@@ -69,22 +55,6 @@ void test_char(Slice src_val) {
 
     EXPECT_EQ(field->type(), fieldType);
     EXPECT_EQ(sizeof(src_val), type->size());
-    // test min
-    {
-        char buf[64];
-        Slice dst_val(buf, sizeof(buf));
-        field->set_to_min((char*)&dst_val);
-
-        EXPECT_TRUE(type->cmp((char*)&src_val, (char*)&dst_val) > 0);
-    }
-    // test max
-    {
-        char buf[64];
-        Slice dst_val(buf, sizeof(buf));
-        field->set_to_max((char*)&dst_val);
-
-        EXPECT_TRUE(type->cmp((char*)&src_val, (char*)&dst_val) < 0);
-    }
     delete field;
 }
 

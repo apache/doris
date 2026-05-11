@@ -37,6 +37,7 @@
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/virtual_slot_ref.h"
 #include "exprs/vslot_ref.h"
 #include "io/cache/block_file_cache_profile.h"
 #include "runtime/query_cache/query_cache.h"
@@ -407,12 +408,62 @@ Status OlapScanLocalState::_init_profile() {
     return Status::OK();
 }
 
+static bool contains_expr_node_type(const VExprSPtr& expr, TExprNodeType::type node_type) {
+    DORIS_CHECK(expr != nullptr);
+    if (expr->node_type() == node_type) {
+        return true;
+    }
+    if (expr->is_rf_wrapper() && contains_expr_node_type(expr->get_impl(), node_type)) {
+        return true;
+    }
+    return std::ranges::any_of(expr->children(), [node_type](const auto& child) {
+        return contains_expr_node_type(child, node_type);
+    });
+}
+
+static Status validate_residual_scan_conjuncts(RuntimeState* state,
+                                               TPushAggOp::type push_down_agg_type,
+                                               const VExprContextSPtrs& conjuncts) {
+    for (const auto& conjunct : conjuncts) {
+        const auto& root = conjunct->root();
+        if (contains_expr_node_type(root, TExprNodeType::SEARCH_EXPR)) {
+            return Status::InvalidArgument(
+                    "SEARCH expression remains as a residual scan predicate. A valid search() "
+                    "must bind at least one indexed field and be evaluated in SegmentIterator. "
+                    "enable_segment_limit_pushdown only controls SegmentIterator LIMIT pushdown "
+                    "and cannot make residual SEARCH executable.");
+        }
+        if (!state->query_options().enable_match_without_inverted_index &&
+            contains_expr_node_type(root, TExprNodeType::MATCH_PRED)) {
+            return Status::InvalidArgument(
+                    "MATCH expression remains as a residual scan predicate and would fall back to "
+                    "a disabled slow path because enable_match_without_inverted_index is false. "
+                    "enable_segment_limit_pushdown only controls SegmentIterator LIMIT pushdown "
+                    "and cannot make residual MATCH executable. Set "
+                    "enable_match_without_inverted_index=true to allow slow MATCH execution.");
+        }
+    }
+
+    if (push_down_agg_type == TPushAggOp::COUNT_ON_INDEX && !conjuncts.empty()) {
+        return Status::InvalidArgument(
+                "COUNT_ON_INDEX pushdown cannot be used with residual scan predicates. "
+                "Residual predicates must be evaluated before COUNT_ON_INDEX counts rows; "
+                "otherwise the query may return incorrect results. "
+                "enable_segment_limit_pushdown only controls SegmentIterator LIMIT pushdown and "
+                "does not make COUNT_ON_INDEX safe with residual predicates. Set "
+                "enable_count_on_index_pushdown=false to disable COUNT_ON_INDEX pushdown.");
+    }
+    return Status::OK();
+}
+
 Status OlapScanLocalState::_process_conjuncts(RuntimeState* state) {
     SCOPED_TIMER(_process_conjunct_timer);
     RETURN_IF_ERROR(ScanLocalState::_process_conjuncts(state));
     if (ScanLocalState::_eos) {
         return Status::OK();
     }
+    auto& p = _parent->cast<OlapScanOperatorX>();
+    RETURN_IF_ERROR(validate_residual_scan_conjuncts(state, p._push_down_agg_type, _conjuncts));
     RETURN_IF_ERROR(_build_key_ranges_and_filters());
     return Status::OK();
 }
@@ -472,8 +523,38 @@ Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* f
     return Status::OK();
 }
 
-bool OlapScanLocalState::_should_push_down_common_expr() {
-    return state()->enable_common_expr_pushdown() && _storage_no_merge();
+bool OlapScanLocalState::_should_push_down_common_expr(const VExprSPtr& expr) {
+    // SegmentIterator common exprs must eventually act on at least one scan slot.
+    if (!_check_expr_storage_filter(expr, ExprStorageFilterCheckMode::HAS_SEGMENT_EVALUABLE_EXPR)) {
+        return false;
+    }
+
+    // DUP and UNIQUE-MOW/MOR-as-DUP do not need storage aggregation/merge, so any slot-based common
+    // expression can be evaluated together with SegmentIterator lazy materialization.
+    if (_storage_no_merge()) {
+        return true;
+    }
+
+    // AGG and UNIQUE-MOR may still merge value columns above SegmentIterator. Push only key-column
+    // expressions so filtering does not observe pre-merge values.
+    return !_check_expr_storage_filter(expr, ExprStorageFilterCheckMode::HAS_NON_KEY_SLOT);
+}
+
+bool OlapScanLocalState::_check_expr_storage_filter(const VExprSPtr& expr,
+                                                    ExprStorageFilterCheckMode mode) {
+    if (expr->is_slot_ref()) {
+        const auto* slot_ref = assert_cast<const VSlotRef*>(expr.get());
+        return mode == ExprStorageFilterCheckMode::HAS_SEGMENT_EVALUABLE_EXPR ||
+               !_is_key_column(slot_ref->expr_name());
+    }
+    if (expr->is_virtual_slot_ref()) {
+        // Treat virtual slot ref as non-key because it may depend on non-key source columns.
+        return true;
+    }
+
+    return std::ranges::any_of(expr->children(), [this, mode](const auto& child) {
+        return _check_expr_storage_filter(child, mode);
+    });
 }
 
 bool OlapScanLocalState::_storage_no_merge() {
@@ -1081,6 +1162,8 @@ OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, i
           _cache_param(param) {
     _output_tuple_id = tnode.olap_scan_node.tuple_id;
     if (_olap_scan_node.__isset.sort_info && _olap_scan_node.__isset.sort_limit) {
+        DORIS_CHECK(_limit < 0);
+        DORIS_CHECK(_olap_scan_node.sort_limit > 0);
         _limit_per_scanner = _olap_scan_node.sort_limit;
     }
     DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {

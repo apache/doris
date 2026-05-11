@@ -55,16 +55,19 @@ jobs:
           mkdir -p ~/.local/share/opencode
           cat > ~/.local/share/opencode/auth.json <<EOF
           {
-            "github-copilot": {
+            "openai": {
               "type": "oauth",
-              "refresh": "${CODE_REVIEW_ZCLLL_COPILOT_OPENCODE_KEY}",
-              "access": "${CODE_REVIEW_ZCLLL_COPILOT_OPENCODE_KEY}",
-              "expires": 0
+              "access": "${CODE_REVIEW_ZCLLL_OPENAI_ACCESS_KEY}",
+              "refresh": "${CODE_REVIEW_ZCLLL_OPENAI_REFRESH_KEY}",
+              "expires": 1779122093655,
+              "accountId": "${CODE_REVIEW_ZCLLL_OPENAI_ACCOUNT_ID}"
             }
           }
           EOF
         env:
-          CODE_REVIEW_ZCLLL_COPILOT_OPENCODE_KEY: ${{ secrets.CODE_REVIEW_ZCLLL_COPILOT_OPENCODE_KEY }}
+          CODE_REVIEW_ZCLLL_OPENAI_ACCESS_KEY: ${{ secrets.CODE_REVIEW_ZCLLL_OPENAI_ACCESS_KEY }}
+          CODE_REVIEW_ZCLLL_OPENAI_REFRESH_KEY: ${{ secrets.CODE_REVIEW_ZCLLL_OPENAI_REFRESH_KEY }}
+          CODE_REVIEW_ZCLLL_OPENAI_ACCOUNT_ID: ${{ secrets.CODE_REVIEW_ZCLLL_OPENAI_ACCOUNT_ID }}
 
       - name: Prepare review context directory
         run: |
@@ -202,7 +205,7 @@ jobs:
           PROMPT=$(cat "$REVIEW_CONTEXT_DIR/review_prompt.txt")
 
           set +e
-          opencode run "$PROMPT" -m "github-copilot/gpt-5.5" 2>&1 | tee "$REVIEW_CONTEXT_DIR/opencode-review.log"
+          opencode run "$PROMPT" -m "openai/gpt-5.5" 2>&1 | tee "$REVIEW_CONTEXT_DIR/opencode-review.log"
           status=${PIPESTATUS[0]}
           set -e
 

@@ -47,6 +47,25 @@ public:
     }
 };
 
+template <typename CheckField>
+void expect_from_storage_string_paths(const DataTypePtr& data_type, const std::string& input,
+                                      CheckField&& check_field) {
+    auto serde = data_type->get_serde();
+    for (int path = 0; path < 3; ++path) {
+        Field field;
+        const char* path_name = path == 0   ? "from_olap_string"
+                                : path == 1 ? "from_fe_string"
+                                            : "from_zonemap_string";
+        auto status =
+                path == 0   ? serde->from_olap_string(input, field, DataTypeSerDe::FormatOptions())
+                : path == 1 ? serde->from_fe_string(input, field)
+                            : serde->from_zonemap_string(input, field);
+        ASSERT_TRUE(status.ok()) << data_type->get_name() << " " << path_name
+                                 << " failed: " << status.to_string();
+        check_field(field);
+    }
+}
+
 // deserialize float string serialized by old version of Doris
 TEST_F(OlapTypeTest, deser_float_old) {
     std::vector<float> normal_input_values = {
@@ -605,6 +624,47 @@ TEST_F(OlapTypeTest, ser_deser_double) {
                 << ", deser double value: " << fmt::format("{:.17g}", deser_float_value)
                 << ", diff_ratio: " << fmt::format("{:.17g}", diff_ratio);
     }
+}
+
+TEST_F(OlapTypeTest, datelike_storage_string_parse_failure_defaults) {
+    const std::string invalid = "not-a-valid-value";
+
+    VecDateTimeValue datev1_default = VecDateTimeValue::FIRST_DAY;
+    datev1_default.cast_to_date();
+    const auto expected_datev1 = Field::create_field<TYPE_DATE>(datev1_default);
+    expect_from_storage_string_paths(DataTypeFactory::instance().create_data_type(TYPE_DATE, false),
+                                     invalid, [&](const Field& field) {
+                                         ASSERT_EQ(field.get_type(), TYPE_DATE);
+                                         EXPECT_TRUE(field == expected_datev1);
+                                     });
+
+    VecDateTimeValue datetimev1_default = VecDateTimeValue::FIRST_DAY;
+    datetimev1_default.to_datetime();
+    const auto expected_datetimev1 = Field::create_field<TYPE_DATETIME>(datetimev1_default);
+    expect_from_storage_string_paths(
+            DataTypeFactory::instance().create_data_type(TYPE_DATETIME, false), invalid,
+            [&](const Field& field) {
+                ASSERT_EQ(field.get_type(), TYPE_DATETIME);
+                EXPECT_TRUE(field == expected_datetimev1);
+            });
+
+    const auto expected_datev2 =
+            Field::create_field<TYPE_DATEV2>(DateV2Value<DateV2ValueType>(MIN_DATE_V2));
+    expect_from_storage_string_paths(
+            DataTypeFactory::instance().create_data_type(TYPE_DATEV2, false), invalid,
+            [&](const Field& field) {
+                ASSERT_EQ(field.get_type(), TYPE_DATEV2);
+                EXPECT_TRUE(field == expected_datev2);
+            });
+
+    const auto expected_datetimev2 =
+            Field::create_field<TYPE_DATETIMEV2>(DateV2Value<DateTimeV2ValueType>(MIN_DATETIME_V2));
+    expect_from_storage_string_paths(
+            DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6), invalid,
+            [&](const Field& field) {
+                ASSERT_EQ(field.get_type(), TYPE_DATETIMEV2);
+                EXPECT_TRUE(field == expected_datetimev2);
+            });
 }
 
 // =============================================================================

@@ -91,8 +91,6 @@ public:
         return block->columns() - 1;
     }
 
-    static bool is_acting_on_a_slot(const VExpr& expr);
-
     VExpr(const TExprNode& node);
     VExpr(const VExpr& vexpr);
     VExpr(DataTypePtr type, bool is_slotref);

@@ -47,8 +47,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
@@ -212,12 +210,6 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
                 (filter.getConjuncts().size() - prefixIndexMatched + exprCost) * filterCostFactor);
     }
 
-    @Override
-    public Cost visitPhysicalDeferMaterializeOlapScan(PhysicalDeferMaterializeOlapScan deferMaterializeOlapScan,
-            PlanContext context) {
-        return visitPhysicalOlapScan(deferMaterializeOlapScan.getPhysicalOlapScan(), context);
-    }
-
     public Cost visitPhysicalSchemaScan(PhysicalSchemaScan physicalSchemaScan, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
         return Cost.ofCpu(context.getSessionVariable(), statistics.getRowCount());
@@ -288,12 +280,6 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             rowCount = rowCount * 100 + 100;
         }
         return Cost.of(context.getSessionVariable(), childRowCount, rowCount, childRowCount);
-    }
-
-    @Override
-    public Cost visitPhysicalDeferMaterializeTopN(PhysicalDeferMaterializeTopN<? extends Plan> topN,
-            PlanContext context) {
-        return visitPhysicalTopN(topN.getPhysicalTopN(), context);
     }
 
     @Override

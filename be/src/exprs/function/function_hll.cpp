@@ -51,12 +51,8 @@ namespace doris {
 struct HLLCardinality {
     static constexpr auto name = "hll_cardinality";
 
-    using ReturnType = DataTypeInt64;
-
-    static void vector(const std::vector<HyperLogLog>& data, MutableColumnPtr& col_res) {
-        typename ColumnInt64::Container& res =
-                reinterpret_cast<ColumnInt64*>(col_res.get())->get_data();
-
+    static void vector(const std::vector<HyperLogLog>& data, ColumnInt64::MutablePtr& col_res) {
+        auto& res = col_res->get_data();
         auto size = res.size();
         for (int i = 0; i < size; ++i) {
             res[i] = data[i].estimate_cardinality();
@@ -64,10 +60,8 @@ struct HLLCardinality {
     }
 
     static void vector_nullable(const std::vector<HyperLogLog>& data, const NullMap& nullmap,
-                                MutableColumnPtr& col_res) {
-        typename ColumnInt64::Container& res =
-                reinterpret_cast<ColumnInt64*>(col_res.get())->get_data();
-
+                                ColumnInt64::MutablePtr& col_res) {
+        auto& res = col_res->get_data();
         auto size = res.size();
         for (int i = 0; i < size; ++i) {
             if (nullmap[i]) {
@@ -91,7 +85,7 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<typename Function::ReturnType>();
+        return std::make_shared<DataTypeInt64>();
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
@@ -100,8 +94,7 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         auto column = block.get_by_position(arguments[0]).column;
 
-        MutableColumnPtr column_result = get_return_type_impl({})->create_column();
-        column_result->resize(input_rows_count);
+        auto column_result = ColumnInt64::create(input_rows_count);
         if (const ColumnNullable* col_nullable =
                     check_and_get_column<ColumnNullable>(column.get())) {
             const ColumnHLL* col =

@@ -1469,8 +1469,7 @@ void VariantCompactionUtil::calculate_variant_stats(const IColumn& encoded_spars
     // Get the keys column which contains the paths as strings
     const auto& sparse_data_paths =
             assert_cast<const ColumnString*>(map_column.get_keys_ptr().get());
-    const auto& serialized_sparse_column_offsets =
-            assert_cast<const ColumnArray::Offsets64&>(map_column.get_offsets());
+    const auto& serialized_sparse_column_offsets = map_column.get_offsets();
     auto& count_map = *stats->mutable_sparse_column_non_null_size();
     // Iterate through all paths in the sparse column
     for (size_t i = row_pos; i != row_pos + num_rows; ++i) {

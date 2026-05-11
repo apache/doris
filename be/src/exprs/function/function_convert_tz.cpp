@@ -143,7 +143,7 @@ public:
         }
 
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-        NullMap& result_null_map = assert_cast<ColumnUInt8&>(*result_null_map_column).get_data();
+        NullMap& result_null_map = result_null_map_column->get_data();
 
         ColumnPtr argument_columns[3];
         bool col_const[3];
@@ -173,21 +173,18 @@ public:
             // ignore argument columns, use cached timezone input in state
             execute_tz_const_with_state(convert_tz_state,
                                         assert_cast<const ColumnType*>(argument_columns[0].get()),
-                                        assert_cast<ColumnType*>(result_column.get()),
-                                        result_null_map, input_rows_count);
+                                        result_column.get(), result_null_map, input_rows_count);
         } else if (col_const[1] && col_const[2]) {
             // arguments are const
             execute_tz_const(context, assert_cast<const ColumnType*>(argument_columns[0].get()),
                              assert_cast<const ColumnString*>(argument_columns[1].get()),
                              assert_cast<const ColumnString*>(argument_columns[2].get()),
-                             assert_cast<ColumnType*>(result_column.get()), result_null_map,
-                             input_rows_count);
+                             result_column.get(), result_null_map, input_rows_count);
         } else {
             _execute(context, assert_cast<const ColumnType*>(argument_columns[0].get()),
                      assert_cast<const ColumnString*>(argument_columns[1].get()),
                      assert_cast<const ColumnString*>(argument_columns[2].get()),
-                     assert_cast<ColumnType*>(result_column.get()), result_null_map,
-                     input_rows_count);
+                     result_column.get(), result_null_map, input_rows_count);
         } //if const
 
         if (block.get_data_type(result)->is_nullable()) {

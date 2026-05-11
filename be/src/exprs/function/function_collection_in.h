@@ -156,9 +156,9 @@ public:
         const auto& [materialized_column, col_const] = unpack_if_const(left_arg.column);
         auto materialized_column_not_null = materialized_column;
         if (materialized_column_not_null->is_nullable()) {
-            materialized_column_not_null = assert_cast<ColumnPtr>(
+            materialized_column_not_null =
                     check_and_get_column<ColumnNullable>(materialized_column_not_null.get())
-                            ->get_nested_column_ptr());
+                            ->get_nested_column_ptr();
         }
 
         for (size_t i = 0; i < input_rows_count; ++i) {

@@ -339,20 +339,6 @@ TExprNode create_texpr_node_from(const Field& field, const PrimitiveType& type, 
 
 namespace doris {
 
-bool VExpr::is_acting_on_a_slot(const VExpr& expr) {
-    if (expr.node_type() == TExprNodeType::SEARCH_EXPR) {
-        return true;
-    }
-    const auto& children = expr.children();
-
-    auto is_a_slot = std::any_of(children.begin(), children.end(),
-                                 [](const auto& child) { return is_acting_on_a_slot(*child); });
-
-    return is_a_slot ? true
-                     : (expr.node_type() == TExprNodeType::SLOT_REF ||
-                        expr.node_type() == TExprNodeType::VIRTUAL_SLOT_REF);
-}
-
 VExpr::VExpr(const TExprNode& node)
         : _node_type(node.node_type),
           _opcode(node.__isset.opcode ? node.opcode : TExprOpcode::INVALID_OPCODE) {

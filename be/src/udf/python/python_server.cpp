@@ -26,8 +26,10 @@
 
 #include <boost/asio.hpp>
 #include <boost/process.hpp>
+#include <chrono>
 #include <fstream>
 #include <future>
+#include <thread>
 
 #include "arrow/flight/client.h"
 #include "common/config.h"
@@ -127,7 +129,25 @@ PythonServerManager::_ensure_pool_initialized(const PythonVersion& version) {
 
     int success_count = 0;
     int failure_count = 0;
+    const auto init_start_time = std::chrono::steady_clock::now();
+#ifdef BE_TEST
+    constexpr auto progress_log_interval = std::chrono::milliseconds(50);
+#else
+    constexpr auto progress_log_interval = std::chrono::seconds(20);
+#endif
     for (int i = 0; i < max_pool_size; i++) {
+        // Print init log every 20s until the current slot is ready.
+        while (futures[i].wait_for(progress_log_interval) != std::future_status::ready) {
+            const auto now = std::chrono::steady_clock::now();
+            const auto total_elapsed_ms =
+                    std::chrono::duration_cast<std::chrono::milliseconds>(now - init_start_time)
+                            .count();
+            LOG(INFO) << "Python process pool initialization progress for version "
+                      << version.to_string() << ": waiting_slot=" << (i + 1) << "/" << max_pool_size
+                      << ", success=" << success_count << ", failed=" << failure_count
+                      << ", elapsed_ms=" << total_elapsed_ms;
+        }
+
         Status s = futures[i].get();
         if (s.ok() && temp_processes[i]) {
             versioned_pool->processes.emplace_back(std::move(temp_processes[i]));
@@ -145,9 +165,13 @@ PythonServerManager::_ensure_pool_initialized(const PythonVersion& version) {
                 max_pool_size));
     }
 
+    const auto total_elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                          std::chrono::steady_clock::now() - init_start_time)
+                                          .count();
     LOG(INFO) << "Python process pool initialized for version " << version.to_string()
               << ": created " << success_count << " processes"
-              << (failure_count > 0 ? fmt::format(" ({} failed)", failure_count) : "");
+              << (failure_count > 0 ? fmt::format(" ({} failed)", failure_count) : "")
+              << ", elapsed_ms=" << total_elapsed_ms;
 
     versioned_pool->initialized = true;
     _start_health_check_thread();

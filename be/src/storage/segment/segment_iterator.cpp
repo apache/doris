@@ -1463,12 +1463,6 @@ Status SegmentIterator::_apply_inverted_index() {
  */
 bool SegmentIterator::_check_all_conditions_passed_inverted_index_for_column(ColumnId cid,
                                                                              bool default_return) {
-    // If common_expr_pushdown is disabled, we cannot guarantee that all conditions are processed by the inverted index.
-    // Consider a scenario where there is a column predicate and an expression involving the same column in the SQL query,
-    // such as 'a < 0' and 'abs(a) > 1'. This could potentially lead to errors.
-    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_common_expr_pushdown) {
-        return false;
-    }
     auto pred_it = _column_predicate_index_exec_status.find(cid);
     if (pred_it != _column_predicate_index_exec_status.end()) {
         const auto& pred_map = pred_it->second;
@@ -2489,6 +2483,53 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
     return selected_size;
 }
 
+static void shrink_materialized_block_columns(Block* block, size_t rows) {
+    for (auto& entry : *block) {
+        if (entry.column && entry.column->size() > rows) {
+            entry.column = entry.column->shrink(rows);
+        }
+    }
+}
+
+static void slice_materialized_block_columns(Block* block, size_t offset, size_t rows,
+                                             size_t original_rows) {
+    for (auto& entry : *block) {
+        if (!entry.column || entry.column->size() == 0) {
+            continue;
+        }
+        DORIS_CHECK(entry.column->size() == original_rows);
+        entry.column = entry.column->cut(offset, rows);
+    }
+}
+
+Status SegmentIterator::_apply_read_limit_to_selected_rows(Block* block, uint16_t& selected_size) {
+    if (_opts.read_limit == 0) {
+        return Status::OK();
+    }
+    DORIS_CHECK(_rows_returned <= _opts.read_limit);
+    size_t remaining = _opts.read_limit - _rows_returned;
+    if (remaining == 0) {
+        selected_size = 0;
+        shrink_materialized_block_columns(block, 0);
+        return Status::OK();
+    }
+    if (selected_size > remaining) {
+        if (_opts.read_orderby_key_reverse) {
+            const auto original_size = selected_size;
+            const auto offset = original_size - remaining;
+            for (size_t i = 0; i < remaining; ++i) {
+                _sel_rowid_idx[i] = _sel_rowid_idx[offset + i];
+            }
+            selected_size = cast_set<uint16_t>(remaining);
+            slice_materialized_block_columns(block, offset, remaining, original_size);
+            return Status::OK();
+        }
+        selected_size = cast_set<uint16_t>(remaining);
+        shrink_materialized_block_columns(block, selected_size);
+    }
+    return Status::OK();
+}
+
 Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                                 std::vector<rowid_t>& rowid_vector,
                                                 uint16_t* sel_rowid_idx, size_t select_size,
@@ -2683,17 +2724,28 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
 
     SCOPED_RAW_TIMER(&_opts.stats->block_load_ns);
 
+    if (_opts.read_limit > 0 && _rows_returned >= _opts.read_limit) {
+        return _process_eof(block);
+    }
+
     // If the row bitmap size is smaller than nrows_read_limit, there's no need to reserve that many column rows.
     uint32_t nrows_read_limit =
             std::min(cast_set<uint32_t>(_row_bitmap.cardinality()), _opts.block_row_max);
-    if (_can_opt_topn_reads()) {
-        nrows_read_limit = std::min(static_cast<uint32_t>(_opts.topn_limit), nrows_read_limit);
+    if (_can_opt_limit_reads()) {
+        // No SegmentIterator-side conjunct remains to be evaluated, so LIMIT is equivalent before
+        // and after filtering. Cap the first read directly; this is the no-conjunct fast path that
+        // avoids reading rows past the pushed-down local LIMIT.
+        size_t cap = (_opts.read_limit > _rows_returned) ? (_opts.read_limit - _rows_returned) : 0;
+        if (cap < nrows_read_limit) {
+            nrows_read_limit = static_cast<uint32_t>(cap);
+        }
     }
     DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {
         if (nrows_read_limit != 1) {
             return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                    "topn opt 1 execute failed: nrows_read_limit={}, _opts.topn_limit={}",
-                    nrows_read_limit, _opts.topn_limit);
+                    "topn opt 1 execute failed: nrows_read_limit={}, "
+                    "_opts.read_limit={}",
+                    nrows_read_limit, _opts.read_limit);
         }
     })
 
@@ -2769,6 +2821,8 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
             RETURN_IF_ERROR(_process_common_expr(_sel_rowid_idx.data(), _selected_size, block));
         }
 
+        RETURN_IF_ERROR(_apply_read_limit_to_selected_rows(block, _selected_size));
+
         // step4: read non_predicate column
         if (_selected_size > 0) {
             if (!_non_predicate_columns.empty()) {
@@ -2807,6 +2861,9 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
     RETURN_IF_ERROR(_materialization_of_virtual_column(block));
     // shrink char_type suffix zero data
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
+    if (_opts.read_limit > 0) {
+        _rows_returned += block->rows();
+    }
     return _check_output_block(block);
 }
 
@@ -3240,8 +3297,15 @@ bool SegmentIterator::_has_delete_predicate(ColumnId cid) {
     return delete_columns_set.contains(cid);
 }
 
-bool SegmentIterator::_can_opt_topn_reads() {
-    if (_opts.topn_limit <= 0) {
+bool SegmentIterator::_can_opt_limit_reads() {
+    if (_opts.read_limit == 0) {
+        return false;
+    }
+
+    // If SegmentIterator still needs to evaluate predicates/common exprs, LIMIT must be applied to
+    // post-filter rows by _apply_read_limit_to_selected_rows(); capping the raw read here could
+    // return fewer rows than the query LIMIT.
+    if (_is_need_vec_eval || _is_need_short_eval || _is_need_expr_eval) {
         return false;
     }
 

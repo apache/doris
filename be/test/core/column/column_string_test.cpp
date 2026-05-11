@@ -476,7 +476,7 @@ TEST_F(ColumnStringTest, insert_many_continuous_binary_data) {
     auto test_func = [&](size_t clone_count, auto x, const auto& source_column) {
         using ColumnType = decltype(x);
         auto src_size = source_column->size();
-        auto* col_vec_src = assert_cast<ColumnType*>(source_column.get());
+        auto* col_vec_src = source_column.get();
         size_t actual_clone_count = std::min(clone_count, src_size);
 
         auto target_column = source_column->clone_resized(actual_clone_count);

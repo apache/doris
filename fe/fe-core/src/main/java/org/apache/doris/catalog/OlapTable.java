@@ -68,7 +68,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisInfo;
@@ -78,16 +77,12 @@ import org.apache.doris.statistics.HistogramTask;
 import org.apache.doris.statistics.OlapAnalysisTask;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
-import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TEncryptionAlgorithm;
-import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
-import org.apache.doris.thrift.TNodeInfo;
 import org.apache.doris.thrift.TOlapTable;
-import org.apache.doris.thrift.TPaloNodesInfo;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TStorageFormat;
@@ -108,7 +103,6 @@ import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
-import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -290,7 +284,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         this.tableProperty = null;
     }
 
-    private TableProperty getOrCreatTableProperty() {
+    protected TableProperty getOrCreatTableProperty() {
         if (tableProperty == null) {
             tableProperty = new TableProperty(new HashMap<>());
         }
@@ -3322,48 +3316,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public AutoIncrementGenerator getAutoIncrementGenerator() {
         return autoIncrementGenerator;
-    }
-
-    /**
-     * generate two phase read fetch option from this olap table.
-     *
-     * @param selectedIndexId the index want to scan
-     */
-    public TFetchOption generateTwoPhaseReadOption(long selectedIndexId) {
-        boolean useStoreRow = this.storeRowColumn()
-                && CollectionUtils.isEmpty(getTableProperty().getCopiedRowStoreColumns());
-        TFetchOption fetchOption = new TFetchOption();
-        fetchOption.setFetchRowStore(useStoreRow);
-        fetchOption.setUseTwoPhaseFetch(true);
-
-        ConnectContext context = ConnectContext.get();
-        if (context == null) {
-            context = new ConnectContext();
-        }
-        BeSelectionPolicy policy = new BeSelectionPolicy.Builder()
-                .needQueryAvailable()
-                .setRequireAliveBe()
-                .build();
-
-        TPaloNodesInfo nodesInfo = new TPaloNodesInfo();
-        ComputeGroup computeGroup = context.getComputeGroupSafely();
-
-        if (ComputeGroup.INVALID_COMPUTE_GROUP.equals(computeGroup)) {
-            throw new RuntimeException(ComputeGroup.INVALID_COMPUTE_GROUP_ERR_MSG);
-        }
-
-        for (Backend backend : policy.getCandidateBackends(computeGroup.getBackendList())) {
-            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
-        }
-
-        fetchOption.setNodesInfo(nodesInfo);
-
-        if (!useStoreRow) {
-            List<TColumn> columnsDesc = Lists.newArrayList();
-            getColumnDesc(selectedIndexId, columnsDesc, null, null);
-            fetchOption.setColumnDesc(columnsDesc);
-        }
-        return fetchOption;
     }
 
     public void getColumnDesc(long selectedIndexId, List<TColumn> columnsDesc, List<String> keyColumnNames,

@@ -50,6 +50,7 @@ public class CloudMetrics {
     protected static AutoMappedMetric<LongCounterMetric> CLUSTER_CLOUD_GLOBAL_BALANCE_NUM;
     protected static AutoMappedMetric<LongCounterMetric> CLUSTER_CLOUD_SMOOTH_UPGRADE_BALANCE_NUM;
     protected static AutoMappedMetric<LongCounterMetric> CLUSTER_CLOUD_WARM_UP_CACHE_BALANCE_NUM;
+    protected static AutoMappedMetric<LongCounterMetric> VIRTUAL_COMPUTE_GROUP_SWITCH_COUNTER;
 
     // Per-method meta-service RPC metrics
     public static AutoMappedMetric<LongCounterMetric> META_SERVICE_RPC_TOTAL;
@@ -137,6 +138,10 @@ public class CloudMetrics {
         CLUSTER_CLOUD_WARM_UP_CACHE_BALANCE_NUM = new AutoMappedMetric<>(name -> new LongCounterMetric(
             "cloud_warm_up_balance_num", MetricUnit.NOUNIT,
             "current cluster cloud warm up cache sync edit log number"));
+
+        VIRTUAL_COMPUTE_GROUP_SWITCH_COUNTER = new AutoMappedMetric<>(name -> new LongCounterMetric(
+            "virtual_compute_group_switch_total", MetricUnit.NOUNIT,
+            "virtual compute group active standby switch count"));
 
         // Per-method meta-service RPC metrics
         META_SERVICE_RPC_TOTAL = MetricRepo.addLabeledMetrics("method", () ->
