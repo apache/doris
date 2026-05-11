@@ -135,4 +135,46 @@ suite("prune_predicates_mv_test") {
         contains "partitions(2/6)"
         notContains "PhysicalFilter"
     }
+
+    sql """
+        drop table if exists base_t3;
+        CREATE TABLE base_t3 (
+            top_asset    varchar(64) NOT NULL,
+            tag_key      int         NOT NULL,
+            tag_value    int         NOT NULL,
+            frame_count  int         NOT NULL
+        ) ENGINE=OLAP
+        duplicate KEY(top_asset, tag_key, tag_value)
+        AUTO PARTITION BY LIST (tag_key) ()
+        DISTRIBUTED BY HASH(top_asset) BUCKETS 4
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+
+        INSERT INTO base_t3 VALUES
+        ('a', 1, 100, 5),  ('a', 1, 101, 0),
+        ('a', 2, 200, 7),  ('a', 2, 201, 0),
+        ('a', 3, 300, 0),  
+        ('a', 4, 400, 9),
+        ('a', 5, 500, 1),
+        ('a', 6, 600, 2);
+    """
+    create_sync_mv(currentDb, "base_t3", "mv_3", """
+        SELECT top_asset as mv_ta, tag_key as mv_tk, SUM(frame_count) AS mv_sum
+        FROM base_t3
+        GROUP BY top_asset, tag_key;
+    """)
+
+    def query_3 = """
+        SELECT top_asset as mv_ta, tag_key as mv_tk, SUM(frame_count) AS mv_sum
+        FROM base_t3
+        where tag_key in (1,2,3)
+        GROUP BY top_asset, tag_key;
+    """
+    mv_rewrite_success(query_3, "mv_3")
+    order_qt_query_3 query_3
+    explain {
+        sql "physical plan ${query_3}"
+        notContains "PhysicalFilter"
+    }
 }

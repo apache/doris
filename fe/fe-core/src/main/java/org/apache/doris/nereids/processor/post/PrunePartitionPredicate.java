@@ -17,11 +17,16 @@
 
 package org.apache.doris.nereids.processor.post;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPrunablePredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
@@ -33,6 +38,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -82,7 +88,7 @@ public class PrunePartitionPredicate extends PlanPostProcessor {
             return filter;
         }
         Set<Long> scanPartitions = new HashSet<>(scan.getSelectedPartitionIds());
-        Map<String, Slot> nameToOutputSlot = buildNameToSlotMap(scan.getOutput());
+        Map<String, Slot> nameToOutputSlot = buildNameToSlotMap(scan);
 
         Set<Expression> remaining = new LinkedHashSet<>(filter.getConjuncts());
         boolean changed = false;
@@ -113,10 +119,30 @@ public class PrunePartitionPredicate extends PlanPostProcessor {
                 .copyStatsAndGroupIdFrom((AbstractPhysicalPlan) filter);
     }
 
-    private static Map<String, Slot> buildNameToSlotMap(List<Slot> slots) {
+    private static Map<String, Slot> buildNameToSlotMap(PhysicalOlapScan scan) {
+        OlapTable table = scan.getTable();
+        List<Slot> slots = scan.getOutput();
         Map<String, Slot> map = new HashMap<>(slots.size());
-        for (Slot slot : slots) {
-            map.put(slot.getName().toLowerCase(), slot);
+        if (scan.getSelectedIndexId() == table.getBaseIndexId()) {
+            for (Slot slot : slots) {
+                map.put(slot.getName().toLowerCase(), slot);
+            }
+        } else {
+            for (Slot slot : slots) {
+                if (!(slot instanceof SlotReference)) {
+                    continue;
+                }
+                SlotReference slotReference = (SlotReference) slot;
+                Optional<Column> columnOptional = slotReference.getOriginalColumn();
+                if (!columnOptional.isPresent()) {
+                    continue;
+                }
+                Expr expr = columnOptional.get().getDefineExpr();
+                if (!(expr instanceof SlotRef)) {
+                    continue;
+                }
+                map.put(((SlotRef) expr).getColumnName().toLowerCase(), slot);
+            }
         }
         return map;
     }
