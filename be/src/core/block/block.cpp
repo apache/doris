@@ -581,7 +581,7 @@ MutableColumns Block::mutate_columns() {
     MutableColumns columns(num_columns);
     for (size_t i = 0; i < num_columns; ++i) {
         DCHECK(data[i].type);
-        columns[i] = data[i].column ? (*std::move(data[i].column)).mutate()
+        columns[i] = data[i].column ? IColumn::mutate(std::move(data[i].column))
                                     : data[i].type->create_column();
     }
     return columns;
@@ -655,9 +655,26 @@ void Block::clear_column_data(int64_t column_size) noexcept {
     }
     for (auto& d : data) {
         if (d.column) {
-            // Temporarily disable reference count check because a column might be referenced multiple times within a block.
-            // Queries like this: `select c, c from t1;`
-            (*std::move(d.column)).assume_mutable()->clear();
+            if (d.column->is_exclusive()) {
+                d.column->assume_mutable()->clear();
+            } else {
+                d.column = d.column->clone_empty();
+            }
+        }
+    }
+}
+
+void Block::clear_column_data(const std::vector<uint32_t>& columns_to_clear) noexcept {
+    SCOPED_SKIP_MEMORY_CHECK();
+    for (auto col : columns_to_clear) {
+        DCHECK_LT(col, data.size());
+        auto& column = data[col].column;
+        if (column) {
+            if (column->is_exclusive()) {
+                column->assume_mutable()->clear();
+            } else {
+                column = column->clone_empty();
+            }
         }
     }
 }
@@ -1085,7 +1102,13 @@ void Block::shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_
     for (auto idx : char_type_idx) {
         if (idx < data.size()) {
             auto& col_and_name = this->get_by_position(idx);
-            col_and_name.column->assume_mutable()->shrink_padding_chars();
+            if (col_and_name.column->is_exclusive()) {
+                col_and_name.column->assume_mutable()->shrink_padding_chars();
+            } else {
+                auto mutable_col = std::move(*col_and_name.column).mutate();
+                mutable_col->shrink_padding_chars();
+                col_and_name.column = std::move(mutable_col);
+            }
         }
     }
 }

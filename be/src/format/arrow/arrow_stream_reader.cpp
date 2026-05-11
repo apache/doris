@@ -113,7 +113,7 @@ Status ArrowStreamReader::_do_get_next_block(Block* block, size_t* read_rows, bo
                 }
 
                 RETURN_IF_ERROR(column_with_name.type->get_serde()->read_column_from_arrow(
-                        column_with_name.column->assume_mutable_ref(), column, 0, num_rows, _ctzz));
+                        *columns[c], column, 0, num_rows, _ctzz));
             } catch (Exception& e) {
                 return Status::InternalError("Failed to convert from arrow to block: {}", e.what());
             }
@@ -121,6 +121,7 @@ Status ArrowStreamReader::_do_get_next_block(Block* block, size_t* read_rows, bo
         *read_rows += batch.num_rows();
     }
 
+    block->set_columns(std::move(columns));
     *eof = (*read_rows == 0);
     return Status::OK();
 }

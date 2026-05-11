@@ -172,6 +172,7 @@ static void fill_block_with_test_data(Block* block, int size) {
         auto v4 = Field::create_field<PrimitiveType::TYPE_INT>(i);
         columns[4]->insert(v4);
     }
+    block->set_columns(std::move(columns));
 }
 static int64_t inc_id = 1000;
 static RowsetWriterContext rowset_writer_context(const std::unique_ptr<DataDir>& data_dir,

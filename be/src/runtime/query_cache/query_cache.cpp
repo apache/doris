@@ -17,6 +17,8 @@
 
 #include "runtime/query_cache/query_cache.h"
 
+#include "common/logging.h"
+
 namespace doris {
 
 std::vector<int>* QueryCacheHandle::get_cache_slot_orders() {
@@ -43,7 +45,10 @@ void QueryCache::insert(const CacheKey& key, int64_t version, CacheResult& res,
     CacheResult cache_result;
     for (auto& block_data : res) {
         cache_result.emplace_back(Block::create_unique())->swap(block_data->clone_empty());
-        (void)MutableBlock(cache_result.back().get()).merge(*block_data);
+        MutableBlock mutable_block(cache_result.back().get());
+        auto st = mutable_block.merge(*block_data);
+        DORIS_CHECK(st.ok());
+        cache_result.back()->set_columns(std::move(mutable_block.mutable_columns()));
     }
     auto cache_value_ptr =
             std::make_unique<QueryCache::CacheValue>(version, std::move(cache_result), slot_orders);

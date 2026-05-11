@@ -461,15 +461,16 @@ static void generate_data(Block* block, int8_t k1, int16_t k2, int32_t seq) {
                 {"2020-07-16 19:39:43", 19}, c3, nullptr, p);
     }
     int64_t c3_int = c3.to_int64();
-    columns[2]->insert_data((const char*)&c3_int, sizeof(c3));
+    columns[2]->insert_data((const char*)&c3_int, sizeof(c3_int));
 
     DateV2Value<DateV2ValueType> c4;
     c4.unchecked_set_time(2022, 6, 6, 0, 0, 0, 0);
     uint32_t c4_int = c4.to_date_int_val();
-    columns[3]->insert_data((const char*)&c4_int, sizeof(c4));
+    columns[3]->insert_data((const char*)&c4_int, sizeof(c4_int));
 
     int32_t c5 = seq;
-    columns[4]->insert_data((const char*)&c5, sizeof(c2));
+    columns[4]->insert_data((const char*)&c5, sizeof(c5));
+    block->set_columns(std::move(columns));
 }
 
 class TestDeltaWriter : public ::testing::Test {
@@ -670,6 +671,7 @@ TEST_F(TestDeltaWriter, vec_write) {
         date_v2_int = date_v2.to_date_int_val();
         columns[21]->insert_data((const char*)&date_v2_int, sizeof(date_v2_int));
 
+        block.set_columns(std::move(columns));
         res = delta_writer->write(&block, {0});
         ASSERT_TRUE(res.ok());
     }

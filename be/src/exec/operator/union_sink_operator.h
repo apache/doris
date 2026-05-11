@@ -168,6 +168,7 @@ private:
             }
             local_state._child_row_idx += res.rows();
             RETURN_IF_ERROR(mblock.merge(res));
+            output_block->set_columns(std::move(mblock.mutable_columns()));
         }
         return Status::OK();
     }

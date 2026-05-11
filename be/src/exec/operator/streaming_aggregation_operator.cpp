@@ -330,8 +330,11 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::Block* in_blo
             in_block->get_by_position(result_column_id).column =
                     in_block->get_by_position(result_column_id)
                             .column->convert_to_full_column_if_const();
+            auto mutable_column =
+                    IColumn::mutate(std::move(in_block->get_by_position(result_column_id).column));
+            mutable_column->replace_float_special_values();
+            in_block->get_by_position(result_column_id).column = std::move(mutable_column);
             key_columns[i] = in_block->get_by_position(result_column_id).column.get();
-            key_columns[i]->assume_mutable()->replace_float_special_values();
         }
     }
 
@@ -370,8 +373,8 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::Block* in_blo
         for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
             auto data_type = _aggregate_evaluators[i]->function()->get_serialized_type();
             if (mem_reuse) {
-                value_columns.emplace_back(
-                        std::move(*out_block->get_by_position(i + key_size).column).mutate());
+                value_columns.emplace_back(IColumn::mutate(
+                        std::move(out_block->get_by_position(i + key_size).column)));
             } else {
                 value_columns.emplace_back(
                         _aggregate_evaluators[i]->function()->create_serialize_column());
@@ -397,11 +400,15 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::Block* in_blo
             }
             out_block->swap(Block(columns_with_schema));
         } else {
+            MutableColumns columns(out_block->columns());
             for (int i = 0; i < key_size; ++i) {
-                std::move(*out_block->get_by_position(i).column)
-                        .mutate()
-                        ->insert_range_from(*key_columns[i], 0, rows);
+                columns[i] = IColumn::mutate(std::move(out_block->get_by_position(i).column));
+                columns[i]->insert_range_from(*key_columns[i], 0, rows);
             }
+            for (int i = 0; i < value_columns.size(); ++i) {
+                columns[key_size + i] = std::move(value_columns[i]);
+            }
+            out_block->set_columns(std::move(columns));
         }
     } else {
         bool need_agg = true;
@@ -462,7 +469,7 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
     MutableColumns key_columns;
     for (int i = 0; i < key_size; ++i) {
         if (mem_reuse) {
-            key_columns.emplace_back(std::move(*block->get_by_position(i).column).mutate());
+            key_columns.emplace_back(IColumn::mutate(std::move(block->get_by_position(i).column)));
         } else {
             key_columns.emplace_back(_probe_expr_ctxs[i]->root()->data_type()->create_column());
         }
@@ -486,9 +493,8 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
                             value_data_types[0] =
                                     _aggregate_evaluators[0]->function()->get_serialized_type();
                             if (mem_reuse) {
-                                value_columns[0] =
-                                        std::move(*block->get_by_position(key_size).column)
-                                                .mutate();
+                                value_columns[0] = IColumn::mutate(
+                                        std::move(block->get_by_position(key_size).column));
                             } else {
                                 value_columns[0] = _aggregate_evaluators[0]
                                                            ->function()
@@ -590,9 +596,8 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
                                 value_data_types[i] =
                                         _aggregate_evaluators[i]->function()->get_serialized_type();
                                 if (mem_reuse) {
-                                    value_columns[i] =
-                                            std::move(*block->get_by_position(i + key_size).column)
-                                                    .mutate();
+                                    value_columns[i] = IColumn::mutate(
+                                            std::move(block->get_by_position(i + key_size).column));
                                 } else {
                                     value_columns[i] = _aggregate_evaluators[i]
                                                                ->function()
@@ -606,7 +611,16 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
                     }},
             _agg_data->method_variant);
 
-    if (!mem_reuse) {
+    if (mem_reuse) {
+        MutableColumns columns(block->columns());
+        for (int i = 0; i < key_size; ++i) {
+            columns[i] = std::move(key_columns[i]);
+        }
+        for (int i = 0; i < agg_size; ++i) {
+            columns[key_size + i] = std::move(value_columns[i]);
+        }
+        block->set_columns(std::move(columns));
+    } else {
         ColumnsWithTypeAndName columns_with_schema;
         for (int i = 0; i < key_size; ++i) {
             columns_with_schema.emplace_back(std::move(key_columns[i]),

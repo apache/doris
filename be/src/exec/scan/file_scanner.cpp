@@ -438,8 +438,10 @@ Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_al
     if (!first_column_filled) {
         // VExprContext.execute has an optimization, the filtering is executed when block->rows() > 0
         // The following process may be tricky and time-consuming, but we have no other way.
-        _runtime_filter_partition_prune_block.get_by_position(0).column->assume_mutable()->resize(
-                partition_value_column_size);
+        auto column = IColumn::mutate(
+                std::move(_runtime_filter_partition_prune_block.get_by_position(0).column));
+        column->resize(partition_value_column_size);
+        _runtime_filter_partition_prune_block.replace_by_position(0, std::move(column));
     }
     IColumn::Filter result_filter(_runtime_filter_partition_prune_block.rows(), 1);
     RETURN_IF_ERROR(VExprContext::execute_conjuncts(_runtime_filter_partition_prune_ctxs, nullptr,
@@ -778,11 +780,11 @@ Status FileScanner::_convert_to_output_block(Block* block) {
     auto& mutable_output_columns = mutable_output_block.mutable_columns();
 
     std::vector<BitmapValue>* skip_bitmaps {nullptr};
+    MutableColumnPtr skip_bitmap_column;
     if (_should_process_skip_bitmap_col()) {
-        auto* skip_bitmap_nullable_col_ptr =
-                assert_cast<ColumnNullable*>(_src_block_ptr->get_by_position(_skip_bitmap_col_idx)
-                                                     .column->assume_mutable()
-                                                     .get());
+        skip_bitmap_column = IColumn::mutate(
+                std::move(_src_block_ptr->get_by_position(_skip_bitmap_col_idx).column));
+        auto* skip_bitmap_nullable_col_ptr = assert_cast<ColumnNullable*>(skip_bitmap_column.get());
         skip_bitmaps = &(assert_cast<ColumnBitmap*>(
                                  skip_bitmap_nullable_col_ptr->get_nested_column_ptr().get())
                                  ->get_data());
@@ -799,6 +801,7 @@ Status FileScanner::_convert_to_output_block(Block* block) {
                 }
             }
         }
+        _src_block_ptr->replace_by_position(_skip_bitmap_col_idx, std::move(skip_bitmap_column));
     }
 
     // for (auto slot_desc : _output_tuple_desc->slots()) {
@@ -865,6 +868,7 @@ Status FileScanner::_convert_to_output_block(Block* block) {
         mutable_output_columns[j]->insert_range_from(*column_ptr, 0, rows);
         ctx_idx++;
     }
+    block->set_columns(std::move(mutable_output_columns));
 
     // after do the dest block insert operation, clear _src_block to remove the reference of origin column
     _src_block_ptr->clear();

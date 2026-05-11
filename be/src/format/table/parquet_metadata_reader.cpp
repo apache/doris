@@ -29,6 +29,7 @@
 #include <utility>
 
 #include "core/block/block.h"
+#include "core/column/column.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_nullable.h"
@@ -810,9 +811,9 @@ Status ParquetMetadataReader::_do_get_next_block(Block* block, size_t* read_rows
     bool mem_reuse = block->mem_reuse();
     std::vector<MutableColumnPtr> columns(_slots.size());
     if (mem_reuse) {
-        block->clear_column_data();
         for (size_t i = 0; i < _slots.size(); ++i) {
-            columns[i] = block->get_by_position(i).column->assume_mutable();
+            columns[i] = IColumn::mutate(std::move(block->get_by_position(i).column));
+            columns[i]->clear();
         }
     } else {
         for (size_t i = 0; i < _slots.size(); ++i) {
@@ -829,7 +830,7 @@ Status ParquetMetadataReader::_do_get_next_block(Block* block, size_t* read_rows
                     std::move(columns[i]), _slots[i]->get_data_type_ptr(), _slots[i]->col_name()));
         }
     } else {
-        columns.clear();
+        block->set_columns(std::move(columns));
     }
 
     size_t produced = block->rows() - rows_before;

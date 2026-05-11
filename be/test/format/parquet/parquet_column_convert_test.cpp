@@ -22,6 +22,9 @@
 #include <chrono>
 #include <vector>
 
+#include "core/assert_cast.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
 #include "util/timezone_utils.h"
 
 namespace doris::parquet {
@@ -38,6 +41,8 @@ static FieldSchema make_timestamp_field_schema(bool is_adjusted_to_utc) {
 }
 
 TEST(ParquetColumnConvertTest, InitFixedOffsetDetection) {
+    TimezoneUtils::load_timezones_to_cache();
+
     cctz::time_zone utc_tz;
     cctz::time_zone plus8_tz;
     cctz::time_zone shanghai_tz;
@@ -117,6 +122,178 @@ TEST(ParquetColumnConvertTest, LookupPathMatchesOriginal) {
         original_value.from_unixtime(timestamp, new_york_tz);
         EXPECT_EQ(original_value.to_date_int_val(), lookup_value.to_date_int_val());
     }
+}
+
+TEST(ParquetColumnConvertTest, AlignNullMapUsesAppendedSourceSlice) {
+    auto dst_nested_column = ColumnFloat64::create();
+    dst_nested_column->insert_value(1);
+    dst_nested_column->insert_value(2);
+    auto dst_null_map_column = ColumnUInt8::create();
+    dst_null_map_column->insert_value(0);
+    dst_null_map_column->insert_value(0);
+    ColumnPtr dst_column =
+            ColumnNullable::create(std::move(dst_nested_column), std::move(dst_null_map_column));
+
+    auto src_nested_column = ColumnInt64::create();
+    for (int i = 0; i < 5; ++i) {
+        src_nested_column->insert_value(i);
+    }
+    auto src_null_map_column = ColumnUInt8::create();
+    src_null_map_column->insert_value(0);
+    src_null_map_column->insert_value(0);
+    src_null_map_column->insert_value(1);
+    src_null_map_column->insert_value(0);
+    src_null_map_column->insert_value(1);
+    ColumnPtr src_column =
+            ColumnNullable::create(std::move(src_nested_column), std::move(src_null_map_column));
+
+    align_null_map(src_column, dst_column, 2, 3, 2);
+
+    const auto* nullable_column = assert_cast<const ColumnNullable*>(dst_column.get());
+    const auto& null_map = nullable_column->get_null_map_data();
+    ASSERT_EQ(null_map.size(), 5);
+    EXPECT_EQ(null_map[0], 0);
+    EXPECT_EQ(null_map[1], 0);
+    EXPECT_EQ(null_map[2], 1);
+    EXPECT_EQ(null_map[3], 0);
+    EXPECT_EQ(null_map[4], 1);
+}
+
+TEST(ParquetColumnConvertTest, AlignNullMapUsesNullablePrefixForCachedReadColumn) {
+    auto dst_nested_column = ColumnFloat64::create();
+    dst_nested_column->insert_value(1);
+    dst_nested_column->insert_value(2);
+    auto dst_null_map_column = ColumnUInt8::create();
+    dst_null_map_column->insert_value(0);
+    dst_null_map_column->insert_value(0);
+    ColumnPtr dst_column =
+            ColumnNullable::create(std::move(dst_nested_column), std::move(dst_null_map_column));
+
+    auto src_nested_column = ColumnInt64::create();
+    src_nested_column->insert_value(10);
+    src_nested_column->insert_value(11);
+    src_nested_column->insert_value(12);
+    auto src_null_map_column = ColumnUInt8::create();
+    src_null_map_column->insert_value(0);
+    src_null_map_column->insert_value(0);
+    src_null_map_column->insert_value(1);
+    src_null_map_column->insert_value(0);
+    src_null_map_column->insert_value(1);
+    ColumnPtr src_column =
+            ColumnNullable::create(std::move(src_nested_column), std::move(src_null_map_column));
+
+    align_null_map(src_column, dst_column, get_null_map_size_or_inner_column_size(dst_column), 3,
+                   get_appended_null_map_start(src_column, 3));
+
+    const auto* nullable_column = assert_cast<const ColumnNullable*>(dst_column.get());
+    const auto& null_map = nullable_column->get_null_map_data();
+    ASSERT_EQ(null_map.size(), 5);
+    EXPECT_EQ(null_map[0], 0);
+    EXPECT_EQ(null_map[1], 0);
+    EXPECT_EQ(null_map[2], 1);
+    EXPECT_EQ(null_map[3], 0);
+    EXPECT_EQ(null_map[4], 1);
+}
+
+TEST(ParquetColumnConvertTest, ConvertNullableFloatToDoubleUsesCurrentSourceNullMapSlice) {
+    FieldSchema field_schema;
+    field_schema.name = "float_col";
+    field_schema.parquet_schema.__set_name("float_col");
+    field_schema.parquet_schema.__set_type(tparquet::Type::FLOAT);
+    field_schema.data_type = DataTypeFactory::instance().create_data_type(TYPE_FLOAT, true);
+
+    const auto dst_type = DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, true);
+    auto converter = PhysicalToLogicalConverter::get_converter(
+            &field_schema, field_schema.data_type, dst_type, nullptr);
+    ASSERT_TRUE(converter->support()) << converter->get_error_msg();
+
+    auto src_nested_column = ColumnFloat32::create();
+    src_nested_column->insert_value(1.5F);
+    src_nested_column->insert_value(2.5F);
+    src_nested_column->insert_value(3.5F);
+    auto src_null_map_column = ColumnUInt8::create();
+    src_null_map_column->insert_value(0);
+    src_null_map_column->insert_value(1);
+    src_null_map_column->insert_value(0);
+    ColumnPtr src_column =
+            ColumnNullable::create(std::move(src_nested_column), std::move(src_null_map_column));
+
+    ColumnPtr dst_column = dst_type->create_column();
+    ColumnPtr dst_alias = dst_column;
+
+    ASSERT_TRUE(converter->convert(src_column, field_schema.data_type, dst_type, dst_column, false)
+                        .ok());
+
+    const auto* nullable_column = assert_cast<const ColumnNullable*>(dst_column.get());
+    ASSERT_EQ(nullable_column->size(), 3);
+    const auto& null_map = nullable_column->get_null_map_data();
+    EXPECT_EQ(null_map[0], 0);
+    EXPECT_EQ(null_map[1], 1);
+    EXPECT_EQ(null_map[2], 0);
+
+    const auto& nested_column =
+            assert_cast<const ColumnFloat64&>(nullable_column->get_nested_column());
+    EXPECT_DOUBLE_EQ(nested_column.get_data()[0], 1.5);
+    EXPECT_DOUBLE_EQ(nested_column.get_data()[2], 3.5);
+
+    const auto* original_dst = assert_cast<const ColumnNullable*>(dst_alias.get());
+    EXPECT_EQ(original_dst->size(), 0);
+}
+
+TEST(ParquetColumnConvertTest,
+     ConvertNullableFixedLengthStringToVarbinaryPreservesExistingDstPrefix) {
+    FieldSchema field_schema;
+    field_schema.name = "fixed_binary_col";
+    field_schema.parquet_schema.__set_name("fixed_binary_col");
+    field_schema.parquet_schema.__set_type(tparquet::Type::FIXED_LEN_BYTE_ARRAY);
+    field_schema.parquet_schema.__set_type_length(2);
+    field_schema.data_type = DataTypeFactory::instance().create_data_type(TYPE_STRING, true);
+
+    const auto dst_type = DataTypeFactory::instance().create_data_type(TYPE_VARBINARY, true);
+    auto converter = PhysicalToLogicalConverter::get_converter(
+            &field_schema, field_schema.data_type, dst_type, nullptr);
+    ASSERT_TRUE(converter->support()) << converter->get_error_msg();
+
+    auto src_nested_column = ColumnUInt8::create();
+    for (auto ch : std::string("aabbcc")) {
+        src_nested_column->insert_value(static_cast<UInt8>(ch));
+    }
+    auto src_null_map_column = ColumnUInt8::create();
+    src_null_map_column->insert_value(0);
+    src_null_map_column->insert_value(1);
+    src_null_map_column->insert_value(0);
+    ColumnPtr src_column =
+            ColumnNullable::create(std::move(src_nested_column), std::move(src_null_map_column));
+
+    auto dst_nested_column = ColumnVarbinary::create();
+    dst_nested_column->insert_data("zz", 2);
+    auto dst_null_map_column = ColumnUInt8::create();
+    dst_null_map_column->insert_value(0);
+    ColumnPtr dst_column =
+            ColumnNullable::create(std::move(dst_nested_column), std::move(dst_null_map_column));
+    ColumnPtr dst_alias = dst_column;
+
+    ASSERT_TRUE(converter->convert(src_column, field_schema.data_type, dst_type, dst_column, false)
+                        .ok());
+
+    const auto* nullable_column = assert_cast<const ColumnNullable*>(dst_column.get());
+    ASSERT_EQ(nullable_column->size(), 4);
+    const auto& null_map = nullable_column->get_null_map_data();
+    EXPECT_EQ(null_map[0], 0);
+    EXPECT_EQ(null_map[1], 0);
+    EXPECT_EQ(null_map[2], 1);
+    EXPECT_EQ(null_map[3], 0);
+
+    const auto& nested_column =
+            assert_cast<const ColumnVarbinary&>(nullable_column->get_nested_column());
+    ASSERT_EQ(nested_column.size(), 4);
+    EXPECT_EQ(nested_column.get_data_at(0).to_string(), "zz");
+    EXPECT_EQ(nested_column.get_data_at(1).to_string(), "aa");
+    EXPECT_EQ(nested_column.get_data_at(3).to_string(), "cc");
+
+    const auto* original_dst = assert_cast<const ColumnNullable*>(dst_alias.get());
+    ASSERT_EQ(original_dst->size(), 1);
+    EXPECT_EQ(original_dst->get_data_at(0).to_string(), "zz");
 }
 
 } // namespace doris::parquet

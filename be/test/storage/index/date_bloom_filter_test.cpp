@@ -146,6 +146,7 @@ TEST_F(DateBloomFilterTest, query_index_test) {
     olap_datetime_value = datetime.to_olap_datetime();
     columns[0]->insert_many_fix_len_data(reinterpret_cast<const char*>(&olap_date_value), 1);
     columns[1]->insert_many_fix_len_data(reinterpret_cast<const char*>(&olap_datetime_value), 1);
+    block.set_columns(std::move(columns));
 
     Status st;
     st = rowset_writer->add_block(&block);
@@ -240,6 +241,7 @@ TEST_F(DateBloomFilterTest, in_list_predicate_test) {
     olap_datetime_value = datetime.to_olap_datetime();
     columns[0]->insert_many_fix_len_data(reinterpret_cast<const char*>(&olap_date_value), 1);
     columns[1]->insert_many_fix_len_data(reinterpret_cast<const char*>(&olap_datetime_value), 1);
+    block.set_columns(std::move(columns));
 
     EXPECT_TRUE(rowset_writer->add_block(&block).ok());
     EXPECT_TRUE(rowset_writer->flush().ok());

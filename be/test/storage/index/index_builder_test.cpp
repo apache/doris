@@ -257,6 +257,8 @@ TEST_F(IndexBuilderTest, DropInvertedIndexTest) {
             columns[1]->insert_data((const char*)&k2, sizeof(k2));
         }
 
+        block.set_columns(std::move(columns));
+
         // Add the block to the rowset
         Status s = rowset_writer->add_block(&block);
         ASSERT_TRUE(s.ok()) << s.to_string();
@@ -544,6 +546,8 @@ TEST_F(IndexBuilderTest, BuildInvertedIndexAfterWritingDataTest) {
             int32_t k2 = i % 100;
             columns[1]->insert_data((const char*)&k2, sizeof(k2));
         }
+
+        block.set_columns(std::move(columns));
 
         // Add the block to the rowset
         Status s = rowset_writer->add_block(&block);
@@ -874,6 +878,8 @@ TEST_F(IndexBuilderTest, AddIndexWhenOneExistsTest) {
             columns[1]->insert_data((const char*)&k2, sizeof(k2));
         }
 
+        block.set_columns(std::move(columns));
+
         // Add block to rowset
         Status s = rowset_writer->add_block(&block);
         ASSERT_TRUE(s.ok()) << s.to_string();
@@ -1042,6 +1048,8 @@ TEST_F(IndexBuilderTest, AddIndexWhenOneExistsTestV1) {
             columns[1]->insert_data((const char*)&k2, sizeof(k2));
         }
 
+        block.set_columns(std::move(columns));
+
         // Add block to rowset
         Status s = rowset_writer->add_block(&block);
         ASSERT_TRUE(s.ok()) << s.to_string();
@@ -1190,6 +1198,8 @@ TEST_F(IndexBuilderTest, MultiSegmentBuildIndexTest) {
             int32_t k2 = (segment * rows_per_segment + i) % 100;
             columns[1]->insert_data((const char*)&k2, sizeof(k2));
         }
+
+        block.set_columns(std::move(columns));
 
         // Add the block to the rowset
         Status s = rowset_writer->add_block(&block);
@@ -1340,6 +1350,8 @@ TEST_F(IndexBuilderTest, NonExistentColumnIndexTest) {
             int32_t k2 = i % 100;
             columns[1]->insert_data((const char*)&k2, sizeof(k2));
         }
+
+        block.set_columns(std::move(columns));
 
         // Add the block to the rowset
         Status s = rowset_writer->add_block(&block);
@@ -1515,6 +1527,8 @@ TEST_F(IndexBuilderTest, RenameColumnIndexTest) {
             columns[1]->insert_data((const char*)&k2, sizeof(k2));
         }
 
+        block.set_columns(std::move(columns));
+
         // Add the block to the rowset
         Status s = rowset_writer->add_block(&block);
         ASSERT_TRUE(s.ok()) << s.to_string();
@@ -1668,6 +1682,8 @@ TEST_F(IndexBuilderTest, AddNonExistentColumnIndexWhenOneExistsTest) {
             int32_t k2 = i % 100;
             columns[1]->insert_data((const char*)&k2, sizeof(k2));
         }
+
+        block.set_columns(std::move(columns));
 
         // Add the block to the rowset
         Status s = rowset_writer->add_block(&block);
@@ -1841,6 +1857,8 @@ TEST_F(IndexBuilderTest, AddNonExistentColumnIndexWhenOneExistsTestV1) {
             columns[1]->insert_data((const char*)&k2, sizeof(k2));
         }
 
+        block.set_columns(std::move(columns));
+
         // Add block to rowset
         Status s = rowset_writer->add_block(&block);
         ASSERT_TRUE(s.ok()) << s.to_string();
@@ -1991,6 +2009,8 @@ TEST_F(IndexBuilderTest, NonNullIndexDataTest) {
             columns[1]->insert_data((const char*)&k2, sizeof(k2));
         }
 
+        block.set_columns(std::move(columns));
+
         // Add the block to the rowset
         Status s = rowset_writer->add_block(&block);
         ASSERT_TRUE(s.ok()) << s.to_string();
@@ -2114,6 +2134,8 @@ TEST_F(IndexBuilderTest, NonExistentColumnUniqueIdTest) {
             int32_t k2 = i % 100;
             columns[1]->insert_data((const char*)&k2, sizeof(k2));
         }
+
+        block.set_columns(std::move(columns));
 
         // Add the block to the rowset
         Status s = rowset_writer->add_block(&block);
@@ -2246,6 +2268,8 @@ TEST_F(IndexBuilderTest, DropIndexV1FormatTest) {
             columns[1]->insert_data((const char*)&k2, sizeof(k2));
         }
 
+        block.set_columns(std::move(columns));
+
         // Add the block to the rowset
         Status s = rowset_writer->add_block(&block);
         ASSERT_TRUE(s.ok()) << s.to_string();
@@ -2369,6 +2393,8 @@ TEST_F(IndexBuilderTest, ResourceCleanupTest) {
             int32_t k2 = i % 100;
             columns[1]->insert_data((const char*)&k2, sizeof(k2));
         }
+
+        block.set_columns(std::move(columns));
 
         // Add the block to the rowset
         Status s = rowset_writer->add_block(&block);
@@ -2535,6 +2561,8 @@ TEST_F(IndexBuilderTest, ArrayTypeIndexTest) {
             array_col.insert(Field::create_field<TYPE_ARRAY>(arr));
         }
 
+        block.set_columns(std::move(columns));
+
         // Add block to rowset
         Status s = rowset_writer->add_block(&block);
         ASSERT_TRUE(s.ok()) << s.to_string();
@@ -2630,6 +2658,8 @@ TEST_F(IndexBuilderTest, UniqueKeysTableIndexTest) {
             int32_t k2 = i % 100;
             columns[1]->insert_data((const char*)&k2, sizeof(k2));
         }
+
+        block.set_columns(std::move(columns));
 
         // Add the block to the rowset
         Status s = rowset_writer->add_block(&block);
@@ -2789,6 +2819,8 @@ TEST_F(IndexBuilderTest, HandleSingleRowsetErrorTest) {
             columns[1]->insert_data((const char*)&k2, sizeof(k2));
         }
 
+        block.set_columns(std::move(columns));
+
         // Add the block to the rowset
         Status s = rowset_writer->add_block(&block);
         ASSERT_TRUE(s.ok()) << s.to_string();
@@ -2909,6 +2941,8 @@ TEST_F(IndexBuilderTest, UpdateInvertedIndexInfoErrorTest) {
             columns[1]->insert_data((const char*)&k2, sizeof(k2));
         }
 
+        block.set_columns(std::move(columns));
+
         // Add the block to the rowset
         Status s = rowset_writer->add_block(&block);
         ASSERT_TRUE(s.ok()) << s.to_string();
@@ -3023,6 +3057,8 @@ TEST_F(IndexBuilderTest, DropOneIndexNotAffectOtherIndexesOnSameColumnTest) {
             int32_t k2 = i % 100;
             columns[1]->insert_data((const char*)&k2, sizeof(k2));
         }
+
+        block.set_columns(std::move(columns));
 
         // Add the block to the rowset
         Status s = rowset_writer->add_block(&block);

@@ -482,6 +482,7 @@ public:
 
         // Simulate reading without actually reading data
         // Fill with default/null values based on column type
+        doris_column = IColumn::mutate(std::move(doris_column));
         MutableColumnPtr data_column = doris_column->assume_mutable();
 
         if (real_column_size > 0) {

@@ -167,6 +167,7 @@ Status ShuffleExchanger::get_block(RuntimeState* state, Block* block, bool* eos,
         mutable_block = VectorizedUtils::build_mutable_mem_reuse_block(
                 block, partitioned_block.first->_data_block);
         RETURN_IF_ERROR(get_data());
+        block->set_columns(std::move(mutable_block.mutable_columns()));
     }
     return Status::OK();
 }
@@ -212,7 +213,7 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const std::vector<uint
      * For example, row 1 get a hash value 1 which means we should distribute to instance 1 on
      * BE 1 and row 2 get a hash value 2 which means we should distribute to instance 1 on BE 3.
      */
-    DCHECK(shuffle_idx_to_instance_idx && shuffle_idx_to_instance_idx->size() > 0);
+    DCHECK(shuffle_idx_to_instance_idx && !shuffle_idx_to_instance_idx->empty());
     const auto& map = *shuffle_idx_to_instance_idx;
     int32_t enqueue_rows = 0;
     for (const auto& it : map) {
@@ -425,6 +426,7 @@ Status BroadcastExchanger::get_block(RuntimeState* state, Block* block, bool* eo
         RETURN_IF_ERROR(mutable_block.add_rows(&block_wrapper->_data_block,
                                                partitioned_block.second.offset_start,
                                                partitioned_block.second.length));
+        block->set_columns(std::move(mutable_block.mutable_columns()));
     }
 
     return Status::OK();
@@ -573,6 +575,9 @@ Status AdaptivePassthroughExchanger::get_block(RuntimeState* state, Block* block
         mutable_block = VectorizedUtils::build_mutable_mem_reuse_block(
                 block, partitioned_block.first->_data_block);
         RETURN_IF_ERROR(get_data());
+        if (mutable_block.rows() > 0) {
+            block->set_columns(std::move(mutable_block.mutable_columns()));
+        }
     }
     return Status::OK();
 }

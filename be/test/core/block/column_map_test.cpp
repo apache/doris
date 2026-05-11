@@ -347,6 +347,120 @@ TEST(ColumnMapTest2, StringKeyTestDuplicatedKeysNestedMap) {
     ASSERT_EQ(v2_values[1].get<TYPE_INT>(), 333);
 };
 
+TEST(ColumnMapTest2, SharedCreatePreservesImmutableSubcolumns) {
+    auto keys_mut = ColumnString::create();
+    keys_mut->insert_data("k", 1);
+    ColumnPtr keys = std::move(keys_mut);
+    ColumnPtr keys_alias = keys;
+
+    auto values_mut = ColumnInt32::create();
+    values_mut->insert_value(1);
+    ColumnPtr values = std::move(values_mut);
+    ColumnPtr values_alias = values;
+
+    auto offsets_mut = ColumnArray::ColumnOffsets::create();
+    offsets_mut->get_data().push_back(1);
+    ColumnPtr offsets = std::move(offsets_mut);
+    ColumnPtr offsets_alias = offsets;
+
+    auto map_column = ColumnMap::create(keys, values, offsets);
+    EXPECT_EQ(map_column->get_keys_ptr().get(), keys_alias.get());
+    EXPECT_EQ(map_column->get_values_ptr().get(), values_alias.get());
+    EXPECT_EQ(map_column->get_offsets_ptr().get(), offsets_alias.get());
+}
+
+TEST(ColumnMapTest2, ConstFilterAndPermuteKeepInputAliasesUntouched) {
+    auto keys_mut = ColumnString::create();
+    keys_mut->insert_data("a", 1);
+    keys_mut->insert_data("b", 1);
+    keys_mut->insert_data("c", 1);
+    ColumnPtr keys = std::move(keys_mut);
+    ColumnPtr keys_alias = keys;
+
+    auto values_mut = ColumnInt32::create();
+    values_mut->insert_value(1);
+    values_mut->insert_value(2);
+    values_mut->insert_value(3);
+    ColumnPtr values = std::move(values_mut);
+    ColumnPtr values_alias = values;
+
+    auto offsets_mut = ColumnArray::ColumnOffsets::create();
+    offsets_mut->get_data().push_back(2);
+    offsets_mut->get_data().push_back(3);
+    ColumnPtr offsets = std::move(offsets_mut);
+    ColumnPtr offsets_alias = offsets;
+
+    auto map_column = ColumnMap::create(keys, values, offsets);
+
+    IColumn::Filter filter;
+    filter.push_back(0);
+    filter.push_back(1);
+    auto filtered = map_column->filter(filter, 1);
+    const auto& filtered_map = assert_cast<const ColumnMap&>(*filtered);
+    EXPECT_EQ(filtered_map.size(), 1);
+    EXPECT_EQ(filtered_map.get_keys().size(), 1);
+    EXPECT_EQ(assert_cast<const ColumnInt32&>(filtered_map.get_values()).get_element(0), 3);
+
+    IColumn::Permutation perm;
+    perm.push_back(1);
+    perm.push_back(0);
+    auto permuted = map_column->permute(perm, 0);
+    const auto& permuted_map = assert_cast<const ColumnMap&>(*permuted);
+    EXPECT_EQ(permuted_map.size(), 2);
+    EXPECT_EQ(permuted_map.get_offsets()[0], 1);
+    EXPECT_EQ(permuted_map.get_offsets()[1], 3);
+
+    EXPECT_EQ(keys_alias->size(), 3);
+    EXPECT_EQ(values_alias->size(), 3);
+    EXPECT_EQ(offsets_alias->size(), 2);
+}
+
+TEST(ColumnMapTest2, DeduplicateNestedNullableMapValuesDetachesSharedValueColumn) {
+    auto inner_values = ColumnMap::create(ColumnString::create(), ColumnInt32::create(),
+                                          ColumnArray::ColumnOffsets::create());
+    Map inner_map;
+    inner_map.push_back(Field::create_field<TYPE_ARRAY>(
+            Array {Field::create_field<TYPE_STRING>("a"), Field::create_field<TYPE_STRING>("a")}));
+    inner_map.push_back(Field::create_field<TYPE_ARRAY>(
+            Array {Field::create_field<TYPE_INT>(1), Field::create_field<TYPE_INT>(2)}));
+    inner_values->insert(Field::create_field<TYPE_MAP>(inner_map));
+
+    ColumnPtr shared_inner_values = std::move(inner_values);
+    ColumnPtr inner_values_alias = shared_inner_values;
+
+    auto null_map_mut = ColumnUInt8::create();
+    null_map_mut->insert_value(0);
+    ColumnPtr null_map = std::move(null_map_mut);
+    ColumnPtr nullable_values = ColumnNullable::create(shared_inner_values, null_map);
+
+    auto outer_keys_mut = ColumnString::create();
+    outer_keys_mut->insert_data("outer", 5);
+    ColumnPtr outer_keys = std::move(outer_keys_mut);
+
+    auto outer_offsets_mut = ColumnArray::ColumnOffsets::create();
+    outer_offsets_mut->get_data().push_back(1);
+    ColumnPtr outer_offsets = std::move(outer_offsets_mut);
+
+    auto outer_map = ColumnMap::create(outer_keys, nullable_values, outer_offsets);
+    auto st = outer_map->deduplicate_keys(true);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    const auto& alias_inner_map = assert_cast<const ColumnMap&>(*inner_values_alias);
+    EXPECT_EQ(alias_inner_map.get_keys().size(), 2);
+    EXPECT_EQ(alias_inner_map.get_values().size(), 2);
+
+    const auto& outer_map_ref = *outer_map;
+    const auto& outer_values_nullable =
+            assert_cast<const ColumnNullable&>(outer_map_ref.get_values());
+    const auto& deduplicated_inner_map =
+            assert_cast<const ColumnMap&>(outer_values_nullable.get_nested_column());
+    EXPECT_EQ(deduplicated_inner_map.get_keys().size(), 1);
+    EXPECT_EQ(deduplicated_inner_map.get_values().size(), 1);
+    EXPECT_EQ(deduplicated_inner_map.get_keys().get_data_at(0).to_string(), "a");
+    EXPECT_EQ(assert_cast<const ColumnInt32&>(deduplicated_inner_map.get_values()).get_element(0),
+              2);
+}
+
 TEST(ColumnMapTest2, StringValueTest) {
     auto col_map_str64 = ColumnMap(ColumnInt64::create(), ColumnString64::create(),
                                    ColumnArray::ColumnOffsets::create());

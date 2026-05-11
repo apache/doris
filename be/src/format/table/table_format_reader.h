@@ -147,7 +147,7 @@ public:
             if (col_pos < 0) {
                 continue;
             }
-            block->get_by_position(static_cast<size_t>(col_pos)).column->assume_mutable()->clear();
+            block->clear_column_data(std::vector<uint32_t> {static_cast<uint32_t>(col_pos)});
         }
         return Status::OK();
     }
@@ -212,7 +212,7 @@ public:
             if (col_pos < 0) {
                 continue;
             }
-            block->get_by_position(static_cast<size_t>(col_pos)).column->assume_mutable()->clear();
+            block->clear_column_data(std::vector<uint32_t> {static_cast<uint32_t>(col_pos)});
         }
         return Status::OK();
     }

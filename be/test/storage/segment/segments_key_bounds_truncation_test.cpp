@@ -188,6 +188,7 @@ public:
                 columns[1]->insert_data(reinterpret_cast<const char*>(&const_value),
                                         sizeof(const_value));
             }
+            block.set_columns(std::move(columns));
             ret.emplace_back(std::move(block));
         }
         return ret;

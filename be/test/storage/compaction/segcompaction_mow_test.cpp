@@ -103,6 +103,14 @@ public:
 protected:
     OlapReaderStatistics _stats;
 
+    Status add_block_with_columns(RowsetWriter* rowset_writer, Block* block,
+                                  MutableColumns* columns) {
+        block->set_columns(std::move(*columns));
+        auto st = rowset_writer->add_block(block);
+        *columns = block->mutate_columns();
+        return st;
+    }
+
     bool check_dir(std::vector<std::string>& vec) {
         std::vector<std::string> result;
         for (const auto& entry : std::filesystem::directory_iterator(lTestDir)) {
@@ -358,7 +366,7 @@ TEST_P(SegCompactionMoWTest, SegCompactionThenRead) {
                     }
                 }
             }
-            s = rowset_writer->add_block(&block);
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
@@ -458,7 +466,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
                     rows_mark_deleted++;
                 }
             }
-            s = rowset_writer->add_block(&block);
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
@@ -486,7 +494,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
                     rows_mark_deleted++;
                 }
             }
-            s = rowset_writer->add_block(&block);
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
@@ -514,7 +522,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
                     rows_mark_deleted++;
                 }
             }
-            s = rowset_writer->add_block(&block);
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
@@ -542,7 +550,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
                     rows_mark_deleted++;
                 }
             }
-            s = rowset_writer->add_block(&block);
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
@@ -573,7 +581,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
                 }
                 unique_keys.emplace(k1, rid);
             }
-            s = rowset_writer->add_block(&block);
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
@@ -610,7 +618,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
                     rows_mark_deleted++;
                 }
             }
-            s = rowset_writer->add_block(&block);
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
@@ -688,7 +696,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
                     rows_mark_deleted++;
                 }
             }
-            s = rowset_writer->add_block(&block);
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
@@ -716,7 +724,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
                     rows_mark_deleted++;
                 }
             }
-            s = rowset_writer->add_block(&block);
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
@@ -744,7 +752,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
                     rows_mark_deleted++;
                 }
             }
-            s = rowset_writer->add_block(&block);
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
@@ -772,7 +780,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
                     rows_mark_deleted++;
                 }
             }
-            s = rowset_writer->add_block(&block);
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
@@ -800,7 +808,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
                     rows_mark_deleted++;
                 }
             }
-            s = rowset_writer->add_block(&block);
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
@@ -873,7 +881,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionNotTrigger) {
                     rows_mark_deleted++;
                 }
             }
-            s = rowset_writer->add_block(&block);
+            s = add_block_with_columns(rowset_writer.get(), &block, &columns);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);

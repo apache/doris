@@ -634,11 +634,15 @@ public:
         Block block;
         for (size_t i = 0; i < load_cols.size(); ++i) {
             ColumnWithTypeAndName columnTypeAndName;
-            columnTypeAndName.column = load_cols[i]->assume_mutable();
+            columnTypeAndName.column = load_cols[i]->get_ptr();
             columnTypeAndName.type = types[i];
             block.insert(columnTypeAndName);
         }
         MutableBlock mb = MutableBlock::build_mutable_block(&block);
+        // Rebuild block from load_cols after build_mutable_block stole the column pointers
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            block.get_by_position(i).column = load_cols[i]->get_ptr();
+        }
         // step2. to construct a block for assert_cols
         Block assert_block;
         Block empty_block;
@@ -691,7 +695,9 @@ public:
                         continue;
                     } else if (*pos + *cl > source_column->size()) {
                         if (is_column<ColumnArray>(
-                                    remove_nullable(source_column->assume_mutable()).get())) {
+                                    remove_nullable(static_cast<const IColumn*>(source_column.get())
+                                                            ->get_ptr())
+                                            .get())) {
                             // insert_range_from in array has DCHECK_LG
                             continue;
                         }
@@ -3544,13 +3550,13 @@ auto assert_column_vector_serialize_vec_callback = [](auto x,
         if (test_null_map) {
             cloned_target_column->serialize(input_keys.data(), rows);
             deser_column_wrapper = cloned_target_column->clone_empty();
-            deser_column = ((ColumnNullable*)deser_column_wrapper.get())->get_nested_column_ptr();
         } else {
             target_column->serialize(input_keys.data(), rows);
             deser_column = source_column->clone_empty();
         }
         if (test_null_map) {
             deser_column_wrapper->deserialize(input_keys.data(), rows);
+            deser_column = ((ColumnNullable*)deser_column_wrapper.get())->get_nested_column_ptr();
         } else {
             deser_column->deserialize(input_keys.data(), rows);
         }

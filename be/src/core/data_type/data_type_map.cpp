@@ -135,10 +135,12 @@ const char* DataTypeMap::deserialize(const char* buf, MutableColumnPtr* column,
     memcpy(map_offsets.data(), buf, sizeof(ColumnArray::Offset64) * real_have_saved_num);
     buf += sizeof(ColumnArray::Offset64) * real_have_saved_num;
     // key value
-    auto nested_keys_column = map_column->get_keys_ptr()->assume_mutable();
-    auto nested_values_column = map_column->get_values_ptr()->assume_mutable();
+    auto nested_keys_column = std::move(*map_column->get_keys_ptr()).mutate();
+    auto nested_values_column = std::move(*map_column->get_values_ptr()).mutate();
     buf = get_key_type()->deserialize(buf, &nested_keys_column, be_exec_version);
     buf = get_value_type()->deserialize(buf, &nested_values_column, be_exec_version);
+    map_column->get_keys_ptr() = std::move(nested_keys_column);
+    map_column->get_values_ptr() = std::move(nested_values_column);
     return buf;
 }
 } // namespace doris

@@ -145,6 +145,7 @@ Status SchemaCatalogMetaCacheStatsScanner::get_next_block_internal(Block* block,
     int current_batch_rows = std::min(_block_rows_limit, _total_rows - _row_idx);
     MutableBlock mblock = MutableBlock::build_mutable_block(block);
     RETURN_IF_ERROR(mblock.add_rows(_block.get(), _row_idx, current_batch_rows));
+    block->set_columns(std::move(mblock.mutable_columns()));
     _row_idx += current_batch_rows;
 
     *eos = _row_idx == _total_rows;

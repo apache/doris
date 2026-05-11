@@ -884,9 +884,10 @@ Status BaseTablet::sort_block(Block& in_block, Block& output_block) {
     vec_row_comparator->set_block(&mutable_input_block);
 
     std::vector<std::unique_ptr<RowInBlock>> row_in_blocks;
-    DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
-    row_in_blocks.reserve(in_block.rows());
-    for (size_t i = 0; i < in_block.rows(); ++i) {
+    const auto input_rows = mutable_input_block.rows();
+    DCHECK(input_rows <= std::numeric_limits<int>::max());
+    row_in_blocks.reserve(input_rows);
+    for (size_t i = 0; i < input_rows; ++i) {
         row_in_blocks.emplace_back(std::make_unique<RowInBlock>(i));
     }
     std::sort(row_in_blocks.begin(), row_in_blocks.end(),
@@ -898,12 +899,15 @@ Status BaseTablet::sort_block(Block& in_block, Block& output_block) {
                   return value < 0;
               });
     std::vector<uint32_t> row_pos_vec;
-    row_pos_vec.reserve(in_block.rows());
+    row_pos_vec.reserve(input_rows);
     for (auto& block : row_in_blocks) {
         row_pos_vec.emplace_back(block->_row_pos);
     }
-    return mutable_output_block.add_rows(&in_block, row_pos_vec.data(),
-                                         row_pos_vec.data() + in_block.rows());
+    in_block.set_columns(std::move(mutable_input_block.mutable_columns()));
+    RETURN_IF_ERROR(mutable_output_block.add_rows(&in_block, row_pos_vec.data(),
+                                                  row_pos_vec.data() + input_rows));
+    output_block.set_columns(std::move(mutable_output_block.mutable_columns()));
+    return Status::OK();
 }
 
 // fetch value by row column

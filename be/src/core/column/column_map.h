@@ -58,11 +58,11 @@ public:
       */
     using Base = COWHelper<IColumn, ColumnMap>;
     using COffsets = ColumnArray::ColumnOffsets;
+    struct SharedTag {};
 
     static MutablePtr create(const ColumnPtr& keys, const ColumnPtr& values,
                              const ColumnPtr& offsets) {
-        return ColumnMap::create(keys->assume_mutable(), values->assume_mutable(),
-                                 offsets->assume_mutable());
+        return Base::create(SharedTag {}, keys, values, offsets);
     }
 
     template <typename... Args,
@@ -245,6 +245,7 @@ private:
     WrappedPtr offsets_column; // offset
 
     ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, MutableColumnPtr&& offsets);
+    ColumnMap(SharedTag, ColumnPtr keys, ColumnPtr values, ColumnPtr offsets);
 
     ColumnMap(const ColumnMap&) = default;
 };

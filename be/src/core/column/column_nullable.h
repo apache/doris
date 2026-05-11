@@ -55,6 +55,8 @@ private:
     friend class COWHelper<IColumn, ColumnNullable>;
 
     ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnPtr&& null_map_);
+    struct SharedTag {};
+    ColumnNullable(SharedTag, ColumnPtr nested_column_, ColumnPtr null_map_);
     ColumnNullable(const ColumnNullable&) = default;
 
 public:
@@ -63,8 +65,7 @@ public:
       */
     using Base = COWHelper<IColumn, ColumnNullable>;
     static MutablePtr create(const ColumnPtr& nested_column_, const ColumnPtr& null_map_) {
-        return ColumnNullable::create(nested_column_->assume_mutable(),
-                                      null_map_->assume_mutable());
+        return Base::create(SharedTag {}, nested_column_, null_map_);
     }
 
     template <typename... Args>

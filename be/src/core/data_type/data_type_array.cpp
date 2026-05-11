@@ -127,8 +127,9 @@ const char* DataTypeArray::deserialize(const char* buf, MutableColumnPtr* column
     memcpy(offsets.data(), buf, sizeof(ColumnArray::Offset64) * real_have_saved_num);
     buf += sizeof(ColumnArray::Offset64) * real_have_saved_num;
     // children
-    auto nested_column = data_column->get_data_ptr()->assume_mutable();
+    auto nested_column = std::move(*data_column->get_data_ptr()).mutate();
     buf = get_nested_type()->deserialize(buf, &nested_column, be_exec_version);
+    data_column->get_data_ptr() = std::move(nested_column);
     return buf;
 }
 

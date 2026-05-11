@@ -177,6 +177,9 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, Block* block) {
             tmp_block.clear();
         }
     }
+    if (mblock.rows() > 0) {
+        block->set_columns(std::move(mblock.mutable_columns()));
+    }
 
     // some insert query like "insert into string_test select 1, repeat('a', 1024 * 1024);"
     // the const expr will be in output expr cause the union node return a empty block. so here we

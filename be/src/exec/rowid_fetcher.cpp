@@ -164,10 +164,12 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
                     default_values[i] = _fetch_option.desc->slots()[i]->col_default_value();
                 }
             }
+            MutableColumns output_columns = output_block->mutate_columns();
+            Defer restore_columns([&]() { output_block->set_columns(std::move(output_columns)); });
             for (int i = 0; i < resp.binary_row_data_size(); ++i) {
-                RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_block(
+                RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_columns(
                         serdes, resp.binary_row_data(i).data(), resp.binary_row_data(i).size(),
-                        col_uid_to_idx, *output_block, default_values, {}));
+                        col_uid_to_idx, output_columns, default_values, {}));
             }
             return Status::OK();
         }
@@ -190,11 +192,11 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
                     partial_block.dump_types());
         } else {
             for (int i = 0; i < output_block->columns(); ++i) {
-                output_block->get_by_position(i).column->assume_mutable()->insert_range_from(
-                        *partial_block.get_by_position(i)
-                                 .column->convert_to_full_column_if_const()
-                                 .get(),
+                auto column = IColumn::mutate(std::move(output_block->get_by_position(i).column));
+                column->insert_range_from(
+                        *partial_block.get_by_position(i).column->convert_to_full_column_if_const(),
                         0, partial_block.rows());
+                output_block->replace_by_position(i, std::move(column));
             }
         }
         return Status::OK();
@@ -1122,6 +1124,8 @@ Status RowIdStorageReader::read_doris_format_row(
             return Status::InternalError("Tablet {} does not have row store for all columns",
                                          tablet->tablet_id());
         }
+        MutableColumns result_columns = result_block.mutate_columns();
+        Defer restore_columns([&]() { result_block.set_columns(std::move(result_columns)); });
         for (auto row_id : row_ids) {
             RowLocation loc(rowset_id, segment->id(), cast_set<uint32_t>(row_id));
             row_store_read_struct.row_store_buffer.clear();
@@ -1132,15 +1136,16 @@ Status RowIdStorageReader::read_doris_format_row(
                     },
                     lookup_row_data_ms));
 
-            RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_block(
+            RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_columns(
                     row_store_read_struct.serdes, row_store_read_struct.row_store_buffer.data(),
                     row_store_read_struct.row_store_buffer.size(),
-                    row_store_read_struct.col_uid_to_idx, result_block,
+                    row_store_read_struct.col_uid_to_idx, result_columns,
                     row_store_read_struct.default_values, {}));
         }
     } else {
         for (int x = 0; x < slots.size(); ++x) {
-            MutableColumnPtr column = result_block.get_by_position(x).column->assume_mutable();
+            auto column_guard = result_block.mutate_column_scoped(x);
+            MutableColumnPtr& column = column_guard.mutable_column();
             IteratorKey iterator_key {.tablet_id = tablet_id,
                                       .rowset_id = rowset_id,
                                       .segment_id = segment_id,
@@ -1151,9 +1156,11 @@ Status RowIdStorageReader::read_doris_format_row(
                 iterator_item.storage_read_options.stats = &stats;
                 iterator_item.storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
             }
-            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
-                    full_read_schema, &slots[x], row_ids, column,
-                    iterator_item.storage_read_options, iterator_item.iterator));
+            for (auto row_id : row_ids) {
+                RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
+                        full_read_schema, &slots[x], row_id, column,
+                        iterator_item.storage_read_options, iterator_item.iterator));
+            }
         }
     }
     return Status::OK();

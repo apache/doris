@@ -154,6 +154,7 @@ TEST_F(IndexGcBinglogsTest, gc_binlogs_test) {
         Field v1 = Field::create_field<TYPE_STRING>("v1");
         columns[0]->insert(key);
         columns[1]->insert(v1);
+        block.set_columns(std::move(columns));
 
         EXPECT_TRUE(rowset_writer->add_block(&block).ok());
         EXPECT_TRUE(rowset_writer->flush().ok());

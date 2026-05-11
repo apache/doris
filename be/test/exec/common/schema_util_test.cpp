@@ -817,7 +817,8 @@ TEST_F(SchemaUtilTest, TestCastColumnEdgeCases) {
 
     // Test casting from variant to variant
     auto variant_column = ColumnVariant::create(10, false);
-    variant_column->create_root(nullable_array_type, nullable_array_column->assume_mutable());
+    // nullable_array_column is also stored in array_col.column (use_count=2), so mutate() clones it.
+    variant_column->create_root(nullable_array_type, IColumn::mutate(nullable_array_column));
 
     ColumnWithTypeAndName variant_col;
     variant_col.type = variant_type;
@@ -1947,14 +1948,14 @@ TEST_F(SchemaUtilTest, parse_and_materialize_variant_columns_ambiguous_paths) {
     // Prepare the variant column with the string column as root
     ColumnVariant::Subcolumns dynamic_subcolumns;
     dynamic_subcolumns.create_root(
-            ColumnVariant::Subcolumn(string_col->assume_mutable(), string_type, true));
+            ColumnVariant::Subcolumn(std::move(string_col), string_type, true));
 
     auto variant_col = ColumnVariant::create(0, false, std::move(dynamic_subcolumns));
     auto variant_type = std::make_shared<DataTypeVariant>();
 
     // Construct the block
     Block block;
-    block.insert(ColumnWithTypeAndName(variant_col->assume_mutable(), variant_type, "v"));
+    block.insert(ColumnWithTypeAndName(std::move(variant_col), variant_type, "v"));
 
     // The variant column is at index 0
     std::vector<uint32_t> variant_pos = {0};

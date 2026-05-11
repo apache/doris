@@ -121,6 +121,7 @@ Status PartitionSorter::_read_row_num(Block* output_block, bool* eos, int batch_
         if (current->impl->is_last(step) && current->impl->pos == 0) {
             if (merged_rows != 0) {
                 // return directly for next time's read swap whole block
+                output_block->set_columns(std::move(merged_columns));
                 return Status::OK();
             }
             // swap and return block directly when we should get all data from cursor
@@ -147,6 +148,7 @@ Status PartitionSorter::_read_row_num(Block* output_block, bool* eos, int batch_
         }
     }
 
+    output_block->set_columns(std::move(merged_columns));
     return Status::OK();
 }
 
@@ -178,6 +180,7 @@ Status PartitionSorter::_read_row_rank(Block* output_block, bool* eos, int batch
                 // rank() maybe need check when have get a distinct row
                 // so when the cmp_res is get a distinct row, need check have output all rows num
                 if (_get_enough_data()) {
+                    output_block->set_columns(std::move(merged_columns));
                     return Status::OK();
                 }
                 *_previous_row = *current;
@@ -196,6 +199,7 @@ Status PartitionSorter::_read_row_rank(Block* output_block, bool* eos, int batch
         }
     }
 
+    output_block->set_columns(std::move(merged_columns));
     return Status::OK();
 }
 

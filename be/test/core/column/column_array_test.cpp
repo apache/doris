@@ -611,6 +611,30 @@ TEST_F(ColumnArrayTest, ShrinkPaddingCharsTest) {
 }
 
 //////////////////////// special function from column_array.h ////////////////////////
+TEST_F(ColumnArrayTest, SharedCreateValidatesOffsetsAndDataSize) {
+    auto data_mut = ColumnInt32::create();
+    data_mut->insert_value(1);
+    data_mut->insert_value(2);
+    ColumnPtr data = std::move(data_mut);
+
+    EXPECT_ANY_THROW({ auto array_column = ColumnArray::create(data); });
+
+    auto bad_offsets_mut = ColumnArray::ColumnOffsets::create();
+    bad_offsets_mut->get_data().push_back(1);
+    ColumnPtr bad_offsets = std::move(bad_offsets_mut);
+    EXPECT_ANY_THROW({ auto array_column = ColumnArray::create(data, bad_offsets); });
+
+    ColumnPtr wrong_offsets = ColumnUInt8::create();
+    EXPECT_ANY_THROW({ auto array_column = ColumnArray::create(data, wrong_offsets); });
+
+    auto good_offsets_mut = ColumnArray::ColumnOffsets::create();
+    good_offsets_mut->get_data().push_back(2);
+    ColumnPtr good_offsets = std::move(good_offsets_mut);
+    auto array_column = ColumnArray::create(data, good_offsets);
+    EXPECT_EQ(array_column->get_data_ptr().get(), data.get());
+    EXPECT_EQ(array_column->get_offsets_ptr().get(), good_offsets.get());
+}
+
 TEST_F(ColumnArrayTest, CreateArrayTest) {
     // Test ColumnArray constructor constraints: nested_column and offsets_column must not be ColumnConst.
     // The constructor enforces this via check_const_only_in_top_level(), preventing COW-related issues:
@@ -688,8 +712,7 @@ TEST_F(ColumnArrayTest, ConvertIfOverflowAndInsertTest) {
         // check ptr is itself
         auto ptr = column->convert_column_if_overflow();
         EXPECT_EQ(ptr.get(), column.get());
-        auto arr_col =
-                check_and_get_column<ColumnArray>(remove_nullable(column->assume_mutable()).get());
+        auto arr_col = check_and_get_column<ColumnArray>(remove_nullable(column->get_ptr()).get());
         auto nested_col = arr_col->get_data_ptr();
         auto array_col1 = check_and_get_column<ColumnArray>(remove_nullable(ptr).get());
         auto nested_col1 = array_col1->get_data_ptr();

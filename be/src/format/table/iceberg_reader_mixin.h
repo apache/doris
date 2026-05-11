@@ -554,6 +554,7 @@ Status IcebergReaderMixin<BaseReader>::_equality_delete_base(
             if (read_rows > 0) {
                 MutableBlock mutable_block(&eq_file_block);
                 RETURN_IF_ERROR(mutable_block.merge(tmp_block));
+                eq_file_block = mutable_block.to_block();
             }
         }
     }
@@ -586,13 +587,12 @@ Status IcebergReaderMixin<BaseReader>::_expand_block_if_need(Block* block) {
     auto block_names = block->get_names();
     names.insert(block_names.begin(), block_names.end());
     for (auto& col : _expand_columns) {
-        col.column->assume_mutable()->clear();
         if (names.contains(col.name)) {
             return Status::InternalError("Wrong expand column '{}'", col.name);
         }
         names.insert(col.name);
         (*this->col_name_to_block_idx_ref())[col.name] = static_cast<uint32_t>(block->columns());
-        block->insert(col);
+        block->insert({col.type->create_column(), col.type, col.name});
     }
     return Status::OK();
 }

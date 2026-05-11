@@ -154,6 +154,7 @@ Status RepeatLocalState::get_repeated_block(Block* input_block, int repeat_id_id
     RETURN_IF_ERROR(add_grouping_id_column(rows, cur_col, output_columns, repeat_id_idx));
 
     DCHECK_EQ(cur_col, output_column_size);
+    output_block->set_columns(std::move(m_block.mutable_columns()));
 
     return Status::OK();
 }
@@ -237,6 +238,7 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, Block* output_block, bo
             std::size_t cur_col = 0;
             RETURN_IF_ERROR(
                     local_state.add_grouping_id_column(rows, cur_col, columns, _repeat_id_idx));
+            output_block->set_columns(std::move(m_block.mutable_columns()));
             _repeat_id_idx++;
 
             if (_repeat_id_idx >= _repeat_id_list_size) {

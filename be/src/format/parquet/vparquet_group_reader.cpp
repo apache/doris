@@ -35,6 +35,7 @@
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
+#include "core/column/column.h"
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
@@ -415,9 +416,7 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
                 }
 
                 if (can_filter_all) {
-                    for (auto& col : columns_to_filter) {
-                        std::move(*block->get_by_position(col).column).assume_mutable()->clear();
-                    }
+                    block->clear_column_data(columns_to_filter);
                     Block::erase_useless_column(block, column_to_keep);
                     RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block));
                     return Status::OK();
@@ -668,7 +667,9 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
             if (_lazy_read_ctx.resize_first_column) {
                 // VExprContext.execute has an optimization, the filtering is executed when block->rows() > 0
                 // The following process may be tricky and time-consuming, but we have no other way.
-                block->get_by_position(0).column->assume_mutable()->resize(pre_read_rows);
+                auto column = IColumn::mutate(std::move(block->get_by_position(0).column));
+                column->resize(pre_read_rows);
+                block->replace_by_position(0, std::move(column));
             }
             result_filter.assign(pre_read_rows, static_cast<unsigned char>(1));
             std::vector<IColumn::Filter*> filters;
@@ -693,7 +694,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
 
             if (_lazy_read_ctx.resize_first_column) {
                 // We have to clean the first column to insert right data.
-                block->get_by_position(0).column->assume_mutable()->clear();
+                block->clear_column_data(std::vector<uint32_t> {0});
             }
         }
 
@@ -703,22 +704,27 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
         if (filter_map_ptr->filter_all()) {
             {
                 SCOPED_RAW_TIMER(&_predicate_filter_time);
+                std::vector<uint32_t> columns_to_clear;
+                columns_to_clear.reserve(_lazy_read_ctx.predicate_columns.first.size() +
+                                         _lazy_read_ctx.predicate_partition_columns.size() +
+                                         _lazy_read_ctx.predicate_missing_columns.size());
                 for (const auto& col : _lazy_read_ctx.predicate_columns.first) {
                     // clean block to read predicate columns
                     uint32_t block_pos = 0;
                     RETURN_IF_ERROR(_get_block_column_pos(*block, col, &block_pos));
-                    block->get_by_position(block_pos).column->assume_mutable()->clear();
+                    columns_to_clear.emplace_back(block_pos);
                 }
                 for (const auto& col : _lazy_read_ctx.predicate_partition_columns) {
                     uint32_t block_pos = 0;
                     RETURN_IF_ERROR(_get_block_column_pos(*block, col.first, &block_pos));
-                    block->get_by_position(block_pos).column->assume_mutable()->clear();
+                    columns_to_clear.emplace_back(block_pos);
                 }
                 for (const auto& col : _lazy_read_ctx.predicate_missing_columns) {
                     uint32_t block_pos = 0;
                     RETURN_IF_ERROR(_get_block_column_pos(*block, col.first, &block_pos));
-                    block->get_by_position(block_pos).column->assume_mutable()->clear();
+                    columns_to_clear.emplace_back(block_pos);
                 }
+                block->clear_column_data(columns_to_clear);
                 RETURN_IF_ERROR(_table_format_reader->clear_synthesized_columns(block));
                 RETURN_IF_ERROR(_table_format_reader->clear_generated_columns(block));
                 Block::erase_useless_column(block, origin_column_num);

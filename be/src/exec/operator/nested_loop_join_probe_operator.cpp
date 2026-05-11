@@ -139,10 +139,12 @@ Status NestedLoopJoinProbeLocalState::close(RuntimeState* state) {
 void NestedLoopJoinProbeLocalState::_update_additional_flags(Block* block) {
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
     if (p._is_mark_join) {
-        auto mark_column = block->get_by_position(block->columns() - 1).column->assume_mutable();
+        auto mark_column =
+                IColumn::mutate(std::move(block->get_by_position(block->columns() - 1).column));
         if (mark_column->size() < block->rows()) {
             ColumnFilterHelper(*mark_column).resize_fill(block->rows(), 1);
         }
+        block->replace_by_position(block->columns() - 1, std::move(mark_column));
     }
 }
 

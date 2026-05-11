@@ -29,19 +29,34 @@ inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
                                      const ColumnNumbers& arguments, uint32_t result,
                                      size_t input_rows_count, const NullMap::value_type* null_map,
                                      const DataTypePtr& data_type_to) {
-    const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
-    const auto& col_from = col_with_type_and_name.column;
+    auto& col_with_type_and_name = block.get_by_position(arguments[0]);
+    auto& col_from = col_with_type_and_name.column;
     const IColumn* variant_column = col_from.get();
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(*variant_column)) {
+        variant_column = &nullable->get_nested_column();
+    }
+
+    if (!assert_cast<const ColumnVariant&>(*variant_column).is_finalized()) {
+        // ColumnVariant should be finalized before parsing, finalize maybe modify original column structure
+        auto mutable_column = IColumn::mutate(std::move(col_with_type_and_name.column));
+        if (auto* nullable = check_and_get_column<ColumnNullable>(*mutable_column)) {
+            const auto& const_nullable = *nullable;
+            auto nested_column = IColumn::mutate(const_nullable.get_nested_column_ptr());
+            assert_cast<ColumnVariant&>(*nested_column).finalize();
+            ColumnPtr nested_column_ptr = std::move(nested_column);
+            nullable->change_nested_column(nested_column_ptr);
+        } else {
+            assert_cast<ColumnVariant&>(*mutable_column).finalize();
+        }
+        col_with_type_and_name.column = std::move(mutable_column);
+    }
+
+    variant_column = col_with_type_and_name.column.get();
     if (const auto* nullable = check_and_get_column<ColumnNullable>(*variant_column)) {
         variant_column = &nullable->get_nested_column();
     }
     const auto& variant = assert_cast<const ColumnVariant&>(*variant_column);
     ColumnPtr col_to = data_type_to->create_column();
-
-    if (!variant.is_finalized()) {
-        // ColumnVariant should be finalized before parsing, finalize maybe modify original column structure
-        variant.assume_mutable()->finalize();
-    }
 
     // It's important to convert as many elements as possible in this context. For instance,
     // if the root of this variant column is a number column, converting it to a number column
@@ -152,7 +167,7 @@ struct CastToVariant {
         auto variant = ColumnVariant::create(
                 variant_type ? variant_type->variant_max_subcolumns_count() : 0,
                 variant_type ? variant_type->enable_doc_mode() : false);
-        variant->create_root(from_type, col_from->assume_mutable());
+        variant->create_root(from_type, IColumn::mutate(col_from));
         block.replace_by_position(result, std::move(variant));
         return Status::OK();
     }

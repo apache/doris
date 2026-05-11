@@ -72,6 +72,7 @@ Status RemoteDorisReader::_do_get_next_block(Block* block, size_t* read_rows, bo
     auto batch = chunk.data;
     auto num_rows = batch->num_rows();
     auto num_columns = batch->num_columns();
+    auto columns = block->mutate_columns();
     for (int c = 0; c < num_columns; ++c) {
         arrow::Array* column = batch->column(c).get();
 
@@ -82,10 +83,10 @@ Status RemoteDorisReader::_do_get_next_block(Block* block, size_t* read_rows, bo
         }
 
         try {
-            const ColumnWithTypeAndName& column_with_name =
-                    block->get_by_position((*_col_name_to_block_idx)[column_name]);
+            auto block_pos = (*_col_name_to_block_idx)[column_name];
+            const ColumnWithTypeAndName& column_with_name = block->get_by_position(block_pos);
             RETURN_IF_ERROR(column_with_name.type->get_serde()->read_column_from_arrow(
-                    column_with_name.column->assume_mutable_ref(), column, 0, num_rows, _ctzz));
+                    *columns[block_pos], column, 0, num_rows, _ctzz));
         } catch (Exception& e) {
             return Status::InternalError(
                     "Failed to convert from arrow to block, column_name: {}, e: {}", column_name,
@@ -93,6 +94,7 @@ Status RemoteDorisReader::_do_get_next_block(Block* block, size_t* read_rows, bo
         }
     }
 
+    block->set_columns(std::move(columns));
     *read_rows += num_rows;
 
     return Status::OK();

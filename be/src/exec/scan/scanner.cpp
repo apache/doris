@@ -239,7 +239,7 @@ Status Scanner::_do_projections(Block* origin_block, Block* output_block) {
         if (mutable_columns[i]->is_nullable() != column_ptr->is_nullable()) {
             throw Exception(ErrorCode::INTERNAL_ERROR, "Nullable mismatch");
         }
-        mutable_columns[i] = column_ptr->assume_mutable();
+        mutable_columns[i] = IColumn::mutate(std::move(column_ptr));
     }
 
     output_block->set_columns(std::move(mutable_columns));

@@ -117,10 +117,10 @@ ColumnPtr ColumnTypeConverter::get_column(const DataTypePtr& src_type, ColumnPtr
     _cached_src_column->assume_mutable()->clear();
 
     if (dst_type->is_nullable()) {
-        // In order to share null map between parquet converted src column and dst column to avoid copying. It is very tricky that will
-        // call mutable function `doris_nullable_column->get_null_map_column_ptr()` which will set `_need_update_has_null = true`.
-        // Because some operations such as agg will call `has_null()` to set `_need_update_has_null = false`.
-        auto* doris_nullable_column = static_cast<const ColumnNullable*>(dst_column.get());
+        // Seed the source nullable wrapper with the destination's current null map. Under the
+        // assert-mutability COW contract ColumnNullable::create() mutates/clones the subcolumns, so
+        // readers that append file nulls must copy back only the newly appended null-map slice.
+        const auto* doris_nullable_column = static_cast<const ColumnNullable*>(dst_column.get());
         return ColumnNullable::create(_cached_src_column,
                                       doris_nullable_column->get_null_map_column_ptr());
     }

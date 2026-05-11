@@ -576,7 +576,9 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
     for (auto& data : block) {
         data.column = std::move(*data.column).mutate()->convert_column_if_overflow();
         if (p._need_finalize_variant_column) {
-            std::move(*data.column).mutate()->finalize();
+            auto mutable_column = IColumn::mutate(std::move(data.column));
+            mutable_column->finalize();
+            data.column = std::move(mutable_column);
         }
     }
 

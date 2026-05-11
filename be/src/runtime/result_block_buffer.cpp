@@ -214,10 +214,12 @@ Status ResultBlockBuffer<ResultCtxType>::add_batch(RuntimeState* state,
                 (batch_size + _last_batch_bytes) <= config::thrift_max_message_size) {
                 if constexpr (std::is_same_v<InBlockType, Block>) {
                     auto last_block = _result_batch_queue.back();
+                    auto mutable_columns = last_block->mutate_columns();
                     for (size_t i = 0; i < last_block->columns(); i++) {
-                        last_block->mutate_columns()[i]->insert_range_from(
-                                *result->get_by_position(i).column, 0, num_rows);
+                        mutable_columns[i]->insert_range_from(*result->get_by_position(i).column, 0,
+                                                              num_rows);
                     }
+                    last_block->set_columns(std::move(mutable_columns));
                 } else {
                     std::vector<std::string>& back_rows =
                             _result_batch_queue.back()->result_batch.rows;

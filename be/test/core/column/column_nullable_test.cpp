@@ -103,6 +103,25 @@ TEST(ColumnNullableTest, PredicateTest) {
     EXPECT_TRUE(null_dst->has_null());
 }
 
+TEST(ColumnNullableTest, SharedCreatePreservesImmutableSubcolumns) {
+    auto nested_mut = ColumnInt64::create();
+    nested_mut->insert_value(10);
+    ColumnPtr nested = std::move(nested_mut);
+    ColumnPtr nested_alias = nested;
+
+    auto null_map_mut = ColumnUInt8::create();
+    null_map_mut->insert_value(0);
+    ColumnPtr null_map = std::move(null_map_mut);
+    ColumnPtr null_map_alias = null_map;
+
+    auto nullable = ColumnNullable::create(nested, null_map);
+    const auto& nullable_ref = *nullable;
+    EXPECT_EQ(nullable_ref.get_nested_column_ptr().get(), nested_alias.get());
+    EXPECT_EQ(nullable_ref.get_null_map_column_ptr().get(), null_map_alias.get());
+    EXPECT_EQ(nested_alias->size(), 1);
+    EXPECT_EQ(null_map_alias->size(), 1);
+}
+
 TEST(ColumnNullableTest, append_data_by_selector) {
     auto srt_column = ColumnHelper::create_nullable_column<DataTypeInt64>(
             {1, 2, 3, 4, 5, 6, 7, 8, 9, 10},

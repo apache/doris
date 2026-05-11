@@ -1291,4 +1291,29 @@ TEST(BlockTest, others) {
     ASSERT_TRUE(dumped_names.empty()) << "Dumped names: " << dumped_names;
 }
 
+TEST(BlockTest, ClearSelectedColumnDataClonesSharedColumn) {
+    auto type = std::make_shared<DataTypeInt32>();
+    auto mutable_col0 = ColumnInt32::create();
+    mutable_col0->insert_value(1);
+    mutable_col0->insert_value(2);
+    ColumnPtr old_col0 = mutable_col0->get_ptr();
+
+    auto mutable_col1 = ColumnInt32::create();
+    mutable_col1->insert_value(10);
+    mutable_col1->insert_value(20);
+    ColumnPtr old_col1 = mutable_col1->get_ptr();
+
+    Block block;
+    block.insert({std::move(mutable_col0), type, "c0"});
+    block.insert({std::move(mutable_col1), type, "c1"});
+
+    block.clear_column_data(std::vector<uint32_t> {0});
+
+    EXPECT_EQ(block.get_by_position(0).column->size(), 0);
+    EXPECT_EQ(old_col0->size(), 2);
+    EXPECT_NE(block.get_by_position(0).column.get(), old_col0.get());
+    EXPECT_EQ(block.get_by_position(1).column->size(), 2);
+    EXPECT_EQ(block.get_by_position(1).column.get(), old_col1.get());
+}
+
 } // namespace doris

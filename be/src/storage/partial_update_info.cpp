@@ -39,6 +39,18 @@
 #include "storage/utils.h"
 
 namespace doris {
+namespace {
+
+ColumnBitmap* get_mutable_skip_bitmap_column(Block* block, size_t skip_bitmap_col_idx) {
+    auto skip_bitmap_column =
+            IColumn::mutate(std::move(block->get_by_position(skip_bitmap_col_idx).column));
+    auto* skip_bitmap_column_ptr = assert_cast<ColumnBitmap*>(skip_bitmap_column.get());
+    block->replace_by_position(skip_bitmap_col_idx, std::move(skip_bitmap_column));
+    return skip_bitmap_column_ptr;
+}
+
+} // namespace
+
 Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSchema& tablet_schema,
                                UniqueKeyUpdateModePB unique_key_update_mode,
                                PartialUpdateNewRowPolicyPB policy,
@@ -326,7 +338,10 @@ Status FixedReadPlan::read_columns_by_plan(
         }
     }
     bool has_row_column = tablet_schema.has_row_store_for_all_columns();
-    auto mutable_columns = block.mutate_columns();
+    MutableColumns mutable_columns;
+    if (!has_row_column) {
+        mutable_columns = block.mutate_columns();
+    }
     uint32_t read_idx = 0;
     for (const auto& [rowset_id, segment_row_mappings] : plan) {
         for (const auto& [segment_id, mappings] : segment_row_mappings) {
@@ -361,7 +376,9 @@ Status FixedReadPlan::read_columns_by_plan(
             }
         }
     }
-    block.set_columns(std::move(mutable_columns));
+    if (!has_row_column) {
+        block.set_columns(std::move(mutable_columns));
+    }
     return Status::OK();
 }
 
@@ -806,8 +823,7 @@ void BlockAggregator::merge_one_row(MutableBlock& dst_block, Block* src_block, i
                             ->get_data()
                             .back();
             const auto& new_row_skip_bitmap =
-                    assert_cast<ColumnBitmap*>(
-                            src_block->get_by_position(cid).column->assume_mutable().get())
+                    assert_cast<const ColumnBitmap*>(src_block->get_by_position(cid).column.get())
                             ->get_data()[rid];
             cur_skip_bitmap &= new_row_skip_bitmap;
             continue;
@@ -952,11 +968,9 @@ Status BlockAggregator::aggregate_for_sequence_column(
     DCHECK_EQ(block->columns(), _tablet_schema.num_columns());
     // the process logic here is the same as MemTable::_aggregate_for_flexible_partial_update_without_seq_col()
     // after this function, there will be at most 2 rows for a specified key
-    std::vector<BitmapValue>* skip_bitmaps = &(
-            assert_cast<ColumnBitmap*>(block->get_by_position(_tablet_schema.skip_bitmap_col_idx())
-                                               .column->assume_mutable()
-                                               .get())
-                    ->get_data());
+    std::vector<BitmapValue>* skip_bitmaps =
+            &get_mutable_skip_bitmap_column(block, _tablet_schema.skip_bitmap_col_idx())
+                     ->get_data();
     const auto* delete_signs = BaseTablet::get_delete_sign_column_data(*block, num_rows);
 
     auto filtered_block = _tablet_schema.create_block();
@@ -1025,11 +1039,9 @@ Status BlockAggregator::aggregate_for_insert_after_delete(
     // there will be at most 2 rows for a specified key in block when control flow reaches here
     // after this function, there will not be duplicate rows in block
 
-    std::vector<BitmapValue>* skip_bitmaps = &(
-            assert_cast<ColumnBitmap*>(block->get_by_position(_tablet_schema.skip_bitmap_col_idx())
-                                               .column->assume_mutable()
-                                               .get())
-                    ->get_data());
+    std::vector<BitmapValue>* skip_bitmaps =
+            &get_mutable_skip_bitmap_column(block, _tablet_schema.skip_bitmap_col_idx())
+                     ->get_data();
     const auto* delete_signs = BaseTablet::get_delete_sign_column_data(*block, num_rows);
 
     auto filter_column = ColumnUInt8::create(num_rows, 1);

@@ -400,6 +400,7 @@ Status BlockReader::_replace_key_next_block(Block* block, bool* eof) {
         }
     }
     _merged_rows += merged_row;
+    block->set_columns(std::move(target_columns));
     return Status::OK();
 }
 
@@ -580,9 +581,10 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
             LOG(WARNING) << "tablet_id: " << tablet()->tablet_id() << " delete sign idx "
                          << delete_sign_idx
                          << " not invalid, skip filter delete in base compaction";
+            block->set_columns(std::move(target_columns));
             return Status::OK();
         }
-        MutableColumnPtr delete_filter_column = (*std::move(_delete_filter_column)).mutate();
+        auto delete_filter_column = IColumn::mutate(std::move(_delete_filter_column));
         reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->resize(target_block_row);
 
         auto* __restrict filter_data =
@@ -603,6 +605,7 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
             }
         }
         auto target_columns_size = target_columns.size();
+        _delete_filter_column = std::move(delete_filter_column);
         ColumnWithTypeAndName column_with_type_and_name {_delete_filter_column,
                                                          std::make_shared<DataTypeUInt8>(),
                                                          "__DORIS_COMPACTION_FILTER__"};

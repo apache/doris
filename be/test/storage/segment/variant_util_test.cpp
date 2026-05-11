@@ -25,8 +25,11 @@
 
 #include "common/config.h"
 #include "core/block/block.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_variant.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/field.h"
 #include "core/value/jsonb_value.h"
@@ -471,6 +474,37 @@ TEST(VariantUtilTest, ParseVariantColumns_ScalarJsonStringToSubcolumns) {
     sub_a->get(1, f);
     EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
     EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 2);
+}
+
+TEST(VariantUtilTest, ParseNullableScalarVariantDetachesNestedAlias) {
+    auto variant = ColumnVariant::create(0, false);
+    doris::VariantUtil::insert_root_scalar_field(*variant, Field::create_field<TYPE_INT>(123));
+    ColumnPtr variant_ptr = std::move(variant);
+
+    auto null_map = ColumnUInt8::create();
+    null_map->insert_value(0);
+    ColumnPtr nullable_variant = ColumnNullable::create(variant_ptr, null_map->get_ptr());
+    variant_ptr.reset();
+    ColumnPtr nullable_alias = nullable_variant;
+
+    Block block;
+    block.insert(
+            {nullable_variant, make_nullable(std::make_shared<DataTypeVariant>(0, false)), "v"});
+
+    ParseConfig parse_cfg;
+    parse_cfg.deprecated_enable_flatten_nested = false;
+    parse_cfg.parse_to = ParseConfig::ParseTo::OnlySubcolumns;
+    Status st =
+            parse_and_materialize_variant_columns(block, std::vector<uint32_t> {0}, {parse_cfg});
+    EXPECT_TRUE(st.ok()) << st.to_string();
+
+    const auto& alias_nullable = assert_cast<const ColumnNullable&>(*nullable_alias);
+    const auto& alias_variant =
+            assert_cast<const ColumnVariant&>(alias_nullable.get_nested_column());
+    EXPECT_TRUE(alias_variant.is_scalar_variant());
+    EXPECT_EQ(alias_variant.get_root_type()->get_primitive_type(), PrimitiveType::TYPE_INT);
+
+    EXPECT_TRUE(block.get_by_position(0).column->is_nullable());
 }
 
 TEST(VariantUtilTest, ParseVariantColumns_DocModeBinaryToSubcolumns) {

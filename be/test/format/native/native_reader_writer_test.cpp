@@ -530,6 +530,7 @@ TEST_F(NativeReaderWriterTest, round_trip_native_file_large_rows) {
                 MutableBlock merged_mutable(&merged_block);
                 Status add_st = merged_mutable.add_rows(&dst_block, 0, read_rows);
                 ASSERT_TRUE(add_st.ok()) << add_st;
+                merged_block.set_columns(std::move(merged_mutable.mutable_columns()));
                 total_read_rows += read_rows;
             }
         }

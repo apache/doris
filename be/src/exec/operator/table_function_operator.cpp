@@ -560,6 +560,7 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state, Block* o
     for (auto index : p._useless_slot_indexs) {
         columns[index]->insert_many_defaults(row_size - columns[index]->size());
     }
+    output_block->set_columns(std::move(columns));
 
     {
         SCOPED_TIMER(_filter_timer); // 3. eval conjuncts

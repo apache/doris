@@ -697,6 +697,8 @@ class IndexCompactionUtils {
                 }
             }
 
+            block.set_columns(std::move(columns));
+
             Status st = rowset_writer->add_block(&block);
             EXPECT_TRUE(st.ok()) << st.to_string();
             st = rowset_writer->flush();

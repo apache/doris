@@ -194,6 +194,7 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
             current->next();
             if (_need_more_data(current)) {
                 do_insert();
+                output_block->set_columns(std::move(merged_columns));
                 return Status::OK();
             }
         }

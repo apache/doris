@@ -413,6 +413,7 @@ Status VerticalBlockReader::_agg_key_next_block(Block* block, bool* eof) {
                 break;
             }
             LOG(WARNING) << "next failed: " << res;
+            block->set_columns(std::move(target_columns));
             return res;
         }
         DCHECK(_next_row.block->columns() == block->columns());
@@ -484,11 +485,12 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
             int delete_sign_idx = block->columns() - 1;
             DCHECK(delete_sign_idx > 0);
             auto target_columns = block->mutate_columns();
-            MutableColumnPtr delete_filter_column = (*std::move(_delete_filter_column)).mutate();
-            reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->resize(block_rows);
+            auto delete_filter_column = IColumn::mutate(std::move(_delete_filter_column));
+            auto* delete_filter_data_column =
+                    reinterpret_cast<ColumnUInt8*>(delete_filter_column.get());
+            delete_filter_data_column->resize(block_rows);
 
-            auto* __restrict filter_data =
-                    reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->get_data().data();
+            auto* __restrict filter_data = delete_filter_data_column->get_data().data();
             auto* __restrict delete_data =
                     reinterpret_cast<ColumnInt8*>(target_columns[delete_sign_idx].get())
                             ->get_data()
@@ -517,12 +519,14 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
                 row_source_idx++;
             }
 
+            const auto column_to_keep = target_columns.size();
+            block->set_columns(std::move(target_columns));
+            _delete_filter_column = std::move(delete_filter_column);
             ColumnWithTypeAndName column_with_type_and_name {_delete_filter_column,
                                                              std::make_shared<DataTypeUInt8>(),
                                                              "__DORIS_COMPACTION_FILTER__"};
             block->insert(column_with_type_and_name);
-            RETURN_IF_ERROR(
-                    Block::filter_block(block, target_columns.size(), target_columns.size()));
+            RETURN_IF_ERROR(Block::filter_block(block, column_to_keep, column_to_keep));
             _stats.rows_del_filtered += block_rows - block->rows();
             if (UNLIKELY(_reader_context.record_rowids)) {
                 DCHECK_EQ(_block_row_locations.size(), block->rows() + delete_count);
@@ -562,6 +566,7 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
             RETURN_IF_ERROR(mask_iter->unique_key_next_batch(&batches, _reader_context.batch_size,
                                                              &actual_rows));
             if (actual_rows == 0) {
+                block->set_columns(std::move(target_columns));
                 *eof = true;
                 _eof = true;
                 return Status::OK();
@@ -605,6 +610,7 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
                 break;
             }
             LOG(WARNING) << "next failed: " << res;
+            block->set_columns(std::move(target_columns));
             return res;
         }
         const auto& src_block = _next_row.block;

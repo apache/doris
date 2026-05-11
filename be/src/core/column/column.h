@@ -581,16 +581,20 @@ public:
 
     MutablePtr mutate() const&& {
         MutablePtr res = shallow_mutate();
-        res->for_each_subcolumn(
-                [](WrappedPtr& subcolumn) { subcolumn = std::move(*subcolumn).mutate(); });
+        res->for_each_subcolumn([](WrappedPtr& subcolumn) {
+            static_cast<IColumn::Ptr&>(subcolumn) =
+                    std::move(*static_cast<const IColumn::Ptr&>(subcolumn)).mutate();
+        });
         return res;
     }
 
     static MutablePtr mutate(Ptr ptr) {
         MutablePtr res = ptr->shallow_mutate(); /// Now use_count is 2.
         ptr.reset();                            /// Reset use_count to 1.
-        res->for_each_subcolumn(
-                [](WrappedPtr& subcolumn) { subcolumn = std::move(*subcolumn).mutate(); });
+        res->for_each_subcolumn([](WrappedPtr& subcolumn) {
+            static_cast<IColumn::Ptr&>(subcolumn) =
+                    std::move(*static_cast<const IColumn::Ptr&>(subcolumn)).mutate();
+        });
         return res;
     }
 
