@@ -445,6 +445,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_COMMON_EXPR_PUSHDOWN = "enable_common_expr_pushdown";
 
+    public static final String ENABLE_SEGMENT_LIMIT_PUSHDOWN = "enable_segment_limit_pushdown";
+
     public static final String FRAGMENT_TRANSMISSION_COMPRESSION_CODEC = "fragment_transmission_compression_codec";
 
     public static final String ENABLE_LOCAL_EXCHANGE = "enable_local_exchange";
@@ -2098,8 +2100,14 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = FORBID_UNKNOWN_COLUMN_STATS)
     public boolean forbidUnknownColStats = false;
 
+    // Legacy session variable. BE treats common expr pushdown as enabled in this branch.
     @VarAttrDef.VarAttr(name = ENABLE_COMMON_EXPR_PUSHDOWN, fuzzy = true)
     public boolean enableCommonExprPushdown = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_SEGMENT_LIMIT_PUSHDOWN, fuzzy = true, needForward = true,
+            description = {"是否启用 SegmentIterator 层 LIMIT 下推。",
+                    "Set whether to push down LIMIT into SegmentIterator."})
+    public boolean enableSegmentLimitPushdown = true;
 
     @VarAttrDef.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = false, flag = VarAttrDef.INVISIBLE,
             varType = VariableAnnotation.DEPRECATED)
@@ -3706,6 +3714,9 @@ public class SessionVariable implements Serializable, Writable {
         this.parallelPipelineTaskNum = random.nextInt(8);
         this.parallelPrepareThreshold = random.nextInt(32) + 1;
         this.enableCommonExprPushdown = random.nextBoolean();
+        // enable fuzzy after we clean all case of
+        // enable_common_expr_pushdown/enable_common_exp_pushdown_for_inverted_index
+        // this.enableSegmentLimitPushdown = random.nextBoolean();
         this.enableLocalExchange = random.nextBoolean();
         this.enableSharedExchangeSinkBuffer = random.nextBoolean();
         this.useSerialExchange = random.nextBoolean();
@@ -5487,6 +5498,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableFunctionPushdown(enableFunctionPushdown);
         tResult.setEnableCommonExprPushdown(enableCommonExprPushdown);
+        tResult.setEnableSegmentLimitPushdown(enableSegmentLimitPushdown);
         tResult.setCheckOverflowForDecimal(checkOverflowForDecimal);
         tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec.trim().toLowerCase());
         tResult.setEnableLocalExchange(enableLocalExchange);

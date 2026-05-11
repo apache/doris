@@ -87,7 +87,6 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .remaining_conjunct_roots {},
                                  .common_expr_ctxs_push_down {},
                                  .topn_filter_source_node_ids {},
-                                 .filter_block_conjuncts {},
                                  .key_group_cluster_key_idxes {},
                                  .virtual_column_exprs {},
                                  .vir_cid_to_idx_in_block {},
@@ -443,17 +442,31 @@ Status OlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.enable_mor_value_predicate_pushdown = true;
         }
 
-        // Skip topn / general-limit storage-layer optimizations when runtime
-        // filters exist.  Late-arriving filters would re-populate _conjuncts
-        // at the scanner level while the storage layer has already committed
-        // to a row budget counted before those filters, causing the scan to
-        // return fewer rows than the limit requires.
-        if (_total_rf_num == 0) {
-            // order by table keys optimization for topn
-            // will only read head/tail of data file since it's already sorted by keys
-            if (olap_scan_node.__isset.sort_info &&
-                !olap_scan_node.sort_info.is_asc_order.empty()) {
-                _limit = _local_state->limit_per_scanner();
+        const bool has_key_topn =
+                olap_scan_node.__isset.sort_info && !olap_scan_node.sort_info.is_asc_order.empty();
+        if (has_key_topn) {
+            _limit = _local_state->limit_per_scanner();
+        }
+
+        const bool no_runtime_filters = _total_rf_num == 0;
+        const bool segment_limit_enabled = _state->enable_segment_limit_pushdown();
+        const bool storage_no_merge = olap_scan_local_state->_storage_no_merge();
+
+        if (_limit > 0 && no_runtime_filters && segment_limit_enabled && storage_no_merge) {
+            for (const auto& conjunct : _conjuncts) {
+                DORIS_CHECK(!olap_scan_local_state->_check_expr_storage_filter(
+                        conjunct->root(), OlapScanLocalState::ExprStorageFilterCheckMode::
+                                                  HAS_SEGMENT_EVALUABLE_EXPR));
+            }
+        }
+
+        // Segment LIMIT has only two legal states: completely disabled, or enabled after every
+        // row-filtering conjunct has become a storage predicate or SegmentIterator common expr.
+        const bool can_push_down_segment_limit = _limit > 0 && no_runtime_filters &&
+                                                 _conjuncts.empty() && segment_limit_enabled &&
+                                                 storage_no_merge;
+        if (can_push_down_segment_limit) {
+            if (has_key_topn) {
                 _tablet_reader_params.read_orderby_key = true;
                 if (!olap_scan_node.sort_info.is_asc_order[0]) {
                     _tablet_reader_params.read_orderby_key_reverse = true;
@@ -461,27 +474,31 @@ Status OlapScanner::_init_tablet_reader_params(
                 _tablet_reader_params.read_orderby_key_num_prefix_columns =
                         olap_scan_node.sort_info.is_asc_order.size();
                 _tablet_reader_params.read_orderby_key_limit = _limit;
-
-                if (_tablet_reader_params.read_orderby_key_limit > 0 &&
-                    olap_scan_local_state->_storage_no_merge()) {
-                    _tablet_reader_params.filter_block_conjuncts = _conjuncts;
-                    _conjuncts.clear();
-                }
-            } else if (_limit > 0 && olap_scan_local_state->_storage_no_merge()) {
-                // General limit pushdown for DUP_KEYS and UNIQUE_KEYS with MOW
-                // (non-merge path). Only when topn optimization is NOT active.
-                // NOTE: _limit is the global query limit (TPlanNode.limit), not a
-                // per-scanner budget. With N scanners each scanner may read up to
-                // _limit rows, so up to N * _limit rows are read in total before
-                // the _shared_scan_limit coordinator stops them. This is
-                // acceptable because _shared_scan_limit guarantees correctness,
-                // and the over-read is bounded by (N-1) * _limit which is small
-                // for typical LIMIT values.
+            } else {
                 _tablet_reader_params.general_read_limit = _limit;
-                _tablet_reader_params.filter_block_conjuncts = _conjuncts;
-                _conjuncts.clear();
             }
         }
+
+        if (_tablet_reader_params.read_orderby_key_limit > 0 ||
+            _tablet_reader_params.general_read_limit > 0) {
+            DORIS_CHECK(can_push_down_segment_limit);
+            DORIS_CHECK(_conjuncts.empty());
+        }
+
+        // A key TopN scan cannot share the plain LIMIT early-stop counter. If
+        // storage TopN is pushed down, each scanner must produce its full local
+        // candidates. If it is not pushed down for any reason, the upper TopN
+        // still needs all rows from the scan.
+        if (has_key_topn) {
+            _shared_scan_limit = nullptr;
+            if (_tablet_reader_params.read_orderby_key_limit == 0) {
+                _limit = -1;
+            }
+        }
+        // Note: _shared_scan_limit is intentionally not pushed into the
+        // storage layer. SegmentIterator's _process_eof() is irreversible,
+        // so a concurrently-decremented atomic could reach 0 while a segment
+        // still has data needed by other scanners.
 
         // set push down topn filter
         _tablet_reader_params.topn_filter_source_node_ids =

@@ -101,7 +101,10 @@ private:
             VectorizedFnCall* fn_call, VExprContext* expr_ctx, Field& constant_val,
             const std::set<std::string> fn_name) const override;
 
-    bool _should_push_down_common_expr() override;
+    bool _should_push_down_common_expr(const VExprSPtr& expr) override;
+
+    enum class ExprStorageFilterCheckMode { HAS_SEGMENT_EVALUABLE_EXPR, HAS_NON_KEY_SLOT };
+    bool _check_expr_storage_filter(const VExprSPtr& expr, ExprStorageFilterCheckMode mode);
 
     bool _storage_no_merge() override;
 
