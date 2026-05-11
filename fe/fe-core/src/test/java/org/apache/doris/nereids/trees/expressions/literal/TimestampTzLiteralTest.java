@@ -17,13 +17,25 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.types.CharType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.qe.ConnectContext;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class TimestampTzLiteralTest {
+
+    @AfterEach
+    void tearDown() {
+        ConnectContext.remove();
+    }
 
     @Test
     void testConstructorsAndParsing() {
@@ -299,5 +311,51 @@ class TimestampTzLiteralTest {
         Assertions.assertEquals(59, result.minute);
         Assertions.assertEquals(58, result.second);
         Assertions.assertEquals(900000, result.microSecond);
+    }
+
+    @Test
+    void testCastToStringUsesSessionTimeZone() throws Exception {
+        setSessionTimeZone("+12:34");
+        TimestampTzLiteral literal = new TimestampTzLiteral(
+                TimeStampTzType.SYSTEM_DEFAULT, 2023, 7, 13, 19, 26, 0, 0);
+        Assertions.assertEquals("2023-07-13 19:26:00", literal.getStringValue());
+
+        Expression folded = FoldConstantRuleOnFE.evaluate(new Cast(literal, StringType.INSTANCE), null);
+        Assertions.assertInstanceOf(StringLiteral.class, folded);
+        Assertions.assertEquals("2023-07-14 08:00:00+12:34",
+                ((StringLiteral) folded).getStringValue());
+
+        Expression varchar = literal.uncheckedCastTo(VarcharType.createVarcharType(64));
+        Assertions.assertInstanceOf(VarcharLiteral.class, varchar);
+        Assertions.assertEquals("2023-07-14 08:00:00+12:34",
+                ((VarcharLiteral) varchar).getStringValue());
+
+        Expression character = literal.uncheckedCastTo(CharType.createCharType(64));
+        Assertions.assertInstanceOf(CharLiteral.class, character);
+        Assertions.assertEquals("2023-07-14 08:00:00+12:34",
+                ((CharLiteral) character).getStringValue());
+
+        setSessionTimeZone("+00:00");
+        Expression utcFolded = FoldConstantRuleOnFE.evaluate(new Cast(literal, StringType.INSTANCE), null);
+        Assertions.assertInstanceOf(StringLiteral.class, utcFolded);
+        Assertions.assertEquals("2023-07-13 19:26:00+00:00",
+                ((StringLiteral) utcFolded).getStringValue());
+    }
+
+    @Test
+    void testCastToStringPreservesScale() {
+        setSessionTimeZone("+12:34");
+        TimestampTzLiteral literal = new TimestampTzLiteral("2023-07-13 22:28:18.456789+05:00");
+
+        Expression folded = FoldConstantRuleOnFE.evaluate(new Cast(literal, StringType.INSTANCE), null);
+        Assertions.assertInstanceOf(StringLiteral.class, folded);
+        Assertions.assertEquals("2023-07-14 06:02:18.456789+12:34",
+                ((StringLiteral) folded).getStringValue());
+    }
+
+    private void setSessionTimeZone(String timeZone) {
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone(timeZone);
+        context.setThreadLocalInfo();
     }
 }
