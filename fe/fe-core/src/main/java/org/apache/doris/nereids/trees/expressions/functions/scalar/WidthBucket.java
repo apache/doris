@@ -77,7 +77,7 @@ public class WidthBucket extends ScalarFunction implements ExplicitlyCastableSig
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (!child(3).isLiteral()) {
+        if (!getArgument(3).isLiteral()) {
             throw new AnalysisException("The fourth argument of WidthBucket must be a constant.");
         }
     }
