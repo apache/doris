@@ -47,6 +47,11 @@ class ColumnDecimal;
 /// datasketches_hll_union_agg
 template <PrimitiveType T>
 struct AggregateFunctionHllSketchData {
+    /** We set the default LgK to 12,
+      * as this value is used as a performance baseline in the relevant documentation.
+      * (https://datasketches.apache.org/docs/HLL/HllPerformance.html)
+      */
+    static const uint8_t DEFAULT_LOG_K = 12;
     std::unique_ptr<datasketches::hll_union> hll_union_data;
     static String get_name() { return "datasketches_hll_union_agg"; }
     void merge(const datasketches::hll_sketch & sketch_data)
@@ -55,7 +60,12 @@ struct AggregateFunctionHllSketchData {
         {
             hll_union_data = std::make_unique<datasketches::hll_union>(sketch_data.get_lg_config_k());
         }
-        hll_union_data->update(sketch_data);
+        try {
+            hll_union_data->update(sketch_data);
+        }
+        catch (...) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "Internal error happened when update HLL sketch.");
+        }
     }
     void reset()
     {
@@ -65,25 +75,52 @@ struct AggregateFunctionHllSketchData {
         }
         hll_union_data = nullptr;
     }
-    void write(BufferWritable& buf) const
+    void write_sketch(BufferWritable& buf, const datasketches::hll_sketch& sk) const
     {
-        auto cache = hll_union_data->get_result();
-        auto serialized_bytes = cache.serialize_compact();
+        auto serialized_bytes = sk.serialize_compact();
         StringRef d(serialized_bytes.data(), serialized_bytes.size());
         buf.write_binary(d);
+    }
+    void write(BufferWritable& buf) const
+    {
+        if (hll_union_data == nullptr)
+        {
+            /** Using DEFAULT_LOG_K(12) here is surely sufficient,
+              * because in this case the union that actually needs to be serialized should contain no data.
+              */
+            datasketches::hll_union u(DEFAULT_LOG_K);
+            write_sketch(buf, u.get_result());
+        }
+        try {
+            auto cache = hll_union_data->get_result();
+            write_sketch(buf, cache);
+        }
+        catch (...) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "Internal error happened when serialize HLL sketch.");
+        }
     }
     void read(BufferReadable& buf)
     {
         StringRef d;
         buf.read_binary(d);
-        auto cache = datasketches::hll_sketch::deserialize(d.data, d.size);
-        merge(cache);
+        try {
+            auto cache = datasketches::hll_sketch::deserialize(d.data, d.size);
+            merge(cache);
+        }
+        catch (...) {
+            throw Exception(ErrorCode::CORRUPTION, "HLL sketch data corrupted when read.");
+        }
     }
     int64_t get_result() const
     {
         if (hll_union_data != nullptr)
         {
-            return static_cast<int64_t>(hll_union_data->get_estimate());
+            try {
+                return static_cast<int64_t>(hll_union_data->get_estimate());
+            }
+            catch (...) {
+                throw Exception(ErrorCode::INTERNAL_ERROR, "Internal error happened when get HLL sketch estimate.");
+            }
         }
         return 0;
     }
@@ -101,8 +138,13 @@ struct OneAdder {
             {
                 return;
             }
-            datasketches::hll_sketch sketch_data = datasketches::hll_sketch::deserialize(value.begin(), value.size);
-            data.merge(sketch_data);
+            try {
+                datasketches::hll_sketch sketch_data = datasketches::hll_sketch::deserialize(value.begin(), value.size);
+                data.merge(sketch_data);
+            }
+            catch (...) {
+                throw Exception(ErrorCode::CORRUPTION, "HLL sketch data corrupted when add.");
+            }
         }
     }
 };
