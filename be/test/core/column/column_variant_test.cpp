@@ -2786,9 +2786,9 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
         EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_JSONB);
     }
 
-    // Test Tuple
+    // Test Struct
     {
-        Tuple t1;
+        Struct t1;
         t1.push_back(Field::create_field<TYPE_STRING>(String("amory cute")));
         t1.push_back(Field::create_field<TYPE_BIGINT>(Int64(37)));
         t1.push_back(Field::create_field<TYPE_BOOLEAN>(true));
