@@ -53,7 +53,7 @@ AggregateFunctionPtr create_aggregate_function_collect_impl(const std::string& n
                                                             const bool result_is_nullable,
 
                                                             const AggregateFunctionAttr& attr) {
-    bool distinct = name == "collect_set";
+    bool distinct = name == "collect_set" || name == "collect_set_v1";
 
     AggregateFunctionPtr agg_fn;
     auto call = [&](const auto& type) -> bool {

@@ -31,7 +31,9 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.BoolAnd;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BoolOr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BoolXor;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CollectListV2;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectSet;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CollectSetV2;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Corr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CorrWelford;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -135,8 +137,10 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
                 agg(BoolOr.class, "bool_or", "boolor_agg"),
                 agg(BoolAnd.class, "bool_and", "booland_agg"),
                 agg(BoolXor.class, "bool_xor", "boolxor_agg"),
-                agg(CollectList.class, "collect_list", "group_array"),
-                agg(CollectSet.class, "collect_set", "group_uniq_array"),
+                agg(CollectList.class, "collect_list_v1"),
+                agg(CollectListV2.class, "collect_list_v2", "collect_list", "group_array"),
+                agg(CollectSet.class, "collect_set_v1"),
+                agg(CollectSetV2.class, "collect_set_v2", "collect_set", "group_uniq_array"),
                 agg(Corr.class, "corr"),
                 agg(CorrWelford.class, "corr_welford"),
                 agg(Count.class, "count"),
