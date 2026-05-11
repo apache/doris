@@ -46,42 +46,33 @@ suite("test_datasketches_hll_union_agg") {
     """
 
     // 1) Basic union: {0..6} U {20..29} => 17 distinct values
-    def res = sql "SELECT datasketches_hll_union_agg(sk) FROM ${tableName}"
-    assertEquals(1, res.size())
-    assertEquals(17L, ((Number) res[0][0]).longValue())
+    qt_basic_union """SELECT datasketches_hll_union_agg(sk) FROM ${tableName}"""
 
-    // 2) Aliases should behave identically
-    res = sql """
-        SELECT
-            datasketches_hll_union_agg(sk) = ds_hll_union_count(sk)
-            AND ds_hll_union_count(sk) = ds_cardinality(sk)
+    // 2) Aliases should behave identically (print all 3 results in one row)
+    qt_aliases """SELECT
+            datasketches_hll_union_agg(sk),
+            ds_hll_union_count(sk),
+            ds_cardinality(sk)
         FROM ${tableName}
     """
-    assertEquals(1, res.size())
-    assertEquals(true, (Boolean) res[0][0])
 
-    // 3) Group-by (single sketch estimate should be exact for these small n)
-    res = sql """
-        SELECT id, datasketches_hll_union_agg(sk)
+    // 3) Group-by
+    qt_group_by """SELECT id, datasketches_hll_union_agg(sk)
         FROM ${tableName}
         WHERE id IN (1, 2)
         GROUP BY id
         ORDER BY id
     """
-    assertEquals(2, res.size())
-    assertEquals(1, ((Number) res[0][0]).intValue())
-    assertEquals(7L, ((Number) res[0][1]).longValue())
-    assertEquals(2, ((Number) res[1][0]).intValue())
-    assertEquals(10L, ((Number) res[1][1]).longValue())
 
     // 4) DISTINCT should not change result in this data set
     sql "INSERT INTO ${tableName} VALUES (5, from_base64('${sk1Base64}'))"
-    res = sql "SELECT datasketches_hll_union_agg(sk) FROM ${tableName}"
-    assertEquals(17L, ((Number) res[0][0]).longValue())
-    res = sql "SELECT datasketches_hll_union_agg(DISTINCT sk) FROM ${tableName}"
-    assertEquals(17L, ((Number) res[0][0]).longValue())
+    qt_distinct """SELECT
+            datasketches_hll_union_agg(sk),
+            datasketches_hll_union_agg(DISTINCT sk)
+        FROM ${tableName}
+    """
 
-    // 5) Empty input should return 0 (per FE resultForEmptyInput + BE state result)
+    // 5) Empty input should return 0
     sql "DROP TABLE IF EXISTS ${emptyTableName}"
     sql """
         CREATE TABLE ${emptyTableName} (
@@ -93,28 +84,20 @@ suite("test_datasketches_hll_union_agg") {
             "replication_num" = "1"
         )
     """
-    res = sql "SELECT datasketches_hll_union_agg(sk) FROM ${emptyTableName}"
-    assertEquals(1, res.size())
-    assertEquals(0L, ((Number) res[0][0]).longValue())
+    qt_empty_input """SELECT datasketches_hll_union_agg(sk) FROM ${emptyTableName}"""
 
     // 6) Illegal input should throw (base64 is valid but bytes are not a datasketches HLL sketch)
     test {
         sql """SELECT datasketches_hll_union_agg(from_base64('AA=='))"""
-        check { result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-        }
+        exception "CORRUPTION"
     }
     test {
         sql """SELECT ds_hll_union_count(from_base64('AA=='))"""
-        check { result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-        }
+        exception "CORRUPTION"
     }
     test {
         sql """SELECT ds_cardinality(from_base64('AA=='))"""
-        check { result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-        }
+        exception "CORRUPTION"
     }
 
     sql "DROP TABLE IF EXISTS ${tableName}"
