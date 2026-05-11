@@ -21,14 +21,23 @@
 #include <thrift/transport/TTransportException.h>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
+#include <memory>
 #include <string>
 #include <thread>
 
 #include "absl/strings/substitute.h"
+#include "util/client_connection_provider.h"
 
 namespace doris {
 
+ThriftClientImpl::ThriftClientImpl(const std::string& ipaddress, int port)
+        : _ipaddress(ipaddress), _port(port), _socket(doris::client::create_thrift_client_socket(ipaddress, port)) {}
+
 Status ThriftClientImpl::open() {
+    if (!_socket) {
+        return Status::RpcError("socket not created");
+    }
+
     try {
         if (!_transport->isOpen()) {
             _transport->open();
