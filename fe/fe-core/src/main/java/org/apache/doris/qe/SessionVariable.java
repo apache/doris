@@ -162,6 +162,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final int MIN_EXEC_MEM_LIMIT = 2097152;
     public static final String BATCH_SIZE = "batch_size";
     public static final String BROKER_LOAD_BATCH_SIZE = "broker_load_batch_size";
+    public static final String PREFERRED_BLOCK_SIZE_BYTES = "preferred_block_size_bytes";
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
     public static final String ENABLE_DISTINCT_STREAMING_AGGREGATION = "enable_distinct_streaming_aggregation";
     public static final String ENABLE_STREAMING_AGG_HASH_JOIN_FORCE_PASSTHROUGH =
@@ -1274,7 +1275,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = HAVE_QUERY_CACHE, flag = VariableMgr.READ_ONLY)
     public boolean haveQueryCache = false;
 
-    // 4096 minus 16 + 16 bytes padding that in padding pod array
+    // 8192 minus 16 + 16 bytes padding that in padding pod array.
+    // This remains the row cap for output blocks even when adaptive byte budgeting is enabled.
     @VariableMgr.VarAttr(name = BATCH_SIZE, fuzzy = true, checker = "checkBatchSize", needForward = true)
     public int batchSize = 8160;
 
@@ -1282,7 +1284,18 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = BROKER_LOAD_BATCH_SIZE, fuzzy = true, checker = "checkBatchSize")
     public int brokerLoadBatchSize = 16352;
 
+    // Target output block size in bytes for adaptive batch size.
+    // Valid range: [1MB, 512MB]. Default 8MB.
+    @VariableMgr.VarAttr(name = PREFERRED_BLOCK_SIZE_BYTES, needForward = true,
+            checker = "checkPreferredBlockSizeBytes",
+            description = {"目标输出 Block 字节数上限，自适应 batch size 功能使用。"
+                    + "范围 [1MB, 512MB]，默认 8MB",
+                "Target output block size in bytes for adaptive batch size. "
+                    + "Range [1MB, 512MB]. Default 8MB."})
+    public long preferredBlockSizeBytes = 8388608L; // 8MB
+
     @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS, fuzzy = true)
+
     public boolean disableStreamPreaggregations = false;
 
     @VariableMgr.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGGREGATION, fuzzy = true)
@@ -5269,6 +5282,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableShareHashTableForBroadcastJoin(enableShareHashTableForBroadcastJoin);
 
         tResult.setBatchSize(batchSize);
+        tResult.setPreferredBlockSizeBytes(preferredBlockSizeBytes);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
         tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
         tResult.setEnableStreamingAggHashJoinForcePassthrough(enableStreamingAggHashJoinForcePassthrough);
@@ -5941,6 +5955,20 @@ public class SessionVariable implements Serializable, Writable {
         Long batchSizeValue = Long.valueOf(batchSize);
         if (batchSizeValue < 1 || batchSizeValue > 65535) {
             throw new InvalidParameterException("batch_size should be between 1 and 65535)");
+        }
+    }
+
+
+    private static final long PREFERRED_BLOCK_SIZE_BYTES_MIN = 1048576L;      // 1MB
+    private static final long PREFERRED_BLOCK_SIZE_BYTES_MAX = 536870912L;    // 512MB
+
+    public void checkPreferredBlockSizeBytes(String value) {
+        long v = Long.parseLong(value);
+        if (v < PREFERRED_BLOCK_SIZE_BYTES_MIN || v > PREFERRED_BLOCK_SIZE_BYTES_MAX) {
+            throw new InvalidParameterException(
+                    "preferred_block_size_bytes should be between 1MB ("
+                    + PREFERRED_BLOCK_SIZE_BYTES_MIN + ") and 512MB ("
+                    + PREFERRED_BLOCK_SIZE_BYTES_MAX + "), got " + v);
         }
     }
 

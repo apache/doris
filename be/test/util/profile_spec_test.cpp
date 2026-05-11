@@ -21,8 +21,11 @@
 #include <gtest/gtest.h>
 
 #include "common/object_pool.h"
+#include "core/column/column_string.h"
+#include "core/data_type/data_type_string.h"
 #include "exec/operator/exchange_sink_operator.h"
 #include "exec/operator/mock_operator.h"
+#include "exec/operator/mock_scan_operator.h"
 #include "exec/operator/operator.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -62,6 +65,26 @@ public:
         sink.__set_dest_node_id(1);
     }
 
+protected:
+    template <typename Operator>
+    void init_source_local_state(MockRuntimeState* runtime_state, Operator* op,
+                                 RuntimeProfile* parent_profile) {
+        const auto max_operator_id = op->operator_id() - 1;
+        runtime_state->resize_op_id_to_local_state(max_operator_id);
+        runtime_state->set_max_operator_id(max_operator_id);
+        LocalStateInfo info {parent_profile, {}, nullptr, {}, 0};
+        ASSERT_TRUE(op->setup_local_state(runtime_state, info).ok());
+    }
+
+    Block make_string_block(std::string value) {
+        auto col = ColumnString::create();
+        col->insert_data(value.data(), value.size());
+        Block block;
+        block.insert(
+                ColumnWithTypeAndName(std::move(col), std::make_shared<DataTypeString>(), "c0"));
+        return block;
+    }
+
 private:
     class MockOperatorX : public OperatorX<MockLocalState> {
     public:
@@ -77,13 +100,27 @@ private:
             return Status::OK();
         }
     };
-    class MockRuntimeState : public RuntimeState {
+    class ProducingMockOperatorX : public OperatorX<MockLocalState> {
     public:
-        MockRuntimeState() = default;
+        ProducingMockOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                               const DescriptorTbl& descs)
+                : OperatorX<MockLocalState>(pool, tnode, operator_id, descs) {
+            _op_name = "MOCK_OPERATOR";
+        }
 
-        MOCK_CONST_METHOD0(enable_local_merge_sort, bool());
+        void set_output_block(Block block) { _block = std::move(block); }
+
+        Status prepare(RuntimeState* state) override { return Status::OK(); }
+        Status close(RuntimeState* state) override { return Status::OK(); }
+        Status get_block(RuntimeState* state, Block* block, bool* eos) override {
+            *eos = true;
+            block->swap(_block);
+            return Status::OK();
+        }
+
+    private:
+        Block _block;
     };
-
     std::unique_ptr<ObjectPool> obj_pool = std::make_unique<ObjectPool>();
     TTableDescriptor tbl_desc;
     TScalarType scalar_type;
@@ -110,8 +147,8 @@ TEST_F(ProfileSpecTest, SourceOperatorNameSuffixTest1) {
 
     MockOperatorX op(obj_pool.get(), tnode, 1, *descs);
 
-    RuntimeState* runtime_state = nullptr;
-    auto local_state = std::make_unique<MockLocalState>(runtime_state, &op);
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto local_state = std::make_unique<MockLocalState>(runtime_state.get(), &op);
     ASSERT_EQ(local_state->name_suffix(), "(id=1)");
 }
 
@@ -127,8 +164,8 @@ TEST_F(ProfileSpecTest, SourceOperatorNameSuffixTest2) {
 
     MockOperatorX op(obj_pool.get(), tnode, 1, *descs);
     op._nereids_id = 100;
-    RuntimeState* runtime_state = nullptr;
-    auto local_state = std::make_unique<MockLocalState>(runtime_state, &op);
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto local_state = std::make_unique<MockLocalState>(runtime_state.get(), &op);
     ASSERT_EQ(local_state->name_suffix(), "(nereids_id=100)(id=1)");
 }
 
@@ -175,6 +212,32 @@ TEST_F(ProfileSpecTest, CommonCountersCustomCounters) {
     ASSERT_TRUE(local_state->operator_profile() != nullptr);
     ASSERT_TRUE(local_state->operator_profile()->get_child("CustomCounters") != nullptr);
     ASSERT_TRUE(local_state->operator_profile()->get_child("CommonCounters") != nullptr);
+}
+
+TEST_F(ProfileSpecTest, ScanSourceOperatorUpdatesOutputBlockByteCounters) {
+    MockScanOperatorX op;
+    std::unique_ptr<MockRuntimeState> runtime_state = std::make_unique<MockRuntimeState>();
+    RuntimeProfile parent_profile("parent");
+    init_source_local_state(runtime_state.get(), &op, &parent_profile);
+
+    Block expected = make_string_block("scan-output");
+    const auto expected_bytes = static_cast<int64_t>(expected.bytes());
+    op.set_output_block(std::move(expected));
+
+    Block output;
+    bool eos = false;
+    ASSERT_TRUE(op.get_block_after_projects(runtime_state.get(), &output, &eos).ok());
+    ASSERT_TRUE(eos);
+
+    auto* local_state = runtime_state->get_local_state(op.operator_id());
+    EXPECT_EQ(local_state->common_profile()->get_counter("RowsProduced")->value(), 1);
+    EXPECT_EQ(local_state->common_profile()->get_counter("BlocksProduced")->value(), 1);
+    EXPECT_EQ(local_state->common_profile()->get_counter("OutputBlockBytes")->value(),
+              expected_bytes);
+    EXPECT_EQ(local_state->common_profile()->get_counter("MaxOutputBlockBytes")->value(),
+              expected_bytes);
+    EXPECT_EQ(local_state->common_profile()->get_counter("MinOutputBlockBytes")->value(),
+              expected_bytes);
 }
 
 } // namespace doris

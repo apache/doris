@@ -1294,6 +1294,7 @@ Status CompactionMixin::modify_rowsets() {
         _tablet->enable_unique_key_merge_on_write()) {
         Version version = tablet()->max_version();
         DeleteBitmap output_rowset_delete_bitmap(_tablet->tablet_id());
+        DeleteBitmap output_rowset_internal_delete_bitmap(_tablet->tablet_id());
         std::unique_ptr<RowLocationSet> missed_rows;
         if ((config::enable_missing_rows_correctness_check ||
              config::enable_mow_compaction_correctness_check_core ||
@@ -1313,12 +1314,20 @@ Status CompactionMixin::modify_rowsets() {
         // New loads are not blocked, so some keys of input rowsets might
         // be deleted during the time. We need to deal with delete bitmap
         // of incremental data later.
-        // TODO(LiaoXin): check if there are duplicate keys
         std::size_t missed_rows_size = 0;
         tablet()->calc_compaction_output_rowset_delete_bitmap(
                 _input_rowsets, *_rowid_conversion, 0, version.second + 1, missed_rows.get(),
                 location_map.get(), _tablet->tablet_meta()->delete_bitmap(),
                 &output_rowset_delete_bitmap);
+        // In cluster-key MOW compaction, rows are sorted by cluster key, so duplicate unique keys
+        // may be non-adjacent in merge order. Scan the output primary key index to delete older
+        // duplicate rows inside the output rowset.
+        if (!tablet()->tablet_schema()->cluster_key_uids().empty()) {
+            RETURN_IF_ERROR(tablet()->calc_compaction_output_rowset_internal_delete_bitmap(
+                    _input_rowsets, _output_rowset, *_rowid_conversion,
+                    &output_rowset_internal_delete_bitmap));
+            output_rowset_delete_bitmap.merge(output_rowset_internal_delete_bitmap);
+        }
         if (missed_rows) {
             missed_rows_size = missed_rows->size();
             std::size_t merged_missed_rows_size = _stats.merged_rows;
@@ -1418,6 +1427,7 @@ Status CompactionMixin::modify_rowsets() {
                 tablet()->calc_compaction_output_rowset_delete_bitmap(
                         _input_rowsets, *_rowid_conversion, 0, UINT64_MAX, missed_rows.get(),
                         location_map.get(), *it.delete_bitmap.get(), &txn_output_delete_bitmap);
+                txn_output_delete_bitmap.merge(output_rowset_internal_delete_bitmap);
                 if (config::enable_merge_on_write_correctness_check) {
                     RowsetIdUnorderedSet rowsetids;
                     rowsetids.insert(_output_rowset->rowset_id());

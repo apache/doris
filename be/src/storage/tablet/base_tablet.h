@@ -261,6 +261,10 @@ public:
             std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,
             const DeleteBitmap& input_delete_bitmap, DeleteBitmap* output_rowset_delete_bitmap);
 
+    Status calc_compaction_output_rowset_internal_delete_bitmap(
+            const std::vector<RowsetSharedPtr>& input_rowsets, RowsetSharedPtr output_rowset,
+            const RowIdConversion& rowid_conversion, DeleteBitmap* output_rowset_delete_bitmap);
+
     Status check_rowid_conversion(
             RowsetSharedPtr dst_rowset,
             const std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>&

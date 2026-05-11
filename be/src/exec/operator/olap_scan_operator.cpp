@@ -394,6 +394,11 @@ Status OlapScanLocalState::_init_profile() {
             ADD_COUNTER(_segment_profile, "ConditionCacheSegmentHit", TUnit::UNIT);
     _condition_cache_filtered_rows_counter =
             ADD_COUNTER(_segment_profile, "ConditionCacheFilteredRows", TUnit::UNIT);
+    _adaptive_batch_predict_min_rows_counter =
+            ADD_COUNTER(_segment_profile, "AdaptiveBatchPredictMinRows", TUnit::UNIT);
+    _adaptive_batch_predict_max_rows_counter =
+            ADD_COUNTER(_segment_profile, "AdaptiveBatchPredictMaxRows", TUnit::UNIT);
+
     return Status::OK();
 }
 
