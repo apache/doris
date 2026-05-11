@@ -74,7 +74,7 @@ void JSONDataParser<ParserImpl>::traverse(const Element& element, ParseContext& 
             // Parse nested arrays to JsonbField
             JsonbWriter writer;
             traverseArrayAsJsonb(element.getArray(), writer);
-            tryAppendValue(
+            appendValueIfNotDuplicate(
                     ctx, ctx.builder.get_parts(),
                     Field::create_field<TYPE_JSONB>(JsonbField(writer.getOutput()->getBuffer(),
                                                                writer.getOutput()->getSize())));
@@ -84,22 +84,22 @@ void JSONDataParser<ParserImpl>::traverse(const Element& element, ParseContext& 
         // we should set has_nested_in_flatten to false when traverse array finished for next array otherwise it will be true for next array
         ctx.has_nested_in_flatten = false;
     } else {
-        tryAppendValue(ctx, ctx.builder.get_parts(), getValueAsField(element));
+        appendValueIfNotDuplicate(ctx, ctx.builder.get_parts(), getValueAsField(element));
     }
 }
 
 template <typename ParserImpl>
-bool JSONDataParser<ParserImpl>::tryAppendValue(ParseContext& ctx, const PathInData::Parts& path,
-                                                Field&& value, bool check_duplicate_path) {
-    if (check_duplicate_path && ctx.check_duplicate_json_path) {
+void JSONDataParser<ParserImpl>::appendValueIfNotDuplicate(ParseContext& ctx,
+                                                           const PathInData::Parts& path,
+                                                           Field&& value) {
+    if (ctx.check_duplicate_json_path) {
         PathInData path_in_data(path);
         if (!ctx.visited_path_names.emplace(path_in_data.get_path()).second) {
-            return false;
+            return;
         }
     }
     ctx.paths.push_back(path);
     ctx.values.push_back(std::move(value));
-    return true;
 }
 
 template <typename ParserImpl>
@@ -208,7 +208,8 @@ void JSONDataParser<ParserImpl>::traverseArray(const JSONArray& array, ParseCont
     }
     auto&& arrays_by_path = array_ctx.arrays_by_path;
     if (arrays_by_path.empty()) {
-        tryAppendValue(ctx, ctx.builder.get_parts(), Field::create_field<TYPE_ARRAY>(Array()));
+        appendValueIfNotDuplicate(ctx, ctx.builder.get_parts(),
+                                  Field::create_field<TYPE_ARRAY>(Array()));
     } else {
         ctx.paths.reserve(ctx.paths.size() + arrays_by_path.size());
         ctx.values.reserve(ctx.values.size() + arrays_by_path.size());
@@ -216,8 +217,8 @@ void JSONDataParser<ParserImpl>::traverseArray(const JSONArray& array, ParseCont
             auto&& [path, path_array] = it->second;
             /// Merge prefix path and path of array element.
             ctx.builder.append(path, true);
-            tryAppendValue(ctx, ctx.builder.get_parts(),
-                           Field::create_field<TYPE_ARRAY>(std::move(path_array)));
+            appendValueIfNotDuplicate(ctx, ctx.builder.get_parts(),
+                                      Field::create_field<TYPE_ARRAY>(std::move(path_array)));
             ctx.builder.pop_back(path.size());
         }
     }

@@ -2028,16 +2028,6 @@ void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
     auto get_or_create_subcolumn = [&](const PathInData& path, size_t index_hint,
                                        const FieldInfo& field_info) -> ColumnVariant::Subcolumn* {
         auto* subcolumn = column_variant.get_subcolumn(path, index_hint);
-        if (subcolumn == nullptr && !path.empty() && config.check_duplicate_json_path &&
-            is_plain_path(path)) {
-            const auto& path_name = path.get_path();
-            for (auto& entry : column_variant.get_subcolumns()) {
-                if (entry->path.get_path() == path_name && is_plain_path(entry->path)) {
-                    subcolumn = &entry->data;
-                    break;
-                }
-            }
-        }
         if (subcolumn == nullptr) {
             if (path.has_nested_part()) {
                 column_variant.add_nested_subcolumn(path, field_info, old_num_rows);

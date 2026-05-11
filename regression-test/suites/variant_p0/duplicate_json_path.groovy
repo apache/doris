@@ -73,6 +73,7 @@ suite("duplicate_json_path", "p0") {
         def totalRows = sql "select count(*) from duplicate_json_path"
         assertEquals(14, totalRows[0][0])
 
+        // When duplicate path check is enabled, duplicate Variant paths keep the first value.
         def expectedResult = [
                 [1, "{\"b\":42}", "42", null],
                 [2, "123", null, null],

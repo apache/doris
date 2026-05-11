@@ -149,8 +149,7 @@ private:
     void traverse(const Element& element, ParseContext& ctx);
     void traverseObject(const JSONObject& object, ParseContext& ctx);
     void traverseArray(const JSONArray& array, ParseContext& ctx);
-    bool tryAppendValue(ParseContext& ctx, const PathInData::Parts& path, Field&& value,
-                        bool check_duplicate_path = true);
+    void appendValueIfNotDuplicate(ParseContext& ctx, const PathInData::Parts& path, Field&& value);
     void traverseArrayElement(const Element& element, ParseArrayContext& ctx);
     void checkAmbiguousStructure(const ParseArrayContext& ctx,
                                  const std::vector<PathInData::Parts>& paths);
