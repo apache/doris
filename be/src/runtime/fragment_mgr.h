@@ -191,11 +191,6 @@ public:
                            const google::protobuf::RepeatedField<int32_t>& filter_ids);
 
 private:
-    std::string to_http_path(const std::string& file_name);
-    Status trigger_pipeline_context_report(ReportStatusRequest req,
-                                           std::shared_ptr<PipelineFragmentContext>&& ctx);
-    void coordinator_callback(const ReportStatusRequest& req);
-
     struct BrpcItem {
         TNetworkAddress network_address;
         std::vector<std::weak_ptr<QueryContext>> queries;
