@@ -97,7 +97,7 @@ private:
             VectorizedFnCall* fn_call, VExprContext* expr_ctx, Field& constant_val,
             const std::set<std::string> fn_name) const override;
 
-    bool _should_push_down_common_expr() override;
+    bool _should_push_down_common_expr(const VExprSPtr& expr) override;
 
     bool _storage_no_merge() override;
 

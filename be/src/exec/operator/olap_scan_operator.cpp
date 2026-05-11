@@ -500,8 +500,11 @@ Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* f
     return Status::OK();
 }
 
-bool OlapScanLocalState::_should_push_down_common_expr() {
-    return state()->enable_common_expr_pushdown() && _storage_no_merge();
+bool OlapScanLocalState::_should_push_down_common_expr(const VExprSPtr& expr) {
+    // Tables merged on read (AGG, UNIQUE without merge-on-write) keep their conjuncts in the
+    // scanner, as before: SegmentIterator would filter rows before the merge.
+    return state()->enable_common_expr_pushdown() && _storage_no_merge() &&
+           VExpr::is_acting_on_a_slot(*expr);
 }
 
 bool OlapScanLocalState::_storage_no_merge() {
@@ -1111,6 +1114,8 @@ OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, i
           _cache_param(param) {
     _output_tuple_id = tnode.olap_scan_node.tuple_id;
     if (_olap_scan_node.__isset.sort_info && _olap_scan_node.__isset.sort_limit) {
+        DORIS_CHECK(_limit < 0);
+        DORIS_CHECK(_olap_scan_node.sort_limit > 0);
         _limit_per_scanner = _olap_scan_node.sort_limit;
     }
     DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {

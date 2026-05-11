@@ -90,7 +90,6 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .output_columns {},
                                  .common_expr_ctxs_push_down {},
                                  .topn_filter_source_node_ids {},
-                                 .filter_block_conjuncts {},
                                  .key_group_cluster_key_idxes {},
                                  .virtual_column_exprs {},
                                  .vir_cid_to_idx_in_block {},
@@ -459,17 +458,36 @@ Status OlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.enable_mor_value_predicate_pushdown = true;
         }
 
-        // Skip topn / general-limit storage-layer optimizations when runtime
-        // filters exist.  Late-arriving filters would re-populate _conjuncts
-        // at the scanner level while the storage layer has already committed
-        // to a row budget counted before those filters, causing the scan to
-        // return fewer rows than the limit requires.
-        if (_total_rf_num == 0) {
-            // order by table keys optimization for topn
-            // will only read head/tail of data file since it's already sorted by keys
-            if (olap_scan_node.__isset.sort_info &&
-                !olap_scan_node.sort_info.is_asc_order.empty()) {
-                _limit = _local_state->limit_per_scanner();
+        const bool has_key_topn =
+                olap_scan_node.__isset.sort_info && !olap_scan_node.sort_info.is_asc_order.empty();
+        if (has_key_topn) {
+            _limit = _local_state->limit_per_scanner();
+        }
+
+        const bool no_runtime_filters = _total_rf_num == 0;
+        const bool segment_limit_enabled = _state->enable_segment_limit_pushdown();
+        const bool storage_no_merge = olap_scan_local_state->_storage_no_merge();
+        // VCollectIterator::_topn_next() compares key columns that TabletReader prepares only
+        // for physical DUP_KEYS and merge-on-write UNIQUE_KEYS tablets, not for a MOR read as DUP.
+        const bool storage_topn_supported =
+                storage_no_merge && !olap_scan_local_state->_read_mor_as_dup();
+
+        // With enable_common_expr_pushdown off, slot-based conjuncts stay in the scanner on
+        // purpose, so the check below only holds when the switch is on.
+        if (_limit > 0 && no_runtime_filters && segment_limit_enabled && storage_no_merge &&
+            _state->enable_common_expr_pushdown()) {
+            for (const auto& conjunct : _conjuncts) {
+                DORIS_CHECK(!VExpr::is_acting_on_a_slot(*conjunct->root()));
+            }
+        }
+
+        // Segment LIMIT has only two legal states: completely disabled, or enabled after every
+        // row-filtering conjunct has become a storage predicate or SegmentIterator common expr.
+        const bool can_push_down_segment_limit = _limit > 0 && no_runtime_filters &&
+                                                 _conjuncts.empty() && segment_limit_enabled &&
+                                                 storage_no_merge;
+        if (can_push_down_segment_limit && (!has_key_topn || storage_topn_supported)) {
+            if (has_key_topn) {
                 _tablet_reader_params.read_orderby_key = true;
                 if (!olap_scan_node.sort_info.is_asc_order[0]) {
                     _tablet_reader_params.read_orderby_key_reverse = true;
@@ -477,26 +495,29 @@ Status OlapScanner::_init_tablet_reader_params(
                 _tablet_reader_params.read_orderby_key_num_prefix_columns =
                         olap_scan_node.sort_info.is_asc_order.size();
                 _tablet_reader_params.read_orderby_key_limit = _limit;
-
-                if (_tablet_reader_params.read_orderby_key_limit > 0 &&
-                    olap_scan_local_state->_storage_no_merge()) {
-                    _tablet_reader_params.filter_block_conjuncts = _conjuncts;
-                    _conjuncts.clear();
-                }
-            } else if (_limit > 0 && olap_scan_local_state->_storage_no_merge()) {
-                // General limit pushdown for DUP_KEYS and UNIQUE_KEYS with MOW
-                // (non-merge path). Only when topn optimization is NOT active.
-                // NOTE: _limit is the global query limit (TPlanNode.limit), not a
-                // per-scanner budget. With N scanners each scanner may read up to
-                // _limit rows, so up to N * _limit rows are read in total before
-                // the _shared_scan_limit coordinator stops them. This is
-                // acceptable because _shared_scan_limit guarantees correctness,
-                // and the over-read is bounded by (N-1) * _limit which is small
-                // for typical LIMIT values.
+            } else {
                 _tablet_reader_params.general_read_limit = _limit;
-                _tablet_reader_params.filter_block_conjuncts = _conjuncts;
-                _conjuncts.clear();
             }
+        } else if (has_key_topn && !storage_no_merge && no_runtime_filters) {
+            // Tables merged on read return rows in key order (rowsets are merged by key,
+            // reversed for DESC), so each scanner can stop after its own N rows and keeps
+            // _limit. Storage TopN stays off. A late runtime filter would break the count.
+            _tablet_reader_params.read_orderby_key = true;
+            if (!olap_scan_node.sort_info.is_asc_order[0]) {
+                _tablet_reader_params.read_orderby_key_reverse = true;
+            }
+            _tablet_reader_params.read_orderby_key_num_prefix_columns =
+                    olap_scan_node.sort_info.is_asc_order.size();
+        } else if (has_key_topn) {
+            // Without storage TopN the rows are not in key order, so the upper TopN needs
+            // every row from this scanner.
+            _limit = -1;
+        }
+
+        if (_tablet_reader_params.read_orderby_key_limit > 0 ||
+            _tablet_reader_params.general_read_limit > 0) {
+            DORIS_CHECK(can_push_down_segment_limit);
+            DORIS_CHECK(_conjuncts.empty());
         }
 
         // set push down topn filter
