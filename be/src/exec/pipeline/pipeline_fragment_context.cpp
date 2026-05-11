@@ -86,6 +86,7 @@
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/operator/olap_table_sink_operator.h"
 #include "exec/operator/olap_table_sink_v2_operator.h"
+#include "exec/operator/paimon_table_sink_operator.h"
 #include "exec/operator/partition_sort_sink_operator.h"
 #include "exec/operator/partition_sort_source_operator.h"
 #include "exec/operator/partitioned_aggregation_sink_operator.h"
@@ -122,7 +123,6 @@
 #include "exec/spill/spill_file.h"
 #include "io/fs/stream_load_pipe.h"
 #include "load/stream_load/new_load_stream_mgr.h"
-#include "exec/operator/paimon_table_sink_operator.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/result_block_buffer.h"
@@ -1888,16 +1888,6 @@ bool PipelineFragmentContext::_close_fragment_instance() {
     Defer defer_op {[&]() { _is_fragment_instance_closed = true; }};
     _fragment_level_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
     if (!_need_notify_close) {
-        if (_runtime_state) {
-            for (auto& tasks : _tasks) {
-                for (auto& task : tasks) {
-                    if (!task.first->runtime_state()->paimon_commit_messages().empty()) {
-                        _runtime_state->add_paimon_commit_messages(
-                                task.first->runtime_state()->paimon_commit_messages());
-                    }
-                }
-            }
-        }
         auto st = send_report(true);
         if (!st) {
             LOG(WARNING) << fmt::format("Failed to send report for query {}, fragment {}: {}",
@@ -2266,25 +2256,8 @@ Status PipelineFragmentContext::send_report(bool done) {
     // no need to send report.
     // Load will set _is_report_success to true because load wants to know
     // the process.
-    bool has_paimon_commit_messages = !_runtime_state->paimon_commit_messages().empty();
-    bool has_task_states = false;
-    for (auto& tasks : _tasks) {
-        for (auto& task : tasks) {
-            has_task_states = true;
-            if (!task.first->runtime_state()->paimon_commit_messages().empty()) {
-                has_paimon_commit_messages = true;
-                break;
-            }
-        }
-        if (has_paimon_commit_messages) {
-            break;
-        }
-    }
-
     if (!_is_report_success && done && exec_status.ok()) {
-        if (has_task_states && !has_paimon_commit_messages) {
-            return Status::OK();
-        }
+        return Status::OK();
     }
 
     // If both _is_report_success and _is_report_on_cancel are false,
@@ -2293,7 +2266,7 @@ Status PipelineFragmentContext::send_report(bool done) {
     // a internal cancellation being processed
     // When limit is reached the fragment is also cancelled, but _is_report_on_cancel will
     // be set to false, to avoid sending fault report to FE.
-    if (!_is_report_success && !_is_report_on_cancel && !has_paimon_commit_messages) {
+    if (!_is_report_success && !_is_report_on_cancel) {
         if (done) {
             // if done is true, which means the query is finished successfully, we can safely close the fragment instance without sending report to FE, and just return OK status here.
             return Status::OK();

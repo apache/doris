@@ -20,6 +20,7 @@
 #include "common/status.h"
 #include "exec/sink/writer/paimon/vpaimon_jni_table_writer.h"
 #include "exec/sink/writer/paimon/vpaimon_table_writer.h"
+#include "util/string_util.h"
 
 namespace doris {
 
@@ -32,7 +33,8 @@ bool should_use_paimon_jni_writer(const TDataSink& tsink) {
     if (it == options.end()) {
         return false;
     }
-    return it->second == "true" || it->second == "1";
+    std::string value(trim(it->second));
+    return iequal(value, "true") || value == "1";
 }
 
 std::unique_ptr<VPaimonTableWriter> create_paimon_table_writer(

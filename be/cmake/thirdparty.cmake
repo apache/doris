@@ -117,11 +117,10 @@ add_thirdparty(rdkafka_cpp LIBNAME "lib/librdkafka++.a")
 add_thirdparty(rdkafka)
 add_thirdparty(s2)
 add_thirdparty(bitshuffle)
-add_thirdparty(roaring LIB64)
+add_thirdparty(roaring)
 add_thirdparty(fmt)
 add_thirdparty(cctz)
 add_thirdparty(base64)
-
 
 add_thirdparty(aws-cpp-sdk-core LIB64)
 add_thirdparty(aws-cpp-sdk-s3 LIB64)
@@ -179,6 +178,8 @@ endif()
 add_thirdparty(icuuc LIB64)
 add_thirdparty(icui18n LIB64)
 add_thirdparty(icudata LIB64)
+
+
 add_thirdparty(pugixml LIB64)
 
 if (ENABLE_PAIMON_CPP)

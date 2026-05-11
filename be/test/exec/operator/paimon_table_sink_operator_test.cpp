@@ -41,6 +41,7 @@ TEST(PaimonTableSinkOperatorTest, UsesJniWriterOnlyForTruthyOption) {
     EXPECT_FALSE(should_use_paimon_jni_writer(build_sink_with_option("false")));
     EXPECT_FALSE(should_use_paimon_jni_writer(build_sink_with_option("0")));
     EXPECT_TRUE(should_use_paimon_jni_writer(build_sink_with_option("true")));
+    EXPECT_TRUE(should_use_paimon_jni_writer(build_sink_with_option(" TRUE ")));
     EXPECT_TRUE(should_use_paimon_jni_writer(build_sink_with_option("1")));
 }
 
