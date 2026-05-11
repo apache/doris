@@ -21,37 +21,37 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.persist.EditLog;
 
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public class WorkloadSchedPolicyMgrTest {
 
-    @Mocked
     private Env env;
-
-    @Injectable
     private EditLog editLog;
+    private MockedStatic<Env> mockedEnv;
 
     @Before
     public void setUp() {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+        env = Mockito.mock(Env.class);
+        editLog = Mockito.mock(EditLog.class);
+        mockedEnv = Mockito.mockStatic(Env.class);
 
-                env.getEditLog();
-                minTimes = 0;
-                result = editLog;
-            }
-        };
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+    }
+
+    @After
+    public void tearDown() {
+        if (mockedEnv != null) {
+            mockedEnv.close();
+        }
     }
 
     @Test
