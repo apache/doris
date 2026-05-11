@@ -33,6 +33,7 @@
 #include <exception>
 #include <future>
 #include <memory>
+#include <numeric>
 #include <random>
 #include <string>
 #include <string_view>
@@ -5479,6 +5480,57 @@ TEST(RecyclerTest, delete_rowset_data) {
         ASSERT_EQ(0, accessor->list_all(&list_iter));
         ASSERT_FALSE(list_iter->has_next());
     }
+}
+
+TEST(RecyclerTest, delete_rowset_data_without_delete_bitmap_meta) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    constexpr std::string_view resource_id = "delete_rowset_data_without_delete_bitmap_meta";
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id(std::string(resource_id));
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix(std::string(resource_id));
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = recycler.accessor_map_.begin()->second;
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+
+    auto rowset = create_rowset(std::string(resource_id), 10002, 10001, 1, schema);
+    ASSERT_EQ(create_recycle_rowset(txn_kv.get(), accessor.get(), rowset, RecycleRowsetPB::COMPACT,
+                                    true),
+              0);
+
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    std::vector<std::string> deleted_paths;
+    sp->set_call_back("MockAccessor::delete_files", [&](auto&& args) {
+        auto* paths = try_any_cast<const std::vector<std::string>*>(args[0]);
+        deleted_paths.insert(deleted_paths.end(), paths->begin(), paths->end());
+    });
+    sp->enable_processing();
+
+    ASSERT_EQ(recycler.delete_rowset_data(rowset), 0);
+    ASSERT_EQ(deleted_paths.size(), 1)
+            << " size: " << deleted_paths.size() << " content: "
+            << std::accumulate(deleted_paths.begin(), deleted_paths.end(), std::string(),
+                               [](const std::string& str, const std::string& it) {
+                                   return str.empty() ? it : str + ", " + it;
+                               });
+    EXPECT_EQ(deleted_paths[0], segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), 0));
 }
 
 TEST(RecyclerTest, delete_rowset_data_packed_file_single_rowset) {
