@@ -19,7 +19,7 @@
 #pragma clang diagnostic ignored "-Wkeyword-macro"
 #pragma clang diagnostic ignored "-Wshadow-field"
 #define private public
-#include "vec/sink/vpaimon_jni_table_writer.h"
+#include "exec/sink/writer/paimon/vpaimon_jni_table_writer.h"
 #undef private
 #pragma clang diagnostic pop
 

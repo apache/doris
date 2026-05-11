@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/sink/writer/paimon/vpaimon_partition_writer.h"
+#include "exec/sink/writer/paimon/vpaimon_partition_writer.h"
 
 #include <gen_cpp/DataSinks_types.h>
 

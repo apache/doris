@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/sink/vpaimon_jni_table_writer.h"
+#include "exec/sink/writer/paimon/vpaimon_jni_table_writer.h"
 
 #include <arrow/buffer.h>
 #include <arrow/io/memory.h>
@@ -27,7 +27,6 @@
 #include "core/block/block.h"
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
-#include "paimon/commit_message.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
@@ -37,7 +36,7 @@
 #include "util/defer_op.h"
 #include "util/jni-util.h"
 #include "util/jni_native_method.h"
-#include "vec/sink/paimon_writer_utils.h"
+#include "exec/sink/writer/paimon/paimon_writer_utils.h"
 
 namespace doris::vectorized {
 

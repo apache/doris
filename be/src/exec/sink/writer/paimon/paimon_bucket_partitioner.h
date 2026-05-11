@@ -22,7 +22,7 @@
 #include <string>
 #include <vector>
 
-#include "vec/runtime/partitioner.h"
+#include "exec/partitioner/partitioner.h"
 
 #ifdef WITH_PAIMON_CPP
 namespace paimon {
@@ -41,27 +41,26 @@ struct PaimonBucketShuffleParams {
 
 class PaimonBucketPartitioner final : public PartitionerBase {
 public:
-    explicit PaimonBucketPartitioner(size_t partition_count, PaimonBucketShuffleParams params);
+    explicit PaimonBucketPartitioner(HashValType partition_count, PaimonBucketShuffleParams params);
     ~PaimonBucketPartitioner() override = default;
 
     Status init(const std::vector<TExpr>& texprs) override;
     Status prepare(RuntimeState* state, const RowDescriptor& row_desc) override;
     Status open(RuntimeState* state) override;
-    Status do_partitioning(RuntimeState* state, Block* block,
-                           MemTracker* mem_tracker) const override;
+    Status do_partitioning(RuntimeState* state, Block* block) const override;
 
-    ChannelField get_channel_ids() const override {
-        return {_channel_ids.data(), sizeof(uint32_t)};
-    }
+    Status close(RuntimeState* state) override { return Status::OK(); }
+
+    const std::vector<HashValType>& get_channel_ids() const override { return _channel_ids; }
 
     Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
 
 private:
-    Status _compute_bucket_ids(RuntimeState* state, const Block& block, int32_t* bucket_ids,
-                               MemTracker* mem_tracker) const;
+    Status _compute_bucket_ids(RuntimeState* state, const Block& block,
+                               int32_t* bucket_ids) const;
 
     PaimonBucketShuffleParams _params;
-    mutable std::vector<uint32_t> _channel_ids;
+    mutable std::vector<HashValType> _channel_ids;
 
 #ifdef WITH_PAIMON_CPP
     std::shared_ptr<::paimon::MemoryPool> _pool;

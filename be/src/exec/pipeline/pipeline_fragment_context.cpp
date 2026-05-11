@@ -122,7 +122,7 @@
 #include "exec/spill/spill_file.h"
 #include "io/fs/stream_load_pipe.h"
 #include "load/stream_load/new_load_stream_mgr.h"
-#include "pipeline/exec/paimon_table_sink_operator.h"
+#include "exec/operator/paimon_table_sink_operator.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/result_block_buffer.h"

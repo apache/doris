@@ -93,11 +93,11 @@
 #include "exec/pipeline/pipeline.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
-#include "pipeline/exec/paimon_table_sink_operator.h"
+#include "exec/operator/paimon_table_sink_operator.h"
 #include "runtime/runtime_profile.h"
 #include "util/debug_util.h"
 #include "util/string_util.h"
-#include "vec/sink/vpaimon_table_writer.h"
+#include "exec/sink/writer/paimon/vpaimon_table_writer.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

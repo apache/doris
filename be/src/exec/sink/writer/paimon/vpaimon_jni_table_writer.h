@@ -25,7 +25,7 @@
 
 #include "common/status.h"
 #include "format/parquet/arrow_memory_pool.h"
-#include "vec/sink/vpaimon_table_writer.h"
+#include "exec/sink/writer/paimon/vpaimon_table_writer.h"
 
 namespace doris {
 namespace vectorized {

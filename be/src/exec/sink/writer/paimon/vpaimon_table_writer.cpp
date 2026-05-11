@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/sink/vpaimon_table_writer.h"
+#include "exec/sink/writer/paimon/vpaimon_table_writer.h"
 
 #include <gen_cpp/DataSinks_types.h>
 
@@ -38,9 +38,9 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "util/defer_op.h"
-#include "vec/sink/paimon_writer_utils.h"
-#include "vec/sink/writer/paimon/paimon_doris_hdfs_file_system.h"
-#include "vec/sink/writer/paimon/vpaimon_partition_writer.h"
+#include "exec/sink/writer/paimon/paimon_writer_utils.h"
+#include "exec/sink/writer/paimon/paimon_doris_hdfs_file_system.h"
+#include "exec/sink/writer/paimon/vpaimon_partition_writer.h"
 
 #ifdef WITH_PAIMON_CPP
 #include <arrow/array.h>
@@ -62,7 +62,7 @@
 #include "paimon/metrics.h"
 #include "paimon/utils/bucket_id_calculator.h"
 #include "paimon/write_context.h"
-#include "vec/sink/writer/paimon/paimon_doris_memory_pool.h"
+#include "exec/sink/writer/paimon/paimon_doris_memory_pool.h"
 
 // Force link paimon file format factories
 namespace paimon {

@@ -39,7 +39,7 @@
 #include "paimon/utils/bucket_id_calculator.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
-#include "vec/sink/writer/paimon/paimon_doris_memory_pool.h"
+#include "exec/sink/writer/paimon/paimon_doris_memory_pool.h"
 
 namespace doris::vectorized {
 

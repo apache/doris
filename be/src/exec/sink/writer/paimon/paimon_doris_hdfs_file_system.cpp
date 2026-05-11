@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/sink/writer/paimon/paimon_doris_hdfs_file_system.h"
+#include "exec/sink/writer/paimon/paimon_doris_hdfs_file_system.h"
 
 #ifdef WITH_PAIMON_CPP
 

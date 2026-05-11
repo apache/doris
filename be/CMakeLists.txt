@@ -874,7 +874,7 @@ function(pch_reuse target)
 endfunction(pch_reuse target)
 
 
-add_subdirectory(${SRC_DIR}/vec/sink/writer/paimon/compat)
+add_subdirectory(${SRC_DIR}/exec/sink/writer/paimon/compat)
 if (ENABLE_PAIMON_CPP)
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} paimon_rawlog_compat)
     set(TEST_LINK_LIBS ${TEST_LINK_LIBS} paimon_rawlog_compat)

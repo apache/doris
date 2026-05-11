@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/sink/writer/paimon/paimon_doris_memory_pool.h"
+#include "exec/sink/writer/paimon/paimon_doris_memory_pool.h"
 
 #ifdef WITH_PAIMON_CPP
 

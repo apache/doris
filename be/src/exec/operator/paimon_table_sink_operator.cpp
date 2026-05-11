@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "pipeline/exec/paimon_table_sink_operator.h"
+#include "exec/operator/paimon_table_sink_operator.h"
 
 #include "common/status.h"
-#include "vec/sink/vpaimon_jni_table_writer.h"
-#include "vec/sink/vpaimon_table_writer.h"
+#include "exec/sink/writer/paimon/vpaimon_jni_table_writer.h"
+#include "exec/sink/writer/paimon/vpaimon_table_writer.h"
 
 namespace doris {
 

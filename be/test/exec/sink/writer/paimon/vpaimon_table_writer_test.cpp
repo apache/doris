@@ -18,9 +18,9 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wkeyword-macro"
 #define private public
-#include "vec/sink/vpaimon_table_writer.h"
+#include "exec/sink/writer/paimon/vpaimon_table_writer.h"
 
-#include "vec/sink/writer/paimon/vpaimon_partition_writer.h"
+#include "exec/sink/writer/paimon/vpaimon_partition_writer.h"
 #undef private
 #pragma clang diagnostic pop
 

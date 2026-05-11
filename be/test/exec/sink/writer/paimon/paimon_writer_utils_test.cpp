@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/sink/paimon_writer_utils.h"
+#include "exec/sink/writer/paimon/paimon_writer_utils.h"
 
 #include <gtest/gtest.h>
 

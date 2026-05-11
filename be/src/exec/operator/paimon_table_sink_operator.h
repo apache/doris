@@ -18,7 +18,7 @@
 #pragma once
 
 #include "exec/operator/operator.h"
-#include "vec/sink/vpaimon_table_writer.h"
+#include "exec/sink/writer/paimon/vpaimon_table_writer.h"
 
 namespace doris {
 
