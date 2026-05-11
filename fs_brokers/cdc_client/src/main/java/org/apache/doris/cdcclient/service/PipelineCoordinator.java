@@ -454,15 +454,17 @@ public class PipelineCoordinator {
 
             isSnapshotSplit = sourceReader.isSnapshotSplit(readResult.getSplit());
             long startTime = System.currentTimeMillis();
+            long streamingStartTime = -1;
             long maxIntervalMillis = writeRecordRequest.getMaxInterval() * 1000;
             boolean shouldStop = false;
             boolean lastMessageIsHeartbeat = false;
 
             LOG.info(
-                    "Start polling records for jobId={} taskId={}, isSnapshotSplit={}",
+                    "Start polling records for jobId={} taskId={}, isSnapshotSplit={}, maxIntervalMillis={}",
                     writeRecordRequest.getJobId(),
                     writeRecordRequest.getTaskId(),
-                    isSnapshotSplit);
+                    isSnapshotSplit,
+                    maxIntervalMillis);
 
             // 2. poll record
             while (!shouldStop) {
@@ -471,10 +473,12 @@ public class PipelineCoordinator {
                 if (!recordIterator.hasNext()) {
                     Thread.sleep(100);
 
-                    // Check if should stop
-                    long elapsedTime = System.currentTimeMillis() - startTime;
+                    long now = System.currentTimeMillis();
+                    long elapsedTime = now - startTime;
                     boolean timeoutReached =
-                            maxIntervalMillis > 0 && elapsedTime >= maxIntervalMillis;
+                            streamingStartTime > 0
+                                    && maxIntervalMillis > 0
+                                    && (now - streamingStartTime) >= maxIntervalMillis;
 
                     if (shouldStop(
                             isSnapshotSplit,
@@ -488,22 +492,29 @@ public class PipelineCoordinator {
                     continue;
                 }
 
+                if (streamingStartTime < 0) {
+                    streamingStartTime = System.currentTimeMillis();
+                    LOG.info(
+                            "Streaming phase started after {} ms setup for jobId={} taskId={}",
+                            streamingStartTime - startTime,
+                            writeRecordRequest.getJobId(),
+                            writeRecordRequest.getTaskId());
+                }
+
                 while (recordIterator.hasNext()) {
                     SourceRecord element = recordIterator.next();
 
-                    // Check if this is a heartbeat message
                     if (isHeartbeatEvent(element)) {
                         heartbeatCount++;
 
-                        // Mark last message as heartbeat (only for binlog split)
                         if (!isSnapshotSplit) {
                             lastMessageIsHeartbeat = true;
                         }
 
-                        // If already timeout, stop immediately when heartbeat received
-                        long elapsedTime = System.currentTimeMillis() - startTime;
+                        long now = System.currentTimeMillis();
                         boolean timeoutReached =
-                                maxIntervalMillis > 0 && elapsedTime >= maxIntervalMillis;
+                                maxIntervalMillis > 0
+                                        && (now - streamingStartTime) >= maxIntervalMillis;
 
                         if (!isSnapshotSplit && timeoutReached) {
                             LOG.info(
@@ -511,7 +522,6 @@ public class PipelineCoordinator {
                             shouldStop = true;
                             break;
                         }
-                        // Skip heartbeat messages during normal processing
                         continue;
                     }
 
