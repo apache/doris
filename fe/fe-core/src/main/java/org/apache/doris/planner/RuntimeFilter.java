@@ -140,10 +140,8 @@ public final class RuntimeFilter {
 
     // Per-target monotonicity for BE-side runtime-filter partition pruning,
     // keyed by the target scan node's plan id. Filled by the Nereids
-    // RuntimeFilterTranslator at translation time (where the original
-    // Nereids Expression is still available for monotonicity classification);
-    // legacy planner cannot redo the classification because it only has
-    // analysis.Expr. Read by toThrift() and canPrunePartitionsFor().
+    // RuntimeFilterPartitionPruneClassifier at translation time from the final
+    // legacy target expression that will be sent to BE.
     private final Map<PlanNodeId, TTargetExprMonotonicity> targetMonotonicityByScanId
             = new HashMap<>();
 
@@ -366,7 +364,7 @@ public final class RuntimeFilter {
      * that toThrift() emits planId_to_target_monotonicity for: monotonic and
      * grounded on a partition column. When BE later supports more shapes, the
      * single source of truth for that decision lives in
-     * RuntimeFilterTranslator.classifyMonotonicityForPartitionPruning.
+     * RuntimeFilterPartitionPruneClassifier.
      */
     public boolean canPrunePartitionsFor(PlanNodeId scanNodeId) {
         TTargetExprMonotonicity m = targetMonotonicityByScanId.get(scanNodeId);

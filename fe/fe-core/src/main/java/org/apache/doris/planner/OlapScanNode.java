@@ -1258,9 +1258,9 @@ public class OlapScanNode extends ScanNode {
 
         // Populate partition boundaries for BE-side runtime filter partition pruning.
         // Only serialize when this scan node actually has at least one runtime
-        // filter whose target expression can drive partition pruning (identity
-        // or monotonic function on a partition column), so we don't bloat
-        // thrift for tables with many partitions but no usable RF target.
+        // filter whose target expression can drive partition pruning according
+        // to the FE-side classifier, so we don't bloat thrift for tables with
+        // many partitions but no usable RF target.
         // Gated by session variable `enable_runtime_filter_partition_prune`.
         ConnectContext rfPruneCtx = ConnectContext.get();
         if (rfPruneCtx != null

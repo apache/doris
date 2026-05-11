@@ -1567,11 +1567,11 @@ struct TRuntimeFilterDesc {
   18: optional i32 wait_time_ms;
 
   // Per-target monotonicity for BE-side partition pruning, keyed by target
-  // plan-node ID.  For Range partitions, only monotonic target expressions
-  // allow boundary transformation; List partitions can always be pruned
-  // regardless.  Absent entry / NON_MONOTONIC → BE skips Range partition
-  // pruning for that target.  When the target expression is a plain SlotRef,
-  // FE should set MONOTONIC_INCREASING (identity is trivially monotonic).
+  // plan-node ID. Only targets accepted by FE's partition-pruning classifier
+  // should be emitted. Absent entry / NON_MONOTONIC -> BE skips non-identity
+  // boundary projection for that target. When the target expression is a plain
+  // SlotRef on a supported partition column, FE should set MONOTONIC_INCREASING
+  // (identity is trivially monotonic).
   19: optional map<Types.TPlanNodeId, TTargetExprMonotonicity> planId_to_target_monotonicity;
 }
 
