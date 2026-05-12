@@ -36,7 +36,6 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -45,6 +44,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
@@ -168,13 +168,7 @@ public class RollupJobV2Test {
 
     @Test
     public void testCancelRollupWithEmptyJobIdList() throws Exception {
-        if (fakeEnv != null) {
-            fakeEnv.close();
-        }
         fakeEnv = new FakeEnv();
-        if (fakeEditLog != null) {
-            fakeEditLog.close();
-        }
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
