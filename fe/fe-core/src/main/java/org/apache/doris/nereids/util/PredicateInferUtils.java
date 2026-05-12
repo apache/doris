@@ -129,11 +129,8 @@ public class PredicateInferUtils {
         DataType dataType = cast.getDataType();
         DataType childType = child.getDataType();
         if (inferType == InferType.INTEGRAL) {
-            if (dataType instanceof IntegralType) {
-                IntegralType integralType = (IntegralType) dataType;
-                if (childType instanceof IntegralType && integralType.widerThan((IntegralType) childType)) {
-                    return validForInfer(((Cast) expression).child(), inferType);
-                }
+            if (dataType.equals(childType)) {
+                return validForInfer(child, inferType);
             }
         } else if (inferType == InferType.DATE) {
             // avoid lost precision

@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
@@ -629,6 +630,26 @@ public class UnequalPredicateInferTest {
         Set<? extends Expression> sets = PredicateInferUtils.inferPredicate(inputs);
         Assertions.assertEquals(3, sets.size());
         Assertions.assertTrue(sets.contains(cmp1) && sets.contains(cmp2) && sets.contains(cmp3));
+    }
+
+    @Test
+    public void testNotInferWithTransitiveEqualityThroughIntegralCast() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference b = new SlotReference("b", BigIntType.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t2"));
+        EqualTo equalTo1 = new EqualTo(a, c);
+        EqualTo equalTo2 = new EqualTo(b, new Cast(c, BigIntType.INSTANCE));
+        EqualTo invalidInferred = new EqualTo(a, b);
+
+        Set<Expression> inputs = new LinkedHashSet<>();
+        inputs.add(equalTo1);
+        inputs.add(equalTo2);
+        Set<? extends Expression> result = PredicateInferUtils.inferPredicate(inputs);
+
+        Assertions.assertTrue(result.contains(equalTo1));
+        Assertions.assertTrue(result.contains(equalTo2));
+        Assertions.assertFalse(result.contains(invalidInferred));
+        Assertions.assertFalse(result.contains(invalidInferred.commute()));
     }
 
     @Test
