@@ -275,65 +275,61 @@ public class AggregationNode extends PlanNode {
 
         ConnectContext connectContext = translatorContext.getConnectContext();
         SessionVariable sessionVariable = connectContext.getSessionVariable();
+        // PR #62438: when false, non-finalize agg falls back to BE base class.
+        boolean enableLeBeforeAgg = sessionVariable.enableLocalExchangeBeforeAgg;
+        boolean hasKeys = !aggInfo.getGroupingExprs().isEmpty();
 
+        // Each branch mirrors the corresponding BE operator's required_data_distribution()
+        // check order 1:1. The helper baseClassRequire() expands BE's base class behavior.
         LocalExchangeTypeRequire requireChild;
         if (canUseDistinctStreamingAgg(sessionVariable)) {
-            // DistinctStreamingAggOperatorX in BE
-            if (needsFinalize || (!aggInfo.getGroupingExprs().isEmpty() && !useStreamingPreagg)) {
-                if (AddLocalExchange.isColocated(this)) {
-                    requireChild = LocalExchangeTypeRequire.requireHash();
-                } else {
-                    requireChild = parentRequire.autoRequireHash();
-                }
+            // DistinctStreamingAggOperatorX
+            if (needsFinalize && !hasKeys) {
+                requireChild = LocalExchangeTypeRequire.noRequire();
+            } else if (!needsFinalize && !enableLeBeforeAgg) {
+                requireChild = baseClassRequire(connectContext);
+            } else if (needsFinalize || (hasKeys && !useStreamingPreagg)) {
+                requireChild = AddLocalExchange.isColocated(this)
+                        ? LocalExchangeTypeRequire.requireHash()
+                        : parentRequire.autoRequireHash();
             } else if (sessionVariable.enableDistinctStreamingAggForcePassthrough) {
                 requireChild = LocalExchangeTypeRequire.requirePassthrough();
-            } else if (children.get(0).isSerialOperatorOnBe(connectContext)) {
-                // BE base class: _child->is_serial_operator() ? PASSTHROUGH : NOOP
-                requireChild = LocalExchangeTypeRequire.requirePassthrough();
             } else {
-                requireChild = LocalExchangeTypeRequire.noRequire();
+                requireChild = baseClassRequire(connectContext);
             }
         } else if (useStreamingPreagg) {
-            // StreamingAggOperatorX in BE: base class required_data_distribution():
-            //   _child->is_serial_operator() ? PASSTHROUGH : NOOP
-            // Special: directly above HashJoin probe with force-passthrough → PASSTHROUGH.
+            // StreamingAggOperatorX
             if (children.get(0) instanceof HashJoinNode
                     && sessionVariable.enableStreamingAggHashJoinForcePassthrough) {
                 requireChild = LocalExchangeTypeRequire.requirePassthrough();
-            } else if (children.get(0).isSerialOperatorOnBe(connectContext)) {
-                // BE: _child->is_serial_operator() ? PASSTHROUGH : NOOP
-                requireChild = LocalExchangeTypeRequire.requirePassthrough();
+            } else if (!needsFinalize && !enableLeBeforeAgg) {
+                requireChild = baseClassRequire(connectContext);
+            } else if (!hasKeys) {
+                requireChild = needsFinalize
+                        ? LocalExchangeTypeRequire.noRequire()
+                        : baseClassRequire(connectContext);
             } else {
-                requireChild = LocalExchangeTypeRequire.noRequire();
+                requireChild = LocalExchangeTypeRequire.requireHash();
             }
         } else {
-            // AggSinkOperatorX in BE: required_data_distribution() override
-            if (aggInfo.getGroupingExprs().isEmpty()) {
-                if (needsFinalize) {
-                    // Finalize agg, no group key: NOOP (single serial instance collects all)
-                    requireChild = LocalExchangeTypeRequire.noRequire();
-                } else {
-                    // Serialize agg, no group key: BE → _child->is_serial_operator() ? PT : NOOP
-                    if (children.get(0).isSerialOperatorOnBe(connectContext)) {
-                        requireChild = LocalExchangeTypeRequire.requirePassthrough();
-                    } else {
-                        requireChild = LocalExchangeTypeRequire.noRequire();
-                    }
-                }
-            } else if (AddLocalExchange.isColocated(this)) {
-                // Colocate: BUCKET_HASH_SHUFFLE
-                requireChild = LocalExchangeTypeRequire.requireHash();
+            // AggSinkOperatorX
+            if (!hasKeys) {
+                requireChild = needsFinalize
+                        ? LocalExchangeTypeRequire.noRequire()
+                        : baseClassRequire(connectContext);
+            } else if (!needsFinalize && !enableLeBeforeAgg) {
+                requireChild = baseClassRequire(connectContext);
+            } else if (!needsFinalize || AddLocalExchange.isColocated(this)) {
+                // BE: non-finalize (PR #62438) or colocate → HASH
+                requireChild = parentRequire.autoRequireHash();
+            } else if (hasPartitionExprs(parentRequire)) {
+                // FE-only heuristic: finalize non-colocate with parent hash requirement
+                // → inherit parent's specific hash type.
+                requireChild = parentRequire.autoRequireHash();
             } else {
-                // Non-colocate, has group key: BE → GLOBAL_HASH
-                // FE uses parentRequire as proxy (no full need_to_local_exchange equivalent)
-                if (!needsFinalize
-                        && sessionVariable.getShuffledAggNodeIds().contains(this.getId().asInt())) {
-                    requireChild = LocalExchangeTypeRequire.requireHash();
-                } else if (hasPartitionExprs(parentRequire)) {
-                    requireChild = parentRequire.autoRequireHash();
-                } else {
-                    requireChild = LocalExchangeTypeRequire.noRequire();
-                }
+                // FE-only heuristic: finalize non-colocate without parent hash → skip
+                // LE (child Exchange already provides hash distribution).
+                requireChild = LocalExchangeTypeRequire.noRequire();
             }
         }
 
@@ -341,6 +337,13 @@ public class AggregationNode extends PlanNode {
                 = enforceRequire(translatorContext, children.get(0), 0, requireChild);
         children = Lists.newArrayList(enforceResult.first);
         return Pair.of(this, enforceResult.second);
+    }
+
+    /** BE base class required_data_distribution: serial child → PASSTHROUGH, else → NOOP. */
+    private LocalExchangeTypeRequire baseClassRequire(ConnectContext connectContext) {
+        return children.get(0).isSerialOperatorOnBe(connectContext)
+                ? LocalExchangeTypeRequire.requirePassthrough()
+                : LocalExchangeTypeRequire.noRequire();
     }
 
     @Override
