@@ -1,7 +1,0 @@
-diff --git a/src/brpc/details/ssl_helper.cpp b/src/brpc/details/ssl_helper.cpp
---- a/src/brpc/details/ssl_helper.cpp
-+++ b/src/brpc/details/ssl_helper.cpp
-@@ -617,1 +617,2 @@ static int SetSSLOptions(SSL_CTX* ctx, const std::string& ciphers,
--        SSL_CTX_set_verify_depth(ctx, verify.verify_depth);
-+        SSL_CTX_set_verify(ctx, verify_mode, verify_cb);
-+        SSL_CTX_set_verify_depth(ctx, verify.verify_depth);
