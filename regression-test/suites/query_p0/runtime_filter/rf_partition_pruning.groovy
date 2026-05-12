@@ -252,6 +252,7 @@ suite("rf_partition_pruning", "nonConcurrent") {
     // ============================================================
     // Session settings
     // ============================================================
+    sql "set enable_runtime_filter_partition_prune=true"
     sql "set runtime_filter_type='IN_OR_BLOOM_FILTER,MIN_MAX'"
     sql "set runtime_filter_wait_infinitely=true"
     sql "set disable_join_reorder=true"

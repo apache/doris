@@ -276,6 +276,7 @@ public class RuntimeFilterTranslator {
             List<Expr> targetExprList = new ArrayList<>();
             List<Map<TupleId, List<SlotId>>> targetTupleIdMapList = new ArrayList<>();
             List<ScanNode> scanNodeList = new ArrayList<>();
+            List<Boolean> targetAdjustedAfterNonIdentityList = new ArrayList<>();
             boolean hasInvalidTarget = false;
             Slot curTargetSlot = filter.getTargetSlot();
             Expression curTargetExpression = filter.getTargetExpression();
@@ -286,7 +287,8 @@ public class RuntimeFilterTranslator {
             } else {
                 ScanNode scanNode = context.getScanNodeOfLegacyRuntimeFilterTarget().get(curTargetSlot);
                 Expr targetExpr;
-                if (curTargetSlot.equals(curTargetExpression)) {
+                boolean isIdentityTarget = curTargetSlot.equals(curTargetExpression);
+                if (isIdentityTarget) {
                     targetExpr = targetSlotRef;
                 } else {
                     // map nereids target slot to original planner slot
@@ -300,12 +302,17 @@ public class RuntimeFilterTranslator {
                 }
 
                 // adjust data type
+                boolean adjustedAfterNonIdentity = false;
+                if (!src.getType().equals(targetExpr.getType()) && filter.getType() != TRuntimeFilterType.BITMAP) {
+                    adjustedAfterNonIdentity = !isIdentityTarget;
+                }
                 targetExpr = castTargetToSourceTypeIfNeeded(src, targetExpr, filter.getType());
                 TupleId targetTupleId = targetSlotRef.getDesc().getParentId();
                 SlotId targetSlotId = targetSlotRef.getSlotId();
                 scanNodeList.add(scanNode);
                 targetExprList.add(targetExpr);
                 targetTupleIdMapList.add(ImmutableMap.of(targetTupleId, ImmutableList.of(targetSlotId)));
+                targetAdjustedAfterNonIdentityList.add(adjustedAfterNonIdentity);
             }
             if (!hasInvalidTarget) {
                 org.apache.doris.planner.RuntimeFilter origFilter
@@ -329,6 +336,9 @@ public class RuntimeFilterTranslator {
                     Expr targetExpr = targetExprList.get(i);
                     origFilter.addTarget(new RuntimeFilterTarget(
                             scanNode, targetExpr, true, isLocalTarget));
+                    if (targetAdjustedAfterNonIdentityList.get(i)) {
+                        continue;
+                    }
                     RuntimeFilterPartitionPruneClassifier.Classification classification =
                             RuntimeFilterPartitionPruneClassifier.classify(
                                     targetExpr, filter.getTargetExpressions().get(i), scanNode);
