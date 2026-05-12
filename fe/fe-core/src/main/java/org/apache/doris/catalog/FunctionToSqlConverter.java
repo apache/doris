@@ -75,6 +75,13 @@ public class FunctionToSqlConverter {
                     .append("\"" + (fn.getLocation() == null ? "" : fn.getLocation().toString()) + "\"");
             boolean isReturnNull = fn.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
             sb.append(",\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\"");
+            sb.append(",\n  \"VOLATILITY\"=").append("\"" + fn.getVolatility().toSql() + "\"");
+        } else if (fn.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
+            sb.append(",\n  \"FILE\"=")
+                    .append("\"" + (fn.getLocation() == null ? "" : fn.getLocation().toString()) + "\"");
+            boolean isReturnNull = fn.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
+            sb.append(",\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\"");
+            sb.append(",\n  \"VOLATILITY\"=").append("\"" + fn.getVolatility().toSql() + "\"");
         } else {
             sb.append(",\n  \"OBJECT_FILE\"=")
                     .append("\"" + (fn.getLocation() == null ? "" : fn.getLocation().toString()) + "\"");
@@ -121,6 +128,11 @@ public class FunctionToSqlConverter {
         }
 
         if (fn.getBinaryType() == Function.BinaryType.JAVA_UDF) {
+            sb.append("\n  \"FILE\"=")
+                    .append("\"" + (fn.getLocation() == null ? "" : fn.getLocation().toString()) + "\",");
+            boolean isReturnNull = fn.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
+            sb.append("\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\",");
+        } else if (fn.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
             sb.append("\n  \"FILE\"=")
                     .append("\"" + (fn.getLocation() == null ? "" : fn.getLocation().toString()) + "\",");
             boolean isReturnNull = fn.getNullableMode() == NullableMode.ALWAYS_NULLABLE;

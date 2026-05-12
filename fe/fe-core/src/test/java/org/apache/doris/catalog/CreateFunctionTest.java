@@ -114,6 +114,20 @@ public class CreateFunctionTest {
         Assert.assertTrue(containsIgnoreCase(dorisAssert.query(queryStr).explainQuery(),
                 "concat(left(CAST(CAST(k1 as BIGINT) AS VARCHAR(65533)), 3), '****',"
                         + " right(CAST(CAST(k1 AS BIGINT) AS VARCHAR(65533)), 4))"));
+
+        String pythonUdfSql = "create function db1.py_stable(int) returns int "
+                + "properties('type'='PYTHON_UDF', 'symbol'='evaluate', "
+                + "'runtime_version'='3.10.2', 'volatility'='stable');";
+        createFunction(pythonUdfSql, ctx);
+        Assert.assertEquals(2, db.getFunctions().size());
+        Function pythonFn = db.getFunctions().get(1);
+        Assert.assertEquals(FunctionVolatility.STABLE, pythonFn.getVolatility());
+        Assert.assertTrue(FunctionToSqlConverter.toSql(pythonFn, false).contains("\"VOLATILITY\"=\"stable\""));
+
+        String defaultVolatileSql = "create function db1.py_default(int) returns int "
+                + "properties('type'='PYTHON_UDF', 'symbol'='evaluate', 'runtime_version'='3.10.2');";
+        createFunction(defaultVolatileSql, ctx);
+        Assert.assertEquals(FunctionVolatility.VOLATILE, db.getFunctions().get(2).getVolatility());
     }
 
     @Test

@@ -35,6 +35,7 @@ public class FunctionToSqlConverterTest {
         Type[] argTypes = {Type.INT, Type.INT};
         ScalarFunction fn = ScalarFunction.createUdf(BinaryType.JAVA_UDF, name, argTypes,
                 Type.INT, false, null, "com.example.MyAdd", null, null);
+        fn.setVolatility(FunctionVolatility.VOLATILE);
 
         String sql = FunctionToSqlConverter.toSql(fn, false);
 
@@ -44,6 +45,7 @@ public class FunctionToSqlConverterTest {
         Assertions.assertTrue(sql.contains("\"SYMBOL\"=\"com.example.MyAdd\""));
         Assertions.assertTrue(sql.contains("\"FILE\"=\"\""));
         Assertions.assertTrue(sql.contains("\"TYPE\"=\"JAVA_UDF\""));
+        Assertions.assertTrue(sql.contains("\"VOLATILITY\"=\"volatile\""));
         Assertions.assertTrue(sql.contains("\"ALWAYS_NULLABLE\"="));
         Assertions.assertFalse(sql.contains("OBJECT_FILE"));
         Assertions.assertFalse(sql.contains("IF NOT EXISTS"));

@@ -293,9 +293,12 @@ public class ShowFunctionsCommand extends ShowCommand {
         if (!Strings.isNullOrEmpty(function.getRuntimeVersion())) {
             properties.put("RUNTIME_VERSION", function.getRuntimeVersion());
         }
-
         if (function instanceof ScalarFunction) {
             ScalarFunction scalarFunction = (ScalarFunction) function;
+            if (function.getBinaryType() == Function.BinaryType.JAVA_UDF
+                    || function.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
+                properties.put("VOLATILITY", function.getVolatility().toSql());
+            }
             properties.put("SYMBOL", Strings.nullToEmpty(scalarFunction.getSymbolName()));
             if (scalarFunction.getPrepareFnSymbol() != null) {
                 properties.put("PREPARE_FN", scalarFunction.getPrepareFnSymbol());

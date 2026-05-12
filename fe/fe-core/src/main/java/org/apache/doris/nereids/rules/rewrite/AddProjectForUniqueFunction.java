@@ -26,8 +26,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.VolatileExpression;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -274,22 +274,24 @@ public class AddProjectForUniqueFunction implements RewriteRuleFactory {
      */
     @VisibleForTesting
     public List<NamedExpression> tryGenUniqueFunctionAlias(Collection<? extends Expression> targets) {
-        Map<UniqueFunction, Integer> unqiueFunctionCounter = Maps.newLinkedHashMap();
+        Map<Expression, Integer> unqiueFunctionCounter = Maps.newLinkedHashMap();
         for (Expression target : targets) {
             target.foreach(e -> {
                 Expression expr = (Expression) e;
-                if (expr instanceof UniqueFunction) {
-                    unqiueFunctionCounter.merge((UniqueFunction) expr, 1, Integer::sum);
+                if (expr instanceof VolatileExpression && ((VolatileExpression) expr).isVolatile()) {
+                    unqiueFunctionCounter.merge(expr, 1, Integer::sum);
                 }
             });
         }
 
         ImmutableList.Builder<NamedExpression> builder
                 = ImmutableList.builderWithExpectedSize(unqiueFunctionCounter.size());
-        for (Entry<UniqueFunction, Integer> entry : unqiueFunctionCounter.entrySet()) {
+        for (Entry<Expression, Integer> entry : unqiueFunctionCounter.entrySet()) {
             if (entry.getValue() > 1) {
                 ExprId exprId = StatementScopeIdGenerator.newExprId();
-                String name = "$_" + entry.getKey().getName() + "_" + exprId.asInt() + "_$";
+                String functionName = entry.getKey() instanceof Function
+                        ? ((Function) entry.getKey()).getName() : "volatile";
+                String name = "$_" + functionName + "_" + exprId.asInt() + "_$";
                 builder.add(new Alias(exprId, entry.getKey(), name));
             }
         }
