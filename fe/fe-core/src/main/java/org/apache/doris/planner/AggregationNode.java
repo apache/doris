@@ -283,10 +283,17 @@ public class AggregationNode extends PlanNode {
         // check order 1:1. The helper baseClassRequire() expands BE's base class behavior.
         LocalExchangeTypeRequire requireChild;
         if (canUseDistinctStreamingAgg(sessionVariable)) {
-            // DistinctStreamingAggOperatorX
+            // DistinctStreamingAggOperatorX.  Two flavors share this operator class:
+            //   - streaming preagg (useStreamingPreagg=true): performance-only,
+            //     flag controls
+            //   - non-streaming dedup (useStreamingPreagg=false): correctness-required,
+            //     always HASH regardless of flag
+            // Diverges from BE: BE's `!_needs_finalize && !enable_local_exchange_before_agg`
+            // early return catches non-streaming dedup too, causing the same family of
+            // wrong-result bug as AggSink (DORIS-25413).
             if (needsFinalize && !hasKeys) {
                 requireChild = LocalExchangeTypeRequire.noRequire();
-            } else if (!needsFinalize && !enableLeBeforeAgg) {
+            } else if (!needsFinalize && useStreamingPreagg && !enableLeBeforeAgg) {
                 requireChild = baseClassRequire(connectContext);
             } else if (needsFinalize || (hasKeys && !useStreamingPreagg)) {
                 requireChild = AddLocalExchange.isColocated(this)
@@ -312,15 +319,29 @@ public class AggregationNode extends PlanNode {
                 requireChild = LocalExchangeTypeRequire.requireHash();
             }
         } else {
-            // AggSinkOperatorX
+            // AggSinkOperatorX — covers finalize phase AND non-finalize phases (LOCAL
+            // preagg / FIRST_MERGE dedup). Streaming preagg goes through the StreamingAgg
+            // branch above, not here.
+            //
+            // Phase semantics for !needsFinalize:
+            //   - FIRST / SECOND (LOCAL phase, !isMerge): performance-only, flag controls
+            //   - FIRST_MERGE (correctness-required): always HASH regardless of flag
+            //
+            // Diverges from BE here: BE's `!_needs_finalize && !enable_local_exchange_before_agg`
+            // early return also catches FIRST_MERGE, dropping the HASH requirement and
+            // causing wrong-result (e.g. PASSTHROUGH over serial child breaks the
+            // group-by-key invariant — DORIS-25413).
             if (!hasKeys) {
                 requireChild = needsFinalize
                         ? LocalExchangeTypeRequire.noRequire()
                         : baseClassRequire(connectContext);
-            } else if (!needsFinalize && !enableLeBeforeAgg) {
+            } else if (!needsFinalize && !aggInfo.isMerge() && !enableLeBeforeAgg) {
+                // LOCAL phase (FIRST preagg / SECOND distinct local) + user opted out
+                // of pre-agg LE → base class decides: serial child → PASSTHROUGH
+                // (parallelism), non-serial child → NOOP (no LE).
                 requireChild = baseClassRequire(connectContext);
             } else if (!needsFinalize || AddLocalExchange.isColocated(this)) {
-                // BE: non-finalize (PR #62438) or colocate → HASH
+                // FIRST_MERGE (correctness) or finalize+colocate → HASH.
                 requireChild = parentRequire.autoRequireHash();
             } else if (hasPartitionExprs(parentRequire)) {
                 // FE-only heuristic: finalize non-colocate with parent hash requirement
@@ -349,6 +370,18 @@ public class AggregationNode extends PlanNode {
     @Override
     protected List<Expr> getSemanticPartitionExprs() {
         return aggInfo.getGroupingExprs();
+    }
+
+    @Override
+    public boolean requiresShuffleForCorrectness() {
+        // Mirrors BE's AggSinkOperatorX::is_shuffled_operator() exactly:
+        //   finalize agg with group keys needs hash-distributed input for correctness.
+        // GLOBAL dedup (!needsFinalize) is intentionally NOT included here — if a
+        // GLOBAL dedup exists, a finalize agg always sits above it (e.g. DISTINCT_GLOBAL
+        // above DISTINCT_LOCAL/GLOBAL_DEDUP), and the finalize agg propagates the flag
+        // down via inheritedShuffled. A solo finalize agg satisfies hash distribution
+        // through its own child requirement.
+        return needsFinalize && !aggInfo.getGroupingExprs().isEmpty();
     }
 
     private boolean canUseDistinctStreamingAgg(SessionVariable sessionVariable) {

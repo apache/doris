@@ -210,11 +210,14 @@ public abstract class SetOperationNode extends PlanNode {
         LocalExchangeType outputType;
         PlanNode firstChild = children.isEmpty() ? null : children.get(0);
         if (this instanceof UnionNode) {
-            // Propagate parent's hash requirement to children when parent requires hash distribution.
-            // Matches BE's UnionSinkOperatorX which returns GLOBAL_HASH(_distribute_exprs) whenever
-            // _followed_by_shuffled_operator=true, regardless of whether _distribute_exprs is empty.
-            boolean canPropagateHash = parentRequire.preferType().isHashShuffle();
-            requireChild = canPropagateHash ? parentRequire : LocalExchangeTypeRequire.noRequire();
+            // Propagate parent's hash requirement to children ONLY when a downstream operator
+            // requires shuffle for correctness (not just performance optimization). Matches BE's
+            // UnionSinkOperatorX which returns GLOBAL_HASH(_distribute_exprs) whenever
+            // _followed_by_shuffled_operator=true. The flag is propagated by enforceRequire
+            // from operators with requiresShuffleForCorrectness()=true (finalize agg, hash join,
+            // intersect/except) through hash/noop links.
+            boolean canPropagateHash = translatorContext.hasShuffleForCorrectnessAncestor(this);
+            requireChild = canPropagateHash ? parentRequire.autoRequireHash() : LocalExchangeTypeRequire.noRequire();
             outputType = canPropagateHash
                     ? AddLocalExchange.resolveExchangeType(requireChild, translatorContext, this, firstChild)
                     : LocalExchangeType.NOOP;

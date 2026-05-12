@@ -71,6 +71,31 @@ suite("test_enable_local_exchange_before_agg", "p0") {
         enable_local_exchange_before_agg=false
     )*/"""
 
+    // Forces LOCAL preagg through the non-streaming AggSink / DistinctStreaming paths
+    // (instead of the StreamingAgg branch). Combined with enable_local_exchange_before_agg=false,
+    // this exercises the phase-aware fix:
+    //   - AggSink:           !isMerge() LOCAL phase → base (PASSTHROUGH/NOOP)
+    //                        FIRST_MERGE             → HASH (correctness, regardless of flag)
+    //   - DistinctStreaming: useStreamingPreagg=true  → base
+    //                        useStreamingPreagg=false → HASH (correctness, regardless of flag)
+    def disableStreamingHints = """/*+SET_VAR(
+        parallel_pipeline_task_num=4,
+        enable_local_shuffle=true,
+        ignore_storage_data_distribution=true,
+        enable_local_shuffle_planner=true,
+        enable_local_exchange_before_agg=false,
+        disable_streaming_preaggregations=true
+    )*/"""
+
+    def disableStreamingFlagOnHints = """/*+SET_VAR(
+        parallel_pipeline_task_num=4,
+        enable_local_shuffle=true,
+        ignore_storage_data_distribution=true,
+        enable_local_shuffle_planner=true,
+        enable_local_exchange_before_agg=true,
+        disable_streaming_preaggregations=true
+    )*/"""
+
     def queries = [
         "simple_agg_bucket_key":
             "SELECT ${PH} k1, SUM(v1), COUNT(*) FROM le_agg_t1 GROUP BY k1 ORDER BY k1",
@@ -110,6 +135,22 @@ suite("test_enable_local_exchange_before_agg", "p0") {
         def noLeResult = sql(template.replace(PH, noLeBeforeAggHints))
         assertEquals(beResult, noLeResult, "[${name}] enable_local_exchange_before_agg=false differs from baseline")
         logger.info("[${name}] enable_local_exchange_before_agg=false PASSED")
+    }
+
+    // Part 3: disable_streaming_preaggregations=true — forces AggSink / DistinctStreaming
+    // non-streaming paths. Combined with the two flag values, exercises the phase-aware
+    // fix on both LOCAL (performance, flag controls) and MERGE/non-streaming-dedup
+    // (correctness, always HASH) sub-paths.
+    logger.info("=== Part 3: disable_streaming_preaggregations=true ===")
+    queries.each { name, template ->
+        def beResult = sql(template.replace(PH, beHints))
+        def disableStreamingFlagOnResult = sql(template.replace(PH, disableStreamingFlagOnHints))
+        assertEquals(beResult, disableStreamingFlagOnResult,
+                "[${name}] disable_streaming+flag=true differs from baseline")
+        def disableStreamingResult = sql(template.replace(PH, disableStreamingHints))
+        assertEquals(beResult, disableStreamingResult,
+                "[${name}] disable_streaming+flag=false differs from baseline")
+        logger.info("[${name}] disable_streaming both flag values PASSED")
     }
 
     sql "DROP TABLE IF EXISTS le_agg_t1"

@@ -840,6 +840,23 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         return fragment != null && isSerialNode() && fragment.useSerialSource(context);
     }
 
+    /**
+     * "I depend on hash distribution for correctness, not just performance optimization."
+     * Used by UnionNode to decide whether to propagate hash requirement to its inputs:
+     * when a downstream operator requires shuffle for correctness, Union must pre-shuffle
+     * its inputs so the merged output is hash-distributed.
+     *
+     * Default is false; only operators that truly need hash for correctness override
+     * (finalize AggSink with group keys, HashJoin PARTITIONED/BUCKET_SHUFFLE, Intersect,
+     * Except). Operators that request hash for performance only (StreamingAgg pre-agg
+     * with enable_local_exchange_before_agg) MUST NOT override.
+     *
+     * Mirrors BE's OperatorBase::is_shuffled_operator().
+     */
+    public boolean requiresShuffleForCorrectness() {
+        return false;
+    }
+
     public boolean hasSerialChildren() {
         if (children.isEmpty()) {
             return isSerialNode();
@@ -979,6 +996,21 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
                 ? false : translatorContext.hasSerialAncestorInPipeline(this);
         boolean childHasSerialAncestor = inheritedSerial || isSerialNode();
         translatorContext.setHasSerialAncestorInPipeline(child, childHasSerialAncestor);
+
+        // 1b. Propagate shuffle-for-correctness-ancestor flag to child.
+        // Mirrors BE's _followed_by_shuffled_operator: a downstream operator needs hash
+        // distribution for correctness, and the chain to here goes through HASH or NOOP
+        // requirements (so the dependency is preserved).
+        //   propagate = ((inheritedShuffled || self.requiresShuffleForCorrectness)
+        //                && require is hash)
+        //            || (inheritedShuffled && require is noop/passthrough)
+        boolean inheritedShuffled = translatorContext.hasShuffleForCorrectnessAncestor(this);
+        boolean selfOrInheritedShuffled = inheritedShuffled || requiresShuffleForCorrectness();
+        boolean requireIsHash = require.preferType().isHashShuffle();
+        boolean requireIsNoop = require.preferType() == LocalExchangeNode.LocalExchangeType.NOOP;
+        boolean childShuffledAncestor = (selfOrInheritedShuffled && requireIsHash)
+                || (inheritedShuffled && requireIsNoop);
+        translatorContext.setHasShuffleForCorrectnessAncestor(child, childShuffledAncestor);
 
         // 2. Recurse child (Layer 2: child declares its own require/output)
         Pair<PlanNode, LocalExchangeType> childOutput =

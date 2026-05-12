@@ -132,6 +132,15 @@ public class HashJoinNode extends JoinNodeBase {
         return isColocate;
     }
 
+    @Override
+    public boolean requiresShuffleForCorrectness() {
+        // BE: HashJoinBuild/Probe.is_shuffled_operator() = PARTITIONED || BUCKET_SHUFFLE || COLOCATE.
+        // (BROADCAST and NONE are not shuffled — they don't depend on hash distribution.)
+        return distrMode == DistributionMode.PARTITIONED
+                || distrMode == DistributionMode.BUCKET_SHUFFLE
+                || isColocate;
+    }
+
     public Map<ExprId, SlotId> getHashOutputExprSlotIdMap() {
         return hashOutputExprSlotIdMap;
     }

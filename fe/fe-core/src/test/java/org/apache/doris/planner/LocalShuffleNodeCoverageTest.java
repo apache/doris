@@ -348,8 +348,9 @@ public class LocalShuffleNodeCoverageTest {
         UnionNode unionNode = new UnionNode(nextPlanNodeId(), new TupleId(NEXT_ID.getAndIncrement()));
         TrackingPlanNode unionChild = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
         unionNode.addChild(unionChild);
-        // UnionNode propagates parent hash require to children when parent requires hash.
-        // resolveExchangeType with RequireHash → LOCAL_EXECUTION_HASH_SHUFFLE
+        // UnionNode propagates parent hash require to children only when a downstream operator
+        // requires shuffle for correctness. Simulate that via the context flag.
+        ctx.setHasShuffleForCorrectnessAncestor(unionNode, true);
         Pair<PlanNode, LocalExchangeType> unionOutput = unionNode.enforceAndDeriveLocalExchange(
                 ctx, null, LocalExchangeTypeRequire.requireHash());
         Assertions.assertEquals(LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE, unionOutput.second);

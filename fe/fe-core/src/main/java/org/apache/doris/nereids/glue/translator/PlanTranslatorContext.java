@@ -111,6 +111,13 @@ public class PlanTranslatorContext {
 
     private final Map<PlanNodeId, Boolean> serialAncestorInPipelineMap = Maps.newHashMap();
 
+    // Whether any ancestor (or this node itself) requires shuffle for correctness, with
+    // a HASH or NOOP path connecting them. Mirrors BE's _followed_by_shuffled_operator
+    // propagation in pipeline_fragment_context.cpp. UnionNode reads this to decide whether
+    // to propagate hash requirement to its inputs (only when downstream needs shuffle for
+    // correctness, not just for performance like StreamingAgg pre-agg).
+    private final Map<PlanNodeId, Boolean> shuffledAncestorMap = Maps.newHashMap();
+
     // Whether the current fragment uses LocalShuffleAssignedJob (pooling scan with
     // ignoreDataDistribution → _parallel_instances=1 in BE). When true, serial operators
     // indicate real pipeline bottlenecks needing PASSTHROUGH fan-out (heavy_ops).
@@ -250,6 +257,14 @@ public class PlanTranslatorContext {
 
     public boolean hasSerialAncestorInPipeline(PlanNode node) {
         return serialAncestorInPipelineMap.getOrDefault(node.getId(), false);
+    }
+
+    public void setHasShuffleForCorrectnessAncestor(PlanNode node, boolean value) {
+        shuffledAncestorMap.put(node.getId(), value);
+    }
+
+    public boolean hasShuffleForCorrectnessAncestor(PlanNode node) {
+        return shuffledAncestorMap.getOrDefault(node.getId(), false);
     }
 
     public SlotDescriptor addSlotDesc(TupleDescriptor t) {
