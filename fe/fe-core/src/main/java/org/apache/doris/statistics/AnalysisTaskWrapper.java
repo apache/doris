@@ -78,7 +78,14 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
                     if (MetricRepo.isInit) {
                         MetricRepo.COUNTER_STATISTICS_FAILED_ANALYZE_TASK.increase(1L);
                     }
-                    task.job.taskFailed(task, Util.getRootCauseMessage(except));
+                    String msg = Util.getRootCauseMessage(except);
+                    if (msg != null && msg.contains("MEM_LIMIT_EXCEEDED") && msg.contains("exec_mem_limit")) {
+                        msg = msg.replace("can `set exec_mem_limit` to change limit",
+                                "can modify `statistics_sql_mem_limit_in_bytes` to increase limit, "
+                                + "or decrease `huge_table_default_sample_rows` to reduce memory usage, "
+                                + "or use `statistics_max_string_column_length` to skip large string columns");
+                    }
+                    task.job.taskFailed(task, msg);
                 } else {
                     if (MetricRepo.isInit) {
                         MetricRepo.COUNTER_STATISTICS_SUCCEED_ANALYZE_TASK.increase(1L);
@@ -93,7 +100,14 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
             LOG.warn("{} cancelled, cost time:{}", task.toString(), System.currentTimeMillis() - startTime);
             task.cancel();
         } catch (Exception e) {
-            LOG.warn(String.format("Cancel job failed job info : %s", msg));
+            String errorMsg = Util.getRootCauseMessage(e);
+            if (errorMsg != null && errorMsg.contains("MEM_LIMIT_EXCEEDED") && errorMsg.contains("exec_mem_limit")) {
+                errorMsg = errorMsg.replace("can `set exec_mem_limit` to change limit",
+                        "can modify `statistics_sql_mem_limit_in_bytes` to increase limit, "
+                        + "or decrease `huge_table_default_sample_rows` to reduce memory usage, "
+                        + "or use `statistics_max_string_column_length` to skip large string columns");
+            }
+            LOG.warn(String.format("Cancel job failed job info : %s", errorMsg));
         }
         // Interrupt thread when it's writing metadata would cause FE crush.
         return super.cancel(false);
