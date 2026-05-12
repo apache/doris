@@ -55,7 +55,7 @@ struct AggregateFunctionHllSketchData {
     static const uint8_t DEFAULT_LOG_K = 12;
     std::unique_ptr<datasketches::hll_union> hll_union_data;
     static String get_name() { return "datasketches_hll_union_agg"; }
-    void merge(const datasketches::hll_sketch & sketch_data) {
+    void merge(const datasketches::hll_sketch& sketch_data) {
         if (hll_union_data == nullptr) {
             hll_union_data =
                     std::make_unique<datasketches::hll_union>(sketch_data.get_lg_config_k());

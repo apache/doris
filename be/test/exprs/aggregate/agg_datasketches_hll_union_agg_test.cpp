@@ -62,8 +62,8 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testBasicUnion) {
     column_string->insert_data((const char*)(ser2.data()), ser2.size());
 
     // Create aggregate data place
-    AggregateDataPtr place = arena->aligned_alloc(
-            agg_func->size_of_data(), agg_func->align_of_data());
+    AggregateDataPtr place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
     agg_func->create(place);
 
     // Add both rows
