@@ -49,7 +49,7 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(small_file_cache_count, MetricUnit::NOUNIT);
 SmallFileMgr::SmallFileMgr(ExecEnv* env, const std::string& local_path)
         : _exec_env(env), _local_path(local_path) {
     REGISTER_HOOK_METRIC(small_file_cache_count, [this]() {
-        // std::lock_guard<std::mutex> l(_lock);
+        LockGuard l(_lock);
         return _file_cache.size();
     });
 }
@@ -91,8 +91,11 @@ Status SmallFileMgr::_load_single_file(const std::string& path, const std::strin
     int64_t file_id = std::stol(parts[0]);
     std::string md5 = parts[1];
 
-    if (_file_cache.find(file_id) != _file_cache.end()) {
-        return Status::InternalError("File with same id is already been loaded: {}", file_id);
+    {
+        LockGuard l(_lock);
+        if (_file_cache.find(file_id) != _file_cache.end()) {
+            return Status::InternalError("File with same id is already been loaded: {}", file_id);
+        }
     }
 
     std::string file_md5;
@@ -105,12 +108,15 @@ Status SmallFileMgr::_load_single_file(const std::string& path, const std::strin
     entry.path = path + "/" + file_name;
     entry.md5 = file_md5;
 
-    _file_cache.emplace(file_id, entry);
+    {
+        LockGuard l(_lock);
+        _file_cache.emplace(file_id, entry);
+    }
     return Status::OK();
 }
 
 Status SmallFileMgr::get_file(int64_t file_id, const std::string& md5, std::string* file_path) {
-    std::unique_lock<std::mutex> l(_lock);
+    UniqueLock l(_lock);
     // find in cache
     auto it = _file_cache.find(file_id);
     if (it != _file_cache.end()) {

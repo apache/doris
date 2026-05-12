@@ -641,7 +641,10 @@ void CloudTablet::remove_unused_rowsets() {
                 continue;
             }
             tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id(), rs->version());
-            _rowset_warm_up_states.erase(rs->rowset_id());
+            {
+                LockGuard warmup_wlock(_rowset_warm_up_states_mutex);
+                _rowset_warm_up_states.erase(rs->rowset_id());
+            }
             rs->clear_cache();
             g_unused_rowsets_count << -1;
             g_unused_rowsets_bytes << -rs->total_disk_size();
@@ -1503,7 +1506,7 @@ Status CloudTablet::check_delete_bitmap_cache(int64_t txn_id,
 }
 
 WarmUpState CloudTablet::get_rowset_warmup_state(RowsetId rowset_id) {
-    std::shared_lock rlock(_meta_lock);
+    LockGuard warmup_wlock(_rowset_warm_up_states_mutex);
     if (!_rowset_warm_up_states.contains(rowset_id)) {
         return {.trigger_source = WarmUpTriggerSource::NONE, .progress = WarmUpProgress::NONE};
     }
@@ -1514,13 +1517,13 @@ WarmUpState CloudTablet::get_rowset_warmup_state(RowsetId rowset_id) {
 
 bool CloudTablet::add_rowset_warmup_state(const RowsetMeta& rowset, WarmUpTriggerSource source,
                                           std::chrono::steady_clock::time_point start_tp) {
-    std::lock_guard wlock(_meta_lock);
+    LockGuard warmup_wlock(_rowset_warm_up_states_mutex);
     return add_rowset_warmup_state_unlocked(rowset, source, start_tp);
 }
 
 bool CloudTablet::update_rowset_warmup_state_inverted_idx_num(WarmUpTriggerSource source,
                                                               RowsetId rowset_id, int64_t delta) {
-    std::lock_guard wlock(_meta_lock);
+    LockGuard warmup_wlock(_rowset_warm_up_states_mutex);
     return update_rowset_warmup_state_inverted_idx_num_unlocked(source, rowset_id, delta);
 }
 
@@ -1593,7 +1596,7 @@ WarmUpState CloudTablet::complete_rowset_segment_warmup(WarmUpTriggerSource trig
                                                         RowsetId rowset_id, Status status,
                                                         int64_t segment_num,
                                                         int64_t inverted_idx_num) {
-    std::lock_guard wlock(_meta_lock);
+    LockGuard warmup_wlock(_rowset_warm_up_states_mutex);
     auto it = _rowset_warm_up_states.find(rowset_id);
     if (it == _rowset_warm_up_states.end()) {
         return {.trigger_source = WarmUpTriggerSource::NONE, .progress = WarmUpProgress::NONE};
@@ -1621,6 +1624,7 @@ WarmUpState CloudTablet::complete_rowset_segment_warmup(WarmUpTriggerSource trig
 }
 
 bool CloudTablet::is_rowset_warmed_up(const RowsetId& rowset_id) const {
+    SharedLockGuard warmup_rlock(_rowset_warm_up_states_mutex);
     auto it = _rowset_warm_up_states.find(rowset_id);
     if (it == _rowset_warm_up_states.end()) {
         // The rowset is not in warmup state, which means the rowset has never been warmed up.
@@ -1654,6 +1658,7 @@ bool CloudTablet::is_rowset_warmed_up(const RowsetId& rowset_id) const {
 }
 
 void CloudTablet::add_warmed_up_rowset(const RowsetId& rowset_id) {
+    LockGuard warmup_wlock(_rowset_warm_up_states_mutex);
     _rowset_warm_up_states[rowset_id] = {
             .state = {.trigger_source = WarmUpTriggerSource::SYNC_ROWSET,
                       .progress = WarmUpProgress::DONE},
@@ -1662,6 +1667,7 @@ void CloudTablet::add_warmed_up_rowset(const RowsetId& rowset_id) {
 }
 
 void CloudTablet::add_not_warmed_up_rowset(const RowsetId& rowset_id) {
+    LockGuard warmup_wlock(_rowset_warm_up_states_mutex);
     _rowset_warm_up_states[rowset_id] = {
             .state = {.trigger_source = WarmUpTriggerSource::SYNC_ROWSET,
                       .progress = WarmUpProgress::DOING},
@@ -1790,7 +1796,8 @@ void CloudTablet::_submit_inverted_index_download_task(const RowsetSharedPtr& rs
             }},
             .tablet_id = _tablet_meta->tablet_id(),
     };
-    self->update_rowset_warmup_state_inverted_idx_num_unlocked(WarmUpTriggerSource::SYNC_ROWSET, rowset_meta->rowset_id(), 1);
+    self->update_rowset_warmup_state_inverted_idx_num(WarmUpTriggerSource::SYNC_ROWSET,
+                                                      rowset_meta->rowset_id(), 1);
     _engine.file_cache_block_downloader().submit_download_task(std::move(meta));
     g_file_cache_cloud_tablet_submitted_index_num << 1;
     g_file_cache_cloud_tablet_submitted_index_size << idx_size;
@@ -1835,6 +1842,7 @@ void CloudTablet::_add_rowsets_directly(std::vector<RowsetSharedPtr>& rowsets,
                 if (!warm_up_state_updated) {
                     VLOG_DEBUG << "warm up rowset " << rs->version() << "(" << rs->rowset_id()
                                << ") triggerd by sync rowset";
+                    LockGuard warmup_wlock(_rowset_warm_up_states_mutex);
                     if (!add_rowset_warmup_state_unlocked(*(rs->rowset_meta()),
                                                           WarmUpTriggerSource::SYNC_ROWSET)) {
                         LOG(INFO) << "found duplicate warmup task for rowset " << rs->rowset_id()
