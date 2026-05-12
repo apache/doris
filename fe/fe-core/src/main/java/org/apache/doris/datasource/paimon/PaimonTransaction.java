@@ -45,6 +45,7 @@ import java.util.Set;
 
 public class PaimonTransaction implements Transaction {
     private static final Logger LOG = LogManager.getLogger(PaimonTransaction.class);
+    private static final int COMMIT_MESSAGE_HEADER_SIZE = 12;
 
     private final PaimonMetadataOps ops;
     private PaimonExternalTable table;
@@ -161,51 +162,26 @@ public class PaimonTransaction implements Transaction {
     }
 
     private static List<CommitMessage> deserializeCommitMessagePayload(byte[] payload) throws IOException {
-        CommitMessageSerializer serializer = new CommitMessageSerializer();
-        if (payload != null && payload.length >= 12
-                && payload[0] == 'D' && payload[1] == 'P' && payload[2] == 'C' && payload[3] == 'M') {
-            int version = ((payload[4] & 0xFF) << 24) | ((payload[5] & 0xFF) << 16)
-                    | ((payload[6] & 0xFF) << 8) | (payload[7] & 0xFF);
-            int len = ((payload[8] & 0xFF) << 24) | ((payload[9] & 0xFF) << 16)
-                    | ((payload[10] & 0xFF) << 8) | (payload[11] & 0xFF);
-            if (len >= 0 && payload.length >= 12 + len) {
-                byte[] raw = new byte[len];
-                System.arraycopy(payload, 12, raw, 0, len);
-                try {
-                    List<CommitMessage> msgs = serializer.deserializeList(version, new DataInputDeserializer(raw));
-                    if (msgs != null) {
-                        return msgs;
-                    } else {
-                        LOG.warn("paimon: deserialized msg list is null");
-                    }
-                } catch (Exception e) {
-                    LOG.debug("Deserialize paimon commit message failed for header version {}", version, e);
-                }
-            } else {
-                LOG.warn("paimon: payload version or length mismatch: version={}, len={}, payload.length={}",
-                        version, len, payload.length);
-            }
-        } else {
-            LOG.warn("paimon: payload header mismatch or too short: length={}",
-                    payload == null ? 0 : payload.length);
-            LOG.debug("paimon: problematic payload bytes: {}",
-                    payload == null ? "null" : java.util.Arrays.toString(payload));
+        if (payload == null || payload.length < COMMIT_MESSAGE_HEADER_SIZE
+                || payload[0] != 'D' || payload[1] != 'P' || payload[2] != 'C' || payload[3] != 'M') {
+            throw new IOException("Invalid paimon commit message payload header");
         }
 
-        int[] candidateVersions = new int[] {11, 10, 9, 8, 7, 6, 5, 4, 3};
-        Exception last = null;
-        for (int v : candidateVersions) {
-            try {
-                return serializer.deserializeList(v, new DataInputDeserializer(payload));
-            } catch (Exception e) {
-                last = e;
-            }
+        int version = ((payload[4] & 0xFF) << 24) | ((payload[5] & 0xFF) << 16)
+                | ((payload[6] & 0xFF) << 8) | (payload[7] & 0xFF);
+        int len = ((payload[8] & 0xFF) << 24) | ((payload[9] & 0xFF) << 16)
+                | ((payload[10] & 0xFF) << 8) | (payload[11] & 0xFF);
+        if (len < 0 || payload.length != COMMIT_MESSAGE_HEADER_SIZE + len) {
+            throw new IOException("Invalid paimon commit message payload length");
         }
-        IOException ioe =
-                new IOException("Failed to deserialize paimon commit message payload for all candidate versions");
-        if (last != null) {
-            ioe.addSuppressed(last);
+
+        byte[] raw = new byte[len];
+        System.arraycopy(payload, COMMIT_MESSAGE_HEADER_SIZE, raw, 0, len);
+        List<CommitMessage> messages =
+                new CommitMessageSerializer().deserializeList(version, new DataInputDeserializer(raw));
+        if (messages == null) {
+            throw new IOException("Paimon commit message payload deserialized to null");
         }
-        throw ioe;
+        return messages;
     }
 }

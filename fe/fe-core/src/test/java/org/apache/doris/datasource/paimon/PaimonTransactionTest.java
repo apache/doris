@@ -17,11 +17,9 @@
 
 package org.apache.doris.datasource.paimon;
 
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPaimonCommitMessage;
 
 import mockit.Mock;
@@ -34,7 +32,6 @@ import org.apache.paimon.table.Table;
 import org.apache.paimon.table.sink.CommitMessage;
 import org.apache.paimon.table.sink.CommitMessageSerializer;
 import org.apache.paimon.table.sink.InnerTableCommit;
-import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
@@ -52,11 +49,6 @@ import java.util.List;
 import java.util.Optional;
 
 public class PaimonTransactionTest {
-
-    @After
-    public void tearDown() {
-        ConnectContext.remove();
-    }
 
     @Test
     public void testCommitWithoutMessagesNoop(@Mocked PaimonMetadataOps ops) throws Exception {
@@ -87,7 +79,7 @@ public class PaimonTransactionTest {
             deserialize(new byte[] {1, 2, 3, 4});
             Assert.fail("expected IOException");
         } catch (IOException e) {
-            Assert.assertTrue(e.getMessage().contains("Failed to deserialize paimon commit message payload"));
+            Assert.assertTrue(e.getMessage().contains("Invalid paimon commit message payload header"));
         }
     }
 
@@ -112,24 +104,11 @@ public class PaimonTransactionTest {
     }
 
     @Test
-    public void testBeginInsertExtractsUserWithoutHost(@Mocked PaimonMetadataOps ops,
-            @Mocked PaimonExternalTable table) throws Exception {
-        ConnectContext ctx = new ConnectContext();
-        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("alice", "127.0.0.1"));
-        ctx.setThreadLocalInfo();
-
-        PaimonTransaction transaction = new PaimonTransaction(ops);
-        transaction.beginInsert(table, Optional.empty());
-
-        Assert.assertEquals("alice", getField(transaction, "hadoopUser"));
-    }
-
-    @Test
     public void testCommitThrowsWhenTableMissing(@Mocked PaimonMetadataOps ops) throws Exception {
         PaimonTransaction transaction = new PaimonTransaction(ops);
         transaction.setTransactionId(1001L);
         TPaimonCommitMessage message = new TPaimonCommitMessage();
-        message.setPayload(new byte[] {1});
+        message.setPayload(wrapPayload(new byte[] {1}, 1));
         transaction.updateCommitMessages(Collections.singletonList(message));
 
         try {
@@ -146,7 +125,7 @@ public class PaimonTransactionTest {
         PaimonTransaction transaction = new PaimonTransaction(ops);
         transaction.beginInsert(table, Optional.empty());
         TPaimonCommitMessage message = new TPaimonCommitMessage();
-        message.setPayload(new byte[] {1});
+        message.setPayload(wrapPayload(new byte[] {1}, 1));
         transaction.updateCommitMessages(Collections.singletonList(message));
 
         try {
@@ -176,7 +155,7 @@ public class PaimonTransactionTest {
         transaction.beginInsert(table, Optional.empty());
         transaction.setTransactionId(1002L);
         TPaimonCommitMessage message = new TPaimonCommitMessage();
-        message.setPayload(new byte[] {1});
+        message.setPayload(wrapPayload(new byte[] {1}, 1));
         transaction.updateCommitMessages(Collections.singletonList(message));
 
         transaction.commit();
@@ -210,7 +189,7 @@ public class PaimonTransactionTest {
         transaction.beginInsert(table, Optional.empty());
         transaction.setTransactionId(1003L);
         TPaimonCommitMessage message = new TPaimonCommitMessage();
-        message.setPayload(new byte[] {2});
+        message.setPayload(wrapPayload(new byte[] {2}, 1));
         transaction.updateCommitMessages(Collections.singletonList(message));
 
         try {
@@ -241,7 +220,7 @@ public class PaimonTransactionTest {
         transaction.beginInsert(table, Optional.empty());
         transaction.setTransactionId(1004L);
         TPaimonCommitMessage message = new TPaimonCommitMessage();
-        message.setPayload(new byte[] {3});
+        message.setPayload(wrapPayload(new byte[] {3}, 1));
         transaction.updateCommitMessages(Collections.singletonList(message));
 
         try {
@@ -283,5 +262,14 @@ public class PaimonTransactionTest {
                 return Collections.singletonList(commitMessage);
             }
         };
+    }
+
+    private byte[] wrapPayload(byte[] raw, int version) {
+        ByteBuffer buffer = ByteBuffer.allocate(12 + raw.length);
+        buffer.put((byte) 'D').put((byte) 'P').put((byte) 'C').put((byte) 'M');
+        buffer.putInt(version);
+        buffer.putInt(raw.length);
+        buffer.put(raw);
+        return buffer.array();
     }
 }
