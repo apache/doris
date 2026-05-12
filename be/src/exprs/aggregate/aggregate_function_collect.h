@@ -50,7 +50,7 @@ struct AggregateFunctionCollectSetData {
     using ElementType = typename PrimitiveTypeTraits<T>::CppType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using SelfType = AggregateFunctionCollectSetData;
-    using Set = phmap::flat_hash_set<ElementType>;
+    using Set = doris::flat_hash_set<ElementType>;
     Set data_set;
     Int64 max_size = -1;
 
@@ -119,7 +119,7 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
     using ElementType = StringRef;
     using ColVecType = ColumnString;
     using SelfType = AggregateFunctionCollectSetData<T, HasLimit>;
-    using Set = phmap::flat_hash_set<ElementType>;
+    using Set = doris::flat_hash_set<ElementType>;
     Set data_set;
     Int64 max_size = -1;
 
