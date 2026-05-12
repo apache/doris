@@ -113,12 +113,8 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
                                         new HashSet<>(prunedScan.getSelectedPartitionIds()),
                                         partitionSlots,
                                         prunableConjuncts);
-                                Set<PartitionPrunablePredicate> merged
-                                        = ImmutableSet.<PartitionPrunablePredicate>builder()
-                                                .addAll(prunedScan.getPartitionPrunablePredicates())
-                                                .add(entry)
-                                                .build();
-                                rewrittenLogicalRelation = prunedScan.withPartitionPrunablePredicates(merged);
+                                rewrittenLogicalRelation = prunedScan.withPartitionPrunablePredicates(
+                                        Optional.of(entry));
                             }
                         }
                         return filter.withChildren(ImmutableList.of(rewrittenLogicalRelation));

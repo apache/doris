@@ -43,7 +43,6 @@ import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
@@ -53,7 +52,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -88,7 +86,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
      * post-processor can strip them from the surrounding filter after MV
      * rewrite has finished its matching work.
      */
-    private final Set<PartitionPrunablePredicate> partitionPrunablePredicates;
+    private final Optional<PartitionPrunablePredicate> partitionPrunablePredicates;
 
     /**
      * Constructor for PhysicalOlapScan.
@@ -160,7 +158,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
                 hasPartitionPredicate, distributionSpec, preAggStatus, baseOutputs, groupExpression,
                 logicalProperties, physicalProperties, statistics, tableSample, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                ImmutableSet.of());
+                Optional.empty());
     }
 
     /**
@@ -175,7 +173,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
             Collection<Slot> operativeSlots, List<NamedExpression> virtualColumns,
             List<OrderKey> scoreOrderKeys, Optional<Long> scoreLimit, Optional<ScoreRangeInfo> scoreRangeInfo,
             List<OrderKey> annOrderKeys, Optional<Long> annLimit, String tableAlias,
-            Set<PartitionPrunablePredicate> partitionPrunablePredicates) {
+            Optional<PartitionPrunablePredicate> partitionPrunablePredicates) {
         super(id, PlanType.PHYSICAL_OLAP_SCAN, olapTable, qualifier,
                 groupExpression, logicalProperties, physicalProperties, statistics, operativeSlots, tableAlias);
         this.selectedIndexId = selectedIndexId;
@@ -194,8 +192,8 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
         this.annOrderKeys = ImmutableList.copyOf(annOrderKeys);
         this.annLimit = annLimit;
         this.partitionPrunablePredicates = partitionPrunablePredicates == null
-                ? ImmutableSet.of()
-                : ImmutableSet.copyOf(partitionPrunablePredicates);
+                ? Optional.empty()
+                : partitionPrunablePredicates;
     }
 
     @Override
@@ -216,7 +214,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
         return hasPartitionPredicate;
     }
 
-    public Set<PartitionPrunablePredicate> getPartitionPrunablePredicates() {
+    public Optional<PartitionPrunablePredicate> getPartitionPrunablePredicates() {
         return partitionPrunablePredicates;
     }
 
@@ -227,7 +225,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
      * derived conjuncts after MV rewrite has had a chance to match them.
      */
     public PhysicalOlapScan withPartitionPrunablePredicates(
-            Set<PartitionPrunablePredicate> partitionPrunablePredicates) {
+            Optional<PartitionPrunablePredicate> partitionPrunablePredicates) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalOlapScan(relationId, getTable(), qualifier,
                 selectedIndexId, selectedTabletIds, selectedPartitionIds, hasPartitionPredicate,
                 distributionSpec, preAggStatus, baseOutputs, groupExpression, getLogicalProperties(),

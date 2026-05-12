@@ -47,16 +47,6 @@ import java.util.Set;
  * materialized-view rewrite has finished, ensures MV matching observes the
  * original predicates; otherwise the MV view-predicate may incorrectly cover
  * the dropped partition predicate and produce extra rows.
- *
- * <p>The {@link PartitionPrunablePredicate} entries live directly on the
- * {@link PhysicalOlapScan} so this processor no longer needs a side-channel
- * registry keyed by table identifier. Because intermediate rewrites can
- * rebuild scans with fresh slot ids, the recorded snapshot slots are remapped
- * onto the actual scan output by column name before each conjunct is rewritten
- * and removed from the filter. Each recorded entry is only applied when its
- * recorded partition id set is a superset of the scan's surviving partitions
- * - otherwise a later partition pruning step would have invalidated the
- * implication.
  */
 public class PrunePartitionPredicate extends PlanPostProcessor {
 
@@ -68,8 +58,8 @@ public class PrunePartitionPredicate extends PlanPostProcessor {
             return filter;
         }
         PhysicalOlapScan scan = (PhysicalOlapScan) child;
-        Set<PartitionPrunablePredicate> entries = scan.getPartitionPrunablePredicates();
-        if (entries.isEmpty()) {
+        Optional<PartitionPrunablePredicate> entryOpt = scan.getPartitionPrunablePredicates();
+        if (!entryOpt.isPresent()) {
             return filter;
         }
         boolean skipPrunePredicate = context.getConnectContext().getSessionVariable().skipPrunePredicate
@@ -82,20 +72,17 @@ public class PrunePartitionPredicate extends PlanPostProcessor {
 
         Set<Expression> remaining = new LinkedHashSet<>(filter.getConjuncts());
         boolean changed = false;
-        for (PartitionPrunablePredicate entry : entries) {
-            if (!entry.getSelectedPartitionIds().containsAll(scanPartitions)) {
-                continue;
-            }
+        PartitionPrunablePredicate entry = entryOpt.get();
+        if (entry.getSelectedPartitionIds().containsAll(scanPartitions)) {
             Map<Expression, Expression> slotReplaceMap =
                     buildSlotReplaceMap(entry.getSnapshotPartitionSlots(), nameToOutputSlot);
-            if (slotReplaceMap == null) {
-                continue;
-            }
-            for (Expression conjunct : entry.getPrunableConjuncts()) {
-                Expression rewritten = slotReplaceMap.isEmpty()
-                        ? conjunct : ExpressionUtils.replace(conjunct, slotReplaceMap);
-                if (remaining.remove(rewritten)) {
-                    changed = true;
+            if (slotReplaceMap != null) {
+                for (Expression conjunct : entry.getPrunableConjuncts()) {
+                    Expression rewritten = slotReplaceMap.isEmpty()
+                            ? conjunct : ExpressionUtils.replace(conjunct, slotReplaceMap);
+                    if (remaining.remove(rewritten)) {
+                        changed = true;
+                    }
                 }
             }
         }

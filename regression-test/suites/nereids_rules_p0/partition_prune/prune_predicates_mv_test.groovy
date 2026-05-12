@@ -56,12 +56,13 @@ suite("prune_predicates_mv_test") {
         ORDER BY tag_key;
     """
 
-    //执行（需要强制改写）：
-    //1.检查结果正确
-    //2.检查shape plan里面有filter
-    //3.检查改写成功了 async_mv_rewrite_success
+    //Execute (force rewrite):
+    //1. verify result is correct
+    //2. verify shape plan contains filter
+    //3. verify rewrite succeeded: async_mv_rewrite_success
 
-    // table有分区，分区裁剪之后谓词被删除掉了，mv没有分区，检查mv没有把谓词给删除掉
+    // The base table is partitioned and the predicate was removed after partition prune;
+    // the MV is not partitioned, so verify the MV did not drop the predicate.
     async_mv_rewrite_success(currentDb, mv_1, query_1, "mv_1")
     order_qt_mv_1 query_1
     explain {
@@ -69,7 +70,8 @@ suite("prune_predicates_mv_test") {
         contains "filter"
     }
 
-    // case2: 物化视图也是带有分区的，检查对物化视图进行分区裁剪，检查在分区裁剪后将恒true谓词删除
+    // case2: the MV is also partitioned; verify that partition pruning on the MV
+    // is performed and the always-true predicate is removed after the prune.
 
     def async_partition_mv_rewrite_success = { db, mv_sql, query_sql, mv_name, partition, expected_pre_rewrite_strategys = [] ->
         if (!mvShouldContinueCheck(expected_pre_rewrite_strategys)) {

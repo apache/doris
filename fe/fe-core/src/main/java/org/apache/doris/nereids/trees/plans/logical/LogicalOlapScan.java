@@ -170,7 +170,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
      * original predicates. The set is preserved through {@code with*} rewrites
      * and copied onto MV rewrite outputs.
      */
-    private final Set<PartitionPrunablePredicate> partitionPrunablePredicates;
+    private final Optional<PartitionPrunablePredicate> partitionPrunablePredicates;
 
     public LogicalOlapScan(RelationId id, OlapTable table) {
         this(id, table, ImmutableList.of());
@@ -272,7 +272,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 specifiedPartitions, hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, specifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                ImmutableSet.of());
+                Optional.empty());
     }
 
     /**
@@ -289,7 +289,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
             Collection<Slot> operativeSlots, List<NamedExpression> virtualColumns,
             List<OrderKey> scoreOrderKeys, Optional<Long> scoreLimit, Optional<ScoreRangeInfo> scoreRangeInfo,
             List<OrderKey> annOrderKeys, Optional<Long> annLimit, String tableAlias,
-            Set<PartitionPrunablePredicate> partitionPrunablePredicates) {
+            Optional<PartitionPrunablePredicate> partitionPrunablePredicates) {
         super(id, PlanType.LOGICAL_OLAP_SCAN, table, qualifier,
                 operativeSlots, virtualColumns, groupExpression, logicalProperties, tableAlias);
         Preconditions.checkArgument(selectedPartitionIds != null,
@@ -329,8 +329,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
         this.annOrderKeys = Utils.fastToImmutableList(annOrderKeys);
         this.annLimit = annLimit;
         this.partitionPrunablePredicates = partitionPrunablePredicates == null
-                ? ImmutableSet.of()
-                : ImmutableSet.copyOf(partitionPrunablePredicates);
+                ? Optional.empty()
+                : partitionPrunablePredicates;
     }
 
     public List<Long> getSelectedPartitionIds() {
@@ -341,18 +341,18 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
         return hasPartitionPredicate;
     }
 
-    public Set<PartitionPrunablePredicate> getPartitionPrunablePredicates() {
+    public Optional<PartitionPrunablePredicate> getPartitionPrunablePredicates() {
         return partitionPrunablePredicates;
     }
 
     /**
      * Returns a new {@code LogicalOlapScan} carrying the supplied
-     * {@link PartitionPrunablePredicate} set. The set is preserved across all
-     * other {@code with*} builders so partition-derived conjuncts can be
-     * removed safely after MV rewrite has had a chance to match the plan.
+     * {@link PartitionPrunablePredicate}. It is preserved across all other
+     * {@code with*} builders so partition-derived conjuncts can be removed
+     * safely after MV rewrite has had a chance to match the plan.
      */
     public LogicalOlapScan withPartitionPrunablePredicates(
-            Set<PartitionPrunablePredicate> partitionPrunablePredicates) {
+            Optional<PartitionPrunablePredicate> partitionPrunablePredicates) {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapScan(relationId, (Table) table, qualifier,
                 groupExpression, Optional.of(getLogicalProperties()),
