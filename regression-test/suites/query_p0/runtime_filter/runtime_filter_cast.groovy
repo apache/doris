@@ -113,15 +113,12 @@ suite("runtime_filter_cast") {
         INNER JOIN decimal_rf_build b
         ON round(p.val, 1) = b.val_int_not_null
     """
-    // TODO: currently the following sql fails with error "type DECIMALV3(15, 1) is not same as DECIMALV3(15, 2) in hash join condition (expr_round(val, 1) = expr_cast(val_int_not_null as DECIMALV3(15, 2)))"
-    /*
     order_qt_decimal_rf_join_var """
         SELECT p.val, b.val_int_not_null
         FROM decimal_rf_probe p
         INNER JOIN decimal_rf_build b
         ON round(p.val, @v0) = b.val_int_not_null
     """
-    */
 
     order_qt_decimal_rf_except """
     select t1.val_int_not_null
@@ -131,14 +128,13 @@ suite("runtime_filter_cast") {
     from decimal_rf_probe t2
     """
 
-    // TODO: currently the result is wrong, need to fix
-    // order_qt_decimal_rf_except_var """
-    // select t1.val_int_not_null
-    // from decimal_rf_build t1
-    // except
-    // select round(t2.val, @v0)
-    // from decimal_rf_probe t2
-    // """
+    order_qt_decimal_rf_except_var """
+    select t1.val_int_not_null
+    from decimal_rf_build t1
+    except
+    select round(t2.val, @v0)
+    from decimal_rf_probe t2
+    """
 
     // Test 1: equi-join triggers runtime filter on probe decimal column
     // The different decimal precision/scale triggers VCastExpr in the

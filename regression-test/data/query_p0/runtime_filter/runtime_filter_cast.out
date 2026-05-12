@@ -2,14 +2,16 @@
 -- !decimal_rf_join --
 300.00	300
 
+-- !decimal_rf_join_var --
+300.00	300
+
 -- !decimal_rf_except --
 100.0
 200.0
 
 -- !decimal_rf_except_var --
-100.00
-200.00
-300.00
+100.0
+200.0
 
 -- !decimal_rf_eq --
 2	100.50	b	1	100.5000000000
