@@ -24,19 +24,15 @@
 #include "exprs/aggregate/helpers.h"
 namespace doris {
 template <template <PrimitiveType> class Data>
-AggregateFunctionPtr create_aggregate_function_datasketches_hll_union_agg(const std::string& name,
-                                                                const DataTypes& argument_types,
-                                                                const DataTypePtr& result_type,
-                                                                const bool result_is_nullable,
-                                                                const AggregateFunctionAttr& attr) {
-    return creator_with_type_list<
-            TYPE_STRING,
-            TYPE_VARCHAR,
-            TYPE_BINARY,
-            TYPE_VARBINARY>::create<AggregateFunctionDataSketchesHllUnionAgg, Data>(argument_types, result_is_nullable,
-                                                                          attr);
+AggregateFunctionPtr create_aggregate_function_datasketches_hll_union_agg(
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr) {
+    return creator_with_type_list<TYPE_STRING, TYPE_VARCHAR, TYPE_BINARY, TYPE_VARBINARY>::create<
+            AggregateFunctionDataSketchesHllUnionAgg, Data>(argument_types, result_is_nullable,
+                                                            attr);
 }
-void register_aggregate_function_datasketches_HLL_union_agg(AggregateFunctionSimpleFactory& factory) {
+void register_aggregate_function_datasketches_HLL_union_agg(
+        AggregateFunctionSimpleFactory& factory) {
     AggregateFunctionCreator creator =
             create_aggregate_function_datasketches_hll_union_agg<AggregateFunctionHllSketchData>;
     factory.register_function_both("datasketches_hll_union_agg", creator);

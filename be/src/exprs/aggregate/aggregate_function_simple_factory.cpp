@@ -37,7 +37,8 @@ void register_aggregate_function_avg(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_count(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_count_by_enum(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_HLL_union_agg(AggregateFunctionSimpleFactory& factory);
-void register_aggregate_function_datasketches_HLL_union_agg(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_datasketches_HLL_union_agg(
+        AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_uniq(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_uniq_distribute_key(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_bit(AggregateFunctionSimpleFactory& factory);

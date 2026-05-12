@@ -16,23 +16,21 @@
 // under the License.
 
 #include <gtest/gtest.h>
-#include "exprs/aggregate/aggregate_function_datasketches_hll_union_agg.h"
-#include "core/column/column_string.h"
-#include "core/column/column.h"
-#include "exec/common/hash_table/hash.h"
+
 #include <DataSketches/hll.hpp>
+
+#include "core/column/column.h"
+#include "core/column/column_string.h"
+#include "exec/common/hash_table/hash.h"
+#include "exprs/aggregate/aggregate_function_datasketches_hll_union_agg.h"
 
 namespace doris {
 
 class AggregateFunctionDataSketchesHllUnionAggTest : public ::testing::Test {
 protected:
-    void SetUp() override {
-        arena = std::make_unique<Arena>();
-    }
+    void SetUp() override { arena = std::make_unique<Arena>(); }
 
-    void TearDown() override {
-        arena.reset();
-    }
+    void TearDown() override { arena.reset(); }
 
     std::unique_ptr<Arena> arena;
 };
@@ -59,9 +57,9 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testBasicUnion) {
     // Serialize both sketches into string column
     auto column_string = ColumnString::create();
     const auto ser1 = sketch1.serialize_compact();
-    column_string->insert_data((const char *)(ser1.data()), ser1.size());
+    column_string->insert_data((const char*)(ser1.data()), ser1.size());
     const auto ser2 = sketch2.serialize_compact();
-    column_string->insert_data((const char *)(ser2.data()), ser2.size());
+    column_string->insert_data((const char*)(ser2.data()), ser2.size());
 
     // Create aggregate data place
     AggregateDataPtr place = arena->aligned_alloc(
@@ -89,17 +87,18 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testMergeTwoAggStates) {
     DataTypePtr input_type = std::make_shared<DataTypeString>();
     DataTypes argument_types = {input_type};
 
-    using AggFunc = AggregateFunctionDataSketchesHllUnionAgg<
-            TYPE_STRING, AggregateFunctionHllSketchData<TYPE_STRING>>;
+    using AggFunc =
+            AggregateFunctionDataSketchesHllUnionAgg<TYPE_STRING,
+                                                     AggregateFunctionHllSketchData<TYPE_STRING>>;
     auto agg_func = std::make_shared<AggFunc>(argument_types);
 
     // Create two separate aggregate states
-    AggregateDataPtr place1 = arena->aligned_alloc(
-            agg_func->size_of_data(), agg_func->align_of_data());
+    AggregateDataPtr place1 =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
     agg_func->create(place1);
 
-    AggregateDataPtr place2 = arena->aligned_alloc(
-            agg_func->size_of_data(), agg_func->align_of_data());
+    AggregateDataPtr place2 =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
     agg_func->create(place2);
 
     // Add different data to each state
@@ -112,8 +111,8 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testMergeTwoAggStates) {
     const auto ser2 = sketch2.serialize_compact();
 
     auto column_string = ColumnString::create();
-    column_string->insert_data((const char *)(ser1.data()), ser1.size());
-    column_string->insert_data((const char *)(ser2.data()), ser2.size());
+    column_string->insert_data((const char*)(ser1.data()), ser1.size());
+    column_string->insert_data((const char*)(ser2.data()), ser2.size());
 
     const IColumn* columns[1] = {column_string.get()};
     agg_func->add(place1, columns, 0, *arena);
@@ -141,8 +140,8 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testEmptyState) {
     auto agg_func = std::make_shared<AggregateFunctionDataSketchesHllUnionAgg<
             TYPE_STRING, AggregateFunctionHllSketchData<TYPE_STRING>>>(argument_types);
 
-    AggregateDataPtr place = arena->aligned_alloc(
-            agg_func->size_of_data(), agg_func->align_of_data());
+    AggregateDataPtr place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
     agg_func->create(place);
 
     ColumnInt64 result;
@@ -166,10 +165,10 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testSerializeDeserialize) {
     const auto ser = sketch.serialize_compact();
 
     auto column_string = ColumnString::create();
-    column_string->insert_data((const char *)(ser.data()), ser.size());
+    column_string->insert_data((const char*)(ser.data()), ser.size());
 
-    AggregateDataPtr place = arena->aligned_alloc(
-            agg_func->size_of_data(), agg_func->align_of_data());
+    AggregateDataPtr place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
     agg_func->create(place);
 
     const IColumn* columns[1] = {column_string.get()};
@@ -182,8 +181,8 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testSerializeDeserialize) {
     w.commit();
 
     // Deserialize into new state
-    AggregateDataPtr new_place = arena->aligned_alloc(
-            agg_func->size_of_data(), agg_func->align_of_data());
+    AggregateDataPtr new_place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
     agg_func->create(new_place);
 
     BufferReadable r(buffer->get_data_at(0));
@@ -212,10 +211,10 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testReset) {
     auto ser = sketch.serialize_compact();
 
     auto column_string = ColumnString::create();
-    column_string->insert_data((const char *)(ser.data()), ser.size());
+    column_string->insert_data((const char*)(ser.data()), ser.size());
 
-    AggregateDataPtr place = arena->aligned_alloc(
-        agg_func->size_of_data(), agg_func->align_of_data());
+    AggregateDataPtr place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
     agg_func->create(place);
 
     const IColumn* columns[1] = {column_string.get()};
