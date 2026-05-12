@@ -109,6 +109,7 @@ Status parse_variant_columns_in_block(vectorized::Block& block, const TabletSche
     }
     vectorized::ParseConfig config;
     config.enable_flatten_nested = tablet_schema.variant_flatten_nested();
+    config.check_duplicate_json_path = config::variant_enable_duplicate_json_path_check;
     return vectorized::schema_util::parse_variant_columns(block, variant_column_pos, config);
 }
 

@@ -21,6 +21,7 @@
 #include <string>
 
 #include "common/cast_set.h"
+#include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "runtime/jsonb_value.h"
@@ -110,10 +111,11 @@ Status DataTypeVariantSerDe::serialize_one_cell_to_json(const IColumn& column, i
 
 Status DataTypeVariantSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                             const FormatOptions& options) const {
-    vectorized::ParseConfig config;
+    vectorized::ParseConfig parse_config;
+    parse_config.check_duplicate_json_path = config::variant_enable_duplicate_json_path_check;
     auto parser = parsers_pool.get([] { return new JsonParser(); });
     RETURN_IF_CATCH_EXCEPTION(
-            parse_json_to_variant(column, slice.data, slice.size, parser.get(), config));
+            parse_json_to_variant(column, slice.data, slice.size, parser.get(), parse_config));
     return Status::OK();
 }
 
