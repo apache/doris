@@ -121,16 +121,6 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
     }
 
     /**
-     * No-op on fresh creation: split fetching is now driven incrementally by the scheduler
-     * via advanceSplits() each tick. syncTables and cdcSplitProgress have already been set
-     * by StreamingInsertJob.initInsertJob -> initSplitProgress before this is called.
-     */
-    @Override
-    public void initOnCreate() throws JobException {
-        // intentional no-op
-    }
-
-    /**
      * Rewrites the cdc_stream TVF SQL with current offset meta and taskId,
      * so the BE knows where to start reading and can report
      * the end offset back via taskOffsetCache.
@@ -308,15 +298,13 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
      */
     @Override
     public void replayIfNeed(StreamingInsertJob job) throws JobException {
-        // Re-init transient split progress fields lost across FE restart.
-        // syncTables itself is persisted on StreamingInsertJob; cdcSplitProgress is rebuilt empty
-        // here and advanceSplits will resume from the system table on next tick.
-        if (cdcSplitProgress == null) {
-            initSplitProgress(job.getSyncTables());
+        // cachedSyncTables is transient; restore it on every replay.
+        synchronized (splitsLock) {
+            this.cachedSyncTables = job.getSyncTables();
         }
         if (currentOffset == null) {
             // No committed txn yet. If snapshot splits exist in the meta table (written by
-            // initOnCreate), restore remainingSplits so getNextOffset() returns snapshot splits
+            // advanceSplits), restore remainingSplits so getNextOffset() returns snapshot splits
             // instead of a BinlogSplit (which would incorrectly skip the snapshot phase).
             Map<String, List<SnapshotSplit>> snapshotSplits = StreamingJobUtils.restoreSplitsToJob(job.getJobId());
             if (MapUtils.isNotEmpty(snapshotSplits)) {

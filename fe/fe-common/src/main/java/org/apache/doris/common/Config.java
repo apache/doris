@@ -1182,6 +1182,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_heavy_rpc_timeout_sec = 600;
 
+    @ConfField(mutable = true, masterOnly = true)
+    public static int streaming_cdc_fetch_splits_batch_size = 100;
+
     /**
      * the max timeout of get kafka meta.
      */

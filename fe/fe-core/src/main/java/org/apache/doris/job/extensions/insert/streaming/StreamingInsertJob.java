@@ -94,6 +94,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -174,7 +175,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @SerializedName("ccn")
     private volatile String cloudCluster;
 
-    /** Source tables this job syncs. Determined at CREATE; used by JdbcSourceOffsetProvider.advanceSplits. */
+    /** Source tables this job syncs. */
     @Getter
     @SerializedName("st")
     private List<String> syncTables;
@@ -252,8 +253,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             StreamingJobUtils.resolveAndValidateSource(
                     dataSourceType, sourceProperties, String.valueOf(getJobId()), createTbls);
             this.offsetProvider = createOffsetProvider(getConvertedSourceProperties());
-            // Initialize split progress; advanceSplits is driven later by the scheduler each tick.
-            this.offsetProvider.initSplitProgress(this.syncTables);
+            this.offsetProvider.initOnCreate(this.syncTables);
         } catch (Exception ex) {
             log.warn("init streaming job for {} failed", dataSourceType, ex);
             throw new RuntimeException(ex.getMessage());
@@ -391,11 +391,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             // cdc_stream TVF has TABLE; S3 TVF doesn't, so syncTables stays null there.
             String tvfTable = originTvfProps.get(DataSourceConfigKeys.TABLE);
             this.syncTables = tvfTable == null ? null : Collections.singletonList(tvfTable);
-            this.offsetProvider.initSplitProgress(this.syncTables);
             // Validate source-side resources (e.g. PG slot/publication ownership) once at job
             // creation so conflicts fail fast. No-op for standalone cdc_stream TVF (no job).
             StreamingJobUtils.validateTvfSource(tvfType, originTvfProps, String.valueOf(getJobId()));
-            this.offsetProvider.initOnCreate();
+            this.offsetProvider.initOnCreate(this.syncTables);
             // validate offset props, only for s3 cause s3 tvf no offset prop
             if (jobProperties.getOffsetProperty() != null
                     && S3TableValuedFunction.NAME.equalsIgnoreCase(tvfType)) {
@@ -718,7 +717,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      * Advance one batch of split fetching if there are still tables to split.
      * Called by scheduler each tick (PENDING/RUNNING). Mirrors fetchMeta error handling.
      */
-    public void advanceSplitsIfNeed() {
+    public void advanceSplitsIfNeed() throws JobException {
         if (offsetProvider.noMoreSplits()) {
             return;
         }

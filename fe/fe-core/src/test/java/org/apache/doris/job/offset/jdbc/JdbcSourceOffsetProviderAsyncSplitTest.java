@@ -24,6 +24,7 @@ import org.apache.doris.job.util.StreamingJobUtils;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.ArgumentMatchers;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -33,10 +34,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyString;
 
 /**
  * Tests the async split state machine in {@link JdbcSourceOffsetProvider}:
@@ -65,6 +62,11 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
 
         TestableProvider() {
             super();
+            // Default to initial mode so initOnCreate() takes the splitting path
+            // (latest mode would try to call initSourceReader against a real backend).
+            this.sourceProperties.put(
+                    org.apache.doris.job.cdc.DataSourceConfigKeys.OFFSET,
+                    org.apache.doris.job.cdc.DataSourceConfigKeys.OFFSET_INITIAL);
         }
 
         @Override
@@ -89,7 +91,10 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
     public void setup() {
         provider = new TestableProvider();
         utilsMock = Mockito.mockStatic(StreamingJobUtils.class);
-        utilsMock.when(() -> StreamingJobUtils.upsertChunkList(anyLong(), anyString(), any()))
+        utilsMock.when(() -> StreamingJobUtils.upsertChunkList(
+                        ArgumentMatchers.anyLong(),
+                        ArgumentMatchers.anyString(),
+                        ArgumentMatchers.any()))
                 .then(invocation -> null);
     }
 
@@ -111,17 +116,17 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
                 Collections.singletonMap("file", "binlog.000001"));
     }
 
-    // ===== initSplitProgress / noMoreSplits =====
+    // ===== initOnCreate / noMoreSplits =====
 
     @Test
-    public void testInitWithEmptySyncTablesIsAllDone() {
-        provider.initSplitProgress(Collections.emptyList());
+    public void testInitWithEmptySyncTablesIsAllDone() throws JobException {
+        provider.initOnCreate(Collections.emptyList());
         Assert.assertTrue(provider.noMoreSplits());
     }
 
     @Test
-    public void testInitWithSyncTablesNotDone() {
-        provider.initSplitProgress(Arrays.asList("db.tbl_a"));
+    public void testInitWithSyncTablesNotDone() throws JobException {
+        provider.initOnCreate(Arrays.asList("db.tbl_a"));
         Assert.assertNotNull(provider.committedSplitProgress);
         Assert.assertNotNull(provider.cdcSplitProgress);
         Assert.assertNull(provider.cdcSplitProgress.getCurrentSplittingTable());
@@ -132,7 +137,7 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
 
     @Test
     public void testAdvanceFirstCallPicksFirstTableWithNullStart() throws JobException {
-        provider.initSplitProgress(Arrays.asList("db.tbl_a", "db.tbl_b"));
+        provider.initOnCreate(Arrays.asList("db.tbl_a", "db.tbl_b"));
         provider.mockBatches.add(Arrays.asList(
                 split("db.tbl_a", 0, null, 100L),
                 split("db.tbl_a", 1, 100L, 200L)));
@@ -153,7 +158,7 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
 
     @Test
     public void testAdvanceContinuesOnSameTableAfterFirstBatch() throws JobException {
-        provider.initSplitProgress(Arrays.asList("db.tbl_a"));
+        provider.initOnCreate(Arrays.asList("db.tbl_a"));
         provider.mockBatches.add(Arrays.asList(split("db.tbl_a", 0, null, 100L)));
         provider.mockBatches.add(Arrays.asList(split("db.tbl_a", 1, 100L, 200L)));
 
@@ -170,7 +175,7 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
 
     @Test
     public void testAdvanceTableDoneSwitchesToNextTable() throws JobException {
-        provider.initSplitProgress(Arrays.asList("db.tbl_a", "db.tbl_b"));
+        provider.initOnCreate(Arrays.asList("db.tbl_a", "db.tbl_b"));
         // tbl_a's last chunk: splitEnd=null
         provider.mockBatches.add(Arrays.asList(split("db.tbl_a", 0, null, null)));
         // 2nd advance picks tbl_b
@@ -191,7 +196,7 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
 
     @Test
     public void testAllSyncTablesDoneMakesNoMoreSplitsTrue() throws JobException {
-        provider.initSplitProgress(Arrays.asList("db.tbl_a"));
+        provider.initOnCreate(Arrays.asList("db.tbl_a"));
         provider.mockBatches.add(Arrays.asList(split("db.tbl_a", 0, null, null)));
 
         provider.advanceSplits();
@@ -202,7 +207,7 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
 
     @Test
     public void testAdvanceSplitsDedupsBySplitId() throws JobException {
-        provider.initSplitProgress(Arrays.asList("db.tbl_a"));
+        provider.initOnCreate(Arrays.asList("db.tbl_a"));
         // Pre-existing split with same splitId; simulates a defensive dedup target
         // (e.g. on FE restart after RPC succeeded but state wasn't fully advanced).
         provider.remainingSplits.add(split("db.tbl_a", 0, null, 100L));
@@ -216,7 +221,7 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
 
     @Test
     public void testAdvanceWithEmptyBatchIsNoop() throws JobException {
-        provider.initSplitProgress(Arrays.asList("db.tbl_a"));
+        provider.initOnCreate(Arrays.asList("db.tbl_a"));
         // mockBatches empty → rpcFetchSplitsBatch returns empty list
         provider.advanceSplits();
 
@@ -239,7 +244,7 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
 
     @Test
     public void testUpdateOffsetAdvancesCommittedProgressOnMidChunk() throws JobException {
-        provider.initSplitProgress(Arrays.asList("db.tbl_a"));
+        provider.initOnCreate(Arrays.asList("db.tbl_a"));
         provider.mockBatches.add(Arrays.asList(
                 split("db.tbl_a", 0, null, 100L),
                 split("db.tbl_a", 1, 100L, 200L)));
@@ -260,7 +265,7 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
 
     @Test
     public void testUpdateOffsetLastChunkClearsCommittedProgress() throws JobException {
-        provider.initSplitProgress(Arrays.asList("db.tbl_a"));
+        provider.initOnCreate(Arrays.asList("db.tbl_a"));
         provider.mockBatches.add(Arrays.asList(split("db.tbl_a", 0, null, null)));
         provider.advanceSplits();
 
@@ -277,7 +282,7 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
 
     @Test
     public void testUpdateOffsetReplayPathSkipsWhenSplitMissing() throws JobException {
-        provider.initSplitProgress(Arrays.asList("db.tbl_a"));
+        provider.initOnCreate(Arrays.asList("db.tbl_a"));
         // remainingSplits is empty (simulates editlog replay path).
 
         JdbcOffset endOffset = new JdbcOffset(Collections.singletonList(commitSplit("db.tbl_a:0")));
@@ -292,7 +297,7 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
 
     @Test
     public void testTouchedTablesRemovedFromRemaining() throws JobException {
-        provider.initSplitProgress(Arrays.asList("db.tbl_a", "db.tbl_b", "db.tbl_c"));
+        provider.initOnCreate(Arrays.asList("db.tbl_a", "db.tbl_b", "db.tbl_c"));
         provider.mockBatches.add(Arrays.asList(split("db.tbl_a", 0, null, null)));
         provider.advanceSplits();
 
@@ -312,5 +317,133 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
         Assert.assertEquals("db.tbl_c", provider.rpcCalls.get(2).table);
 
         Assert.assertTrue(provider.noMoreSplits());
+    }
+
+    // ===== findResumeMidSplit (replay helper) =====
+
+    @Test
+    public void testFindResumeMidSplitSingleTableFullyCutReturnsNull() {
+        SnapshotSplit s0 = split("db.tbl_a", 0, null, 100L);
+        SnapshotSplit s1 = split("db.tbl_a", 1, 100L, null);     // last, splitEnd=null
+        SnapshotSplit mid = JdbcSourceOffsetProvider.findResumeMidSplit(
+                Collections.singletonList("db.tbl_a"),
+                Arrays.asList(s0, s1),
+                Collections.emptyList());
+        Assert.assertNull(mid);
+    }
+
+    @Test
+    public void testFindResumeMidSplitSingleTableCutToMid() {
+        SnapshotSplit s0 = split("db.tbl_a", 0, null, 100L);
+        SnapshotSplit s1 = split("db.tbl_a", 1, 100L, 200L);     // largest id, splitEnd non-null
+        SnapshotSplit mid = JdbcSourceOffsetProvider.findResumeMidSplit(
+                Collections.singletonList("db.tbl_a"),
+                Arrays.asList(s0, s1),
+                Collections.emptyList());
+        Assert.assertNotNull(mid);
+        Assert.assertEquals("db.tbl_a:1", mid.getSplitId());
+        Assert.assertArrayEquals(new Object[]{200L}, mid.getSplitEnd());
+    }
+
+    @Test
+    public void testFindResumeMidSplitMultiTableOnlyOneMid() {
+        // tbl_a fully cut; tbl_b cut to mid; tbl_c untouched
+        SnapshotSplit a0 = split("db.tbl_a", 0, null, null);
+        SnapshotSplit b0 = split("db.tbl_b", 0, null, 50L);
+        SnapshotSplit mid = JdbcSourceOffsetProvider.findResumeMidSplit(
+                Arrays.asList("db.tbl_a", "db.tbl_b", "db.tbl_c"),
+                Collections.singletonList(a0),
+                Collections.singletonList(b0));
+        Assert.assertNotNull(mid);
+        Assert.assertEquals("db.tbl_b:0", mid.getSplitId());
+    }
+
+    @Test
+    public void testFindResumeMidSplitMaxIdSpreadAcrossLists() {
+        // last id is in remainingSplits (id=2), not finishedSplits (id=0,1)
+        SnapshotSplit f0 = split("db.tbl_a", 0, null, 100L);
+        SnapshotSplit f1 = split("db.tbl_a", 1, 100L, 200L);
+        SnapshotSplit r2 = split("db.tbl_a", 2, 200L, 300L);
+        SnapshotSplit mid = JdbcSourceOffsetProvider.findResumeMidSplit(
+                Collections.singletonList("db.tbl_a"),
+                Arrays.asList(f0, f1),
+                Collections.singletonList(r2));
+        Assert.assertNotNull(mid);
+        Assert.assertEquals("db.tbl_a:2", mid.getSplitId());
+        Assert.assertArrayEquals(new Object[]{300L}, mid.getSplitEnd());
+    }
+
+    @Test
+    public void testFindResumeMidSplitEmptyInputs() {
+        Assert.assertNull(JdbcSourceOffsetProvider.findResumeMidSplit(
+                Collections.emptyList(), Collections.emptyList(), Collections.emptyList()));
+        Assert.assertNull(JdbcSourceOffsetProvider.findResumeMidSplit(
+                Collections.singletonList("db.tbl_a"),
+                Collections.emptyList(), Collections.emptyList()));
+    }
+
+    @Test
+    public void testFindResumeMidSplitSyncTablesContainsUntouchedTable() {
+        // syncTables lists tbl_a and tbl_b; only tbl_a appears in splits, fully cut.
+        // tbl_b is untouched (no splits) -> still returns null (no mid).
+        SnapshotSplit a0 = split("db.tbl_a", 0, null, null);
+        SnapshotSplit mid = JdbcSourceOffsetProvider.findResumeMidSplit(
+                Arrays.asList("db.tbl_a", "db.tbl_b"),
+                Collections.singletonList(a0),
+                Collections.emptyList());
+        Assert.assertNull(mid);
+    }
+
+    // ===== splitIdOf validation =====
+
+    @Test
+    public void testSplitIdOfHappyPath() {
+        Assert.assertEquals(0, JdbcSourceOffsetProvider.splitIdOf("db.tbl_a:0"));
+        Assert.assertEquals(42, JdbcSourceOffsetProvider.splitIdOf("db.tbl_a:42"));
+        // table with colon in its qualifier: lastIndexOf(':') takes the trailing one.
+        Assert.assertEquals(7, JdbcSourceOffsetProvider.splitIdOf("schema:tbl:7"));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testSplitIdOfNoColonThrows() {
+        JdbcSourceOffsetProvider.splitIdOf("db.tbl_a_0");
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testSplitIdOfTrailingColonThrows() {
+        JdbcSourceOffsetProvider.splitIdOf("db.tbl_a:");
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testSplitIdOfNonNumericSuffixThrows() {
+        JdbcSourceOffsetProvider.splitIdOf("db.tbl_a:abc");
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testSplitIdOfNullThrows() {
+        JdbcSourceOffsetProvider.splitIdOf(null);
+    }
+
+    // ===== mode gate =====
+
+    @Test
+    public void testNoMoreSplitsLatestModeAlwaysTrue() {
+        provider.sourceProperties.put(
+                org.apache.doris.job.cdc.DataSourceConfigKeys.OFFSET,
+                org.apache.doris.job.cdc.DataSourceConfigKeys.OFFSET_LATEST);
+        // Even if cachedSyncTables is populated (e.g. by replayIfNeed), latest mode
+        // must report noMoreSplits=true so scheduler skips advanceSplits entirely.
+        provider.cachedSyncTables = Arrays.asList("db.tbl_a", "db.tbl_b");
+        Assert.assertTrue(provider.noMoreSplits());
+    }
+
+    @Test
+    public void testNoMoreSplitsSnapshotModeStillRespectsState() throws JobException {
+        provider.sourceProperties.put(
+                org.apache.doris.job.cdc.DataSourceConfigKeys.OFFSET,
+                org.apache.doris.job.cdc.DataSourceConfigKeys.OFFSET_SNAPSHOT);
+        provider.initOnCreate(Arrays.asList("db.tbl_a"));
+        Assert.assertFalse("snapshot mode with un-split tables must return false",
+                provider.noMoreSplits());
     }
 }

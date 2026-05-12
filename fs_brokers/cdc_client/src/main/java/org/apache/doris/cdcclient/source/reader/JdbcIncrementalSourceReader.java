@@ -20,6 +20,7 @@ package org.apache.doris.cdcclient.source.reader;
 import org.apache.doris.cdcclient.source.deserialize.DebeziumJsonDeserializer;
 import org.apache.doris.cdcclient.source.deserialize.DeserializeResult;
 import org.apache.doris.cdcclient.source.factory.DataSource;
+import org.apache.doris.cdcclient.utils.SplitKeyTypeResolver;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
@@ -36,6 +37,7 @@ import org.apache.flink.cdc.connectors.base.config.JdbcSourceConfig;
 import org.apache.flink.cdc.connectors.base.dialect.JdbcDataSourceDialect;
 import org.apache.flink.cdc.connectors.base.options.StartupOptions;
 import org.apache.flink.cdc.connectors.base.source.assigner.splitter.ChunkSplitter;
+import org.apache.flink.cdc.connectors.base.source.utils.JdbcChunkUtils;
 import org.apache.flink.cdc.connectors.base.source.assigner.state.ChunkSplitterState;
 import org.apache.flink.cdc.connectors.base.source.assigner.state.ChunkSplitterState.ChunkBound;
 import org.apache.flink.cdc.connectors.base.source.meta.offset.Offset;
@@ -58,6 +60,7 @@ import org.apache.kafka.connect.source.SourceRecord;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -74,6 +77,7 @@ import java.util.concurrent.Executors;
 import static org.apache.flink.cdc.connectors.base.source.meta.split.StreamSplit.STREAM_SPLIT_ID;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.debezium.jdbc.JdbcConnection;
 import io.debezium.relational.Column;
 import io.debezium.relational.TableId;
 import io.debezium.relational.history.TableChanges;
@@ -142,33 +146,35 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
      */
     @Override
     public List<AbstractSourceSplit> getSourceSplits(FetchTableSplitsRequest ftsReq) {
-        LOG.info("Get table {} splits for job {} (nextSplitId={}, hasNextSplitStart={})",
-                ftsReq.getSnapshotTable(), ftsReq.getJobId(),
+        LOG.info(
+                "Get table {} splits for job {} (nextSplitId={}, nextSplitStart={})",
+                ftsReq.getSnapshotTable(),
+                ftsReq.getJobId(),
                 ftsReq.getNextSplitId(),
-                ftsReq.getNextSplitStart() != null);
+                java.util.Arrays.toString(ftsReq.getNextSplitStart()));
         JdbcSourceConfig sourceConfig = getSourceConfig(ftsReq);
         String schema = ftsReq.getConfig().get(DataSourceConfigKeys.SCHEMA);
         TableId tableId = new TableId(null, schema, ftsReq.getSnapshotTable());
 
-        // Reconstruct flink-cdc ChunkBound from FE-side nextSplitStart.
-        //   null / empty -> START_BOUND (first time splitting this table, start from min(pk))
-        //   non-empty    -> middleOf(value[0]) (continue from previous split's splitEnd)
-        // END_BOUND never appears in transit: when a table is fully split, FE clears
-        // committedSplitProgress.currentSplittingTable to null, so the next RPC will be for
-        // a different table or no RPC at all.
+        // Build ChunkSplitterState from FE-side (nextSplitStart, nextSplitId).
+        //   null -> NO_SPLITTING_TABLE_STATE so splitter analyzes the table and may pick evenly path.
+        //   non-null -> resume mid-table, forced into unevenly path.
         Object[] pkValues = ftsReq.getNextSplitStart();
-        ChunkBound bound = (pkValues == null || pkValues.length == 0)
-                ? ChunkBound.START_BOUND
-                : ChunkBound.middleOf(pkValues[0]);
-
-        int splitId = ftsReq.getNextSplitId() == null ? 0 : ftsReq.getNextSplitId();
         int batchSize = ftsReq.getBatchSize() == null ? 100 : ftsReq.getBatchSize();
-
-        ChunkSplitterState state = new ChunkSplitterState(tableId, bound, splitId);
+        ChunkSplitterState state;
+        if (pkValues == null || pkValues.length == 0) {
+            state = ChunkSplitterState.NO_SPLITTING_TABLE_STATE;
+        } else {
+            // Restore the original JDBC type (JSON downgrades Long to Integer).
+            int sqlType = resolveSplitKeySqlType(sourceConfig, tableId);
+            Object castStart = SplitKeyTypeResolver.cast(pkValues[0], sqlType);
+            int splitId = ftsReq.getNextSplitId() == null ? 0 : ftsReq.getNextSplitId();
+            state = new ChunkSplitterState(tableId, ChunkBound.middleOf(castStart), splitId);
+        }
         ChunkSplitter splitter = getDialect(sourceConfig).createChunkSplitter(sourceConfig, state);
-        splitter.open();
 
         try {
+            splitter.open();
             List<AbstractSourceSplit> result = new ArrayList<>();
             while (result.size() < batchSize) {
                 Collection<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit>
@@ -180,8 +186,8 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
                     break;
                 }
             }
-            LOG.info("Fetched {} splits for table {} (splitId starts at {}); hasNextChunk={}",
-                    result.size(), tableId, splitId, splitter.hasNextChunk());
+            LOG.info("Fetched {} splits for table {} (resume nextSplitId={}); hasNextChunk={}",
+                    result.size(), tableId, ftsReq.getNextSplitId(), splitter.hasNextChunk());
             return result;
         } catch (Exception e) {
             throw new RuntimeException("Failed to generate splits for " + tableId, e);
@@ -192,6 +198,23 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
                 LOG.warn("Failed to close splitter for {}", tableId, e);
             }
         }
+    }
+
+    /** Resolve and cache the split key column's JDBC type. */
+    private int resolveSplitKeySqlType(JdbcSourceConfig sourceConfig, TableId tableId) {
+        String cacheKey =
+                sourceConfig.getHostname() + ":" + sourceConfig.getPort() + "|" + tableId;
+        return SplitKeyTypeResolver.getOrCompute(cacheKey, () -> {
+            JdbcDataSourceDialect dialect = getDialect(sourceConfig);
+            try (JdbcConnection jdbc = dialect.openJdbcConnection(sourceConfig)) {
+                return JdbcChunkUtils.getSplitColumn(
+                                dialect.queryTableSchema(jdbc, tableId).getTable(),
+                                sourceConfig.getChunkKeyColumn())
+                        .jdbcType();
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to resolve split key type for " + tableId, e);
+            }
+        });
     }
 
     /** flink-cdc SnapshotSplit -> Doris SnapshotSplit (drops splitKeyType, keeps key field names). */

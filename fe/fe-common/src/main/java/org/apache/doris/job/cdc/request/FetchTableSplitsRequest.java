@@ -34,15 +34,15 @@ public class FetchTableSplitsRequest extends JobBaseConfig {
     private String snapshotTable;
 
     /**
-     * PK values of the next split start (inclusive lower bound). null = fresh start (START_BOUND).
-     * Same shape as SnapshotSplit.splitStart/splitEnd; cdc_client takes [0] to construct ChunkBound.
+     * The next split start, null = fresh start (START_BOUND).
+     * cdc_client takes to construct ChunkSplitterState.
      */
     private Object[] nextSplitStart;
 
     /** Next split id; null = 0 (fresh start). */
     private Integer nextSplitId;
 
-    /** Max splits to fetch in this RPC; null = default 100. */
+    /** Splits to fetch in this RPC; null lets cdc_client use its default. */
     private Integer batchSize;
 
     public FetchTableSplitsRequest(Long jobId, String name,

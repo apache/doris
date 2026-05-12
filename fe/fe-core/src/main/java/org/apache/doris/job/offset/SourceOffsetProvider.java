@@ -45,11 +45,11 @@ public interface SourceOffsetProvider {
     default void ensureInitialized(Long jobId, Map<String, String> originTvfProps) throws JobException {}
 
     /**
-     * Performs one-time initialization that must run only on fresh job creation, not on FE restart.
-     * For example, fetching and persisting snapshot splits to the meta table.
+     * One-time initialization on fresh job creation (not on FE restart). Subclasses may
+     * initialize split progress, fetch initial splits, or open remote readers.
      * Default: no-op (most providers need no extra setup).
      */
-    default void initOnCreate() throws JobException {}
+    default void initOnCreate(List<String> syncTables) throws JobException {}
 
     /**
      * Get next offset to consume
@@ -179,12 +179,6 @@ public interface SourceOffsetProvider {
     default boolean hasReachedEnd() {
         return false;
     }
-
-    /**
-     * Initialize split progress at CREATE. Called once with the list of source tables this job syncs.
-     * For providers without splitting concept (e.g. S3), default is no-op.
-     */
-    default void initSplitProgress(List<String> syncTables) {}
 
     /**
      * Advance one batch of split fetching, called by scheduler each tick during PENDING/RUNNING.

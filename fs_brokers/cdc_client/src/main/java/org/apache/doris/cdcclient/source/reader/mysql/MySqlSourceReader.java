@@ -20,6 +20,7 @@ package org.apache.doris.cdcclient.source.reader.mysql;
 import org.apache.doris.cdcclient.source.deserialize.DeserializeResult;
 import org.apache.doris.cdcclient.source.deserialize.MySqlDebeziumJsonDeserializer;
 import org.apache.doris.cdcclient.source.factory.DataSource;
+import org.apache.doris.cdcclient.utils.SplitKeyTypeResolver;
 import org.apache.doris.cdcclient.source.reader.AbstractCdcSourceReader;
 import org.apache.doris.cdcclient.source.reader.SnapshotReaderContext;
 import org.apache.doris.cdcclient.source.reader.SplitReadResult;
@@ -38,14 +39,15 @@ import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.flink.api.connector.source.SourceSplit;
-import org.apache.flink.api.connector.source.mocks.MockSplitEnumeratorContext;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.cdc.common.utils.Preconditions;
 import org.apache.flink.cdc.connectors.mysql.debezium.DebeziumUtils;
+import org.apache.flink.cdc.connectors.mysql.schema.MySqlSchema;
+import org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlChunkSplitter;
+import org.apache.flink.cdc.connectors.mysql.source.assigners.state.ChunkSplitterState;
 import org.apache.flink.cdc.connectors.mysql.debezium.reader.BinlogSplitReader;
 import org.apache.flink.cdc.connectors.mysql.debezium.reader.SnapshotSplitReader;
 import org.apache.flink.cdc.connectors.mysql.debezium.task.context.StatefulTaskContext;
-import org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlSnapshotSplitAssigner;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfig;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfigFactory;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffset;
@@ -80,7 +82,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
-import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -158,46 +159,123 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         LOG.info("Initialized poll executor with parallelism: {}", parallelism);
     }
 
+    /**
+     * Fetch a batch of snapshot splits by driving flink-cdc {@link MySqlChunkSplitter} directly.
+     *
+     * <p>Stateless: each RPC rebuilds the splitter from (table, nextSplitStart, nextSplitId)
+     * supplied by FE, splits up to {@code batchSize} chunks, then closes. Note: evenly-distributed
+     * PKs go through a single splitChunks() call returning all chunks at once, so batchSize is only
+     * effective on the uneven path.
+     *
+     * <p>Only INITIAL/SNAPSHOT startup modes go through the chunk path; other modes return a
+     * single BinlogSplit instead.
+     */
     @Override
     public List<AbstractSourceSplit> getSourceSplits(FetchTableSplitsRequest ftsReq) {
-        LOG.info("Get table {} splits for job {}", ftsReq.getSnapshotTable(), ftsReq.getJobId());
+        LOG.info(
+                "Get table {} splits for job {} (nextSplitId={}, nextSplitStart={})",
+                ftsReq.getSnapshotTable(),
+                ftsReq.getJobId(),
+                ftsReq.getNextSplitId(),
+                java.util.Arrays.toString(ftsReq.getNextSplitStart()));
         MySqlSourceConfig sourceConfig = getSourceConfig(ftsReq);
         StartupMode startupMode = sourceConfig.getStartupOptions().startupMode;
-        List<MySqlSnapshotSplit> remainingSnapshotSplits = new ArrayList<>();
-        MySqlBinlogSplit remainingBinlogSplit = null;
-        if (startupMode.equals(StartupMode.INITIAL) || startupMode.equals(StartupMode.SNAPSHOT)) {
-            remainingSnapshotSplits =
-                    startSplitChunks(sourceConfig, ftsReq.getSnapshotTable(), ftsReq.getConfig());
-        } else {
-            remainingBinlogSplit =
-                    new MySqlBinlogSplit(
-                            BINLOG_SPLIT_ID,
-                            sourceConfig.getStartupOptions().binlogOffset,
-                            BinlogOffset.ofNonStopping(),
-                            new ArrayList<>(),
-                            new HashMap<>(),
-                            0);
-        }
-        List<AbstractSourceSplit> splits = new ArrayList<>();
-        if (!remainingSnapshotSplits.isEmpty()) {
-            for (MySqlSnapshotSplit snapshotSplit : remainingSnapshotSplits) {
-                String splitId = snapshotSplit.splitId();
-                String tableId = snapshotSplit.getTableId().identifier();
-                Object[] splitStart = snapshotSplit.getSplitStart();
-                Object[] splitEnd = snapshotSplit.getSplitEnd();
-                List<String> splitKey = snapshotSplit.getSplitKeyType().getFieldNames();
-                SnapshotSplit split =
-                        new SnapshotSplit(splitId, tableId, splitKey, splitStart, splitEnd, null);
-                splits.add(split);
-            }
-        } else {
-            BinlogOffset startingOffset = remainingBinlogSplit.getStartingOffset();
+
+        if (!startupMode.equals(StartupMode.INITIAL) && !startupMode.equals(StartupMode.SNAPSHOT)) {
             BinlogSplit binlogSplit = new BinlogSplit();
-            binlogSplit.setSplitId(remainingBinlogSplit.splitId());
-            binlogSplit.setStartingOffset(startingOffset.getOffset());
-            splits.add(binlogSplit);
+            binlogSplit.setSplitId(BINLOG_SPLIT_ID);
+            binlogSplit.setStartingOffset(sourceConfig.getStartupOptions().binlogOffset.getOffset());
+            return Collections.singletonList(binlogSplit);
         }
-        return splits;
+
+        String database = ftsReq.getConfig().get(DataSourceConfigKeys.DATABASE);
+        TableId tableId = TableId.parse(database + "." + ftsReq.getSnapshotTable());
+
+        Object[] pkValues = ftsReq.getNextSplitStart();
+        int batchSize = ftsReq.getBatchSize() == null ? 100 : ftsReq.getBatchSize();
+
+        boolean isCaseSensitive;
+        try (MySqlConnection jdbc = DebeziumUtils.createMySqlConnection(sourceConfig)) {
+            isCaseSensitive = DebeziumUtils.isTableIdCaseSensitive(jdbc);
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to query table id case sensitivity", e);
+        }
+        MySqlSchema mySqlSchema = new MySqlSchema(sourceConfig, isCaseSensitive);
+        MySqlPartition partition =
+                new MySqlPartition(sourceConfig.getMySqlConnectorConfig().getLogicalName());
+
+        // null -> NO_SPLITTING_TABLE_STATE so splitter may pick evenly path; non-null -> resume mid-table.
+        ChunkSplitterState state;
+        if (pkValues == null || pkValues.length == 0) {
+            state = ChunkSplitterState.NO_SPLITTING_TABLE_STATE;
+        } else {
+            // Restore the original JDBC type (JSON downgrades Long to Integer).
+            int sqlType = resolveSplitKeySqlType(sourceConfig, tableId, mySqlSchema, partition);
+            Object castStart = SplitKeyTypeResolver.cast(pkValues[0], sqlType);
+            int splitId = ftsReq.getNextSplitId() == null ? 0 : ftsReq.getNextSplitId();
+            state = new ChunkSplitterState(
+                    tableId, ChunkSplitterState.ChunkBound.middleOf(castStart), splitId);
+        }
+        MySqlChunkSplitter splitter = new MySqlChunkSplitter(mySqlSchema, sourceConfig, state);
+
+        try {
+            // open() inside try so a throw still routes through finally for close().
+            splitter.open();
+            List<AbstractSourceSplit> result = new ArrayList<>();
+            while (result.size() < batchSize) {
+                List<MySqlSnapshotSplit> chunks = splitter.splitChunks(partition, tableId);
+                for (MySqlSnapshotSplit chunk : chunks) {
+                    result.add(toDorisSnapshotSplit(chunk));
+                }
+                if (!splitter.hasNextChunk()) {
+                    break;
+                }
+            }
+            LOG.info(
+                    "Fetched {} splits for table {} (resume nextSplitId={}); hasNextChunk={}",
+                    result.size(),
+                    tableId,
+                    ftsReq.getNextSplitId(),
+                    splitter.hasNextChunk());
+            return result;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to generate splits for " + tableId, e);
+        } finally {
+            try {
+                splitter.close();
+            } catch (Exception e) {
+                LOG.warn("Failed to close splitter for {}", tableId, e);
+            }
+        }
+    }
+
+    /** Resolve and cache the split key column's JDBC type. */
+    private int resolveSplitKeySqlType(
+            MySqlSourceConfig sourceConfig, TableId tableId,
+            MySqlSchema mySqlSchema, MySqlPartition partition) {
+        String cacheKey =
+                sourceConfig.getHostname() + ":" + sourceConfig.getPort() + "|" + tableId;
+        return SplitKeyTypeResolver.getOrCompute(cacheKey, () -> {
+            try (MySqlConnection jdbc = DebeziumUtils.createMySqlConnection(sourceConfig)) {
+                return ChunkUtils.getChunkKeyColumn(
+                                mySqlSchema.getTableSchema(partition, jdbc, tableId).getTable(),
+                                sourceConfig.getChunkKeyColumns())
+                        .jdbcType();
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to resolve split key type for " + tableId, e);
+            }
+        });
+    }
+
+    /** flink-cdc MySqlSnapshotSplit -> Doris SnapshotSplit (drops splitKeyType, keeps field names). */
+    private SnapshotSplit toDorisSnapshotSplit(MySqlSnapshotSplit chunk) {
+        return new SnapshotSplit(
+                chunk.splitId(),
+                chunk.getTableId().identifier(),
+                chunk.getSplitKeyType().getFieldNames(),
+                chunk.getSplitStart(),
+                chunk.getSplitEnd(),
+                null);
     }
 
     @Override
@@ -703,66 +781,6 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         MySqlBinlogSplit binlogSplitFinal =
                 MySqlBinlogSplit.fillTableSchemas(split.asBinlogSplit(), getTableSchemas(config));
         return Tuple2.of(binlogSplitFinal, pureBinlogPhase);
-    }
-
-    private List<MySqlSnapshotSplit> startSplitChunks(
-            MySqlSourceConfig sourceConfig, String snapshotTable, Map<String, String> config) {
-        List<TableId> remainingTables = new ArrayList<>();
-        if (snapshotTable != null) {
-            // need add database name
-            String database = config.get(DataSourceConfigKeys.DATABASE);
-            remainingTables.add(TableId.parse(database + "." + snapshotTable));
-        }
-        List<MySqlSnapshotSplit> remainingSplits = new ArrayList<>();
-        MySqlSnapshotSplitAssigner splitAssigner =
-                new MySqlSnapshotSplitAssigner(
-                        sourceConfig, 1, remainingTables, false, new MockSplitEnumeratorContext(1));
-        splitAssigner.open();
-        try {
-            while (true) {
-                Optional<MySqlSplit> mySqlSplit = splitAssigner.getNext();
-                if (mySqlSplit.isPresent()) {
-                    MySqlSnapshotSplit snapshotSplit = mySqlSplit.get().asSnapshotSplit();
-                    remainingSplits.add(snapshotSplit);
-                } else {
-                    break;
-                }
-            }
-        } finally {
-            // splitAssigner.close();
-            closeChunkSplitterOnly(splitAssigner);
-        }
-        return remainingSplits;
-    }
-
-    /**
-     * The JdbcConnectionPools inside MySqlSnapshotSplitAssigner are singletons. Calling
-     * MySqlSnapshotSplitAssigner.close() closes the entire JdbcConnectionPools, which can cause
-     * problems under high concurrency. This only closes the connection of the current
-     * MySqlSnapshotSplitAssigner.
-     */
-    private void closeChunkSplitterOnly(MySqlSnapshotSplitAssigner splitAssigner) {
-        try {
-            // call closeExecutorService()
-            java.lang.reflect.Method closeExecutorMethod =
-                    MySqlSnapshotSplitAssigner.class.getDeclaredMethod("closeExecutorService");
-            closeExecutorMethod.setAccessible(true);
-            closeExecutorMethod.invoke(splitAssigner);
-
-            // call chunkSplitter.close()
-            java.lang.reflect.Field field =
-                    MySqlSnapshotSplitAssigner.class.getDeclaredField("chunkSplitter");
-            field.setAccessible(true);
-            Object chunkSplitter = field.get(splitAssigner);
-
-            if (chunkSplitter != null) {
-                java.lang.reflect.Method closeMethod = chunkSplitter.getClass().getMethod("close");
-                closeMethod.invoke(chunkSplitter);
-                LOG.info("Closed chunkSplitter JDBC connection");
-            }
-        } catch (Exception e) {
-            LOG.warn("Failed to close chunkSplitter via reflection,", e);
-        }
     }
 
     private SnapshotSplitReader getSnapshotSplitReader(JobBaseConfig config, int subtaskId) {

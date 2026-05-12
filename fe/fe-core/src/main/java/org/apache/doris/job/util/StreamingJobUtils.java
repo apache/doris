@@ -169,23 +169,6 @@ public class StreamingJobUtils {
         }
     }
 
-    public static void insertSplitsToMeta(Long jobId, Map<String, List<SnapshotSplit>> tableSplits) throws Exception {
-        List<String> values = new ArrayList<>();
-        int index = 1;
-        for (Map.Entry<String, List<SnapshotSplit>> entry : tableSplits.entrySet()) {
-            Map<String, String> params = new HashMap<>();
-            params.put("id", index + "");
-            params.put("job_id", jobId + "");
-            params.put("table_name", entry.getKey());
-            params.put("chunk_list", objectMapper.writeValueAsString(entry.getValue()));
-            StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-            String sql = stringSubstitutor.replace(INSERT_INTO_META_TABLE_TEMPLATE);
-            values.add(sql);
-            index++;
-        }
-        batchInsert(values);
-    }
-
     /**
      * UPSERT a single table's chunk_list. id is reused if the table already has a row,
      * otherwise allocated as MAX(id)+1. Relies on UNIQUE KEY (id, job_id) for in-place override.
