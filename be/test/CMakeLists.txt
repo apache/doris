@@ -112,7 +112,7 @@ include_directories(
 )
 
 include_directories(
-  ${THIRDPARTY_INCLUDE_DIR}
+  ${CMAKE_SOURCE_DIR}/../thirdparty/installed/include
 )
 
 # Removed test files are added back using separate compile arguments.
