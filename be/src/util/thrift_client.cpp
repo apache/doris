@@ -31,7 +31,9 @@
 namespace doris {
 
 ThriftClientImpl::ThriftClientImpl(const std::string& ipaddress, int port)
-        : _ipaddress(ipaddress), _port(port), _socket(doris::client::create_thrift_client_socket(ipaddress, port)) {}
+        : _ipaddress(ipaddress),
+          _port(port),
+          _socket(doris::client::create_thrift_client_socket(ipaddress, port)) {}
 
 Status ThriftClientImpl::open() {
     if (!_socket) {

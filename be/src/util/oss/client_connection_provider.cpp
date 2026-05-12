@@ -20,7 +20,7 @@
 namespace doris::client {
 
 Status configure_brpc_channel_options(brpc::ChannelOptions* options) {
-    (void) options;
+    (void)options;
     return Status::OK();
 }
 

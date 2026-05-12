@@ -17,11 +17,11 @@
 
 #pragma once
 
-#include <memory>
-#include <string>
-
 #include <brpc/channel.h>
 #include <thrift/transport/TSocket.h>
+
+#include <memory>
+#include <string>
 
 #include "common/status.h"
 

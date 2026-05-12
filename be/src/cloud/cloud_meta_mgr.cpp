@@ -38,7 +38,6 @@
 #include <mutex>
 #include <random>
 #include <shared_mutex>
-
 #include <string>
 #include <type_traits>
 #include <vector>

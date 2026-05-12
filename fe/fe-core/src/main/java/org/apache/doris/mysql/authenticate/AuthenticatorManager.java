@@ -17,12 +17,12 @@
 
 package org.apache.doris.mysql.authenticate;
 
-import org.apache.doris.authentication.AuthenticationFailureType;
-import org.apache.doris.authentication.CredentialType;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.auth.certificate.CertificateAuthDecision;
 import org.apache.doris.auth.certificate.CertificateRuntimeAuthFactory;
 import org.apache.doris.auth.certificate.CertificateRuntimeAuthService;
+import org.apache.doris.authentication.AuthenticationFailureType;
+import org.apache.doris.authentication.CredentialType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.util.ClassLoaderUtils;
