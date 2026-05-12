@@ -124,11 +124,13 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         int64_t continuous_size = 0;
         std::vector<RowsetMetaSharedPtr> level1_rowsets;
         int64_t earliest_level1_rowset_creation_time = INT64_MAX;
+        bool ignore_level2_timeout = false;
+        DBUG_EXECUTE_IF("time_series_level2_file_count", { ignore_level2_timeout = true; });
         for (const auto& rs_meta : checked_rs_metas) {
             if (rs_meta->compaction_level() == 0) {
                 break;
             }
-            if (rs_meta->compaction_level() == 1 &&
+            if (!ignore_level2_timeout && rs_meta->compaction_level() == 1 &&
                 (now - rs_meta->creation_time()) <= MAX_LEVEL2_COMPACTION_TIMEOUT) {
                 continue;
             }
@@ -144,6 +146,12 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
                 earliest_level1_rowset_creation_time = rs_meta->creation_time();
             }
         }
+
+        DBUG_EXECUTE_IF("time_series_level2_file_count", {
+            if (level1_rowsets.size() >= compaction_file_count) {
+                return cast_set<int32_t>(level1_rowsets.size());
+            }
+        })
 
         // Condition 5: level1 achieve compaction_time_threshold_seconds
         if (level1_rowsets.size() >= 2) {
@@ -373,12 +381,14 @@ int32_t TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
     if (compaction_level >= 2) {
         int64_t continuous_size = 0;
         std::vector<RowsetSharedPtr> level1_rowsets;
+        bool ignore_level2_timeout = false;
+        DBUG_EXECUTE_IF("time_series_level2_file_count", { ignore_level2_timeout = true; });
         for (const auto& rowset : candidate_rowsets) {
             const auto& rs_meta = rowset->rowset_meta();
             if (rs_meta->compaction_level() == 0) {
                 break;
             }
-            if (rs_meta->compaction_level() == 1 &&
+            if (!ignore_level2_timeout && rs_meta->compaction_level() == 1 &&
                 (now - rs_meta->creation_time()) <= MAX_LEVEL2_COMPACTION_TIMEOUT) {
                 continue;
             }

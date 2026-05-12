@@ -576,7 +576,17 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
         }
         std::vector<uint32_t> picked_segments;
         for (int j = num_segments - 1; j >= 0; j--) {
-            if (_key_is_not_in_segment(key_without_seq, segments_key_bounds[j],
+            auto segment_key_bounds = segments_key_bounds[j];
+            if (rowid_length > 0) {
+                // Cluster-key MOW segment bounds are built from primary-key index entries, which
+                // include sequence value and rowid. The lookup range key has already stripped
+                // those suffixes, so compare only the unique-key prefix.
+                segment_key_bounds.mutable_min_key()->resize(
+                        std::min(segment_key_bounds.min_key().size(), key_without_seq.get_size()));
+                segment_key_bounds.mutable_max_key()->resize(
+                        std::min(segment_key_bounds.max_key().size(), key_without_seq.get_size()));
+            }
+            if (_key_is_not_in_segment(key_without_seq, segment_key_bounds,
                                        rs->rowset_meta()->is_segments_key_bounds_truncated())) {
                 continue;
             }
@@ -1363,6 +1373,7 @@ Status BaseTablet::commit_phase_update_delete_bitmap(
     RowsetIdUnorderedSet cur_rowset_ids;
     RowsetIdUnorderedSet rowset_ids_to_add;
     RowsetIdUnorderedSet rowset_ids_to_del;
+    bool recalc_all_cur_rowsets = false;
     int64_t cur_version;
 
     std::vector<RowsetSharedPtr> specified_rowsets;
@@ -1385,6 +1396,13 @@ Status BaseTablet::commit_phase_update_delete_bitmap(
         RETURN_IF_ERROR(tablet->get_all_rs_id_unlocked(cur_version, &cur_rowset_ids));
         _rowset_ids_difference(cur_rowset_ids, pre_rowset_ids, &rowset_ids_to_add,
                                &rowset_ids_to_del);
+        if (!rowset_ids_to_del.empty()) {
+            // Some rowsets seen in flush phase were compacted before commit phase. Surviving
+            // rowsets remain in both sets and would be skipped by the delta path, so rebuild
+            // this txn's base-rowset delete bitmap against the current tablet rowsets.
+            recalc_all_cur_rowsets = true;
+            rowset_ids_to_add = cur_rowset_ids;
+        }
         specified_rowsets = tablet->get_rowset_by_ids(&rowset_ids_to_add);
     }
     for (const auto& to_del : rowset_ids_to_del) {
@@ -1399,6 +1417,7 @@ Status BaseTablet::commit_phase_update_delete_bitmap(
     LOG(INFO) << "[Before Commit] construct delete bitmap tablet: " << tablet->tablet_id()
               << ", rowset_ids to add: " << rowset_ids_to_add.size()
               << ", rowset_ids to del: " << rowset_ids_to_del.size()
+              << ", recalc all cur rowsets: " << recalc_all_cur_rowsets
               << ", cur max_version: " << cur_version << ", transaction_id: " << txn_id
               << ", total rows: " << total_rows;
     pre_rowset_ids = cur_rowset_ids;

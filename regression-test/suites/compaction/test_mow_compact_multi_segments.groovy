@@ -76,6 +76,18 @@ suite("test_mow_compact_multi_segments", "nonConcurrent") {
         }
     }
 
+    def getRowsetId = { tablet, rowsetIndex ->
+        String compactionUrl = tablet["CompactionStatus"]
+        def (code, out, err) = curl("GET", compactionUrl)
+        logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
+        assertEquals(code, 0)
+        def tabletJson = parseJson(out.trim())
+        assert tabletJson.rowsets instanceof List
+        assertTrue(tabletJson.rowsets.size() >= rowsetIndex)
+        def rowset = tabletJson.rowsets.get(rowsetIndex - 1)
+        return rowset.split("\\s+")[4]
+    }
+
     def getLocalDeleteBitmapStatus = { tablet ->
         String tablet_id = tablet.TabletId
         String trigger_backend_id = tablet.BackendId
@@ -232,6 +244,7 @@ suite("test_mow_compact_multi_segments", "nonConcurrent") {
     getTabletStatus(tablet, 3, 6)
     def local_dm = getLocalDeleteBitmapStatus(tablet)
     logger.info("local delete bitmap 1: " + local_dm)
+    def compacted_rowset_id = getRowsetId(tablet, 3)
 
     // trigger compaction for load 2
     GetDebugPoint().enableDebugPointForAllBEs("CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
@@ -255,5 +268,9 @@ suite("test_mow_compact_multi_segments", "nonConcurrent") {
     GetDebugPoint().enableDebugPointForAllBEs("DeleteBitmapAction._handle_show_local_delete_bitmap_count.start_delete_unused_rowset") // local
     local_dm = getLocalDeleteBitmapStatus(tablet)
     logger.info("local delete bitmap 2: " + local_dm)
-    assertEquals(1, local_dm["delete_bitmap_count"])
+    assertTrue(local_dm["delete_bitmap_count"] >= 1)
+    assertTrue(local_dm["delete_bitmap_count"] <= 2)
+    local_dm["delete_bitmap"].keySet().each {
+        assertFalse(it.contains(compacted_rowset_id))
+    }
 }

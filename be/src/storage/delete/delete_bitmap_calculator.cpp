@@ -175,17 +175,38 @@ Status MergeIndexDeleteBitmapCalculator::calculate_one(RowLocation& loc) {
         _heap->pop();
         Slice cur_key;
         RETURN_IF_ERROR(cur_ctx->get_current_key(cur_key));
+        RowLocation cur_loc {static_cast<uint32_t>(cur_ctx->segment_id()), cur_ctx->row_id()};
+        if (_rowid_length > 0) {
+            Slice key_without_seq =
+                    Slice(cur_key.get_data(), cur_key.get_size() - _seq_col_length - _rowid_length);
+            Slice rowid_slice =
+                    Slice(cur_key.get_data() + key_without_seq.get_size() + _seq_col_length + 1,
+                          _rowid_length - 1);
+            RETURN_IF_ERROR(_rowid_coder->decode_ascending(&rowid_slice, _rowid_length,
+                                                           (uint8_t*)&cur_loc.row_id));
+        }
         if (!_last_key.empty() && _comparator.is_key_same(cur_key, _last_key)) {
-            loc.segment_id = cur_ctx->segment_id();
-            loc.row_id = cur_ctx->row_id();
-            if (_rowid_length > 0) {
-                Slice key_without_seq = Slice(cur_key.get_data(),
-                                              cur_key.get_size() - _seq_col_length - _rowid_length);
-                Slice rowid_slice =
-                        Slice(cur_key.get_data() + key_without_seq.get_size() + _seq_col_length + 1,
-                              _rowid_length - 1);
-                RETURN_IF_ERROR(_rowid_coder->decode_ascending(&rowid_slice, _rowid_length,
-                                                               (uint8_t*)&loc.row_id));
+            loc = cur_loc;
+            bool cur_row_wins = false;
+            if (_seq_col_length > 0) {
+                Slice cur_key_without_seq = Slice(
+                        cur_key.get_data(), cur_key.get_size() - _seq_col_length - _rowid_length);
+                Slice last_key_without_seq =
+                        Slice(_last_key.data(), _last_key.size() - _seq_col_length - _rowid_length);
+                Slice cur_sequence_val =
+                        Slice(cur_key.get_data() + cur_key_without_seq.get_size() + 1,
+                              _seq_col_length - 1);
+                Slice last_sequence_val =
+                        Slice(_last_key.data() + last_key_without_seq.get_size() + 1,
+                              _seq_col_length - 1);
+                cur_row_wins = cur_sequence_val.compare(last_sequence_val) > 0;
+            } else if (_rowid_length > 0 && _last_row_location.segment_id == cur_loc.segment_id) {
+                cur_row_wins = cur_loc.row_id > _last_row_location.row_id;
+            }
+            if (cur_row_wins) {
+                loc = _last_row_location;
+                _last_key = cur_key.to_string();
+                _last_row_location = cur_loc;
             }
             auto st = cur_ctx->advance();
             if (st.ok()) {
@@ -195,10 +216,32 @@ Status MergeIndexDeleteBitmapCalculator::calculate_one(RowLocation& loc) {
             }
             return Status::OK();
         }
+        _last_key = cur_key.to_string();
+        _last_row_location = cur_loc;
         if (_heap->empty()) {
+            if (_rowid_length > 0) {
+                Status st = cur_ctx->advance();
+                if (st.is<ErrorCode::END_OF_FILE>()) {
+                    continue;
+                }
+                RETURN_IF_ERROR(st);
+                _heap->push(cur_ctx);
+                continue;
+            }
             break;
         }
-        _last_key = cur_key.to_string();
+        if (_rowid_length > 0) {
+            // Cluster-key MOW primary-key indexes append rowid, so one segment may contain
+            // consecutive entries for the same unique key. Visit them in order so the older
+            // rowid can be deleted and the newest rowid remains visible.
+            Status st = cur_ctx->advance();
+            if (st.is<ErrorCode::END_OF_FILE>()) {
+                continue;
+            }
+            RETURN_IF_ERROR(st);
+            _heap->push(cur_ctx);
+            continue;
+        }
         auto nxt_ctx = _heap->top();
         Slice nxt_key;
         RETURN_IF_ERROR(nxt_ctx->get_current_key(nxt_key));

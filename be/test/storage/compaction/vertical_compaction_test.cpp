@@ -528,6 +528,7 @@ public:
                                    std::unique_ptr<RowIdConversion> rowid_conversion) {
         _input_rowsets = std::move(input_rowsets);
         _output_rowset = std::move(output_rowset);
+        _output_version = _output_rowset->version();
         _rowid_conversion = std::move(rowid_conversion);
         _stats.rowid_conversion = _rowid_conversion.get();
         auto st = modify_rowsets();

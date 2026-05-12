@@ -99,6 +99,7 @@ private:
     RowsetId _rowset_id;
     std::unique_ptr<Heap> _heap;
     std::string _last_key;
+    RowLocation _last_row_location;
     size_t _seq_col_length;
     size_t _rowid_length;
     const KeyCoder* _rowid_coder = nullptr;

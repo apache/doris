@@ -1455,6 +1455,20 @@ Status CompactionMixin::modify_rowsets() {
             }
 
             tablet()->merge_delete_bitmap(output_rowset_delete_bitmap);
+            std::vector<RowsetSharedPtr> visible_rowsets;
+            tablet()->traverse_rowsets_unlocked(
+                    [&visible_rowsets](const RowsetSharedPtr& rowset) {
+                        visible_rowsets.emplace_back(rowset);
+                    },
+                    false);
+            std::vector<RowsetSharedPtr> compacted_output_rowsets {_output_rowset};
+            for (const auto& rowset : visible_rowsets) {
+                if (rowset->start_version() <= _output_version.second) {
+                    continue;
+                }
+                RETURN_IF_ERROR(tablet()->update_delete_bitmap_without_lock(
+                        _tablet, rowset, &compacted_output_rowsets));
+            }
             RETURN_IF_ERROR(tablet()->modify_rowsets(output_rowsets, _input_rowsets, true));
         }
     } else {
