@@ -111,6 +111,10 @@ include_directories(
   ${CMAKE_BINARY_DIR}/apache-orc/c++/include
 )
 
+include_directories(
+  ${THIRDPARTY_INCLUDE_DIR}
+)
+
 # Removed test files are added back using separate compile arguments.
 add_subdirectory(storage/index/ann)
 
