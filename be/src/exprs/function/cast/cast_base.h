@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/call_on_type_index.h"
 #include "core/data_type/data_type.h"

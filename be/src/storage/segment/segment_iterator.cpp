@@ -2884,11 +2884,8 @@ void SegmentIterator::_fill_column_nothing() {
     for (const auto pair : _vir_cid_to_idx_in_block) {
         auto cid = pair.first;
         auto pos = pair.second;
-        const auto* nothing_col =
-                check_and_get_column<ColumnNothing>(_current_return_columns[cid].get());
-        DCHECK(nothing_col != nullptr)
-                << fmt::format("ColumnNothing expected, but got {}, cid: {}, pos: {}",
-                               _current_return_columns[cid]->get_name(), cid, pos);
+        [[maybe_unused]] const auto* nothing_col =
+                assert_cast<const ColumnNothing*>(_current_return_columns[cid].get());
         _current_return_columns[cid] = _opts.vir_col_idx_to_type[pos]->create_column();
     }
 }

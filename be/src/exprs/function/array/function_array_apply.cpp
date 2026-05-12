@@ -146,7 +146,7 @@ private:
         if (!src_column.is_nullable()) {
             src_column_data_ptr = src_column.get_raw_data().data;
         } else {
-            const auto* nullable_col = check_and_get_column<ColumnNullable>(src_column);
+            const auto* nullable_col = assert_cast<const ColumnNullable*>(&src_column);
             src_column_data_ptr = nullable_col->get_nested_column().get_raw_data().data;
             null_map_data = nullable_col->get_null_map_data().data();
         }
