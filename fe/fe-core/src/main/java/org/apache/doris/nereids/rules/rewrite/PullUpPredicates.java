@@ -18,9 +18,11 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -457,8 +459,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
             Set<Expression> options = new LinkedHashSet<>();
             for (List<NamedExpression> constExpr : constExprs) {
                 if (constExpr.get(col) instanceof Alias) {
-                    Expression option = FoldConstantRuleOnFE.evaluate(((Alias) constExpr.get(col)).child(),
-                            rewriteContext);
+                    Expression option = foldUnionConstantExpr(((Alias) constExpr.get(col)).child());
                     if (option instanceof Literal) {
                         options.add(option);
                         continue;
@@ -487,6 +488,21 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
             }
         }
         return ImmutableSet.copyOf(filtersFromConstExprs);
+    }
+
+    private Expression foldUnionConstantExpr(Expression expression) {
+        Expression folded = FoldConstantRuleOnFE.evaluate(expression, rewriteContext);
+        if (folded instanceof Literal) {
+            return folded;
+        }
+        if (expression instanceof Cast && expression.child(0) instanceof Literal) {
+            try {
+                return ((Literal) expression.child(0)).checkedCastTo(expression.getDataType());
+            } catch (AnalysisException e) {
+                return folded;
+            }
+        }
+        return folded;
     }
 
     private Expression generateEqual(NamedExpression expr) {
