@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <cassert>
 #include <string_view>
+#include <vector>
 
 #include "common/cast_set.h"
 // IWYU pragma: keep
@@ -46,6 +47,7 @@ std::optional<ParseResult> JSONDataParser<ParserImpl>::parse(const char* begin, 
     // deprecated_enable_flatten_nested controls nested path traversal
     // NestedGroup expansion is now handled at storage layer
     context.deprecated_enable_flatten_nested = config.deprecated_enable_flatten_nested;
+    context.check_duplicate_json_path = config.check_duplicate_json_path;
     context.is_top_array = document.isArray();
     traverse(document, context);
     ParseResult result;
@@ -72,25 +74,39 @@ void JSONDataParser<ParserImpl>::traverse(const Element& element, ParseContext& 
             // Parse nested arrays to JsonbField
             JsonbWriter writer;
             traverseArrayAsJsonb(element.getArray(), writer);
-            ctx.paths.push_back(ctx.builder.get_parts());
-            ctx.values.push_back(Field::create_field<TYPE_JSONB>(
-                    JsonbField(writer.getOutput()->getBuffer(), writer.getOutput()->getSize())));
+            appendValueIfNotDuplicate(
+                    ctx, ctx.builder.get_parts(),
+                    Field::create_field<TYPE_JSONB>(JsonbField(writer.getOutput()->getBuffer(),
+                                                               writer.getOutput()->getSize())));
         } else {
             traverseArray(element.getArray(), ctx);
         }
         // we should set has_nested_in_flatten to false when traverse array finished for next array otherwise it will be true for next array
         ctx.has_nested_in_flatten = false;
     } else {
-        ctx.paths.push_back(ctx.builder.get_parts());
-        ctx.values.push_back(getValueAsField(element));
+        appendValueIfNotDuplicate(ctx, ctx.builder.get_parts(), getValueAsField(element));
     }
 }
+
+template <typename ParserImpl>
+void JSONDataParser<ParserImpl>::appendValueIfNotDuplicate(ParseContext& ctx,
+                                                           const PathInData::Parts& path,
+                                                           Field&& value) {
+    if (ctx.check_duplicate_json_path) {
+        PathInData path_in_data(path);
+        if (!ctx.visited_path_names.emplace(path_in_data.get_path()).second) {
+            return;
+        }
+    }
+    ctx.paths.push_back(path);
+    ctx.values.push_back(std::move(value));
+}
+
 template <typename ParserImpl>
 void JSONDataParser<ParserImpl>::traverseObject(const JSONObject& object, ParseContext& ctx) {
     ctx.paths.reserve(ctx.paths.size() + object.size());
     ctx.values.reserve(ctx.values.size() + object.size());
-    for (auto it = object.begin(); it != object.end(); ++it) {
-        const auto& [key, value] = *it;
+    auto check_key_length = [](const auto& key) {
         const size_t max_key_length = cast_set<size_t>(config::variant_max_json_key_length);
         if (key.size() > max_key_length) {
             throw doris::Exception(
@@ -98,9 +114,17 @@ void JSONDataParser<ParserImpl>::traverseObject(const JSONObject& object, ParseC
                     fmt::format("Key length exceeds maximum allowed size of {} bytes.",
                                 max_key_length));
         }
+    };
+    auto traverse_object_member = [&](const auto& key, const auto& value) {
+        check_key_length(key);
         ctx.builder.append(key, false);
         traverse(value, ctx);
         ctx.builder.pop_back();
+    };
+
+    for (auto it = object.begin(); it != object.end(); ++it) {
+        const auto& [key, value] = *it;
+        traverse_object_member(key, value);
     }
 }
 
@@ -176,6 +200,7 @@ void JSONDataParser<ParserImpl>::traverseArray(const JSONArray& array, ParseCont
     ParseArrayContext array_ctx;
     array_ctx.has_nested_in_flatten = ctx.has_nested_in_flatten;
     array_ctx.is_top_array = ctx.is_top_array;
+    array_ctx.check_duplicate_json_path = ctx.check_duplicate_json_path;
     array_ctx.total_size = array.size();
     for (auto it = array.begin(); it != array.end(); ++it) {
         traverseArrayElement(*it, array_ctx);
@@ -183,16 +208,17 @@ void JSONDataParser<ParserImpl>::traverseArray(const JSONArray& array, ParseCont
     }
     auto&& arrays_by_path = array_ctx.arrays_by_path;
     if (arrays_by_path.empty()) {
-        ctx.paths.push_back(ctx.builder.get_parts());
-        ctx.values.push_back(Field::create_field<TYPE_ARRAY>(Array()));
+        appendValueIfNotDuplicate(ctx, ctx.builder.get_parts(),
+                                  Field::create_field<TYPE_ARRAY>(Array()));
     } else {
         ctx.paths.reserve(ctx.paths.size() + arrays_by_path.size());
         ctx.values.reserve(ctx.values.size() + arrays_by_path.size());
         for (auto it = arrays_by_path.begin(); it != arrays_by_path.end(); ++it) {
             auto&& [path, path_array] = it->second;
             /// Merge prefix path and path of array element.
-            ctx.paths.push_back(ctx.builder.append(path, true).get_parts());
-            ctx.values.push_back(Field::create_field<TYPE_ARRAY>(std::move(path_array)));
+            ctx.builder.append(path, true);
+            appendValueIfNotDuplicate(ctx, ctx.builder.get_parts(),
+                                      Field::create_field<TYPE_ARRAY>(std::move(path_array)));
             ctx.builder.pop_back(path.size());
         }
     }
@@ -204,10 +230,12 @@ void JSONDataParser<ParserImpl>::traverseArrayElement(const Element& element,
     ParseContext element_ctx;
     element_ctx.has_nested_in_flatten = ctx.has_nested_in_flatten;
     element_ctx.is_top_array = ctx.is_top_array;
+    element_ctx.check_duplicate_json_path = ctx.check_duplicate_json_path;
     traverse(element, element_ctx);
-    auto& [_, paths, values, deprecated_flatten_nested, __, is_top_array] = element_ctx;
+    auto& paths = element_ctx.paths;
+    auto& values = element_ctx.values;
 
-    if (element_ctx.has_nested_in_flatten && is_top_array) {
+    if (element_ctx.has_nested_in_flatten && element_ctx.is_top_array) {
         checkAmbiguousStructure(ctx, paths);
     }
 
