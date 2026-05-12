@@ -456,9 +456,15 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
             Expression compareExpr = union.getOutput().get(col);
             Set<Expression> options = new LinkedHashSet<>();
             for (List<NamedExpression> constExpr : constExprs) {
-                if (constExpr.get(col) instanceof Alias
-                        && ((Alias) constExpr.get(col)).child() instanceof Literal) {
-                    options.add(((Alias) constExpr.get(col)).child());
+                if (constExpr.get(col) instanceof Alias) {
+                    Expression option = FoldConstantRuleOnFE.evaluate(((Alias) constExpr.get(col)).child(),
+                            rewriteContext);
+                    if (option instanceof Literal) {
+                        options.add(option);
+                        continue;
+                    }
+                    options.clear();
+                    break;
                 } else {
                     options.clear();
                     break;
