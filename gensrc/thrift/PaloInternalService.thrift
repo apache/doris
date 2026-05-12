@@ -471,7 +471,6 @@ struct TQueryOptions {
   // session variable `spill_repartition_max_depth` in FE. Default is 8.
   209: optional i32 spill_repartition_max_depth = 8
 
-
   210: optional double max_scan_mem_ratio = 0.3;
   211: optional bool enable_adaptive_scan = false;
 
@@ -488,6 +487,10 @@ struct TQueryOptions {
   // Adaptive batch size: target output block size in bytes. Valid range [1MB, 512MB].
   // Default 8MB. Sent by FE session variable preferred_block_size_bytes.
   218: optional i64 preferred_block_size_bytes = 8388608
+
+  // enable plan local exchange node in fe
+  219: optional bool enable_local_shuffle_planner;
+
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.

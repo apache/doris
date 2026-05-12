@@ -27,7 +27,13 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.planner.normalize.Normalizer;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TAggregationNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
@@ -239,12 +245,16 @@ public class AggregationNode extends PlanNode {
 
     // If `GroupingExprs` is empty and agg need to finalize, the result must be output by single instance
     @Override
-    public boolean isSerialOperator() {
+    public boolean isSerialNode() {
         return aggInfo.getGroupingExprs().isEmpty() && needsFinalize;
     }
 
     public void setColocate(boolean colocate) {
         isColocate = colocate;
+    }
+
+    public boolean isColocate() {
+        return isColocate;
     }
 
     public void setSortByGroupKey(SortInfo sortByGroupKey) {
@@ -257,5 +267,98 @@ public class AggregationNode extends PlanNode {
 
     public void setQueryCacheCandidate(boolean queryCacheCandidate) {
         this.queryCacheCandidate = queryCacheCandidate;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
+            PlanTranslatorContext translatorContext, PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+
+        ConnectContext connectContext = translatorContext.getConnectContext();
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+
+        LocalExchangeTypeRequire requireChild;
+        if (canUseDistinctStreamingAgg(sessionVariable)) {
+            // DistinctStreamingAggOperatorX in BE
+            if (needsFinalize || (!aggInfo.getGroupingExprs().isEmpty() && !useStreamingPreagg)) {
+                if (AddLocalExchange.isColocated(this)) {
+                    requireChild = LocalExchangeTypeRequire.requireHash();
+                } else {
+                    requireChild = parentRequire.autoRequireHash();
+                }
+            } else if (sessionVariable.enableDistinctStreamingAggForcePassthrough) {
+                requireChild = LocalExchangeTypeRequire.requirePassthrough();
+            } else if (children.get(0).isSerialOperatorOnBe(connectContext)) {
+                // BE base class: _child->is_serial_operator() ? PASSTHROUGH : NOOP
+                requireChild = LocalExchangeTypeRequire.requirePassthrough();
+            } else {
+                requireChild = LocalExchangeTypeRequire.noRequire();
+            }
+        } else if (useStreamingPreagg) {
+            // StreamingAggOperatorX in BE: base class required_data_distribution():
+            //   _child->is_serial_operator() ? PASSTHROUGH : NOOP
+            // Special: directly above HashJoin probe with force-passthrough → PASSTHROUGH.
+            if (children.get(0) instanceof HashJoinNode
+                    && sessionVariable.enableStreamingAggHashJoinForcePassthrough) {
+                requireChild = LocalExchangeTypeRequire.requirePassthrough();
+            } else if (children.get(0).isSerialOperatorOnBe(connectContext)) {
+                // BE: _child->is_serial_operator() ? PASSTHROUGH : NOOP
+                requireChild = LocalExchangeTypeRequire.requirePassthrough();
+            } else {
+                requireChild = LocalExchangeTypeRequire.noRequire();
+            }
+        } else {
+            // AggSinkOperatorX in BE: required_data_distribution() override
+            if (aggInfo.getGroupingExprs().isEmpty()) {
+                if (needsFinalize) {
+                    // Finalize agg, no group key: NOOP (single serial instance collects all)
+                    requireChild = LocalExchangeTypeRequire.noRequire();
+                } else {
+                    // Serialize agg, no group key: BE → _child->is_serial_operator() ? PT : NOOP
+                    if (children.get(0).isSerialOperatorOnBe(connectContext)) {
+                        requireChild = LocalExchangeTypeRequire.requirePassthrough();
+                    } else {
+                        requireChild = LocalExchangeTypeRequire.noRequire();
+                    }
+                }
+            } else if (AddLocalExchange.isColocated(this)) {
+                // Colocate: BUCKET_HASH_SHUFFLE
+                requireChild = LocalExchangeTypeRequire.requireHash();
+            } else {
+                // Non-colocate, has group key: BE → GLOBAL_HASH
+                // FE uses parentRequire as proxy (no full need_to_local_exchange equivalent)
+                if (!needsFinalize
+                        && sessionVariable.getShuffledAggNodeIds().contains(this.getId().asInt())) {
+                    requireChild = LocalExchangeTypeRequire.requireHash();
+                } else if (hasPartitionExprs(parentRequire)) {
+                    requireChild = parentRequire.autoRequireHash();
+                } else {
+                    requireChild = LocalExchangeTypeRequire.noRequire();
+                }
+            }
+        }
+
+        Pair<PlanNode, LocalExchangeType> enforceResult
+                = enforceRequire(translatorContext, children.get(0), 0, requireChild);
+        children = Lists.newArrayList(enforceResult.first);
+        return Pair.of(this, enforceResult.second);
+    }
+
+    @Override
+    protected List<Expr> getSemanticPartitionExprs() {
+        return aggInfo.getGroupingExprs();
+    }
+
+    private boolean canUseDistinctStreamingAgg(SessionVariable sessionVariable) {
+        return aggInfo.getAggregateExprs().isEmpty() && sortByGroupKey == null
+                && sessionVariable.enableDistinctStreamingAggregation;
+    }
+
+    @Override
+    protected boolean shouldResetSerialFlagForChild(int childIndex) {
+        // Non-streaming AGG is a pipeline breaker: child is in AGG_Sink pipeline,
+        // parent is in AGG_Source pipeline. Reset inherited serial flag from parent
+        // (different pipeline), but enforceRequire still adds this node's own
+        // isSerialNode() so the child sees AGG_Sink's serial status correctly.
+        return !useStreamingPreagg;
     }
 }

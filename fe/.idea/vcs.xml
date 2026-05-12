@@ -12,6 +12,11 @@
   </component>
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$/.." vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../.github/actions/action-pr-title" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../.github/actions/ccache-action" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../.github/actions/get-workflow-origin" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../.github/actions/label-when-approved-action" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../.github/actions/paths-filter" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/../contrib/apache-orc" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/../contrib/clucene" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/../contrib/faiss" vcs="Git" />

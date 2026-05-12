@@ -37,6 +37,9 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.planner.normalize.ExprNormalizeVisitor;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.qe.ConnectContext;
@@ -142,7 +145,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
 
     protected int nereidsId = -1;
 
-    private List<List<Expr>> childrenDistributeExprLists = new ArrayList<>();
+    protected List<List<Expr>> childrenDistributeExprLists = new ArrayList<>();
+    protected List<Expr> distributeExprLists = new ArrayList<>();
 
     protected PlanNode(PlanNodeId id, List<TupleId> tupleIds, String planNodeName) {
         this.id = id;
@@ -467,7 +471,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         TPlanNode msg = new TPlanNode();
         msg.node_id = id.asInt();
         msg.setNereidsId(nereidsId);
-        msg.setIsSerialOperator(isSerialOperator() && fragment.useSerialSource(ConnectContext.get()));
+        msg.setIsSerialOperator(isSerialOperatorOnBe(ConnectContext.get()));
         msg.num_children = children.size();
         msg.limit = limit;
         for (TupleId tid : tupleIds) {
@@ -825,13 +829,20 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
     }
 
     // Operators need to be executed serially. (e.g. finalized agg without key)
-    public boolean isSerialOperator() {
+    public boolean isSerialNode() {
         return false;
+    }
+
+    // Whether this node will have is_serial_operator=true on BE.
+    // Must match the condition in toThrift()/treeToThriftHelper().
+    // Subclasses (ExchangeNode) override to add hasSerialScanNode().
+    public boolean isSerialOperatorOnBe(ConnectContext context) {
+        return fragment != null && isSerialNode() && fragment.useSerialSource(context);
     }
 
     public boolean hasSerialChildren() {
         if (children.isEmpty()) {
-            return isSerialOperator();
+            return isSerialNode();
         }
         return children.stream().allMatch(PlanNode::hasSerialChildren);
     }
@@ -932,5 +943,167 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
             mergeDisplayAccessPaths.add(StringUtils.join(mergedPath, "."));
         }
         return StringUtils.join(mergeDisplayAccessPaths, ", ");
+    }
+
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
+            PlanTranslatorContext translatorContext, PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+        ArrayList<PlanNode> newChildren = Lists.newArrayList();
+        for (int i = 0; i < children.size(); i++) {
+            Pair<PlanNode, LocalExchangeType> childOutput
+                    = enforceRequire(translatorContext, children.get(i), i, LocalExchangeTypeRequire.noRequire());
+            newChildren.add(childOutput.first);
+        }
+        this.children = newChildren;
+        return Pair.of(this, LocalExchangeType.NOOP);
+    }
+
+    /**
+     * Unified framework method: propagate serial flag → recurse child → satisfy check → Layer 1 skip → insert LE.
+     * Replaces the old enforceChild/enforceChildExchange/forceEnforceChildExchange trio.
+     *
+     * Layer 1 (shouldSkipLE): mirrors BE's need_to_local_exchange — skip when this node or
+     * an ancestor in the same pipeline is serial (operators[idx..end] has serial → skip).
+     * Layer 2 (require/output): each Node declares require and output in enforceAndDeriveLocalExchange.
+     */
+    protected Pair<PlanNode, LocalExchangeType> enforceRequire(
+            PlanTranslatorContext translatorContext, PlanNode child, int childIndex,
+            LocalExchangeTypeRequire require) {
+        // 1. Propagate serial-ancestor flag to child.
+        // For pipeline-splitting operators (shouldReset=true, e.g. non-streaming AGG):
+        //   Drop inherited serial flag from parent (parent is in a different pipeline),
+        //   but keep this node's own serial status (child is in the same pipeline as this
+        //   node's sink, e.g. Exchange is in AGG_Sink pipeline).
+        // For non-splitting operators (shouldReset=false, e.g. streaming AGG):
+        //   Inherit parent's serial flag + this node's own.
+        boolean inheritedSerial = shouldResetSerialFlagForChild(childIndex)
+                ? false : translatorContext.hasSerialAncestorInPipeline(this);
+        boolean childHasSerialAncestor = inheritedSerial || isSerialNode();
+        translatorContext.setHasSerialAncestorInPipeline(child, childHasSerialAncestor);
+
+        // 2. Recurse child (Layer 2: child declares its own require/output)
+        Pair<PlanNode, LocalExchangeType> childOutput =
+                child.enforceAndDeriveLocalExchange(translatorContext, this, require);
+
+        // 2.5. Serial child override: if child is serial on BE, force output to NOOP.
+        //      This ensures the framework handles LE insertion uniformly — child nodes
+        //      don't need to check serial status themselves.  The serial child's actual
+        //      distribution is irrelevant because it runs with 1 task; downstream needs
+        //      LE to restore parallelism (step 3) or skip LE entirely (step 4b).
+        if (childOutput.first.isSerialOperatorOnBe(translatorContext.getConnectContext())) {
+            childOutput = Pair.of(childOutput.first, LocalExchangeType.NOOP);
+        }
+
+        // 3. Framework-level serial child check (mirrors BE base class required_data_distribution):
+        //    If child will be serial on BE but this node is not serial, the pipeline has a
+        //    1-task serial child feeding an N-task non-serial parent. Without LE, pipeline
+        //    splits (AGG/JOIN) create paired pipelines with mismatched num_tasks → crash.
+        //    Upgrade noRequire to requirePassthrough so LE is inserted to restore parallelism.
+        if (require instanceof LocalExchangeNode.NoRequire
+                && childOutput.first.isSerialOperatorOnBe(translatorContext.getConnectContext())
+                && !isSerialOperatorOnBe(translatorContext.getConnectContext())) {
+            require = LocalExchangeTypeRequire.requirePassthrough();
+        }
+
+        // 4. Satisfy check: child output meets requirement → done
+        if (require.satisfy(childOutput.second)) {
+            return childOutput;
+        }
+
+        // 4. Layer 1: skip LE when serial operator or ancestor in same pipeline
+        // Equivalent to BE's need_to_local_exchange: any_of(operators[idx..end], is_serial) → skip
+        if (translatorContext.hasSerialAncestorInPipeline(this) || isSerialNode()) {
+            return childOutput;
+        }
+
+        // 5. Resolve exchange type and create LE node
+        LocalExchangeType preferType = AddLocalExchange.resolveExchangeType(
+                require, translatorContext, this, childOutput.first);
+        List<Expr> distributeExprs = getChildDistributeExprList(childIndex);
+        PlanNode leNode = createLocalExchange(translatorContext, childOutput.first, preferType, distributeExprs);
+        return Pair.of(leNode, preferType);
+    }
+
+    /**
+     * Create a LocalExchangeNode wrapping child with the given exchange type.
+     * No child-type skip — matches BE's _add_local_exchange which inserts LE for any child
+     * type without checking instanceof.
+     *
+     * Handles heavy-ops bottleneck avoidance (mirrors BE pipeline_fragment_context.cpp):
+     * when upstream has 1 task (serial source) and exchange is heavy (hash/bucket/adaptive),
+     * insert a PASSTHROUGH fan-out first to avoid single-task bottleneck on the heavy
+     * exchange sink. Only applies to local-shuffle (pooling scan) fragments.
+     */
+    protected PlanNode createLocalExchange(PlanTranslatorContext translatorContext,
+            PlanNode child, LocalExchangeType exchangeType, List<Expr> distributeExprs) {
+        if (fragment != null && fragment.useSerialSource(translatorContext.getConnectContext())
+                && exchangeType.isHeavyOperation() && child.isSerialNode()) {
+            PlanNode ptNode = new LocalExchangeNode(translatorContext.nextPlanNodeId(),
+                    child, LocalExchangeType.PASSTHROUGH, null);
+            return new LocalExchangeNode(translatorContext.nextPlanNodeId(), ptNode,
+                    exchangeType, distributeExprs);
+        }
+        return new LocalExchangeNode(translatorContext.nextPlanNodeId(), child,
+                exchangeType, distributeExprs);
+    }
+
+    /**
+     * Whether the child at {@code childIndex} starts a new pipeline context, causing
+     * its serial-ancestor flag to be reset to {@code false} rather than inherited from this node.
+     * Override to return {@code true} for pipeline-splitting nodes (LocalExchangeNode) and nodes
+     * whose children run in an independent pipeline segment (SortNode above analytic, etc.).
+     */
+    protected boolean shouldResetSerialFlagForChild(int childIndex) {
+        return false;
+    }
+
+    protected List<Expr> getChildDistributeExprList(int childIndex) {
+        if ((childrenDistributeExprLists == null || childrenDistributeExprLists.size() <= childIndex)) {
+            return null;
+        } else {
+            return childrenDistributeExprLists.get(childIndex);
+        }
+    }
+
+    /**
+     * Returns the operator's own semantically-defined partition expressions
+     * (e.g. GROUP BY exprs for aggregation, PARTITION BY exprs for analytic).
+     * Corresponds to BE's fallback path: tnode.agg_node.grouping_exprs /
+     * tnode.analytic_node.partition_exprs when _followed_by_shuffled_operator=false.
+     * Override in subclasses that have intrinsic partition keys.
+     */
+    protected List<Expr> getSemanticPartitionExprs() {
+        return null;
+    }
+
+    /**
+     * Returns true if there are effective (non-empty) partition expressions,
+     * mirroring BE's _partition_exprs logic:
+     *   _followed_by_shuffled_operator=true  → distribute_expr_lists[0] (child distribute key)
+     *   _followed_by_shuffled_operator=false → semantic partition exprs (grouping / partition by)
+     * parentRequire.preferType().isHashShuffle() corresponds to _followed_by_shuffled_operator=true.
+     */
+    protected boolean hasPartitionExprs(LocalExchangeTypeRequire parentRequire) {
+        if (parentRequire.preferType().isHashShuffle()) {
+            List<Expr> childExprs = getChildDistributeExprList(0);
+            return childExprs != null && !childExprs.isEmpty();
+        }
+        List<Expr> semanticExprs = getSemanticPartitionExprs();
+        return semanticExprs != null && !semanticExprs.isEmpty();
+    }
+
+    public List<List<Expr>> getChildrenDistributeExprLists() {
+        return childrenDistributeExprLists;
+    }
+
+    public List<Expr> getDistributeExprLists() {
+        return distributeExprLists;
+    }
+
+    public void setDistributeExprLists(List<Expr> distributeExprLists) {
+        if (distributeExprLists == null) {
+            this.distributeExprLists = Collections.emptyList();
+        } else {
+            this.distributeExprLists = distributeExprLists;
+        }
     }
 }

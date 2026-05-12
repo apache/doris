@@ -109,9 +109,19 @@ public class PlanTranslatorContext {
 
     private final Map<ScanNode, Set<SlotId>> statsUnknownColumnsMap = Maps.newHashMap();
 
+    private final Map<PlanNodeId, Boolean> serialAncestorInPipelineMap = Maps.newHashMap();
+
+    // Whether the current fragment uses LocalShuffleAssignedJob (pooling scan with
+    // ignoreDataDistribution → _parallel_instances=1 in BE). When true, serial operators
+    // indicate real pipeline bottlenecks needing PASSTHROUGH fan-out (heavy_ops).
     private boolean isTopMaterializeNode = true;
 
     private final Set<SlotId> virtualColumnIds = Sets.newHashSet();
+
+    // Used by AddLocalExchange: tracks whether any serial operator exists
+    // between the current node and the pipeline's sink (downstream serial check).
+    // Pipeline-splitting nodes reset this to false; serial non-splitting nodes set it to true.
+    private boolean serialAncestorInCurrentPipeline;
 
     /** PlanTranslatorContext */
     public PlanTranslatorContext(CascadesContext ctx) {
@@ -232,6 +242,14 @@ public class PlanTranslatorContext {
 
     public PlanNodeId nextPlanNodeId() {
         return nodeIdGenerator.getNextId();
+    }
+
+    public void setHasSerialAncestorInPipeline(PlanNode node, boolean hasSerialAncestorInPipeline) {
+        serialAncestorInPipelineMap.put(node.getId(), hasSerialAncestorInPipeline);
+    }
+
+    public boolean hasSerialAncestorInPipeline(PlanNode node) {
+        return serialAncestorInPipelineMap.getOrDefault(node.getId(), false);
     }
 
     public SlotDescriptor addSlotDesc(TupleDescriptor t) {
@@ -372,5 +390,13 @@ public class PlanTranslatorContext {
 
     public Set<SlotId> getVirtualColumnIds() {
         return virtualColumnIds;
+    }
+
+    public boolean hasSerialAncestorInCurrentPipeline() {
+        return serialAncestorInCurrentPipeline;
+    }
+
+    public void setSerialAncestorInCurrentPipeline(boolean serialAncestorInCurrentPipeline) {
+        this.serialAncestorInCurrentPipeline = serialAncestorInCurrentPipeline;
     }
 }

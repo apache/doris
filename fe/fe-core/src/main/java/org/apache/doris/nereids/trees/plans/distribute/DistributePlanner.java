@@ -257,7 +257,8 @@ public class DistributePlanner {
         AssignedJob[] instances = new AssignedJob[bucketNum];
         for (AssignedJob instanceJob : unsorted) {
             BucketScanSource bucketScanSource = (BucketScanSource) instanceJob.getScanSource();
-            for (Integer bucketIndex : bucketScanSource.bucketIndexToScanNodeToTablets.keySet()) {
+            Iterable<Integer> bucketIndices = bucketScanSource.bucketIndexToScanNodeToTablets.keySet();
+            for (Integer bucketIndex : bucketIndices) {
                 if (instances[bucketIndex] != null) {
                     throw new IllegalStateException(
                             "Multi instances scan same buckets: " + instances[bucketIndex] + " and " + instanceJob

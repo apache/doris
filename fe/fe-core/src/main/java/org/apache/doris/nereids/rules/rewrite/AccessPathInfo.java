@@ -31,6 +31,18 @@ public class AccessPathInfo {
     // (not the char data) is needed — agreed with BE as the special path component name.
     public static final String ACCESS_STRING_OFFSET = "OFFSET";
 
+    // s: map<int, string>
+    // map
+    //   key: int         true
+    //   value: string    true
+    // s.*
+    //
+    //  s: string
+    //     len: int    always true
+    //     body: null  true
+    //
+    // select map_keys(s), map_valeus(s),  length(s), substring(s,
+
     private DataType prunedType;
     // allAccessPaths is used to record all access path include predicate access path and non-predicate access path,
     // and predicateAccessPaths only contains the predicate access path.

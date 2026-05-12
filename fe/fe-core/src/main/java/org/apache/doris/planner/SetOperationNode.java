@@ -22,6 +22,10 @@ import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.thrift.TExceptNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
@@ -37,6 +41,7 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -192,5 +197,49 @@ public abstract class SetOperationNode extends PlanNode {
 
     public boolean isBucketShuffle() {
         return distributionMode.equals(DistributionMode.BUCKET_SHUFFLE);
+    }
+
+    public boolean isColocate() {
+        return isColocate;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(PlanTranslatorContext translatorContext,
+            PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+        LocalExchangeTypeRequire requireChild;
+        LocalExchangeType outputType;
+        PlanNode firstChild = children.isEmpty() ? null : children.get(0);
+        if (this instanceof UnionNode) {
+            // Propagate parent's hash requirement to children when parent requires hash distribution.
+            // Matches BE's UnionSinkOperatorX which returns GLOBAL_HASH(_distribute_exprs) whenever
+            // _followed_by_shuffled_operator=true, regardless of whether _distribute_exprs is empty.
+            boolean canPropagateHash = parentRequire.preferType().isHashShuffle();
+            requireChild = canPropagateHash ? parentRequire : LocalExchangeTypeRequire.noRequire();
+            outputType = canPropagateHash
+                    ? AddLocalExchange.resolveExchangeType(requireChild, translatorContext, this, firstChild)
+                    : LocalExchangeType.NOOP;
+        } else {
+            // Intersect / Except
+            if (AddLocalExchange.isColocated(this)) {
+                requireChild = LocalExchangeTypeRequire.requireBucketHash();
+                outputType = LocalExchangeType.BUCKET_HASH_SHUFFLE;
+            } else {
+                requireChild = parentRequire.autoRequireHash();
+                outputType = AddLocalExchange.resolveExchangeType(
+                        requireChild, translatorContext, this, firstChild);
+            }
+        }
+
+        ArrayList<PlanNode> newChildren = Lists.newArrayList();
+        for (int i = 0; i < children.size(); i++) {
+            newChildren.add(enforceRequire(translatorContext, children.get(i), i, requireChild).first);
+        }
+        this.children = newChildren;
+        return Pair.of(this, outputType);
+    }
+
+    @Override
+    protected boolean shouldResetSerialFlagForChild(int childIndex) {
+        return true;
     }
 }
