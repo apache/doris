@@ -16,7 +16,9 @@
 // under the License.
 
 #include "exprs/aggregate/aggregate_function_datasketches_hll_union_agg.h"
+
 #include <string>
+
 #include "core/data_type/data_type.h"
 #include "core/data_type/define_primitive_type.h"
 #include "exec/common/hash_table/hash.h" // IWYU pragma: keep

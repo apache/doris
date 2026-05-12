@@ -23,6 +23,7 @@
 #include <memory>
 #include <type_traits>
 #include <vector>
+
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "core/assert_cast.h"
 #include "core/column/column.h"
