@@ -898,6 +898,12 @@ class FDB(Node):
     def node_type(self):
         return Node.TYPE_FDB
 
+    def docker_env(self):
+        envs = super().docker_env()
+        for key, value in self.cluster.cloud_store_config.items():
+            envs[key] = value
+        return envs
+
     def expose_sub_dirs(self):
         return super().expose_sub_dirs() + ["data"]
 
