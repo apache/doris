@@ -224,7 +224,7 @@ private:
 class VariantDocCompactWriter : public ColumnWriter {
 public:
     explicit VariantDocCompactWriter(const ColumnWriterOptions& opts, const TabletColumn* column,
-                                     std::unique_ptr<StorageField> field);
+                                     TabletColumnPtr owned_column);
 
     ~VariantDocCompactWriter() override = default;
 

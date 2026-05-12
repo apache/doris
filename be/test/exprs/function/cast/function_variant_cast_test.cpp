@@ -33,7 +33,6 @@
 #include "exprs/function/simple_function_factory.h"
 #include "gtest/gtest_pred_impl.h"
 #include "runtime/runtime_state.h"
-#include "storage/field.h"
 
 namespace doris {
 static doris::Field construct_variant_map(

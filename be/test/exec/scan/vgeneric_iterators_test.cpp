@@ -28,7 +28,6 @@
 #include "core/data_type/data_type.h"
 #include "core/field.h"
 #include "gtest/gtest_pred_impl.h"
-#include "storage/field.h"
 #include "storage/olap_common.h"
 #include "storage/schema.h"
 #include "storage/segment/column_reader.h"

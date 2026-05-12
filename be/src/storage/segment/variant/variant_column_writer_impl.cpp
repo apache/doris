@@ -452,7 +452,6 @@ Status append_sparse_converted_column(const TabletColumn& tablet_column, ColumnW
                                       const DataTypePtr& type, const ColumnPtr& values_column,
                                       const std::vector<uint32_t>& rowids, size_t total_rows) {
     DCHECK_EQ(values_column->size(), rowids.size());
-    const size_t cell_size = writer->get_field()->size();
 
     auto base_type = type;
     if (base_type->is_nullable()) {
@@ -511,6 +510,9 @@ Status append_sparse_converted_column(const TabletColumn& tablet_column, ColumnW
         DCHECK(tablet_column.is_nullable());
         return writer->append_nulls(total_rows);
     }
+
+    // Non-ARRAY scalar path: writer cell is strided by sizeof(CppType).
+    const size_t cell_size = field_type_size(writer->get_column()->type());
 
     converter->add_column_data_convertor(tablet_column);
     RETURN_IF_ERROR(converter->set_source_content_with_specifid_column({values_column, type, ""}, 0,
@@ -1209,8 +1211,7 @@ Status VariantColumnWriterImpl::_process_root_column(ColumnVariant* ptr,
                                                      size_t num_rows, int& column_id) {
     // root column
     _root_writer = std::make_unique<ScalarColumnWriter>(
-            _opts, std::unique_ptr<StorageField>(StorageFieldFactory::create(*_tablet_column)),
-            _opts.file_writer);
+            _opts, std::make_shared<TabletColumn>(*_tablet_column), _opts.file_writer);
     RETURN_IF_ERROR(_root_writer->init());
 
     // make sure the root type
@@ -1609,8 +1610,8 @@ Status VariantColumnWriterImpl::append_nullable(const uint8_t* null_map, const u
 
 VariantSubcolumnWriter::VariantSubcolumnWriter(const ColumnWriterOptions& opts,
                                                const TabletColumn* column,
-                                               std::unique_ptr<StorageField> field)
-        : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta) {
+                                               TabletColumnPtr owned_column)
+        : ColumnWriter(std::move(owned_column), opts.meta->is_nullable(), opts.meta) {
     _tablet_column = column;
     _opts = opts;
     _column = ColumnVariant::create(0, false);
@@ -1735,8 +1736,8 @@ Status VariantSubcolumnWriter::append_nullable(const uint8_t* null_map, const ui
 
 VariantDocCompactWriter::VariantDocCompactWriter(const ColumnWriterOptions& opts,
                                                  const TabletColumn* column,
-                                                 std::unique_ptr<StorageField> field)
-        : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta) {
+                                                 TabletColumnPtr owned_column)
+        : ColumnWriter(std::move(owned_column), opts.meta->is_nullable(), opts.meta) {
     _opts = opts;
     _tablet_column = column;
     _column = ColumnVariant::create(0, false);
