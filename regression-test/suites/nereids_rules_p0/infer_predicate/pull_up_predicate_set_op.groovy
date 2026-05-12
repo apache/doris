@@ -23,6 +23,7 @@ suite("pull_up_predicate_set_op") {
     sql 'set enable_fold_constant_by_be=true'
     sql 'set debug_skip_fold_constant=false'
     sql 'set disable_join_reorder=true'
+    sql 'set enable_decimal256=false'
 
     sql "drop table if exists test_pull_up_predicate_set_op1"
     sql "drop table if exists test_pull_up_predicate_set_op2"

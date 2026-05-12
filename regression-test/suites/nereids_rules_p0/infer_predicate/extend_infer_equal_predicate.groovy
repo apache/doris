@@ -19,6 +19,8 @@ suite("extend_infer_equal_predicate") {
     sql """SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"""
     sql 'set runtime_filter_mode=off'
     sql 'set disable_join_reorder=true'
+    sql 'set enable_decimal256=false'
+
 
     sql """
     drop table if exists extend_infer_t1;
