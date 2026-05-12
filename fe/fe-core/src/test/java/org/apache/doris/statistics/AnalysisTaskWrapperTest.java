@@ -17,50 +17,65 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 
-import mockit.Mock;
-import mockit.MockUp;
-import org.junit.Assert;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 public class AnalysisTaskWrapperTest {
 
     @Test
     public void testOOMErrorMessageReplacement() throws Exception {
-        AnalysisTaskExecutor executor = new AnalysisTaskExecutor(1);
         AnalysisInfo info = new AnalysisInfoBuilder().setScheduleType(ScheduleType.ONCE).build();
+        AnalysisJob mockJob = Mockito.mock(AnalysisJob.class);
 
-        BaseAnalysisTask task = new BaseAnalysisTask(info) {
+        BaseAnalysisTask task = new BaseAnalysisTask() {
+            {
+                this.info = info;
+                this.job = mockJob;
+            }
+
+            @Override
+            public void execute() throws Exception {
+                doExecute();
+            }
+
             @Override
             public void doExecute() throws Exception {
                 throw new Exception("(172.16.0.90)[MEM_LIMIT_EXCEEDED]PreCatch error code:11, "
                         + "[E11] Allocator mem tracker check failed... can `set exec_mem_limit` to change limit, "
                         + "details see be.INFO.");
             }
-        };
 
-        AnalysisJob mockJob = Mockito.mock(AnalysisJob.class);
-        task.job = mockJob;
+            @Override
+            protected void doSample() {
+            }
 
-        AnalysisTaskWrapper wrapper = new AnalysisTaskWrapper(executor, task);
-
-        new MockUp<MetricRepo>() {
-            @Mock
-            public void init() {
-                // Mock init to prevent NPE
+            @Override
+            protected void deleteNotExistPartitionStats(AnalysisInfo jobInfo) throws DdlException {
             }
         };
-        Deencapsulation.setField(MetricRepo.class, "isInit", true);
-        Deencapsulation.setField(MetricRepo.class, "COUNTER_STATISTICS_FAILED_ANALYZE_TASK", new LongCounterMetric("test", "", ""));
-        
-        wrapper.run();
 
-        Mockito.verify(mockJob, Mockito.times(1)).taskFailed(Mockito.eq(task),
-                Mockito.contains("can modify `statistics_sql_mem_limit_in_bytes` to increase limit, "
-                        + "or decrease `huge_table_default_sample_rows` to reduce memory usage, "
-                        + "or use `statistics_max_string_column_length` to skip large string columns"));
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedEnv.when(Env::isCheckpointThread).thenReturn(true);
+            AnalysisTaskExecutor executor = new AnalysisTaskExecutor(1);
+            AnalysisTaskWrapper wrapper = new AnalysisTaskWrapper(executor, task);
+
+            wrapper.run();
+        }
+
+        ArgumentCaptor<String> msgCaptor = ArgumentCaptor.forClass(String.class);
+        Mockito.verify(mockJob).taskFailed(Mockito.eq(task), msgCaptor.capture());
+        String errorMsg = msgCaptor.getValue();
+        Mockito.verifyNoMoreInteractions(mockJob);
+        org.junit.jupiter.api.Assertions.assertTrue(errorMsg.contains("can `set exec_mem_limit` to change limit"));
+        org.junit.jupiter.api.Assertions.assertTrue(
+                errorMsg.contains("For statistics analyze, you can increase `statistics_sql_mem_limit_in_bytes`, "
+                        + "decrease `huge_table_default_sample_rows`, "
+                        + "or use `statistics_max_string_column_length` to skip large string columns."));
     }
 }
