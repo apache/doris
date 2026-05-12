@@ -260,65 +260,19 @@ bool glob_match_re2(const std::string& glob_pattern, const std::string& candidat
     return RE2::FullMatch(candidate_path, *compiled);
 }
 
-bool is_regular_ng_compaction_subpath(const PathInData& path) {
+// NestedGroup's physical children and offsets are produced by NestedGroupWriteProvider, not by
+// appending TabletSchema extracted columns here. This predicate keeps only ordinary Variant paths
+// that are outside the NG tree, for example `v.owner` beside `v.items[*]`.
+bool is_regular_path_outside_nested_group(const PathInData& path) {
     const std::string& relative_path = path.get_path();
-    return !relative_path.empty() && !path.has_nested_part() &&
+    return !relative_path.empty() && !path.get_is_typed() && !path.has_nested_part() &&
            !segment_v2::contains_nested_group_marker(relative_path) &&
            !segment_v2::is_root_nested_group_path(relative_path) &&
            relative_path != SPARSE_COLUMN_PATH &&
            relative_path.find(DOC_VALUE_COLUMN_PATH) == std::string::npos;
 }
 
-bool should_keep_existing_ng_compaction_subcolumn(const TabletColumn& column) {
-    if (!column.is_extracted_column()) {
-        return false;
-    }
-    return is_regular_ng_compaction_subpath(column.path_info_ptr()->copy_pop_front());
-}
-
-TabletIndexes clone_tablet_indexes(const std::vector<const TabletIndex*>& indexes) {
-    TabletIndexes cloned_indexes;
-    cloned_indexes.reserve(indexes.size());
-    for (const auto* index : indexes) {
-        cloned_indexes.emplace_back(std::make_shared<TabletIndex>(*index));
-    }
-    return cloned_indexes;
-}
-
-void keep_existing_ng_compaction_subcolumn(const TabletSchemaSPtr& source_schema,
-                                           const TabletColumnPtr& extracted_column,
-                                           TabletSchemaSPtr& output_schema,
-                                           TabletSchema::PathsSetInfo& paths_set_info) {
-    DCHECK(extracted_column->is_extracted_column());
-    DCHECK(should_keep_existing_ng_compaction_subcolumn(*extracted_column));
-
-    auto relative_path = extracted_column->path_info_ptr()->copy_pop_front();
-    const std::string path = relative_path.get_path();
-    output_schema->append_column(*extracted_column);
-
-    auto indexes = clone_tablet_indexes(source_schema->inverted_indexs(*extracted_column));
-    if (extracted_column->path_info_ptr()->get_is_typed()) {
-        TabletSchema::SubColumnInfo sub_column_info {.column = *extracted_column,
-                                                     .indexes = std::move(indexes)};
-        paths_set_info.typed_path_set.emplace(path, std::move(sub_column_info));
-        return;
-    }
-
-    paths_set_info.sub_path_set.emplace(path);
-    if (!indexes.empty()) {
-        paths_set_info.subcolumn_indexes.emplace(path, std::move(indexes));
-    }
-}
-
-using ExistingNgCompactionSubcolumns = std::unordered_map<int32_t, std::vector<TabletColumnPtr>>;
-
-struct NestedGroupCompactionMaterializationPlan {
-    std::vector<TabletColumnPtr> preserved_regular_subcolumns;
-    std::unordered_set<PathInData, PathInData::Hash> materialized_regular_paths;
-    PathToDataTypes additional_regular_path_to_data_types;
-};
-
-bool should_preserve_existing_ng_compaction_subcolumns(
+bool should_materialize_nested_group_regular_subcolumns(
         const TabletColumnPtr& column,
         const std::unordered_map<int32_t, VariantExtendedInfo>& uid_to_variant_extended_info) {
     const auto info_it = uid_to_variant_extended_info.find(column->unique_id());
@@ -326,12 +280,12 @@ bool should_preserve_existing_ng_compaction_subcolumns(
            (info_it != uid_to_variant_extended_info.end() && info_it->second.has_nested_group);
 }
 
-std::unordered_set<int32_t> collect_ng_compaction_root_uids(
+std::unordered_set<int32_t> collect_nested_group_compaction_root_uids(
         const TabletSchemaSPtr& target,
         const std::unordered_map<int32_t, VariantExtendedInfo>& uid_to_variant_extended_info) {
     std::unordered_set<int32_t> root_uids;
     for (const TabletColumnPtr& column : target->columns()) {
-        if (column->is_variant_type() && should_preserve_existing_ng_compaction_subcolumns(
+        if (column->is_variant_type() && should_materialize_nested_group_regular_subcolumns(
                                                  column, uid_to_variant_extended_info)) {
             root_uids.insert(column->unique_id());
         }
@@ -339,50 +293,16 @@ std::unordered_set<int32_t> collect_ng_compaction_root_uids(
     return root_uids;
 }
 
-ExistingNgCompactionSubcolumns collect_existing_ng_compaction_subcolumns(
-        const TabletSchemaSPtr& target, const std::unordered_set<int32_t>& ng_root_uids) {
-    ExistingNgCompactionSubcolumns uid_to_existing_subcolumns;
-    for (const TabletColumnPtr& column : target->columns()) {
-        if (!column->is_extracted_column() || !ng_root_uids.contains(column->parent_unique_id()) ||
-            !should_keep_existing_ng_compaction_subcolumn(*column)) {
-            continue;
-        }
-        uid_to_existing_subcolumns[column->parent_unique_id()].push_back(column);
-    }
-    return uid_to_existing_subcolumns;
-}
-
-NestedGroupCompactionMaterializationPlan build_nested_group_compaction_materialization_plan(
-        const std::vector<TabletColumnPtr>& existing_subcolumns,
+PathToDataTypes collect_regular_types_outside_nested_group(
         const VariantExtendedInfo& extended_info) {
-    NestedGroupCompactionMaterializationPlan plan;
-    plan.preserved_regular_subcolumns = existing_subcolumns;
-    for (const auto& column : existing_subcolumns) {
-        plan.materialized_regular_paths.emplace(column->path_info_ptr()->copy_pop_front());
-    }
+    PathToDataTypes regular_path_to_data_types;
     for (const auto& [path, data_types] : extended_info.path_to_data_types) {
-        if (!is_regular_ng_compaction_subpath(path) ||
-            plan.materialized_regular_paths.contains(path)) {
+        if (!is_regular_path_outside_nested_group(path)) {
             continue;
         }
-        plan.materialized_regular_paths.emplace(path);
-        plan.additional_regular_path_to_data_types.emplace(path, data_types);
+        regular_path_to_data_types.emplace(path, data_types);
     }
-    return plan;
-}
-
-void append_nested_group_compaction_columns(const TabletSchemaSPtr& target,
-                                            const TabletColumnPtr& column,
-                                            const NestedGroupCompactionMaterializationPlan& plan,
-                                            TabletSchemaSPtr& output_schema,
-                                            TabletSchema::PathsSetInfo& paths_set_info) {
-    for (const auto& existing_column : plan.preserved_regular_subcolumns) {
-        keep_existing_ng_compaction_subcolumn(target, existing_column, output_schema,
-                                              paths_set_info);
-    }
-    VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
-            paths_set_info, column, target, plan.additional_regular_path_to_data_types,
-            output_schema);
+    return regular_path_to_data_types;
 }
 
 size_t get_number_of_dimensions(const IDataType& type) {
@@ -1302,13 +1222,15 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
         TabletSchemaSPtr& output_schema) {
     const auto& parent_indexes = target->inverted_indexs(parent_column->unique_id());
     for (const auto& [path, data_types] : path_to_data_types) {
-        if (data_types.empty() || path.empty() || path.has_nested_part()) {
+        // Typed paths are materialized by get_compaction_typed_columns(); this helper only
+        // materializes regular subcolumns inferred from rowset data types.
+        if (data_types.empty() || path.empty() || path.get_is_typed() || path.has_nested_part()) {
             continue;
         }
         DataTypePtr data_type;
         get_least_supertype_jsonb(data_types, &data_type);
         auto column_name = parent_column->name_lower_case() + "." + path.get_path();
-        auto column_path = PathInData(column_name, path.get_is_typed());
+        auto column_path = PathInData(column_name);
         TabletColumn sub_column =
                 get_column_by_type(data_type, column_name,
                                    ExtraInfo {.unique_id = -1,
@@ -1317,35 +1239,28 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
         inherit_column_attributes(*parent_column, sub_column);
         TabletIndexes sub_column_indexes;
         inherit_index(parent_indexes, sub_column_indexes, sub_column);
-        if (path.get_is_typed()) {
-            TabletSchema::SubColumnInfo sub_column_info {.column = sub_column,
-                                                         .indexes = std::move(sub_column_indexes)};
-            paths_set_info.typed_path_set.emplace(path.get_path(), std::move(sub_column_info));
-        } else {
-            paths_set_info.subcolumn_indexes.emplace(path.get_path(),
-                                                     std::move(sub_column_indexes));
-        }
+        paths_set_info.sub_path_set.emplace(path.get_path());
+        paths_set_info.subcolumn_indexes.emplace(path.get_path(), std::move(sub_column_indexes));
         output_schema->append_column(sub_column);
         VLOG_DEBUG << "append sub column " << path.get_path() << " data type "
                    << data_type->get_name();
     }
 }
 
-// Build the temporary schema for compaction
-// 1. aggregate path stats and data types from all rowsets
-// 2. append typed columns and nested columns to the output schema
-// 3. sort the subpaths and sparse paths for each unique id
-// 4. append the subpaths and sparse paths to the output schema
-// 5. set the path set info for each unique id
-// 6. return the output schema
+// Build the temporary schema for compaction.
+// NestedGroup roots are special: the root VARIANT column owns the NG tree and the streaming NG
+// writer handles NG children, while regular non-NG paths beside the arrays are materialized as
+// ordinary extracted subcolumns. NG typed paths still use get_compaction_typed_columns(), keeping
+// typed-column rules out of the NG-specific regular-path filtering.
 Status VariantCompactionUtil::get_extended_compaction_schema(
         const std::vector<RowsetSharedPtr>& rowsets, TabletSchemaSPtr& target) {
     std::unordered_map<int32_t, VariantExtendedInfo> uid_to_variant_extended_info;
-    const bool has_extendable_variant =
+    const bool needs_variant_extended_info =
             std::ranges::any_of(target->columns(), [](const TabletColumnPtr& column) {
-                return column->is_variant_type() && should_check_variant_path_stats(*column);
+                return column->is_variant_type() && (should_check_variant_path_stats(*column) ||
+                                                     column->variant_enable_nested_group());
             });
-    if (has_extendable_variant) {
+    if (needs_variant_extended_info) {
         // collect path stats from all rowsets and segments
         for (const auto& rs : rowsets) {
             RETURN_IF_ERROR(aggregate_variant_extended_info(rs, &uid_to_variant_extended_info));
@@ -1356,9 +1271,8 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
     TabletSchemaSPtr output_schema = std::make_shared<TabletSchema>();
     output_schema->shawdow_copy_without_columns(*target);
     std::unordered_map<int32_t, TabletSchema::PathsSetInfo> uid_to_paths_set_info;
-    const auto ng_root_uids = collect_ng_compaction_root_uids(target, uid_to_variant_extended_info);
-    const auto uid_to_existing_ng_subcolumns =
-            collect_existing_ng_compaction_subcolumns(target, ng_root_uids);
+    const auto ng_root_uids =
+            collect_nested_group_compaction_root_uids(target, uid_to_variant_extended_info);
     for (const TabletColumnPtr& column : target->columns()) {
         if (!column->is_extracted_column()) {
             output_schema->append_column(*column);
@@ -1374,27 +1288,24 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
                                                            ? empty_extended_info
                                                            : info_it->second;
         auto& paths_set_info = uid_to_paths_set_info[column->unique_id()];
-        if (ng_root_uids.contains(column->unique_id())) {
-            const auto plan = build_nested_group_compaction_materialization_plan(
-                    uid_to_existing_ng_subcolumns.contains(column->unique_id())
-                            ? uid_to_existing_ng_subcolumns.at(column->unique_id())
-                            : std::vector<TabletColumnPtr> {},
-                    extended_info);
-            append_nested_group_compaction_columns(target, column, plan, output_schema,
-                                                   paths_set_info);
+        const bool use_nested_group_compaction_schema = ng_root_uids.contains(column->unique_id());
+
+        if (use_nested_group_compaction_schema) {
+            // 1. append typed columns. Keep this shared with the non-NG typed helper; only the
+            // regular-path selection below is NG-specific.
+            RETURN_IF_ERROR(get_compaction_typed_columns(target, extended_info.typed_paths, column,
+                                                         output_schema, paths_set_info));
+
+            // NG roots do not record path-count stats for ordinary Variant paths, so their regular
+            // non-NG subcolumns use the same data-types materialization helper as the
+            // all-materialized non-NG branch below.
+            auto regular_path_to_data_types =
+                    collect_regular_types_outside_nested_group(extended_info);
+            get_compaction_subcolumns_from_data_types(paths_set_info, column, target,
+                                                      regular_path_to_data_types, output_schema);
             LOG(INFO) << "Variant column uid=" << column->unique_id()
-                      << " keeps nested-group root with regular extracted columns in compaction "
-                         "schema";
-            continue;
-        }
-        if (!should_check_variant_path_stats(*column)) {
-            VLOG_DEBUG << "skip extended schema compaction for variant uid=" << column->unique_id()
-                       << " because the column disables variant path stats";
-            continue;
-        }
-        if (extended_info.has_nested_group) {
-            LOG(INFO) << "Variant column uid=" << column->unique_id()
-                      << " has nested group, keep original column in compaction schema";
+                      << " keeps nested-group root and materializes regular non-NG subcolumns in "
+                         "compaction schema";
             continue;
         }
 
@@ -1413,6 +1324,7 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
         // 1. append typed columns
         RETURN_IF_ERROR(get_compaction_typed_columns(target, extended_info.typed_paths, column,
                                                      output_schema, paths_set_info));
+
         // 2. append nested columns
         RETURN_IF_ERROR(get_compaction_nested_columns(extended_info.nested_paths,
                                                       extended_info.path_to_data_types, column,
