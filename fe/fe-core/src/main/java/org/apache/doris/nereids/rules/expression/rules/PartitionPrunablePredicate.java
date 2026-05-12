@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
-import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
@@ -25,12 +24,13 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
- * Records that, on a specific physical {@link TableIdentifier} restricted to
- * {@link #selectedPartitionIds}, the {@link #prunableConjuncts} are guaranteed
- * to evaluate to TRUE for every surviving row.
+ * Records that, on the scan whose partition list equals {@link
+ * #selectedPartitionIds}, the {@link #prunableConjuncts} are guaranteed to
+ * evaluate to TRUE for every surviving row.
  *
  * <p>The predicate is registered by {@link
  * org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition} but kept in
@@ -41,23 +41,22 @@ import java.util.Set;
  * view-predicate happens to cover the remaining conjuncts after the partition
  * predicate has been silently dropped.
  *
- * <p>Because rewrites between recording and removal may rebuild the scan with
- * fresh slot ids, {@link #snapshotPartitionSlots} captures the slots that
- * appear in the recorded conjuncts. The post-processor maps them onto the
- * actual scan's output slots by column name before performing the conjunct
- * removal.
+ * <p>The predicate lives on the scan itself (see {@code LogicalOlapScan} and
+ * {@code PhysicalOlapScan}) so we no longer need to match it back to its scan
+ * via a table identifier. Because rewrites between recording and removal may
+ * rebuild the scan with fresh slot ids, {@link #snapshotPartitionSlots}
+ * captures the slots that appear in the recorded conjuncts. The post-processor
+ * maps them onto the actual scan's output slots by column name before
+ * performing the conjunct removal.
  */
 public class PartitionPrunablePredicate {
-    private final TableIdentifier tableIdentifier;
     private final Set<Long> selectedPartitionIds;
     private final List<Slot> snapshotPartitionSlots;
     private final Set<Expression> prunableConjuncts;
 
-    public PartitionPrunablePredicate(TableIdentifier tableIdentifier,
-            Set<Long> selectedPartitionIds,
+    public PartitionPrunablePredicate(Set<Long> selectedPartitionIds,
             List<Slot> snapshotPartitionSlots,
             Set<Expression> prunableConjuncts) {
-        this.tableIdentifier = tableIdentifier;
         this.selectedPartitionIds = ImmutableSet.copyOf(selectedPartitionIds);
         this.snapshotPartitionSlots = ImmutableList.copyOf(snapshotPartitionSlots);
         this.prunableConjuncts = ImmutableSet.copyOf(prunableConjuncts);
@@ -72,15 +71,14 @@ public class PartitionPrunablePredicate {
             return false;
         }
         PartitionPrunablePredicate that = (PartitionPrunablePredicate) o;
-        return tableIdentifier.equals(that.tableIdentifier)
-                && selectedPartitionIds.equals(that.selectedPartitionIds)
+        return selectedPartitionIds.equals(that.selectedPartitionIds)
                 && snapshotPartitionSlots.equals(that.snapshotPartitionSlots)
                 && prunableConjuncts.equals(that.prunableConjuncts);
-
     }
 
-    public TableIdentifier getTableIdentifier() {
-        return tableIdentifier;
+    @Override
+    public int hashCode() {
+        return Objects.hash(selectedPartitionIds, snapshotPartitionSlots, prunableConjuncts);
     }
 
     public Set<Long> getSelectedPartitionIds() {

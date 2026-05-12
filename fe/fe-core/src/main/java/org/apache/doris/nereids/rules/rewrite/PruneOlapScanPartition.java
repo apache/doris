@@ -25,7 +25,6 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.Tablet;
-import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
 import org.apache.doris.nereids.pattern.MatchingContext;
@@ -110,15 +109,16 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
                                     prunedRes.second.get());
                             List<Slot> partitionSlots = getPartitionSlots(prunedScan, prunedScan.getTable());
                             if (partitionSlots != null) {
-                                TableIdentifier tableIdentifier = new TableIdentifier(prunedScan.getTable());
                                 PartitionPrunablePredicate entry = new PartitionPrunablePredicate(
-                                        tableIdentifier,
                                         new HashSet<>(prunedScan.getSelectedPartitionIds()),
                                         partitionSlots,
                                         prunableConjuncts);
-                                ctx.statementContext.getPartitionPrunablePredicates()
-                                        .computeIfAbsent(tableIdentifier, k -> new HashSet<>())
-                                        .add(entry);
+                                Set<PartitionPrunablePredicate> merged
+                                        = ImmutableSet.<PartitionPrunablePredicate>builder()
+                                                .addAll(prunedScan.getPartitionPrunablePredicates())
+                                                .add(entry)
+                                                .build();
+                                rewrittenLogicalRelation = prunedScan.withPartitionPrunablePredicates(merged);
                             }
                         }
                         return filter.withChildren(ImmutableList.of(rewrittenLogicalRelation));

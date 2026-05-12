@@ -27,7 +27,6 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
-import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
@@ -43,7 +42,6 @@ import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
-import org.apache.doris.nereids.rules.expression.rules.PartitionPrunablePredicate;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -168,13 +166,6 @@ public class StatementContext implements Closeable {
     private final Map<CTEId, LogicalCTEProducer<? extends Plan>> cteIdToProducer = new HashMap<>();
 
     private final Map<RelationId, Set<Expression>> consumerIdToFilters = new HashMap<>();
-    // Partition-prunable conjuncts recorded by PruneOlapScanPartition. The actual
-    // predicate removal happens later in PrunePartitionPredicate post-processor
-    // so that materialized-view rewrite still sees the original predicates.
-    // Multiple entries may share the same TableIdentifier when the same physical
-    // table is referenced more than once (self-join, CTE expansion, etc.).
-    private final Map<TableIdentifier, Set<PartitionPrunablePredicate>> partitionPrunablePredicates
-            = new HashMap<>();
     // Used to update consumer's stats
     private final Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
     private final Map<CTEId, LogicalPlan> rewrittenCteProducer = new HashMap<>();
@@ -640,10 +631,6 @@ public class StatementContext implements Closeable {
 
     public Map<RelationId, Set<Expression>> getConsumerIdToFilters() {
         return consumerIdToFilters;
-    }
-
-    public Map<TableIdentifier, Set<PartitionPrunablePredicate>> getPartitionPrunablePredicates() {
-        return partitionPrunablePredicates;
     }
 
     public PlaceholderId getNextPlaceholderId() {

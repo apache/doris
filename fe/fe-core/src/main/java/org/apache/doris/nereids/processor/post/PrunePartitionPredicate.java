@@ -21,7 +21,6 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPrunablePredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -49,25 +48,17 @@ import java.util.Set;
  * original predicates; otherwise the MV view-predicate may incorrectly cover
  * the dropped partition predicate and produce extra rows.
  *
- * <p>Matching is keyed by {@link TableIdentifier} (catalog/db/table) plus the
- * surviving partition id set. Because intermediate rewrites can rebuild scans
- * with fresh slot ids, the recorded snapshot slots are remapped onto the
- * actual scan output by column name before each conjunct is rewritten and
- * removed from the filter.
+ * <p>The {@link PartitionPrunablePredicate} entries live directly on the
+ * {@link PhysicalOlapScan} so this processor no longer needs a side-channel
+ * registry keyed by table identifier. Because intermediate rewrites can
+ * rebuild scans with fresh slot ids, the recorded snapshot slots are remapped
+ * onto the actual scan output by column name before each conjunct is rewritten
+ * and removed from the filter. Each recorded entry is only applied when its
+ * recorded partition id set is a superset of the scan's surviving partitions
+ * - otherwise a later partition pruning step would have invalidated the
+ * implication.
  */
 public class PrunePartitionPredicate extends PlanPostProcessor {
-
-    @Override
-    public Plan processRoot(Plan plan, CascadesContext ctx) {
-        boolean skipPrunePredicate = ctx.getConnectContext().getSessionVariable().skipPrunePredicate
-                || ctx.getStatementContext().isDelete();
-        Map<TableIdentifier, Set<PartitionPrunablePredicate>> registry =
-                ctx.getStatementContext().getPartitionPrunablePredicates();
-        if (skipPrunePredicate || registry.isEmpty()) {
-            return plan;
-        }
-        return plan.accept(this, ctx);
-    }
 
     @Override
     public Plan visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, CascadesContext context) {
@@ -76,15 +67,14 @@ public class PrunePartitionPredicate extends PlanPostProcessor {
         if (!(child instanceof PhysicalOlapScan)) {
             return filter;
         }
-        Map<TableIdentifier, Set<PartitionPrunablePredicate>> registry =
-                context.getStatementContext().getPartitionPrunablePredicates();
-        if (registry.isEmpty()) {
+        PhysicalOlapScan scan = (PhysicalOlapScan) child;
+        Set<PartitionPrunablePredicate> entries = scan.getPartitionPrunablePredicates();
+        if (entries.isEmpty()) {
             return filter;
         }
-        PhysicalOlapScan scan = (PhysicalOlapScan) child;
-        TableIdentifier scanIdentifier = new TableIdentifier(scan.getTable());
-        Set<PartitionPrunablePredicate> entries = registry.get(scanIdentifier);
-        if (entries == null || entries.isEmpty()) {
+        boolean skipPrunePredicate = context.getConnectContext().getSessionVariable().skipPrunePredicate
+                || context.getStatementContext().isDelete();
+        if (skipPrunePredicate) {
             return filter;
         }
         Set<Long> scanPartitions = new HashSet<>(scan.getSelectedPartitionIds());
