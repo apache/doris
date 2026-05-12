@@ -34,6 +34,7 @@
 #include <aws/s3/S3Errors.h>
 #include <aws/s3/model/AbortMultipartUploadRequest.h>
 #include <aws/s3/model/AbortMultipartUploadResult.h>
+#include <aws/s3/model/ChecksumAlgorithm.h>
 #include <aws/s3/model/CompleteMultipartUploadRequest.h>
 #include <aws/s3/model/CompleteMultipartUploadResult.h>
 #include <aws/s3/model/CompletedMultipartUpload.h>
@@ -61,9 +62,12 @@
 #include <aws/s3/model/UploadPartRequest.h>
 #include <aws/s3/model/UploadPartResult.h>
 
+#include <crc32c/crc32c.h>
+
 #include <algorithm>
 #include <ranges>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
@@ -116,6 +120,31 @@ using namespace Aws::S3::Model;
 
 static constexpr int S3_REQUEST_THRESHOLD_MS = 5000;
 
+namespace {
+// S3 Express One Zone endpoints follow the pattern
+// "*.s3express-<zone>.<region>.amazonaws.com" — substring match is sufficient
+// for both the gateway and the s3express subdomain forms.
+bool is_s3_express_endpoint(const std::string& endpoint) {
+    return endpoint.find("s3express") != std::string::npos;
+}
+
+// AWS expects the CRC32C value as the big-endian 4-byte representation, base64-encoded.
+Aws::String compute_crc32c_b64(std::string_view data) {
+    uint32_t crc = crc32c::Crc32c(reinterpret_cast<const uint8_t*>(data.data()), data.size());
+    uint8_t bytes[4] = {static_cast<uint8_t>((crc >> 24) & 0xff),
+                        static_cast<uint8_t>((crc >> 16) & 0xff),
+                        static_cast<uint8_t>((crc >> 8) & 0xff),
+                        static_cast<uint8_t>(crc & 0xff)};
+    return Aws::Utils::HashingUtils::Base64Encode(Aws::Utils::ByteBuffer(bytes, sizeof(bytes)));
+}
+} // namespace
+
+S3ObjStorageClient::S3ObjStorageClient(std::shared_ptr<Aws::S3::S3Client> client,
+                                       const std::string& endpoint)
+        : _client(std::move(client)),
+          _disable_content_md5(config::s3_disable_content_md5 ||
+                               is_s3_express_endpoint(endpoint)) {}
+
 ObjectStorageUploadResponse S3ObjStorageClient::create_multipart_upload(
         const ObjectStoragePathOptions& opts) {
     CreateMultipartUploadRequest request;
@@ -158,8 +187,15 @@ ObjectStorageResponse S3ObjStorageClient::put_object(const ObjectStoragePathOpti
     Aws::S3::Model::PutObjectRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
     auto string_view_stream = std::make_shared<StringViewStream>(stream.data(), stream.size());
-    Aws::Utils::ByteBuffer part_md5(Aws::Utils::HashingUtils::CalculateMD5(*string_view_stream));
-    request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
+    if (_disable_content_md5) {
+        // S3 Express One Zone rejects Content-MD5; use CRC32C instead.
+        request.SetChecksumAlgorithm(ChecksumAlgorithm::CRC32C);
+        request.SetChecksumCRC32C(compute_crc32c_b64(stream));
+    } else {
+        Aws::Utils::ByteBuffer part_md5(
+                Aws::Utils::HashingUtils::CalculateMD5(*string_view_stream));
+        request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
+    }
     request.SetBody(string_view_stream);
     request.SetContentLength(stream.size());
     request.SetContentType("application/octet-stream");
@@ -202,8 +238,15 @@ ObjectStorageUploadResponse S3ObjStorageClient::upload_part(const ObjectStorageP
 
     request.SetBody(string_view_stream);
 
-    Aws::Utils::ByteBuffer part_md5(Aws::Utils::HashingUtils::CalculateMD5(*string_view_stream));
-    request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
+    if (_disable_content_md5) {
+        // S3 Express One Zone rejects Content-MD5; use CRC32C instead.
+        request.SetChecksumAlgorithm(ChecksumAlgorithm::CRC32C);
+        request.SetChecksumCRC32C(compute_crc32c_b64(stream));
+    } else {
+        Aws::Utils::ByteBuffer part_md5(
+                Aws::Utils::HashingUtils::CalculateMD5(*string_view_stream));
+        request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
+    }
 
     request.SetContentLength(stream.size());
     request.SetContentType("application/octet-stream");

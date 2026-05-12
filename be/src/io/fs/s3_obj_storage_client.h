@@ -32,7 +32,8 @@ class ObjClientHolder;
 
 class S3ObjStorageClient final : public ObjStorageClient {
 public:
-    S3ObjStorageClient(std::shared_ptr<Aws::S3::S3Client> client) : _client(std::move(client)) {}
+    explicit S3ObjStorageClient(std::shared_ptr<Aws::S3::S3Client> client,
+                                const std::string& endpoint = {});
     ~S3ObjStorageClient() override = default;
     ObjectStorageUploadResponse create_multipart_upload(
             const ObjectStoragePathOptions& opts) override;
@@ -58,6 +59,10 @@ public:
 
 private:
     std::shared_ptr<Aws::S3::S3Client> _client;
+    // True for S3 Express One Zone endpoints (or when config::s3_disable_content_md5
+    // is on). When set, uploads send a CRC32C checksum instead of Content-MD5,
+    // since S3 Express returns 501 NotImplemented for the latter.
+    bool _disable_content_md5 = false;
 };
 
 } // namespace doris::io
