@@ -38,6 +38,7 @@ import org.apache.flink.cdc.connectors.base.dialect.JdbcDataSourceDialect;
 import org.apache.flink.cdc.connectors.base.options.StartupOptions;
 import org.apache.flink.cdc.connectors.base.source.assigner.splitter.ChunkSplitter;
 import org.apache.flink.cdc.connectors.base.source.utils.JdbcChunkUtils;
+import org.apache.flink.cdc.connectors.postgres.source.utils.PostgresQueryUtils;
 import org.apache.flink.cdc.connectors.base.source.assigner.state.ChunkSplitterState;
 import org.apache.flink.cdc.connectors.base.source.assigner.state.ChunkSplitterState.ChunkBound;
 import org.apache.flink.cdc.connectors.base.source.meta.offset.Offset;
@@ -59,6 +60,8 @@ import org.apache.flink.table.types.logical.RowType;
 import org.apache.kafka.connect.source.SourceRecord;
 
 import java.io.IOException;
+import java.sql.ResultSet;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -187,10 +190,9 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
         }
     }
 
-    /** Resolve and cache the split key column's JDBC type. */
     /**
      * null start -> NO_SPLITTING_TABLE_STATE (analyze + maybe evenly); non-null -> resume mid-table.
-     * Cast pkValues[0] back to the original JDBC type (JSON downgrades Long to Integer).
+     * Cast pkValues[0] back to the JDBC driver's natural type (JSON round-trip downgrades types).
      */
     private ChunkSplitterState buildChunkSplitterState(
             JdbcSourceConfig sourceConfig, TableId tableId, FetchTableSplitsRequest ftsReq) {
@@ -198,33 +200,32 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
         if (pkValues == null || pkValues.length == 0) {
             return ChunkSplitterState.NO_SPLITTING_TABLE_STATE;
         }
-        int sqlType = resolveSplitKeySqlType(sourceConfig, tableId);
-        Object castStart = SplitKeyTypeResolver.cast(pkValues[0], sqlType);
+        Class<?> targetClass = resolveSplitKeyClass(sourceConfig, tableId, ftsReq);
+        Object castStart = SplitKeyTypeResolver.cast(pkValues[0], targetClass);
         int splitId = ftsReq.getNextSplitId() == null ? 0 : ftsReq.getNextSplitId();
         return new ChunkSplitterState(tableId, ChunkBound.middleOf(castStart), splitId);
     }
 
-    private int resolveSplitKeySqlType(JdbcSourceConfig sourceConfig, TableId tableId) {
-        String database = sourceConfig.getDatabaseList().isEmpty()
-                ? "" : sourceConfig.getDatabaseList().get(0);
-        String chunkKeyCol = sourceConfig.getChunkKeyColumn() == null
-                ? "" : sourceConfig.getChunkKeyColumn();
-        String cacheKey = String.join("|",
-                sourceConfig.getHostname() + ":" + sourceConfig.getPort(),
-                database,
-                tableId.toString(),
-                chunkKeyCol);
-        return SplitKeyTypeResolver.getOrCompute(cacheKey, () -> {
-            JdbcDataSourceDialect dialect = getDialect(sourceConfig);
-            try (JdbcConnection jdbc = dialect.openJdbcConnection(sourceConfig)) {
-                return JdbcChunkUtils.getSplitColumn(
-                                dialect.queryTableSchema(jdbc, tableId).getTable(),
-                                sourceConfig.getChunkKeyColumn())
-                        .jdbcType();
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to resolve split key type for " + tableId, e);
+    /**
+     * Returns the JDBC driver's natural Java class for the split key column, matching what
+     * {@code rs.getObject()} returns inside flink-cdc's queryNextChunkMax/queryMin.
+     */
+    private Class<?> resolveSplitKeyClass(
+            JdbcSourceConfig sourceConfig, TableId tableId, FetchTableSplitsRequest ftsReq) {
+        try {
+            TableChanges.TableChange tableChange = getTableSchemas(ftsReq).get(tableId);
+            Column splitColumn = JdbcChunkUtils.getSplitColumn(
+                    tableChange.getTable(), sourceConfig.getChunkKeyColumn());
+            String probeSql = "SELECT " + PostgresQueryUtils.quote(splitColumn.name())
+                    + " FROM " + PostgresQueryUtils.quote(tableId) + " WHERE 1=0";
+            try (JdbcConnection jdbc = getDialect(sourceConfig).openJdbcConnection(sourceConfig);
+                    Statement st = jdbc.connection().createStatement();
+                    ResultSet rs = st.executeQuery(probeSql)) {
+                return Class.forName(rs.getMetaData().getColumnClassName(1));
             }
-        });
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to resolve split key class for " + tableId, e);
+        }
     }
 
     /** flink-cdc SnapshotSplit -> Doris SnapshotSplit (drops splitKeyType, keeps key field names). */

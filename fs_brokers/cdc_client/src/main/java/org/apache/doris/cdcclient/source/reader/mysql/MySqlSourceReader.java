@@ -63,6 +63,7 @@ import org.apache.flink.cdc.connectors.mysql.source.split.MySqlSplitState;
 import org.apache.flink.cdc.connectors.mysql.source.split.SourceRecords;
 import org.apache.flink.cdc.connectors.mysql.source.utils.ChunkUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
+import org.apache.flink.cdc.connectors.mysql.source.utils.StatementUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.TableDiscoveryUtils;
 import org.apache.flink.cdc.connectors.mysql.table.StartupMode;
 import org.apache.flink.cdc.connectors.mysql.table.StartupOptions;
@@ -71,7 +72,9 @@ import org.apache.flink.table.types.logical.RowType;
 import org.apache.kafka.connect.source.SourceRecord;
 
 import java.io.IOException;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -237,7 +240,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
 
     /**
      * null start -> NO_SPLITTING_TABLE_STATE (analyze + maybe evenly); non-null -> resume mid-table.
-     * Cast pkValues[0] back to the original JDBC type (JSON downgrades Long to Integer).
+     * Cast pkValues[0] back to the JDBC driver's natural type (JSON round-trip downgrades types).
      */
     private ChunkSplitterState buildChunkSplitterState(
             MySqlSourceConfig sourceConfig, TableId tableId, FetchTableSplitsRequest ftsReq,
@@ -246,36 +249,33 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         if (pkValues == null || pkValues.length == 0) {
             return ChunkSplitterState.NO_SPLITTING_TABLE_STATE;
         }
-        int sqlType = resolveSplitKeySqlType(sourceConfig, tableId, mySqlSchema, partition);
-        Object castStart = SplitKeyTypeResolver.cast(pkValues[0], sqlType);
+        Class<?> targetClass = resolveSplitKeyClass(sourceConfig, tableId, ftsReq, mySqlSchema, partition);
+        Object castStart = SplitKeyTypeResolver.cast(pkValues[0], targetClass);
         int splitId = ftsReq.getNextSplitId() == null ? 0 : ftsReq.getNextSplitId();
         return new ChunkSplitterState(
                 tableId, ChunkSplitterState.ChunkBound.middleOf(castStart), splitId);
     }
 
-    /** Resolve and cache the split key column's JDBC type. */
-    private int resolveSplitKeySqlType(
-            MySqlSourceConfig sourceConfig, TableId tableId,
+    /**
+     * Returns the JDBC driver's natural Java class for the split key column, matching what
+     * {@code rs.getObject()} returns inside flink-cdc's queryNextChunkMax/queryMin.
+     */
+    private Class<?> resolveSplitKeyClass(
+            MySqlSourceConfig sourceConfig, TableId tableId, FetchTableSplitsRequest ftsReq,
             MySqlSchema mySqlSchema, MySqlPartition partition) {
-        String database = sourceConfig.getDatabaseList().isEmpty()
-                ? "" : sourceConfig.getDatabaseList().get(0);
-        String chunkKeyCols = sourceConfig.getChunkKeyColumns() == null
-                ? "" : sourceConfig.getChunkKeyColumns().toString();
-        String cacheKey = String.join("|",
-                sourceConfig.getHostname() + ":" + sourceConfig.getPort(),
-                database,
-                tableId.toString(),
-                chunkKeyCols);
-        return SplitKeyTypeResolver.getOrCompute(cacheKey, () -> {
-            try (MySqlConnection jdbc = DebeziumUtils.createMySqlConnection(sourceConfig)) {
-                return ChunkUtils.getChunkKeyColumn(
-                                mySqlSchema.getTableSchema(partition, jdbc, tableId).getTable(),
-                                sourceConfig.getChunkKeyColumns())
-                        .jdbcType();
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to resolve split key type for " + tableId, e);
+        try (MySqlConnection jdbc = DebeziumUtils.createMySqlConnection(sourceConfig)) {
+            Column splitColumn = ChunkUtils.getChunkKeyColumn(
+                    mySqlSchema.getTableSchema(partition, jdbc, tableId).getTable(),
+                    sourceConfig.getChunkKeyColumns());
+            String probeSql = "SELECT " + StatementUtils.quote(splitColumn.name())
+                    + " FROM " + StatementUtils.quote(tableId) + " WHERE 1=0";
+            try (Statement st = jdbc.connection().createStatement();
+                    ResultSet rs = st.executeQuery(probeSql)) {
+                return Class.forName(rs.getMetaData().getColumnClassName(1));
             }
-        });
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to resolve split key class for " + tableId, e);
+        }
     }
 
     /** flink-cdc MySqlSnapshotSplit -> Doris SnapshotSplit (drops splitKeyType, keeps field names). */

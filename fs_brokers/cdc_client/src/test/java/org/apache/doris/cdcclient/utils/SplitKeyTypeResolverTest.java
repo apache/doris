@@ -20,9 +20,7 @@ package org.apache.doris.cdcclient.utils;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
-import java.sql.Types;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -30,124 +28,84 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 
 class SplitKeyTypeResolverTest {
 
-    // ─── cast: numeric types ──────────────────────────────────────────────────
+    // ─── Number conversions ──────────────────────────────────────────────────
 
     @Test
-    void castIntegerToBigintReturnsLong() {
-        Object out = SplitKeyTypeResolver.cast(Integer.valueOf(3), Types.BIGINT);
+    void castIntegerToLong() {
+        Object out = SplitKeyTypeResolver.cast(Integer.valueOf(3), Long.class);
         assertEquals(Long.class, out.getClass());
         assertEquals(3L, out);
     }
 
     @Test
-    void castLongToIntegerReturnsInteger() {
-        Object out = SplitKeyTypeResolver.cast(Long.valueOf(7), Types.INTEGER);
+    void castLongToInteger() {
+        Object out = SplitKeyTypeResolver.cast(Long.valueOf(7), Integer.class);
         assertEquals(Integer.class, out.getClass());
         assertEquals(7, out);
     }
 
     @Test
-    void castNumberToSmallintReturnsShort() {
-        Object out = SplitKeyTypeResolver.cast(Integer.valueOf(100), Types.SMALLINT);
+    void castIntegerToShort() {
+        Object out = SplitKeyTypeResolver.cast(Integer.valueOf(100), Short.class);
         assertEquals(Short.class, out.getClass());
         assertEquals((short) 100, out);
     }
 
     @Test
-    void castNumberToTinyintReturnsByte() {
-        Object out = SplitKeyTypeResolver.cast(Integer.valueOf(5), Types.TINYINT);
-        assertEquals(Byte.class, out.getClass());
-        assertEquals((byte) 5, out);
-    }
-
-    @Test
-    void castNumberToDecimalReturnsBigDecimal() {
-        Object out = SplitKeyTypeResolver.cast(Long.valueOf(42), Types.DECIMAL);
+    void castLongToBigDecimal() {
+        Object out = SplitKeyTypeResolver.cast(Long.valueOf(42), BigDecimal.class);
         assertEquals(BigDecimal.class, out.getClass());
         assertEquals(new BigDecimal("42"), out);
     }
 
     @Test
-    void castNumberToNumericReturnsBigDecimal() {
-        Object out = SplitKeyTypeResolver.cast(Integer.valueOf(9), Types.NUMERIC);
-        assertEquals(BigDecimal.class, out.getClass());
-        assertEquals(new BigDecimal("9"), out);
-    }
-
-    @Test
-    void castNumberToFloatReturnsFloat() {
-        Object out = SplitKeyTypeResolver.cast(Double.valueOf(1.5), Types.FLOAT);
+    void castDoubleToFloat() {
+        Object out = SplitKeyTypeResolver.cast(Double.valueOf(1.5), Float.class);
         assertEquals(Float.class, out.getClass());
         assertEquals(1.5f, out);
     }
 
+    // ─── String to date-like conversions ─────────────────────────────────────
+
     @Test
-    void castNumberToDoubleReturnsDouble() {
-        Object out = SplitKeyTypeResolver.cast(Integer.valueOf(2), Types.DOUBLE);
-        assertEquals(Double.class, out.getClass());
-        assertEquals(2.0d, out);
+    void castStringToSqlDate() {
+        Object out = SplitKeyTypeResolver.cast("2024-05-12", java.sql.Date.class);
+        assertEquals(java.sql.Date.class, out.getClass());
+        assertEquals(java.sql.Date.valueOf("2024-05-12"), out);
     }
 
-    // ─── cast: edge cases ─────────────────────────────────────────────────────
+    @Test
+    void castStringToUuid() {
+        UUID expected = UUID.randomUUID();
+        Object out = SplitKeyTypeResolver.cast(expected.toString(), UUID.class);
+        assertEquals(UUID.class, out.getClass());
+        assertEquals(expected, out);
+    }
+
+    // ─── Edge cases ──────────────────────────────────────────────────────────
 
     @Test
     void castNullReturnsNull() {
-        assertNull(SplitKeyTypeResolver.cast(null, Types.BIGINT));
+        assertNull(SplitKeyTypeResolver.cast(null, Long.class));
     }
 
     @Test
-    void castNonNumberReturnsAsIs() {
-        String v = "abc";
-        assertSame(v, SplitKeyTypeResolver.cast(v, Types.BIGINT));
+    void castSameTypeReturnsAsIs() {
+        Long v = Long.valueOf(5);
+        assertSame(v, SplitKeyTypeResolver.cast(v, Long.class));
     }
 
     @Test
-    void castUuidReturnsAsIs() {
-        UUID v = UUID.randomUUID();
-        assertSame(v, SplitKeyTypeResolver.cast(v, Types.OTHER));
-    }
-
-    @Test
-    void castUnknownSqlTypeReturnsAsIs() {
+    void castNullTargetClassReturnsAsIs() {
         Object v = Integer.valueOf(3);
-        // VARCHAR is not in the switch -> returned as is.
-        assertSame(v, SplitKeyTypeResolver.cast(v, Types.VARCHAR));
-    }
-
-    // ─── getOrCompute: cache behavior ─────────────────────────────────────────
-
-    @Test
-    void getOrComputeCachesAfterFirstCall() {
-        String key = "test-cache-" + UUID.randomUUID();
-        AtomicInteger callCount = new AtomicInteger();
-        int v1 = SplitKeyTypeResolver.getOrCompute(key, () -> {
-            callCount.incrementAndGet();
-            return Types.BIGINT;
-        });
-        int v2 = SplitKeyTypeResolver.getOrCompute(key, () -> {
-            callCount.incrementAndGet();
-            return Types.INTEGER;     // would be wrong if called -> proves cache hit
-        });
-        assertEquals(Types.BIGINT, v1);
-        assertEquals(Types.BIGINT, v2);
-        assertEquals(1, callCount.get());
+        assertSame(v, SplitKeyTypeResolver.cast(v, null));
     }
 
     @Test
-    void getOrComputeDifferentKeysComputeIndependently() {
-        AtomicInteger callCount = new AtomicInteger();
-        String keyA = "test-keyA-" + UUID.randomUUID();
-        String keyB = "test-keyB-" + UUID.randomUUID();
-        int a = SplitKeyTypeResolver.getOrCompute(keyA, () -> {
-            callCount.incrementAndGet();
-            return Types.BIGINT;
-        });
-        int b = SplitKeyTypeResolver.getOrCompute(keyB, () -> {
-            callCount.incrementAndGet();
-            return Types.INTEGER;
-        });
-        assertEquals(Types.BIGINT, a);
-        assertEquals(Types.INTEGER, b);
-        assertEquals(2, callCount.get());
+    void castUnconvertibleFallsBackToOriginal() {
+        // String "abc" can't convert to Long -> fallback to original.
+        Object v = "abc";
+        Object out = SplitKeyTypeResolver.cast(v, Long.class);
+        assertSame(v, out);
     }
 }
