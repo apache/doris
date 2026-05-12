@@ -422,7 +422,7 @@ Status VPaimonJniTableWriter::close(Status status) {
         _buffered_bytes = 0;
     }
 
-    std::vector<TCommitMessage> pending_commit_messages;
+    std::vector<TPaimonCommitMessage> pending_commit_messages;
     if (status.ok()) {
         jobject j_payloads_obj = nullptr;
         int64_t prepare_commit_ns = 0;
@@ -463,7 +463,7 @@ Status VPaimonJniTableWriter::close(Status status) {
                         if (bytes != nullptr) {
                             std::string payload(reinterpret_cast<char*>(bytes),
                                                 static_cast<size_t>(len));
-                            TCommitMessage msg;
+                            TPaimonCommitMessage msg;
                             msg.__set_payload(payload);
                             pending_commit_messages.emplace_back(std::move(msg));
                             env->ReleaseByteArrayElements(j_bytes, bytes, JNI_ABORT);

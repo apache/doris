@@ -655,7 +655,7 @@ Status VPaimonTableWriter::close(Status status) {
     }
 
     if (_file_store_write) {
-        std::vector<TCommitMessage> msgs;
+        std::vector<TPaimonCommitMessage> msgs;
         if (status.ok() && result_status.ok()) {
             int64_t prepare_commit_ns = 0;
             auto commit_result = [&]() {
@@ -723,7 +723,7 @@ Status VPaimonTableWriter::close(Status status) {
                     DorisMetrics::instance()->paimon_commit_payload_bytes->increment(
                             wrapped.size());
                     DorisMetrics::instance()->paimon_commit_payload_chunks->increment(1);
-                    TCommitMessage msg;
+                    TPaimonCommitMessage msg;
                     msg.__set_payload(wrapped);
                     msgs.emplace_back(std::move(msg));
                     i = end;

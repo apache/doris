@@ -21,7 +21,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
-import org.apache.doris.thrift.TCommitMessage;
+import org.apache.doris.thrift.TPaimonCommitMessage;
 import org.apache.doris.transaction.Transaction;
 
 import com.google.common.collect.Lists;
@@ -51,19 +51,19 @@ public class PaimonTransaction implements Transaction {
     private long transactionId = -1L;
     private String commitUser = "";
 
-    private final List<TCommitMessage> commitMessages = Lists.newArrayList();
+    private final List<TPaimonCommitMessage> commitMessages = Lists.newArrayList();
     private final Set<String> commitPayloadSet = new HashSet<>();
 
     public PaimonTransaction(PaimonMetadataOps ops) {
         this.ops = ops;
     }
 
-    public void updateCommitMessages(List<TCommitMessage> messages) {
+    public void updateCommitMessages(List<TPaimonCommitMessage> messages) {
         if (messages == null || messages.isEmpty()) {
             return;
         }
         synchronized (this) {
-            for (TCommitMessage message : messages) {
+            for (TPaimonCommitMessage message : messages) {
                 if (message == null || !message.isSetPayload()) {
                     continue;
                 }
@@ -88,7 +88,7 @@ public class PaimonTransaction implements Transaction {
 
     @Override
     public void commit() throws UserException {
-        List<TCommitMessage> rawMessages;
+        List<TPaimonCommitMessage> rawMessages;
         synchronized (this) {
             rawMessages = Lists.newArrayList(commitMessages);
         }
@@ -112,7 +112,7 @@ public class PaimonTransaction implements Transaction {
                 }
 
                 List<CommitMessage> allMessages = new ArrayList<>();
-                for (TCommitMessage msg : rawMessages) {
+                for (TPaimonCommitMessage msg : rawMessages) {
                     if (msg == null || !msg.isSetPayload()) {
                         continue;
                     }

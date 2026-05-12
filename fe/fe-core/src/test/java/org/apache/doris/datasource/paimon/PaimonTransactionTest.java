@@ -22,7 +22,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TCommitMessage;
+import org.apache.doris.thrift.TPaimonCommitMessage;
 
 import mockit.Mock;
 import mockit.MockUp;
@@ -94,18 +94,18 @@ public class PaimonTransactionTest {
     @Test
     public void testUpdateCommitMessagesDeduplicatesPayloads(@Mocked PaimonMetadataOps ops) throws Exception {
         PaimonTransaction transaction = new PaimonTransaction(ops);
-        TCommitMessage duplicated1 = new TCommitMessage();
+        TPaimonCommitMessage duplicated1 = new TPaimonCommitMessage();
         duplicated1.setPayload(new byte[] {1, 2, 3});
-        TCommitMessage duplicated2 = new TCommitMessage();
+        TPaimonCommitMessage duplicated2 = new TPaimonCommitMessage();
         duplicated2.setPayload(new byte[] {1, 2, 3});
-        TCommitMessage distinct = new TCommitMessage();
+        TPaimonCommitMessage distinct = new TPaimonCommitMessage();
         distinct.setPayload(new byte[] {4, 5, 6});
-        TCommitMessage empty = new TCommitMessage();
+        TPaimonCommitMessage empty = new TPaimonCommitMessage();
         empty.setPayload(new byte[0]);
 
         transaction.updateCommitMessages(Arrays.asList(duplicated1, duplicated2, null, empty, distinct));
 
-        List<TCommitMessage> commitMessages = getField(transaction, "commitMessages");
+        List<TPaimonCommitMessage> commitMessages = getField(transaction, "commitMessages");
         Assert.assertEquals(2, commitMessages.size());
         Assert.assertArrayEquals(new byte[] {1, 2, 3}, commitMessages.get(0).getPayload());
         Assert.assertArrayEquals(new byte[] {4, 5, 6}, commitMessages.get(1).getPayload());
@@ -128,7 +128,7 @@ public class PaimonTransactionTest {
     public void testCommitThrowsWhenTableMissing(@Mocked PaimonMetadataOps ops) throws Exception {
         PaimonTransaction transaction = new PaimonTransaction(ops);
         transaction.setTransactionId(1001L);
-        TCommitMessage message = new TCommitMessage();
+        TPaimonCommitMessage message = new TPaimonCommitMessage();
         message.setPayload(new byte[] {1});
         transaction.updateCommitMessages(Collections.singletonList(message));
 
@@ -145,7 +145,7 @@ public class PaimonTransactionTest {
             @Mocked PaimonExternalTable table) throws Exception {
         PaimonTransaction transaction = new PaimonTransaction(ops);
         transaction.beginInsert(table, Optional.empty());
-        TCommitMessage message = new TCommitMessage();
+        TPaimonCommitMessage message = new TPaimonCommitMessage();
         message.setPayload(new byte[] {1});
         transaction.updateCommitMessages(Collections.singletonList(message));
 
@@ -175,7 +175,7 @@ public class PaimonTransactionTest {
         PaimonTransaction transaction = new PaimonTransaction(ops);
         transaction.beginInsert(table, Optional.empty());
         transaction.setTransactionId(1002L);
-        TCommitMessage message = new TCommitMessage();
+        TPaimonCommitMessage message = new TPaimonCommitMessage();
         message.setPayload(new byte[] {1});
         transaction.updateCommitMessages(Collections.singletonList(message));
 
@@ -209,7 +209,7 @@ public class PaimonTransactionTest {
         PaimonTransaction transaction = new PaimonTransaction(ops);
         transaction.beginInsert(table, Optional.empty());
         transaction.setTransactionId(1003L);
-        TCommitMessage message = new TCommitMessage();
+        TPaimonCommitMessage message = new TPaimonCommitMessage();
         message.setPayload(new byte[] {2});
         transaction.updateCommitMessages(Collections.singletonList(message));
 
@@ -240,7 +240,7 @@ public class PaimonTransactionTest {
         PaimonTransaction transaction = new PaimonTransaction(ops);
         transaction.beginInsert(table, Optional.empty());
         transaction.setTransactionId(1004L);
-        TCommitMessage message = new TCommitMessage();
+        TPaimonCommitMessage message = new TPaimonCommitMessage();
         message.setPayload(new byte[] {3});
         transaction.updateCommitMessages(Collections.singletonList(message));
 
