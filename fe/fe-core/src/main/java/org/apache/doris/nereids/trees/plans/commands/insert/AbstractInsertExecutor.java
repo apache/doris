@@ -196,8 +196,8 @@ public abstract class AbstractInsertExecutor {
             coordinator.cancel(new Status(TStatusCode.CANCELLED, "insert timeout"));
             if (notTimeout) {
                 errMsg = coordinator.getExecStatus().getErrorMsg();
-                ErrorReport.reportDdlException("there exists unhealthy backend. "
-                        + errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
+                ErrorReport.reportDdlException("%s", ErrorCode.ERR_FAILED_WHEN_INSERT,
+                        "there exists unhealthy backend. " + errMsg);
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_EXECUTE_TIMEOUT);
             }
