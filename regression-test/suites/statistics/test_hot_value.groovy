@@ -81,6 +81,11 @@ suite("test_hot_value") {
     wait_row_count_reported("test_hot_value", "test1", 0, 4, "10000")
     wait_row_count_reported("test_hot_value", "test2", 0, 4, "10000")
     sql """analyze table test1 with sync"""
+    explain {
+        sql("memo plan select * from test1")
+        contains "hotValues=("
+        notContains "hotValues=(null)"
+    }
     def result = sql """show column stats test1(key1)"""
     assertEquals(1, result.size())
     assertEquals("10000.0", result[0][2])

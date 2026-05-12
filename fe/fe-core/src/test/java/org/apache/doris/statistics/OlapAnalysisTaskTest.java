@@ -750,7 +750,7 @@ public class OlapAnalysisTaskTest {
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(BaseAnalysisTask.FULL_ANALYZE_TEMPLATE);
         Assertions.assertTrue(sql.startsWith("WITH cte1 AS ("));
-        Assertions.assertTrue(sql.contains("cte3 AS (SELECT GROUP_CONCAT"));
+        Assertions.assertTrue(sql.contains("cte3 AS (SELECT IFNULL(GROUP_CONCAT"));
         Assertions.assertTrue(sql.contains("as `hot_value`"));
         Assertions.assertTrue(sql.contains("CROSS JOIN cte3"));
         Assertions.assertTrue(sql.contains("LIMIT 10"));
@@ -781,7 +781,7 @@ public class OlapAnalysisTaskTest {
                 String sql = invocation.getArgument(0);
                 Assertions.assertTrue(sql.startsWith("WITH cte1 AS (SELECT `testCol` "
                         + "FROM `catalogName`.`testDb`.`testTbl` "), sql);
-                Assertions.assertTrue(sql.contains("cte3 AS (SELECT GROUP_CONCAT"), sql);
+                Assertions.assertTrue(sql.contains("cte3 AS (SELECT IFNULL(GROUP_CONCAT"), sql);
                 Assertions.assertTrue(sql.contains("`testCol` as `hash_value`"), sql);
                 Assertions.assertTrue(sql.contains("LIMIT 10"), sql);
                 Assertions.assertTrue(sql.contains("CROSS JOIN cte3"), sql);
