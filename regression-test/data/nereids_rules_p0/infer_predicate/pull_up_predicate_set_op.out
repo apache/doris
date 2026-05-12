@@ -134,7 +134,7 @@ PhysicalResultSink
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t3.a = expr_cast(a as INT)) and (t3.b = t.b)) otherCondition=()
 ----PhysicalUnion
-----filter(a IN (2, 3) and b IN ('aa', 'dd'))
+----filter(b IN ('aa', 'dd'))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3(t3)]
 
 -- !union_all_const_empty_relation --
@@ -146,21 +146,21 @@ PhysicalResultSink
 
 -- !union_all_const2_has_cast_to_null_different_type --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((expr_cast(a as DECIMALV3(38, 6)) = expr_cast(a as DECIMALV3(38, 6))) and (t3.b = t.b)) otherCondition=()
+--hashJoin[INNER_JOIN] hashCondition=((expr_cast(a as DECIMALV3(76, 6)) = expr_cast(a as DECIMALV3(76, 6))) and (t3.b = t.b)) otherCondition=()
 ----PhysicalUnion
 ----filter(b IN ('aa', 'dd'))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3(t3)]
 
 -- !union_all_const2_has_cast_to_null_different_type --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((expr_cast(a as DECIMALV3(38, 6)) = expr_cast(a as DECIMALV3(38, 6))) and (t3.b = t.b)) otherCondition=()
+--hashJoin[INNER_JOIN] hashCondition=((expr_cast(a as DECIMALV3(76, 6)) = expr_cast(a as DECIMALV3(76, 6))) and (t3.b = t.b)) otherCondition=()
 ----PhysicalUnion
 ----filter(b IN ('12', 'dd'))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3(t3)]
 
 -- !union_all_different_type_int_cast_to_char --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((expr_cast(a as DECIMALV3(38, 6)) = expr_cast(a as DECIMALV3(38, 6))) and (t3.b = t.b)) otherCondition=()
+--hashJoin[INNER_JOIN] hashCondition=((expr_cast(a as DECIMALV3(76, 6)) = expr_cast(a as DECIMALV3(76, 6))) and (t3.b = t.b)) otherCondition=()
 ----PhysicalUnion
 ----filter(b IN ('12', 'dd'))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3(t3)]
@@ -169,7 +169,7 @@ PhysicalResultSink
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t3.a = expr_cast(a as INT)) and (t3.b = t.b)) otherCondition=()
 ----PhysicalUnion
-----filter(a IN (2, 3, 5) and b IN ('aa', 'aab', 'dd'))
+----filter(b IN ('aa', 'aab', 'dd'))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3(t3)]
 
 -- !union_child_and_const_exprs --
@@ -413,8 +413,7 @@ PhysicalResultSink
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------PhysicalUnion
-----filter(a IN (1, 2))
-------PhysicalOlapScan[test_pull_up_predicate_set_op3(t2)]
+----PhysicalOlapScan[test_pull_up_predicate_set_op3(t2)]
 
 -- !intersect_res --
 0	d2

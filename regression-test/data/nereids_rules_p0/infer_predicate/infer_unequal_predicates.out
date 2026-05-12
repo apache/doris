@@ -113,8 +113,7 @@ PhysicalResultSink
 -- !infer_cast_int --
 PhysicalResultSink
 --NestedLoopJoin[INNER_JOIN](t1.d_int > cast(d_smallint as INT))
-----filter((t1.d_int > 1))
-------PhysicalOlapScan[infer_unequal_predicates_t3(t1)]
+----PhysicalOlapScan[infer_unequal_predicates_t3(t1)]
 ----filter((t2.d_smallint > 1))
 ------PhysicalOlapScan[infer_unequal_predicates_t3(t2)]
 
