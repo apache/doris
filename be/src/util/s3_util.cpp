@@ -532,7 +532,8 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
             Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
             s3_conf.use_virtual_addressing);
 
-    auto obj_client = std::make_shared<io::S3ObjStorageClient>(std::move(new_client));
+    auto obj_client =
+            std::make_shared<io::S3ObjStorageClient>(std::move(new_client), s3_conf.endpoint);
     LOG_INFO("create one s3 client with {}", s3_conf.to_string());
     return obj_client;
 }
