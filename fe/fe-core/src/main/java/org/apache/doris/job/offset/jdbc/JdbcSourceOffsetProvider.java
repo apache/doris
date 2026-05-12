@@ -240,8 +240,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                             applySplitToProgress(committedSplitProgress, snapshotSplit);
                         }
                     } else {
-                        // Replay path: remainingSplits is empty, full fields not available.
-                        // chunkHighWatermarkMap and committedSplitProgress already restored from editlog.
+                        // Replay before remainingSplits is restored, or a duplicate commit.
                         log.warn("Cannot find snapshot split {} in remainingSplits for job {}", splitId, getJobId());
                     }
                 }
@@ -313,12 +312,11 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 if (!remainingSplits.isEmpty()) {
                     return true;
                 }
-                // remainingSplits empty: if splitting is still in progress, delay task dispatch
-                // (advanceSplits will push more splits next tick).
+                // Splitting still in progress: wait for next tick.
                 if (!noMoreSplits()) {
                     return false;
                 }
-                // Splitting fully done: snapshot-only completes here; initial mode falls through to binlog.
+                // Splitting done: snapshot-only completes; initial mode falls through to binlog.
                 return !isSnapshotOnlyMode();
             }
 
@@ -458,7 +456,6 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
      */
     @Override
     public void replayIfNeed(StreamingInsertJob job) throws JobException {
-        // cachedSyncTables is transient; restore it on every replay.
         synchronized (splitsLock) {
             this.cachedSyncTables = job.getSyncTables();
         }
@@ -534,6 +531,16 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             } else {
                 clearProgress(cdcSplitProgress);
             }
+            log.info("Replay summary for job {}: finishedSplits={}, remainingSplits={}, "
+                            + "committedSplitProgress=(table={}, nextStart={}, nextSplitId={}), "
+                            + "cdcSplitProgress=(table={}, nextStart={}, nextSplitId={})",
+                    getJobId(), finishedSplits.size(), remainingSplits.size(),
+                    committedSplitProgress == null ? null : committedSplitProgress.getCurrentSplittingTable(),
+                    committedSplitProgress == null ? null : Arrays.toString(committedSplitProgress.getNextSplitStart()),
+                    committedSplitProgress == null ? null : committedSplitProgress.getNextSplitId(),
+                    cdcSplitProgress.getCurrentSplittingTable(),
+                    Arrays.toString(cdcSplitProgress.getNextSplitStart()),
+                    cdcSplitProgress.getNextSplitId());
         }
     }
 
@@ -696,8 +703,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             Object[] startVal = cdcSplitProgress.getNextSplitStart();
             Integer splitId = cdcSplitProgress.getNextSplitId();
 
-            // 2. RPC. OK to hold lock during RPC: no async splitting thread; updateOffset on
-            //    task commit waits briefly (max_interval >> RPC time anyway).
+            // 2. RPC under lock — updateOffset may wait briefly
             List<SnapshotSplit> batch = rpcFetchSplitsBatch(tbl, startVal, splitId);
             if (batch == null || batch.isEmpty()) {
                 return;

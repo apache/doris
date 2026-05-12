@@ -190,8 +190,6 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
 
         String database = ftsReq.getConfig().get(DataSourceConfigKeys.DATABASE);
         TableId tableId = TableId.parse(database + "." + ftsReq.getSnapshotTable());
-
-        Object[] pkValues = ftsReq.getNextSplitStart();
         int batchSize = ftsReq.getBatchSize() == null ? 100 : ftsReq.getBatchSize();
 
         boolean isCaseSensitive;
@@ -204,22 +202,10 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         MySqlPartition partition =
                 new MySqlPartition(sourceConfig.getMySqlConnectorConfig().getLogicalName());
 
-        // null -> NO_SPLITTING_TABLE_STATE so splitter may pick evenly path; non-null -> resume mid-table.
-        ChunkSplitterState state;
-        if (pkValues == null || pkValues.length == 0) {
-            state = ChunkSplitterState.NO_SPLITTING_TABLE_STATE;
-        } else {
-            // Restore the original JDBC type (JSON downgrades Long to Integer).
-            int sqlType = resolveSplitKeySqlType(sourceConfig, tableId, mySqlSchema, partition);
-            Object castStart = SplitKeyTypeResolver.cast(pkValues[0], sqlType);
-            int splitId = ftsReq.getNextSplitId() == null ? 0 : ftsReq.getNextSplitId();
-            state = new ChunkSplitterState(
-                    tableId, ChunkSplitterState.ChunkBound.middleOf(castStart), splitId);
-        }
+        ChunkSplitterState state = buildChunkSplitterState(sourceConfig, tableId, ftsReq, mySqlSchema, partition);
         MySqlChunkSplitter splitter = new MySqlChunkSplitter(mySqlSchema, sourceConfig, state);
 
         try {
-            // open() inside try so a throw still routes through finally for close().
             splitter.open();
             List<AbstractSourceSplit> result = new ArrayList<>();
             while (result.size() < batchSize) {
@@ -249,12 +235,37 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         }
     }
 
+    /**
+     * null start -> NO_SPLITTING_TABLE_STATE (analyze + maybe evenly); non-null -> resume mid-table.
+     * Cast pkValues[0] back to the original JDBC type (JSON downgrades Long to Integer).
+     */
+    private ChunkSplitterState buildChunkSplitterState(
+            MySqlSourceConfig sourceConfig, TableId tableId, FetchTableSplitsRequest ftsReq,
+            MySqlSchema mySqlSchema, MySqlPartition partition) {
+        Object[] pkValues = ftsReq.getNextSplitStart();
+        if (pkValues == null || pkValues.length == 0) {
+            return ChunkSplitterState.NO_SPLITTING_TABLE_STATE;
+        }
+        int sqlType = resolveSplitKeySqlType(sourceConfig, tableId, mySqlSchema, partition);
+        Object castStart = SplitKeyTypeResolver.cast(pkValues[0], sqlType);
+        int splitId = ftsReq.getNextSplitId() == null ? 0 : ftsReq.getNextSplitId();
+        return new ChunkSplitterState(
+                tableId, ChunkSplitterState.ChunkBound.middleOf(castStart), splitId);
+    }
+
     /** Resolve and cache the split key column's JDBC type. */
     private int resolveSplitKeySqlType(
             MySqlSourceConfig sourceConfig, TableId tableId,
             MySqlSchema mySqlSchema, MySqlPartition partition) {
-        String cacheKey =
-                sourceConfig.getHostname() + ":" + sourceConfig.getPort() + "|" + tableId;
+        String database = sourceConfig.getDatabaseList().isEmpty()
+                ? "" : sourceConfig.getDatabaseList().get(0);
+        String chunkKeyCols = sourceConfig.getChunkKeyColumns() == null
+                ? "" : sourceConfig.getChunkKeyColumns().toString();
+        String cacheKey = String.join("|",
+                sourceConfig.getHostname() + ":" + sourceConfig.getPort(),
+                database,
+                tableId.toString(),
+                chunkKeyCols);
         return SplitKeyTypeResolver.getOrCompute(cacheKey, () -> {
             try (MySqlConnection jdbc = DebeziumUtils.createMySqlConnection(sourceConfig)) {
                 return ChunkUtils.getChunkKeyColumn(

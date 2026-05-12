@@ -156,21 +156,8 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
         String schema = ftsReq.getConfig().get(DataSourceConfigKeys.SCHEMA);
         TableId tableId = new TableId(null, schema, ftsReq.getSnapshotTable());
 
-        // Build ChunkSplitterState from FE-side (nextSplitStart, nextSplitId).
-        //   null -> NO_SPLITTING_TABLE_STATE so splitter analyzes the table and may pick evenly path.
-        //   non-null -> resume mid-table, forced into unevenly path.
-        Object[] pkValues = ftsReq.getNextSplitStart();
         int batchSize = ftsReq.getBatchSize() == null ? 100 : ftsReq.getBatchSize();
-        ChunkSplitterState state;
-        if (pkValues == null || pkValues.length == 0) {
-            state = ChunkSplitterState.NO_SPLITTING_TABLE_STATE;
-        } else {
-            // Restore the original JDBC type (JSON downgrades Long to Integer).
-            int sqlType = resolveSplitKeySqlType(sourceConfig, tableId);
-            Object castStart = SplitKeyTypeResolver.cast(pkValues[0], sqlType);
-            int splitId = ftsReq.getNextSplitId() == null ? 0 : ftsReq.getNextSplitId();
-            state = new ChunkSplitterState(tableId, ChunkBound.middleOf(castStart), splitId);
-        }
+        ChunkSplitterState state = buildChunkSplitterState(sourceConfig, tableId, ftsReq);
         ChunkSplitter splitter = getDialect(sourceConfig).createChunkSplitter(sourceConfig, state);
 
         try {
@@ -201,9 +188,32 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
     }
 
     /** Resolve and cache the split key column's JDBC type. */
+    /**
+     * null start -> NO_SPLITTING_TABLE_STATE (analyze + maybe evenly); non-null -> resume mid-table.
+     * Cast pkValues[0] back to the original JDBC type (JSON downgrades Long to Integer).
+     */
+    private ChunkSplitterState buildChunkSplitterState(
+            JdbcSourceConfig sourceConfig, TableId tableId, FetchTableSplitsRequest ftsReq) {
+        Object[] pkValues = ftsReq.getNextSplitStart();
+        if (pkValues == null || pkValues.length == 0) {
+            return ChunkSplitterState.NO_SPLITTING_TABLE_STATE;
+        }
+        int sqlType = resolveSplitKeySqlType(sourceConfig, tableId);
+        Object castStart = SplitKeyTypeResolver.cast(pkValues[0], sqlType);
+        int splitId = ftsReq.getNextSplitId() == null ? 0 : ftsReq.getNextSplitId();
+        return new ChunkSplitterState(tableId, ChunkBound.middleOf(castStart), splitId);
+    }
+
     private int resolveSplitKeySqlType(JdbcSourceConfig sourceConfig, TableId tableId) {
-        String cacheKey =
-                sourceConfig.getHostname() + ":" + sourceConfig.getPort() + "|" + tableId;
+        String database = sourceConfig.getDatabaseList().isEmpty()
+                ? "" : sourceConfig.getDatabaseList().get(0);
+        String chunkKeyCol = sourceConfig.getChunkKeyColumn() == null
+                ? "" : sourceConfig.getChunkKeyColumn();
+        String cacheKey = String.join("|",
+                sourceConfig.getHostname() + ":" + sourceConfig.getPort(),
+                database,
+                tableId.toString(),
+                chunkKeyCol);
         return SplitKeyTypeResolver.getOrCompute(cacheKey, () -> {
             JdbcDataSourceDialect dialect = getDialect(sourceConfig);
             try (JdbcConnection jdbc = dialect.openJdbcConnection(sourceConfig)) {

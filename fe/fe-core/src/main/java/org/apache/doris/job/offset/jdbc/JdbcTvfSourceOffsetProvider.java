@@ -265,23 +265,25 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
     public void updateOffset(Offset offset) {
         this.currentOffset = (JdbcOffset) offset;
         if (currentOffset.snapshotSplit()) {
-            for (AbstractSourceSplit split : currentOffset.getSplits()) {
-                SnapshotSplit ss = (SnapshotSplit) split;
-                boolean removed = remainingSplits.removeIf(v -> {
-                    if (v.getSplitId().equals(ss.getSplitId())) {
-                        ss.setTableId(v.getTableId());
-                        ss.setSplitKey(v.getSplitKey());
-                        ss.setSplitStart(v.getSplitStart());
-                        ss.setSplitEnd(v.getSplitEnd());
-                        return true;
+            synchronized (splitsLock) {
+                for (AbstractSourceSplit split : currentOffset.getSplits()) {
+                    SnapshotSplit ss = (SnapshotSplit) split;
+                    boolean removed = remainingSplits.removeIf(v -> {
+                        if (v.getSplitId().equals(ss.getSplitId())) {
+                            ss.setTableId(v.getTableId());
+                            ss.setSplitKey(v.getSplitKey());
+                            ss.setSplitStart(v.getSplitStart());
+                            ss.setSplitEnd(v.getSplitEnd());
+                            return true;
+                        }
+                        return false;
+                    });
+                    if (removed) {
+                        finishedSplits.add(ss);
                     }
-                    return false;
-                });
-                if (removed) {
-                    finishedSplits.add(ss);
+                    chunkHighWatermarkMap.computeIfAbsent(buildTableKey(), k -> new HashMap<>())
+                            .put(ss.getSplitId(), ss.getHighWatermark());
                 }
-                chunkHighWatermarkMap.computeIfAbsent(buildTableKey(), k -> new HashMap<>())
-                        .put(ss.getSplitId(), ss.getHighWatermark());
             }
         }
         // Binlog: currentOffset is already set; no binlogOffsetPersist needed for TVF path.
@@ -298,7 +300,6 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
      */
     @Override
     public void replayIfNeed(StreamingInsertJob job) throws JobException {
-        // cachedSyncTables is transient; restore it on every replay.
         synchronized (splitsLock) {
             this.cachedSyncTables = job.getSyncTables();
         }
