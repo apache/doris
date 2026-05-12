@@ -170,6 +170,8 @@ std::unique_ptr<PrimitiveType> Types::from_primitive_string(const std::string& t
         return std::make_unique<UUIDType>();
     } else if (lower_type_string == "binary") {
         return std::make_unique<BinaryType>();
+    } else if (lower_type_string == "variant") {
+        return std::make_unique<VariantType>();
     } else {
         std::regex fixed(R"(fixed\[\s*(\d+)\s*\])");
         std::regex decimal(R"(decimal\(\s*(\d+)\s*,\s*(\d+)\s*\))");

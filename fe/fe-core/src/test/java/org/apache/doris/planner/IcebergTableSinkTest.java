@@ -22,11 +22,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergUtils;
-import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
-import org.apache.doris.thrift.TIcebergDeleteFileDesc;
-import org.apache.doris.thrift.TIcebergMergeSink;
-import org.apache.doris.thrift.TIcebergRewritableDeleteFileSet;
 
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -43,45 +38,13 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
-public class IcebergMergeSinkTest {
-
-    @Test
-    public void testBindDataSinkIncludesRowLineageSchemaAndRewritableDeleteFileSetsForV3() throws Exception {
-        IcebergMergeSink sink = new IcebergMergeSink(mockIcebergExternalTable(3), new DeleteCommandContext());
-        sink.setRewritableDeleteFileSets(Collections.singletonList(buildDeleteFileSet()));
-
-        sink.bindDataSink(Optional.empty());
-
-        TIcebergMergeSink thriftSink = sink.tDataSink.getIcebergMergeSink();
-        Assertions.assertEquals(3, thriftSink.getFormatVersion());
-        Assertions.assertTrue(thriftSink.getSchemaJson().contains(IcebergUtils.ICEBERG_ROW_ID_COL));
-        Assertions.assertTrue(thriftSink.getSchemaJson().contains(
-                IcebergUtils.ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL));
-        Assertions.assertEquals(1, thriftSink.getRewritableDeleteFileSetsSize());
-    }
-
-    @Test
-    public void testBindDataSinkSkipsRewritableDeleteFileSetsAndRowLineageSchemaForV2() throws Exception {
-        IcebergMergeSink sink = new IcebergMergeSink(mockIcebergExternalTable(2), new DeleteCommandContext());
-        sink.setRewritableDeleteFileSets(Collections.singletonList(buildDeleteFileSet()));
-
-        sink.bindDataSink(Optional.empty());
-
-        TIcebergMergeSink thriftSink = sink.tDataSink.getIcebergMergeSink();
-        Assertions.assertEquals(2, thriftSink.getFormatVersion());
-        Assertions.assertFalse(thriftSink.isSetRewritableDeleteFileSets());
-        Assertions.assertFalse(thriftSink.getSchemaJson().contains(IcebergUtils.ICEBERG_ROW_ID_COL));
-        Assertions.assertFalse(thriftSink.getSchemaJson().contains(
-                IcebergUtils.ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL));
-    }
-
+public class IcebergTableSinkTest {
     @Test
     public void testBindDataSinkRejectsVariantSchema() {
         Schema schema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
                 Types.NestedField.optional(2, "payload", Types.VariantType.get()));
-        IcebergMergeSink sink = new IcebergMergeSink(
-                mockIcebergExternalTable(2, schema), new DeleteCommandContext());
+        IcebergTableSink sink = new IcebergTableSink(mockIcebergExternalTable(schema));
 
         AnalysisException exception = Assertions.assertThrows(
                 AnalysisException.class, () -> sink.bindDataSink(Optional.empty()));
@@ -89,38 +52,10 @@ public class IcebergMergeSinkTest {
                 "Writing Iceberg VARIANT columns is not supported: payload"));
     }
 
-    @Test
-    public void testBindDataSinkAllowsVariantSchemaForDeleteOnlyMerge() throws Exception {
-        Schema schema = new Schema(
-                Types.NestedField.required(1, "id", Types.IntegerType.get()),
-                Types.NestedField.optional(2, "payload", Types.VariantType.get()));
-        IcebergMergeSink sink = new IcebergMergeSink(
-                mockIcebergExternalTable(2, schema), new DeleteCommandContext(), false);
-
-        sink.bindDataSink(Optional.empty());
-
-        TIcebergMergeSink thriftSink = sink.tDataSink.getIcebergMergeSink();
-        Assertions.assertTrue(thriftSink.getSchemaJson().contains("\"payload\""));
-    }
-
-    private static TIcebergRewritableDeleteFileSet buildDeleteFileSet() {
-        TIcebergDeleteFileDesc deleteFileDesc = new TIcebergDeleteFileDesc();
-        deleteFileDesc.setPath("file:///tmp/delete.puffin");
-        TIcebergRewritableDeleteFileSet deleteFileSet = new TIcebergRewritableDeleteFileSet();
-        deleteFileSet.setReferencedDataFilePath("file:///tmp/data.parquet");
-        deleteFileSet.setDeleteFiles(Collections.singletonList(deleteFileDesc));
-        return deleteFileSet;
-    }
-
-    private static IcebergExternalTable mockIcebergExternalTable(int formatVersion) {
-        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
-        return mockIcebergExternalTable(formatVersion, schema);
-    }
-
-    private static IcebergExternalTable mockIcebergExternalTable(int formatVersion, Schema schema) {
+    private static IcebergExternalTable mockIcebergExternalTable(Schema schema) {
         PartitionSpec spec = PartitionSpec.unpartitioned();
         Map<String, String> properties = new HashMap<>();
-        properties.put(TableProperties.FORMAT_VERSION, String.valueOf(formatVersion));
+        properties.put(TableProperties.FORMAT_VERSION, "2");
         properties.put(TableProperties.DEFAULT_FILE_FORMAT, "parquet");
         properties.put(TableProperties.PARQUET_COMPRESSION, "snappy");
         properties.put(TableProperties.WRITE_DATA_LOCATION, "file:///tmp/iceberg_tbl/data");

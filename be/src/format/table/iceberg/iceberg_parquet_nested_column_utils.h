@@ -17,17 +17,13 @@
 
 #pragma once
 
-#include <memory>
+#include <cstdint>
 #include <set>
 #include <string>
-#include <unordered_map>
 #include <vector>
-
-#include "format/table/table_schema_change_helper.h"
 
 namespace doris {
 
-class FieldDescriptor;
 struct FieldSchema;
 
 class IcebergParquetNestedColumnUtils {

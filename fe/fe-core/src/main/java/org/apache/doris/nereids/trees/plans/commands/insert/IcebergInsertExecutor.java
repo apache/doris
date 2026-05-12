@@ -17,10 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergTransaction;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.transaction.TransactionType;
@@ -46,10 +48,20 @@ public class IcebergInsertExecutor extends BaseExternalTableInsertExecutor {
         super(ctx, table, labelName, planner, insertCtx, emptyInsert, jobId);
     }
 
+    private static void rejectVariantWrites(IcebergExternalTable table) throws UserException {
+        try {
+            IcebergUtils.validateVariantWriteUnsupported(table.getIcebergTable().schema());
+        } catch (AnalysisException e) {
+            throw new UserException(e.getMessage(), e);
+        }
+    }
+
     @Override
     protected void beforeExec() throws UserException {
+        IcebergExternalTable icebergTable = (IcebergExternalTable) table;
+        rejectVariantWrites(icebergTable);
         IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
-        transaction.beginInsert((IcebergExternalTable) table, insertCtx);
+        transaction.beginInsert(icebergTable, insertCtx);
     }
 
     @Override

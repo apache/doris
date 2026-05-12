@@ -391,6 +391,7 @@ public class NestedColumnPruning implements CustomRewriter {
 
         for (Entry<Slot, DataType> kv : variantSlots.entrySet()) {
             Slot slot = kv.getKey();
+            stripVariantSubpathsCoveredByFullPath(slot, allAccessPaths);
             List<ColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
             result.put(slot.getExprId().asInt(),
                     new AccessPathInfo(slot.getDataType(), allPaths, new ArrayList<>()));
@@ -419,6 +420,34 @@ public class NestedColumnPruning implements CustomRewriter {
         }
 
         return result;
+    }
+
+    private static void stripVariantSubpathsCoveredByFullPath(
+            Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> allAccessPaths) {
+        int slotId = slot.getExprId().asInt();
+        Collection<Pair<ColumnAccessPathType, List<String>>> paths = allAccessPaths.get(slotId);
+        boolean hasFullPath = false;
+        for (Pair<ColumnAccessPathType, List<String>> path : paths) {
+            if (path.first == ColumnAccessPathType.DATA
+                    && path.second.size() == 1
+                    && path.second.get(0).equalsIgnoreCase(slot.getName())) {
+                hasFullPath = true;
+                break;
+            }
+        }
+        if (!hasFullPath) {
+            return;
+        }
+
+        List<Pair<ColumnAccessPathType, List<String>>> pathsToRemove = new ArrayList<>();
+        for (Pair<ColumnAccessPathType, List<String>> path : paths) {
+            if (path.first == ColumnAccessPathType.DATA
+                    && path.second.size() > 1
+                    && path.second.get(0).equalsIgnoreCase(slot.getName())) {
+                pathsToRemove.add(path);
+            }
+        }
+        paths.removeAll(pathsToRemove);
     }
 
     private static boolean containsDataSkippingOnlyAccessPath(
@@ -1005,6 +1034,9 @@ public class NestedColumnPruning implements CustomRewriter {
                     return; // do NOT set accessAll — offset-only is distinguishable from full access
                 }
                 // Any other sub-path on a string column means full data is needed.
+                accessAll = true;
+                return;
+            } else if (type.isVariantType()) {
                 accessAll = true;
                 return;
             } else if (isRoot) {

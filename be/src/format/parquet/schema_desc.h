@@ -58,6 +58,7 @@ struct FieldSchema {
 
     //For UInt8 -> Int16,UInt16 -> Int32,UInt32 -> Int64,UInt64 -> Int128.
     bool is_type_compatibility = false;
+    bool is_in_variant = false;
 
     FieldSchema()
             : data_type(std::make_shared<DataTypeNothing>()), column_id(UNASSIGNED_COLUMN_ID) {}
@@ -101,6 +102,9 @@ private:
     Status parse_map_field(const std::vector<tparquet::SchemaElement>& t_schemas, size_t curr_pos,
                            FieldSchema* map_field);
 
+    Status parse_variant_field(const std::vector<tparquet::SchemaElement>& t_schemas,
+                               size_t curr_pos, FieldSchema* variant_field);
+
     Status parse_struct_field(const std::vector<tparquet::SchemaElement>& t_schemas,
                               size_t curr_pos, FieldSchema* struct_field);
 
@@ -109,6 +113,8 @@ private:
 
     Status parse_node_field(const std::vector<tparquet::SchemaElement>& t_schemas, size_t curr_pos,
                             FieldSchema* node_field);
+
+    void rebuild_indexes();
 
     std::pair<DataTypePtr, bool> convert_to_doris_type(tparquet::LogicalType logicalType,
                                                        bool nullable);
@@ -119,6 +125,23 @@ private:
 
 public:
     FieldDescriptor() = default;
+    FieldDescriptor(const FieldDescriptor& other)
+            : _fields(other._fields),
+              _next_schema_pos(other._next_schema_pos),
+              _enable_mapping_varbinary(other._enable_mapping_varbinary),
+              _enable_mapping_timestamp_tz(other._enable_mapping_timestamp_tz) {
+        rebuild_indexes();
+    }
+    FieldDescriptor& operator=(const FieldDescriptor& other) {
+        if (this != &other) {
+            _fields = other._fields;
+            _next_schema_pos = other._next_schema_pos;
+            _enable_mapping_varbinary = other._enable_mapping_varbinary;
+            _enable_mapping_timestamp_tz = other._enable_mapping_timestamp_tz;
+            rebuild_indexes();
+        }
+        return *this;
+    }
     ~FieldDescriptor() = default;
 
     /**
@@ -160,6 +183,8 @@ public:
      * max_column_id populated.
      */
     void assign_ids();
+
+    FieldDescriptor copy_with_assigned_ids() const;
 
     const FieldSchema* find_column_by_id(uint64_t column_id) const;
     void set_enable_mapping_varbinary(bool enable) { _enable_mapping_varbinary = enable; }

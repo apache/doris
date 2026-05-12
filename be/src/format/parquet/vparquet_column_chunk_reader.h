@@ -191,12 +191,13 @@ public:
 
     Status seek_to_nested_row(size_t left_row);
     Status skip_nested_values(const std::vector<level_t>& def_levels);
+    Status skip_nested_values(const std::vector<level_t>& def_levels, size_t begin, size_t end);
     Status fill_def(std::vector<level_t>& def_values) {
         auto before_sz = def_values.size();
         auto append_sz = _remaining_def_nums - _remaining_rep_nums;
         def_values.resize(before_sz + append_sz, 0);
         if (max_def_level() != 0) {
-            auto ptr = def_values.data() + before_sz;
+            auto* ptr = def_values.data() + before_sz;
             _def_level_decoder.get_levels(ptr, append_sz);
         }
         _remaining_def_nums -= append_sz;

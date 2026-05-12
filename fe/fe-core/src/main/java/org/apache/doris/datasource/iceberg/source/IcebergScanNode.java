@@ -22,9 +22,14 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
@@ -817,6 +822,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     private Split createIcebergSplit(FileScanTask fileScanTask) {
         DataFile dataFile = fileScanTask.file();
         String originalPath = dataFile.path().toString();
+        validateVariantDataFileFormat(dataFile.format(), originalPath);
         LocationPath locationPath = createLocationPathWithCache(originalPath);
         IcebergSplit split = new IcebergSplit(
                 locationPath,
@@ -1058,11 +1064,64 @@ public class IcebergScanNode extends FileQueryScanNode {
         if (icebergFormat.equalsIgnoreCase("parquet")) {
             type = TFileFormatType.FORMAT_PARQUET;
         } else if (icebergFormat.equalsIgnoreCase("orc")) {
+            validateVariantReadSupported(icebergFormat);
             type = TFileFormatType.FORMAT_ORC;
         } else {
             throw new DdlException(String.format("Unsupported format name: %s for iceberg table.", icebergFormat));
         }
         return type;
+    }
+
+    private void validateVariantReadSupported(String icebergFormat) throws DdlException {
+        String variantColumnName = findVariantReadColumnName();
+        if (variantColumnName != null) {
+            throw new DdlException("Reading Iceberg VARIANT columns is only supported for Parquet files, "
+                    + "but table file format is " + icebergFormat + ": " + variantColumnName);
+        }
+    }
+
+    @VisibleForTesting
+    void validateVariantDataFileFormat(FileFormat dataFileFormat, String path) {
+        if (dataFileFormat == FileFormat.PARQUET) {
+            return;
+        }
+        String variantColumnName = findVariantReadColumnName();
+        if (variantColumnName != null) {
+            throw new NotSupportedException("Reading Iceberg VARIANT columns is only supported for Parquet files, "
+                    + "but data file format is " + dataFileFormat.name() + ": " + variantColumnName
+                    + " (" + path + ")");
+        }
+    }
+
+    private String findVariantReadColumnName() {
+        for (SlotDescriptor slot : desc.getSlots()) {
+            Column column = slot.getColumn();
+            if (containsVariantType(column.getType())) {
+                return column.getName();
+            }
+        }
+        return null;
+    }
+
+    private static boolean containsVariantType(Type type) {
+        if (type.isVariantType()) {
+            return true;
+        }
+        if (type.isArrayType()) {
+            return containsVariantType(((ArrayType) type).getItemType());
+        }
+        if (type.isMapType()) {
+            MapType mapType = (MapType) type;
+            return containsVariantType(mapType.getKeyType()) || containsVariantType(mapType.getValueType());
+        }
+        if (type.isStructType()) {
+            for (StructField field : ((StructType) type).getFields()) {
+                if (containsVariantType(field.getType())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     @Override

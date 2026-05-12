@@ -72,7 +72,9 @@ private:
                                              const TupleDescriptor* tuple_descriptor);
 
     static ColumnIdResult _create_column_ids_by_top_level_col_index(
-            const FieldDescriptor* field_desc, const TupleDescriptor* tuple_descriptor);
+            const FieldDescriptor* field_desc, const TupleDescriptor* tuple_descriptor,
+            const std::vector<std::string>& table_column_names,
+            const std::vector<int32_t>& file_column_idxs);
 
     const std::set<TSlotId>* _is_file_slot = nullptr;
 };

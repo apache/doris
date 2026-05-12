@@ -52,6 +52,8 @@ public final class IcebergTypeMapping {
                     enableMappingVarbinary, enableMappingTimestampTz);
         }
         switch (icebergType.typeId()) {
+            case VARIANT:
+                return ConnectorType.of("VARIANT");
             case LIST:
                 Types.ListType list = (Types.ListType) icebergType;
                 ConnectorType elemType = fromIcebergType(
@@ -118,6 +120,8 @@ public final class IcebergTypeMapping {
                 return ConnectorType.of("DATETIMEV2", ICEBERG_DATETIME_SCALE_MS, 0);
             case TIME:
                 return ConnectorType.of("UNSUPPORTED");
+            case VARIANT:
+                return ConnectorType.of("VARIANT");
             default:
                 return ConnectorType.of("UNSUPPORTED");
         }

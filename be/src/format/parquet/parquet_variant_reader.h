@@ -15,16 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "format/table/hive/hive_parquet_nested_column_utils.h"
+#pragma once
 
-#include "format/parquet/parquet_nested_column_utils.h"
+#include <cstdint>
+#include <deque>
+#include <string>
 
-namespace doris {
+#include "common/status.h"
+#include "core/field.h"
+#include "core/string_ref.h"
 
-void HiveParquetNestedColumnUtils::extract_nested_column_ids(
-        const FieldSchema& field_schema, const std::vector<std::vector<std::string>>& paths,
-        std::set<uint64_t>& column_ids) {
-    ParquetNestedColumnUtils::extract_nested_column_ids_by_name(field_schema, paths, column_ids);
-}
+namespace doris::parquet {
 
-} // namespace doris
+std::string format_variant_uuid(const uint8_t* ptr);
+
+Status decode_variant_to_json(const StringRef& metadata, const StringRef& value, std::string* json);
+
+Status decode_variant_to_variant_map(const StringRef& metadata, const StringRef& value,
+                                     const PathInData& prefix, VariantMap* values,
+                                     std::deque<std::string>* string_values);
+
+} // namespace doris::parquet

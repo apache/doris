@@ -20,9 +20,13 @@
 #include <gtest/gtest.h>
 
 #include "arrow/api.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "format/parquet/delta_bit_pack_decoder.h"
 #include "parquet/encoding.h"
 #include "parquet/schema.h"
@@ -38,6 +42,28 @@ protected:
     std::unique_ptr<DeltaByteArrayDecoder> _decoder;
 };
 
+static std::vector<parquet::ByteArray> make_byte_array_values(
+        const std::vector<std::string>& values) {
+    std::vector<parquet::ByteArray> byte_array_values;
+    byte_array_values.reserve(values.size());
+    for (const auto& value : values) {
+        byte_array_values.emplace_back(static_cast<uint32_t>(value.size()),
+                                       reinterpret_cast<const uint8_t*>(value.data()));
+    }
+    return byte_array_values;
+}
+
+static Status init_all_selected_nullable_vector(size_t num_values,
+                                                std::vector<uint16_t>* run_length_null_map,
+                                                std::vector<uint8_t>* filter_data,
+                                                FilterMap* filter_map, NullMap* null_map,
+                                                ColumnSelectVector* select_vector) {
+    run_length_null_map->assign(num_values, 1);
+    filter_data->assign(num_values, 1);
+    RETURN_IF_ERROR(filter_map->init(filter_data->data(), filter_data->size(), false));
+    return select_vector->init(*run_length_null_map, num_values, null_map, filter_map, 0);
+}
+
 // Test basic decoding byte array functionality
 TEST_F(DeltaByteArrayDecoderTest, test_basic_decode_byte_array) {
     // Create ColumnDescriptor
@@ -47,12 +73,7 @@ TEST_F(DeltaByteArrayDecoderTest, test_basic_decode_byte_array) {
 
     // Prepare original data
     std::vector<std::string> values = {"Hello", "World", "Foobar", "ABCDEF"};
-    std::vector<parquet::ByteArray> byte_array_values;
-    for (const auto& value : values) {
-        byte_array_values.emplace_back(
-                parquet::ByteArray {static_cast<uint32_t>(value.size()),
-                                    reinterpret_cast<const uint8_t*>(value.data())});
-    }
+    auto byte_array_values = make_byte_array_values(values);
 
     // Create encoder
     auto encoder = MakeTypedEncoder<parquet::ByteArrayType>(parquet::Encoding::DELTA_BYTE_ARRAY,
@@ -100,12 +121,7 @@ TEST_F(DeltaByteArrayDecoderTest, test_decode_byte_array_with_filter) {
 
     // Prepare original data
     std::vector<std::string> values = {"Hello", "World", "Foobar", "ABCDEF"};
-    std::vector<parquet::ByteArray> byte_array_values;
-    for (const auto& value : values) {
-        byte_array_values.emplace_back(
-                parquet::ByteArray {static_cast<uint32_t>(value.size()),
-                                    reinterpret_cast<const uint8_t*>(value.data())});
-    }
+    auto byte_array_values = make_byte_array_values(values);
 
     // Create encoder
     auto encoder = MakeTypedEncoder<parquet::ByteArrayType>(parquet::Encoding::DELTA_BYTE_ARRAY,
@@ -152,12 +168,7 @@ TEST_F(DeltaByteArrayDecoderTest, test_decode_byte_array_with_filter_and_null) {
 
     // Prepare original data
     std::vector<std::string> values = {"Hello", "World", "ABCDEF"};
-    std::vector<parquet::ByteArray> byte_array_values;
-    for (const auto& value : values) {
-        byte_array_values.emplace_back(
-                parquet::ByteArray {static_cast<uint32_t>(value.size()),
-                                    reinterpret_cast<const uint8_t*>(value.data())});
-    }
+    auto byte_array_values = make_byte_array_values(values);
 
     // Create encoder
     auto encoder = MakeTypedEncoder<parquet::ByteArrayType>(parquet::Encoding::DELTA_BYTE_ARRAY,
@@ -207,6 +218,49 @@ TEST_F(DeltaByteArrayDecoderTest, test_decode_byte_array_with_filter_and_null) {
             EXPECT_TRUE(null_map[i]) << "Expected null at position " << i;
         }
     }
+}
+
+TEST_F(DeltaByteArrayDecoderTest, test_decode_nullable_varbinary) {
+    auto node = parquet::schema::PrimitiveNode::Make("test_column", parquet::Repetition::OPTIONAL,
+                                                     parquet::Type::BYTE_ARRAY);
+    auto descr = std::make_shared<parquet::ColumnDescriptor>(node, 0, 1);
+
+    std::vector<std::string> values = {"hello", std::string("\x01\xff", 2)};
+    auto byte_array_values = make_byte_array_values(values);
+
+    auto encoder = MakeTypedEncoder<parquet::ByteArrayType>(parquet::Encoding::DELTA_BYTE_ARRAY,
+                                                            /*use_dictionary=*/false, descr.get());
+    ASSERT_NO_THROW(
+            encoder->Put(byte_array_values.data(), static_cast<int>(byte_array_values.size())));
+
+    auto encoded_buffer = encoder->FlushValues();
+    Slice data_slice(encoded_buffer->data(), encoded_buffer->size());
+    ASSERT_TRUE(_decoder->set_data(&data_slice).ok());
+
+    DataTypePtr data_type = make_nullable(std::make_shared<DataTypeVarbinary>());
+    MutableColumnPtr column = data_type->create_column();
+
+    constexpr size_t num_values = 3;
+    std::vector<uint16_t> run_length_null_map;
+    std::vector<uint8_t> filter_data;
+    FilterMap filter_map;
+    ColumnSelectVector select_vector;
+    NullMap null_map;
+    ASSERT_TRUE(init_all_selected_nullable_vector(num_values, &run_length_null_map, &filter_data,
+                                                  &filter_map, &null_map, &select_vector)
+                        .ok());
+
+    ASSERT_TRUE(_decoder->decode_values(column, data_type, select_vector, false).ok());
+
+    ASSERT_EQ(column->size(), num_values);
+    const auto* nullable_column = assert_cast<const ColumnNullable*>(column.get());
+    const auto& result_column =
+            assert_cast<const ColumnVarbinary&>(nullable_column->get_nested_column());
+    EXPECT_EQ(nullable_column->get_null_map_data()[0], 0);
+    EXPECT_EQ(nullable_column->get_null_map_data()[1], 1);
+    EXPECT_EQ(nullable_column->get_null_map_data()[2], 0);
+    EXPECT_EQ(result_column.get_data_at(0).to_string(), values[0]);
+    EXPECT_EQ(result_column.get_data_at(2).to_string(), values[1]);
 }
 
 // Test skipping values for byte array decoding

@@ -17,8 +17,6 @@
 
 #include "format/parquet/schema_desc.h"
 
-#include <ctype.h>
-
 #include <algorithm>
 #include <ostream>
 #include <utility>
@@ -29,6 +27,7 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_variant.h"
 #include "core/data_type/define_primitive_type.h"
 #include "format/generic_reader.h"
 #include "format/table/table_schema_change_helper.h"
@@ -64,6 +63,23 @@ static bool is_required_node(const tparquet::SchemaElement& schema) {
 static bool is_optional_node(const tparquet::SchemaElement& schema) {
     return schema.__isset.repetition_type &&
            schema.repetition_type == tparquet::FieldRepetitionType::OPTIONAL;
+}
+
+static bool is_variant_node(const tparquet::SchemaElement& schema) {
+    return schema.__isset.logicalType && schema.logicalType.__isset.VARIANT;
+}
+
+static void mark_variant_subfields(FieldSchema* field) {
+    field->is_in_variant = true;
+    for (auto& child : field->children) {
+        mark_variant_subfields(&child);
+    }
+}
+
+static bool is_unannotated_binary_field(const FieldSchema& field) {
+    return field.physical_type == tparquet::Type::BYTE_ARRAY &&
+           !field.parquet_schema.__isset.logicalType &&
+           !field.parquet_schema.__isset.converted_type;
 }
 
 static int num_children_node(const tparquet::SchemaElement& schema) {
@@ -305,7 +321,8 @@ std::pair<DataTypePtr, bool> FieldDescriptor::convert_to_doris_type(
             }
         }
     } else if (logicalType.__isset.TIME) {
-        ans.first = DataTypeFactory::instance().create_data_type(TYPE_TIMEV2, nullable);
+        ans.first = DataTypeFactory::instance().create_data_type(
+                TYPE_TIMEV2, nullable, 0, logicalType.TIME.unit.__isset.MILLIS ? 3 : 6);
     } else if (logicalType.__isset.TIMESTAMP) {
         if (_enable_mapping_timestamp_tz) {
             if (logicalType.TIMESTAMP.isAdjustedToUTC) {
@@ -351,9 +368,10 @@ std::pair<DataTypePtr, bool> FieldDescriptor::convert_to_doris_type(
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_DATEV2, nullable);
         break;
     case tparquet::ConvertedType::type::TIME_MILLIS:
-        [[fallthrough]];
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_TIMEV2, nullable, 0, 3);
+        break;
     case tparquet::ConvertedType::type::TIME_MICROS:
-        ans.first = DataTypeFactory::instance().create_data_type(TYPE_TIMEV2, nullable);
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_TIMEV2, nullable, 0, 6);
         break;
     case tparquet::ConvertedType::type::TIMESTAMP_MILLIS:
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, nullable, 0, 3);
@@ -398,7 +416,10 @@ std::pair<DataTypePtr, bool> FieldDescriptor::convert_to_doris_type(
 
 Status FieldDescriptor::parse_group_field(const std::vector<tparquet::SchemaElement>& t_schemas,
                                           size_t curr_pos, FieldSchema* group_field) {
-    auto& group_schema = t_schemas[curr_pos];
+    const auto& group_schema = t_schemas[curr_pos];
+    if (is_variant_node(group_schema)) {
+        return parse_variant_field(t_schemas, curr_pos, group_field);
+    }
     if (is_map_node(group_schema)) {
         // the map definition:
         // optional group <name> (MAP) {
@@ -443,6 +464,67 @@ Status FieldDescriptor::parse_group_field(const std::vector<tparquet::SchemaElem
         RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos, group_field));
     }
 
+    return Status::OK();
+}
+
+Status FieldDescriptor::parse_variant_field(const std::vector<tparquet::SchemaElement>& t_schemas,
+                                            size_t curr_pos, FieldSchema* variant_field) {
+    RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos, variant_field));
+
+    bool has_metadata = false;
+    bool metadata_required = false;
+    bool has_value = false;
+    bool has_typed_value = false;
+    for (const auto& child : variant_field->children) {
+        if (child.lower_case_name == "metadata") {
+            if (has_metadata) {
+                return Status::InvalidArgument(
+                        "Parquet VARIANT field '{}' has duplicate metadata child",
+                        variant_field->name);
+            }
+            if (!is_unannotated_binary_field(child)) {
+                return Status::InvalidArgument(
+                        "Parquet VARIANT field '{}' metadata child must be unannotated binary",
+                        variant_field->name);
+            }
+            has_metadata = true;
+            metadata_required = !child.data_type->is_nullable();
+        } else if (child.lower_case_name == "value") {
+            if (has_value) {
+                return Status::InvalidArgument(
+                        "Parquet VARIANT field '{}' has duplicate value child",
+                        variant_field->name);
+            }
+            if (!is_unannotated_binary_field(child)) {
+                return Status::InvalidArgument(
+                        "Parquet VARIANT field '{}' value child must be unannotated binary",
+                        variant_field->name);
+            }
+            has_value = true;
+        } else if (child.lower_case_name == "typed_value") {
+            if (has_typed_value) {
+                return Status::InvalidArgument(
+                        "Parquet VARIANT field '{}' has duplicate typed_value child",
+                        variant_field->name);
+            }
+            has_typed_value = true;
+        } else {
+            return Status::InvalidArgument("Parquet VARIANT field '{}' has unexpected child '{}'",
+                                           variant_field->name, child.name);
+        }
+    }
+    if (!has_metadata || !metadata_required || (!has_value && !has_typed_value)) {
+        return Status::InvalidArgument(
+                "Parquet VARIANT field '{}' must contain required binary metadata and at least one "
+                "binary value or typed_value field",
+                variant_field->name);
+    }
+
+    variant_field->data_type = std::make_shared<DataTypeVariant>(0, false);
+    if (is_optional_node(t_schemas[curr_pos])) {
+        variant_field->data_type = make_nullable(variant_field->data_type);
+    }
+    mark_variant_subfields(variant_field);
     return Status::OK();
 }
 
@@ -641,6 +723,32 @@ FieldSchema* FieldDescriptor::get_column(const std::string& name) const {
     return nullptr;
 }
 
+namespace {
+
+void collect_physical_fields(FieldSchema* field, std::vector<FieldSchema*>* physical_fields) {
+    if (field->children.empty()) {
+        if (field->physical_column_index >= 0) {
+            field->physical_column_index = cast_set<int>(physical_fields->size());
+            physical_fields->push_back(field);
+        }
+        return;
+    }
+    for (auto& child : field->children) {
+        collect_physical_fields(&child, physical_fields);
+    }
+}
+
+} // namespace
+
+void FieldDescriptor::rebuild_indexes() {
+    _physical_fields.clear();
+    _name_to_field.clear();
+    for (auto& field : _fields) {
+        _name_to_field.emplace(field.name, &field);
+        collect_physical_fields(&field, &_physical_fields);
+    }
+}
+
 void FieldDescriptor::get_column_names(std::unordered_set<std::string>* names) const {
     names->clear();
     for (const FieldSchema& f : _fields) {
@@ -666,6 +774,13 @@ void FieldDescriptor::assign_ids() {
     for (auto& field : _fields) {
         field.assign_ids(next_id);
     }
+}
+
+FieldDescriptor FieldDescriptor::copy_with_assigned_ids() const {
+    FieldDescriptor copy = *this;
+    copy.rebuild_indexes();
+    copy.assign_ids();
+    return copy;
 }
 
 const FieldSchema* FieldDescriptor::find_column_by_id(uint64_t column_id) const {

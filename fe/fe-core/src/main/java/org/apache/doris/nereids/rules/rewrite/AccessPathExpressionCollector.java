@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSlot;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -44,7 +45,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortBy;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySplit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GetVariantType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsEntry;
@@ -55,6 +59,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MapSize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapValues;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
@@ -98,14 +103,34 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         expression.accept(this, new CollectorContext(statementContext, bottomPredicate));
     }
 
+    public void collectWholeVariantExpression(Expression expression) {
+        CollectorContext context = new CollectorContext(statementContext, bottomPredicate);
+        context.setCollectVariantRoot(true);
+        expression.accept(this, context);
+    }
+
     private Void continueCollectAccessPath(Expression expr, CollectorContext context) {
         return expr.accept(this, context);
+    }
+
+    private void recordVariantRootAccessPath(SlotReference slotReference, CollectorContext context) {
+        int slotId = slotReference.getExprId().asInt();
+        slotToAccessPaths.put(slotId,
+                new CollectAccessPathResult(
+                        ImmutableList.of(slotReference.getName()),
+                        context.bottomFilter, ColumnAccessPathType.DATA));
     }
 
     @Override
     public Void visit(Expression expr, CollectorContext context) {
         for (Expression child : expr.children()) {
-            child.accept(this, new CollectorContext(context.statementContext, context.bottomFilter));
+            if (child.getDataType().isVariantType()
+                    && (context.collectVariantRoot
+                            || (!context.accessPathBuilder.isEmpty() && expr.getDataType().isVariantType()))) {
+                child.accept(this, context.copy());
+            } else {
+                child.accept(this, new CollectorContext(context.statementContext, context.bottomFilter));
+            }
         }
         return null;
     }
@@ -113,6 +138,12 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     @Override
     public Void visitSlotReference(SlotReference slotReference, CollectorContext context) {
         DataType dataType = slotReference.getDataType();
+        List<String> builderPath = context.accessPathBuilder.getPathList();
+        if (dataType instanceof VariantType && builderPath.size() == 1
+                && AccessPathInfo.ACCESS_NULL.equals(builderPath.get(0))) {
+            recordVariantRootAccessPath(slotReference, context);
+            return null;
+        }
         if (dataType instanceof VariantType
                 && (slotReference.hasSubColPath() || !context.accessPathBuilder.isEmpty())) {
             List<String> path = new ArrayList<>();
@@ -122,7 +153,6 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             }
             // Strip NULL suffix for variant sub-column access — null-flag-only optimization
             // does not apply to variant sub-column data layout.
-            List<String> builderPath = context.accessPathBuilder.getPathList();
             if (builderPath.size() > 1
                     && AccessPathInfo.ACCESS_NULL.equals(builderPath.get(builderPath.size() - 1))) {
                 builderPath = new ArrayList<>(builderPath.subList(0, builderPath.size() - 1));
@@ -131,6 +161,10 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             int slotId = slotReference.getExprId().asInt();
             slotToAccessPaths.put(slotId, new CollectAccessPathResult(
                     path, context.bottomFilter, ColumnAccessPathType.DATA));
+            return null;
+        }
+        if (dataType instanceof VariantType && context.collectVariantRoot) {
+            recordVariantRootAccessPath(slotReference, context);
             return null;
         }
         if (dataType instanceof NestedColumnPrunable) {
@@ -265,26 +299,79 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
 
     @Override
     public Void visitCast(Cast cast, CollectorContext context) {
+        Expression child = cast.child(0);
+        if (child.getDataType() instanceof VariantType && context.accessPathBuilder.isEmpty()) {
+            if (isVariantLiteralPathAccess(child)) {
+                return continueCollectAccessPath(child, context);
+            }
+            CollectorContext variantRootContext = context.copy();
+            variantRootContext.setCollectVariantRoot(true);
+            return continueCollectAccessPath(child, variantRootContext);
+        }
+        if (child.getDataType() instanceof VariantType && !context.accessPathBuilder.isEmpty()
+                && (cast.getDataType() instanceof VariantType
+                        || cast.getDataType() instanceof NestedColumnPrunable)) {
+            return continueCollectAccessPath(child, context);
+        }
         if (!context.accessPathBuilder.isEmpty()
                 && cast.getDataType() instanceof NestedColumnPrunable
-                && cast.child().getDataType() instanceof NestedColumnPrunable
-                && !mapTypeIsChanged(cast.child().getDataType(), cast.getDataType(), false)) {
+                && child.getDataType() instanceof NestedColumnPrunable
+                && !mapTypeIsChanged(child.getDataType(), cast.getDataType(), false)) {
 
             DataTypeAccessTree castTree = DataTypeAccessTree.of(
                     cast.getDataType(), ColumnAccessPathType.DATA);
             DataTypeAccessTree originTree = DataTypeAccessTree.of(
-                    cast.child().getDataType(), ColumnAccessPathType.DATA);
+                    child.getDataType(), ColumnAccessPathType.DATA);
 
             List<String> replacePath = new ArrayList<>(context.accessPathBuilder.getPathList());
             if (originTree.replacePathByAnotherTree(castTree, replacePath, 0)) {
                 CollectorContext castContext = new CollectorContext(context.statementContext, context.bottomFilter);
                 castContext.accessPathBuilder.accessPath.addAll(replacePath);
-                return continueCollectAccessPath(cast.child(), castContext);
+                return continueCollectAccessPath(child, castContext);
             }
         }
-        return cast.child(0).accept(this,
+        return child.accept(this,
                 new CollectorContext(context.statementContext, context.bottomFilter)
         );
+    }
+
+    @Override
+    public Void visitGetVariantType(GetVariantType getVariantType, CollectorContext context) {
+        Expression child = getVariantType.child(0);
+        if (child.getDataType() instanceof VariantType && context.accessPathBuilder.isEmpty()) {
+            CollectorContext variantRootContext = context.copy();
+            variantRootContext.setCollectVariantRoot(true);
+            return continueCollectAccessPath(child, variantRootContext);
+        }
+        return visit(getVariantType, context);
+    }
+
+    @Override
+    public Void visitComparisonPredicate(ComparisonPredicate comparisonPredicate, CollectorContext context) {
+        if (context.collectVariantRoot) {
+            return visit(comparisonPredicate, context);
+        }
+        for (Expression child : comparisonPredicate.children()) {
+            CollectorContext childContext =
+                    new CollectorContext(context.statementContext, context.bottomFilter);
+            if (child.getDataType() instanceof VariantType && context.accessPathBuilder.isEmpty()
+                    && !isVariantLiteralPathAccess(child)) {
+                childContext.setCollectVariantRoot(true);
+            }
+            child.accept(this, childContext);
+        }
+        return null;
+    }
+
+    private boolean isVariantLiteralPathAccess(Expression expression) {
+        if (expression instanceof SlotReference) {
+            return ((SlotReference) expression).hasSubColPath();
+        }
+        if (!(expression instanceof ElementAt)) {
+            return false;
+        }
+        ElementAt elementAt = (ElementAt) expression;
+        return elementAt.child(0).getDataType().isVariantType() && elementAt.child(1).isLiteral();
     }
 
     // array element at
@@ -293,11 +380,13 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         List<Expression> arguments = elementAt.getArguments();
         Expression first = arguments.get(0);
         if (first.getDataType().isArrayType() || first.getDataType().isMapType()) {
-            context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_ALL);
-            continueCollectAccessPath(first, context);
+            CollectorContext valueContext = context.copy();
+            valueContext.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_ALL);
+            continueCollectAccessPath(first, valueContext);
 
             for (int i = 1; i < arguments.size(); i++) {
-                visit(arguments.get(i), context);
+                arguments.get(i).accept(this,
+                        new CollectorContext(context.statementContext, context.bottomFilter));
             }
             return null;
         } else if (first.getDataType().isVariantType() && arguments.size() >= 2
@@ -313,6 +402,18 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
                 return continueCollectAccessPath(first, context);
             }
             return visit(elementAt, context);
+        } else if (first.getDataType().isVariantType() && arguments.size() >= 2) {
+            // Dynamic keys can hit any VARIANT field. Drop any outer literal suffix, e.g.
+            // v[cast(id AS string)]['x'], and require the first argument's root instead.
+            CollectorContext variantRootContext =
+                    new CollectorContext(context.statementContext, context.bottomFilter);
+            variantRootContext.setCollectVariantRoot(true);
+            continueCollectAccessPath(first, variantRootContext);
+            for (int i = 1; i < arguments.size(); i++) {
+                arguments.get(i).accept(this,
+                        new CollectorContext(context.statementContext, context.bottomFilter));
+            }
+            return null;
         } else {
             return visit(elementAt, context);
         }
@@ -342,6 +443,55 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
 
         for (Expression argument : arguments) {
             visit(argument, context);
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitCreateNamedStruct(CreateNamedStruct createNamedStruct, CollectorContext context) {
+        List<String> path = context.accessPathBuilder.getPathList();
+        if (!path.isEmpty()) {
+            String fieldName = path.get(0);
+            for (int i = 0; i + 1 < createNamedStruct.arity(); i += 2) {
+                Expression fieldNameExpr = createNamedStruct.child(i);
+                if (fieldNameExpr.isLiteral() && fieldNameExpr.getDataType().isStringLikeType()
+                        && fieldName.equalsIgnoreCase(((Literal) fieldNameExpr).getStringValue())) {
+                    return collectConstructedStructField(createNamedStruct.child(i + 1), context);
+                }
+            }
+        }
+        return context.accessPathBuilder.isEmpty()
+                ? visit(createNamedStruct, context)
+                : collectChildrenWithoutAccessPath(createNamedStruct, context);
+    }
+
+    @Override
+    public Void visitCreateStruct(CreateStruct createStruct, CollectorContext context) {
+        List<String> path = context.accessPathBuilder.getPathList();
+        if (!path.isEmpty()) {
+            String fieldName = path.get(0);
+            for (int i = 0; i < createStruct.arity(); i++) {
+                if (fieldName.equalsIgnoreCase(StructLiteral.COL_PREFIX + (i + 1))) {
+                    return collectConstructedStructField(createStruct.child(i), context);
+                }
+            }
+        }
+        return context.accessPathBuilder.isEmpty()
+                ? visit(createStruct, context)
+                : collectChildrenWithoutAccessPath(createStruct, context);
+    }
+
+    private Void collectConstructedStructField(Expression fieldValue, CollectorContext context) {
+        List<String> path = context.accessPathBuilder.getPathList();
+        CollectorContext fieldContext = new CollectorContext(context.statementContext, context.bottomFilter);
+        fieldContext.setType(context.type);
+        fieldContext.getAccessPathBuilder().addSuffix(path.subList(1, path.size()));
+        return continueCollectAccessPath(fieldValue, fieldContext);
+    }
+
+    private Void collectChildrenWithoutAccessPath(Expression expression, CollectorContext context) {
+        for (Expression child : expression.children()) {
+            child.accept(this, new CollectorContext(context.statementContext, context.bottomFilter));
         }
         return null;
     }
@@ -388,22 +538,39 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         return suffixPath.size() == 1 && AccessPathInfo.ACCESS_NULL.equals(suffixPath.get(0));
     }
 
+    private void collectArgumentsAfterFirst(
+            List<Expression> arguments, CollectorContext context) {
+        for (int i = 1; i < arguments.size(); i++) {
+            arguments.get(i).accept(this,
+                    new CollectorContext(context.statementContext, context.bottomFilter));
+        }
+    }
+
     @Override
     public Void visitMapContainsKey(MapContainsKey mapContainsKey, CollectorContext context) {
-        context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_MAP_KEYS);
-        return continueCollectAccessPath(mapContainsKey.getArgument(0), context);
+        CollectorContext keyContext = context.copy();
+        keyContext.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_MAP_KEYS);
+        continueCollectAccessPath(mapContainsKey.getArgument(0), keyContext);
+        collectArgumentsAfterFirst(mapContainsKey.getArguments(), context);
+        return null;
     }
 
     @Override
     public Void visitMapContainsValue(MapContainsValue mapContainsValue, CollectorContext context) {
-        context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_MAP_VALUES);
-        return continueCollectAccessPath(mapContainsValue.getArgument(0), context);
+        CollectorContext valueContext = context.copy();
+        valueContext.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_MAP_VALUES);
+        continueCollectAccessPath(mapContainsValue.getArgument(0), valueContext);
+        collectArgumentsAfterFirst(mapContainsValue.getArguments(), context);
+        return null;
     }
 
     @Override
     public Void visitMapContainsEntry(MapContainsEntry mapContainsEntry, CollectorContext context) {
-        context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_ALL);
-        return continueCollectAccessPath(mapContainsEntry.getArgument(0), context);
+        CollectorContext entryContext = context.copy();
+        entryContext.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_ALL);
+        continueCollectAccessPath(mapContainsEntry.getArgument(0), entryContext);
+        collectArgumentsAfterFirst(mapContainsEntry.getArguments(), context);
+        return null;
     }
 
     @Override
@@ -619,12 +786,14 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         private AccessPathBuilder accessPathBuilder;
         private boolean bottomFilter;
         private ColumnAccessPathType type;
+        private boolean collectVariantRoot;
 
         public CollectorContext(StatementContext statementContext, boolean bottomFilter) {
             this.statementContext = statementContext;
             this.accessPathBuilder = new AccessPathBuilder();
             this.bottomFilter = bottomFilter;
             this.type = ColumnAccessPathType.DATA;
+            this.collectVariantRoot = false;
         }
 
         public ColumnAccessPathType getType() {
@@ -637,6 +806,18 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
 
         public AccessPathBuilder getAccessPathBuilder() {
             return accessPathBuilder;
+        }
+
+        public void setCollectVariantRoot(boolean collectVariantRoot) {
+            this.collectVariantRoot = collectVariantRoot;
+        }
+
+        public CollectorContext copy() {
+            CollectorContext context = new CollectorContext(statementContext, bottomFilter);
+            context.accessPathBuilder.accessPath.addAll(accessPathBuilder.accessPath);
+            context.type = type;
+            context.collectVariantRoot = collectVariantRoot;
+            return context;
         }
     }
 

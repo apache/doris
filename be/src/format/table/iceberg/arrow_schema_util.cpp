@@ -119,6 +119,9 @@ Status ArrowSchemaUtil::convert_to(const iceberg::NestedField& field,
         break;
     }
 
+    case iceberg::TypeID::VARIANT:
+        return Status::NotSupported("Iceberg VARIANT write is not supported");
+
     case iceberg::TypeID::TIME:
     default:
         return Status::InternalError("Unsupported field type:" + field.field_type()->to_string());

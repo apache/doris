@@ -83,10 +83,16 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::init() {
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::skip_nested_values(
         const std::vector<level_t>& def_levels) {
+    return skip_nested_values(def_levels, 0, def_levels.size());
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::skip_nested_values(
+        const std::vector<level_t>& def_levels, size_t begin, size_t end) {
     size_t no_value_cnt = 0;
     size_t value_cnt = 0;
 
-    for (size_t idx = 0; idx < def_levels.size(); idx++) {
+    for (size_t idx = begin; idx < end; idx++) {
         level_t def_level = def_levels[idx];
         if (IN_COLLECTION && def_level < _field_schema->repeated_parent_def_level) {
             no_value_cnt++;
