@@ -21,7 +21,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TCommitMessage;
 import org.apache.doris.transaction.Transaction;
 
@@ -51,7 +50,6 @@ public class PaimonTransaction implements Transaction {
     private PaimonExternalTable table;
     private long transactionId = -1L;
     private String commitUser = "";
-    private String hadoopUser = "";
 
     private final List<TCommitMessage> commitMessages = Lists.newArrayList();
     private final Set<String> commitPayloadSet = new HashSet<>();
@@ -83,16 +81,6 @@ public class PaimonTransaction implements Transaction {
 
     public void beginInsert(PaimonExternalTable table, Optional<InsertCommandContext> insertCtx) {
         this.table = table;
-        ConnectContext ctx = ConnectContext.get();
-        if (ctx == null) {
-            return;
-        }
-        String user = ctx.getQualifiedUser();
-        int atPos = user.indexOf('@');
-        if (atPos > 0) {
-            user = user.substring(0, atPos);
-        }
-        this.hadoopUser = user;
     }
 
     public void finishInsert(PaimonExternalTable table, Optional<InsertCommandContext> insertCtx) {

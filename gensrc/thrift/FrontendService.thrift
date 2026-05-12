@@ -314,13 +314,14 @@ struct TReportExecStatusParams {
   28: optional list<DataSinks.TIcebergCommitData> iceberg_commit_datas
   29: optional i64 txn_id
   30: optional string label
-  34: optional list<DataSinks.TCommitMessage> paimon_commit_messages
 
   31: optional list<TFragmentInstanceReport> fragment_instance_reports;
 
   32: optional list<DataSinks.TMCCommitData> mc_commit_datas
 
   33: optional string first_error_msg
+
+  34: optional list<DataSinks.TCommitMessage> paimon_commit_messages
 }
 
 struct TFeResult {

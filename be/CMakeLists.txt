@@ -74,7 +74,6 @@ option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON
 option(USE_LIBCPP "Use libc++" OFF)
 option(USE_UNWIND "Use libunwind" ON)
 option(USE_JEMALLOC "Use jemalloc" ON)
-option(ENABLE_PAIMON "Enable Paimon sink (via paimon-cpp). Placeholder, off by default." OFF)
 if (OS_MACOSX)
     set(GLIBC_COMPATIBILITY OFF)
     set(USE_LIBCPP ON)

@@ -99,6 +99,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MIN_SCAN_SCHEDULER_CONCURRENCY = "min_scan_scheduler_concurrency";
     public static final String QUERY_TIMEOUT = "query_timeout";
     public static final String ANALYZE_TIMEOUT = "analyze_timeout";
+
     public static final String INTERNAL_CACHE_HOT_SPOT_TIMEOUT = "cache_hot_spot_insert_timeout_second";
 
     public static final String MAX_EXECUTION_TIME = "max_execution_time";
@@ -482,7 +483,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_PAIMON_DISTRIBUTED_BUCKET_SHUFFLE =
             "enable_paimon_distributed_bucket_shuffle";
     public static final String PAIMON_WRITER_QUEUE_SIZE = "paimon_writer_queue_size";
-    public static final String ENABLE_HASH_JOIN_EARLY_START_PROBE = "enable_hash_join_early_start_probe";
     // support unicode in label, table, column, common name check
     public static final String ENABLE_UNICODE_NAME_SUPPORT = "enable_unicode_name_support";
 
@@ -2208,8 +2208,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PAIMON_ADAPTIVE_BUFFER_SIZE, fuzzy = true, needForward = true)
     public boolean enablePaimonAdaptiveBufferSize = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_HASH_JOIN_EARLY_START_PROBE, fuzzy = false)
-    public boolean enableHashJoinEarlyStartProbe = false;
     @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT, needForward = true)
     public boolean enableUnicodeNameSupport = true;
 
@@ -5333,7 +5331,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
         tResult.setEnableShareHashTableForBroadcastJoin(enableShareHashTableForBroadcastJoin);
-        tResult.setEnableHashJoinEarlyStartProbe(enableHashJoinEarlyStartProbe);
         tResult.setEnablePaimonDistributedBucketShuffle(enablePaimonDistributedBucketShuffle);
         tResult.setEnablePaimonAdaptiveBufferSize(enablePaimonAdaptiveBufferSize);
         tResult.setPaimonTargetFileSize(paimonTargetFileSize);

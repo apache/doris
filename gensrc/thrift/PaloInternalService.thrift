@@ -470,7 +470,7 @@ struct TQueryOptions {
   209: optional i32 spill_repartition_max_depth = 8
 
   184: optional i32 cte_max_recursion_depth;
-  // For paimon write benchmark/debug
+  // Options for Paimon write.
   320: optional i32 paimon_writer_queue_size = 3;
   321: optional bool enable_paimon_distributed_bucket_shuffle = true;
   322: optional bool enable_paimon_adaptive_buffer_size = true;
