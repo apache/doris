@@ -1193,7 +1193,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 if (syncMvName.isPresent()) {
                     throw new DdlException(String.format(
                             "Can not add key column to merge-on-write table when table has sync materialized view[%s]. "
-                                    + "Please drop the sync materialized view first, then alter the table and recreate it.",
+                                    + "Please drop the sync materialized view first, then alter the table "
+                                    + "and recreate it.",
                             syncMvName.get()));
                 }
             }
@@ -1377,9 +1378,7 @@ public class SchemaChangeHandler extends AlterHandler {
             if (entry.getKey() == olapTable.getBaseIndexId()) {
                 continue;
             }
-            if (entry.getValue().getDefineStmt() != null) {
-                return Optional.ofNullable(olapTable.getIndexNameById(entry.getKey()));
-            }
+            return Optional.of(Preconditions.checkNotNull(olapTable.getIndexNameById(entry.getKey())));
         }
         return Optional.empty();
     }
