@@ -3678,6 +3678,16 @@ public class SchemaChangeHandler extends AlterHandler {
         for (int i = 0; i < indexIds.size(); i++) {
             List<Column> indexSchema = indexSchemaMap.get(indexIds.get(i));
             MaterializedIndexMeta currentIndexMeta = olapTable.getIndexMetaByIndexId(indexIds.get(i));
+
+            // Keep historical column unique ids from the old schema when dropping columns. Some legacy metadata may
+            // have a stale maxColUniqueId, and lowering it can make a later re-added same-name column reuse the
+            // dropped column's unique id and read old segment data.
+            int maxColUniqueId = currentIndexMeta.getMaxColUniqueId();
+            for (Column column : currentIndexMeta.getSchema()) {
+                if (column.getUniqueId() > maxColUniqueId) {
+                    maxColUniqueId = column.getUniqueId();
+                }
+            }
             currentIndexMeta.setSchema(indexSchema);
 
             int currentSchemaVersion = currentIndexMeta.getSchemaVersion();
@@ -3685,7 +3695,6 @@ public class SchemaChangeHandler extends AlterHandler {
             currentIndexMeta.setSchemaVersion(newSchemaVersion);
 
             //update max column unique id
-            int maxColUniqueId = currentIndexMeta.getMaxColUniqueId();
             for (Column column : indexSchema) {
                 if (column.getUniqueId() > maxColUniqueId) {
                     maxColUniqueId = column.getUniqueId();
