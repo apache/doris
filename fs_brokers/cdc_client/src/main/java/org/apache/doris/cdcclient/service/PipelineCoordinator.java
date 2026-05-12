@@ -473,12 +473,15 @@ public class PipelineCoordinator {
                 if (!recordIterator.hasNext()) {
                     Thread.sleep(100);
 
-                    long now = System.currentTimeMillis();
-                    long elapsedTime = now - startTime;
+                    // Check if should stop
+                    long elapsedTime =
+                            streamingStartTime > 0
+                                    ? System.currentTimeMillis() - streamingStartTime
+                                    : 0;
                     boolean timeoutReached =
                             streamingStartTime > 0
                                     && maxIntervalMillis > 0
-                                    && (now - streamingStartTime) >= maxIntervalMillis;
+                                    && elapsedTime >= maxIntervalMillis;
 
                     if (shouldStop(
                             isSnapshotSplit,
@@ -504,17 +507,21 @@ public class PipelineCoordinator {
                 while (recordIterator.hasNext()) {
                     SourceRecord element = recordIterator.next();
 
+                    // Check if this is a heartbeat message
                     if (isHeartbeatEvent(element)) {
                         heartbeatCount++;
 
+                        // Mark last message as heartbeat (only for binlog split)
                         if (!isSnapshotSplit) {
                             lastMessageIsHeartbeat = true;
                         }
 
-                        long now = System.currentTimeMillis();
+                        // If already timeout, stop immediately when heartbeat received
+                        long elapsedTime = System.currentTimeMillis() - streamingStartTime;
                         boolean timeoutReached =
-                                maxIntervalMillis > 0
-                                        && (now - streamingStartTime) >= maxIntervalMillis;
+                                streamingStartTime > 0
+                                        && maxIntervalMillis > 0
+                                        && elapsedTime >= maxIntervalMillis;
 
                         if (!isSnapshotSplit && timeoutReached) {
                             LOG.info(
@@ -522,6 +529,7 @@ public class PipelineCoordinator {
                             shouldStop = true;
                             break;
                         }
+                        // Skip heartbeat messages during normal processing
                         continue;
                     }
 
