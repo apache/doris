@@ -101,7 +101,7 @@ public class SystemInfoServiceTest {
         System.out.println(Env.getCurrentEnvJournalVersion());
 
         BackendHbResponse writeResponse = new BackendHbResponse(1L, 1234, 1234, 1234, 1234, 1234, "test",
-                Tag.VALUE_COMPUTATION, 10, 100, false, 1234);
+                Tag.VALUE_COMPUTATION, 10, 100, false, 1234, 2048, true);
 
         // Write objects to file
         File file1 = new File("./BackendHbResponseSerialization");
@@ -122,6 +122,7 @@ public class SystemInfoServiceTest {
                 // Before meta version 121, nodeRole will not be read, so readResponse is not equal to writeResponse
                 Assert.assertTrue(readResponse.toString().equals(writeResponse.toString()));
                 Assert.assertTrue(Tag.VALUE_COMPUTATION.equals(readResponse.getNodeRole()));
+                Assert.assertTrue(readResponse.supportsVariantFlexiblePartialUpdate());
             } catch (IOException e) {
                 e.printStackTrace();
                 Assert.fail();
@@ -129,6 +130,32 @@ public class SystemInfoServiceTest {
 
         } finally {
             file1.delete();
+        }
+    }
+
+    @Test
+    public void testBackendVariantFlexiblePartialUpdateCapabilityFromHeartbeat() {
+        long oldToleranceCount = Config.max_backend_heartbeat_failure_tolerance_count;
+        Config.max_backend_heartbeat_failure_tolerance_count = 2;
+        try {
+            Backend backend = new Backend(1L, "127.0.0.1", 9050);
+            BackendHbResponse okResponse = new BackendHbResponse(1L, 9060, 8040, 8060,
+                    1234, 5678, "test", Tag.VALUE_MIX, 10, 100, false, 8070, 2048, true);
+            backend.handleHbResponse(okResponse, false);
+            Assert.assertTrue(backend.isAlive());
+            Assert.assertTrue(backend.supportsVariantFlexiblePartialUpdate());
+
+            BackendHbResponse badResponse = new BackendHbResponse(1L, "127.0.0.1",
+                    okResponse.getHbTime(), "bad heartbeat");
+            backend.handleHbResponse(badResponse, false);
+            Assert.assertTrue(backend.isAlive());
+            Assert.assertTrue(backend.supportsVariantFlexiblePartialUpdate());
+
+            backend.handleHbResponse(badResponse, false);
+            Assert.assertFalse(backend.isAlive());
+            Assert.assertFalse(backend.supportsVariantFlexiblePartialUpdate());
+        } finally {
+            Config.max_backend_heartbeat_failure_tolerance_count = oldToleranceCount;
         }
     }
 

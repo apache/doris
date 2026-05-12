@@ -243,7 +243,8 @@ Status DeltaWriterV2::_build_current_tablet_schema(int64_t index_id,
             table_schema_param->partial_update_input_columns(),
             table_schema_param->is_strict_mode(), table_schema_param->timestamp_ms(),
             table_schema_param->nano_seconds(), table_schema_param->timezone(),
-            table_schema_param->auto_increment_coulumn()));
+            table_schema_param->auto_increment_coulumn(),
+            table_schema_param->sequence_map_col_uid()));
     return Status::OK();
 }
 

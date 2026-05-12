@@ -709,10 +709,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 throw new DdlException("Only supports modification of PAUSED jobs");
             }
 
+            validateFlexiblePartialUpdateForAlter(jobProperties, command.getRoutineLoadDesc());
             modifyPropertiesInternal(jobProperties, dataSourceProperties);
+            setRoutineLoadDesc(command.getRoutineLoadDesc());
 
             AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(this.id,
-                    jobProperties, dataSourceProperties);
+                    jobProperties, dataSourceProperties, command.getRoutineLoadDesc());
             Env.getCurrentEnv().getEditLog().logAlterRoutineLoadJob(log);
         } finally {
             writeUnlock();
@@ -836,6 +838,11 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     public void replayModifyProperties(AlterRoutineLoadJobOperationLog log) {
         try {
             modifyPropertiesInternal(log.getJobProperties(), (KafkaDataSourceProperties) log.getDataSourceProperties());
+            if (log.getRoutineLoadDesc() != null) {
+                setRoutineLoadDesc(log.getRoutineLoadDesc());
+            } else if (log.getColumnDescs() != null) {
+                columnDescs = log.getColumnDescs();
+            }
         } catch (UserException e) {
             // should not happen
             LOG.error("failed to replay modify kafka routine load job: {}", id, e);

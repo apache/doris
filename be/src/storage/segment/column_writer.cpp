@@ -1391,6 +1391,7 @@ Status VariantColumnWriter::write_bloom_filter_index() {
 
 Status VariantColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
                                             size_t num_rows) {
+    _next_rowid += num_rows;
     return _impl->append_nullable(null_map, ptr, num_rows);
 }
 

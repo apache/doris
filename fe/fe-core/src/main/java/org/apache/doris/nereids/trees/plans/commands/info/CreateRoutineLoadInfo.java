@@ -175,6 +175,8 @@ public class CreateRoutineLoadInfo {
 
     private LoadTask.MergeType mergeType;
 
+    private boolean mergeTypeSpecified;
+
     private boolean isMultiTable = false;
 
     private AbstractDataSourceProperties dataSourceProperties;
@@ -187,6 +189,18 @@ public class CreateRoutineLoadInfo {
                                  Map<String, String> jobProperties, String typeName,
                                  Map<String, String> dataSourceProperties, LoadTask.MergeType mergeType,
                                  String comment) {
+        this(labelNameInfo, tableName, loadPropertyMap, jobProperties, typeName, dataSourceProperties,
+                mergeType, false, comment);
+    }
+
+    /**
+     * constructor for create table
+     */
+    public CreateRoutineLoadInfo(LabelNameInfo labelNameInfo, String tableName,
+                                 Map<String, LoadProperty> loadPropertyMap,
+                                 Map<String, String> jobProperties, String typeName,
+                                 Map<String, String> dataSourceProperties, LoadTask.MergeType mergeType,
+                                 boolean mergeTypeSpecified, String comment) {
         this.labelNameInfo = labelNameInfo;
         if (StringUtils.isBlank(tableName)) {
             this.isMultiTable = true;
@@ -198,6 +212,7 @@ public class CreateRoutineLoadInfo {
         this.dataSourceProperties = RoutineLoadDataSourcePropertyFactory
             .createDataSource(typeName, dataSourceProperties, this.isMultiTable);
         this.mergeType = mergeType;
+        this.mergeTypeSpecified = mergeTypeSpecified;
         // Parse unique_key_update_mode first (takes precedence)
         if (this.jobProperties.containsKey(UNIQUE_KEY_UPDATE_MODE)) {
             String modeStr = this.jobProperties.get(UNIQUE_KEY_UPDATE_MODE);
@@ -362,6 +377,10 @@ public class CreateRoutineLoadInfo {
         return mergeType;
     }
 
+    public boolean isMergeTypeSpecified() {
+        return mergeTypeSpecified;
+    }
+
     public boolean isMultiTable() {
         return isMultiTable;
     }
@@ -382,8 +401,12 @@ public class CreateRoutineLoadInfo {
      * analyze create table info
      */
     public void validate(ConnectContext ctx) throws UserException {
+        validate(ctx, true);
+    }
+
+    private void validate(ConnectContext ctx, boolean validateBackendCapability) throws UserException {
         // check dbName and tableName
-        checkDBTable(ctx);
+        checkDBTable(ctx, validateBackendCapability);
         // check name
         try {
             FeNameFormat.checkCommonName(NAME_TYPE, name);
@@ -394,7 +417,8 @@ public class CreateRoutineLoadInfo {
                     + " Maybe routine load job name is longer than 64 or contains illegal characters");
         }
         // check load properties include column separator etc.
-        routineLoadDesc = checkLoadProperties(ctx, loadPropertyMap, dbName, tableName, isMultiTable, mergeType);
+        routineLoadDesc = checkLoadProperties(ctx, loadPropertyMap, dbName, tableName, isMultiTable, mergeType,
+                mergeTypeSpecified);
         // check routine load job properties include desired concurrent number etc.
         checkJobProperties();
         // check data source properties
@@ -412,7 +436,14 @@ public class CreateRoutineLoadInfo {
         }
     }
 
-    private void checkDBTable(ConnectContext ctx) throws AnalysisException {
+    /**
+     * Validate persisted routine-load metadata while restoring FE image.
+     */
+    public void validateForReplay(ConnectContext ctx) throws UserException {
+        validate(ctx, false);
+    }
+
+    private void checkDBTable(ConnectContext ctx, boolean validateBackendCapability) throws AnalysisException {
         labelNameInfo.validate(ctx);
         dbName = labelNameInfo.getDb();
         name = labelNameInfo.getLabel();
@@ -442,14 +473,15 @@ public class CreateRoutineLoadInfo {
         }
         // Validate flexible partial update constraints
         if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
-            validateFlexiblePartialUpdate((OlapTable) table);
+            validateFlexiblePartialUpdate((OlapTable) table, validateBackendCapability);
         }
     }
 
-    private void validateFlexiblePartialUpdate(OlapTable table) throws AnalysisException {
-        // Validate table-level constraints (MoW, skip_bitmap, light_schema_change, variant columns)
+    private void validateFlexiblePartialUpdate(OlapTable table, boolean validateBackendCapability)
+            throws AnalysisException {
+        // Validate table-level constraints (MoW, skip_bitmap, light_schema_change)
         try {
-            table.validateForFlexiblePartialUpdate();
+            table.validateForFlexiblePartialUpdate(validateBackendCapability);
         } catch (UserException e) {
             throw new AnalysisException(e.getMessage(), e);
         }
@@ -473,6 +505,19 @@ public class CreateRoutineLoadInfo {
                 .anyMatch(p -> p instanceof LoadColumnClause)) {
             throw new AnalysisException("Flexible partial update does not support COLUMNS specification");
         }
+        // Cannot specify merge/delete mode, WHERE filter, or load-level sequence column.
+        if (mergeTypeSpecified || mergeType != LoadTask.MergeType.APPEND) {
+            throw new AnalysisException("Don't support flexible partial update when 'merge_type' is specified");
+        }
+        if (loadPropertyMap != null && loadPropertyMap.values().stream()
+                .anyMatch(p -> p instanceof LoadWhereClause)) {
+            throw new AnalysisException("Don't support flexible partial update when 'where' is specified");
+        }
+        if (loadPropertyMap != null && loadPropertyMap.values().stream()
+                .anyMatch(p -> p instanceof LoadSequenceClause)) {
+            throw new AnalysisException("Don't support flexible partial update when "
+                    + "'function_column.sequence_col' is specified");
+        }
     }
 
     /**
@@ -489,6 +534,12 @@ public class CreateRoutineLoadInfo {
     public static RoutineLoadDesc checkLoadProperties(ConnectContext ctx, Map<String, LoadProperty> loadPropertyMap,
                         String dbName, String tableName, boolean isMultiTable, LoadTask.MergeType mergeType)
                         throws UserException {
+        return checkLoadProperties(ctx, loadPropertyMap, dbName, tableName, isMultiTable, mergeType, false);
+    }
+
+    private static RoutineLoadDesc checkLoadProperties(ConnectContext ctx, Map<String, LoadProperty> loadPropertyMap,
+                        String dbName, String tableName, boolean isMultiTable, LoadTask.MergeType mergeType,
+                        boolean mergeTypeSpecified) throws UserException {
         Separator columnSeparator = null;
         // TODO(yangzhengguo01): add line delimiter to properties
         Separator lineDelimiter = null;
@@ -547,7 +598,7 @@ public class CreateRoutineLoadInfo {
         }
         return new RoutineLoadDesc(columnSeparator, lineDelimiter, columnInfos,
                 precedingFilter, filter,
-                partitionNamesInfo, deleteCondition, mergeType, sequenceColName);
+                partitionNamesInfo, deleteCondition, mergeType, mergeTypeSpecified, sequenceColName);
     }
 
     /**

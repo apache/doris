@@ -22,9 +22,29 @@ import org.apache.kafka.clients.producer.ProducerRecord
 suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
 
     if (RoutineLoadTestUtils.isKafkaTestEnabled(context)) {
+        sql "set default_variant_enable_doc_mode = false"
+
         def runSql = { String q -> sql q }
         def kafka_broker = RoutineLoadTestUtils.getKafkaBroker(context)
         def producer = RoutineLoadTestUtils.createKafkaProducer(kafka_broker)
+        def waitForLoadedRows = { String jobName, long expectedLoadedRows, int maxWait = 120 ->
+            def waited = 0
+            while (waited < maxWait) {
+                def res = sql "show routine load for ${jobName}"
+                def state = res[0][8].toString()
+                def statJson = new groovy.json.JsonSlurper().parseText(res[0][14].toString())
+                long loadedRows = statJson.loadedRows as long
+                logger.info("waitForLoadedRows: state=${state}, loadedRows=${loadedRows}, expected>=${expectedLoadedRows}")
+                if (state == "RUNNING" && loadedRows >= expectedLoadedRows) {
+                    break
+                }
+                if (waited >= maxWait - 1) {
+                    assertTrue("Timeout waiting for loadedRows >= ${expectedLoadedRows}, got ${loadedRows}", false)
+                }
+                sleep(1000)
+                waited++
+            }
+        }
 
         // Test 1: Basic flexible partial update
         def kafkaJsonTopic1 = "test_routine_load_flexible_partial_update_basic"
@@ -365,7 +385,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             exception "Flexible partial update does not support COLUMNS specification"
         }
 
-        // Test 7: Success case - WHERE clause works with flexible partial update
+        // Test 7: Error case - WHERE clause not supported with flexible partial update
         def kafkaJsonTopic7 = "test_routine_load_flexible_partial_update_where"
         def tableName7 = "test_routine_load_flex_update_where"
         def job7 = "test_flex_partial_update_job_where"
@@ -389,18 +409,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             );
         """
 
-        // insert initial data
-        sql """
-            INSERT INTO ${tableName7} VALUES
-            (1, 'alice', 100, 20),
-            (2, 'bob', 90, 21),
-            (3, 'charlie', 80, 22)
-        """
-
-        qt_select_initial7 "SELECT id, name, score, age FROM ${tableName7} ORDER BY id"
-
-        try {
-            // create routine load with WHERE clause and flexible partial update
+        test {
             sql """
                 CREATE ROUTINE LOAD ${job7} ON ${tableName7}
                 WHERE id > 1
@@ -417,37 +426,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
                     "property.kafka_default_offsets" = "OFFSET_BEGINNING"
                 );
             """
-
-            // send JSON data - WHERE clause filters id > 1, so id=1 row should NOT be processed
-            def data7 = [
-                '{"id": 1, "score": 999}',
-                '{"id": 2, "score": 95}',
-                '{"id": 3, "name": "chuck"}',
-                '{"id": 4, "name": "diana", "score": 70}'
-            ]
-
-            data7.each { line ->
-                logger.info("Sending to Kafka: ${line}")
-                def record = new ProducerRecord<>(kafkaJsonTopic7, null, line)
-                producer.send(record).get()
-            }
-            producer.flush()
-
-            // With skip_delete_bitmap=true and WHERE id > 1:
-            // - id=1: 1 version (not updated, filtered by WHERE)
-            // - id=2: 2 versions (original + partial update)
-            // - id=3: 2 versions (original + partial update)
-            // - id=4: 1 version (new row)
-            // Total: 6 rows, so expectedMinRows = 5 (waits for count > 5)
-            RoutineLoadTestUtils.waitForTaskFinishMoW(runSql, job7, tableName7, 5)
-
-            // verify: id=1 should NOT be updated (filtered by WHERE), id=2,3,4 should be updated
-            qt_select_after_flex_where "SELECT id, name, score, age FROM ${tableName7} ORDER BY id"
-        } catch (Exception e) {
-            logger.error("Error during test: " + e.getMessage())
-            throw e
-        } finally {
-            sql "STOP ROUTINE LOAD FOR ${job7}"
+            exception "where"
         }
 
         // Test 8: Error case - table without skip_bitmap column
@@ -491,7 +470,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             exception "Flexible partial update can only support table with skip bitmap hidden column"
         }
 
-        // Test 9: Error case - table with variant column
+        // Test 9: table with variant column
         def kafkaJsonTopic9 = "test_routine_load_flexible_partial_update_variant"
         def tableName9 = "test_routine_load_flex_update_variant"
         def job9 = "test_flex_partial_update_job_variant"
@@ -513,7 +492,8 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             );
         """
 
-        test {
+        sql """ INSERT INTO ${tableName9} VALUES (1, 'base', '{"a": 1, "b": 1}') """
+        try {
             sql """
                 CREATE ROUTINE LOAD ${job9} ON ${tableName9}
                 PROPERTIES
@@ -529,7 +509,214 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
                     "property.kafka_default_offsets" = "OFFSET_BEGINNING"
                 );
             """
-            exception "Flexible partial update can only support table without variant columns"
+
+            def data9 = [
+                '{"id": 1, "data": {"a": 10}}',
+                '{"id": 1, "data": {"c": 3}}',
+                '{"id": 2, "name": "new", "data": {"x": 5}}'
+            ]
+            data9.each { line ->
+                logger.info("Sending to Kafka: ${line}")
+                def record = new ProducerRecord<>(kafkaJsonTopic9, null, line)
+                producer.send(record).get()
+            }
+            producer.flush()
+
+            RoutineLoadTestUtils.waitForTaskFinishMoW(runSql, job9, tableName9, 1)
+            def variantRows = sql """
+                SELECT id, name, cast(data['a'] as int), cast(data['b'] as int),
+                       cast(data['c'] as int), cast(data['x'] as int)
+                FROM ${tableName9} ORDER BY id
+            """
+            assertEquals("[[1, base, 10, 1, 3, null], [2, new, null, null, null, 5]]",
+                    variantRows.toString())
+        } finally {
+            sql "STOP ROUTINE LOAD FOR ${job9}"
+        }
+
+        def tableName9Doc = "test_routine_load_flex_update_variant_doc"
+        def job9Doc = "test_flex_partial_update_job_variant_doc"
+
+        sql """ DROP TABLE IF EXISTS ${tableName9Doc} force;"""
+        sql """
+            CREATE TABLE IF NOT EXISTS ${tableName9Doc} (
+                `id` int NOT NULL,
+                `data` variant<properties("variant_enable_doc_mode" = "true",
+                        "variant_doc_materialization_min_rows" = "0")> NULL
+            ) ENGINE=OLAP
+            UNIQUE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 3
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "disable_auto_compaction" = "true",
+                "enable_unique_key_merge_on_write" = "true",
+                "light_schema_change" = "true",
+                "enable_unique_key_skip_bitmap_column" = "true"
+            );
+        """
+        test {
+            sql """
+                CREATE ROUTINE LOAD ${job9Doc} ON ${tableName9Doc}
+                PROPERTIES
+                (
+                    "max_batch_interval" = "10",
+                    "format" = "json",
+                    "unique_key_update_mode" = "UPDATE_FLEXIBLE_COLUMNS"
+                )
+                FROM KAFKA
+                (
+                    "kafka_broker_list" = "${kafka_broker}",
+                    "kafka_topic" = "${kafkaJsonTopic9}_doc",
+                    "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                );
+            """
+            exception "VARIANT flexible partial update does not support doc mode"
+        }
+
+        def kafkaJsonTopic9Seq = "test_routine_load_flexible_partial_update_variant_seq"
+        def tableName9Seq = "test_routine_load_flex_update_variant_seq"
+        def job9Seq = "test_flex_partial_update_job_variant_seq"
+
+        sql """ DROP TABLE IF EXISTS ${tableName9Seq} force;"""
+        sql """
+            CREATE TABLE IF NOT EXISTS ${tableName9Seq} (
+                `id` int NOT NULL,
+                `seq` int NULL,
+                `data` variant NULL
+            ) ENGINE=OLAP
+            UNIQUE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 3
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "disable_auto_compaction" = "true",
+                "enable_unique_key_merge_on_write" = "true",
+                "light_schema_change" = "true",
+                "enable_unique_key_skip_bitmap_column" = "true",
+                "function_column.sequence_col" = "seq"
+            );
+        """
+        sql """ INSERT INTO ${tableName9Seq} VALUES (1, 10, '{"a": 1, "b": 1}') """
+        try {
+            sql """
+                CREATE ROUTINE LOAD ${job9Seq} ON ${tableName9Seq}
+                PROPERTIES
+                (
+                    "max_batch_interval" = "10",
+                    "format" = "json",
+                    "unique_key_update_mode" = "UPDATE_FLEXIBLE_COLUMNS"
+                )
+                FROM KAFKA
+                (
+                    "kafka_broker_list" = "${kafka_broker}",
+                    "kafka_topic" = "${kafkaJsonTopic9Seq}",
+                    "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                );
+            """
+
+            def data9Seq = [
+                '{"id": 1, "seq": 20, "data": {"a": 2}}',
+                '{"id": 1, "seq": 15, "data": {"b": 3}}',
+                '{"id": 1, "seq": 20, "data": {"b": 4}}'
+            ]
+            data9Seq.each { line ->
+                logger.info("Sending to Kafka: ${line}")
+                def record = new ProducerRecord<>(kafkaJsonTopic9Seq, null, line)
+                producer.send(record).get()
+            }
+            producer.flush()
+
+            waitForLoadedRows(job9Seq, 3)
+            def seqVariantRows = sql """
+                SELECT id, seq, __DORIS_SEQUENCE_COL__, cast(data['a'] as int), cast(data['b'] as int)
+                FROM ${tableName9Seq} ORDER BY id
+            """
+            assertEquals("[[1, 20, 20, 2, 4]]", seqVariantRows.toString())
+        } finally {
+            sql "STOP ROUTINE LOAD FOR ${job9Seq}"
+        }
+
+        def kafkaJsonTopic9Order = "test_routine_load_flexible_partial_update_variant_order"
+        def tableName9Order = "test_routine_load_flex_update_variant_order"
+        def job9Order = "test_flex_partial_update_job_variant_order"
+
+        sql """ DROP TABLE IF EXISTS ${tableName9Order} force;"""
+        sql """
+            CREATE TABLE IF NOT EXISTS ${tableName9Order} (
+                `id` int NOT NULL,
+                `seq` int NULL,
+                `data` variant NULL
+            ) ENGINE=OLAP
+            UNIQUE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 3
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "disable_auto_compaction" = "true",
+                "enable_unique_key_merge_on_write" = "true",
+                "light_schema_change" = "true",
+                "enable_unique_key_skip_bitmap_column" = "true"
+            );
+        """
+        test {
+            sql """
+                CREATE ROUTINE LOAD ${job9Order} ON ${tableName9Order}
+                ORDER BY seq
+                PROPERTIES
+                (
+                    "max_batch_interval" = "10",
+                    "format" = "json",
+                    "unique_key_update_mode" = "UPDATE_FLEXIBLE_COLUMNS"
+                )
+                FROM KAFKA
+                (
+                    "kafka_broker_list" = "${kafka_broker}",
+                    "kafka_topic" = "${kafkaJsonTopic9Order}",
+                    "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                );
+            """
+            exception "function_column.sequence_col"
+        }
+
+        def kafkaJsonTopic9Merge = "test_routine_load_flexible_partial_update_variant_merge"
+        def tableName9Merge = "test_routine_load_flex_update_variant_merge"
+        def job9Merge = "test_flex_partial_update_job_variant_merge"
+
+        sql """ DROP TABLE IF EXISTS ${tableName9Merge} force;"""
+        sql """
+            CREATE TABLE IF NOT EXISTS ${tableName9Merge} (
+                `id` int NOT NULL,
+                `name` varchar(65533) NULL,
+                `is_delete` int NULL,
+                `data` variant NULL
+            ) ENGINE=OLAP
+            UNIQUE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 3
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "disable_auto_compaction" = "true",
+                "enable_unique_key_merge_on_write" = "true",
+                "light_schema_change" = "true",
+                "enable_unique_key_skip_bitmap_column" = "true"
+            );
+        """
+        test {
+            sql """
+                CREATE ROUTINE LOAD ${job9Merge} ON ${tableName9Merge}
+                WITH MERGE
+                DELETE ON is_delete = 1
+                PROPERTIES
+                (
+                    "max_batch_interval" = "10",
+                    "format" = "json",
+                    "unique_key_update_mode" = "UPDATE_FLEXIBLE_COLUMNS"
+                )
+                FROM KAFKA
+                (
+                    "kafka_broker_list" = "${kafka_broker}",
+                    "kafka_topic" = "${kafkaJsonTopic9Merge}",
+                    "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                );
+            """
+            exception "merge_type"
         }
 
         // Test 10: Error case - invalid unique_key_update_mode value
@@ -702,6 +889,18 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             // pause the job before altering
             sql "PAUSE ROUTINE LOAD FOR ${job12}"
 
+            test {
+                sql """
+                    ALTER ROUTINE LOAD FOR ${job12}
+                    PROPERTIES
+                    (
+                        "unique_key_update_mode" = "UPDATE_FLEXIBLE_COLUMNS",
+                        "jsonpaths" = '[\"\$.id\"]'
+                    );
+                """
+                exception "Flexible partial update does not support jsonpaths"
+            }
+
             // alter to UPDATE_FLEXIBLE_COLUMNS mode
             sql """
                 ALTER ROUTINE LOAD FOR ${job12}
@@ -716,6 +915,36 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             def jobProperties = res[0][11].toString()
             logger.info("Altered routine load job properties: ${jobProperties}")
             assertTrue(jobProperties.contains("UPDATE_FLEXIBLE_COLUMNS"))
+
+            test {
+                sql """
+                    ALTER ROUTINE LOAD FOR ${job12}
+                    PROPERTIES
+                    (
+                        "jsonpaths" = '[\"\$.id\"]'
+                    );
+                """
+                exception "Flexible partial update does not support jsonpaths"
+            }
+
+            test {
+                sql """
+                    ALTER ROUTINE LOAD FOR ${job12}
+                    PROPERTIES
+                    (
+                        "fuzzy_parse" = "true"
+                    );
+                """
+                exception "Flexible partial update does not support fuzzy_parse"
+            }
+
+            test {
+                sql """
+                    ALTER ROUTINE LOAD FOR ${job12}
+                    COLUMNS(id, score);
+                """
+                exception "Flexible partial update does not support COLUMNS specification"
+            }
 
             // resume the job
             sql "RESUME ROUTINE LOAD FOR ${job12}"
@@ -1050,7 +1279,7 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             sql "STOP ROUTINE LOAD FOR ${job17}"
         }
 
-        // Test 18: ALTER to flex mode succeeds with WHERE clause
+        // Test 18: ALTER to flex mode fails with WHERE clause
         def kafkaJsonTopic18 = "test_routine_load_alter_flex_where"
         def tableName18 = "test_routine_load_alter_flex_where"
         def job18 = "test_alter_flex_where_job"
@@ -1074,15 +1303,6 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
             );
         """
 
-        // insert initial data
-        sql """
-            INSERT INTO ${tableName18} VALUES
-            (1, 'alice', 100, 20),
-            (2, 'bob', 90, 21)
-        """
-
-        qt_select_initial18 "SELECT id, name, score, age FROM ${tableName18} ORDER BY id"
-
         try {
             // create routine load with WHERE clause (UPSERT mode)
             sql """
@@ -1103,46 +1323,16 @@ suite("test_routine_load_flexible_partial_update", "nonConcurrent") {
 
             sql "PAUSE ROUTINE LOAD FOR ${job18}"
 
-            // alter to UPDATE_FLEXIBLE_COLUMNS mode - should succeed
-            sql """
-                ALTER ROUTINE LOAD FOR ${job18}
-                PROPERTIES
-                (
-                    "unique_key_update_mode" = "UPDATE_FLEXIBLE_COLUMNS"
-                );
-            """
-
-            // verify the property was changed
-            def res = sql "SHOW ROUTINE LOAD FOR ${job18}"
-            def jobProperties = res[0][11].toString()
-            logger.info("Altered routine load job properties: ${jobProperties}")
-            assertTrue(jobProperties.contains("UPDATE_FLEXIBLE_COLUMNS"))
-
-            sql "RESUME ROUTINE LOAD FOR ${job18}"
-
-            // send JSON data - WHERE clause filters id > 1
-            def data18 = [
-                '{"id": 1, "score": 999}',
-                '{"id": 2, "score": 95}',
-                '{"id": 3, "name": "charlie", "score": 80}'
-            ]
-
-            data18.each { line ->
-                logger.info("Sending to Kafka: ${line}")
-                def record = new ProducerRecord<>(kafkaJsonTopic18, null, line)
-                producer.send(record).get()
+            test {
+                sql """
+                    ALTER ROUTINE LOAD FOR ${job18}
+                    PROPERTIES
+                    (
+                        "unique_key_update_mode" = "UPDATE_FLEXIBLE_COLUMNS"
+                    );
+                """
+                exception "where"
             }
-            producer.flush()
-
-            // With skip_delete_bitmap=true and WHERE id > 1:
-            // - id=1: 1 version (not updated, filtered by WHERE)
-            // - id=2: 2 versions (original + partial update)
-            // - id=3: 1 version (new row)
-            // Total: 4 rows, so expectedMinRows = 3 (waits for count > 3)
-            RoutineLoadTestUtils.waitForTaskFinishMoW(runSql, job18, tableName18, 3)
-
-            // verify: id=1 should NOT be updated (filtered by WHERE), id=2,3 should be updated
-            qt_select_after_alter_flex_where "SELECT id, name, score, age FROM ${tableName18} ORDER BY id"
         } catch (Exception e) {
             logger.error("Error during test: " + e.getMessage())
             throw e

@@ -499,6 +499,12 @@ Status VerticalSegmentWriter::_partial_update_preconditions_check(size_t row_pos
     if (row_pos != 0) {
         auto msg = fmt::format("row_pos should be 0, but found {}, tablet_id={}", row_pos,
                                _tablet->tablet_id());
+        if (is_flexible_update) {
+            return Status::NotSupported<false>(
+                    "{}. Flexible partial update currently relies on whole-block duplicate-key "
+                    "aggregation before writing VARIANT patches.",
+                    msg);
+        }
         DCHECK(false) << msg;
         return Status::InternalError<false>(msg);
     }
@@ -735,6 +741,42 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(RowsIn
         RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
     }
 
+    std::vector<BitmapValue>* skip_bitmaps = &(
+            assert_cast<ColumnBitmap*>(
+                    data.block->get_by_position(skip_bitmap_col_idx).column->assume_mutable().get())
+                    ->get_data());
+    if (_tablet_schema->num_variant_columns() > 0) {
+        if (_tablet_schema->deprecated_variant_flatten_nested()) {
+            return Status::NotSupported(
+                    "VARIANT flexible partial update does not support "
+                    "deprecated_variant_enable_flatten_nested in this version");
+        }
+        std::vector<uint32_t> variant_cids;
+        variant_cids.reserve(_tablet_schema->num_variant_columns());
+        for (size_t cid = _tablet_schema->num_key_columns(); cid < _tablet_schema->num_columns();
+             ++cid) {
+            const auto& column = _tablet_schema->column(cid);
+            if (!column.is_variant_type()) {
+                continue;
+            }
+            variant_cids.push_back(cast_set<uint32_t>(cid));
+        }
+        RETURN_IF_ERROR(variant_util::parse_and_materialize_variant_columns(
+                *const_cast<Block*>(data.block), *_tablet_schema, variant_cids, true));
+        for (auto cid : variant_cids) {
+            const auto& column = _tablet_schema->column(cid);
+            for (size_t block_pos = data.row_pos; block_pos < data.row_pos + data.num_rows;
+                 ++block_pos) {
+                auto& skip_bitmap = skip_bitmaps->at(block_pos);
+                if (!skip_bitmap.contains(column.unique_id())) {
+                    RETURN_IF_ERROR(variant_util::mark_variant_patch_paths(
+                            *data.block->get_by_position(cid).column, block_pos, column.unique_id(),
+                            &skip_bitmap));
+                }
+            }
+        }
+    }
+
     // 1. aggregate duplicate rows in block
     RETURN_IF_ERROR(_block_aggregator.aggregate_for_flexible_partial_update(
             const_cast<Block*>(data.block), data.num_rows, specified_rowsets, segment_caches));
@@ -742,6 +784,10 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(RowsIn
         data.num_rows = data.block->rows();
         _olap_data_convertor->clear_source_content();
     }
+    skip_bitmaps = &(
+            assert_cast<ColumnBitmap*>(
+                    data.block->get_by_position(skip_bitmap_col_idx).column->assume_mutable().get())
+                    ->get_data());
 
     // 2. encode primary key columns
     // we can only encode primary key columns currently becasue all non-primary columns in flexible partial update
@@ -758,10 +804,6 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(RowsIn
     RETURN_IF_ERROR(_block_aggregator.convert_seq_column(const_cast<Block*>(data.block),
                                                          data.row_pos, data.num_rows, seq_column));
 
-    std::vector<BitmapValue>* skip_bitmaps = &(
-            assert_cast<ColumnBitmap*>(
-                    data.block->get_by_position(skip_bitmap_col_idx).column->assume_mutable().get())
-                    ->get_data());
     const auto* delete_signs =
             BaseTablet::get_delete_sign_column_data(*data.block, data.row_pos + data.num_rows);
     DCHECK(delete_signs != nullptr);
@@ -845,12 +887,11 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(RowsIn
     _num_rows_new_added += stats.num_rows_new_added;
     _num_rows_filtered += stats.num_rows_filtered;
 
-    if (_num_rows_written != data.row_pos ||
-        _primary_key_index_builder->num_rows() != _num_rows_written) {
+    if (_primary_key_index_builder->num_rows() != _num_rows_written) {
         return Status::InternalError(
-                "Correctness check failed, _num_rows_written: {}, row_pos: {}, primary key "
+                "Correctness check failed, _num_rows_written: {}, primary key "
                 "index builder num rows: {}",
-                _num_rows_written, data.row_pos, _primary_key_index_builder->num_rows());
+                _num_rows_written, _primary_key_index_builder->num_rows());
     }
 
     // 9. build primary key index
@@ -937,7 +978,22 @@ Status VerticalSegmentWriter::_generate_flexible_read_plan(
                     &skip_bitmap);
         };
         auto update_read_plan = [&](const RowLocation& loc) {
-            read_plan.prepare_to_read(loc, segment_pos, skip_bitmap);
+            BitmapValue read_skip_bitmap(skip_bitmap);
+            if (!have_delete_sign) {
+                bool should_merge_variant = false;
+                for (size_t cid = _tablet_schema->num_key_columns();
+                     cid < _tablet_schema->num_columns(); ++cid) {
+                    const auto& column = _tablet_schema->column(cid);
+                    if (column.is_variant_type() && !skip_bitmap.contains(column.unique_id())) {
+                        read_skip_bitmap.add(column.unique_id());
+                        should_merge_variant = true;
+                    }
+                }
+                if (should_merge_variant) {
+                    read_skip_bitmap.add(delete_sign_col_unique_id);
+                }
+            }
+            read_plan.prepare_to_read(loc, segment_pos, read_skip_bitmap);
         };
 
         RETURN_IF_ERROR(_probe_key_for_mow(std::move(key), segment_pos, row_has_sequence_col,

@@ -51,6 +51,8 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
     private boolean isShutDown = false;
     // The physical memory available for use by BE.
     private long beMemory = 0;
+    @SerializedName(value = "supportsVariantFlexiblePartialUpdate")
+    private boolean supportsVariantFlexiblePartialUpdate = false;
 
     public BackendHbResponse() {
         super(HeartbeatResponse.Type.BACKEND);
@@ -59,25 +61,21 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
     public BackendHbResponse(long beId, int bePort, int httpPort, int brpcPort, long hbTime, long beStartTime,
             String version, String nodeRole, long fragmentNum, long lastFragmentUpdateTime,
             boolean isShutDown, int arrowFlightSqlPort) {
-        super(HeartbeatResponse.Type.BACKEND);
-        this.beId = beId;
-        this.status = HbStatus.OK;
-        this.bePort = bePort;
-        this.httpPort = httpPort;
-        this.brpcPort = brpcPort;
-        this.hbTime = hbTime;
-        this.beStartTime = beStartTime;
-        this.version = version;
-        this.nodeRole = nodeRole;
-        this.fragmentNum = fragmentNum;
-        this.lastFragmentUpdateTime = lastFragmentUpdateTime;
-        this.isShutDown = isShutDown;
-        this.arrowFlightSqlPort = arrowFlightSqlPort;
+        this(beId, bePort, httpPort, brpcPort, hbTime, beStartTime, version, nodeRole, fragmentNum,
+                lastFragmentUpdateTime, isShutDown, arrowFlightSqlPort, 0, false);
     }
 
     public BackendHbResponse(long beId, int bePort, int httpPort, int brpcPort, long hbTime, long beStartTime,
             String version, String nodeRole, long fragmentNum, long lastFragmentUpdateTime,
             boolean isShutDown, int arrowFlightSqlPort, long beMemory) {
+        this(beId, bePort, httpPort, brpcPort, hbTime, beStartTime, version, nodeRole, fragmentNum,
+                lastFragmentUpdateTime, isShutDown, arrowFlightSqlPort, beMemory, false);
+    }
+
+    public BackendHbResponse(long beId, int bePort, int httpPort, int brpcPort, long hbTime, long beStartTime,
+            String version, String nodeRole, long fragmentNum, long lastFragmentUpdateTime,
+            boolean isShutDown, int arrowFlightSqlPort, long beMemory,
+            boolean supportsVariantFlexiblePartialUpdate) {
         super(HeartbeatResponse.Type.BACKEND);
         this.beId = beId;
         this.status = HbStatus.OK;
@@ -93,6 +91,7 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         this.isShutDown = isShutDown;
         this.arrowFlightSqlPort = arrowFlightSqlPort;
         this.beMemory = beMemory;
+        this.supportsVariantFlexiblePartialUpdate = supportsVariantFlexiblePartialUpdate;
     }
 
     public BackendHbResponse(long beId, String host, long lastHbTime, String errMsg) {
@@ -152,6 +151,10 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         return beMemory;
     }
 
+    public boolean supportsVariantFlexiblePartialUpdate() {
+        return supportsVariantFlexiblePartialUpdate;
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
@@ -162,6 +165,7 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         sb.append(", httpPort: ").append(httpPort);
         sb.append(", brpcPort: ").append(brpcPort);
         sb.append(", arrowFlightSqlPort: ").append(arrowFlightSqlPort);
+        sb.append(", supportsVariantFlexiblePartialUpdate: ").append(supportsVariantFlexiblePartialUpdate);
         return sb.toString();
     }
 

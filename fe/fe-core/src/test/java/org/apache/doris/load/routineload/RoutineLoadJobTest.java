@@ -17,21 +17,43 @@
 
 package org.apache.doris.load.routineload;
 
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.ImportColumnDesc;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.Separator;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.kafka.KafkaUtil;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
+import org.apache.doris.load.RoutineLoadDesc;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
+import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.task.LoadTaskInfo.ImportColumnDescs;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
@@ -42,6 +64,7 @@ import org.apache.doris.transaction.TxnStateCallbackFactory;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.JsonObject;
 import org.apache.kafka.common.PartitionInfo;
 import org.junit.Assert;
 import org.junit.Test;
@@ -51,6 +74,7 @@ import org.mockito.Mockito;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class RoutineLoadJobTest {
     @Test
@@ -457,6 +481,511 @@ public class RoutineLoadJobTest {
         Assert.assertEquals(TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS, uniqueKeyUpdateMode);
         // isPartialUpdate should be false for UPDATE_FLEXIBLE_COLUMNS
         Assert.assertFalse(isPartialUpdate);
+    }
+
+    @Test
+    public void testValidateFlexiblePartialUpdateForAlterUsesAlteredProperties() throws Exception {
+        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob();
+        Deencapsulation.setField(job, "dbId", 1L);
+        Deencapsulation.setField(job, "tableId", 2L);
+        Deencapsulation.setField(job, "isMultiTable", false);
+        Deencapsulation.setField(job, "uniqueKeyUpdateMode", TUniqueKeyUpdateMode.UPSERT);
+
+        Map<String, String> currentJobProperties = Maps.newHashMap();
+        currentJobProperties.put(FileFormatProperties.PROP_FORMAT, "json");
+        Deencapsulation.setField(job, "jobProperties", currentJobProperties);
+
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database db = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(catalog.getDbNullable(1L)).thenReturn(db);
+        Mockito.when(db.getTableNullable(2L)).thenReturn(table);
+        Mockito.doCallRealMethod().when(table).validateForFlexiblePartialUpdate();
+        Mockito.doCallRealMethod().when(table).validateForFlexiblePartialUpdate(Mockito.anyBoolean());
+        Mockito.doCallRealMethod().when(table).validateVariantColumnsForFlexiblePartialUpdate();
+        Mockito.doCallRealMethod().when(table).validateVariantColumnsForFlexiblePartialUpdate(
+                Mockito.anyBoolean());
+        Mockito.when(table.getEnableUniqueKeyMergeOnWrite()).thenReturn(true);
+        Mockito.when(table.hasSkipBitmapColumn()).thenReturn(true);
+        Mockito.when(table.getEnableLightSchemaChange()).thenReturn(true);
+        Mockito.when(table.getBaseSchema()).thenReturn(Lists.newArrayList(new Column("k", PrimitiveType.INT)));
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+
+            Map<String, String> modeAndJsonPathsProperties = Maps.newHashMap();
+            modeAndJsonPathsProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, "UPDATE_FLEXIBLE_COLUMNS");
+            modeAndJsonPathsProperties.put(JsonFileFormatProperties.PROP_JSON_PATHS, "[\"$.id\"]");
+            UserException exception = Assert.assertThrows(UserException.class,
+                    () -> job.validateFlexiblePartialUpdateForAlter(modeAndJsonPathsProperties, null));
+            Assert.assertTrue(exception.getMessage().contains("jsonpaths"));
+
+            Deencapsulation.setField(job, "uniqueKeyUpdateMode", TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS);
+
+            Map<String, String> fuzzyParseProperties = Maps.newHashMap();
+            fuzzyParseProperties.put(JsonFileFormatProperties.PROP_FUZZY_PARSE, "true");
+            exception = Assert.assertThrows(UserException.class,
+                    () -> job.validateFlexiblePartialUpdateForAlter(fuzzyParseProperties, null));
+            Assert.assertTrue(exception.getMessage().contains("fuzzy_parse"));
+
+            RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(null, null,
+                    Lists.newArrayList(new ImportColumnDesc("id", null)), null, null, null, null,
+                    LoadTask.MergeType.APPEND, null);
+            exception = Assert.assertThrows(UserException.class,
+                    () -> job.validateFlexiblePartialUpdateForAlter(Maps.newHashMap(), routineLoadDesc));
+            Assert.assertTrue(exception.getMessage().contains("COLUMNS specification"));
+
+            Deencapsulation.setField(job, "mergeType", LoadTask.MergeType.MERGE);
+            exception = Assert.assertThrows(UserException.class,
+                    () -> job.validateFlexiblePartialUpdateForAlter(Maps.newHashMap(), null));
+            Assert.assertTrue(exception.getMessage().contains("merge_type"));
+            Deencapsulation.setField(job, "mergeType", LoadTask.MergeType.APPEND);
+
+            Deencapsulation.setField(job, "mergeTypeSpecified", true);
+            exception = Assert.assertThrows(UserException.class,
+                    () -> job.validateFlexiblePartialUpdateForAlter(Maps.newHashMap(), null));
+            Assert.assertTrue(exception.getMessage().contains("merge_type"));
+            Deencapsulation.setField(job, "mergeTypeSpecified", false);
+
+            RoutineLoadDesc explicitAppendDesc = new RoutineLoadDesc(null, null, null, null, null, null, null,
+                    LoadTask.MergeType.APPEND, true, null);
+            exception = Assert.assertThrows(UserException.class,
+                    () -> job.validateFlexiblePartialUpdateForAlter(Maps.newHashMap(), explicitAppendDesc));
+            Assert.assertTrue(exception.getMessage().contains("merge_type"));
+
+            Deencapsulation.setField(job, "whereExpr",
+                    new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "id"), new IntLiteral(1)));
+            exception = Assert.assertThrows(UserException.class,
+                    () -> job.validateFlexiblePartialUpdateForAlter(Maps.newHashMap(), null));
+            Assert.assertTrue(exception.getMessage().contains("where"));
+            Deencapsulation.setField(job, "whereExpr", null);
+
+            RoutineLoadDesc whereDesc = new RoutineLoadDesc(null, null, null, null,
+                    new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "id"), new IntLiteral(1)),
+                    null, null, LoadTask.MergeType.APPEND, null);
+            exception = Assert.assertThrows(UserException.class,
+                    () -> job.validateFlexiblePartialUpdateForAlter(Maps.newHashMap(), whereDesc));
+            Assert.assertTrue(exception.getMessage().contains("where"));
+
+            RoutineLoadDesc deleteDesc = new RoutineLoadDesc(null, null, null, null, null, null,
+                    new BinaryPredicate(BinaryPredicate.Operator.EQ, new SlotRef(null, "is_delete"),
+                            new IntLiteral(1)),
+                    LoadTask.MergeType.APPEND, null);
+            exception = Assert.assertThrows(UserException.class,
+                    () -> job.validateFlexiblePartialUpdateForAlter(Maps.newHashMap(), deleteDesc));
+            Assert.assertTrue(exception.getMessage().contains("delete"));
+
+            Deencapsulation.setField(job, "sequenceCol", "seq");
+            exception = Assert.assertThrows(UserException.class,
+                    () -> job.validateFlexiblePartialUpdateForAlter(Maps.newHashMap(), null));
+            Assert.assertTrue(exception.getMessage().contains("function_column.sequence_col"));
+            Deencapsulation.setField(job, "sequenceCol", null);
+
+            RoutineLoadDesc sequenceDesc = new RoutineLoadDesc(null, null, null, null, null, null, null,
+                    LoadTask.MergeType.APPEND, "seq");
+            exception = Assert.assertThrows(UserException.class,
+                    () -> job.validateFlexiblePartialUpdateForAlter(Maps.newHashMap(), sequenceDesc));
+            Assert.assertTrue(exception.getMessage().contains("function_column.sequence_col"));
+        }
+    }
+
+    @Test
+    public void testRoutineLoadDescIsInstalledBeforeFlexibleAlterValidation() throws Exception {
+        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob();
+        Deencapsulation.setField(job, "dbId", 1L);
+        Deencapsulation.setField(job, "tableId", 2L);
+        Deencapsulation.setField(job, "isMultiTable", false);
+        Deencapsulation.setField(job, "state", RoutineLoadJob.JobState.PAUSED);
+        Deencapsulation.setField(job, "uniqueKeyUpdateMode", TUniqueKeyUpdateMode.UPSERT);
+
+        Map<String, String> currentJobProperties = Maps.newHashMap();
+        currentJobProperties.put(FileFormatProperties.PROP_FORMAT, "json");
+        Deencapsulation.setField(job, "jobProperties", currentJobProperties);
+
+        RoutineLoadDesc columnsDesc = new RoutineLoadDesc(null, null,
+                Lists.newArrayList(new ImportColumnDesc("id", null)), null, null, null, null,
+                LoadTask.MergeType.APPEND, null);
+        AlterRoutineLoadCommand columnsCommand = new AlterRoutineLoadCommand(
+                new LabelNameInfo("db", "job"), Maps.newHashMap(), Maps.newHashMap());
+        Deencapsulation.setField(columnsCommand, "routineLoadDesc", columnsDesc);
+
+        Map<String, String> flexibleProperties = Maps.newHashMap();
+        flexibleProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, "UPDATE_FLEXIBLE_COLUMNS");
+        AlterRoutineLoadCommand flexibleCommand = new AlterRoutineLoadCommand(
+                new LabelNameInfo("db", "job"), Maps.newHashMap(), Maps.newHashMap());
+        Deencapsulation.setField(flexibleCommand, "analyzedJobProperties", flexibleProperties);
+
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database db = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        Mockito.when(catalog.getDbNullable(1L)).thenReturn(db);
+        Mockito.when(db.getTableNullable(2L)).thenReturn(table);
+        Mockito.doCallRealMethod().when(table).validateForFlexiblePartialUpdate();
+        Mockito.doCallRealMethod().when(table).validateForFlexiblePartialUpdate(Mockito.anyBoolean());
+        Mockito.doCallRealMethod().when(table).validateVariantColumnsForFlexiblePartialUpdate();
+        Mockito.doCallRealMethod().when(table).validateVariantColumnsForFlexiblePartialUpdate(
+                Mockito.anyBoolean());
+        Mockito.when(table.getEnableUniqueKeyMergeOnWrite()).thenReturn(true);
+        Mockito.when(table.hasSkipBitmapColumn()).thenReturn(true);
+        Mockito.when(table.getEnableLightSchemaChange()).thenReturn(true);
+        Mockito.when(table.getBaseSchema()).thenReturn(Lists.newArrayList(new Column("k", PrimitiveType.INT)));
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+
+            job.modifyProperties(columnsCommand);
+            Assert.assertEquals(1, job.getColumnExprDescs().descs.size());
+
+            UserException exception = Assert.assertThrows(
+                    UserException.class, () -> job.modifyProperties(flexibleCommand));
+            Assert.assertTrue(exception.getMessage().contains("COLUMNS specification"));
+        }
+    }
+
+    @Test
+    public void testReplayModifyPropertiesRestoresRoutineLoadDescForFlexibleValidation() throws Exception {
+        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob();
+        Deencapsulation.setField(job, "dbId", 1L);
+        Deencapsulation.setField(job, "tableId", 2L);
+        Deencapsulation.setField(job, "isMultiTable", false);
+        Deencapsulation.setField(job, "uniqueKeyUpdateMode", TUniqueKeyUpdateMode.UPSERT);
+
+        Map<String, String> currentJobProperties = Maps.newHashMap();
+        currentJobProperties.put(FileFormatProperties.PROP_FORMAT, "json");
+        Deencapsulation.setField(job, "jobProperties", currentJobProperties);
+
+        RoutineLoadDesc columnsDesc = new RoutineLoadDesc(new Separator("|", "|"), null,
+                Lists.newArrayList(new ImportColumnDesc("id", null)), null, null, null, null,
+                LoadTask.MergeType.APPEND, "seq");
+        Map<String, String> replayProperties = Maps.newHashMap();
+        replayProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, "UPDATE_FLEXIBLE_COLUMNS");
+        AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(
+                1L, replayProperties, null, columnsDesc);
+        job.replayModifyProperties(log);
+        Assert.assertEquals(1, job.getColumnExprDescs().descs.size());
+        Assert.assertEquals("|", job.getColumnSeparator().getSeparator());
+        Assert.assertEquals("seq", job.getSequenceCol());
+        Assert.assertEquals(TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS, job.getUniqueKeyUpdateMode());
+        Assert.assertEquals("UPDATE_FLEXIBLE_COLUMNS",
+                log.getJobProperties().get(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE));
+
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database db = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(catalog.getDbNullable(1L)).thenReturn(db);
+        Mockito.when(db.getTableNullable(2L)).thenReturn(table);
+        Mockito.doCallRealMethod().when(table).validateForFlexiblePartialUpdate();
+        Mockito.doCallRealMethod().when(table).validateForFlexiblePartialUpdate(Mockito.anyBoolean());
+        Mockito.doCallRealMethod().when(table).validateVariantColumnsForFlexiblePartialUpdate();
+        Mockito.doCallRealMethod().when(table).validateVariantColumnsForFlexiblePartialUpdate(
+                Mockito.anyBoolean());
+        Mockito.when(table.getEnableUniqueKeyMergeOnWrite()).thenReturn(true);
+        Mockito.when(table.hasSkipBitmapColumn()).thenReturn(true);
+        Mockito.when(table.getEnableLightSchemaChange()).thenReturn(true);
+        Mockito.when(table.getBaseSchema()).thenReturn(Lists.newArrayList(new Column("k", PrimitiveType.INT)));
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+
+            Map<String, String> flexibleProperties = Maps.newHashMap();
+            flexibleProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, "UPDATE_FLEXIBLE_COLUMNS");
+            UserException exception = Assert.assertThrows(UserException.class,
+                    () -> job.validateFlexiblePartialUpdateForAlter(flexibleProperties, null));
+            Assert.assertTrue(exception.getMessage().contains("COLUMNS specification"));
+        }
+    }
+
+    @Test
+    public void testColumnDescsSerializedInRoutineLoadJobSnapshot() {
+        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob();
+        ImportColumnDescs columnDescs = new ImportColumnDescs();
+        columnDescs.descs.add(new ImportColumnDesc("id", null));
+        Deencapsulation.setField(job, "columnDescs", columnDescs);
+        Deencapsulation.setField(job, "origStmt", new OriginStatement("INVALID", 0));
+
+        String json = GsonUtils.GSON.toJson(job, RoutineLoadJob.class);
+        JsonObject jsonObject = GsonUtils.GSON.fromJson(json, JsonObject.class);
+
+        Assert.assertTrue(jsonObject.has("columnDescs"));
+        Assert.assertEquals("id",
+                jsonObject.getAsJsonObject("columnDescs").getAsJsonArray("des").get(0).getAsJsonObject().get("cn")
+                        .getAsString());
+
+        RoutineLoadJob legacyKeyJob = GsonUtils.GSON.fromJson(
+                json.replace("\"columnDescs\"", "\"cd\""), RoutineLoadJob.class);
+        Assert.assertEquals("id", legacyKeyJob.getColumnExprDescs().descs.get(0).getColumnName());
+    }
+
+    @Test
+    public void testColumnDescsSnapshotOverridesOrigStmtAfterRead() throws Exception {
+        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob();
+        Deencapsulation.setField(job, "dbId", 1L);
+        Deencapsulation.setField(job, "tableId", 2L);
+        Deencapsulation.setField(job, "isMultiTable", false);
+        Deencapsulation.setField(job, "origStmt", new OriginStatement(
+                "CREATE ROUTINE LOAD job ON tbl "
+                        + "PROPERTIES (\"format\" = \"json\") "
+                        + "FROM KAFKA (\"kafka_broker_list\" = \"127.0.0.1:9092\", "
+                        + "\"kafka_topic\" = \"topic\")",
+                0));
+
+        ImportColumnDescs columnDescs = new ImportColumnDescs();
+        columnDescs.descs.add(new ImportColumnDesc("score", null));
+        Deencapsulation.setField(job, "columnDescs", columnDescs);
+        Deencapsulation.setField(job, "columnSeparator", new Separator("|", "|"));
+        Deencapsulation.setField(job, "lineDelimiter", new Separator("\n", "\\n"));
+        Deencapsulation.setField(job, "partitionNamesInfo",
+                new PartitionNamesInfo(false, Lists.newArrayList("p2")));
+        Deencapsulation.setField(job, "whereExpr",
+                new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "score"), new IntLiteral(10)));
+        Deencapsulation.setField(job, "deleteCondition",
+                new BinaryPredicate(BinaryPredicate.Operator.EQ, new SlotRef(null, "deleted"), new IntLiteral(1)));
+        Deencapsulation.setField(job, "mergeType", LoadTask.MergeType.MERGE);
+        Deencapsulation.setField(job, "mergeTypeSpecified", true);
+        Deencapsulation.setField(job, "sequenceCol", "seq2");
+
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database db = Mockito.mock(Database.class);
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalogMgr.getCatalog(Mockito.anyString())).thenReturn(catalog);
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getDb("db")).thenReturn(Optional.of(db));
+        Mockito.when(catalog.getDb(1L)).thenReturn(Optional.of(db));
+        Mockito.when(catalog.getDbOrAnalysisException("db")).thenReturn(db);
+        Mockito.when(db.getName()).thenReturn("db");
+        Mockito.when(db.getId()).thenReturn(1L);
+        Mockito.when(db.getTableOrAnalysisException("tbl")).thenReturn(table);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+
+            String json = GsonUtils.GSON.toJson(job, RoutineLoadJob.class);
+            RoutineLoadJob restoredJob = GsonUtils.GSON.fromJson(json, RoutineLoadJob.class);
+
+            Assert.assertNotEquals(RoutineLoadJob.JobState.CANCELLED, restoredJob.getState());
+            Assert.assertEquals(1, restoredJob.getColumnExprDescs().descs.size());
+            Assert.assertEquals("score", restoredJob.getColumnExprDescs().descs.get(0).getColumnName());
+            Assert.assertEquals("|", restoredJob.getColumnSeparator().getSeparator());
+            Assert.assertEquals("\n", restoredJob.getLineDelimiter().getSeparator());
+            Assert.assertEquals(Lists.newArrayList("p2"),
+                    restoredJob.getPartitionNamesInfo().getPartitionNames());
+            Assert.assertNotNull(restoredJob.getWhereExpr());
+            Assert.assertNotNull(restoredJob.getDeleteCondition());
+            Assert.assertEquals(LoadTask.MergeType.MERGE, restoredJob.getMergeType());
+            Assert.assertTrue(Deencapsulation.getField(restoredJob, "mergeTypeSpecified"));
+            Assert.assertEquals("seq2", restoredJob.getSequenceCol());
+        }
+    }
+
+    @Test
+    public void testLegacyRoutineLoadDescSnapshotOverridesOrigStmtAfterRead() throws Exception {
+        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob();
+        Deencapsulation.setField(job, "dbId", 1L);
+        Deencapsulation.setField(job, "tableId", 2L);
+        Deencapsulation.setField(job, "isMultiTable", false);
+        Deencapsulation.setField(job, "origStmt", new OriginStatement(
+                "CREATE ROUTINE LOAD job ON tbl "
+                        + "WITH MERGE "
+                        + "DELETE ON stale_deleted = 1 "
+                        + "PROPERTIES (\"format\" = \"json\") "
+                        + "FROM KAFKA (\"kafka_broker_list\" = \"127.0.0.1:9092\", "
+                        + "\"kafka_topic\" = \"topic\")",
+                0));
+
+        ImportColumnDescs columnDescs = new ImportColumnDescs();
+        columnDescs.descs.add(new ImportColumnDesc("score", null));
+        Deencapsulation.setField(job, "columnDescs", columnDescs);
+        Deencapsulation.setField(job, "columnSeparator", new Separator("|", "|"));
+        Deencapsulation.setField(job, "lineDelimiter", new Separator("\n", "\\n"));
+        Deencapsulation.setField(job, "partitionNamesInfo",
+                new PartitionNamesInfo(false, Lists.newArrayList("p2")));
+        Deencapsulation.setField(job, "precedingFilter",
+                new BinaryPredicate(BinaryPredicate.Operator.GE, new SlotRef(null, "id"), new IntLiteral(1)));
+        Deencapsulation.setField(job, "whereExpr",
+                new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "score"), new IntLiteral(10)));
+        Deencapsulation.setField(job, "deleteCondition",
+                new BinaryPredicate(BinaryPredicate.Operator.EQ, new SlotRef(null, "deleted"), new IntLiteral(1)));
+        Deencapsulation.setField(job, "mergeType", LoadTask.MergeType.MERGE);
+        Deencapsulation.setField(job, "sequenceCol", "seq2");
+
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database db = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalogMgr.getCatalog(Mockito.anyString())).thenReturn(catalog);
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getDb("db")).thenReturn(Optional.of(db));
+        Mockito.when(catalog.getDb(1L)).thenReturn(Optional.of(db));
+        Mockito.when(catalog.getDbOrAnalysisException("db")).thenReturn(db);
+        Mockito.when(db.getName()).thenReturn("db");
+        Mockito.when(db.getId()).thenReturn(1L);
+        Mockito.when(db.getTableOrAnalysisException("tbl")).thenReturn(table);
+        Mockito.when(db.getTable(2L)).thenReturn(Optional.of(table));
+        Mockito.when(table.getName()).thenReturn("tbl");
+        Mockito.when(table.getType()).thenReturn(Table.TableType.OLAP);
+        Mockito.when(table.getKeysType()).thenReturn(KeysType.UNIQUE_KEYS);
+        Mockito.when(table.hasDeleteSign()).thenReturn(true);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+
+            JsonObject legacyImage = GsonUtils.GSON.fromJson(
+                    GsonUtils.GSON.toJson(job, RoutineLoadJob.class), JsonObject.class);
+            legacyImage.add("cd", legacyImage.remove("columnDescs"));
+            legacyImage.add("partitionNamesInfo", legacyImage.remove("pni"));
+            legacyImage.add("precedingFilter", legacyImage.remove("pf"));
+            legacyImage.add("whereExpr", legacyImage.remove("filter"));
+            legacyImage.add("deleteCondition", legacyImage.remove("dc"));
+            legacyImage.add("sequenceCol", legacyImage.remove("scn"));
+            legacyImage.remove("cs");
+            legacyImage.remove("ocs");
+            legacyImage.remove("ld");
+            legacyImage.remove("old");
+            legacyImage.remove("mt");
+            JsonObject legacyColumnSeparator = new JsonObject();
+            legacyColumnSeparator.addProperty("separator", "|");
+            legacyColumnSeparator.addProperty("oriSeparator", "|");
+            legacyImage.add("columnSeparator", legacyColumnSeparator);
+            JsonObject legacyLineDelimiter = new JsonObject();
+            legacyLineDelimiter.addProperty("separator", "\n");
+            legacyLineDelimiter.addProperty("oriSeparator", "\\n");
+            legacyImage.add("lineDelimiter", legacyLineDelimiter);
+
+            RoutineLoadJob restoredJob = GsonUtils.GSON.fromJson(legacyImage, RoutineLoadJob.class);
+
+            Assert.assertNotEquals(RoutineLoadJob.JobState.CANCELLED, restoredJob.getState());
+            Assert.assertEquals(1, restoredJob.getColumnExprDescs().descs.size());
+            Assert.assertEquals("score", restoredJob.getColumnExprDescs().descs.get(0).getColumnName());
+            Assert.assertEquals("|", restoredJob.getColumnSeparator().getSeparator());
+            Assert.assertEquals("\n", restoredJob.getLineDelimiter().getSeparator());
+            Assert.assertEquals(Lists.newArrayList("p2"),
+                    restoredJob.getPartitionNamesInfo().getPartitionNames());
+            Assert.assertNotNull(restoredJob.getPrecedingFilter());
+            Assert.assertNotNull(restoredJob.getWhereExpr());
+            Assert.assertNotNull(restoredJob.getDeleteCondition());
+            Assert.assertEquals(LoadTask.MergeType.MERGE, restoredJob.getMergeType());
+            Assert.assertEquals("seq2", restoredJob.getSequenceCol());
+        }
+    }
+
+    @Test
+    public void testLegacyRoutineLoadImageKeepsMergeTypeFromOrigStmt() throws Exception {
+        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob();
+        Deencapsulation.setField(job, "dbId", 1L);
+        Deencapsulation.setField(job, "tableId", 2L);
+        Deencapsulation.setField(job, "isMultiTable", false);
+        Deencapsulation.setField(job, "origStmt", new OriginStatement(
+                "CREATE ROUTINE LOAD job ON tbl "
+                        + "WITH MERGE "
+                        + "DELETE ON is_delete = 1 "
+                        + "PROPERTIES (\"format\" = \"json\") "
+                        + "FROM KAFKA (\"kafka_broker_list\" = \"127.0.0.1:9092\", "
+                        + "\"kafka_topic\" = \"topic\")",
+                0));
+
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database db = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalogMgr.getCatalog(Mockito.anyString())).thenReturn(catalog);
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getDb("db")).thenReturn(Optional.of(db));
+        Mockito.when(catalog.getDb(1L)).thenReturn(Optional.of(db));
+        Mockito.when(catalog.getDbOrAnalysisException("db")).thenReturn(db);
+        Mockito.when(db.getName()).thenReturn("db");
+        Mockito.when(db.getId()).thenReturn(1L);
+        Mockito.when(db.getTableOrAnalysisException("tbl")).thenReturn(table);
+        Mockito.when(db.getTable(2L)).thenReturn(Optional.of(table));
+        Mockito.when(table.getName()).thenReturn("tbl");
+        Mockito.when(table.getType()).thenReturn(Table.TableType.OLAP);
+        Mockito.when(table.getKeysType()).thenReturn(KeysType.UNIQUE_KEYS);
+        Mockito.when(table.hasDeleteSign()).thenReturn(true);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+
+            String json = GsonUtils.GSON.toJson(job, RoutineLoadJob.class);
+            JsonObject legacyImage = GsonUtils.GSON.fromJson(json, JsonObject.class);
+            legacyImage.remove("mt");
+            RoutineLoadJob restoredJob = GsonUtils.GSON.fromJson(legacyImage, RoutineLoadJob.class);
+
+            Assert.assertEquals(LoadTask.MergeType.MERGE, restoredJob.getMergeType());
+            Assert.assertNotNull(restoredJob.getDeleteCondition());
+        }
+    }
+
+    @Test
+    public void testFlexibleRoutineLoadImageRestoreSkipsBackendCapabilityCheck() throws Exception {
+        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob();
+        Deencapsulation.setField(job, "dbId", 1L);
+        Deencapsulation.setField(job, "tableId", 2L);
+        Deencapsulation.setField(job, "isMultiTable", false);
+        Deencapsulation.setField(job, "origStmt", new OriginStatement(
+                "CREATE ROUTINE LOAD job ON tbl "
+                        + "PROPERTIES (\"format\" = \"json\", "
+                        + "\"unique_key_update_mode\" = \"UPDATE_FLEXIBLE_COLUMNS\") "
+                        + "FROM KAFKA (\"kafka_broker_list\" = \"127.0.0.1:9092\", "
+                        + "\"kafka_topic\" = \"topic\")",
+                0));
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(FileFormatProperties.PROP_FORMAT, "json");
+        jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, "UPDATE_FLEXIBLE_COLUMNS");
+        Deencapsulation.setField(job, "jobProperties", jobProperties);
+
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database db = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(catalogMgr.getCatalog(Mockito.anyString())).thenReturn(catalog);
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getDb("db")).thenReturn(Optional.of(db));
+        Mockito.when(catalog.getDb(1L)).thenReturn(Optional.of(db));
+        Mockito.when(catalog.getDbOrAnalysisException("db")).thenReturn(db);
+        Mockito.when(db.getName()).thenReturn("db");
+        Mockito.when(db.getId()).thenReturn(1L);
+        Mockito.when(db.getTableOrAnalysisException("tbl")).thenReturn(table);
+        Mockito.when(db.getTable(2L)).thenReturn(Optional.of(table));
+        Mockito.when(table.getName()).thenReturn("tbl");
+        Mockito.when(table.getType()).thenReturn(Table.TableType.OLAP);
+        Mockito.when(table.getKeysType()).thenReturn(KeysType.UNIQUE_KEYS);
+        Mockito.when(table.hasDeleteSign()).thenReturn(true);
+        Mockito.doCallRealMethod().when(table).validateForFlexiblePartialUpdate(Mockito.anyBoolean());
+        Mockito.doCallRealMethod().when(table).validateVariantColumnsForFlexiblePartialUpdate(
+                Mockito.anyBoolean());
+        Mockito.when(table.getEnableUniqueKeyMergeOnWrite()).thenReturn(true);
+        Mockito.when(table.hasSkipBitmapColumn()).thenReturn(true);
+        Mockito.when(table.getEnableLightSchemaChange()).thenReturn(true);
+        Mockito.when(table.getBaseSchema()).thenReturn(Lists.newArrayList(
+                new Column("k", PrimitiveType.INT), new Column("v", Type.VARIANT)));
+        Mockito.when(table.variantEnableFlattenNested()).thenReturn(false);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+
+            RoutineLoadJob restoredJob = GsonUtils.GSON.fromJson(
+                    GsonUtils.GSON.toJson(job, RoutineLoadJob.class), RoutineLoadJob.class);
+
+            Assert.assertNotEquals(RoutineLoadJob.JobState.CANCELLED, restoredJob.getState());
+            Assert.assertEquals(TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS,
+                    restoredJob.getUniqueKeyUpdateMode());
+        }
     }
 
 }

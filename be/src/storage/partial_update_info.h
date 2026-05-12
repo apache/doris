@@ -209,16 +209,19 @@ private:
             Block* block, size_t num_rows, const std::vector<IOlapColumnDataAccessor*>& key_columns,
             const std::vector<RowsetSharedPtr>& specified_rowsets,
             std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
+    Status aggregate_without_sequence_column(
+            Block* block, size_t num_rows,
+            const std::vector<IOlapColumnDataAccessor*>& key_columns);
     Status filter_block(Block* block, size_t num_rows, MutableColumnPtr filter_column,
                         int duplicate_rows, std::string col_name);
 
     Status fill_sequence_column(Block* block, size_t num_rows, const FixedReadPlan& read_plan,
                                 std::vector<BitmapValue>& skip_bitmaps);
 
-    void append_or_merge_row(MutableBlock& dst_block, Block* src_block, int rid,
-                             BitmapValue& skip_bitmap, bool have_delete_sign);
-    void merge_one_row(MutableBlock& dst_block, Block* src_block, int rid,
-                       BitmapValue& skip_bitmap);
+    Status append_or_merge_row(MutableBlock& dst_block, Block* src_block, int rid,
+                               BitmapValue& skip_bitmap, bool have_delete_sign);
+    Status merge_one_row(MutableBlock& dst_block, Block* src_block, int rid,
+                         BitmapValue& skip_bitmap);
     void append_one_row(MutableBlock& dst_block, Block* src_block, int rid);
     void remove_last_n_rows(MutableBlock& dst_block, int n);
 

@@ -20,6 +20,7 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include <cstdint>
+#include <utility>
 
 #include "common/consts.h"
 #include "common/logging.h"
@@ -27,6 +28,7 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "core/value/bitmap_value.h"
+#include "exec/common/variant_util.h"
 #include "storage/iterator/olap_data_convertor.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset.h"
@@ -126,6 +128,7 @@ void PartialUpdateInfo::to_pb(PartialUpdateInfoPB* partial_update_info_pb) const
             is_input_columns_contains_auto_inc_column);
     partial_update_info_pb->set_is_schema_contains_auto_inc_column(
             is_schema_contains_auto_inc_column);
+    partial_update_info_pb->set_sequence_map_col_uid(sequence_map_col_unqiue_id);
     for (const auto& value : default_values) {
         partial_update_info_pb->add_default_values(value);
     }
@@ -169,6 +172,9 @@ void PartialUpdateInfo::from_pb(PartialUpdateInfoPB* partial_update_info_pb) {
             partial_update_info_pb->is_input_columns_contains_auto_inc_column();
     is_schema_contains_auto_inc_column =
             partial_update_info_pb->is_schema_contains_auto_inc_column();
+    sequence_map_col_unqiue_id = partial_update_info_pb->has_sequence_map_col_uid()
+                                         ? partial_update_info_pb->sequence_map_col_uid()
+                                         : -1;
     if (partial_update_info_pb->has_nano_seconds()) {
         nano_seconds = partial_update_info_pb->nano_seconds();
     }
@@ -464,6 +470,9 @@ void FlexibleReadPlan::prepare_to_read(const RowLocation& row_location, size_t p
                                        const BitmapValue& skip_bitmap) {
     if (!use_row_store) {
         for (uint64_t col_uid : skip_bitmap) {
+            if (variant_util::is_variant_patch_path_marker(col_uid)) {
+                continue;
+            }
             plan[row_location.rowset_id][row_location.segment_id][static_cast<uint32_t>(col_uid)]
                     .emplace_back(row_location.row_id, pos);
         }
@@ -567,26 +576,36 @@ Status FlexibleReadPlan::fill_non_primary_key_columns(
     return Status::OK();
 }
 
-static void fill_non_primary_key_cell_for_column_store(
+static bool old_row_has_delete_sign_for_column_store(
+        const signed char* delete_sign_column_data, const TabletSchema& tablet_schema,
+        std::map<uint32_t, std::map<uint32_t, uint32_t>>& read_index, uint32_t segment_pos) {
+    if (delete_sign_column_data == nullptr) {
+        return false;
+    }
+    if (auto it = read_index[tablet_schema.delete_sign_idx()].find(segment_pos);
+        it != read_index[tablet_schema.delete_sign_idx()].end()) {
+        return delete_sign_column_data[it->second] != 0;
+    }
+    return false;
+}
+
+static Status fill_non_primary_key_cell_for_column_store(
         const TabletColumn& tablet_column, uint32_t cid, MutableColumnPtr& new_col,
         const IColumn& default_value_col, const IColumn& old_value_col, const IColumn& cur_col,
         std::size_t block_pos, uint32_t segment_pos, bool skipped, bool row_has_sequence_col,
         bool use_default, const signed char* delete_sign_column_data,
         const TabletSchema& tablet_schema,
-        std::map<uint32_t, std::map<uint32_t, uint32_t>>& read_index,
-        const PartialUpdateInfo* info) {
+        std::map<uint32_t, std::map<uint32_t, uint32_t>>& read_index, const PartialUpdateInfo* info,
+        const BitmapValue& skip_bitmap) {
     if (skipped) {
-        DCHECK(cid != tablet_schema.skip_bitmap_col_idx());
-        DCHECK(cid != tablet_schema.version_col_idx());
+        DCHECK(std::cmp_not_equal(cid, tablet_schema.skip_bitmap_col_idx()));
+        DCHECK(std::cmp_not_equal(cid, tablet_schema.version_col_idx()));
         DCHECK(!tablet_column.is_row_store_column());
 
         if (!use_default) {
             if (delete_sign_column_data != nullptr) {
-                bool old_row_delete_sign = false;
-                if (auto it = read_index[tablet_schema.delete_sign_idx()].find(segment_pos);
-                    it != read_index[tablet_schema.delete_sign_idx()].end()) {
-                    old_row_delete_sign = (delete_sign_column_data[it->second] != 0);
-                }
+                bool old_row_delete_sign = old_row_has_delete_sign_for_column_store(
+                        delete_sign_column_data, tablet_schema, read_index, segment_pos);
 
                 if (old_row_delete_sign) {
                     if (!tablet_schema.has_sequence_col()) {
@@ -625,8 +644,18 @@ static void fill_non_primary_key_cell_for_column_store(
             new_col->insert_from(old_value_col, pos_in_old_block);
         }
     } else {
+        if (tablet_column.is_variant_type() && !use_default &&
+            !old_row_has_delete_sign_for_column_store(delete_sign_column_data, tablet_schema,
+                                                      read_index, segment_pos) &&
+            read_index.contains(cid) && read_index.at(cid).contains(segment_pos)) {
+            RETURN_IF_ERROR(variant_util::merge_variant_patch_by_path_markers(
+                    old_value_col, read_index.at(cid).at(segment_pos), cur_col, block_pos,
+                    tablet_column.unique_id(), skip_bitmap, false, *new_col));
+            return Status::OK();
+        }
         new_col->insert_from(cur_col, block_pos);
     }
+    return Status::OK();
 }
 
 Status FlexibleReadPlan::fill_non_primary_key_columns_for_column_store(
@@ -665,7 +694,7 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_column_store(
             auto segment_pos = segment_start_pos + idx;
             auto block_pos = block_start_pos + idx;
 
-            fill_non_primary_key_cell_for_column_store(
+            RETURN_IF_ERROR(fill_non_primary_key_cell_for_column_store(
                     tablet_column, cid, mutable_full_columns[cid],
                     *default_value_block.get_by_position(i).column,
                     *old_value_block.get_by_position(i).column, *block->get_by_position(cid).column,
@@ -674,23 +703,25 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_column_store(
                             ? !skip_bitmaps->at(block_pos).contains(seq_col_unique_id)
                             : false,
                     use_default_or_null_flag[idx], delete_sign_column_data, tablet_schema,
-                    read_index, info);
+                    read_index, info, skip_bitmaps->at(block_pos)));
         }
     }
     return Status::OK();
 }
 
-static void fill_non_primary_key_cell_for_row_store(
+static Status fill_non_primary_key_cell_for_row_store(
         const TabletColumn& tablet_column, uint32_t cid, MutableColumnPtr& new_col,
         const IColumn& default_value_col, const IColumn& old_value_col, const IColumn& cur_col,
         std::size_t block_pos, bool skipped, bool row_has_sequence_col, bool use_default,
-        const signed char* delete_sign_column_data, uint32_t pos_in_old_block,
-        const TabletSchema& tablet_schema, const PartialUpdateInfo* info) {
+        const signed char* delete_sign_column_data, bool old_row_exists, uint32_t pos_in_old_block,
+        const TabletSchema& tablet_schema, const PartialUpdateInfo* info,
+        const BitmapValue& skip_bitmap) {
     if (skipped) {
-        DCHECK(cid != tablet_schema.skip_bitmap_col_idx());
-        DCHECK(cid != tablet_schema.version_col_idx());
+        DCHECK(std::cmp_not_equal(cid, tablet_schema.skip_bitmap_col_idx()));
+        DCHECK(std::cmp_not_equal(cid, tablet_schema.version_col_idx()));
         DCHECK(!tablet_column.is_row_store_column());
         if (!use_default) {
+            DCHECK(old_row_exists);
             if (delete_sign_column_data != nullptr) {
                 bool old_row_delete_sign = (delete_sign_column_data[pos_in_old_block] != 0);
                 if (old_row_delete_sign) {
@@ -730,8 +761,18 @@ static void fill_non_primary_key_cell_for_row_store(
             new_col->insert_from(old_value_col, pos_in_old_block);
         }
     } else {
+        bool old_row_delete_sign = (old_row_exists && delete_sign_column_data != nullptr &&
+                                    delete_sign_column_data[pos_in_old_block] != 0);
+        if (tablet_column.is_variant_type() && old_row_exists && !use_default &&
+            !old_row_delete_sign) {
+            RETURN_IF_ERROR(variant_util::merge_variant_patch_by_path_markers(
+                    old_value_col, pos_in_old_block, cur_col, block_pos, tablet_column.unique_id(),
+                    skip_bitmap, false, *new_col));
+            return Status::OK();
+        }
         new_col->insert_from(cur_col, block_pos);
     }
+    return Status::OK();
 }
 
 Status FlexibleReadPlan::fill_non_primary_key_columns_for_row_store(
@@ -768,9 +809,11 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_row_store(
         for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
             auto segment_pos = segment_start_pos + idx;
             auto block_pos = block_start_pos + idx;
-            auto pos_in_old_block = read_index[segment_pos];
+            auto read_index_iter = read_index.find(segment_pos);
+            bool old_row_exists = (read_index_iter != read_index.end());
+            uint32_t pos_in_old_block = old_row_exists ? read_index_iter->second : 0;
 
-            fill_non_primary_key_cell_for_row_store(
+            RETURN_IF_ERROR(fill_non_primary_key_cell_for_row_store(
                     tablet_column, cid, mutable_full_columns[cid],
                     *default_value_block.get_by_position(i).column,
                     *old_value_block.get_by_position(i).column, *block->get_by_position(cid).column,
@@ -778,8 +821,8 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_row_store(
                     tablet_schema.has_sequence_col()
                             ? !skip_bitmaps->at(block_pos).contains(seq_col_unique_id)
                             : false,
-                    use_default_or_null_flag[idx], delete_sign_column_data, pos_in_old_block,
-                    tablet_schema, info);
+                    use_default_or_null_flag[idx], delete_sign_column_data, old_row_exists,
+                    pos_in_old_block, tablet_schema, info, skip_bitmaps->at(block_pos)));
         }
     }
     return Status::OK();
@@ -788,10 +831,10 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_row_store(
 BlockAggregator::BlockAggregator(segment_v2::VerticalSegmentWriter& vertical_segment_writer)
         : _writer(vertical_segment_writer), _tablet_schema(*_writer._tablet_schema) {}
 
-void BlockAggregator::merge_one_row(MutableBlock& dst_block, Block* src_block, int rid,
-                                    BitmapValue& skip_bitmap) {
+Status BlockAggregator::merge_one_row(MutableBlock& dst_block, Block* src_block, int rid,
+                                      BitmapValue& skip_bitmap) {
     for (size_t cid {_tablet_schema.num_key_columns()}; cid < _tablet_schema.num_columns(); cid++) {
-        if (cid == _tablet_schema.skip_bitmap_col_idx()) {
+        if (std::cmp_equal(cid, _tablet_schema.skip_bitmap_col_idx())) {
             auto& cur_skip_bitmap =
                     assert_cast<ColumnBitmap*>(dst_block.mutable_columns()[cid].get())
                             ->get_data()
@@ -800,17 +843,31 @@ void BlockAggregator::merge_one_row(MutableBlock& dst_block, Block* src_block, i
                     assert_cast<ColumnBitmap*>(
                             src_block->get_by_position(cid).column->assume_mutable().get())
                             ->get_data()[rid];
-            cur_skip_bitmap &= new_row_skip_bitmap;
+            BitmapValue merged_skip_bitmap;
+            RETURN_IF_ERROR(variant_util::merge_variant_patch_path_markers(
+                    cur_skip_bitmap, new_row_skip_bitmap, &merged_skip_bitmap));
+            cur_skip_bitmap = std::move(merged_skip_bitmap);
             continue;
         }
         if (!skip_bitmap.contains(_tablet_schema.column(cid).unique_id())) {
-            dst_block.mutable_columns()[cid]->pop_back(1);
-            dst_block.mutable_columns()[cid]->insert_from(*src_block->get_by_position(cid).column,
-                                                          rid);
+            if (_tablet_schema.column(cid).is_variant_type()) {
+                auto merged_col = dst_block.mutable_columns()[cid]->clone_empty();
+                RETURN_IF_ERROR(variant_util::merge_variant_patch(
+                        *dst_block.mutable_columns()[cid],
+                        dst_block.mutable_columns()[cid]->size() - 1,
+                        *src_block->get_by_position(cid).column, rid, *merged_col));
+                dst_block.mutable_columns()[cid]->pop_back(1);
+                dst_block.mutable_columns()[cid]->insert_from(*merged_col, 0);
+            } else {
+                dst_block.mutable_columns()[cid]->pop_back(1);
+                dst_block.mutable_columns()[cid]->insert_from(
+                        *src_block->get_by_position(cid).column, rid);
+            }
         }
     }
     VLOG_DEBUG << fmt::format("merge a row, after merge, output_block.rows()={}, state: {}",
                               dst_block.rows(), _state.to_string());
+    return Status::OK();
 }
 
 void BlockAggregator::append_one_row(MutableBlock& dst_block, Block* src_block, int rid) {
@@ -829,8 +886,8 @@ void BlockAggregator::remove_last_n_rows(MutableBlock& dst_block, int n) {
     }
 }
 
-void BlockAggregator::append_or_merge_row(MutableBlock& dst_block, Block* src_block, int rid,
-                                          BitmapValue& skip_bitmap, bool have_delete_sign) {
+Status BlockAggregator::append_or_merge_row(MutableBlock& dst_block, Block* src_block, int rid,
+                                            BitmapValue& skip_bitmap, bool have_delete_sign) {
     if (have_delete_sign) {
         // remove all the previous batched rows
         remove_last_n_rows(dst_block, _state.rows);
@@ -840,11 +897,12 @@ void BlockAggregator::append_or_merge_row(MutableBlock& dst_block, Block* src_bl
         append_one_row(dst_block, src_block, rid);
     } else {
         if (_state.should_merge()) {
-            merge_one_row(dst_block, src_block, rid, skip_bitmap);
+            RETURN_IF_ERROR(merge_one_row(dst_block, src_block, rid, skip_bitmap));
         } else {
             append_one_row(dst_block, src_block, rid);
         }
     }
+    return Status::OK();
 };
 
 Status BlockAggregator::aggregate_rows(
@@ -920,12 +978,14 @@ Status BlockAggregator::aggregate_rows(
         bool have_delete_sign =
                 (!skip_bitmap.contains(delete_sign_col_unique_id) && delete_signs[rid] != 0);
         if (!row_has_sequence_col) {
-            append_or_merge_row(output_block, block, rid, skip_bitmap, have_delete_sign);
+            RETURN_IF_ERROR(
+                    append_or_merge_row(output_block, block, rid, skip_bitmap, have_delete_sign));
         } else {
             std::string seq_val {};
             _writer._encode_seq_column(seq_column, rid, &seq_val);
             if (Slice {seq_val}.compare(Slice {cur_seq_val}) >= 0) {
-                append_or_merge_row(output_block, block, rid, skip_bitmap, have_delete_sign);
+                RETURN_IF_ERROR(append_or_merge_row(output_block, block, rid, skip_bitmap,
+                                                    have_delete_sign));
                 cur_seq_val = std::move(seq_val);
             } else {
                 VLOG_DEBUG << fmt::format(
@@ -977,6 +1037,63 @@ Status BlockAggregator::aggregate_for_sequence_column(
     }
 
     block->swap(output_block.to_block());
+    return Status::OK();
+}
+
+Status BlockAggregator::aggregate_without_sequence_column(
+        Block* block, size_t num_rows, const std::vector<IOlapColumnDataAccessor*>& key_columns) {
+    DCHECK_EQ(block->columns(), _tablet_schema.num_columns());
+    std::vector<BitmapValue>* skip_bitmaps = &(
+            assert_cast<ColumnBitmap*>(block->get_by_position(_tablet_schema.skip_bitmap_col_idx())
+                                               .column->assume_mutable()
+                                               .get())
+                    ->get_data());
+    const auto* delete_signs = BaseTablet::get_delete_sign_column_data(*block, num_rows);
+    DCHECK(delete_signs != nullptr);
+    int32_t delete_sign_col_unique_id =
+            _tablet_schema.column(_tablet_schema.delete_sign_idx()).unique_id();
+
+    auto aggregated_block = _tablet_schema.create_block();
+    MutableBlock output_block = MutableBlock::build_mutable_block(&aggregated_block);
+
+    auto aggregate_range = [&](int start, int end) -> Status {
+        if (end - start == 1) {
+            output_block.add_row(block, start);
+            return Status::OK();
+        }
+        _state.reset();
+        for (int rid = start; rid < end; ++rid) {
+            auto& skip_bitmap = skip_bitmaps->at(rid);
+            bool have_delete_sign =
+                    (!skip_bitmap.contains(delete_sign_col_unique_id) && delete_signs[rid] != 0);
+            RETURN_IF_ERROR(
+                    append_or_merge_row(output_block, block, rid, skip_bitmap, have_delete_sign));
+        }
+        return Status::OK();
+    };
+
+    int same_key_rows {0};
+    std::string previous_key {};
+    const auto num_rows_int = static_cast<int>(num_rows);
+    for (int block_pos {0}; block_pos < num_rows_int; block_pos++) {
+        std::string key = _writer._full_encode_keys(key_columns, block_pos);
+        if (block_pos > 0 && previous_key == key) {
+            same_key_rows++;
+        } else {
+            if (same_key_rows > 0) {
+                RETURN_IF_ERROR(aggregate_range(block_pos - same_key_rows, block_pos));
+            }
+            same_key_rows = 1;
+        }
+        previous_key = std::move(key);
+    }
+    if (same_key_rows > 0) {
+        RETURN_IF_ERROR(aggregate_range(num_rows_int - same_key_rows, num_rows_int));
+    }
+
+    if (output_block.rows() != num_rows) {
+        block->swap(output_block.to_block());
+    }
     return Status::OK();
 }
 
@@ -1105,7 +1222,7 @@ Status BlockAggregator::filter_block(Block* block, size_t num_rows, MutableColum
     RETURN_IF_ERROR(Block::filter_block(block, num_cols, num_cols));
     DCHECK_EQ(num_cols, block->columns());
     size_t merged_rows = num_rows - block->rows();
-    if (duplicate_rows != merged_rows) {
+    if (std::cmp_not_equal(duplicate_rows, merged_rows)) {
         auto msg = fmt::format(
                 "filter_block_for_flexible_partial_update {}: duplicate_rows != merged_rows, "
                 "duplicate_keys={}, merged_rows={}, num_rows={}, mutable_block->rows()={}",
@@ -1164,6 +1281,8 @@ Status BlockAggregator::aggregate_for_flexible_partial_update(
         RETURN_IF_ERROR(aggregate_for_sequence_column(block, static_cast<int>(num_rows),
                                                       key_columns, seq_column, specified_rowsets,
                                                       segment_caches));
+    } else {
+        RETURN_IF_ERROR(aggregate_without_sequence_column(block, num_rows, key_columns));
     }
 
     // 2. merge duplicate rows and handle insert after delete

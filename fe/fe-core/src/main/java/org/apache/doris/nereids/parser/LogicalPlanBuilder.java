@@ -2475,8 +2475,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 // NOTICE: we should not generate immutable map here, because it will be modified when analyzing.
                 ? Maps.newHashMap(visitPropertyItemList(ctx.customProperties))
                 : Maps.newHashMap();
+        boolean mergeTypeSpecified = ctx.WITH() != null;
         LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
-        if (ctx.WITH() != null) {
+        if (mergeTypeSpecified) {
             if (ctx.DELETE() != null) {
                 mergeType = LoadTask.MergeType.DELETE;
             } else if (ctx.MERGE() != null) {
@@ -2498,7 +2499,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
         CreateRoutineLoadInfo createRoutineLoadInfo = new CreateRoutineLoadInfo(jobLabelInfo, tableName,
-                loadPropertyMap, properties, type, customProperties, mergeType, comment);
+                loadPropertyMap, properties, type, customProperties, mergeType, mergeTypeSpecified, comment);
         return new CreateRoutineLoadCommand(createRoutineLoadInfo);
 
     }

@@ -280,6 +280,7 @@ private:
             DorisVector<std::shared_ptr<RowInBlock>>& temp_row_in_blocks);
 
     Status _put_into_output(Block& in_block);
+    bool _has_flexible_variant_patch_rows() const;
     bool _is_first_insertion;
 
     void _init_agg_functions(const Block* block);

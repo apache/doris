@@ -17,12 +17,17 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.analysis.ImportColumnDesc;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.load.RoutineLoadDesc;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;
@@ -60,8 +65,12 @@ public class AlterRoutineLoadOperationLogTest {
         routineLoadDataSourceProperties.setTimezone(TimeUtils.DEFAULT_TIME_ZONE);
         routineLoadDataSourceProperties.analyze();
 
+        RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(new Separator("|", "|"), null,
+                Lists.newArrayList(new ImportColumnDesc("id", null)), null, null, null, null,
+                LoadTask.MergeType.APPEND, true, "seq");
         AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(jobId,
-                jobProperties, routineLoadDataSourceProperties);
+                jobProperties, routineLoadDataSourceProperties, routineLoadDesc);
+        jobProperties.put(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY, "7");
         log.write(out);
         out.flush();
         out.close();
@@ -72,7 +81,13 @@ public class AlterRoutineLoadOperationLogTest {
         AlterRoutineLoadJobOperationLog log2 = AlterRoutineLoadJobOperationLog.read(in);
         Assert.assertEquals(1, log2.getJobProperties().size());
         Assert.assertEquals("5", log2.getJobProperties().get(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY));
-        KafkaDataSourceProperties kafkaDataSourceProperties = (KafkaDataSourceProperties) log2.getDataSourceProperties();
+        KafkaDataSourceProperties kafkaDataSourceProperties =
+                (KafkaDataSourceProperties) log2.getDataSourceProperties();
+        Assert.assertEquals(1, log2.getColumnDescs().descs.size());
+        Assert.assertEquals("id", log2.getColumnDescs().descs.get(0).getColumnName());
+        Assert.assertEquals("|", log2.getRoutineLoadDesc().getColumnSeparator().getSeparator());
+        Assert.assertTrue(log2.getRoutineLoadDesc().isMergeTypeSpecified());
+        Assert.assertEquals("seq", log2.getRoutineLoadDesc().getSequenceColName());
         Assert.assertEquals(null, kafkaDataSourceProperties.getBrokerList());
         Assert.assertEquals(null, kafkaDataSourceProperties.getTopic());
         Assert.assertEquals(1, kafkaDataSourceProperties.getCustomKafkaProperties().size());

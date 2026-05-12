@@ -791,6 +791,7 @@ message PartialUpdateInfoPB {
     optional int32 nano_seconds = 13 [default = 0];
     optional UniqueKeyUpdateModePB partial_update_mode = 14 [default = UPSERT];
     optional PartialUpdateNewRowPolicyPB partial_update_new_key_policy = 15 [default = APPEND];
+    optional int32 sequence_map_col_uid = 16 [default = -1];
 }
 
 message FileEncryptionInfoPB {

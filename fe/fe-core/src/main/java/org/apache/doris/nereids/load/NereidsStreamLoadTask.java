@@ -75,6 +75,7 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
     private int timeout = Config.stream_load_default_timeout_second;
     private long execMemLimit = 2 * 1024 * 1024 * 1024L; // default is 2GB
     private LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND; // default is all data is load no delete
+    private boolean mergeTypeSpecified;
     private Expression deleteCondition;
     private String sequenceCol;
     private int sendBatchParallelism = 1;
@@ -270,6 +271,11 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         return mergeType;
     }
 
+    @Override
+    public boolean isMergeTypeSpecified() {
+        return mergeTypeSpecified;
+    }
+
     public Expression getDeleteCondition() {
         return deleteCondition;
     }
@@ -458,6 +464,7 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
             readJsonByLine = request.isReadJsonByLine();
         }
         if (request.isSetMergeType()) {
+            mergeTypeSpecified = request.isSetMergeTypeSpecified() && request.isMergeTypeSpecified();
             try {
                 mergeType = LoadTask.MergeType.valueOf(request.getMergeType().toString());
             } catch (IllegalArgumentException e) {

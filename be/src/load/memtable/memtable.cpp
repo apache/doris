@@ -29,6 +29,7 @@
 #include "bvar/bvar.h"
 #include "common/config.h"
 #include "core/column/column.h"
+#include "core/column/column_complex.h"
 #include "exprs/aggregate/aggregate_function_reader.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "load/memtable/memtable_memory_limiter.h"
@@ -689,6 +690,9 @@ void MemTable::shrink_memtable_by_agg() {
     if (_keys_type == KeysType::DUP_KEYS) {
         return;
     }
+    if (_has_flexible_variant_patch_rows()) {
+        return;
+    }
     size_t same_keys_num = _sort();
     if (same_keys_num != 0) {
         (_skip_bitmap_col_idx == -1) ? _aggregate<false, false>() : _aggregate<false, true>();
@@ -750,9 +754,34 @@ size_t MemTable::get_flush_reserve_memory_size() const {
     return static_cast<size_t>(static_cast<double>(_input_mutable_block.allocated_bytes()) * 1.2);
 }
 
+bool MemTable::_has_flexible_variant_patch_rows() const {
+    if (_partial_update_mode != UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS ||
+        _tablet_schema->num_variant_columns() == 0 || _skip_bitmap_col_idx == -1) {
+        return false;
+    }
+    DCHECK_LT(_skip_bitmap_col_idx, _input_mutable_block.columns());
+    const auto& skip_bitmaps =
+            assert_cast<const ColumnBitmap&>(
+                    *_input_mutable_block.get_column_by_position(_skip_bitmap_col_idx))
+                    .get_data();
+    for (size_t cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
+        const auto& column = _tablet_schema->column(cid);
+        if (!column.is_variant_type()) {
+            continue;
+        }
+        for (const auto& skip_bitmap : skip_bitmaps) {
+            if (!skip_bitmap.contains(column.unique_id())) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 Status MemTable::_to_block(std::unique_ptr<Block>* res) {
     size_t same_keys_num = _sort();
-    if (_keys_type == KeysType::DUP_KEYS || same_keys_num == 0) {
+    if (_keys_type == KeysType::DUP_KEYS || same_keys_num == 0 ||
+        _has_flexible_variant_patch_rows()) {
         if (_keys_type == KeysType::DUP_KEYS && _tablet_schema->num_key_columns() == 0) {
             _output_mutable_block.swap(_input_mutable_block);
         } else {

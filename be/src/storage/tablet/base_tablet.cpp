@@ -25,8 +25,10 @@
 #include <algorithm>
 #include <cstdint>
 #include <iterator>
+#include <limits>
 #include <random>
 #include <shared_mutex>
+#include <utility>
 
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
@@ -36,6 +38,7 @@
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "exec/common/variant_util.h"
 #include "load/memtable/memtable.h"
 #include "service/point_query_executor.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
@@ -997,8 +1000,9 @@ Status BaseTablet::generate_new_block_for_partial_update(
     RETURN_IF_ERROR(read_plan_update.read_columns_by_plan(
             *rowset_schema, update_cids, rsid_to_rowset, update_block, &read_index_update, false));
     size_t update_rows = read_index_update.size();
+    DCHECK_LE(update_rows, std::numeric_limits<uint32_t>::max());
     for (auto i = 0; i < update_cids.size(); ++i) {
-        for (auto idx = 0; idx < update_rows; ++idx) {
+        for (uint32_t idx = 0; std::cmp_less(idx, update_rows); ++idx) {
             full_mutable_columns[update_cids[i]]->insert_from(
                     *update_block.get_by_position(i).column, read_index_update[idx]);
         }
@@ -1032,7 +1036,7 @@ Status BaseTablet::generate_new_block_for_partial_update(
     for (auto i = 0; i < missing_cids.size(); ++i) {
         const auto& rs_column = rowset_schema->column(missing_cids[i]);
         auto& mutable_column = full_mutable_columns[missing_cids[i]];
-        for (auto idx = 0; idx < update_rows; ++idx) {
+        for (uint32_t idx = 0; std::cmp_less(idx, update_rows); ++idx) {
             // There are two cases we don't need to read values from old data:
             //     1. if the conflicting new row's delete sign is marked, which means the value columns
             //     of the row will not be read. So we don't need to read the missing values from the previous rows.
@@ -1084,13 +1088,14 @@ Status BaseTablet::generate_new_block_for_partial_update(
     return Status::OK();
 }
 
-static void fill_cell_for_flexible_partial_update(
+static Status fill_cell_for_flexible_partial_update(
         std::map<uint32_t, uint32_t>& read_index_old,
         std::map<uint32_t, uint32_t>& read_index_update, const TabletSchemaSPtr& rowset_schema,
         const PartialUpdateInfo* partial_update_info, const TabletColumn& tablet_column,
         std::size_t idx, MutableColumnPtr& new_col, const IColumn& default_value_col,
         const IColumn& old_value_col, const IColumn& cur_col, bool skipped,
-        bool row_has_sequence_col, const signed char* delete_sign_column_data) {
+        bool row_has_sequence_col, const signed char* delete_sign_column_data,
+        const BitmapValue& skip_bitmap) {
     if (skipped) {
         bool use_default = false;
         bool old_row_delete_sign =
@@ -1128,8 +1133,19 @@ static void fill_cell_for_flexible_partial_update(
             new_col->insert_from(old_value_col, read_index_old[cast_set<uint32_t>(idx)]);
         }
     } else {
+        bool old_row_delete_sign =
+                (delete_sign_column_data != nullptr &&
+                 delete_sign_column_data[read_index_old[cast_set<uint32_t>(idx)]] != 0);
+        if (tablet_column.is_variant_type()) {
+            RETURN_IF_ERROR(variant_util::merge_variant_patch_by_path_markers(
+                    old_value_col, read_index_old[cast_set<uint32_t>(idx)], cur_col,
+                    read_index_update[cast_set<uint32_t>(idx)], tablet_column.unique_id(),
+                    skip_bitmap, old_row_delete_sign, *new_col));
+            return Status::OK();
+        }
         new_col->insert_from(cur_col, read_index_update[cast_set<uint32_t>(idx)]);
     }
+    return Status::OK();
 }
 
 Status BaseTablet::generate_new_block_for_flexible_partial_update(
@@ -1211,7 +1227,7 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
         const IColumn& cur_col = *update_block.get_by_position(cid).column;
         const auto& rs_column = rowset_schema->column(cid);
         auto col_uid = rs_column.unique_id();
-        for (auto idx = 0; idx < update_rows; ++idx) {
+        for (uint32_t idx = 0; std::cmp_less(idx, update_rows); ++idx) {
             if (cid < rowset_schema->num_key_columns()) {
                 new_col->insert_from(cur_col, read_index_update[idx]);
             } else {
@@ -1223,14 +1239,14 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
                 if (rids_be_overwritten.contains(idx)) {
                     new_col->insert_from(old_value_col, read_index_old[idx]);
                 } else {
-                    fill_cell_for_flexible_partial_update(
+                    RETURN_IF_ERROR(fill_cell_for_flexible_partial_update(
                             read_index_old, read_index_update, rowset_schema, partial_update_info,
                             rs_column, idx, new_col, default_value_col, old_value_col, cur_col,
                             skip_bitmaps->at(idx).contains(col_uid),
                             rowset_schema->has_sequence_col()
                                     ? !skip_bitmaps->at(idx).contains(seq_col_unique_id)
                                     : false,
-                            old_block_delete_signs);
+                            old_block_delete_signs, skip_bitmaps->at(idx)));
                 }
             }
         }
