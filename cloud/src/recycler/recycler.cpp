@@ -1543,7 +1543,7 @@ int InstanceRecycler::process_single_packed_file(const std::string& packed_key,
     return -1;
 }
 
-int InstanceRecycler::handle_packed_file_kv(std::string_view key, std::string_view /*value*/,
+int InstanceRecycler::handle_packed_file_kv(std::string_view key, std::string_view value,
                                             PackedFileRecycleStats* stats, int* ret) {
     if (stats) {
         ++stats->num_scanned;
@@ -1559,6 +1559,31 @@ int InstanceRecycler::handle_packed_file_kv(std::string_view key, std::string_vi
         if (ret) {
             *ret = -1;
         }
+        return 0;
+    }
+
+    cloud::PackedFileInfoPB packed_info;
+    if (!packed_info.ParseFromArray(value.data(), value.size())) {
+        LOG_WARNING("failed to parse packed file info from scan")
+                .tag("instance_id", instance_id_)
+                .tag("packed_file_path", packed_file_path);
+        if (stats) {
+            ++stats->num_failed;
+        }
+        if (ret) {
+            *ret = -1;
+        }
+        return 0;
+    }
+
+    const int64_t now_sec = ::time(nullptr);
+    const bool due =
+            config::force_immediate_recycle ||
+            now_sec - packed_info.created_at_sec() >= config::packed_file_correction_delay_seconds;
+    const bool need_correction = !packed_info.corrected() && due;
+    const bool need_recycle =
+            packed_info.state() == cloud::PackedFileInfoPB::RECYCLING && packed_info.ref_cnt() == 0;
+    if (!need_correction && !need_recycle) {
         return 0;
     }
 
