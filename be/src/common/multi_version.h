@@ -21,6 +21,7 @@
 #pragma once
 
 #include <memory>
+#include <shared_mutex>
 
 /** Allow to store and read-only usage of an object in several threads,
   *  and to atomically replace an object in another thread.
@@ -47,20 +48,30 @@ public:
     /// Default initialization - by nullptr.
     MultiVersion() = default;
 
-    explicit MultiVersion(std::unique_ptr<const T>&& value) : current_version(std::move(value)) {}
+    explicit MultiVersion(std::unique_ptr<const T>&& value)
+            : current_version(Version {std::move(value)}) {}
 
-    // Use the pre-C++20 atomic free functions for shared_ptr instead of
-    // std::atomic<shared_ptr>, which requires a trivially_copyable specialization
-    // not available in all libc++ versions (e.g., LLVM 20).
+    // Use a shared_mutex (read-write lock) rather than the C++20
+    // std::atomic<std::shared_ptr<T>> specialization or the deprecated free
+    // atomic_load/atomic_store overloads — neither is portable across the
+    // toolchains we build with (libc++ in LLVM 20 lacks the atomic<shared_ptr>
+    // specialization; libstdc++ 12+ marks the free functions deprecated).
+    // MultiVersion is only used on low-frequency paths (metrics scrape,
+    // debug strings, symbol resolution), so the lock overhead is negligible.
 
     /// Obtain current version for read-only usage. Returns shared_ptr, that manages lifetime of version.
-    Version get() const { return std::atomic_load(&current_version); }
+    Version get() const {
+        std::shared_lock lock(mutex);
+        return current_version;
+    }
 
     /// Update an object with new version.
     void set(std::unique_ptr<const T>&& value) {
-        std::atomic_store(&current_version, Version {std::move(value)});
+        std::unique_lock lock(mutex);
+        current_version = Version {std::move(value)};
     }
 
 private:
+    mutable std::shared_mutex mutex;
     Version current_version;
 };
