@@ -114,7 +114,7 @@ public:
 
     // No local exchange needed — each instance builds its own hash tables independently.
     DataDistribution required_data_distribution(RuntimeState* state) const override {
-        return DataDistribution(ExchangeType::NOOP);
+        return DataDistribution(TLocalPartitionType::NOOP);
     }
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;

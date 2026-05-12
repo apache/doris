@@ -158,8 +158,7 @@ public class LocalShuffleNodeCoverageTest {
     public void testCteAndRecursiveNodesAndEmptySet() {
         PlanTranslatorContext ctx = new PlanTranslatorContext();
 
-        CTEScanNode cteScanNode = new CTEScanNode(new TupleDescriptor(new TupleId(NEXT_ID.getAndIncrement())),
-                ScanContext.EMPTY);
+        CTEScanNode cteScanNode = new CTEScanNode(ScanContext.EMPTY);
         Pair<PlanNode, LocalExchangeType> cteOutput = cteScanNode.enforceAndDeriveLocalExchange(
                 ctx, null, LocalExchangeTypeRequire.requireHash());
         Assertions.assertEquals(LocalExchangeType.NOOP, cteOutput.second);
@@ -464,11 +463,10 @@ public class LocalShuffleNodeCoverageTest {
         AnalyticEvalNode noPartition = new AnalyticEvalNode(nextPlanNodeId(), noPartitionChild,
                 Collections.emptyList(), Collections.emptyList(), Collections.emptyList(),
                 null, new TupleDescriptor(new TupleId(NEXT_ID.getAndIncrement())));
-        // No partition → isSerialNode()=true → enforceChild skips exchange.
-        // Output is still PASSTHROUGH (hardcoded for empty partitions).
+        // No partition → isSerialNode()=true → returns NOOP (serial nodes let framework handle).
         Pair<PlanNode, LocalExchangeType> noPartitionOutput = noPartition.enforceAndDeriveLocalExchange(
                 ctx, null, LocalExchangeTypeRequire.requireHash());
-        Assertions.assertEquals(LocalExchangeType.PASSTHROUGH, noPartitionOutput.second);
+        Assertions.assertEquals(LocalExchangeType.NOOP, noPartitionOutput.second);
         Assertions.assertSame(noPartitionChild, noPartition.getChild(0));
 
         // Analytic with partition but no orderBy, non-colocated → noRequire/NOOP.
@@ -492,8 +490,8 @@ public class LocalShuffleNodeCoverageTest {
         Mockito.when(orderedAnalytic.fragment.useSerialSource(Mockito.any())).thenReturn(true);
         Pair<PlanNode, LocalExchangeType> orderedOutput = orderedAnalytic.enforceAndDeriveLocalExchange(
                 ctx, null, LocalExchangeTypeRequire.noRequire());
-        Assertions.assertEquals(LocalExchangeType.PASSTHROUGH, orderedOutput.second);
-        assertChildLocalExchangeType(orderedAnalytic, 0, LocalExchangeType.PASSTHROUGH);
+        // Serial AnalyticEval returns NOOP — lets framework serial check handle fan-out
+        Assertions.assertEquals(LocalExchangeType.NOOP, orderedOutput.second);
     }
 
     @Test

@@ -20,7 +20,6 @@
 
 #pragma once
 
-#include <atomic>
 #include <memory>
 
 /** Allow to store and read-only usage of an object in several threads,
@@ -50,14 +49,18 @@ public:
 
     explicit MultiVersion(std::unique_ptr<const T>&& value) : current_version(std::move(value)) {}
 
+    // Use the pre-C++20 atomic free functions for shared_ptr instead of
+    // std::atomic<shared_ptr>, which requires a trivially_copyable specialization
+    // not available in all libc++ versions (e.g., LLVM 20).
+
     /// Obtain current version for read-only usage. Returns shared_ptr, that manages lifetime of version.
-    Version get() const { return current_version.load(); }
+    Version get() const { return std::atomic_load(&current_version); }
 
     /// Update an object with new version.
     void set(std::unique_ptr<const T>&& value) {
-        current_version.store(Version {std::move(value)});
+        std::atomic_store(&current_version, Version {std::move(value)});
     }
 
 private:
-    std::atomic<Version> current_version;
+    Version current_version;
 };
