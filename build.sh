@@ -666,9 +666,10 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
 
     echo "install datasketches-cpp to thirdparty path before build fe"
     cd "${DORIS_HOME}"
+    git submodule update --init --recursive contrib/datasketches-cpp
     DATASKETCHES_BUILD_DIR="${DORIS_HOME}/contrib/datasketches-cpp"
     cd "${DATASKETCHES_BUILD_DIR}"
-    git pull
+    echo "cd ${DATASKETCHES_BUILD_DIR}"
     "${CMAKE_CMD}" -S . -B build/Release -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$TP_INSTALLED_DIR -DBUILD_TESTS=OFF
     "${CMAKE_CMD}" --build build/Release -t install
     cd "${DORIS_HOME}"
