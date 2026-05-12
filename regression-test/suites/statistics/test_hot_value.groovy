@@ -89,7 +89,7 @@ suite("test_hot_value") {
     def result = sql """show column stats test1(key1)"""
     assertEquals(1, result.size())
     assertEquals("10000.0", result[0][2])
-    assertTrue(result[0][17] != "null")
+    assertTrue(result[0][17].contains(":"))
     result = sql """show column stats test1(value1)"""
     logger.info("0. result " + result)
     assertEquals(1, result.size())
@@ -103,7 +103,7 @@ suite("test_hot_value") {
     assertEquals(1, result.size())
     assertEquals("10000.0", result[0][2])
     // Full analyze collects top values for high-NDV key columns.
-    assertNotEquals("null", result[0][17])
+    assertTrue(result[0][17].contains(":"))
     result = sql """show column cached stats test1(value1)"""
     assertEquals(1, result.size())
     assertEquals("10000.0", result[0][2])

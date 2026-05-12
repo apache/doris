@@ -44,7 +44,7 @@ suite("test_full_analyze_hot_value") {
     assertEquals(1, result.size())
     assertEquals("100.0", result[0][2])
     // Full analyze should now collect hot_value
-    assertTrue(result[0][17] != "null", "Full analyze should collect hot_value, but got null")
+    assertTrue(result[0][17].contains(":"), "Full analyze should collect hot_value, but got " + result[0][17])
     String[] hotValues = result[0][17].split(";")
     assertEquals(2, hotValues.length)
     assertTrue(hotValues[0].trim() == "'1':0.5" || hotValues[0].trim() == "'0':0.5")
@@ -65,7 +65,7 @@ suite("test_full_analyze_hot_value") {
     assertEquals(1, result.size())
     assertEquals("100.0", result[0][2])
     // key1 has 100 unique values, top 10 will each have proportion 0.01 -> ROUND to 0.01
-    assertTrue(result[0][17] != "null", "Full analyze should collect hot_value for int column")
+    assertTrue(result[0][17].contains(":"), "Full analyze should collect hot_value for int column")
 
     // Test 3: Full analyze with special characters in values
     sql """drop table if exists full_hot_special"""
@@ -95,7 +95,7 @@ suite("test_full_analyze_hot_value") {
     result = sql """show column stats full_hot_skew(value1)"""
     logger.info("Test4 result: " + result)
     assertEquals(1, result.size())
-    assertTrue(result[0][17] != "null", "Sample analyze should also collect hot_value")
+    assertTrue(result[0][17].contains(":"), "Sample analyze should also collect hot_value")
     hotValues = result[0][17].split(";")
     assertEquals(2, hotValues.length)
     assertTrue(hotValues[0].trim() == "'1':0.5" || hotValues[0].trim() == "'0':0.5")
@@ -107,7 +107,7 @@ suite("test_full_analyze_hot_value") {
     def fullResult = sql """show column stats full_hot_skew(value1)"""
     logger.info("Test5 full result: " + fullResult)
     assertEquals(1, fullResult.size())
-    assertTrue(fullResult[0][17] != "null")
+    assertTrue(fullResult[0][17].contains(":"))
     def fullParts = fullResult[0][17].split(";").collect { it.trim() }.sort()
 
     sql """drop stats full_hot_skew"""
@@ -115,12 +115,12 @@ suite("test_full_analyze_hot_value") {
     def sampleResult = sql """show column stats full_hot_skew(value1)"""
     logger.info("Test5 sample result: " + sampleResult)
     assertEquals(1, sampleResult.size())
-    assertTrue(sampleResult[0][17] != "null")
+    assertTrue(sampleResult[0][17].contains(":"))
     // Both full and sample should produce the same hot_value entries (order may differ)
     def sampleParts = sampleResult[0][17].split(";").collect { it.trim() }.sort()
     assertEquals(fullParts, sampleParts)
 
-    // Test 6: Full analyze on empty table should produce null hot_value
+    // Test 6: Full analyze on empty table should produce an empty hot_value string
     sql """drop table if exists full_hot_empty"""
     sql """CREATE TABLE full_hot_empty (
             key1 int NULL,
@@ -138,9 +138,9 @@ suite("test_full_analyze_hot_value") {
     logger.info("Test6 empty table result: " + result)
     assertEquals(1, result.size())
     assertEquals("0.0", result[0][2])
-    assertEquals("null", result[0][17])
+    assertEquals("''", result[0][17])
 
-    // Test 7: Full analyze on all-NULL column should produce null hot_value
+    // Test 7: Full analyze on all-NULL column should produce an empty hot_value string
     sql """drop table if exists full_hot_all_null"""
     sql """CREATE TABLE full_hot_all_null (
             key1 int NULL,
@@ -160,7 +160,7 @@ suite("test_full_analyze_hot_value") {
     assertEquals(1, result.size())
     assertEquals("100.0", result[0][2])
     assertEquals("100.0", result[0][4])
-    assertEquals("null", result[0][17])
+    assertEquals("''", result[0][17])
 
     sql """drop database if exists test_full_analyze_hot_value"""
 }
