@@ -18,7 +18,7 @@ under the License.
 =end
 Gem::Specification.new do |s|
   s.name            = 'logstash-output-doris'
-  s.version         = '1.2.0'
+  s.version         = '1.2.1'
   s.author          = 'Apache Doris'
   s.email           = 'dev@doris.apache.org'
   s.homepage        = 'http://doris.apache.org'
@@ -46,5 +46,10 @@ Gem::Specification.new do |s|
   s.add_development_dependency 'sinatra', '~> 1.4'
   s.add_development_dependency 'webrick', '~> 1.9'
 
-  s.requirements << 'jar org.apache.httpcomponents.client5, httpclient5, 5.4.2'
+  # JARs are vendored under lib/; the corresponding require_jar calls live in
+  # lib/logstash-output-doris_jars.rb. We deliberately do NOT add a
+  #   s.requirements << 'jar org.apache.httpcomponents, httpclient, 4.5.13'
+  # entry: jar-dependencies' install hook would otherwise attempt a maven
+  # lookup at plugin-install time, which fails in air-gapped environments and
+  # forces users to set JARS_SKIP=true.
 end
