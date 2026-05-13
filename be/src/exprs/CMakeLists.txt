@@ -30,6 +30,9 @@ set(SRC_FILES ${SRC_FILES}
 )
 
 add_library(Exprs STATIC ${SRC_FILES})
+if (ENABLE_EXPR_ASAN)
+    enable_doris_asan(Exprs)
+endif()
 # function_array_distance uses faiss headers (platform_macros.h, distances.h),
 # which are exported by ann_index via PUBLIC linkage with faiss.
 target_link_libraries(Exprs PRIVATE ann_index)

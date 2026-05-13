@@ -695,6 +695,8 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
     echo "-- Build fs benchmark tool: ${BUILD_FS_BENCHMARK}"
     echo "-- Build task executor simulator: ${BUILD_TASK_EXECUTOR_SIMULATOR}"
     echo "-- Build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}"
+    echo "-- Enable Exprs ASAN: ${ENABLE_EXPR_ASAN:-OFF}"
+    echo "-- BE ASAN sources: ${DORIS_BE_ASAN_SOURCES:-}"
 
     mkdir -p "${CMAKE_BUILD_DIR}"
     cd "${CMAKE_BUILD_DIR}"
@@ -719,6 +721,8 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DUSE_UNWIND="${USE_UNWIND}" \
         -DDISPLAY_BUILD_TIME="${DISPLAY_BUILD_TIME}" \
         -DENABLE_PCH="${ENABLE_PCH}" \
+        -DENABLE_EXPR_ASAN="${ENABLE_EXPR_ASAN:-OFF}" \
+        -DDORIS_BE_ASAN_SOURCES="${DORIS_BE_ASAN_SOURCES:-}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
         -DUSE_AVX2="${USE_AVX2}" \
         -DARM_MARCH="${ARM_MARCH}" \
