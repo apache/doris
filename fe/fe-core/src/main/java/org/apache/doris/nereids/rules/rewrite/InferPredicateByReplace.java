@@ -175,6 +175,35 @@ public class InferPredicateByReplace {
         return res;
     }
 
+    private static void addPredicatesForCastExpression(ImmutableEqualSet<Expression> equalSet,
+            Map<Expression, Set<Expression>> exprPredicates) {
+        ExpressionAnalyzer analyzer = new ReplaceAnalyzer(null, new Scope(ImmutableList.of()), null, false, false);
+        for (Expression expression : equalSet.getAllItemSet()) {
+            if (!(expression instanceof Cast)) {
+                continue;
+            }
+            Cast cast = (Cast) expression;
+            Set<Expression> childPredicates = exprPredicates.get(cast.child());
+            if (childPredicates == null || childPredicates.isEmpty()) {
+                continue;
+            }
+            Set<Expression> castPredicates = exprPredicates.computeIfAbsent(cast, k -> new LinkedHashSet<>());
+            Map<Expression, Expression> replaceMap = new HashMap<>();
+            replaceMap.put(cast.child(), cast);
+            for (Expression predicate : childPredicates) {
+                if (predicate.anyMatch(expr -> expr.equals(cast))) {
+                    continue;
+                }
+                Expression castPredicate = ExpressionUtils.replace(predicate, replaceMap);
+                try {
+                    castPredicates.add(analyzer.analyze(castPredicate).withInferred(true));
+                } catch (Exception e) {
+                    // has cast error, just not infer and do nothing
+                }
+            }
+        }
+    }
+
     /* Extract the equivalence relationship a=b, and when case (d_tinyint as int)=d_int is encountered,
     remove the cast and extract d_tinyint=d_int
     EqualPairs is the output parameter and the equivalent pair of predicate derivation input,
@@ -219,6 +248,7 @@ public class InferPredicateByReplace {
             }
             input.accept(PredicatesCollector.INSTANCE, exprPredicates);
         }
+        addPredicatesForCastExpression(hasCastEqualSet, exprPredicates);
         Set<Expression> inferPredicates = new LinkedHashSet<>(inputs);
         if (!exprPredicates.isEmpty()) {
             for (Expression expr : targetExprs) {

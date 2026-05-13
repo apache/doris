@@ -674,6 +674,24 @@ public class UnequalPredicateInferTest {
     }
 
     @Test
+    public void testInferFromIntegralCastChildPredicate() {
+        SlotReference b = new SlotReference("b", BigIntType.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t2"));
+        Cast cast = new Cast(c, BigIntType.INSTANCE);
+        EqualTo equalTo = new EqualTo(cast, b);
+        InPredicate inPredicate = new InPredicate(c, ImmutableList.of(new IntegerLiteral(1), new IntegerLiteral(2)));
+
+        Set<Expression> inputs = new LinkedHashSet<>();
+        inputs.add(equalTo);
+        inputs.add(inPredicate);
+        Set<? extends Expression> result = PredicateInferUtils.inferPredicate(inputs);
+
+        Assertions.assertTrue(result.contains(equalTo));
+        Assertions.assertTrue(result.contains(inPredicate));
+        Assertions.assertTrue(result.stream().anyMatch(expr -> expr.toSql().contains("b IN (1, 2)")));
+    }
+
+    @Test
     public void testPredicateUtils() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
         SlotReference b = new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("t1"));
