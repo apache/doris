@@ -38,6 +38,10 @@ export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 HADOOP_DEPS_NAME="hadoop-deps"
 . "${DORIS_HOME}/env.sh"
 
+ORIGINAL_BUILD_TYPE="${BUILD_TYPE:-}"
+export BUILD_TYPE='Release'
+echo "Force BUILD_TYPE to ${BUILD_TYPE} for test${ORIGINAL_BUILD_TYPE:+ (was ${ORIGINAL_BUILD_TYPE})}"
+
 # ===== Build Profile =====
 if [[ "${DORIS_BUILD_PROFILE}" == "1" ]]; then
     _BP_STATE="${DORIS_HOME}/.build_profile_state.$$"
