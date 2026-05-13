@@ -132,7 +132,7 @@ public class AlterMTMVTest extends TestWithFeService {
         createTable("CREATE TABLE alter_test2.alt_base2 (k1 int, v1 int)\n"
                 + "DUPLICATE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1')");
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
         createMvByNereids("CREATE MATERIALIZED VIEW alt_incr_mv\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
@@ -151,7 +151,7 @@ public class AlterMTMVTest extends TestWithFeService {
         createTable("CREATE TABLE alter_test3.alt_base3 (k1 int, v1 int)\n"
                 + "DUPLICATE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1')");
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
         createMvByNereids("CREATE MATERIALIZED VIEW alt_incr_mv3\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
@@ -222,7 +222,7 @@ public class AlterMTMVTest extends TestWithFeService {
         createTable("CREATE TABLE alter_ivm_test.ivm_base (k1 int, v1 int)\n"
                 + "DUPLICATE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1')");
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
         createMvByNereids("CREATE MATERIALIZED VIEW ivm_alter_mv\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                 + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
