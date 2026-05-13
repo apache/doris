@@ -204,8 +204,8 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     write_req.table_schema_param = param;
 
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
-    auto delta_writer = std::make_unique<DeltaWriter>(
-            *engine_ref, std::make_shared<WriteRequest>(write_req), profile.get(), TUniqueId {});
+    auto delta_writer =
+            std::make_unique<DeltaWriter>(*engine_ref, write_req, profile.get(), TUniqueId {});
 
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);

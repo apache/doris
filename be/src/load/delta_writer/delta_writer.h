@@ -57,8 +57,7 @@ class RowsetBuilder;
 // This class is NOT thread-safe, external synchronization is required.
 class BaseDeltaWriter {
 public:
-    BaseDeltaWriter(std::shared_ptr<WriteRequest> req, RuntimeProfile* profile,
-                    const UniqueId& load_id);
+    BaseDeltaWriter(const WriteRequest& req, RuntimeProfile* profile, const UniqueId& load_id);
 
     virtual ~BaseDeltaWriter();
 
@@ -82,11 +81,11 @@ public:
     // Wait all memtable in flush queue to be flushed
     Status wait_flush();
 
-    int64_t partition_id() const { return _req->partition_id; }
+    int64_t partition_id() const { return _req.partition_id; }
 
-    int64_t tablet_id() const { return _req->tablet_id; }
+    int64_t tablet_id() const { return _req.tablet_id; }
 
-    int64_t txn_id() const { return _req->txn_id; }
+    int64_t txn_id() const { return _req.txn_id; }
 
     int64_t total_received_rows() const { return _memtable_writer->total_received_rows(); }
 
@@ -106,7 +105,7 @@ protected:
 
     bool _is_init = false;
     bool _is_cancelled = false;
-    std::shared_ptr<WriteRequest> _req;
+    WriteRequest _req;
     std::unique_ptr<BaseRowsetBuilder> _rowset_builder;
     std::shared_ptr<MemTableWriter> _memtable_writer;
 
@@ -123,8 +122,11 @@ protected:
 // `StorageEngine` mixin for `BaseDeltaWriter`
 class DeltaWriter final : public BaseDeltaWriter {
 public:
-    DeltaWriter(StorageEngine& engine, std::shared_ptr<WriteRequest> req, RuntimeProfile* profile,
+    DeltaWriter(StorageEngine& engine, const WriteRequest& req, RuntimeProfile* profile,
                 const UniqueId& load_id);
+    DeltaWriter(StorageEngine& engine, const WriteRequest& group_build_req,
+                const WriteRequest& sub_data_req, const WriteRequest& sub_row_binlog_req,
+                RuntimeProfile* profile, const UniqueId& load_id);
 
     ~DeltaWriter() override;
 

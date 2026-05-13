@@ -497,19 +497,17 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
     return Status::OK();
 }
 
-GroupRowsetBuilder::GroupRowsetBuilder(StorageEngine& engine, const WriteRequest& req,
-                                       const WriteRequest& row_binlog_req, RuntimeProfile* profile)
-        : BaseRowsetBuilder(
-                  [](int64_t tablet_id) {
-                      WriteRequest group_req;
-                      group_req.tablet_id = tablet_id;
-                      group_req.write_req_type = WriteRequestType::GROUP;
-                      return group_req;
-                  }(req.tablet_id),
-                  profile) {
+GroupRowsetBuilder::GroupRowsetBuilder(StorageEngine& engine, const WriteRequest& group_build_req,
+                                       const WriteRequest& sub_data_req,
+                                       const WriteRequest& sub_row_binlog_req,
+                                       RuntimeProfile* profile)
+        : BaseRowsetBuilder(group_build_req, profile) {
+    DCHECK(group_build_req.write_req_type == WriteRequestType::GROUP &&
+           sub_data_req.write_req_type == WriteRequestType::DATA_IN_GROUP &&
+           sub_row_binlog_req.write_req_type == WriteRequestType::BINLOG_IN_GROUP);
     _row_binlog_rowset_builder =
-            std::make_shared<RowBinlogRowsetBuilder>(engine, row_binlog_req, profile);
-    _txn_rs_builder = std::make_shared<RowsetBuilder>(engine, req, profile);
+            std::make_shared<RowBinlogRowsetBuilder>(engine, sub_row_binlog_req, profile);
+    _txn_rs_builder = std::make_shared<RowsetBuilder>(engine, sub_data_req, profile);
 }
 
 Status GroupRowsetBuilder::init() {

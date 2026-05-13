@@ -144,8 +144,8 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     write_req.is_high_priority = false;
     write_req.table_schema_param = param;
     profile = std::make_unique<RuntimeProfile>("MemTableMemoryLimiterTest");
-    auto delta_writer = std::make_unique<DeltaWriter>(
-            *_engine_ref, std::make_shared<WriteRequest>(write_req), profile.get(), TUniqueId {});
+    auto delta_writer =
+            std::make_unique<DeltaWriter>(*_engine_ref, write_req, profile.get(), TUniqueId {});
     ASSERT_NE(delta_writer, nullptr);
     auto mem_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
 

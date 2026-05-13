@@ -516,6 +516,8 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     }
 
     bool enable_parallel_scan = state()->enable_parallel_scan();
+    bool read_row_binlog = p._olap_scan_node.__isset.read_row_binlog &&
+                 p._olap_scan_node.read_row_binlog;
 
     // The flag of preagg's meaning is whether return pre agg data(or partial agg data)
     // PreAgg ON: The storage layer returns partially aggregated data without additional processing. (Fast data reading)
@@ -525,7 +527,9 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     // PreAgg OFF: The storage layer must complete pre-aggregation and return fully aggregated data. (Slow data reading)
     if (enable_parallel_scan && !p._should_run_serial &&
         p._push_down_agg_type == TPushAggOp::NONE &&
-        (_storage_no_merge() || p._olap_scan_node.is_preaggregation)) {
+        (_storage_no_merge() || p._olap_scan_node.is_preaggregation)
+        // binlog<row> need to be read in order
+        && !read_row_binlog) {
         // Filter out the "full scan" placeholder range (has_lower_bound == false)
         // so that only ranges with real key bounds are forwarded to the parallel scanner.
         std::vector<OlapScanRange*> key_ranges;
@@ -625,8 +629,7 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
                                   _read_sources[scan_range_idx],
                                   p._limit,
                                   p._olap_scan_node.is_preaggregation,
-                                  p._olap_scan_node.__isset.read_row_binlog &&
-                                          p._olap_scan_node.read_row_binlog,
+                                  read_row_binlog,
                           });
             RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
             scanners->push_back(std::move(scanner));

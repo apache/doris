@@ -251,8 +251,8 @@ TEST_F(SegmentCacheTest, vec_sequence_col) {
     write_req.is_high_priority = false;
     write_req.table_schema_param = param;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
-    auto delta_writer = std::make_unique<DeltaWriter>(
-            *engine_ref, std::make_shared<WriteRequest>(write_req), profile.get(), TUniqueId {});
+    auto delta_writer =
+            std::make_unique<DeltaWriter>(*engine_ref, write_req, profile.get(), TUniqueId {});
 
     Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {

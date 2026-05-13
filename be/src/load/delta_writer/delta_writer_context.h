@@ -54,9 +54,4 @@ struct WriteRequest {
     std::string storage_vault_id;
 };
 
-struct GroupWriteRequest : public WriteRequest {
-    WriteRequest data_req;
-    WriteRequest row_binlog_req;
-};
-
 } // namespace doris

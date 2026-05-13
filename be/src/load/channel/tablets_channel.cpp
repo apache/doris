@@ -244,7 +244,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
         wrequest.write_file_cache = params.write_file_cache();
         wrequest.storage_vault_id = params.storage_vault_id();
 
-        auto delta_writer = create_delta_writer(std::make_shared<WriteRequest>(wrequest));
+        auto delta_writer = create_delta_writer(wrequest);
         {
             // here we modify _tablet_writers. so need lock.
             std::lock_guard<std::mutex> lt(_tablet_writers_lock);
@@ -261,14 +261,13 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
     return Status::OK();
 }
 
-std::unique_ptr<BaseDeltaWriter> TabletsChannel::create_delta_writer(
-        const std::shared_ptr<WriteRequest>& request) {
-    DCHECK(request->write_req_type == WriteRequestType::DATA);
-    DCHECK(request->table_schema_param != nullptr);
+std::unique_ptr<BaseDeltaWriter> TabletsChannel::create_delta_writer(const WriteRequest& request) {
+    DCHECK(request.write_req_type == WriteRequestType::DATA);
+    DCHECK(request.table_schema_param != nullptr);
 
     int64_t row_binlog_index_id = 0;
-    for (const auto* index_schema : request->table_schema_param->indexes()) {
-        if (index_schema->index_id == request->index_id) {
+    for (const auto* index_schema : request.table_schema_param->indexes()) {
+        if (index_schema->index_id == request.index_id) {
             row_binlog_index_id = index_schema->row_binlog_id;
             break;
         }
@@ -277,23 +276,27 @@ std::unique_ptr<BaseDeltaWriter> TabletsChannel::create_delta_writer(
         return std::make_unique<DeltaWriter>(_engine, request, _profile, _load_id);
     }
 
-    const auto* row_binlog_index_schema = request->table_schema_param->row_binlog_index_schema();
+    const auto* row_binlog_index_schema = request.table_schema_param->row_binlog_index_schema();
     DCHECK(row_binlog_index_schema != nullptr);
     DCHECK(row_binlog_index_schema->index_id == row_binlog_index_id);
 
-    auto group_req = std::make_shared<GroupWriteRequest>();
-    static_cast<WriteRequest&>(*group_req) = *request;
-    group_req->write_req_type = WriteRequestType::GROUP;
+    // group_build_req is only for the group wrapper itself. It provides the group semantics and
+    // metadata used by BaseDeltaWriter/GroupRowsetBuilder to expose tablet_id, txn_id,
+    // partition_id, load_id and profile information, while concrete rowset builders use the
+    // sub requests below.
+    WriteRequest group_build_req = request;
+    group_build_req.write_req_type = WriteRequestType::GROUP;
 
-    group_req->data_req = *request;
-    group_req->data_req.write_req_type = WriteRequestType::DATA_IN_GROUP;
+    WriteRequest sub_data_req = request;
+    sub_data_req.write_req_type = WriteRequestType::DATA_IN_GROUP;
 
-    group_req->row_binlog_req = *request;
-    group_req->row_binlog_req.write_req_type = WriteRequestType::BINLOG_IN_GROUP;
-    group_req->row_binlog_req.index_id = row_binlog_index_schema->index_id;
-    group_req->row_binlog_req.schema_hash = row_binlog_index_schema->schema_hash;
+    WriteRequest sub_row_binlog_req = request;
+    sub_row_binlog_req.write_req_type = WriteRequestType::BINLOG_IN_GROUP;
+    sub_row_binlog_req.index_id = row_binlog_index_schema->index_id;
+    sub_row_binlog_req.schema_hash = row_binlog_index_schema->schema_hash;
 
-    return std::make_unique<DeltaWriter>(_engine, std::move(group_req), _profile, _load_id);
+    return std::make_unique<DeltaWriter>(_engine, group_build_req, sub_data_req, sub_row_binlog_req,
+                                         _profile, _load_id);
 }
 
 Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockRequest& req,
@@ -560,7 +563,7 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
                 .storage_vault_id = request.storage_vault_id(),
         };
 
-        auto delta_writer = create_delta_writer(std::make_shared<WriteRequest>(wrequest));
+        auto delta_writer = create_delta_writer(wrequest);
         {
             std::lock_guard<std::mutex> l(_tablet_writers_lock);
             _tablet_writers.emplace(tablet.tablet_id(), std::move(delta_writer));

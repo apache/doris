@@ -37,7 +37,7 @@ CloudTabletsChannel::CloudTabletsChannel(CloudStorageEngine& engine, const Table
 CloudTabletsChannel::~CloudTabletsChannel() = default;
 
 std::unique_ptr<BaseDeltaWriter> CloudTabletsChannel::create_delta_writer(
-        const std::shared_ptr<WriteRequest>& request) {
+        const WriteRequest& request) {
     return std::make_unique<CloudDeltaWriter>(_engine, request, _profile, _load_id);
 }
 

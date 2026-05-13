@@ -197,8 +197,9 @@ public:
 // Now only support one tablet
 class GroupRowsetBuilder : public BaseRowsetBuilder {
 public:
-    GroupRowsetBuilder(StorageEngine& engine, const WriteRequest& req,
-                       const WriteRequest& row_binlog_req, RuntimeProfile* profile);
+    GroupRowsetBuilder(StorageEngine& engine, const WriteRequest& group_build_req,
+                       const WriteRequest& sub_data_req, const WriteRequest& sub_row_binlog_req,
+                       RuntimeProfile* profile);
 
     Status init() override;
 
