@@ -55,19 +55,83 @@ suite("rf_partition_pruning", "nonConcurrent") {
         return values.isEmpty() ? 0L : values.sum()
     }
 
+    def rfPruningSessionVarNames = [
+        "enable_runtime_filter_prune",
+        "enable_runtime_filter_partition_prune",
+        "runtime_filter_wait_infinitely",
+        "disable_join_reorder",
+        "enable_profile",
+        "profile_level",
+        "parallel_pipeline_task_num",
+        "runtime_filter_type",
+        "runtime_filter_mode"
+    ]
+
+    def rfPruningExpectedSessionVars = [
+        "enable_runtime_filter_prune": "false",
+        "enable_runtime_filter_partition_prune": "true",
+        "runtime_filter_wait_infinitely": "true",
+        "disable_join_reorder": "true",
+        "enable_profile": "true",
+        "profile_level": "2",
+        "parallel_pipeline_task_num": "1"
+    ]
+
+    def getRfPruningSessionVars = {
+        def values = [:]
+        rfPruningSessionVarNames.each { String name ->
+            def rows = sql "SHOW VARIABLES LIKE '${name}'"
+            assertTrue(rows.size() > 0, "Session variable ${name} is not found")
+            values[name] = rows[0][1].toString()
+        }
+        return values
+    }
+
+    def assertRfPruningSessionSettings = { String tag ->
+        def values = getRfPruningSessionVars()
+        logger.info("RF pruning session variables [${tag}]: ${values}")
+        rfPruningExpectedSessionVars.each { String name, String expected ->
+            def actual = values[name]
+            if (!actual.equalsIgnoreCase(expected)) {
+                logger.info("Changed session variables before RF pruning failure: "
+                        + sql("SHOW VARIABLES WHERE Changed = 1"))
+            }
+            assertTrue(actual.equalsIgnoreCase(expected),
+                    "Session variable ${name}: expected ${expected}, got ${actual}")
+        }
+    }
+
+    def dumpPruningDebugInfo = { String tag, String querySql, String profile ->
+        logger.info("RF pruning debug [${tag}] session variables: ${getRfPruningSessionVars()}")
+        logger.info("RF pruning debug [${tag}] changed variables: "
+                + sql("SHOW VARIABLES WHERE Changed = 1"))
+        logger.info("RF pruning debug [${tag}] explain: " + sql("EXPLAIN ${querySql}"))
+        logger.info("RF pruning debug [${tag}] profile length=${profile.length()}, "
+                + "has_total_counter=${profile.contains('TotalPartitionsForRFPruning')}, "
+                + "has_pruned_counter=${profile.contains('PartitionsPrunedByRuntimeFilter')}, "
+                + "profile_head=${profile.take(2000)}")
+    }
+
     // Run a join query with a unique token to capture profile, then assert pruning counters.
     // rfType: runtime_filter_type hint value
     // expectedTotal: expected TotalPartitionsForRFPruning (minimum)
     // expectedPruned: expected PartitionsPrunedByRuntimeFilter (minimum, 0 means exactly 0)
     def assertPruningProfile = { String queryBody, String rfType, long expectedTotal, long expectedPruned ->
         def token = UUID.randomUUID().toString()
-        sql """
+        assertRfPruningSessionSettings("before ${token}")
+        def querySql = """
             SELECT /*+ SET_VAR(runtime_filter_type='${rfType}') */ "${token}", ${queryBody}
         """
+        sql querySql
         def profile = getProfileByToken(token)
         def total = extractCounterSum(profile, "TotalPartitionsForRFPruning")
         def pruned = extractCounterSum(profile, "PartitionsPrunedByRuntimeFilter")
         logger.info("Profile [${token}]: total=${total}, pruned=${pruned}")
+        if (profile == "" || total < expectedTotal
+                || (expectedPruned == 0 ? pruned != 0 : pruned < expectedPruned)) {
+            dumpPruningDebugInfo(token, querySql, profile)
+        }
+        assertTrue(profile != "", "Profile not found for token ${token}")
         assertTrue(total >= expectedTotal, "TotalPartitionsForRFPruning: expected >= ${expectedTotal}, got ${total}")
         if (expectedPruned == 0) {
             assertTrue(pruned == 0, "PartitionsPrunedByRuntimeFilter: expected 0, got ${pruned}")
@@ -78,13 +142,19 @@ suite("rf_partition_pruning", "nonConcurrent") {
 
     def assertNoPartitionPruningProfile = { String queryBody, String rfType ->
         def token = UUID.randomUUID().toString()
-        sql """
+        assertRfPruningSessionSettings("before no-prune ${token}")
+        def querySql = """
             SELECT /*+ SET_VAR(runtime_filter_type='${rfType}') */ "${token}", ${queryBody}
         """
+        sql querySql
         def profile = getProfileByToken(token)
         def total = extractCounterSum(profile, "TotalPartitionsForRFPruning")
         def pruned = extractCounterSum(profile, "PartitionsPrunedByRuntimeFilter")
         logger.info("No-prune profile [${token}]: total=${total}, pruned=${pruned}")
+        if (profile == "" || total != 0 || pruned != 0) {
+            dumpPruningDebugInfo("no-prune ${token}", querySql, profile)
+        }
+        assertTrue(profile != "", "Profile not found for token ${token}")
         assertTrue(total == 0, "TotalPartitionsForRFPruning: expected 0, got ${total}")
         assertTrue(pruned == 0, "PartitionsPrunedByRuntimeFilter: expected 0, got ${pruned}")
     }
