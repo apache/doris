@@ -1425,6 +1425,10 @@ message PartitionRequest {
     optional bool need_update_table_version = 7;
     optional string request_ip = 8;
     repeated int64 partition_versions = 9;
+    // partition visible version update time in milliseconds, used by restore job
+    // to recover the real partition visible version time. Size must equal partition_ids
+    // when set.
+    repeated int64 partition_version_times = 10;
 }
 
 message PartitionResponse {

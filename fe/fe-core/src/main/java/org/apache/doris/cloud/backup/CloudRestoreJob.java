@@ -456,11 +456,13 @@ public class CloudRestoreJob extends RestoreJob {
         switch (operation) {
             case PREPARE: {
                 List<Long> visibleVersions = new ArrayList<>();
+                List<Long> visibleVersionTimes = new ArrayList<>();
                 partitions.forEach(partition -> {
                     visibleVersions.add(partition.getCachedVisibleVersion());
+                    visibleVersionTimes.add(partition.getVisibleVersionTime());
                     partitionIds.add(partition.getId());
                 });
-                preparePartitions(olapTable, partitionIds, visibleVersions);
+                preparePartitions(olapTable, partitionIds, visibleVersions, visibleVersionTimes);
                 break;
             }
             case COMMIT: {
@@ -482,13 +484,17 @@ public class CloudRestoreJob extends RestoreJob {
         }
     }
 
-    private void preparePartitions(OlapTable olapTable, List<Long> partitionIds, List<Long> visibleVersions)
+    private void preparePartitions(OlapTable olapTable, List<Long> partitionIds, List<Long> visibleVersions,
+            List<Long> visibleVersionTimes)
             throws DdlException {
         Preconditions.checkState(partitionIds.size() == visibleVersions.size(),
                 "partitionIds and visibleVersions size not equal");
+        Preconditions.checkState(partitionIds.size() == visibleVersionTimes.size(),
+                "partitionIds and visibleVersionTimes size not equal");
         try {
             ((CloudInternalCatalog) Env.getCurrentInternalCatalog()).preparePartition(
-                    dbId, olapTable.getId(), partitionIds, olapTable.getIndexIdList(), visibleVersions);
+                    dbId, olapTable.getId(), partitionIds, olapTable.getIndexIdList(), visibleVersions,
+                    visibleVersionTimes);
         } catch (Exception e) {
             String errMsg = String.format("cloud restore job failed to prepare partitions, table=%s, "
                         + "partitions=%s, errMsg: %s", olapTable.getName(), partitionIds, e.getMessage());

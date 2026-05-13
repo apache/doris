@@ -470,7 +470,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         if (partitionIds == null) {
             prepareMaterializedIndex(tableId, indexIds, 0);
         } else {
-            preparePartition(dbId, tableId, partitionIds, indexIds, null);
+            preparePartition(dbId, tableId, partitionIds, indexIds, null, null);
         }
     }
 
@@ -524,7 +524,7 @@ public class CloudInternalCatalog extends InternalCatalog {
     }
 
     public void preparePartition(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds,
-                                 List<Long> partitionVersions)
+                                 List<Long> partitionVersions, List<Long> partitionVersionTimes)
             throws DdlException {
         if (Config.enable_check_compatibility_mode) {
             LOG.info("skip prepare partition in checking compatibility mode");
@@ -541,6 +541,10 @@ public class CloudInternalCatalog extends InternalCatalog {
         if (partitionVersions != null) {
             Preconditions.checkState(partitionIds.size() == partitionVersions.size());
             partitionRequestBuilder.addAllPartitionVersions(partitionVersions);
+        }
+        if (partitionVersionTimes != null) {
+            Preconditions.checkState(partitionIds.size() == partitionVersionTimes.size());
+            partitionRequestBuilder.addAllPartitionVersionTimes(partitionVersionTimes);
         }
         if (dbId > 0) {
             partitionRequestBuilder.setDbId(dbId);

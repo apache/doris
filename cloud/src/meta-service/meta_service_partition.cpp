@@ -579,6 +579,15 @@ void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* contr
         return;
     }
 
+    if (request->partition_version_times_size() > 0 &&
+        (request->partition_version_times_size() != request->partition_ids_size())) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "size is not equal, partition_version_times size=" +
+              std::to_string(request->partition_version_times_size()) +
+              " partition_ids size=" + std::to_string(request->partition_ids_size());
+        return;
+    }
+
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -624,10 +633,16 @@ void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* contr
             txn->put(key, to_save_val);
             // save partition version
             if (request->partition_versions_size() > 0 && request->partition_versions(i) > 1) {
-                int64_t version_update_time_ms =
-                        std::chrono::duration_cast<std::chrono::milliseconds>(
-                                std::chrono::system_clock::now().time_since_epoch())
-                                .count();
+                int64_t version_update_time_ms = 0;
+                if (request->partition_version_times_size() > 0 &&
+                    request->partition_version_times(i) > 0) {
+                    version_update_time_ms = request->partition_version_times(i);
+                } else {
+                    version_update_time_ms =
+                            std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    std::chrono::system_clock::now().time_since_epoch())
+                                    .count();
+                }
                 std::string ver_key;
                 std::string ver_val;
                 partition_version_key({instance_id, request->db_id(), request->table_id(),
