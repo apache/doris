@@ -19,7 +19,6 @@ package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.info.TableNameInfoUtils;
-import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -30,9 +29,8 @@ import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
@@ -42,6 +40,7 @@ import java.util.function.Predicate;
  * Entry point for IVM delta rewriting. Routes the normalized plan to the appropriate strategy:
  * <ul>
  *   <li>Aggregate MVs → {@link IvmAggDeltaStrategy}</li>
+ *   <li>Outer-join MVs → {@link IvmOuterJoinDeltaStrategy}</li>
  *   <li>Linear (non-aggregate) MVs → {@link IvmLinearDeltaStrategy}</li>
  * </ul>
  *
@@ -65,11 +64,10 @@ public class IvmDeltaRewriter {
      * Rewrites the normalized plan into a list of delta commands.
      * Dispatches to the appropriate strategy based on the normalize result.
      */
-    public List<Command> rewrite(Plan normalizedPlan, IvmDeltaRewriteContext ctx) {
+    public List<Command> rewrite(Plan normalizedPlan, IvmRefreshContext ctx) {
         Set<TableNameInfo> excluded = ctx.getMtmv().getExcludedTriggerTables();
         Predicate<LogicalOlapScan> isExcluded = scan -> isExcludedTriggerTable(scan, excluded);
-        List<Plan> deltaPlans = generateDeltaPlans(normalizedPlan,
-                ctx.getBaseTableStreams(), isExcluded);
+        List<Plan> deltaPlans = generateDeltaPlans(normalizedPlan, ctx, isExcluded);
 
         List<Command> allCommands = new ArrayList<>();
         for (Plan deltaPlan : deltaPlans) {
@@ -94,21 +92,14 @@ public class IvmDeltaRewriter {
      * @return list of plans with TSO bindings, or empty if all scans are up-to-date
      */
     List<Plan> generateDeltaPlans(Plan normalizedPlan,
-            Map<BaseTableInfo, IvmStreamRef> baseTableStreams,
+            IvmRefreshContext ctx,
             Predicate<LogicalOlapScan> isExcluded) {
-        // Pre-build lookup by tableId to avoid constructing BaseTableInfo from scan
-        // (which requires a full catalog chain that may not exist in tests).
-        Map<Long, IvmStreamRef> streamsByTableId = new HashMap<>();
-        for (Map.Entry<BaseTableInfo, IvmStreamRef> entry : baseTableStreams.entrySet()) {
-            streamsByTableId.put(entry.getKey().getTableId(), entry.getValue());
-        }
-
         // Phase 1: Collect all non-excluded OlapScans and their stream refs.
         List<LogicalOlapScan> allScans = new ArrayList<>();
         List<IvmStreamRef> scanRefs = new ArrayList<>();
         rewriteOlapScans(normalizedPlan, isExcluded, scan -> {
             allScans.add(scan);
-            IvmStreamRef ref = streamsByTableId.get(scan.getTable().getId());
+            IvmStreamRef ref = ctx.getBaseTableStream(scan);
             if (ref == null) {
                 throw new AnalysisException(
                         "IVM: no stream ref found for base table: " + scan.getTable().getName());
@@ -151,10 +142,17 @@ public class IvmDeltaRewriter {
             Preconditions.checkState(deltaCount == 1,
                     "IVM: expected exactly 1 delta scan per bundle, got " + deltaCount);
 
-            deltaPlans.add(modifiedPlan);
+            deltaPlans.add(detachMemo(modifiedPlan));
         }
 
         return deltaPlans;
+    }
+
+    private Plan detachMemo(Plan plan) {
+        // The normalized plan comes from the MV-query CascadesContext. Delta commands are
+        // analyzed in fresh contexts, so stale GroupExpression pointers must not be reused.
+        return plan.rewriteUp(node -> node.getGroupExpression().isPresent()
+                ? node.withGroupExpression(Optional.empty()) : node);
     }
 
     /**
@@ -190,10 +188,12 @@ public class IvmDeltaRewriter {
         return (LogicalOlapScan) scan.withIsDelta(true);
     }
 
-    private IvmDeltaStrategy createStrategy(IvmDeltaRewriteContext ctx) {
+    private IvmDeltaStrategy createStrategy(IvmRefreshContext ctx) {
         IvmNormalizeResult normalizeResult = ctx.getNormalizeResult();
-        if (normalizeResult != null && normalizeResult.isAggMv()) {
+        if (normalizeResult.isAggMv()) {
             return new IvmAggDeltaStrategy(ctx);
+        } else if (normalizeResult.isOuterJoinMv()) {
+            return new IvmOuterJoinDeltaStrategy(ctx);
         } else {
             return new IvmLinearDeltaStrategy(ctx);
         }

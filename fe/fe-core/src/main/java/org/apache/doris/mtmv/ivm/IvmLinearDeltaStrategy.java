@@ -103,9 +103,9 @@ public class IvmLinearDeltaStrategy extends PlanVisitor<IvmLinearDeltaStrategy.R
     private static final String NON_DET_ROW_ID_MSG_PREFIX =
             "IVM fallback: delete on non-deterministic row_id in ";
 
-    protected final IvmDeltaRewriteContext ctx;
+    protected final IvmRefreshContext ctx;
 
-    public IvmLinearDeltaStrategy(IvmDeltaRewriteContext ctx) {
+    public IvmLinearDeltaStrategy(IvmRefreshContext ctx) {
         this.ctx = Objects.requireNonNull(ctx, "ctx can not be null");
     }
 
@@ -254,6 +254,11 @@ public class IvmLinearDeltaStrategy extends PlanVisitor<IvmLinearDeltaStrategy.R
             return new RewriteResult(newJoin, null);
         }
 
+        return addNonDetGuardForJoinDelta(newJoin, leftResult, rightResult);
+    }
+
+    protected RewriteResult addNonDetGuardForJoinDelta(LogicalJoin<Plan, Plan> join,
+            RewriteResult leftResult, RewriteResult rightResult) {
         // IMPORTANT: We ONLY guard the SNAPSHOT side, NOT the delta side.
         //
         // Proof by induction that the delta side's row_id is always deterministic when
@@ -268,16 +273,14 @@ public class IvmLinearDeltaStrategy extends PlanVisitor<IvmLinearDeltaStrategy.R
         // Therefore, delta-side row_id non-determinism check is unnecessary and must NOT be
         // added — doing so would cause false-positive fallbacks.
         //
-        // Use the ORIGINAL join children (before rewriting) because the rewritten plan may drop
-        // the row_id slot (e.g., when visitLogicalProject short-circuits for null dml_factor).
         boolean deltaOnLeft = leftResult.dmlFactorSlot != null;
         Slot dmlFactorSlot = deltaOnLeft ? leftResult.dmlFactorSlot : rightResult.dmlFactorSlot;
-        Plan snapshotSideOriginal = deltaOnLeft ? join.right() : join.left();
+        Plan snapshotSidePlan = deltaOnLeft ? join.right() : join.left();
 
-        if (needNonDetGuard(snapshotSideOriginal)) {
-            return wrapDmlFactorWithNonDetGuard(new RewriteResult(newJoin, dmlFactorSlot), joinType);
+        if (needNonDetGuard(snapshotSidePlan)) {
+            return wrapDmlFactorWithNonDetGuard(new RewriteResult(join, dmlFactorSlot), join.getJoinType());
         }
-        return new RewriteResult(newJoin, dmlFactorSlot);
+        return new RewriteResult(join, dmlFactorSlot);
     }
 
     /**
@@ -353,7 +356,7 @@ public class IvmLinearDeltaStrategy extends PlanVisitor<IvmLinearDeltaStrategy.R
      * Checks if the snapshot side's row_id slot is non-deterministic.
      * Returns true (conservatively add guard) when normalizeResult or row_id slot is unavailable.
      */
-    private boolean needNonDetGuard(Plan snapshotSidePlan) {
+    protected boolean needNonDetGuard(Plan snapshotSidePlan) {
         IvmNormalizeResult normalizeResult = this.ctx.getNormalizeResult();
         if (normalizeResult == null) {
             return true;
@@ -378,7 +381,7 @@ public class IvmLinearDeltaStrategy extends PlanVisitor<IvmLinearDeltaStrategy.R
      * <p>The false branch (NullLiteral) must differ from the true branch to prevent
      * FoldConstantRuleOnFE from collapsing the IF.
      */
-    private RewriteResult wrapDmlFactorWithNonDetGuard(RewriteResult result, JoinType joinType) {
+    protected RewriteResult wrapDmlFactorWithNonDetGuard(RewriteResult result, JoinType joinType) {
         String msg = NON_DET_ROW_ID_MSG_PREFIX + joinType;
         Expression guardedExpr = new If(
                 new AssertTrue(new GreaterThanEqual(result.dmlFactorSlot,
@@ -407,7 +410,7 @@ public class IvmLinearDeltaStrategy extends PlanVisitor<IvmLinearDeltaStrategy.R
      * 1. Passes through columns matching mtmv.getInsertedColumnNames() in order
      * 2. Maps dml_factor to __DORIS_DELETE_SIGN__: CASE WHEN dml_factor < 0 THEN 1 ELSE 0 END
      */
-    private Plan buildSinkProject(RewriteResult result) {
+    protected Plan buildSinkProject(RewriteResult result) {
         List<Slot> output = result.plan.getOutput();
         List<String> insertedColumns = ctx.getMtmv().getInsertedColumnNames();
         ImmutableList.Builder<NamedExpression> sinkOutputs = ImmutableList.builderWithExpectedSize(

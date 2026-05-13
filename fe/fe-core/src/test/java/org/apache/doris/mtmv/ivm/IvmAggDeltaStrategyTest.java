@@ -52,7 +52,7 @@ class IvmAggDeltaStrategyTest extends IvmDeltaTestBase {
     private AggRewriteResult rewriteAgg(LogicalAggregate<LogicalOlapScan> agg) {
         PlanBundle bundle = normalizeAggPlan(agg);
         MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
-        IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, bundle.connectContext, bundle.normalizeResult);
+        IvmRefreshContext ctx = new IvmRefreshContext(mtmv, bundle.connectContext, bundle.normalizeResult);
         InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmAggDeltaStrategy(ctx)
                 .rewrite(bundle.normalizedPlan).get(0);
         UnboundTableSink<?> sink = getSink(command);
@@ -234,7 +234,7 @@ class IvmAggDeltaStrategyTest extends IvmDeltaTestBase {
         PlanBundle bundle = normalizeAggPlan(buildGroupedAgg(buildScan()));
         MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
 
-        IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, bundle.connectContext, null);
+        IvmRefreshContext ctx = new IvmRefreshContext(mtmv, bundle.connectContext, null);
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
                 () -> new IvmAggDeltaStrategy(ctx).rewrite(bundle.normalizedPlan));
         Assertions.assertTrue(ex.getMessage().contains("normalize result"));
