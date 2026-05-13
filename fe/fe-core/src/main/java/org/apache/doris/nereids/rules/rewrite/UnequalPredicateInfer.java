@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -84,8 +85,11 @@ public class UnequalPredicateInfer {
         private final List<ComparisonPredicate> usedPredicates = new ArrayList<>();
         // usedPredicatesPairs has same length with usedPredicates,
         // usedPredicatesPairs[i] and usedPredicates[i] correspond to same predicates
-        // usedPredicatesPairs is extracted from cast and used in graph
+        // usedPredicatesPairs is extracted from cast and used to choose input predicates
         private final List<PairAndRelation> usedPredicatesPairs = new ArrayList<>();
+        // graphPredicatePairs contains original predicates and synthetic predicates used only to build the graph
+        private final List<PairAndRelation> graphPredicatePairs = new ArrayList<>();
+        private final List<PairAndRelation> syntheticGraphPredicatePairs = new ArrayList<>();
         // Elements and their indexes in usedExprs
         private final Map<Expression, Integer> usedExprPosition = new HashMap<>();
         // size of usedExprs
@@ -132,16 +136,18 @@ public class UnequalPredicateInfer {
                     continue;
                 }
                 Pair<Expression, Expression> pair = optionalPair.get();
-                if (!PredicateInferUtils.isSlotOrLiteral(pair.first)
-                        || !PredicateInferUtils.isSlotOrLiteral(pair.second)) {
+                if (!validGraphExpression(pair.first) || !validGraphExpression(pair.second)) {
                     otherPredicates.add(comparison);
                     continue;
                 }
                 inputExpressionSet.add(pair.first);
                 inputExpressionSet.add(pair.second);
                 usedPredicates.add(comparison);
-                usedPredicatesPairs.add(new PairAndRelation(pair, getType(commute)));
+                PairAndRelation pairAndRelation = new PairAndRelation(pair, getType(commute));
+                usedPredicatesPairs.add(pairAndRelation);
+                graphPredicatePairs.add(pairAndRelation);
             }
+            addCastLiteralGraphEdges(inputExpressionSet);
             usedExprs.addAll(inputExpressionSet);
             // Sorting is required to ensure the stability of the plan shape
             // and to ensure that the same results are output in the derivation of d>1 d=c and c>1 d=c
@@ -153,11 +159,59 @@ public class UnequalPredicateInfer {
             graph = new Relation[size][size];
             initGraph(graph);
             // Add edges to the graph.
-            for (PairAndRelation predicatesPair : usedPredicatesPairs) {
+            for (PairAndRelation predicatesPair : graphPredicatePairs) {
                 int l = usedExprPosition.get(predicatesPair.pair.first);
                 int r = usedExprPosition.get(predicatesPair.pair.second);
                 set(graph, l, r, predicatesPair.relation);
             }
+        }
+
+        private boolean validGraphExpression(Expression expression) {
+            return PredicateInferUtils.isSlotOrLiteral(expression) || expression instanceof Cast;
+        }
+
+        private void addCastLiteralGraphEdges(Set<Expression> inputExpressionSet) {
+            List<PairAndRelation> graphPredicatePairsSnapshot = new ArrayList<>(graphPredicatePairs);
+            Set<Cast> casts = new LinkedHashSet<>();
+            for (PairAndRelation pairAndRelation : graphPredicatePairsSnapshot) {
+                if (pairAndRelation.pair.first instanceof Cast) {
+                    casts.add((Cast) pairAndRelation.pair.first);
+                }
+                if (pairAndRelation.pair.second instanceof Cast) {
+                    casts.add((Cast) pairAndRelation.pair.second);
+                }
+            }
+            for (Cast cast : casts) {
+                Expression child = cast.child();
+                for (PairAndRelation pairAndRelation : graphPredicatePairsSnapshot) {
+                    Pair<Expression, Expression> pair = pairAndRelation.pair;
+                    if (pair.first.equals(child) && pair.second instanceof Literal) {
+                        addSyntheticGraphEdge(cast, pair.second, pairAndRelation.relation, inputExpressionSet);
+                    } else if (pair.second.equals(child) && pair.first instanceof Literal) {
+                        addSyntheticGraphEdge(pair.first, cast, pairAndRelation.relation, inputExpressionSet);
+                    }
+                }
+            }
+        }
+
+        private void addSyntheticGraphEdge(Expression left, Expression right, Relation relation,
+                Set<Expression> inputExpressionSet) {
+            inputExpressionSet.add(left);
+            inputExpressionSet.add(right);
+            PairAndRelation pairAndRelation = new PairAndRelation(Pair.of(left, right), relation);
+            graphPredicatePairs.add(pairAndRelation);
+            syntheticGraphPredicatePairs.add(pairAndRelation);
+        }
+
+        private boolean isSyntheticGraphEdge(Expression left, Expression right, Relation relation) {
+            for (PairAndRelation pairAndRelation : syntheticGraphPredicatePairs) {
+                if (pairAndRelation.relation == relation
+                        && pairAndRelation.pair.first.equals(left)
+                        && pairAndRelation.pair.second.equals(right)) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         public void initGraph(Relation[][] g) {
@@ -364,10 +418,19 @@ public class UnequalPredicateInfer {
                     }
                     try {
                         if (chosen[i][j] == Relation.GT) {
+                            if (isSyntheticGraphEdge(usedExprs.get(i), usedExprs.get(j), Relation.GT)) {
+                                continue;
+                            }
                             newPredicates.add(normalize(new GreaterThan(usedExprs.get(i), usedExprs.get(j))));
                         } else if (chosen[i][j] == Relation.GTE) {
+                            if (isSyntheticGraphEdge(usedExprs.get(i), usedExprs.get(j), Relation.GTE)) {
+                                continue;
+                            }
                             newPredicates.add(normalize(new GreaterThanEqual(usedExprs.get(i), usedExprs.get(j))));
                         } else if (chosen[i][j] == Relation.EQ) {
+                            if (isSyntheticGraphEdge(usedExprs.get(i), usedExprs.get(j), Relation.EQ)) {
+                                continue;
+                            }
                             newPredicates.add(normalize(new EqualTo(usedExprs.get(i), usedExprs.get(j))));
                             clear(chosen, i, j, Relation.EQ);
                         }
