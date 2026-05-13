@@ -23,6 +23,7 @@
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "storage/olap_common.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -83,7 +84,9 @@ void WorkloadGroupMetrics::update_remote_scan_io_bytes(uint64_t delta_io_bytes) 
 }
 
 void WorkloadGroupMetrics::refresh_metrics() {
-    int interval_second = config::workload_group_metrics_interval_ms / 1000;
+    uint64_t current_time_ms = MonotonicMillis();
+    uint64_t interval_second = (current_time_ms - _last_refresh_time_ms) / 1000;
+    _last_refresh_time_ms = current_time_ms;
 
     // cpu
     uint64_t _current_cpu_time_nanos = _cpu_time_nanos.load();
