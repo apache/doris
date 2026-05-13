@@ -20,6 +20,8 @@
 
 #include "exprs/function/function_hash.h"
 
+#include <cstring>
+
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -133,6 +135,85 @@ using FunctionMurmurHash3_64_V2 =
 using FunctionMurmurHash3U64V2 =
         FunctionVariadicArgumentsBase<DataTypeInt128, MurmurHash3Impl<TYPE_LARGEINT, true>>;
 
+struct MurmurHash3128Impl {
+    static constexpr auto name = "murmur_hash3_128";
+
+    static Status empty_apply(IColumn& icolumn, size_t input_rows_count) {
+        ColumnVector<TYPE_LARGEINT>& vec_to = assert_cast<ColumnVector<TYPE_LARGEINT>&>(icolumn);
+        vec_to.get_data().assign(input_rows_count, pack_hash(emtpy_value, emtpy_value));
+        return Status::OK();
+    }
+
+    static Status first_apply(const IDataType* type, const IColumn* column, size_t input_rows_count,
+                              IColumn& icolumn) {
+        return execute<true>(type, column, input_rows_count, icolumn);
+    }
+
+    static Status combine_apply(const IDataType* type, const IColumn* column,
+                                size_t input_rows_count, IColumn& icolumn) {
+        return execute<false>(type, column, input_rows_count, icolumn);
+    }
+
+    template <bool first>
+    static Status execute(const IDataType* type, const IColumn* column, size_t input_rows_count,
+                          IColumn& col_to) {
+        auto& to_column = assert_cast<ColumnVector<TYPE_LARGEINT>&>(col_to);
+        if constexpr (first) {
+            to_column.insert_many_defaults(input_rows_count);
+        }
+        auto& col_to_data = to_column.get_data();
+        if (const auto* col_from = check_and_get_column<ColumnString>(column)) {
+            const typename ColumnString::Chars& data = col_from->get_chars();
+            const typename ColumnString::Offsets& offsets = col_from->get_offsets();
+            size_t size = offsets.size();
+            ColumnString::Offset current_offset = 0;
+            for (size_t i = 0; i < size; ++i) {
+                update_hash(col_to_data[i], reinterpret_cast<const char*>(&data[current_offset]),
+                            offsets[i] - current_offset);
+                current_offset = offsets[i];
+            }
+        } else if (const ColumnConst* col_from_const =
+                           check_and_get_column_const_string_or_fixedstring(column)) {
+            auto value = col_from_const->get_value<TYPE_STRING>();
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                update_hash(col_to_data[i], value.data(), value.size());
+            }
+        } else {
+            DCHECK(false);
+            return Status::NotSupported("Illegal column {} of argument of function {}",
+                                        column->get_name(), name);
+        }
+        return Status::OK();
+    }
+
+private:
+    static __int128_t pack_hash(uint64_t h1, uint64_t h2) {
+        static_assert(sizeof(__int128_t) == sizeof(uint64_t) * 2);
+        uint64_t parts[2] = {h1, h2};
+        __int128_t value;
+        std::memcpy(&value, parts, sizeof(value));
+        return value;
+    }
+
+    static void unpack_hash(__int128_t value, uint64_t& h1, uint64_t& h2) {
+        static_assert(sizeof(__int128_t) == sizeof(uint64_t) * 2);
+        uint64_t parts[2];
+        std::memcpy(parts, &value, sizeof(value));
+        h1 = parts[0];
+        h2 = parts[1];
+    }
+
+    static void update_hash(__int128_t& value, const void* data, size_t size) {
+        uint64_t h1 = 0;
+        uint64_t h2 = 0;
+        unpack_hash(value, h1, h2);
+        murmur_hash3_x64_process(data, static_cast<int>(size), h1, h2);
+        value = pack_hash(h1, h2);
+    }
+};
+
+using FunctionMurmurHash3_128 = FunctionVariadicArgumentsBase<DataTypeInt128, MurmurHash3128Impl>;
+
 #ifdef BE_TEST
 const char* murmur_hash3_get_name_type_int_for_test() {
     return MurmurHash3Impl<TYPE_INT>::get_name();
@@ -234,6 +315,7 @@ void register_function_hash(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMurmurHash3_64>();
     factory.register_function<FunctionMurmurHash3_64_V2>();
     factory.register_function<FunctionMurmurHash3U64V2>();
+    factory.register_function<FunctionMurmurHash3_128>();
     factory.register_function<FunctionXxHash_32>();
     factory.register_function<FunctionXxHash_64>();
     factory.register_alias("xxhash_64", "xxhash3_64");

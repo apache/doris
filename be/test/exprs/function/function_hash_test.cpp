@@ -19,6 +19,7 @@
 
 #include <stdint.h>
 
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -33,6 +34,27 @@
 
 namespace doris {
 using namespace ut_type;
+
+namespace {
+
+__int128_t pack_murmur_hash3_128_for_test(uint64_t h1, uint64_t h2) {
+    static_assert(sizeof(__int128_t) == sizeof(uint64_t) * 2);
+    uint64_t parts[2] = {h1, h2};
+    __int128_t value;
+    std::memcpy(&value, parts, sizeof(value));
+    return value;
+}
+
+__int128_t murmur_hash3_128_for_test(const std::vector<std::string>& values) {
+    uint64_t h1 = 0;
+    uint64_t h2 = 0;
+    for (const std::string& value : values) {
+        murmur_hash3_x64_process(value.data(), static_cast<int>(value.size()), h1, h2);
+    }
+    return pack_murmur_hash3_128_for_test(h1, h2);
+}
+
+} // namespace
 
 TEST(HashFunctionTest, murmur_hash_3_test) {
     std::string func_name = "murmur_hash3_32";
@@ -111,6 +133,31 @@ TEST(HashFunctionTest, murmur_hash_3_64_v2_test) {
                             {{std::string("apache doris")}, (int64_t)3669213779466221743}};
 
         static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
+    };
+}
+
+TEST(HashFunctionTest, murmur_hash_3_128_test) {
+    std::string func_name = "murmur_hash3_128";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+
+        DataSet data_set = {
+                {{Null()}, Null()},
+                {{std::string("hello world")},
+                 pack_murmur_hash3_128_for_test(5998619086395760910ULL, 12364428806279881649ULL)}};
+
+        static_cast<void>(check_function<DataTypeInt128, true>(func_name, input_types, data_set));
+    };
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+
+        DataSet data_set = {{{std::string("hello"), std::string("world")},
+                             murmur_hash3_128_for_test({"hello", "world"})},
+                            {{std::string("hello"), Null()}, Null()}};
+
+        static_cast<void>(check_function<DataTypeInt128, true>(func_name, input_types, data_set));
     };
 }
 
