@@ -62,7 +62,7 @@ import java.util.Optional;
 class IvmLinearDeltaStrategyTest extends IvmDeltaTestBase {
 
     private static final class TestableIvmLinearDeltaStrategy extends IvmLinearDeltaStrategy {
-        TestableIvmLinearDeltaStrategy(IvmDeltaRewriteContext ctx) {
+        TestableIvmLinearDeltaStrategy(IvmRefreshContext ctx) {
             super(ctx);
         }
 
@@ -84,8 +84,8 @@ class IvmLinearDeltaStrategyTest extends IvmDeltaTestBase {
         }
     }
 
-    private static IvmDeltaRewriteContext dummyCtx() {
-        return new IvmDeltaRewriteContext(mockMtmv(), new ConnectContext(), null);
+    private static IvmRefreshContext dummyCtx() {
+        return new IvmRefreshContext(mockMtmv(), new ConnectContext(), null);
     }
 
     private static MTMV mockMtmv() {
@@ -99,7 +99,7 @@ class IvmLinearDeltaStrategyTest extends IvmDeltaTestBase {
     void testRewriteProducesInsertBundle() {
         MTMV mtmv = mockMtmv();
         LogicalOlapScan scan = buildScan();
-        IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext(), null);
+        IvmRefreshContext ctx = new IvmRefreshContext(mtmv, new ConnectContext(), null);
         InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmLinearDeltaStrategy(ctx)
                 .rewrite(buildScanPlan(scan)).get(0);
         UnboundTableSink<?> sink = getSink(command);
@@ -168,7 +168,7 @@ class IvmLinearDeltaStrategyTest extends IvmDeltaTestBase {
                 JoinType.INNER_JOIN, ImmutableList.of(), left, right, JoinReorderContext.EMPTY);
         LogicalResultSink<?> plan = new LogicalResultSink<>(ImmutableList.copyOf(left.getOutput()), join);
 
-        IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext(), null);
+        IvmRefreshContext ctx = new IvmRefreshContext(mtmv, new ConnectContext(), null);
         Assertions.assertThrows(AnalysisException.class,
                 () -> new IvmLinearDeltaStrategy(ctx).rewrite(plan));
     }
@@ -210,7 +210,7 @@ class IvmLinearDeltaStrategyTest extends IvmDeltaTestBase {
         Mockito.when(mtmv.getInsertedColumnNames()).thenReturn(ImmutableList.of("id"));
 
         LogicalOlapScan scan = buildScan();
-        IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext(), null);
+        IvmRefreshContext ctx = new IvmRefreshContext(mtmv, new ConnectContext(), null);
         TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(ctx);
         Command command = strategy.exposeBuildInsertCommand(
                 new LogicalProject<>(ImmutableList.of((NamedExpression) scan.getOutput().get(0)), scan));
@@ -223,7 +223,7 @@ class IvmLinearDeltaStrategyTest extends IvmDeltaTestBase {
     void testRewriteBuildsDeleteSignIfExpression() {
         MTMV mtmv = mockMtmv();
         LogicalOlapScan scan = buildScan();
-        IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext(), null);
+        IvmRefreshContext ctx = new IvmRefreshContext(mtmv, new ConnectContext(), null);
         InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmLinearDeltaStrategy(ctx)
                 .rewrite(buildScanPlan(scan))
                 .get(0);
@@ -368,10 +368,10 @@ class IvmLinearDeltaStrategyTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testJoinUnsupportedOuterJoinThrows() {
+    void testJoinRightOuterJoinThrows() {
         LogicalOlapScan scanDelta = buildScan();
         LogicalOlapScan scanSnapshot = buildScanForTable(2, "t2");
-        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.RIGHT_OUTER_JOIN,
                 ImmutableList.of(), scanDelta, scanSnapshot, JoinReorderContext.EMPTY);
 
         TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(dummyCtx());
@@ -399,7 +399,7 @@ class IvmLinearDeltaStrategyTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), scanDelta, normalizedSnapshot, JoinReorderContext.EMPTY);
 
-        IvmDeltaRewriteContext rewriteCtx = new IvmDeltaRewriteContext(mockMtmv(), new ConnectContext(),
+        IvmRefreshContext rewriteCtx = new IvmRefreshContext(mockMtmv(), new ConnectContext(),
                 normalizeResult);
         TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(rewriteCtx);
         IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(join);
@@ -432,7 +432,7 @@ class IvmLinearDeltaStrategyTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), scanDelta, normalizedSnapshot, JoinReorderContext.EMPTY);
 
-        IvmDeltaRewriteContext rewriteCtx = new IvmDeltaRewriteContext(mockMtmv(), new ConnectContext(),
+        IvmRefreshContext rewriteCtx = new IvmRefreshContext(mockMtmv(), new ConnectContext(),
                 normalizeResult);
         TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(rewriteCtx);
         IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(join);
@@ -478,7 +478,7 @@ class IvmLinearDeltaStrategyTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), scanDelta, normalizedSnapshot, JoinReorderContext.EMPTY);
 
-        IvmDeltaRewriteContext rewriteCtx = new IvmDeltaRewriteContext(mockMtmv(), new ConnectContext(),
+        IvmRefreshContext rewriteCtx = new IvmRefreshContext(mockMtmv(), new ConnectContext(),
                 normalizeResult);
         TestableIvmLinearDeltaStrategy strategy = new TestableIvmLinearDeltaStrategy(rewriteCtx);
         IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(join);

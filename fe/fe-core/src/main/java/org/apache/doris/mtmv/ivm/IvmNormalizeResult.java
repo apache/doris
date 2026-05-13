@@ -39,6 +39,7 @@ public class IvmNormalizeResult {
     private final Map<Slot, Boolean> rowIdDeterminism = new LinkedHashMap<>();
     private Plan normalizedPlan;
     private IvmAggMeta aggMeta;
+    private boolean outerJoinMv;
 
     public void addRowId(Slot rowIdSlot, boolean deterministic) {
         rowIdDeterminism.put(rowIdSlot, deterministic);
@@ -76,5 +77,14 @@ public class IvmNormalizeResult {
     /** Returns true if this MV uses aggregate IVM. */
     public boolean isAggMv() {
         return aggMeta != null;
+    }
+
+    /** Returns true if this MV uses outer-join IVM. */
+    public boolean isOuterJoinMv() {
+        return outerJoinMv;
+    }
+
+    public void setOuterJoinMv(boolean outerJoinMv) {
+        this.outerJoinMv = outerJoinMv;
     }
 }

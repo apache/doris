@@ -20,7 +20,6 @@ package org.apache.doris.mtmv.ivm;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mtmv.MTMVPlanUtil;
-import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.qe.ConnectContext;
@@ -155,7 +154,6 @@ public class IvmDeltaExecutorTest {
     }
 
     private static IvmRefreshContext newContext(MTMV mtmv) {
-        return new IvmRefreshContext(mtmv, new ConnectContext(),
-                new MTMVRefreshContext(mtmv));
+        return new IvmRefreshContext(mtmv, new ConnectContext());
     }
 }
