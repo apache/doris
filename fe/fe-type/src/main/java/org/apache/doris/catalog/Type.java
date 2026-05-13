@@ -797,6 +797,9 @@ public abstract class Type {
             return itemType.exceedsMaxNestingDepth(d + 1);
         } else if (isMapType()) {
             MapType mapType = (MapType) this;
+            if (mapType.getKeyType().exceedsMaxNestingDepth(d + 1)) {
+                return true;
+            }
             return mapType.getValueType().exceedsMaxNestingDepth(d + 1);
         } else {
             Preconditions.checkState(isScalarType() || isAggStateType());
