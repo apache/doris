@@ -44,9 +44,6 @@ if (${MAKE_TEST} STREQUAL "OFF" AND ${BUILD_BENCHMARK} STREQUAL "OFF")
     target_link_libraries(doris_be
         ${DORIS_LINK_LIBS}
     )
-    if (ENABLE_EXPR_ASAN OR DORIS_BE_ASAN_SOURCES)
-        link_doris_asan_runtime(doris_be)
-    endif()
 
     install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
     install(TARGETS doris_be DESTINATION ${OUTPUT_DIR}/lib/)

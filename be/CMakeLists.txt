@@ -1116,6 +1116,18 @@ foreach(target IN LISTS DORIS_BE_SOURCE_TARGETS)
         enable_doris_asan_for_sources(${target})
     endif()
 endforeach()
+
+if (ENABLE_EXPR_ASAN OR DORIS_BE_ASAN_SOURCES)
+    foreach(target IN LISTS DORIS_BE_SOURCE_TARGETS)
+        if (TARGET ${target})
+            get_target_property(target_type ${target} TYPE)
+            if (target_type STREQUAL "EXECUTABLE")
+                link_doris_asan_runtime(${target})
+            endif()
+        endif()
+    endforeach()
+endif()
+
 validate_doris_asan_sources()
 
 # this include doris_be_test
