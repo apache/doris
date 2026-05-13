@@ -134,7 +134,7 @@ PhysicalResultSink
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t3.a = expr_cast(a as INT)) and (t3.b = t.b)) otherCondition=()
 ----PhysicalUnion
-----filter(b IN ('aa', 'dd'))
+----filter(a IN (2, 3) and b IN ('aa', 'dd'))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3(t3)]
 
 -- !union_all_const_empty_relation --
@@ -169,7 +169,7 @@ PhysicalResultSink
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t3.a = expr_cast(a as INT)) and (t3.b = t.b)) otherCondition=()
 ----PhysicalUnion
-----filter(b IN ('aa', 'aab', 'dd'))
+----filter(a IN (2, 3, 5) and b IN ('aa', 'aab', 'dd'))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3(t3)]
 
 -- !union_child_and_const_exprs --
@@ -413,7 +413,8 @@ PhysicalResultSink
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------PhysicalUnion
-----PhysicalOlapScan[test_pull_up_predicate_set_op3(t2)]
+----filter(a IN (1, 2))
+------PhysicalOlapScan[test_pull_up_predicate_set_op3(t2)]
 
 -- !intersect_res --
 0	d2
