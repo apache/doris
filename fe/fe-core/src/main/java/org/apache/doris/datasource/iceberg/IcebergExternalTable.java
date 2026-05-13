@@ -475,12 +475,8 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
                 continue;
             }
             org.apache.iceberg.transforms.Transform<?, ?> t = field.transform();
-            // isVoid() and isIdentity() are stable public interface methods (all Iceberg versions).
-            // toString() is used for the remaining transforms — it returns the canonical
-            // spec-defined names (e.g. "bucket[N]", "year") used in metadata serialization,
-            // so it is guaranteed stable across Iceberg versions.
+            // isVoid/isIdentity: public interface methods; toString(): canonical spec-defined names.
             if (t.isVoid()) {
-                // Dropped partition field from partition evolution; skip it.
                 continue;
             } else if (t.isIdentity()) {
                 fields.add(colName);
