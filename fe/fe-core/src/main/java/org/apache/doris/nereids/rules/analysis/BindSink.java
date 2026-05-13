@@ -195,6 +195,11 @@ public class BindSink implements AnalysisRuleFactory {
                         sink.getDMLCommandType() == DMLCommandType.GROUP_COMMIT);
         List<Column> bindColumns = bindColumnsResult.first;
         int extraColumnsNum = bindColumnsResult.second;
+        if (sink.getColNames().isEmpty()
+                && sink.getDMLCommandType() == DMLCommandType.INSERT
+                && child.getOutput().size() < bindColumns.size()) {
+            bindColumns = ImmutableList.copyOf(bindColumns.subList(0, child.getOutput().size()));
+        }
 
         LogicalOlapTableSink<?> boundSink = new LogicalOlapTableSink<>(
                 database,
@@ -231,14 +236,9 @@ public class BindSink implements AnalysisRuleFactory {
                 boolean haveInputSeqCol = false;
                 Optional<Column> seqColInTable = Optional.empty();
                 if (table.getSequenceMapCol() != null) {
-                    if (!sink.getColNames().isEmpty()) {
-                        if (sink.getColNames().stream()
-                                .anyMatch(c -> c.equalsIgnoreCase(table.getSequenceMapCol()))) {
-                            haveInputSeqCol = true; // case1.a
-                        }
-                    } else {
-                        haveInputSeqCol = true; // case1.b
-                    }
+                    haveInputSeqCol = bindColumns.stream()
+                            .map(Column::getName)
+                            .anyMatch(c -> c.equalsIgnoreCase(table.getSequenceMapCol()));
                     seqColInTable = table.getFullSchema().stream()
                             .filter(col -> col.getName().equalsIgnoreCase(table.getSequenceMapCol()))
                             .findFirst();

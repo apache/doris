@@ -692,7 +692,12 @@ public class InsertUtils {
                 insertNames.addAll(unboundLogicalSink.getColNames());
             }
             if (insertNames.isEmpty()) {
-                for (Column col : olapTable.getFullSchema()) {
+                List<Column> implicitInsertColumns = olapTable.getBaseSchema(true).stream()
+                        .filter(Column::isVisible)
+                        .filter(col -> !col.isMaterializedViewColumn())
+                        .limit(query.getOutput().size())
+                        .collect(Collectors.toList());
+                for (Column col : implicitInsertColumns) {
                     if (col.getGeneratedColumnInfo() != null) {
                         throw new AnalysisException("The value specified for generated column '"
                                 + col.getName()
