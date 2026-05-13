@@ -28,6 +28,7 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
@@ -68,7 +69,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
                 + "  value int\n"
                 + ") duplicate key(id)\n"
                 + "distributed by hash(id) buckets 1\n"
-                + "properties('replication_num' = '1');");
+                + "properties('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW');");
         createMvByNereids("create materialized view test.ivm_mv\n"
                 + "build deferred refresh incremental on manual\n"
                 + "distributed by random buckets 1\n"
@@ -144,10 +145,12 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         UpdateMvByPartitionCommand command = newRefreshCommand(mtmv);
         LogicalOlapTableSink<?> sink = (LogicalOlapTableSink<?>) PlanChecker.from(connectContext,
                 command.getLogicalQuery()).analyze(command.getLogicalQuery()).getPlan();
+        List<String> expectedInsertedColumns = mtmv.getInsertedColumnNames();
+        List<String> expectedTargetColumns = getAnalyzedIvmSinkColumnNames(mtmv);
 
-        Assertions.assertEquals(mtmv.getInsertedColumnNames(), getColumnNames(sink.getCols()));
-        Assertions.assertEquals(mtmv.getInsertedColumnNames(), getNamedExpressionNames(sink.getOutputExprs()));
-        Assertions.assertEquals(mtmv.getInsertedColumnNames(), getSlotNames(sink.getTargetTableSlots()));
+        Assertions.assertEquals(expectedInsertedColumns, getColumnNames(sink.getCols()));
+        Assertions.assertEquals(expectedTargetColumns, getNamedExpressionNames(sink.getOutputExprs()));
+        Assertions.assertEquals(expectedTargetColumns, getSlotNames(sink.getTargetTableSlots()));
         Assertions.assertEquals(Column.IVM_ROW_ID_COL, sink.child().getOutput().get(0).getName());
     }
 
@@ -267,6 +270,15 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
             names.add(column.getName());
         }
         return names;
+    }
+
+    private List<String> getAnalyzedIvmSinkColumnNames(MTMV mtmv) {
+        List<String> columnNames = new ArrayList<>(mtmv.getInsertedColumnNames());
+        columnNames.add(Column.DELETE_SIGN);
+        if (Config.enable_hidden_version_column_by_default) {
+            columnNames.add(Column.VERSION_COL);
+        }
+        return columnNames;
     }
 
     private List<String> getNamedExpressionNames(

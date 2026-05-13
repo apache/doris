@@ -19,8 +19,9 @@ package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.Command;
@@ -54,27 +55,30 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     }
 
     /** Creates a baseTableStreams map with a single pending-delta stream for the scan's table. */
-    private Map<BaseTableInfo, IvmStreamRef> makeStreams(LogicalOlapScan scan) {
-        Map<BaseTableInfo, IvmStreamRef> streams = new HashMap<>();
+    private Map<TableNameInfo, IvmStreamRef> makeStreams(LogicalOlapScan scan) {
+        Map<TableNameInfo, IvmStreamRef> streams = new HashMap<>();
         IvmStreamRef ref = new IvmStreamRef(0);
         ref.setLatestTso(100);
-        // Use (OlapTable, dbId) constructor to avoid requiring a full catalog chain
-        streams.put(new BaseTableInfo(scan.getTable(), 0), ref);
+        streams.put(IvmRefreshContext.toTableNameInfo(scan), ref);
         return streams;
     }
 
-    private Map<BaseTableInfo, IvmStreamRef> makeStreamsWithTso(LogicalOlapScan scan,
+    private Map<TableNameInfo, IvmStreamRef> makeStreamsWithTso(LogicalOlapScan scan,
             long consumedTso, long latestTso) {
-        Map<BaseTableInfo, IvmStreamRef> streams = new HashMap<>();
+        Map<TableNameInfo, IvmStreamRef> streams = new HashMap<>();
         addStream(streams, scan, consumedTso, latestTso);
         return streams;
     }
 
-    private void addStream(Map<BaseTableInfo, IvmStreamRef> streams,
+    private void addStream(Map<TableNameInfo, IvmStreamRef> streams,
             LogicalOlapScan scan, long consumedTso, long latestTso) {
         IvmStreamRef ref = new IvmStreamRef(consumedTso);
         ref.setLatestTso(latestTso);
-        streams.put(new BaseTableInfo(scan.getTable(), 0), ref);
+        streams.put(IvmRefreshContext.toTableNameInfo(scan), ref);
+    }
+
+    private IvmRefreshContext rewriteContext(Map<TableNameInfo, IvmStreamRef> streams) {
+        return new IvmRefreshContext(mockMtmv(), new ConnectContext(), new IvmNormalizeResult(), streams);
     }
 
     private LogicalJoin<LogicalOlapScan, LogicalOlapScan> crossJoin(
@@ -93,8 +97,9 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     void testScanOnlyProducesInsertBundle() {
         MTMV mtmv = mockMtmv();
         LogicalOlapScan scan = buildScan();
-        Map<BaseTableInfo, IvmStreamRef> streams = makeStreams(scan);
-        IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext(), null, streams);
+        Map<TableNameInfo, IvmStreamRef> streams = makeStreams(scan);
+        IvmRefreshContext ctx = new IvmRefreshContext(
+                mtmv, new ConnectContext(), new IvmNormalizeResult(), streams);
         List<Command> commands = new IvmDeltaRewriter().rewrite(buildScanPlan(scan), ctx);
 
         Assertions.assertEquals(1, commands.size());
@@ -105,8 +110,9 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     void testProjectScanProducesInsertBundle() {
         MTMV mtmv = mockMtmv();
         LogicalOlapScan scan = buildScan();
-        Map<BaseTableInfo, IvmStreamRef> streams = makeStreams(scan);
-        IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext(), null, streams);
+        Map<TableNameInfo, IvmStreamRef> streams = makeStreams(scan);
+        IvmRefreshContext ctx = new IvmRefreshContext(
+                mtmv, new ConnectContext(), new IvmNormalizeResult(), streams);
         List<Command> commands = new IvmDeltaRewriter().rewrite(buildProjectScanPlan(scan), ctx);
 
         Assertions.assertEquals(1, commands.size());
@@ -116,11 +122,11 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     @Test
     void testGroupedAggProducesDeleteSignSinkAndJoinPlan() {
         LogicalOlapScan scan = buildScan();
-        Map<BaseTableInfo, IvmStreamRef> streams = makeStreams(scan);
+        Map<TableNameInfo, IvmStreamRef> streams = makeStreams(scan);
         PlanBundle bundle = normalizeAggPlan(buildGroupedAgg(scan));
         MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
 
-        IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(
+        IvmRefreshContext ctx = new IvmRefreshContext(
                 mtmv, bundle.connectContext, bundle.normalizeResult, streams);
         InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmDeltaRewriter()
                 .rewrite(bundle.normalizedPlan, ctx).get(0);
@@ -138,19 +144,19 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     void testContextRejectsNulls() {
         MTMV mtmv = mockMtmv();
         Assertions.assertThrows(NullPointerException.class,
-                () -> new IvmDeltaRewriteContext(null, new ConnectContext(), null));
+                () -> new IvmRefreshContext(null, new ConnectContext(), null));
         Assertions.assertThrows(NullPointerException.class,
-                () -> new IvmDeltaRewriteContext(mtmv, null, null));
+                () -> new IvmRefreshContext(mtmv, null, null));
     }
 
     @Test
     void testRouteWithAggMetaUsesAggStrategy() {
         LogicalOlapScan scan = buildScan();
-        Map<BaseTableInfo, IvmStreamRef> streams = makeStreams(scan);
+        Map<TableNameInfo, IvmStreamRef> streams = makeStreams(scan);
         PlanBundle bundle = normalizeAggPlan(buildGroupedAgg(scan));
         MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
 
-        IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(
+        IvmRefreshContext ctx = new IvmRefreshContext(
                 mtmv, bundle.connectContext, bundle.normalizeResult, streams);
         InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmDeltaRewriter()
                 .rewrite(bundle.normalizedPlan, ctx).get(0);
@@ -164,8 +170,9 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     void testRouteWithoutAggMetaUsesScanStrategy() {
         MTMV mtmv = mockMtmv();
         LogicalOlapScan scan = buildScan();
-        Map<BaseTableInfo, IvmStreamRef> streams = makeStreams(scan);
-        IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext(), null, streams);
+        Map<TableNameInfo, IvmStreamRef> streams = makeStreams(scan);
+        IvmRefreshContext ctx = new IvmRefreshContext(
+                mtmv, new ConnectContext(), new IvmNormalizeResult(), streams);
         InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmDeltaRewriter()
                 .rewrite(buildScanPlan(scan), ctx).get(0);
         UnboundTableSink<?> sink = getSink(command);
@@ -181,9 +188,9 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     @Test
     void testGenSingleScanPendingDelta() {
         LogicalOlapScan scan = buildScanForTable(1, "a");
-        Map<BaseTableInfo, IvmStreamRef> streams = makeStreamsWithTso(scan, 10, 20);
+        Map<TableNameInfo, IvmStreamRef> streams = makeStreamsWithTso(scan, 10, 20);
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(scan, streams, NO_EXCLUSIONS);
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(scan, rewriteContext(streams), NO_EXCLUSIONS);
 
         Assertions.assertEquals(1, plans.size());
         List<LogicalOlapScan> scans = collectScans(plans.get(0));
@@ -192,11 +199,25 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     }
 
     @Test
+    void testGenDeltaPlanClearsOldGroupExpression() {
+        LogicalOlapScan scan = buildScanForTable(1, "a");
+        Plan scanInMemo = new GroupExpression(scan).getPlan();
+        Map<TableNameInfo, IvmStreamRef> streams = makeStreamsWithTso(scan, 10, 20);
+
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(
+                scanInMemo, rewriteContext(streams), NO_EXCLUSIONS);
+
+        Assertions.assertEquals(1, plans.size());
+        Assertions.assertFalse(plans.get(0).getGroupExpression().isPresent());
+        Assertions.assertFalse(collectScans(plans.get(0)).get(0).getGroupExpression().isPresent());
+    }
+
+    @Test
     void testGenSingleScanUpToDate() {
         LogicalOlapScan scan = buildScanForTable(1, "a");
-        Map<BaseTableInfo, IvmStreamRef> streams = makeStreamsWithTso(scan, 20, 20);
+        Map<TableNameInfo, IvmStreamRef> streams = makeStreamsWithTso(scan, 20, 20);
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(scan, streams, NO_EXCLUSIONS);
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(scan, rewriteContext(streams), NO_EXCLUSIONS);
 
         Assertions.assertTrue(plans.isEmpty(), "Up-to-date scan should produce no delta plans");
     }
@@ -209,11 +230,11 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         LogicalOlapScan scanB = buildScanForTable(2, "b");
         Plan join = crossJoin(scanA, scanB);
 
-        Map<BaseTableInfo, IvmStreamRef> streams = new HashMap<>();
+        Map<TableNameInfo, IvmStreamRef> streams = new HashMap<>();
         addStream(streams, scanA, 10, 20);
         addStream(streams, scanB, 30, 40);
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, streams, NO_EXCLUSIONS);
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, rewriteContext(streams), NO_EXCLUSIONS);
 
         Assertions.assertEquals(2, plans.size());
 
@@ -238,11 +259,11 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         LogicalOlapScan scanB = buildScanForTable(2, "b");
         Plan join = crossJoin(scanA, scanB);
 
-        Map<BaseTableInfo, IvmStreamRef> streams = new HashMap<>();
+        Map<TableNameInfo, IvmStreamRef> streams = new HashMap<>();
         addStream(streams, scanA, 10, 20);  // pending
         addStream(streams, scanB, 40, 40);  // up-to-date
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, streams, NO_EXCLUSIONS);
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, rewriteContext(streams), NO_EXCLUSIONS);
 
         Assertions.assertEquals(1, plans.size());
 
@@ -259,11 +280,11 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         LogicalOlapScan scanB = buildScanForTable(2, "b");
         Plan join = crossJoin(scanA, scanB);
 
-        Map<BaseTableInfo, IvmStreamRef> streams = new HashMap<>();
+        Map<TableNameInfo, IvmStreamRef> streams = new HashMap<>();
         addStream(streams, scanA, 20, 20);
         addStream(streams, scanB, 40, 40);
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, streams, NO_EXCLUSIONS);
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, rewriteContext(streams), NO_EXCLUSIONS);
 
         Assertions.assertTrue(plans.isEmpty(), "Both up-to-date should produce no plans");
     }
@@ -276,9 +297,9 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         LogicalOlapScan scanA2 = buildScanForTable(1, "a");
         Plan join = crossJoin(scanA1, scanA2);
 
-        Map<BaseTableInfo, IvmStreamRef> streams = makeStreamsWithTso(scanA1, 10, 20);
+        Map<TableNameInfo, IvmStreamRef> streams = makeStreamsWithTso(scanA1, 10, 20);
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, streams, NO_EXCLUSIONS);
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, rewriteContext(streams), NO_EXCLUSIONS);
 
         Assertions.assertEquals(2, plans.size());
 
@@ -307,12 +328,12 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
                 JoinType.CROSS_JOIN, abJoin, scanC,
                 new org.apache.doris.nereids.rules.exploration.join.JoinReorderContext());
 
-        Map<BaseTableInfo, IvmStreamRef> streams = new HashMap<>();
+        Map<TableNameInfo, IvmStreamRef> streams = new HashMap<>();
         addStream(streams, scanA, 10, 20);
         addStream(streams, scanB, 30, 40);
         addStream(streams, scanC, 50, 60);
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(abcJoin, streams, NO_EXCLUSIONS);
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(abcJoin, rewriteContext(streams), NO_EXCLUSIONS);
 
         Assertions.assertEquals(3, plans.size());
 
@@ -346,12 +367,12 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
                 JoinType.CROSS_JOIN, abJoin, scanC,
                 new org.apache.doris.nereids.rules.exploration.join.JoinReorderContext());
 
-        Map<BaseTableInfo, IvmStreamRef> streams = new HashMap<>();
+        Map<TableNameInfo, IvmStreamRef> streams = new HashMap<>();
         addStream(streams, scanA, 10, 20);
         addStream(streams, scanB, 40, 40);  // up-to-date
         addStream(streams, scanC, 50, 60);
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(abcJoin, streams, NO_EXCLUSIONS);
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(abcJoin, rewriteContext(streams), NO_EXCLUSIONS);
 
         Assertions.assertEquals(2, plans.size());
 
@@ -376,14 +397,14 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         LogicalOlapScan scanB = buildScanForTable(2, "b");
         Plan join = crossJoin(scanA, scanB);
 
-        Map<BaseTableInfo, IvmStreamRef> streams = new HashMap<>();
+        Map<TableNameInfo, IvmStreamRef> streams = new HashMap<>();
         addStream(streams, scanA, 10, 20);
         addStream(streams, scanB, 30, 40);
 
         // Exclude table with id=2 ("b")
         Predicate<LogicalOlapScan> excludeB = scan -> scan.getTable().getId() == 2;
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, streams, excludeB);
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, rewriteContext(streams), excludeB);
 
         // Only scanA is collected; scanB is excluded → 1 plan
         Assertions.assertEquals(1, plans.size());
@@ -400,11 +421,11 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     @Test
     void testGenAllExcludedProducesNoPlan() {
         LogicalOlapScan scanA = buildScanForTable(1, "a");
-        Map<BaseTableInfo, IvmStreamRef> streams = makeStreamsWithTso(scanA, 10, 20);
+        Map<TableNameInfo, IvmStreamRef> streams = makeStreamsWithTso(scanA, 10, 20);
 
         Predicate<LogicalOlapScan> excludeAll = scan -> true;
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(scanA, streams, excludeAll);
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(scanA, rewriteContext(streams), excludeAll);
 
         Assertions.assertTrue(plans.isEmpty());
     }
@@ -420,7 +441,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
                 JoinType.CROSS_JOIN, abJoin, scanC,
                 new org.apache.doris.nereids.rules.exploration.join.JoinReorderContext());
 
-        Map<BaseTableInfo, IvmStreamRef> streams = new HashMap<>();
+        Map<TableNameInfo, IvmStreamRef> streams = new HashMap<>();
         addStream(streams, scanA, 10, 20);
         addStream(streams, scanB, 30, 40);
         addStream(streams, scanC, 50, 60);
@@ -428,7 +449,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         // Exclude b (id=2)
         Predicate<LogicalOlapScan> excludeB = scan -> scan.getTable().getId() == 2;
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(abcJoin, streams, excludeB);
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(abcJoin, rewriteContext(streams), excludeB);
 
         // a and c are collected (both pending) → 2 plans
         Assertions.assertEquals(2, plans.size());
@@ -453,10 +474,10 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     @Test
     void testGenMissingStreamRefThrows() {
         LogicalOlapScan scanA = buildScanForTable(1, "a");
-        Map<BaseTableInfo, IvmStreamRef> streams = new HashMap<>();
+        Map<TableNameInfo, IvmStreamRef> streams = new HashMap<>();
 
         Assertions.assertThrows(Exception.class,
-                () -> new IvmDeltaRewriter().generateDeltaPlans(scanA, streams, NO_EXCLUSIONS));
+                () -> new IvmDeltaRewriter().generateDeltaPlans(scanA, rewriteContext(streams), NO_EXCLUSIONS));
     }
 
     // ---------- TSO value correctness ----------
@@ -467,11 +488,11 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         LogicalOlapScan scanB = buildScanForTable(2, "b");
         Plan join = crossJoin(scanA, scanB);
 
-        Map<BaseTableInfo, IvmStreamRef> streams = new HashMap<>();
+        Map<TableNameInfo, IvmStreamRef> streams = new HashMap<>();
         addStream(streams, scanA, 100, 200);
         addStream(streams, scanB, 300, 400);
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, streams, NO_EXCLUSIONS);
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, rewriteContext(streams), NO_EXCLUSIONS);
 
         // Plan 0: delta(a) JOIN b(consumedTso_b=300)
         LogicalOlapScan b0 = collectScans(plans.get(0)).get(1);
@@ -485,9 +506,9 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     @Test
     void testGenDeltaScanHasDefaultTso() {
         LogicalOlapScan scan = buildScanForTable(1, "a");
-        Map<BaseTableInfo, IvmStreamRef> streams = makeStreamsWithTso(scan, 10, 20);
+        Map<TableNameInfo, IvmStreamRef> streams = makeStreamsWithTso(scan, 10, 20);
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(scan, streams, NO_EXCLUSIONS);
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(scan, rewriteContext(streams), NO_EXCLUSIONS);
 
         LogicalOlapScan deltaScan = collectScans(plans.get(0)).get(0);
         Assertions.assertTrue(deltaScan.isDelta());
@@ -498,9 +519,9 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     void testGenLatestTsoLessThanConsumedTsoThrows() {
         LogicalOlapScan scan = buildScanForTable(1, "a");
         // latestTso (5) < consumedTso (100) — invalid lifecycle state
-        Map<BaseTableInfo, IvmStreamRef> streams = makeStreamsWithTso(scan, 100, 5);
+        Map<TableNameInfo, IvmStreamRef> streams = makeStreamsWithTso(scan, 100, 5);
 
         Assertions.assertThrows(IllegalStateException.class,
-                () -> new IvmDeltaRewriter().generateDeltaPlans(scan, streams, NO_EXCLUSIONS));
+                () -> new IvmDeltaRewriter().generateDeltaPlans(scan, rewriteContext(streams), NO_EXCLUSIONS));
     }
 }

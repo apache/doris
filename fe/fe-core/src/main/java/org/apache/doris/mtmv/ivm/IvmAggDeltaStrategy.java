@@ -113,7 +113,7 @@ public class IvmAggDeltaStrategy extends IvmLinearDeltaStrategy {
 
     /** Set via constructor, used by visitor methods. Single-use: create a fresh instance per rewrite. */
 
-    public IvmAggDeltaStrategy(IvmDeltaRewriteContext ctx) {
+    public IvmAggDeltaStrategy(IvmRefreshContext ctx) {
         super(ctx);
     }
 
@@ -386,7 +386,7 @@ public class IvmAggDeltaStrategy extends IvmLinearDeltaStrategy {
      * <p>Net-zero filter (grouped only): NOT(mv.row_id IS NULL AND delta_group_count <= 0)
      * prevents inserting delete-sign rows for groups that never existed in the MV.
      */
-    private LogicalProject<?> buildApplyPlan(DeltaPlanParts delta, IvmAggMeta aggMeta, IvmDeltaRewriteContext ctx) {
+    private LogicalProject<?> buildApplyPlan(DeltaPlanParts delta, IvmAggMeta aggMeta, IvmRefreshContext ctx) {
         LogicalOlapScan rawMvScan = buildMvScan(ctx.getMtmv(), ctx);
         LogicalPlan mvPlan = BindRelation.checkAndAddDeleteSignFilter(
                 rawMvScan, ctx.getConnectContext(), ctx.getMtmv());
@@ -513,7 +513,7 @@ public class IvmAggDeltaStrategy extends IvmLinearDeltaStrategy {
         return new LogicalFilter<>(ImmutableSet.of(filter), join);
     }
 
-    private LogicalOlapScan buildMvScan(MTMV mtmv, IvmDeltaRewriteContext ctx) {
+    private LogicalOlapScan buildMvScan(MTMV mtmv, IvmRefreshContext ctx) {
         return new LogicalOlapScan(
                 ctx.getConnectContext().getStatementContext().getNextRelationId(),
                 mtmv,

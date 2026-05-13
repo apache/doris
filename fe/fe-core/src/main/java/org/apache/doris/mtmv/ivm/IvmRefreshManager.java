@@ -25,7 +25,6 @@ import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVAnalyzeQueryInfo;
 import org.apache.doris.mtmv.MTMVPlanUtil;
-import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.StatementContext;
@@ -99,8 +98,7 @@ public class IvmRefreshManager {
     IvmRefreshContext buildRefreshContext(MTMV mtmv) throws Exception {
         ConnectContext connectContext = MTMVPlanUtil.createMTMVContext(mtmv,
                 MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
-        MTMVRefreshContext mtmvRefreshContext = MTMVRefreshContext.buildContext(mtmv);
-        return new IvmRefreshContext(mtmv, connectContext, mtmvRefreshContext);
+        return new IvmRefreshContext(mtmv, connectContext);
     }
 
     @VisibleForTesting
@@ -121,8 +119,9 @@ public class IvmRefreshManager {
         Map<BaseTableInfo, IvmStreamRef> baseTableStreams = mtmv.getIvmInfo().getBaseTableStreams();
         populateLatestTso(baseTableStreams);
 
-        IvmDeltaRewriteContext rewriteCtx = new IvmDeltaRewriteContext(
-                mtmv, context.getConnectContext(), normalizeResult, baseTableStreams);
+        IvmRefreshContext rewriteCtx = new IvmRefreshContext(
+                mtmv, context.getConnectContext(), normalizeResult,
+                IvmRefreshContext.buildBaseTableStreams(baseTableStreams));
         return new IvmDeltaRewriter().rewrite(normalizedPlan, rewriteCtx);
     }
 
@@ -177,11 +176,7 @@ public class IvmRefreshManager {
         if (streams != null && !streams.isEmpty()) {
             return;
         }
-        MTMVRelation relation = mtmv.getRelation();
-        if (relation == null) {
-            return;
-        }
-        Set<BaseTableInfo> baseTables = relation.getBaseTablesOneLevel();
+        Set<BaseTableInfo> baseTables = getBaseTablesForIvmState(mtmv);
         if (baseTables == null || baseTables.isEmpty()) {
             return;
         }
@@ -310,20 +305,41 @@ public class IvmRefreshManager {
     public static void resetIvmStateAfterFullRefresh(MTMV mtmv,
             Map<BaseTableInfo, Long> capturedTsos) {
         IvmInfo ivmInfo = mtmv.getIvmInfo();
-        Map<BaseTableInfo, IvmStreamRef> streams = ivmInfo.getBaseTableStreams();
-        if (streams != null && capturedTsos != null) {
-            for (Map.Entry<BaseTableInfo, IvmStreamRef> entry : streams.entrySet()) {
-                Long tso = capturedTsos.get(entry.getKey());
-                if (tso != null) {
-                    entry.getValue().setConsumedTso(tso);
-                    entry.getValue().setLatestTso(tso);
-                }
-            }
-        }
-        ivmInfo.setRunningIvmRefresh(false);
+        resetIvmStateAfterFullRefresh(ivmInfo, capturedTsos);
         TableNameInfo tableName = new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName());
         Env.getCurrentEnv().alterMTMVIvmInfo(tableName, ivmInfo);
         LOG.info("IVM state reset after full refresh for mv={}", mtmv.getName());
+    }
+
+    public static void clearRunningIvmRefreshAfterFullRefresh(MTMV mtmv) {
+        IvmInfo ivmInfo = mtmv.getIvmInfo();
+        clearRunningIvmRefreshAfterFullRefresh(ivmInfo);
+        TableNameInfo tableName = new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName());
+        Env.getCurrentEnv().alterMTMVIvmInfo(tableName, ivmInfo);
+        LOG.info("IVM running refresh flag cleared after full refresh for mv={}", mtmv.getName());
+    }
+
+    @VisibleForTesting
+    static void clearRunningIvmRefreshAfterFullRefresh(IvmInfo ivmInfo) {
+        ivmInfo.setRunningIvmRefresh(false);
+    }
+
+    @VisibleForTesting
+    static void resetIvmStateAfterFullRefresh(IvmInfo ivmInfo,
+            Map<BaseTableInfo, Long> capturedTsos) {
+        Map<BaseTableInfo, IvmStreamRef> streams = ivmInfo.getBaseTableStreams();
+        if (streams == null) {
+            streams = new HashMap<>();
+            ivmInfo.setBaseTableStreams(streams);
+        }
+        if (capturedTsos != null) {
+            for (Map.Entry<BaseTableInfo, Long> entry : capturedTsos.entrySet()) {
+                IvmStreamRef ref = streams.computeIfAbsent(entry.getKey(), key -> new IvmStreamRef());
+                ref.setConsumedTso(entry.getValue());
+                ref.setLatestTso(entry.getValue());
+            }
+        }
+        ivmInfo.setRunningIvmRefresh(false);
     }
 
     /**
@@ -335,10 +351,12 @@ public class IvmRefreshManager {
     public static Map<BaseTableInfo, Long> captureBaseTableTsos(MTMV mtmv) {
         Map<BaseTableInfo, Long> result = new HashMap<>();
         Map<BaseTableInfo, IvmStreamRef> streams = mtmv.getIvmInfo().getBaseTableStreams();
-        if (streams == null) {
+        Set<BaseTableInfo> baseTables = streams == null || streams.isEmpty()
+                ? getBaseTablesForIvmState(mtmv) : streams.keySet();
+        if (baseTables == null || baseTables.isEmpty()) {
             return result;
         }
-        for (BaseTableInfo tableInfo : streams.keySet()) {
+        for (BaseTableInfo tableInfo : baseTables) {
             try {
                 TableIf table = MTMVUtil.getTable(tableInfo);
                 if (table instanceof OlapTable) {
@@ -351,6 +369,11 @@ public class IvmRefreshManager {
             }
         }
         return result;
+    }
+
+    private static Set<BaseTableInfo> getBaseTablesForIvmState(MTMV mtmv) {
+        MTMVRelation relation = mtmv.getRelation();
+        return relation == null ? null : relation.getBaseTablesOneLevel();
     }
 
     private IvmRefreshResult checkStreamSupport(MTMV mtmv) {

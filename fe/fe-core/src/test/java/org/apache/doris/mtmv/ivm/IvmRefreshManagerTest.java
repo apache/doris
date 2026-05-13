@@ -42,14 +42,11 @@ public class IvmRefreshManagerTest {
     public void testRefreshContextRejectsNulls() {
         MTMV mtmv = mockMtmv();
         ConnectContext connectContext = new ConnectContext();
-        org.apache.doris.mtmv.MTMVRefreshContext mtmvRefreshContext = new org.apache.doris.mtmv.MTMVRefreshContext(mtmv);
 
         Assertions.assertThrows(NullPointerException.class,
-                () -> new IvmRefreshContext(null, connectContext, mtmvRefreshContext));
+                () -> new IvmRefreshContext(null, connectContext));
         Assertions.assertThrows(NullPointerException.class,
-                () -> new IvmRefreshContext(mtmv, null, mtmvRefreshContext));
-        Assertions.assertThrows(NullPointerException.class,
-                () -> new IvmRefreshContext(mtmv, connectContext, null));
+                () -> new IvmRefreshContext(mtmv, null));
     }
 
     @Test
@@ -385,8 +382,46 @@ public class IvmRefreshManagerTest {
         Assertions.assertTrue(ivmInfo.getBaseTableStreams().isEmpty());
     }
 
+    @Test
+    public void testResetIvmStateAfterFullRefreshInitializesMissingStreams() {
+        IvmInfo ivmInfo = new IvmInfo();
+        ivmInfo.setRunningIvmRefresh(true);
+        BaseTableInfo bt1 = Mockito.mock(BaseTableInfo.class);
+        BaseTableInfo bt2 = Mockito.mock(BaseTableInfo.class);
+        Map<BaseTableInfo, Long> capturedTsos = new HashMap<>();
+        capturedTsos.put(bt1, 3L);
+        capturedTsos.put(bt2, 5L);
+
+        IvmRefreshManager.resetIvmStateAfterFullRefresh(ivmInfo, capturedTsos);
+
+        Assertions.assertFalse(ivmInfo.isRunningIvmRefresh());
+        Assertions.assertEquals(2, ivmInfo.getBaseTableStreams().size());
+        Assertions.assertEquals(3L, ivmInfo.getBaseTableStreams().get(bt1).getConsumedTso());
+        Assertions.assertEquals(3L, ivmInfo.getBaseTableStreams().get(bt1).getLatestTso());
+        Assertions.assertEquals(5L, ivmInfo.getBaseTableStreams().get(bt2).getConsumedTso());
+        Assertions.assertEquals(5L, ivmInfo.getBaseTableStreams().get(bt2).getLatestTso());
+    }
+
+    @Test
+    public void testClearRunningIvmRefreshAfterFullRefreshKeepsStreams() {
+        IvmInfo ivmInfo = new IvmInfo();
+        ivmInfo.setRunningIvmRefresh(true);
+        BaseTableInfo baseTable = Mockito.mock(BaseTableInfo.class);
+        IvmStreamRef streamRef = new IvmStreamRef();
+        streamRef.setConsumedTso(10L);
+        streamRef.setLatestTso(20L);
+        ivmInfo.getBaseTableStreams().put(baseTable, streamRef);
+
+        IvmRefreshManager.clearRunningIvmRefreshAfterFullRefresh(ivmInfo);
+
+        Assertions.assertFalse(ivmInfo.isRunningIvmRefresh());
+        Assertions.assertSame(streamRef, ivmInfo.getBaseTableStreams().get(baseTable));
+        Assertions.assertEquals(10L, streamRef.getConsumedTso());
+        Assertions.assertEquals(20L, streamRef.getLatestTso());
+    }
+
     private static IvmRefreshContext newContext(MTMV mtmv) {
-        return new IvmRefreshContext(mtmv, new ConnectContext(), new org.apache.doris.mtmv.MTMVRefreshContext(mtmv));
+        return new IvmRefreshContext(mtmv, new ConnectContext());
     }
 
     private static MTMV mockMtmv() {

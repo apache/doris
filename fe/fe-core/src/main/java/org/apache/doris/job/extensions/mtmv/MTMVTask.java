@@ -306,11 +306,10 @@ public class MTMVTask extends AbstractTask {
     private void executePartitionBasedRefresh(MTMVRefreshContext context)
             throws JobException, AnalysisException {
         Map<TableIf, String> tableWithPartKey = getIncrementalTableMap();
-        // Capture base table TSOs BEFORE the full refresh executes, so we record the
-        // snapshot version the refresh will read (not a later version after new data arrives).
-        Map<org.apache.doris.mtmv.BaseTableInfo, Long> ivmPreRefreshTsos = null;
-        if (mtmv.isIvm() && mtmv.getIvmInfo().isRunningIvmRefresh()) {
-            ivmPreRefreshTsos = IvmRefreshManager.captureBaseTableTsos(mtmv);
+        Map<BaseTableInfo, Long> ivmPreRefreshTsos = null;
+        if (mtmv.isIvm()) {
+            // TODO(IVM): Enable this when full refresh can bind to a real TSO snapshot.
+            // ivmPreRefreshTsos = IvmRefreshManager.captureBaseTableTsos(mtmv);
         }
         this.completedPartitions = Lists.newCopyOnWriteArrayList();
         int refreshPartitionNum = mtmv.getRefreshPartitionNum();
@@ -330,9 +329,8 @@ public class MTMVTask extends AbstractTask {
                 // TODO(IVM): When IVM full refresh falls back here, the refresh SQL should
                 // bind to a specific TSO snapshot to guarantee that consumedTso exactly matches
                 // the version the SQL actually reads. Currently TSO support is incomplete, so
-                // the full refresh reads the latest visible version without TSO binding. This
-                // means the post-refresh consumedTso reset may be slightly inaccurate if base
-                // table data changes during execution. Address this when TSO-bound reads are
+                // the full refresh reads the latest visible version without TSO binding, so
+                // ivmPreRefreshTsos capture/reset stays disabled until TSO-bound reads are
                 // implemented.
                 executeWithRetry(execPartitionNames, tableWithPartKey);
             } catch (Exception e) {
@@ -342,15 +340,19 @@ public class MTMVTask extends AbstractTask {
             completedPartitions.addAll(execPartitionNames);
             partitionSnapshots.putAll(execPartitionSnapshots);
         }
+        if (mtmv.isIvm()) {
+            if (ivmPreRefreshTsos != null && !ivmPreRefreshTsos.isEmpty()) {
+                IvmRefreshManager.resetIvmStateAfterFullRefresh(mtmv, ivmPreRefreshTsos);
+            }
+            if (mtmv.getIvmInfo().isRunningIvmRefresh()) {
+                // TODO(IVM): Re-enable consumedTso reset after ivmPreRefreshTsos is
+                // captured from a real TSO snapshot. Until then, only clear the
+                // recovery flag so manual COMPLETE/INCREMENTAL refresh can continue.
+                IvmRefreshManager.clearRunningIvmRefreshAfterFullRefresh(mtmv);
+            }
+        }
         LOG.info("MTMVTask refresh used snapshot: {}, mvDbName: {}, mvName: {}, taskId: {}", partitionSnapshots,
                 mtmv.getDatabase().getFullName(), mtmv.getName(), getTaskId());
-        // After a successful partition-based (COMPLETE) refresh, clear the IVM
-        // runningIvmRefresh flag if it was left set by a previous incomplete IVM run.
-        // Also advance consumedTso so the next incremental refresh starts from the
-        // correct position rather than re-processing already-refreshed data.
-        if (mtmv.isIvm() && ivmPreRefreshTsos != null && !ivmPreRefreshTsos.isEmpty()) {
-            IvmRefreshManager.resetIvmStateAfterFullRefresh(mtmv, ivmPreRefreshTsos);
-        }
     }
 
     private void executeWithRetry(Set<String> execPartitionNames, Map<TableIf, String> tableWithPartKey)

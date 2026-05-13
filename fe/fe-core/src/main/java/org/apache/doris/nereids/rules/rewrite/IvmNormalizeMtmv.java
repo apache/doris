@@ -22,6 +22,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.ivm.IvmAggMeta;
@@ -32,7 +33,6 @@ import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmNormalizeResult;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -127,8 +127,16 @@ import java.util.stream.Collectors;
  *   <li>Other key types: not supported, throws.
  * </ul>
  *
+ * <p>IVM row-id invariant: every row that really exists in a normalized child plan must have
+ * a non-null {@code __DORIS_IVM_ROW_ID_COL__}. Outer join null-padding is the only place where
+ * a child row-id slot may become NULL, and that NULL means the corresponding side has no
+ * matching row. This lets left outer join compose the MV row-id as
+ * {@code hash(left_row_id, right_row_id)} and use {@code right_row_id = NULL} for padded rows
+ * without confusing them with real right rows.
+ *
  * <h3>Supported plan nodes</h3>
- * OlapScan, filter, project, aggregate, inner/cross join, UNION ALL, result sink, logical olap table sink.
+ * OlapScan, filter, project, aggregate, inner/cross join, root left outer join, UNION ALL,
+ * result sink, logical olap table sink.
  */
 public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements CustomRewriter {
 
@@ -167,7 +175,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
     public Plan visitLogicalOlapScan(LogicalOlapScan scan, Boolean isFirstNonSink) {
         OlapTable table = scan.getTable();
         Pair<Expression, Boolean> rowId = buildRowId(table, scan);
-        validateBinlogEnabled(table);
+        validateBinlogEnabled(scan);
         Alias rowIdAlias = new Alias(rowId.first, Column.IVM_ROW_ID_COL);
         normalizeResult.addRowId(rowIdAlias.toSlot(), rowId.second);
         List<NamedExpression> outputs = ImmutableList.<NamedExpression>builder()
@@ -195,10 +203,10 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
     }
 
     /**
-     * Handles inner join / cross join normalization.
+     * Handles inner join / cross join / root left outer join normalization.
      *
      * <ol>
-     *   <li>Validates join type is INNER_JOIN or CROSS_JOIN</li>
+     *   <li>Validates join type is INNER_JOIN, CROSS_JOIN, or root LEFT_OUTER_JOIN</li>
      *   <li>Normalizes both children (isFirstNonSink = false)</li>
      *   <li>Composes a single row_id = hash(left_row_id, right_row_id)</li>
      *   <li>Wraps with Project that replaces child row_id slots with the composed one</li>
@@ -213,14 +221,26 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Boolean isFirstNonSink) {
         JoinType joinType = join.getJoinType();
-        if (joinType != JoinType.INNER_JOIN && joinType != JoinType.CROSS_JOIN) {
+        if (joinType != JoinType.INNER_JOIN && joinType != JoinType.CROSS_JOIN
+                && joinType != JoinType.LEFT_OUTER_JOIN) {
             throw new IvmException(IvmFailureReason.OUTER_JOIN_RETRACTION_UNSUPPORTED,
                     "IVM does not support join type: " + joinType
-                            + ". Only INNER_JOIN and CROSS_JOIN are supported.");
+                            + ". Only INNER_JOIN, CROSS_JOIN and LEFT_OUTER_JOIN are supported.");
         }
         if (join.isMarkJoin()) {
             throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                     "IVM does not support mark join (subquery with disjunction).");
+        }
+        if (joinType.isOuterJoin()) {
+            if (!isFirstNonSink) {
+                throw new IvmException(IvmFailureReason.OUTER_JOIN_RETRACTION_UNSUPPORTED,
+                        "IVM OUTER JOIN must be the top-level operator "
+                                + "(only sinks and projects allowed above it)");
+            }
+            // TODO: tighten nullable-side snapshot validation to an explicit allowlist:
+            // OlapScan, Project, Filter, Inner/Cross Join, and excluded-only UNION ALL.
+            checkNullableSideSnapshotSupported(join.right());
+            normalizeResult.setOuterJoinMv(true);
         }
 
         Plan newLeft = join.left().accept(this, false);
@@ -234,8 +254,17 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
         // Look up each child's row_id determinism from the accumulated map
         boolean leftDet = normalizeResult.isDeterministic(leftRowIdSlot);
         boolean rightDet = normalizeResult.isDeterministic(rightRowIdSlot);
+        if (joinType == JoinType.LEFT_OUTER_JOIN && !leftDet) {
+            // Nullable-side deltas may emit +1/-1 pad-null repair rows keyed by
+            // hash(left_row_id, NULL). A non-deterministic preserved-side row_id cannot
+            // be reproduced across refreshes, so LEFT OUTER JOIN IVM cannot maintain it.
+            throw new IvmException(IvmFailureReason.NON_DETERMINISTIC_ROW_ID,
+                    "IVM LEFT OUTER JOIN requires deterministic row_id on preserved side");
+        }
 
-        // Compose join row_id = hash(left_row_id, right_row_id)
+        // Compose join row_id = hash(left_row_id, right_row_id).
+        // Valid child row_ids are non-null by the normalize invariant above. For LEFT OUTER JOIN,
+        // a NULL right row_id can only come from join null-padding and means no matching right row.
         Expression joinRowIdExpr = IvmUtil.buildRowIdHash(ImmutableList.of(leftRowIdSlot, rightRowIdSlot));
         Alias joinRowIdAlias = new Alias(joinRowIdExpr, Column.IVM_ROW_ID_COL);
 
@@ -363,7 +392,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
             } else if (output instanceof Alias && ((Alias) output).child() instanceof AggregateFunction) {
                 aggAliases.add((Alias) output);
             } else {
-                throw new AnalysisException(
+                throw new IvmException(IvmFailureReason.AGG_UNSUPPORTED,
                         "IVM: unexpected expression in normalized aggregate output: " + output);
             }
         }
@@ -427,6 +456,41 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
         normalizeResult.setAggMeta(aggMeta);
 
         return new LogicalProject<>(projectOutputs.build(), newAgg);
+    }
+
+    private void checkNullableSideSnapshotSupported(Plan nullableSide) {
+        // Outer-join pad-null repair needs the nullable side's full pre/post snapshot.
+        // For UNION ALL, the linear delta strategy prunes non-delta arms and keeps only
+        // the changed arm. If such a UNION ALL contains a trigger-table OlapScan, O1 cannot
+        // reconstruct the full nullable-side snapshot from the rewritten delta plan reliably.
+        // Excluded trigger tables are ignored because their changes do not produce delta arms.
+        if (containsUnionAllWithOlapScan(nullableSide)) {
+            throw new IvmException(IvmFailureReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED,
+                    "IVM OUTER JOIN does not support UNION ALL with OlapScan on nullable side");
+        }
+    }
+
+    private boolean containsUnionAllWithOlapScan(Plan plan) {
+        if (!plan.containsType(LogicalUnion.class)) {
+            return false;
+        }
+        return plan.<LogicalUnion>collectFirst(node -> {
+            if (!(node instanceof LogicalUnion)) {
+                return false;
+            }
+            LogicalUnion union = (LogicalUnion) node;
+            if (!union.containsType(LogicalOlapScan.class)) {
+                return false;
+            }
+            return union.getQualifier() == Qualifier.ALL
+                    && union.<LogicalOlapScan>collectFirst(child -> {
+                        if (!(child instanceof LogicalOlapScan)) {
+                            return false;
+                        }
+                        LogicalOlapScan scan = (LogicalOlapScan) child;
+                        return !isExcludedTriggerTable(scan);
+                    }).isPresent();
+        }).isPresent();
     }
 
     /**
@@ -506,7 +570,8 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
             // Resolve visible slot
             Slot resolvedVisible = slotByName.get(target.getVisibleSlot().getName());
             if (resolvedVisible == null) {
-                throw new AnalysisException("IVM: failed to resolve visible slot '"
+                throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                        "IVM: failed to resolve visible slot '"
                         + target.getVisibleSlot().getName() + "' from rebuilt aggregate output");
             }
 
@@ -515,7 +580,8 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
             for (Map.Entry<AggType, Slot> entry : target.getHiddenStateSlots().entrySet()) {
                 Slot resolvedSlot = slotByName.get(entry.getValue().getName());
                 if (resolvedSlot == null) {
-                    throw new AnalysisException("IVM: failed to resolve hidden state slot '"
+                    throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                            "IVM: failed to resolve hidden state slot '"
                             + entry.getValue().getName() + "' from rebuilt aggregate output");
                 }
                 resolvedHidden.put(entry.getKey(), resolvedSlot);
@@ -557,7 +623,8 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
             Plan normalizedChild, List<NamedExpression> outputs) {
         Map<String, Slot> ivmHiddenSlotsByName = collectIvmHiddenSlots(normalizedChild);
         if (!ivmHiddenSlotsByName.containsKey(Column.IVM_ROW_ID_COL)) {
-            throw new AnalysisException("IVM normalization error: child plan has no row-id slot after normalization");
+            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                    "IVM normalization error: child plan has no row-id slot after normalization");
         }
 
         // Separate row-id from other hidden slots
@@ -602,7 +669,8 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
     private NamedExpression rewriteIvmHiddenOutput(NamedExpression output, Map<String, Slot> ivmHiddenSlotsByName) {
         Slot ivmHiddenSlot = ivmHiddenSlotsByName.get(output.getName());
         if (ivmHiddenSlot == null) {
-            throw new AnalysisException("IVM normalization error: child plan has no hidden slot named "
+            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                    "IVM normalization error: child plan has no hidden slot named "
                     + output.getName() + " after normalization");
         }
         if (output instanceof Slot) {
@@ -613,7 +681,8 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
             return new Alias(alias.getExprId(), ImmutableList.of(ivmHiddenSlot), alias.getName(),
                     alias.getQualifier(), alias.isNameFromChild());
         }
-        throw new AnalysisException("IVM normalization error: unsupported hidden output expression: "
+        throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                "IVM normalization error: unsupported hidden output expression: "
                 + output.getClass().getSimpleName());
     }
 
@@ -622,11 +691,11 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
      * - UNIQUE_KEYS (MOW or excluded): (buildRowIdHash(uk...), true)      — stable across refreshes
      * - DUP_KEYS: (UuidNumeric(), false)                                  — random per insert
      * - Excluded AGG_KEYS: (buildRowIdHash(agg key...), true)             — stable across refreshes
-     * - Other key types: throws AnalysisException (unless excluded trigger table)
+     * - Other key types: throws IvmException (unless excluded trigger table)
      */
     private Pair<Expression, Boolean> buildRowId(OlapTable table, LogicalOlapScan scan) {
         KeysType keysType = table.getKeysType();
-        boolean isExcludedTriggerTable = isExcludedTriggerTable(table);
+        boolean isExcludedTriggerTable = isExcludedTriggerTable(scan);
         if (keysType == KeysType.UNIQUE_KEYS) {
             if (!table.getEnableUniqueKeyMergeOnWrite() && !isExcludedTriggerTable) {
                 throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
@@ -660,16 +729,18 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
                 .filter(slot -> keyColNames.contains(slot.getName()))
                 .collect(Collectors.toList());
         if (keySlots.isEmpty()) {
-            throw new AnalysisException("IVM: no key columns found for "
+            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                    "IVM: no key columns found for "
                     + table.getKeysType() + " table: " + table.getName());
         }
         return Pair.of(IvmUtil.buildRowIdHash(keySlots), true);
     }
 
-    private void validateBinlogEnabled(OlapTable table) {
-        if (isExcludedTriggerTable(table)) {
+    private void validateBinlogEnabled(LogicalOlapScan scan) {
+        if (isExcludedTriggerTable(scan)) {
             return;
         }
+        OlapTable table = scan.getTable();
         if (!table.getBinlogConfig().isEnableForStreaming()) {
             throw new IvmException(IvmFailureReason.BINLOG_NOT_ENABLED,
                     "SQL can be incrementally refreshed, but row binlog is not enabled for table: "
@@ -678,13 +749,21 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
         }
     }
 
-    private boolean isExcludedTriggerTable(OlapTable table) {
+    private boolean isExcludedTriggerTable(LogicalOlapScan scan) {
         if (statementContext == null || statementContext.getExcludedTriggerTables().isEmpty()) {
             return false;
         }
+        OlapTable table = scan.getTable();
         TableNameInfo tableNameInfo = TableNameInfoUtils.fromTableOrNull(table);
         if (tableNameInfo == null) {
-            return false;
+            List<String> qualifier = scan.getQualifier();
+            String dbName = qualifier.isEmpty() ? table.getDBName() : qualifier.get(qualifier.size() - 1);
+            if (dbName == null) {
+                return false;
+            }
+            String ctlName = qualifier.size() >= 2 ? qualifier.get(qualifier.size() - 2)
+                    : InternalCatalog.INTERNAL_CATALOG_NAME;
+            tableNameInfo = new TableNameInfo(ctlName, dbName, table.getName());
         }
         return MTMVPartitionUtil.isTableExcluded(statementContext.getExcludedTriggerTables(), tableNameInfo);
     }
@@ -700,7 +779,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
      *   <li>Only count, sum, avg, min, and max are supported.</li>
      * </ol>
      *
-     * @throws AnalysisException if validation fails
+     * @throws IvmException if validation fails
      */
     private static void checkAggFunctions(List<AggregateFunction> aggFunctions) {
         for (AggregateFunction aggFunc : aggFunctions) {
