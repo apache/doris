@@ -17,36 +17,10 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.AnalysisException;
-
 import org.junit.Assert;
 import org.junit.Test;
 
 public class MediumAllocationModeTest {
-
-    @Test
-    public void testFromStringCaseInsensitive() throws AnalysisException {
-        Assert.assertEquals(MediumAllocationMode.STRICT, MediumAllocationMode.fromString("strict"));
-        Assert.assertEquals(MediumAllocationMode.STRICT, MediumAllocationMode.fromString("STRICT"));
-        Assert.assertEquals(MediumAllocationMode.STRICT, MediumAllocationMode.fromString(" Strict "));
-        Assert.assertEquals(MediumAllocationMode.ADAPTIVE, MediumAllocationMode.fromString("adaptive"));
-        Assert.assertEquals(MediumAllocationMode.ADAPTIVE, MediumAllocationMode.fromString("ADAPTIVE"));
-    }
-
-    @Test(expected = AnalysisException.class)
-    public void testFromStringNullThrows() throws AnalysisException {
-        MediumAllocationMode.fromString(null);
-    }
-
-    @Test(expected = AnalysisException.class)
-    public void testFromStringBlankThrows() throws AnalysisException {
-        MediumAllocationMode.fromString("   ");
-    }
-
-    @Test(expected = AnalysisException.class)
-    public void testFromStringUnknownThrows() throws AnalysisException {
-        MediumAllocationMode.fromString("lax");
-    }
 
     @Test
     public void testIsStrictIsAdaptive() {

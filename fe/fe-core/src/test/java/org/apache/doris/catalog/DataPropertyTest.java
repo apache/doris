@@ -25,6 +25,7 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -92,6 +93,46 @@ public class DataPropertyTest {
         Assert.assertEquals(TStorageMedium.HDD, restored.getStorageMedium());
         Assert.assertEquals(MediumAllocationMode.ADAPTIVE, restored.getMediumAllocationMode());
         Assert.assertFalse(restored.isStorageMediumSpecified());
+    }
+
+    @Test
+    public void testPostProcessDefaultsNullMediumAllocationMode() throws Exception {
+        DataProperty dataProperty = new DataProperty(TStorageMedium.HDD);
+        Field modeField = DataProperty.class.getDeclaredField("mediumAllocationMode");
+        modeField.setAccessible(true);
+        modeField.set(dataProperty, null);
+
+        dataProperty.gsonPostProcess();
+
+        Assert.assertEquals(MediumAllocationMode.ADAPTIVE, dataProperty.getMediumAllocationMode());
+    }
+
+    @Test
+    public void testCopyConstructorPreservesMediumAllocationMode() {
+        DataProperty source = new DataProperty(TStorageMedium.SSD);
+        source.setMediumAllocationMode(MediumAllocationMode.STRICT);
+
+        DataProperty copied = new DataProperty(source);
+
+        Assert.assertEquals(MediumAllocationMode.STRICT, copied.getMediumAllocationMode());
+    }
+
+    @Test
+    public void testHashCodeConsistentForSameMediumAllocationMode() {
+        DataProperty strict = new DataProperty(TStorageMedium.SSD);
+        strict.setMediumAllocationMode(MediumAllocationMode.STRICT);
+        DataProperty copied = new DataProperty(strict);
+
+        Assert.assertEquals(strict, copied);
+        Assert.assertEquals(strict.hashCode(), copied.hashCode());
+    }
+
+    @Test
+    public void testToStringIncludesMediumAllocationMode() {
+        DataProperty dataProperty = new DataProperty(TStorageMedium.SSD);
+        dataProperty.setMediumAllocationMode(MediumAllocationMode.STRICT);
+
+        Assert.assertTrue(dataProperty.toString().contains("medium allocation mode[STRICT]"));
     }
 
     @Test

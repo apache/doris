@@ -17,10 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.AnalysisException;
-
-import com.google.common.base.Strings;
-
 /**
  * Defines how Doris decides the storage medium of a data property
  * (partition-level / table-level).
@@ -40,18 +36,8 @@ import com.google.common.base.Strings;
  * </ul>
  */
 public enum MediumAllocationMode {
-    STRICT("strict"),
-    ADAPTIVE("adaptive");
-
-    private final String value;
-
-    MediumAllocationMode(String value) {
-        this.value = value;
-    }
-
-    public String getValue() {
-        return value;
-    }
+    STRICT,
+    ADAPTIVE;
 
     public boolean isStrict() {
         return this == STRICT;
@@ -59,25 +45,5 @@ public enum MediumAllocationMode {
 
     public boolean isAdaptive() {
         return this == ADAPTIVE;
-    }
-
-    /**
-     * Parse a user-provided string (case-insensitive, trimmed) into the enum.
-     *
-     * @throws AnalysisException if the value is null, blank or unrecognised.
-     */
-    public static MediumAllocationMode fromString(String value) throws AnalysisException {
-        String trimmed = Strings.nullToEmpty(value).trim();
-        if (trimmed.isEmpty()) {
-            throw new AnalysisException("medium_allocation_mode cannot be null or empty");
-        }
-        for (MediumAllocationMode mode : values()) {
-            if (mode.value.equalsIgnoreCase(trimmed)) {
-                return mode;
-            }
-        }
-        throw new AnalysisException(String.format(
-                "Invalid medium_allocation_mode value: '%s'. Valid options are: 'strict', 'adaptive'",
-                value));
     }
 }

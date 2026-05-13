@@ -115,6 +115,71 @@ suite("test_medium_allocation_mode_compat", 'docker') {
     }
 }
 
+// ADAPTIVE means the configured/default medium is only a hint. On a HDD-only
+// cluster with default_storage_medium=SSD, implicit tables should still be
+// creatable and should land on HDD, while explicit SSD remains STRICT and fails.
+suite("test_medium_allocation_mode_adaptive_fallback", 'docker') {
+    def options = new ClusterOptions()
+    options.feConfigs += [
+        'default_storage_medium=SSD',
+    ]
+    options.beDisks = ['HDD=1']
+
+    def collectPartitionMediums = { tbl ->
+        def partitions = sql_return_maparray "SHOW PARTITIONS FROM ${tbl};"
+        def media = []
+        partitions.each { media << it.StorageMedium }
+        return media
+    }
+
+    def assertAllEqual = { mediums, expected, tbl ->
+        log.info("${tbl} storage mediums: ${mediums}")
+        assertTrue(!mediums.isEmpty(), "${tbl} must have at least one partition")
+        mediums.each {
+            assertEquals(expected, it, "${tbl}: expected ${expected}, got ${it}")
+        }
+    }
+
+    docker(options) {
+        def tblImplicit = "medium_mode_adaptive_fallback"
+        def tblStrictSsd = "medium_mode_strict_ssd_no_disk"
+
+        [tblImplicit, tblStrictSsd].each {
+            sql "drop table if exists ${it}"
+        }
+
+        sql """
+            CREATE TABLE ${tblImplicit} (
+                k1 BIGINT,
+                v1 VARCHAR(64)
+            )
+            DUPLICATE KEY(k1)
+            DISTRIBUTED BY HASH(k1) BUCKETS 2
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+        sleep 1000
+        assertAllEqual(collectPartitionMediums(tblImplicit), "HDD", tblImplicit)
+
+        test {
+            sql """
+                CREATE TABLE ${tblStrictSsd} (
+                    k1 BIGINT,
+                    v1 VARCHAR(64)
+                )
+                DUPLICATE KEY(k1)
+                DISTRIBUTED BY HASH(k1) BUCKETS 2
+                PROPERTIES (
+                    "storage_medium" = "SSD",
+                    "replication_num" = "1"
+                );
+            """
+            exception "Failed to find enough backend"
+        }
+    }
+}
+
 // Non-docker coverage for the same PR-1 user-visible semantics. The docker
 // suite above owns mixed HDD/SSD and FE restart coverage; this suite is meant
 // to run against an already-started regression cluster and only asserts the
