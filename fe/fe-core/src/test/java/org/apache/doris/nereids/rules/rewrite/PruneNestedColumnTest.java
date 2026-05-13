@@ -117,6 +117,11 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 + "  >\n"
                 + ") properties ('replication_num'='1')");
 
+        createTable("create table nested_array_tbl(\n"
+                + "  id int,\n"
+                + "  a array<array<int>>\n"
+                + ") properties ('replication_num'='1')");
+
         createTable("create table map_array_value_tbl(\n"
                 + "  id int,\n"
                 + "  s struct<\n"
@@ -179,6 +184,14 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                         + "from nested_container_tbl",
                 ImmutableList.of(path("s", "m", "KEYS"), path("s", "m", "VALUES")),
                 ImmutableList.of(path("s", "m", "*", "OFFSET"), path("s", "m", "VALUES", "OFFSET")));
+    }
+
+    @Test
+    public void testCardinalityArrayElementKeepsOffsetPath() throws Exception {
+        assertAllAccessPathsContain(
+                "select cardinality(element_at(a, 1)) from nested_array_tbl",
+                ImmutableList.of(path("a", "*", "OFFSET")),
+                ImmutableList.of(path("a", "*")));
     }
 
     @Test
