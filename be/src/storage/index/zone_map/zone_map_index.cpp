@@ -279,14 +279,14 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
     _segment_zone_map.to_proto(meta->mutable_segment_zone_map(), _data_type);
 
     // write out zone map for each data pages
-    const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_BITMAP>();
+    constexpr FieldType type = FieldType::OLAP_FIELD_TYPE_BITMAP;
     IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = false;
-    options.encoding = EncodingInfo::get_default_encoding(type_info->type(), {}, false);
+    options.encoding = EncodingInfo::get_default_encoding(type, {}, false);
     options.compression = NO_COMPRESSION; // currently not compressed
 
-    IndexedColumnWriter writer(options, type_info, file_writer);
+    IndexedColumnWriter writer(options, type, file_writer);
     RETURN_IF_ERROR(writer.init());
 
     for (auto& value : _values) {

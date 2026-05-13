@@ -287,9 +287,8 @@ private:
 
     DataTypePtr _data_type;
 
-    TypeInfoPtr _type_info =
-            TypeInfoPtr(nullptr,
-                        nullptr); // initialized in init(), may changed by subclasses.
+    FieldType _type =
+            FieldType::OLAP_FIELD_TYPE_NONE; // initialized in init(), may changed by subclasses.
     const EncodingInfo* _encoding_info =
             nullptr; // initialized in init(), used for create PageDecoder
 
@@ -755,12 +754,11 @@ private:
 class DefaultValueColumnIterator : public ColumnIterator {
 public:
     DefaultValueColumnIterator(bool has_default_value, const std::string& default_value,
-                               bool is_nullable, TypeInfoPtr type_info, int precision, int scale,
-                               int len)
+                               bool is_nullable, FieldType type, int precision, int scale, int len)
             : _has_default_value(has_default_value),
               _default_value(default_value),
               _is_nullable(is_nullable),
-              _type_info(std::move(type_info)),
+              _type(type),
               _precision(precision),
               _scale(scale),
               _len(len) {}
@@ -794,7 +792,7 @@ private:
     bool _has_default_value;
     std::string _default_value;
     bool _is_nullable;
-    TypeInfoPtr _type_info;
+    FieldType _type;
     int _precision;
     int _scale;
     const int _len;

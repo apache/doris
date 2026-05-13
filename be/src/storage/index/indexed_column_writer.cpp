@@ -40,10 +40,10 @@ namespace doris {
 namespace segment_v2 {
 #include "common/compile_check_begin.h"
 
-IndexedColumnWriter::IndexedColumnWriter(const IndexedColumnWriterOptions& options,
-                                         const TypeInfo* type_info, io::FileWriter* file_writer)
+IndexedColumnWriter::IndexedColumnWriter(const IndexedColumnWriterOptions& options, FieldType type,
+                                         io::FileWriter* file_writer)
         : _options(options),
-          _type_info(type_info),
+          _type(type),
           _file_writer(file_writer),
           _num_values(0),
           _num_data_pages(0),
@@ -55,7 +55,7 @@ IndexedColumnWriter::~IndexedColumnWriter() = default;
 
 Status IndexedColumnWriter::init() {
     const EncodingInfo* encoding_info;
-    RETURN_IF_ERROR(EncodingInfo::get(_type_info->type(), _options.encoding, {}, &encoding_info));
+    RETURN_IF_ERROR(EncodingInfo::get(_type, _options.encoding, {}, &encoding_info));
     _options.encoding = encoding_info->encoding();
     // should store more concrete encoding type instead of DEFAULT_ENCODING
     // because the default encoding of a data type can be changed in the future
@@ -73,7 +73,7 @@ Status IndexedColumnWriter::init() {
     }
     if (_options.write_value_index) {
         _value_index_builder.reset(new IndexPageBuilder(_options.index_page_size, true));
-        _value_key_coder = get_key_coder(_type_info->type());
+        _value_key_coder = get_key_coder(_type);
     }
 
     if (_options.compression != NO_COMPRESSION) {
@@ -160,7 +160,7 @@ Status IndexedColumnWriter::finish(IndexedColumnMetaPB* meta) {
     if (_options.write_value_index) {
         RETURN_IF_ERROR(_flush_index(_value_index_builder.get(), meta->mutable_value_index_meta()));
     }
-    meta->set_data_type(int(_type_info->type()));
+    meta->set_data_type(int(_type));
     meta->set_encoding(_options.encoding);
     meta->set_num_values(_num_values);
     meta->set_compression(_options.compression);

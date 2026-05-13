@@ -1793,7 +1793,7 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
                         .length() +
                 1;
         auto index_type = DataTypeFactory::instance().create_data_type(
-                _segment->_pk_index_reader->type_info()->type(), 1, 0);
+                _segment->_pk_index_reader->type(), 1, 0);
         auto index_column = index_type->create_column();
         size_t num_to_read = 1;
         size_t num_read = num_to_read;

@@ -652,10 +652,9 @@ Status Segment::new_default_iterator(const TabletColumn& tablet_column,
                 "column_type={}",
                 tablet_column.unique_id(), tablet_column.name(), tablet_column.type());
     }
-    auto type_info = get_type_info(&tablet_column);
     std::unique_ptr<DefaultValueColumnIterator> default_value_iter(new DefaultValueColumnIterator(
             tablet_column.has_default_value(), tablet_column.default_value(),
-            tablet_column.is_nullable(), std::move(type_info), tablet_column.precision(),
+            tablet_column.is_nullable(), tablet_column.type(), tablet_column.precision(),
             tablet_column.frac(), tablet_column.length()));
     ColumnIteratorOptions iter_opts;
 
@@ -889,8 +888,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
     row_location->rowset_id = _rowset_id;
 
     size_t num_to_read = 1;
-    auto index_type = DataTypeFactory::instance().create_data_type(
-            _pk_index_reader->type_info()->type(), 1, 0);
+    auto index_type = DataTypeFactory::instance().create_data_type(_pk_index_reader->type(), 1, 0);
     auto index_column = index_type->create_column();
     size_t num_read = num_to_read;
     RETURN_IF_ERROR(index_iterator->next_batch(&num_read, index_column));
@@ -937,8 +935,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
         Slice rowid_slice = Slice(sought_key.get_data() + sought_key_without_seq.get_size() +
                                           (segment_has_seq_col ? seq_col_length : 0) + 1,
                                   rowid_length - 1);
-        const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>();
-        const auto* rowid_coder = get_key_coder(type_info->type());
+        const auto* rowid_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
         RETURN_IF_ERROR(rowid_coder->decode_ascending(&rowid_slice, rowid_length,
                                                       (uint8_t*)&row_location->row_id));
     }
@@ -962,8 +959,7 @@ Status Segment::read_key_by_rowid(uint32_t row_id, std::string* key) {
     std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
     RETURN_IF_ERROR(_pk_index_reader->new_iterator(&iter, null_stat));
 
-    auto index_type = DataTypeFactory::instance().create_data_type(
-            _pk_index_reader->type_info()->type(), 1, 0);
+    auto index_type = DataTypeFactory::instance().create_data_type(_pk_index_reader->type(), 1, 0);
     auto index_column = index_type->create_column();
     RETURN_IF_ERROR(iter->seek_to_ordinal(row_id));
     size_t num_read = 1;

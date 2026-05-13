@@ -132,7 +132,7 @@ inline ScalarColumnWriter* get_null_writer(const ColumnWriterOptions& opts,
     null_options.meta->set_type(int(null_type));
     null_options.meta->set_is_nullable(false);
     null_options.meta->set_length(
-            cast_set<int32_t>(get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_TINYINT>()->size()));
+            cast_set<int32_t>(field_type_size(FieldType::OLAP_FIELD_TYPE_TINYINT)));
     null_options.meta->set_encoding(DEFAULT_ENCODING);
     null_options.meta->set_compression(opts.meta->compression());
 
@@ -211,8 +211,8 @@ Status ColumnWriter::create_array_writer(const ColumnWriterOptions& opts,
     length_options.meta->set_unique_id(2);
     length_options.meta->set_type(int(length_type));
     length_options.meta->set_is_nullable(false);
-    length_options.meta->set_length(cast_set<int32_t>(
-            get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>()->size()));
+    length_options.meta->set_length(
+            cast_set<int32_t>(field_type_size(FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT)));
     length_options.meta->set_encoding(DEFAULT_ENCODING);
     length_options.meta->set_compression(opts.meta->compression());
 
@@ -275,8 +275,8 @@ Status ColumnWriter::create_map_writer(const ColumnWriterOptions& opts, const Ta
     length_options.meta->set_unique_id(column->get_subtype_count() + 1);
     length_options.meta->set_type(int(length_type));
     length_options.meta->set_is_nullable(false);
-    length_options.meta->set_length(cast_set<int32_t>(
-            get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>()->size()));
+    length_options.meta->set_length(
+            cast_set<int32_t>(field_type_size(FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT)));
     length_options.meta->set_encoding(DEFAULT_ENCODING);
     length_options.meta->set_compression(opts.meta->compression());
 
@@ -577,11 +577,11 @@ Status ScalarColumnWriter::init() {
     if (_opts.need_bloom_filter) {
         if (_opts.is_ngram_bf_index) {
             RETURN_IF_ERROR(NGramBloomFilterIndexWriterImpl::create(
-                    BloomFilterOptions(), get_field()->type_info(), _opts.gram_size,
-                    _opts.gram_bf_size, &_bloom_filter_index_builder));
+                    BloomFilterOptions(), get_field()->type(), _opts.gram_size, _opts.gram_bf_size,
+                    &_bloom_filter_index_builder));
         } else {
-            RETURN_IF_ERROR(BloomFilterIndexWriter::create(
-                    _opts.bf_options, get_field()->type_info(), &_bloom_filter_index_builder));
+            RETURN_IF_ERROR(BloomFilterIndexWriter::create(_opts.bf_options, get_field()->type(),
+                                                           &_bloom_filter_index_builder));
         }
     }
     return Status::OK();
