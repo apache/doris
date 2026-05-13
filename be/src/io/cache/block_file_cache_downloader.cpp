@@ -211,7 +211,7 @@ void FileCacheBlockDownloader::download_file_cache_block(
             decrease_inflight_count();
             return;
         } else {
-            tablet = std::move(res).value();
+            tablet = *std::move(res);
         }
         if (!synced_tablets.contains(meta.tablet_id())) {
             auto st = tablet->sync_rowsets();

@@ -152,8 +152,10 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
         auto st = _load_stream_writer->append_data(new_segid, header.offset(), buf, file_type);
         if (!st.ok() && !config::is_cloud_mode()) {
             auto res = ExecEnv::get_tablet(_id);
-            TabletSharedPtr tablet =
-                    res.has_value() ? std::dynamic_pointer_cast<Tablet>(res.value()) : nullptr;
+            TabletSharedPtr tablet = nullptr;
+            if (res.has_value()) {
+                tablet = std::dynamic_pointer_cast<Tablet>(res.value());
+            }
             if (tablet) {
                 tablet->report_error(st);
             }
@@ -573,7 +575,7 @@ void LoadStream::_report_schema(StreamId stream, const PStreamHeader& hdr) {
     for (const auto& req : hdr.tablets()) {
         BaseTabletSPtr tablet;
         if (auto res = ExecEnv::get_tablet(req.tablet_id()); res.has_value()) {
-            tablet = std::move(res).value();
+            tablet = *std::move(res);
         } else {
             st = std::move(res).error();
             break;
@@ -621,7 +623,7 @@ void LoadStream::_collect_tablet_load_info_from_tablets(
     for (auto tablet_id : tablet_ids) {
         BaseTabletSPtr tablet;
         if (auto res = ExecEnv::get_tablet(tablet_id); res.has_value()) {
-            tablet = std::move(res).value();
+            tablet = *std::move(res);
         } else {
             continue;
         }

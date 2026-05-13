@@ -102,7 +102,7 @@ Status HdfsFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
                                         const FileWriterOptions* opts) {
     auto res = io::HdfsFileWriter::create(file, _fs_handler, _fs_name, opts);
     if (res.has_value()) {
-        *writer = std::move(res).value();
+        *writer = *std::move(res);
         return Status::OK();
     } else {
         return std::move(res).error();

@@ -746,7 +746,7 @@ using ResultError = unexpected<Status>;
         if (!try_res.has_value()) [[unlikely]] {     \
             return std::forward<T>(try_res).error(); \
         }                                            \
-        std::forward<T>(try_res).value();            \
+        *std::forward<T>(try_res);                   \
     });
 
 #define TEST_TRY(stmt)                                                                          \
@@ -756,7 +756,7 @@ using ResultError = unexpected<Status>;
         if (!res.has_value()) [[unlikely]] {                                                    \
             ASSERT_TRUE(res.has_value()) << "Expected success, but got error: " << res.error(); \
         }                                                                                       \
-        std::forward<T>(res).value();                                                           \
+        *std::forward<T>(res);                                                                  \
     })
 
 #define TEST_RESULT_ERROR(stmt)                                                                   \

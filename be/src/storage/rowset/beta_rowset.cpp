@@ -874,8 +874,7 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
                 LOG(INFO) << "IndexFileReader open error:" << ret.error();
                 return Status::InternalError("IndexFileReader open error");
             }
-            using T = std::decay_t<decltype(ret)>;
-            auto reader = std::forward<T>(ret).value();
+            auto reader = *std::move(ret);
             reader->list(&files);
             for (auto& file : files) {
                 rapidjson::Value file_value(rapidjson::kObjectType);

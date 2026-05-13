@@ -2885,7 +2885,11 @@ std::string Tablet::get_segment_path(const RowsetMetaSharedPtr& rs_meta, int64_t
     if (rs_meta->is_local()) {
         segment_path = local_segment_path(_tablet_path, rs_meta->rowset_id().to_string(), seg_id);
     } else {
-        segment_path = rs_meta->remote_storage_resource().value()->remote_segment_path(
+        auto storage_resource = rs_meta->remote_storage_resource();
+        if (!storage_resource.has_value()) [[unlikely]] {
+            throw Exception(storage_resource.error());
+        }
+        segment_path = storage_resource.value()->remote_segment_path(
                 rs_meta->tablet_id(), rs_meta->rowset_id().to_string(), seg_id);
     }
     return segment_path;

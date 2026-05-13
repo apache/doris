@@ -389,8 +389,10 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
         BaseTabletSPtr tablet = scope_timer_run(
                 [&]() {
                     auto res = ExecEnv::get_tablet(row_loc.tablet_id(), nullptr, true);
-                    return !res.has_value() ? nullptr
-                                            : std::dynamic_pointer_cast<BaseTablet>(res.value());
+                    if (!res.has_value()) {
+                        return BaseTabletSPtr(nullptr);
+                    }
+                    return std::dynamic_pointer_cast<BaseTablet>(res.value());
                 },
                 &acquire_tablet_ms);
         RowsetId rowset_id;
@@ -1015,8 +1017,10 @@ Status RowIdStorageReader::read_doris_format_row(
         tablet = scope_timer_run(
                 [&]() {
                     auto res = ExecEnv::get_tablet(tablet_id);
-                    return !res.has_value() ? nullptr
-                                            : std::dynamic_pointer_cast<BaseTablet>(res.value());
+                    if (!res.has_value()) {
+                        return BaseTabletSPtr(nullptr);
+                    }
+                    return std::dynamic_pointer_cast<BaseTablet>(res.value());
                 },
                 acquire_tablet_ms);
         if (!tablet) {

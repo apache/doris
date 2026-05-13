@@ -207,7 +207,7 @@ Result<io::FileReaderSPtr> FileFactory::create_file_reader(
     if (!reader_res.has_value()) {
         return unexpected(std::move(reader_res).error());
     }
-    return std::move(reader_res).value();
+    return *std::move(reader_res);
 }
 
 Result<io::FileReaderSPtr> FileFactory::_create_file_reader_internal(

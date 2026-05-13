@@ -81,6 +81,19 @@
 #endif
 #endif
 
+#if defined(__clang__) && __has_attribute(consumable) && __has_attribute(callable_when) && \
+  __has_attribute(test_typestate) && __has_attribute(return_typestate)
+#define TL_EXPECTED_CLANG_CONSUMABLE_UNKNOWN __attribute__((consumable(unknown)))
+#define TL_EXPECTED_CLANG_CALLABLE_WHEN_UNCONSUMED __attribute__((callable_when("unconsumed")))
+#define TL_EXPECTED_CLANG_TEST_UNCONSUMED __attribute__((test_typestate(unconsumed)))
+#define TL_EXPECTED_CLANG_RETURN_UNKNOWN __attribute__((return_typestate(unknown)))
+#else
+#define TL_EXPECTED_CLANG_CONSUMABLE_UNKNOWN
+#define TL_EXPECTED_CLANG_CALLABLE_WHEN_UNCONSUMED
+#define TL_EXPECTED_CLANG_TEST_UNCONSUMED
+#define TL_EXPECTED_CLANG_RETURN_UNKNOWN
+#endif
+
 #if (defined(__GNUC__) && __GNUC__ == 4 && __GNUC_MINOR__ <= 9 &&              \
      !defined(__clang__))
 // GCC < 5 doesn't support overloading on const&& for member functions
@@ -1249,10 +1262,11 @@ private:
 /// has been destroyed. The initialization state of the contained object is
 /// tracked by the expected object.
 template <class T, class E>
-class expected : private detail::expected_move_assign_base<T, E>,
-                 private detail::expected_delete_ctor_base<T, E>,
-                 private detail::expected_delete_assign_base<T, E>,
-                 private detail::expected_default_ctor_base<T, E> {
+class TL_EXPECTED_CLANG_CONSUMABLE_UNKNOWN
+  expected : private detail::expected_move_assign_base<T, E>,
+         private detail::expected_delete_ctor_base<T, E>,
+         private detail::expected_delete_assign_base<T, E>,
+         private detail::expected_default_ctor_base<T, E> {
   static_assert(!std::is_reference<T>::value, "T must not be a reference");
   static_assert(!std::is_same<T, std::remove_cv<in_place_t>::type>::value,
                 "T must not be in_place_t");
@@ -1529,9 +1543,9 @@ public:
     return or_else_impl(std::move(*this), std::forward<F>(f));
   }
 #endif
-  constexpr expected() = default;
-  constexpr expected(const expected &rhs) = default;
-  constexpr expected(expected &&rhs) = default;
+  constexpr expected() TL_EXPECTED_CLANG_RETURN_UNKNOWN = default;
+  constexpr expected(const expected &rhs) TL_EXPECTED_CLANG_RETURN_UNKNOWN = default;
+  constexpr expected(expected &&rhs) TL_EXPECTED_CLANG_RETURN_UNKNOWN = default;
   expected &operator=(const expected &rhs) = default;
   expected &operator=(expected &&rhs) = default;
 
@@ -1983,33 +1997,41 @@ public:
     return std::move(val());
   }
 
-  constexpr bool has_value() const noexcept { return this->m_has_val; }
-  constexpr explicit operator bool() const noexcept { return this->m_has_val; }
+  constexpr bool has_value() const noexcept TL_EXPECTED_CLANG_TEST_UNCONSUMED {
+    return this->m_has_val;
+  }
+  constexpr explicit operator bool() const noexcept TL_EXPECTED_CLANG_TEST_UNCONSUMED {
+    return this->m_has_val;
+  }
 
   template <class U = T,
             detail::enable_if_t<!std::is_void<U>::value> * = nullptr>
-  TL_EXPECTED_11_CONSTEXPR const U &value() const & {
+  TL_EXPECTED_11_CONSTEXPR const U &value() const &
+      TL_EXPECTED_CLANG_CALLABLE_WHEN_UNCONSUMED {
     if (!has_value())
       detail::throw_exception(bad_expected_access<E>(err().value()));
     return val();
   }
   template <class U = T,
             detail::enable_if_t<!std::is_void<U>::value> * = nullptr>
-  TL_EXPECTED_11_CONSTEXPR U &value() & {
+  TL_EXPECTED_11_CONSTEXPR U &value() &
+      TL_EXPECTED_CLANG_CALLABLE_WHEN_UNCONSUMED {
     if (!has_value())
       detail::throw_exception(bad_expected_access<E>(err().value()));
     return val();
   }
   template <class U = T,
             detail::enable_if_t<!std::is_void<U>::value> * = nullptr>
-  TL_EXPECTED_11_CONSTEXPR const U &&value() const && {
+  TL_EXPECTED_11_CONSTEXPR const U &&value() const &&
+      TL_EXPECTED_CLANG_CALLABLE_WHEN_UNCONSUMED {
     if (!has_value())
       detail::throw_exception(bad_expected_access<E>(std::move(err()).value()));
     return std::move(val());
   }
   template <class U = T,
             detail::enable_if_t<!std::is_void<U>::value> * = nullptr>
-  TL_EXPECTED_11_CONSTEXPR U &&value() && {
+  TL_EXPECTED_11_CONSTEXPR U &&value() &&
+      TL_EXPECTED_CLANG_CALLABLE_WHEN_UNCONSUMED {
     if (!has_value())
       detail::throw_exception(bad_expected_access<E>(std::move(err()).value()));
     return std::move(val());

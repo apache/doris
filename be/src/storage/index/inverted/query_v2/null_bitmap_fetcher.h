@@ -58,7 +58,10 @@ public:
         }
 
         auto has_null = iterator->has_null();
-        if (!has_null.has_value() || !has_null.value()) {
+        if (!has_null.has_value()) {
+            return nullptr;
+        }
+        if (!has_null.value()) {
             return nullptr;
         }
 

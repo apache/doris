@@ -21,7 +21,6 @@
 #error need cpp support
 #endif
 
-#if __cplusplus <= 202002L
 #include "util/expected.hpp"
 namespace doris {
 using tl::expected;            // NOLINT
@@ -30,13 +29,3 @@ using tl::bad_expected_access; // NOLINT
 using tl::unexpect_t;          // NOLINT
 using tl::unexpect;            // NOLINT
 } // namespace doris
-#else
-#include <expected>
-namespace doris {
-using std::expected;            // NOLINT
-using std::unexpected;          // NOLINT
-using std::bad_expected_access; // NOLINT
-using std::unexpect_t;          // NOLINT
-using std::unexpect;            // NOLINT
-} // namespace doris
-#endif

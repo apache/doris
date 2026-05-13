@@ -99,8 +99,10 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, int64_t tab
     if (!s.ok()) {
         if (!config::is_cloud_mode()) {
             auto res = ExecEnv::get_tablet(tablet_id);
-            TabletSharedPtr tablet =
-                    res.has_value() ? std::dynamic_pointer_cast<Tablet>(res.value()) : nullptr;
+            TabletSharedPtr tablet = nullptr;
+            if (res.has_value()) {
+                tablet = std::dynamic_pointer_cast<Tablet>(res.value());
+            }
             if (tablet) {
                 tablet->report_error(s);
             }

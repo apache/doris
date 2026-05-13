@@ -710,7 +710,7 @@ Result<RowsetSharedPtr> VBaseSchemaChangeWithSorting::_internal_sorting(
             [[unlikely]] {
         return unexpected(std::move(result).error());
     } else {
-        rowset_writer = std::move(result).value();
+        rowset_writer = *std::move(result);
     }
     RETURN_IF_ERROR_RESULT(merger.merge(blocks, rowset_writer.get(), &merged_rows));
     _add_merged_rows(merged_rows);
@@ -739,7 +739,7 @@ Result<RowsetSharedPtr> VLocalSchemaChangeWithSorting::_internal_sorting(
             [[unlikely]] {
         return unexpected(std::move(result).error());
     } else {
-        rowset_writer = std::move(result).value();
+        rowset_writer = *std::move(result);
     }
     auto guard = _local_storage_engine.pending_local_rowsets().add(context.rowset_id);
     _pending_rs_guards.push_back(std::move(guard));
@@ -1300,7 +1300,7 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
                                                      result.error().to_string());
             return process_alter_exit();
         }
-        auto rowset_writer = std::move(result).value();
+        auto rowset_writer = *std::move(result);
         auto pending_rs_guard = _local_storage_engine.add_pending_rowset(context);
 
         if (res = sc_procedure->process(rs_reader, rowset_writer.get(), _new_tablet, _base_tablet,

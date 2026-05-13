@@ -428,7 +428,7 @@ void PInternalService::open_load_stream(google::protobuf::RpcController* control
                 cntl->SetFailed(st.to_string());
                 return;
             } else {
-                tablet = std::move(res).value();
+                tablet = *std::move(res);
             }
             auto resp = response->add_tablet_schemas();
             resp->set_index_id(req.index_id());
@@ -755,14 +755,13 @@ void PInternalService::outfile_write_success(google::protobuf::RpcController* co
                                                              .write_file_cache = false,
                                                              .sync_file_data = false,
                                                      });
-        using T = std::decay_t<decltype(res)>;
         if (!res.has_value()) [[unlikely]] {
-            st = std::forward<T>(res).error();
+            st = res.error();
             st.to_protobuf(result->mutable_status());
             return;
         }
 
-        std::unique_ptr<doris::io::FileWriter> _file_writer_impl = std::forward<T>(res).value();
+        std::unique_ptr<doris::io::FileWriter> _file_writer_impl = *std::move(res);
         // must write somthing because s3 file writer can not writer empty file
         st = _file_writer_impl->append({"success"});
         if (!st.ok()) {

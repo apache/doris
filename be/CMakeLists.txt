@@ -359,6 +359,7 @@ if (COMPILER_CLANG)
     endif()
 
     add_compile_options(-fcolor-diagnostics
+                        -Wconsumed
                         -Wpedantic
                         -Wshadow
                         -Wshadow-field

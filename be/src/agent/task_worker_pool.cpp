@@ -1687,7 +1687,7 @@ void cloud_submit_table_compaction_callback(CloudStorageEngine& engine,
                      << ", error=" << tablet_res.error();
         return;
     }
-    CloudTabletSPtr tablet = std::move(tablet_res).value();
+    CloudTabletSPtr tablet = *std::move(tablet_res);
     if (tablet == nullptr) {
         LOG(WARNING) << "cloud tablet not found. tablet_id=" << compaction_req.tablet_id;
         return;
@@ -1728,7 +1728,7 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
         if (!res.has_value()) {
             st = std::move(res).error();
         } else {
-            fs = std::move(res).value();
+            fs = *std::move(res);
         }
     } else {
         DCHECK_EQ(existed_fs->type(), io::FileSystemType::S3) << param.id << ' ' << param.name;
@@ -1763,7 +1763,7 @@ void update_hdfs_resource(const TStorageResource& param, io::RemoteFileSystemSPt
         if (!res.has_value()) {
             st = std::move(res).error();
         } else {
-            fs = std::move(res).value();
+            fs = *std::move(res);
         }
 
     } else {
@@ -2367,14 +2367,18 @@ void set_alter_version_before_enqueue(CloudStorageEngine& engine, const TAgentTa
         return;
     }
     auto new_tablet = engine.tablet_mgr().get_tablet(alter_req.new_tablet_id);
-    if (!new_tablet.has_value() || new_tablet.value()->tablet_state() == TABLET_RUNNING) {
+    if (!new_tablet.has_value()) {
+        return;
+    }
+    auto* new_tablet_ptr = new_tablet.value().get();
+    if (new_tablet_ptr->tablet_state() == TABLET_RUNNING) {
         return;
     }
     auto base_tablet = engine.tablet_mgr().get_tablet(alter_req.base_tablet_id);
     if (!base_tablet.has_value()) {
         return;
     }
-    new_tablet.value()->set_alter_version(alter_req.alter_version);
+    new_tablet_ptr->set_alter_version(alter_req.alter_version);
     base_tablet.value()->set_alter_version(alter_req.alter_version);
     LOG(INFO) << "set alter_version=" << alter_req.alter_version
               << " before enqueue, base_tablet=" << alter_req.base_tablet_id
