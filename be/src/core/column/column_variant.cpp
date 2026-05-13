@@ -766,28 +766,24 @@ void ColumnVariant::check_consistency() const {
                                "unmatched doc snapshot column:, expeted rows: {}, but meet: {}",
                                num_rows, serialized_doc_value_column->size());
     }
+    // Doc mode invariants:
+    // - No sparse data at all
+    // - Subcolumns and doc_value are mutually exclusive:
+    //   subcolumns (size > 1) → no doc_value; doc_value → only root (size == 1)
     if (_enable_doc_mode && num_rows > 0) {
-        // doc mode invariants:
-        // - only root subcolumn (size == 1)
-        // - sparse column is empty
-        // - subcolumns and doc_value are mutually exclusive
-        if (subcolumns.size() != 1) {
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "doc mode: should only have root, but subcolumns size is {}",
-                                   subcolumns.size());
-        }
         const auto& sparse_offs = serialized_sparse_column_offsets();
-        if (sparse_offs[num_rows - 1] > 0) {
+        const auto& doc_offs = serialized_doc_value_column_offsets();
+        bool has_sparse = sparse_offs[num_rows - 1] > 0;
+        bool has_doc_value = doc_offs[num_rows - 1] > 0;
+        if (has_sparse) {
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                    "doc mode: should not have sparse data");
         }
-    } else {
-        const auto& offsets = serialized_doc_value_column_offsets();
-        size_t off = offsets[num_rows - 1];
-        if (off > 0 && subcolumns.size() != 1) {
+        if (has_doc_value && subcolumns.size() != 1) {
             throw doris::Exception(
                     doris::ErrorCode::INTERNAL_ERROR,
-                    "doc snapshot column offsets is not empty, but subcolumns size is not 1");
+                    "doc mode: doc_value exists but subcolumns size is {} (expected 1)",
+                    subcolumns.size());
         }
     }
 }
@@ -854,20 +850,129 @@ void ColumnVariant::insert_from(const IColumn& src, size_t n) {
         serialized_sparse_column->insert_from(*src_v->get_sparse_column(), n);
         serialized_doc_value_column->insert_from(*src_v->get_doc_value_column(), n);
         num_rows++;
+    } else if (_enable_doc_mode) {
+        DCHECK(src_v->_enable_doc_mode) << "dst is doc mode but src is not";
+        _insert_from_doc_mode(*src_v, n);
     } else {
-        try_insert((*src_v)[n]);
+        _insert_from_subcolumn_sparse(*src_v, n);
     }
     ENABLE_CHECK_CONSISTENCY(this);
+}
+
+// Doc mode insert_from: 4 scenarios, no sparse column involved
+void ColumnVariant::_insert_from_doc_mode(const ColumnVariant& src, size_t n) {
+    bool src_has_subcolumns = src.get_subcolumns().size() > 1;
+    bool dst_has_subcolumns = get_subcolumns().size() > 1;
+
+    // Scenario 1: both doc_value (root only) → direct copy
+    if (!src_has_subcolumns && !dst_has_subcolumns) {
+        FieldWithDataType field;
+        src.subcolumns.get_root()->data.get(n, field);
+        subcolumns.get_mutable_root()->data.insert(field);
+        serialized_sparse_column->insert_from(*src.get_sparse_column(), n);
+        serialized_doc_value_column->insert_from(*src.get_doc_value_column(), n);
+        num_rows++;
+        return;
+    }
+
+    // Scenario 4: src=doc_value, dst=subcolumn → convert dst to doc_value, then scenario 1
+    if (!src_has_subcolumns && dst_has_subcolumns) {
+        convert_subcolumns_to_doc_value();
+        _insert_from_doc_mode(src, n);
+        return;
+    }
+
+    // Scenario 3: src=subcolumn, dst=doc_value → serialize src row into doc_value
+    if (src_has_subcolumns && !dst_has_subcolumns && num_rows > 0) {
+        auto [doc_keys, doc_values] = get_doc_value_data_paths_and_values();
+        auto& doc_offsets = serialized_doc_value_column_offsets();
+
+        for (const auto& entry : variant_util::get_sorted_subcolumns(src.subcolumns)) {
+            if (entry->path.empty()) continue;
+            const_cast<Subcolumn&>(entry->data)
+                    .serialize_to_binary_column(doc_keys, entry->path.get_path(), doc_values, n);
+        }
+        doc_offsets.push_back(doc_keys->size());
+
+        FieldWithDataType root_field;
+        src.subcolumns.get_root()->data.get(n, root_field);
+        subcolumns.get_mutable_root()->data.insert(root_field);
+        serialized_sparse_column->insert_default();
+        num_rows++;
+        return;
+    }
+
+    // Scenario 2: both subcolumn → direct merge, no sparse, no doc_value
+    return try_insert(src[n]);
+}
+
+// Non-doc mode insert_from: original subcolumn + sparse path
+void ColumnVariant::_insert_from_subcolumn_sparse(const ColumnVariant& src, size_t n) {
+    return try_insert(src[n]);
+}
+
+// Insert a Field that contains __DORIS_VARIANT_DOC_VALUE__ into doc_value mode.
+// Converts dst from subcolumn to doc_value if needed.
+void ColumnVariant::_insert_field_as_doc_value(const VariantMap& object,
+                                               const Field& doc_value_field) {
+    if (subcolumns.size() > 1) {
+        convert_subcolumns_to_doc_value();
+    }
+    insert_to_doc_value_column(doc_value_field);
+    // Doc_value Field only has root (empty path) + __DORIS_VARIANT_DOC_VALUE__.
+    // Root is always default in doc_value mode (real data is in the binary map).
+    subcolumns.get_mutable_root()->data.insert_default();
+    serialized_sparse_column->insert_default();
+    num_rows++;
+}
+
+// Serialize a subcolumn-format Field into dst's doc_value column.
+// Used when dst already has doc_value data and the incoming Field has subcolumns.
+void ColumnVariant::_serialize_field_to_doc_value(const VariantMap& object) {
+    auto [doc_keys, doc_values] = get_doc_value_data_paths_and_values();
+    auto& doc_offsets = serialized_doc_value_column_offsets();
+    for (const auto& [key, value] : object) {
+        // NOTE: Skip the root node (empty parts). Do NOT skip "empty key" subcolumns
+        // where key.get_path() is "" but parts are not empty. Otherwise v[''] data will be lost.
+        if (key.empty()) continue;
+        if (value.field.is_null()) continue;
+        // Route through a one-row temp subcolumn so we reuse the
+        // DataTypeSerDe::write_one_cell_to_binary path (covers all primitive
+        // types)
+        Subcolumn tmp(/*size=*/0, /*is_nullable=*/true, /*is_root=*/false);
+        tmp.insert(value);
+        tmp.serialize_to_binary_column(doc_keys, key.get_path(), doc_values, /*row=*/0);
+    }
+    doc_offsets.push_back(doc_keys->size());
+    auto root_it = object.find(PathInData());
+    if (root_it != object.end()) {
+        subcolumns.get_mutable_root()->data.insert(root_it->second);
+    } else {
+        subcolumns.get_mutable_root()->data.insert_default();
+    }
+    serialized_sparse_column->insert_default();
+    num_rows++;
 }
 
 void ColumnVariant::try_insert(const Field& field) {
     size_t old_size = size();
     const auto& object = field.get<TYPE_VARIANT>();
+
+    // Field has doc_value → insert as doc_value (convert dst if needed)
+    auto doc_it = object.find(PathInData("__DORIS_VARIANT_DOC_VALUE__"));
+    if (doc_it != object.end()) {
+        _insert_field_as_doc_value(object, doc_it->second.field);
+        return;
+    }
+
+    // dst already in doc_value mode → serialize Field's subcolumn entries to doc_value
+    if (num_rows > 0 && serialized_doc_value_column_offsets()[num_rows - 1] > 0) {
+        _serialize_field_to_doc_value(object);
+        return;
+    }
+
+    // Normal subcolumn insertion
     for (const auto& [key, value] : object) {
-        if (key.get_path() == "__DORIS_VARIANT_DOC_VALUE__") {
-            insert_to_doc_value_column(value.field);
-            continue;
-        }
         if (!has_subcolumn(key)) {
             bool succ = add_sub_column(key, old_size);
             if (!succ) {
@@ -1180,27 +1285,93 @@ void ColumnVariant::insert_range_from(const IColumn& src, size_t start, size_t l
     ENABLE_CHECK_CONSISTENCY(&src_object);
     ENABLE_CHECK_CONSISTENCY(this);
 
-    // doc mode fast path: both sides root-only, direct range copy root + sparse + doc_value
     if (_enable_doc_mode) {
         DCHECK(src_object._enable_doc_mode) << "dst is doc mode but src is not";
-        subcolumns.get_mutable_root()->data.insert_range_from(
-                src_object.subcolumns.get_root()->data, start, length);
-        serialized_sparse_column->insert_range_from(*src_object.serialized_sparse_column, start,
-                                                    length);
-        serialized_doc_value_column->insert_range_from(*src_object.serialized_doc_value_column,
-                                                       start, length);
+        _insert_range_from_doc_mode(src_object, start, length);
+    } else {
+        _insert_range_from_subcolumn_sparse(src_object, start, length);
+    }
+}
+
+// Doc mode insert_range_from: 4 scenarios, no sparse column involved
+void ColumnVariant::_insert_range_from_doc_mode(const ColumnVariant& src, size_t start,
+                                                size_t length) {
+    bool src_has_subcolumns = src.get_subcolumns().size() > 1;
+    bool dst_has_subcolumns = get_subcolumns().size() > 1;
+
+    // Scenario 1: both doc_value (root only) → direct copy
+    if (!src_has_subcolumns && !dst_has_subcolumns) {
+        subcolumns.get_mutable_root()->data.insert_range_from(src.subcolumns.get_root()->data,
+                                                              start, length);
+        serialized_sparse_column->insert_range_from(*src.serialized_sparse_column, start, length);
+        serialized_doc_value_column->insert_range_from(*src.serialized_doc_value_column, start,
+                                                       length);
         num_rows += length;
         ENABLE_CHECK_CONSISTENCY(this);
         return;
     }
 
-    // First, insert src subcolumns
-    // We can reach the limit of subcolumns, and in this case
-    // the rest of subcolumns from src will be inserted into sparse column.
+    // Scenario 4: src=doc_value, dst=subcolumn → convert dst to doc_value, then scenario 1
+    if (!src_has_subcolumns && dst_has_subcolumns) {
+        convert_subcolumns_to_doc_value();
+        _insert_range_from_doc_mode(src, start, length);
+        return;
+    }
+
+    // Scenario 3: src=subcolumn, dst=doc_value → serialize src rows into doc_value
+    if (src_has_subcolumns && !dst_has_subcolumns && num_rows > 0) {
+        auto sorted = variant_util::get_sorted_subcolumns(src.subcolumns);
+
+        auto [doc_keys, doc_values] = get_doc_value_data_paths_and_values();
+        auto& doc_offsets = serialized_doc_value_column_offsets();
+        for (size_t row = start; row < start + length; ++row) {
+            for (const auto& entry : sorted) {
+                if (entry->path.empty()) continue;
+                const_cast<Subcolumn&>(entry->data)
+                        .serialize_to_binary_column(doc_keys, entry->path.get_path(), doc_values,
+                                                    row);
+            }
+            doc_offsets.push_back(doc_keys->size());
+        }
+        subcolumns.get_mutable_root()->data.insert_range_from(src.subcolumns.get_root()->data,
+                                                              start, length);
+        serialized_sparse_column->resize(num_rows + length);
+        num_rows += length;
+        ENABLE_CHECK_CONSISTENCY(this);
+        return;
+    }
+
+    // Scenario 2: both subcolumn → direct merge, no sparse, no doc_value
+    for (const auto& entry : src.subcolumns) {
+        auto* subcolumn = get_subcolumn(entry->path);
+        if (subcolumn == nullptr) {
+            bool succ = add_sub_column(entry->path, num_rows);
+            CHECK(succ) << "Failed to add subcolumn " << entry->path.get_path();
+            subcolumn = get_subcolumn(entry->path);
+        }
+        subcolumn->insert_range_from(entry->data, start, length);
+    }
+
+    // Fill remaining dense columns with defaults
+    size_t current_size = num_rows;
+    for (const auto& entry : subcolumns) {
+        if (entry->data.size() == current_size) {
+            entry->data.insert_many_defaults(length);
+        }
+    }
+    serialized_sparse_column->resize(num_rows + length);
+    serialized_doc_value_column->resize(num_rows + length);
+    num_rows += length;
+    ENABLE_CHECK_CONSISTENCY(this);
+}
+
+// Non-doc mode insert_range_from: original subcolumn + sparse path
+void ColumnVariant::_insert_range_from_subcolumn_sparse(const ColumnVariant& src, size_t start,
+                                                        size_t length) {
+    // Merge subcolumns, overflow to sparse
     std::map<std::string_view, Subcolumn> src_path_and_subcoumn_for_sparse_column;
     int idx_hint = 0;
-    for (const auto& entry : src_object.subcolumns) {
-        // Check if we already have such dense column path.
+    for (const auto& entry : src.subcolumns) {
         if (auto* subcolumn = get_subcolumn(entry->path, idx_hint); subcolumn != nullptr) {
             subcolumn->insert_range_from(entry->data, start, length);
         } else if (try_add_new_subcolumn(entry->path)) {
@@ -1215,8 +1386,6 @@ void ColumnVariant::insert_range_from(const IColumn& src, size_t start, size_t l
         ++idx_hint;
     }
 
-    // Paths in sparse column are sorted, so paths from src_dense_column_path_for_sparse_column should be inserted properly
-    // to keep paths sorted. Let's sort them in advance.
     std::vector<std::pair<std::string_view, Subcolumn>> sorted_src_subcolumn_for_sparse_column;
     auto it = src_path_and_subcoumn_for_sparse_column.begin();
     auto end = src_path_and_subcoumn_for_sparse_column.end();
@@ -1226,12 +1395,10 @@ void ColumnVariant::insert_range_from(const IColumn& src, size_t start, size_t l
     }
 
     insert_from_sparse_column_and_fill_remaing_dense_column(
-            src_object, std::move(sorted_src_subcolumn_for_sparse_column), start, length);
+            src, std::move(sorted_src_subcolumn_for_sparse_column), start, length);
 
-    serialized_doc_value_column->insert_range_from(*src_object.serialized_doc_value_column, start,
-                                                   length);
+    serialized_doc_value_column->insert_range_from(*src.serialized_doc_value_column, start, length);
     num_rows += length;
-    // finalize();
     ENABLE_CHECK_CONSISTENCY(this);
 }
 
@@ -2794,6 +2961,69 @@ MutableColumnPtr ColumnVariant::clone() const {
 
     ENABLE_CHECK_CONSISTENCY(res.get());
     return res;
+}
+
+bool ColumnVariant::is_doc_mode() const {
+    const auto& offset = serialized_doc_value_column_offsets();
+    return subcolumns.size() == 1 && offset[num_rows - 1] != 0;
+}
+
+void ColumnVariant::convert_subcolumns_to_doc_value() {
+    if (subcolumns.size() <= 1) {
+        return; // already root-only, nothing to convert
+    }
+
+    // num_rows == 0 still needs to collapse the structure to root-only so
+    // callers (e.g. _insert_range_from_doc_mode scenario 4) don't recurse
+    // forever when they re-check dst_has_subcolumns after this call.
+    if (num_rows > 0) {
+        // Finalize all subcolumns first
+        for (auto& entry : subcolumns) {
+            entry->data.finalize();
+        }
+
+        // Build new doc_value_column: serialize all subcolumn data into
+        // ColumnMap<String, String>
+        auto new_doc_value = create_binary_column_fn();
+        auto* map_column = assert_cast<ColumnMap*>(new_doc_value.get());
+        auto& map_keys = assert_cast<ColumnString&>(map_column->get_keys());
+        auto& map_values = assert_cast<ColumnString&>(map_column->get_values());
+        auto& map_offsets = map_column->get_offsets();
+
+        // subcolumn-mode variant should not have doc_value data
+        DCHECK_EQ(serialized_doc_value_column_offsets()[num_rows - 1], 0)
+                << "subcolumn variant should not have doc_value data when converting to doc_value";
+
+        // Sort once: O(S log S) outside the row loop so the total cost is
+        // O(S log S + N*S) instead of O(N * S log S).
+        const auto sorted = variant_util::get_sorted_subcolumns(subcolumns);
+
+        for (size_t row = 0; row < num_rows; ++row) {
+            for (const auto& entry : sorted) {
+                if (entry->path.empty()) continue;
+                const_cast<Subcolumn&>(entry->data)
+                        .serialize_to_binary_column(&map_keys, entry->path.get_path(), &map_values,
+                                                    row);
+            }
+
+            map_offsets.push_back(map_keys.size());
+        }
+
+        // Replace doc_value_column
+        serialized_doc_value_column = std::move(new_doc_value);
+
+        // Verify sparse column has no data
+        DCHECK_EQ(serialized_sparse_column_offsets()[num_rows - 1], 0)
+                << "sparse column should be empty when converting to doc_value";
+    }
+
+    // Clear subcolumns to root-only: preserve original root data
+    Subcolumn root_data = std::move(subcolumns.get_mutable_root()->data);
+    subcolumns = Subcolumns();
+    _prev_positions.clear(); // Invalidate cache to prevent dangling pointers
+    subcolumns.create_root(std::move(root_data));
+
+    ENABLE_CHECK_CONSISTENCY(this);
 }
 
 } // namespace doris

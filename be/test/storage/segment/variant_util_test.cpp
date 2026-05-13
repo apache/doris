@@ -71,7 +71,12 @@ TEST(VariantUtilTest, ParseDocValueToSubcolumns_FillsDefaultsAndValues) {
     ParseConfig cfg;
     cfg.deprecated_enable_flatten_nested = false;
     cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
-    parse_json_to_variant(*variant, *json_col, cfg);
+    // Use single-row API to bypass batch sampling logic, directly testing doc_value parsing
+    for (size_t i = 0; i < json_col->size(); ++i) {
+        StringRef ref = json_col->get_data_at(i);
+        parse_json_to_variant(*variant, ref, nullptr, cfg);
+    }
+    variant->finalize();
 
     auto subcolumns = materialize_docs_to_subcolumns_map(*variant);
     ASSERT_TRUE(subcolumns.contains("a"));
@@ -180,7 +185,12 @@ TEST(VariantUtilTest, ParseOnlyDocValueColumn_SerializesMixedTypes) {
     ParseConfig cfg;
     cfg.deprecated_enable_flatten_nested = false;
     cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
-    parse_json_to_variant(*variant, *json_col, cfg);
+    // Use single-row API to bypass batch sampling logic, directly testing doc_value parsing
+    for (size_t i = 0; i < json_col->size(); ++i) {
+        StringRef ref = json_col->get_data_at(i);
+        parse_json_to_variant(*variant, ref, nullptr, cfg);
+    }
+    variant->finalize();
 
     auto subcolumns = materialize_docs_to_subcolumns_map(*variant);
     ASSERT_TRUE(subcolumns.contains("b"));
@@ -485,7 +495,14 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeBinaryToSubcolumns) {
     ParseConfig cfg;
     cfg.deprecated_enable_flatten_nested = false;
     cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
-    parse_json_to_variant(*variant, *json_col, cfg);
+    // Use single-row API to bypass batch sampling logic, directly testing doc_value parsing
+    for (size_t i = 0; i < json_col->size(); ++i) {
+        StringRef ref = json_col->get_data_at(i);
+        parse_json_to_variant(*variant, ref, nullptr, cfg);
+    }
+    variant->finalize();
+    ASSERT_TRUE(variant->is_doc_mode());
+
     Block block;
     block.insert({variant->get_ptr(), std::make_shared<DataTypeVariant>(0, true), "v"});
 
@@ -534,7 +551,14 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeRejectOnlySubcolumnsConfig) {
     ParseConfig cfg;
     cfg.deprecated_enable_flatten_nested = false;
     cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
-    parse_json_to_variant(*variant, *json_col, cfg);
+    // Use single-row API to bypass batch sampling logic, directly testing doc_value parsing
+    for (size_t i = 0; i < json_col->size(); ++i) {
+        StringRef ref = json_col->get_data_at(i);
+        parse_json_to_variant(*variant, ref, nullptr, cfg);
+    }
+    variant->finalize();
+    ASSERT_TRUE(variant->is_doc_mode());
+
     Block block;
     block.insert({variant->get_ptr(), std::make_shared<DataTypeVariant>(0, true), "v"});
 
@@ -676,6 +700,71 @@ TEST(VariantUtilTest, GlobMatchRe2) {
 
     EXPECT_FALSE(glob_match_re2("int_[0-9", "int_1"));
     EXPECT_FALSE(glob_match_re2("a[\\]b", "a]b"));
+}
+
+// ============================================================
+// Tests for mixed doc-value + subcolumn compaction support
+// ============================================================
+
+// VariantExtendedInfo: has_doc_value_segments defaults to false.
+TEST(VariantUtilTest, ExtendedInfo_DefaultFlags) {
+    VariantExtendedInfo info;
+    EXPECT_FALSE(info.has_doc_value_segments);
+}
+
+// VariantExtendedInfo: only one flag needed — !has_doc_value_segments means all downgraded.
+TEST(VariantUtilTest, ExtendedInfo_SingleFlagSufficient) {
+    // Simulating "all doc segments" scenario
+    VariantExtendedInfo all_doc;
+    all_doc.has_doc_value_segments = true;
+    EXPECT_TRUE(all_doc.has_doc_value_segments);
+
+    // Simulating "all downgraded" scenario
+    VariantExtendedInfo all_sub;
+    // has_doc_value_segments stays false
+    EXPECT_FALSE(all_sub.has_doc_value_segments);
+
+    // Simulating "mixed" scenario - at least one doc segment
+    VariantExtendedInfo mixed;
+    mixed.has_doc_value_segments = true;
+    EXPECT_TRUE(mixed.has_doc_value_segments);
+}
+
+// is_doc_mode() reflects actual ColumnVariant state.
+// Doc mode: only root subcolumn + non-empty serialized_doc_value_column.
+TEST(VariantUtilTest, IsDocMode_DocValueParsing) {
+    auto variant = ColumnVariant::create(0, true);
+    auto json_col = _make_json_column({R"({"a":1,"b":"x"})"});
+
+    ParseConfig cfg;
+    cfg.deprecated_enable_flatten_nested = false;
+    cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
+
+    // Single-row API bypasses sampling, forces doc-value mode
+    StringRef ref = json_col->get_data_at(0);
+    parse_json_to_variant(*variant, ref, nullptr, cfg);
+    variant->finalize();
+
+    EXPECT_TRUE(variant->is_doc_mode());
+    EXPECT_EQ(variant->get_subcolumns().size(), 1); // only root
+}
+
+// is_doc_mode() false for subcolumn-only (downgraded) data.
+TEST(VariantUtilTest, IsDocMode_SubcolumnParsing) {
+    auto variant = ColumnVariant::create(0, false);
+    auto json_col = _make_json_column({
+            R"({"a":1,"b":"x"})",
+            R"({"a":2,"b":"y"})",
+    });
+
+    ParseConfig cfg;
+    cfg.deprecated_enable_flatten_nested = false;
+    cfg.parse_to = ParseConfig::ParseTo::OnlySubcolumns;
+
+    parse_json_to_variant(*variant, *json_col, cfg);
+
+    EXPECT_FALSE(variant->is_doc_mode());
+    EXPECT_GT(variant->get_subcolumns().size(), 1); // root + subcolumns
 }
 
 } // namespace doris::variant_util

@@ -42,6 +42,7 @@
 #include "storage/rowid_conversion.h"
 #include "storage/rowset/pending_rowset_helper.h"
 #include "storage/rowset/rowset_fwd.h"
+#include "storage/segment/variant/variant_doc_path_stats.h"
 #include "storage/tablet/tablet_fwd.h"
 
 namespace doris {
@@ -167,6 +168,13 @@ protected:
     int64_t _newest_write_timestamp {-1};
     std::unique_ptr<RowIdConversion> _rowid_conversion = nullptr;
     TabletSchemaSPtr _cur_tablet_schema;
+
+    // Per-uid bucket-partitioned path stats collected from source segment
+    // doc-value stats during build_basic_info. Plumbed into the output
+    // RowsetWriterContext so VariantDocCompactWriter can pre-reserve its
+    // sparse-subcolumn accumulators in pure doc-mode compaction.
+    std::unordered_map<int32_t, std::shared_ptr<segment_v2::VariantDocPathStats>>
+            _variant_doc_path_stats;
 
     std::unique_ptr<RuntimeProfile> _profile;
 

@@ -27,6 +27,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.BindSink;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteRule;
+import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.rules.expression.rules.ConvertAggStateCast;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
@@ -58,7 +59,8 @@ public class InsertIntoValuesAnalyzer extends AbstractBatchJobExecutor {
                     // we should replace the `test.my_key` to real key
                     new RewriteInsertIntoExpressions(ExpressionRewrite.bottomUp(
                             ConvertAggStateCast.INSTANCE,
-                            FoldConstantRuleOnFE.PATTERN_MATCH_INSTANCE
+                            FoldConstantRuleOnFE.PATTERN_MATCH_INSTANCE,
+                            CheckCast.INSTANCE
                     ))
             )
     );
@@ -79,7 +81,8 @@ public class InsertIntoValuesAnalyzer extends AbstractBatchJobExecutor {
 
                     new RewriteInsertIntoExpressions(ExpressionRewrite.bottomUp(
                             ConvertAggStateCast.INSTANCE,
-                            FoldConstantRuleOnFE.PATTERN_MATCH_INSTANCE
+                            FoldConstantRuleOnFE.PATTERN_MATCH_INSTANCE,
+                            CheckCast.INSTANCE
                     ))
             )
     );

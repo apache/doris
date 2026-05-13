@@ -678,6 +678,7 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (column.has_variant_enable_nested_group()) {
         _variant.enable_nested_group = column.variant_enable_nested_group();
     }
+
     if (column.has_pattern_type()) {
         _pattern_type = column.pattern_type();
     }

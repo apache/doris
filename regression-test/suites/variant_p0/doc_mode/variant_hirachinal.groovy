@@ -17,6 +17,7 @@
 
 suite("variant_hirachinal_doc_value", "nonConcurrent"){
     sql """ set default_variant_enable_doc_mode = true """
+    sql """ set default_variant_max_subcolumns_count = 0 """
     sql """ set default_variant_doc_materialization_min_rows = 0 """
     def set_be_config = { key, value ->
         String backend_id;

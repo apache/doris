@@ -643,6 +643,14 @@ public:
         return _max_subcolumns_count - current_subcolumns_count;
     }
 
+    // doc snapshot mode: only root column, and doc snapshot column is not empty
+    bool is_doc_mode() const;
+
+    // Convert all existing subcolumn data into doc_value_column entries.
+    // After conversion: subcolumns.size()==1 (root only), all data in doc_value_column.
+    // Used when merging ColumnVariant with different structures (subcolumn vs doc_value).
+    void convert_subcolumns_to_doc_value();
+
     void try_get_from_doc_value_column(size_t n, Field& res) const;
 
     void insert_to_doc_value_column(const Field& field);
@@ -664,6 +672,18 @@ private:
 
     // unnest nested type columns, and flat them into finlized array subcolumns
     void unnest(Subcolumns::NodePtr& entry, Subcolumns& subcolumns) const;
+
+    // Doc mode insert paths (4 clean scenarios, no sparse)
+    void _insert_from_doc_mode(const ColumnVariant& src, size_t n);
+    void _insert_range_from_doc_mode(const ColumnVariant& src, size_t start, size_t length);
+
+    // Doc mode helpers for try_insert: handle Field with doc_value or serialize subcolumns to doc_value
+    void _insert_field_as_doc_value(const VariantMap& object, const Field& doc_value_field);
+    void _serialize_field_to_doc_value(const VariantMap& object);
+
+    // Non-doc mode insert paths (subcolumn + sparse)
+    void _insert_from_subcolumn_sparse(const ColumnVariant& src, size_t n);
+    void _insert_range_from_subcolumn_sparse(const ColumnVariant& src, size_t start, size_t length);
 
     void insert_from_sparse_column_and_fill_remaing_dense_column(
             const ColumnVariant& src,

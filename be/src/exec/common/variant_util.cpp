@@ -862,6 +862,12 @@ Status VariantCompactionUtil::aggregate_path_to_stats(
         if (!should_check_variant_path_stats(*column)) {
             continue;
         }
+        // Pure doc-mode columns have no sparse/subcolumn stats to aggregate
+        // (all data is in the doc_value column). Skip to avoid unnecessary
+        // external meta loading per source segment.
+        if (column->variant_enable_doc_mode()) {
+            continue;
+        }
         for (const auto& segment : segment_cache.get_segments()) {
             std::shared_ptr<ColumnReader> column_reader;
             OlapReaderStatistics stats;
@@ -919,10 +925,25 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
             CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
             auto* variant_column_reader =
                     assert_cast<segment_v2::VariantColumnReader*>(column_reader.get());
-            // load external meta before getting stats
-            RETURN_IF_ERROR(variant_column_reader->load_external_meta_once());
             const auto* source_stats = variant_column_reader->get_stats();
             CHECK(source_stats);
+
+            // For pure doc mode, only need to detect has_doc_value_segments from
+            // stats (available from init, no external meta load needed). Also
+            // accumulate per-path counts so VariantDocCompactWriter can pre-reserve
+            // its sparse-subcolumn rowid vectors instead of paying PaddedPODArray
+            // 2x growth waste.
+            if (column->variant_enable_doc_mode() &&
+                source_stats->has_doc_value_column_non_null_size()) {
+                extended_info.has_doc_value_segments = true;
+                for (const auto& [path, cnt] : source_stats->doc_value_column_non_null_size) {
+                    extended_info.doc_value_path_total_counts[path] += cnt;
+                }
+                continue;
+            }
+
+            // load external meta for subcolumn info (paths, types, etc.)
+            RETURN_IF_ERROR(variant_column_reader->load_external_meta_once());
 
             if (!column->variant_enable_nested_group()) {
                 // NG roots still need type metadata for regular subpaths such as `v.owner`,
@@ -1227,6 +1248,10 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
         if (data_types.empty() || path.empty() || path.get_is_typed() || path.has_nested_part()) {
             continue;
         }
+        // Skip paths already handled by get_compaction_typed_columns
+        if (paths_set_info.typed_path_set.contains(path.get_path())) {
+            continue;
+        }
         DataTypePtr data_type;
         get_least_supertype_jsonb(data_types, &data_type);
         auto column_name = parent_column->name_lower_case() + "." + path.get_path();
@@ -1253,7 +1278,9 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
 // ordinary extracted subcolumns. NG typed paths still use get_compaction_typed_columns(), keeping
 // typed-column rules out of the NG-specific regular-path filtering.
 Status VariantCompactionUtil::get_extended_compaction_schema(
-        const std::vector<RowsetSharedPtr>& rowsets, TabletSchemaSPtr& target) {
+        const std::vector<RowsetSharedPtr>& rowsets, TabletSchemaSPtr& target,
+        std::unordered_map<int32_t, std::shared_ptr<segment_v2::VariantDocPathStats>>*
+                doc_path_stats_out) {
     std::unordered_map<int32_t, VariantExtendedInfo> uid_to_variant_extended_info;
     const bool needs_variant_extended_info =
             std::ranges::any_of(target->columns(), [](const TabletColumnPtr& column) {
@@ -1310,14 +1337,36 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
         }
 
         if (column->variant_enable_doc_mode()) {
-            const int bucket_num = std::max(1, column->variant_doc_hash_shard_count());
-            for (int b = 0; b < bucket_num; ++b) {
-                TabletColumn doc_value_bucket_column = create_doc_value_column(*column, b);
-                doc_value_bucket_column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
-                doc_value_bucket_column.set_is_nullable(false);
-                doc_value_bucket_column.set_variant_enable_doc_mode(true);
-                output_schema->append_column(doc_value_bucket_column);
+            const auto& info = uid_to_variant_extended_info[column->unique_id()];
+
+            if (info.has_doc_value_segments) {
+                // At least one segment has doc-value data (all-doc or mixed).
+                // Output doc-value bucket columns.
+                // For mixed case, a new SubcolumnToDocCompactIterator will
+                // convert subcolumn data to doc-value format at read time.
+                const int bucket_num = std::max(1, column->variant_doc_hash_shard_count());
+
+                for (int b = 0; b < bucket_num; ++b) {
+                    TabletColumn doc_value_bucket_column = create_doc_value_column(*column, b);
+                    doc_value_bucket_column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+                    doc_value_bucket_column.set_is_nullable(false);
+                    doc_value_bucket_column.set_variant_enable_doc_mode(true);
+                    output_schema->append_column(doc_value_bucket_column);
+                }
+                continue;
             }
+            // All segments were downgraded to subcolumn mode (path < threshold).
+            // All subcolumns are materialized, use get_compaction_subcolumns_from_data_types.
+            // But first, handle typed columns so their indexes (especially
+            // field_pattern-based ones) are correctly registered in typed_path_set.
+            RETURN_IF_ERROR(get_compaction_typed_columns(
+                    target, extended_info.typed_paths, column, output_schema,
+                    uid_to_paths_set_info[column->unique_id()]));
+
+            get_compaction_subcolumns_from_data_types(
+                    uid_to_paths_set_info[column->unique_id()], column, target,
+                    uid_to_variant_extended_info[column->unique_id()].path_to_data_types,
+                    output_schema);
             continue;
         }
 
@@ -1366,6 +1415,31 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
     target = output_schema;
     // used to merge & filter path to sparse column during reading in compaction
     target->set_path_set_info(std::move(uid_to_paths_set_info));
+
+    // Convert aggregated path counts into bucket-partitioned VariantDocPathStats
+    // and hand back to the caller. Lets VariantDocCompactWriter pre-reserve its
+    // sparse accumulators (avoids PaddedPODArray 2x growth waste).
+    if (doc_path_stats_out != nullptr) {
+        for (auto& [uid, info] : uid_to_variant_extended_info) {
+            if (info.doc_value_path_total_counts.empty()) {
+                continue;
+            }
+            const TabletColumn* parent = nullptr;
+            for (const auto& col : target->columns()) {
+                if (col->unique_id() == uid && col->is_variant_type()) {
+                    parent = col.get();
+                    break;
+                }
+            }
+            if (parent == nullptr) {
+                continue;
+            }
+            const int total_buckets = std::max(1, parent->variant_doc_hash_shard_count());
+            (*doc_path_stats_out)[uid] = segment_v2::VariantDocPathStats::build_from_path_counts(
+                    info.doc_value_path_total_counts, total_buckets);
+        }
+    }
+
     VLOG_DEBUG << "dump schema " << target->dump_full_schema();
     return Status::OK();
 }
@@ -1820,7 +1894,7 @@ static inline void append_binary_sizet(ColumnString::Chars& chars, size_t v) {
     append_binary_bytes(chars, &v, sizeof(size_t));
 }
 
-static void append_field_to_binary_chars(const Field& field, ColumnString::Chars& chars) {
+void append_field_to_binary_chars(const Field& field, ColumnString::Chars& chars) {
     switch (field.get_type()) {
     case PrimitiveType::TYPE_NULL: {
         append_binary_type(chars, FieldType::OLAP_FIELD_TYPE_NONE);
@@ -1880,10 +1954,41 @@ static void append_field_to_binary_chars(const Field& field, ColumnString::Chars
                                field.get_type());
     }
 }
+/// Visitor that keeps @num_dimensions_to_keep dimensions in arrays
+/// and replaces all scalars or nested arrays to @replacement at that level.
+class FieldVisitorReplaceScalars : public StaticVisitor<Field> {
+public:
+    FieldVisitorReplaceScalars(const Field& replacement_, size_t num_dimensions_to_keep_)
+            : replacement(replacement_), num_dimensions_to_keep(num_dimensions_to_keep_) {}
+    template <PrimitiveType T>
+    Field operator()(const typename PrimitiveTypeTraits<T>::CppType& x) const {
+        if constexpr (T == TYPE_ARRAY) {
+            if (num_dimensions_to_keep == 0) {
+                return replacement;
+            }
+            const size_t size = x.size();
+            Array res(size);
+            for (size_t i = 0; i < size; ++i) {
+                res[i] = apply_visitor(
+                        FieldVisitorReplaceScalars(replacement, num_dimensions_to_keep - 1), x[i]);
+            }
+            return Field::create_field<TYPE_ARRAY>(res);
+        } else {
+            return replacement;
+        }
+    }
+
+private:
+    const Field& replacement;
+    size_t num_dimensions_to_keep;
+};
+
+/// Parse JSON to ParseResult only (no insertion into ColumnVariant).
+/// Handles empty strings and parse failures with fallback to string root.
 template <typename ParserImpl>
-void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
-                                JSONDataParser<ParserImpl>* parser, const ParseConfig& config) {
-    auto& column_variant = assert_cast<ColumnVariant&>(column);
+static ParseResult parse_json_to_result(const char* src, size_t length,
+                                        JSONDataParser<ParserImpl>* parser,
+                                        const ParseConfig& config) {
     std::optional<ParseResult> result;
     /// Treat empty string as an empty object
     /// for better CAST from String to Object.
@@ -1903,7 +2008,14 @@ void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
         Field field = Field::create_field<TYPE_STRING>(String(src, length));
         result = ParseResult {{root_path}, {field}};
     }
-    auto& [paths, values] = *result;
+    return std::move(*result);
+}
+
+/// Insert a pre-parsed ParseResult into ColumnVariant using the specified parse mode.
+static void insert_parse_result_into_variant(IColumn& column, ParseResult&& result,
+                                             const ParseConfig& config) {
+    auto& column_variant = assert_cast<ColumnVariant&>(column);
+    auto& [paths, values] = result;
     assert(paths.size() == values.size());
     size_t old_num_rows = column_variant.rows();
     if (config.deprecated_enable_flatten_nested) {
@@ -2057,6 +2169,14 @@ void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
 #endif
 }
 
+/// Original combined parse+insert function, now delegates to the two-step functions.
+template <typename ParserImpl>
+void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
+                                JSONDataParser<ParserImpl>* parser, const ParseConfig& config) {
+    auto result = parse_json_to_result(src, length, parser, config);
+    insert_parse_result_into_variant(column, std::move(result), config);
+}
+
 // exposed interfaces
 void parse_json_to_variant(IColumn& column, const StringRef& json, JsonParser* parser,
                            const ParseConfig& config) {
@@ -2157,7 +2277,7 @@ Status _parse_and_materialize_variant_columns(Block& block,
 
         MutableColumnPtr variant_column;
         if (!var.is_scalar_variant()) {
-            // already parsed
+            // Already parsed (non-scalar variant from query reader).
             continue;
         }
 

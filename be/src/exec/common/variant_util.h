@@ -36,6 +36,7 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
+#include "storage/segment/variant/variant_doc_path_stats.h"
 #include "storage/tablet/tablet_fwd.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/json/json_parser.h"
@@ -92,6 +93,15 @@ struct VariantExtendedInfo {
             nested_paths;               // nested paths in this variant column
     PathToDataTypes path_to_data_types; // key: path, value: data types
     bool has_nested_group = false;      // whether this variant column has nested group
+    // For doc-mode columns: true if at least one segment actually stores doc-value data.
+    // When all segments are downgraded (path < threshold), this stays false and
+    // compaction uses the all-materialized subcolumn schema instead.
+    bool has_doc_value_segments = false;
+    // For pure doc-mode compaction: temporary {path → total non-null count}
+    // buffer accumulated in aggregate_variant_extended_info. Converted to
+    // VariantDocPathStats by get_extended_compaction_schema and plumbed to
+    // the output RowsetWriterContext; this field is NOT read anywhere else.
+    std::unordered_map<std::string, uint64_t> doc_value_path_total_counts;
 };
 
 /// Returns number of dimensions in Array type. 0 if type is not array.
@@ -149,6 +159,10 @@ bool is_bf_supported_by_fe_for_variant_subcolumn(FieldType type);
 // get sorted subcolumns of variant
 ColumnVariant::Subcolumns get_sorted_subcolumns(const ColumnVariant::Subcolumns& subcolumns);
 
+// Serialize a Field value directly to binary format (type_byte + data_bytes)
+// for doc-value ColumnMap storage. Avoids creating temporary Subcolumn objects.
+void append_field_to_binary_chars(const Field& field, ColumnString::Chars& chars);
+
 bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* old_schema,
                            int32_t new_col_idx, int32_t old_col_idx);
 
@@ -202,8 +216,14 @@ public:
             std::unordered_map<int32_t, PathToNoneNullValues>* uid_to_path_stats);
 
     // Build the temporary schema for compaction, this will reduce the memory usage of compacting variant columns
-    static Status get_extended_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
-                                                 TabletSchemaSPtr& target);
+    // `doc_path_stats_out` (optional): if non-null, populated with per-uid
+    // bucket-partitioned path→total-count stats for variant columns in pure doc
+    // mode. Caller plumbs this into RowsetWriterContext so the
+    // VariantDocCompactWriter can pre-reserve its accumulators.
+    static Status get_extended_compaction_schema(
+            const std::vector<RowsetSharedPtr>& rowsets, TabletSchemaSPtr& target,
+            std::unordered_map<int32_t, std::shared_ptr<segment_v2::VariantDocPathStats>>*
+                    doc_path_stats_out = nullptr);
 
     // Used to collect all the subcolumns types of variant column from rowsets
     static TabletSchemaSPtr calculate_variant_extended_schema(

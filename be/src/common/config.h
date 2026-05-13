@@ -1430,6 +1430,9 @@ DECLARE_mBool(variant_enable_duplicate_json_path_check);
 // Enable vertical compact subcolumns of variant column
 DECLARE_mBool(enable_vertical_compact_variant_subcolumns);
 DECLARE_mBool(enable_variant_doc_sparse_write_subcolumns);
+// Byte threshold for VariantDocCompactWriter to trigger batched flush of buffered
+// doc_value data. <=0 disables batching and keeps the legacy single-pass behavior.
+DECLARE_mInt64(variant_doc_compact_batch_flush_bytes);
 // Maximum depth of nested arrays to track with NestedGroup
 // Reserved for future use when NestedGroup expansion moves to storage layer
 DECLARE_mInt32(variant_nested_group_max_depth);

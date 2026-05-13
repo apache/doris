@@ -2251,10 +2251,6 @@ public class PropertyAnalyzer {
 
     public static void validateVariantProperties(Map<String, String> properties) throws AnalysisException {
         if (properties != null && properties.containsKey(PROPERTIES_VARIANT_ENABLE_DOC_MODE)) {
-            if (properties.containsKey(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT)) {
-                throw new AnalysisException("variant_max_subcolumns_count and variant_enable_doc_mode "
-                        + "cannot be set together");
-            }
             if (properties.containsKey(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE)) {
                 throw new AnalysisException("variant_enable_typed_paths_to_sparse and variant_enable_doc_mode "
                         + "cannot be set together");

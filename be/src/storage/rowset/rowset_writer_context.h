@@ -34,6 +34,7 @@
 #include "runtime/exec_env.h"
 #include "storage/olap_define.h"
 #include "storage/partial_update_info.h"
+#include "storage/segment/variant/variant_doc_path_stats.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_schema.h"
@@ -135,6 +136,13 @@ struct RowsetWriterContext {
 
     // For collect segment statistics for compaction
     std::vector<RowsetReaderSharedPtr> input_rs_readers;
+
+    // For variant doc-mode compaction: per-variant-column-uid bucket-partitioned
+    // path→total-count stats gathered from source segments. Consumed by
+    // VariantDocCompactWriter to pre-reserve its sparse-subcolumn rowid
+    // accumulators (saves the PaddedPODArray 2x growth waste).
+    std::unordered_map<int32_t, std::shared_ptr<segment_v2::VariantDocPathStats>>
+            variant_doc_path_stats;
 
     // TODO(lihangyu) remove this lock
     // In semi-structure senario tablet_schema will be updated concurrently,

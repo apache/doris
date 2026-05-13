@@ -43,6 +43,7 @@ namespace segment_v2 {
 
 class ColumnWriter;
 class ScalarColumnWriter;
+struct VariantDocCompactBatchState;
 
 // Write already serialized binary data of variant columns into storage.
 class VariantBinaryWriter {
@@ -88,8 +89,11 @@ private:
             OlapBlockDataConvertor* converter,
             const phmap::flat_hash_map<StringRef, uint32_t, StringRefHash>& column_stats);
 
+    Status _ensure_doc_value_writers_inited();
+
     const TabletColumn* _parent_column = nullptr;
     ColumnWriterOptions _opts;
+    SegmentFooterPB* _footer = nullptr;
     int _bucket_num = 0;
     int _first_column_id = -1;
     std::vector<std::unique_ptr<ColumnWriter>> _doc_value_column_writers;
@@ -98,6 +102,7 @@ private:
     std::vector<TabletIndexes> _subcolumns_indexes;
     std::vector<ColumnWriterOptions> _subcolumn_opts;
     VariantStatistics _stats;
+    bool _doc_value_written = false;
 };
 
 // Unifies writing of Variant sparse data in two modes:
@@ -226,7 +231,7 @@ public:
     explicit VariantDocCompactWriter(const ColumnWriterOptions& opts, const TabletColumn* column,
                                      std::unique_ptr<StorageField> field);
 
-    ~VariantDocCompactWriter() override = default;
+    ~VariantDocCompactWriter() override;
 
     Status init() override;
     bool is_finalized() const { return _is_finalized; }
@@ -277,6 +282,12 @@ private:
                                    OlapBlockDataConvertor* converter, int column_id,
                                    size_t num_rows);
 
+    // Batch flush helpers. See variant_column_writer_impl.cpp for details.
+    Status _flush_batch();
+    Status _ensure_doc_value_writer_initialized(const TabletColumn& parent_column);
+    Status _finalize_legacy();
+    Status _finalize_batched();
+
     ordinal_t _next_rowid = 0;
     MutableColumnPtr _column;
     const TabletColumn* _tablet_column = nullptr;
@@ -287,6 +298,27 @@ private:
     std::vector<std::unique_ptr<ColumnWriter>> _subcolumn_writers;
     std::vector<TabletIndexes> _subcolumns_indexes;
     std::vector<ColumnWriterOptions> _subcolumn_opts;
+
+    // Batch flush state. _batch_state is lazily allocated on the first flush,
+    // _total_rows_flushed counts rows already appended to _doc_value_column_writer
+    // across batches. Both are non-zero only when the batched path is active.
+    size_t _total_rows_flushed = 0;
+    std::unique_ptr<VariantDocCompactBatchState> _batch_state;
+    std::unique_ptr<TabletColumn> _doc_value_tablet_column;
+
+    // Non-owning pointer into the bucket-local {path → expected count} map
+    // held by RowsetWriterContext.variant_doc_path_stats. Resolved once on the
+    // first _flush_batch via the writer's bucket_idx. Used by
+    // append_sparse_subcolumns_with_offset to pre-reserve rowid vectors.
+    const std::unordered_map<std::string, uint64_t>* _bucket_path_expected_counts = nullptr;
+
+    // Persistent converter reused across _flush_batch calls. Must be persistent
+    // because OlapColumnDataConvertorMap accumulates `_base_offset` across
+    // convert_to_olap() calls so that successive batches produce monotonically
+    // increasing offsets that match what _doc_value_column_writer (a single
+    // continuous offset stream) expects. A fresh-per-batch converter would
+    // restart `_base_offset` from 0, corrupting the on-disk offsets.
+    std::unique_ptr<OlapBlockDataConvertor> _doc_value_local_converter;
 };
 
 void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,

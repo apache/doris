@@ -513,7 +513,7 @@ Status CompactionMixin::build_basic_info(bool is_ordered_compaction) {
     // for ordered compaction, we don't need to extend the schema for variant columns
     if (_enable_vertical_compact_variant_subcolumns && !is_ordered_compaction) {
         RETURN_IF_ERROR(variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-                _input_rowsets, _cur_tablet_schema));
+                _input_rowsets, _cur_tablet_schema, &_variant_doc_path_stats));
     }
     return Status::OK();
 }
@@ -1303,6 +1303,7 @@ Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx)
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
     ctx.compaction_type = compaction_type();
     ctx.allow_packed_file = false;
+    ctx.variant_doc_path_stats = _variant_doc_path_stats;
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
     _pending_rs_guard = _engine.add_pending_rowset(ctx);
     return Status::OK();
@@ -1599,7 +1600,7 @@ Status CloudCompactionMixin::build_basic_info() {
     // so get_extended_compaction_schema will extended the schema for variant columns
     if (_enable_vertical_compact_variant_subcolumns) {
         RETURN_IF_ERROR(variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-                _input_rowsets, _cur_tablet_schema));
+                _input_rowsets, _cur_tablet_schema, &_variant_doc_path_stats));
     }
     return Status::OK();
 }
@@ -1854,6 +1855,7 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
     ctx.compaction_type = compaction_type();
     ctx.allow_packed_file = false;
+    ctx.variant_doc_path_stats = _variant_doc_path_stats;
 
     // We presume that the data involved in cumulative compaction is sufficiently 'hot'
     // and should always be retained in the cache.
