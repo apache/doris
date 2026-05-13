@@ -5031,6 +5031,9 @@ int InstanceRecycler::recycle_rowsets() {
     };
 
     auto loop_done = [&]() -> int {
+        if (rowset_keys.size() < rowset_batch_size_per_tablet) {
+            return 0;
+        }
         std::vector<std::string> rowset_keys_to_delete;
         // rowset_id -> rowset_meta
         // store rowset id and meta for statistics rs size when delete
@@ -6009,6 +6012,8 @@ int InstanceRecycler::scan_and_recycle(
             break; // scan finished
         }
         bool begin_updated = false;
+        LOG(INFO) << "scan_and_recycle iterator key_range=[" << hex(begin) << "," << hex(end)
+                  << ") iterator->size()=" << it->size();
         while (it->has_next()) {
             ++cnt;
             // recycle corresponding resources
