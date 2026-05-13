@@ -30,15 +30,11 @@ public class AnalysisTaskWrapperTest {
 
     @Test
     public void testOOMErrorMessageReplacement() throws Exception {
-        AnalysisInfo info = new AnalysisInfoBuilder().setScheduleType(ScheduleType.ONCE).build();
+        AnalysisInfo analysisInfo = new AnalysisInfoBuilder().setJobId(1).setTaskId(2)
+                .setScheduleType(ScheduleType.ONCE).build();
         AnalysisJob mockJob = Mockito.mock(AnalysisJob.class);
 
         BaseAnalysisTask task = new BaseAnalysisTask() {
-            {
-                this.info = info;
-                this.job = mockJob;
-            }
-
             @Override
             public void execute() throws Exception {
                 doExecute();
@@ -58,7 +54,14 @@ public class AnalysisTaskWrapperTest {
             @Override
             protected void deleteNotExistPartitionStats(AnalysisInfo jobInfo) throws DdlException {
             }
+
+            @Override
+            public String toString() {
+                return "test-analysis-task";
+            }
         };
+        task.info = analysisInfo;
+        task.job = mockJob;
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
             mockedEnv.when(Env::isCheckpointThread).thenReturn(true);
