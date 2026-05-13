@@ -50,4 +50,40 @@ suite("test_timestamptz_sort") {
     qt_sort_offset_limit """
         select * from timestamptz_sort_test order by tz asc limit 1 offset 1;
     """
+
+    sql " set enable_nereids_planner = true; "
+    sql " set enable_fallback_to_original_planner = false; "
+
+    sql """
+        DROP TABLE IF EXISTS `timestamptz_sort_cast_union_test`;
+    """
+    sql """
+        CREATE TABLE timestamptz_sort_cast_union_test (
+            id INT,
+            tz0 timestamptz(0),
+            tz6 timestamptz(6)
+        ) DISTRIBUTED BY HASH(id) BUCKETS 4 PROPERTIES ("replication_num" = "1");
+    """
+
+    sql """
+        insert into timestamptz_sort_cast_union_test values
+        (1, cast("2024-01-01 00:00:00 +08:00" as timestamptz(0)), cast("2024-01-01 00:00:00.000001 +08:00" as timestamptz(6))),
+        (2, cast("2023-12-31 23:00:00 +08:00" as timestamptz(0)), cast("2024-01-01 01:30:00.123456 +08:00" as timestamptz(6)));
+    """
+
+    qt_sort_cast_union_topn """
+        (
+            select cast(tz0 as timestamptz(0)) as ts_col
+            from timestamptz_sort_cast_union_test
+            where tz0 is not null
+        )
+        union all
+        (
+            select cast(tz6 as timestamptz(6)) as ts_col
+            from timestamptz_sort_cast_union_test
+            where tz6 is not null
+        )
+        order by 1 nulls last
+        limit 4;
+    """
 }
