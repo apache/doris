@@ -91,7 +91,12 @@ enum TCredProviderType {
     // used for creating different credentials provider when creating s3client
     DEFAULT = 0,  // DefaultAWSCredentialsProviderChain
     SIMPLE = 1,  // SimpleAWSCredentialsProvider, corresponding to (ak, sk)
-    INSTANCE_PROFILE = 2  // InstanceProfileCredentialsProvider
+    INSTANCE_PROFILE = 2,  // InstanceProfileCredentialsProvider
+    ENV = 3,  // EnvironmentAWSCredentialsProvider
+    SYSTEM_PROPERTIES = 4,  // SystemPropertiesCredentialsProvider
+    WEB_IDENTITY = 5,  // STSAssumeRoleWebIdentityCredentialsProvider
+    CONTAINER = 6,  // TaskRoleCredentialsProvider
+    ANONYMOUS = 7  // AnonymousAWSCredentialsProvider
 }
 
 struct TS3StorageParam {
