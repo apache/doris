@@ -34,6 +34,8 @@ under the License.
         <doris.home>${basedir}/../../</doris.home>
         <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
         <fe_ut_parallel>1</fe_ut_parallel>
+        <!-- Default empty argLine; overridden by JaCoCo when running with -Pcoverage -->
+        <argLine></argLine>
     </properties>
     <profiles>
         <profile>

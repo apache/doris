@@ -56,7 +56,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.lang.reflect.Method;
-import java.util.BitSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -73,22 +72,10 @@ public class NereidsParser {
     private static final ParseErrorListener PARSE_ERROR_LISTENER = new ParseErrorListener();
     private static final PostProcessor POST_PROCESSOR = new PostProcessor();
 
-    private static final BitSet EXPLAIN_TOKENS = new BitSet();
-
     private static final Set<String> NON_RESERVED_KEYWORDS;
     private static final Map<String, Integer> LITERAL_TOKENS;
 
     static {
-        EXPLAIN_TOKENS.set(DorisLexer.EXPLAIN);
-        EXPLAIN_TOKENS.set(DorisLexer.PARSED);
-        EXPLAIN_TOKENS.set(DorisLexer.ANALYZED);
-        EXPLAIN_TOKENS.set(DorisLexer.LOGICAL);
-        EXPLAIN_TOKENS.set(DorisLexer.REWRITTEN);
-        EXPLAIN_TOKENS.set(DorisLexer.PHYSICAL);
-        EXPLAIN_TOKENS.set(DorisLexer.OPTIMIZED);
-        EXPLAIN_TOKENS.set(DorisLexer.PLAN);
-        EXPLAIN_TOKENS.set(DorisLexer.PROCESS);
-
         ImmutableSet.Builder<String> nonReserveds = ImmutableSet.builder();
         for (Method declaredMethod : NonReservedContext.class.getDeclaredMethods()) {
             if (TerminalNode.class.equals(declaredMethod.getReturnType())
@@ -414,13 +401,14 @@ public class NereidsParser {
         ParserRuleContext tree;
         try {
             // first, try parsing with potentially faster SLL mode
+            parser.setErrorHandler(new ParserBailErrorStrategy());
             parser.getInterpreter().setPredictionMode(PredictionMode.SLL);
             tree = parseFunction.apply(parser);
         } catch (ParseCancellationException ex) {
             // if we fail, parse with LL mode
             tokenStream.seek(0); // rewind input stream
             parser.reset();
-
+            parser.setErrorHandler(new ParseErrorStrategy());
             parser.getInterpreter().setPredictionMode(PredictionMode.LL);
             tree = parseFunction.apply(parser);
         }

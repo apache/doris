@@ -37,7 +37,7 @@ suite("doc_date_error") {
     }
     test {
         sql """select DATE_ADD('2023-12-31 23:00:00', INTERVAL 2 sa);"""
-        exception "mismatched input 'sa' expecting"
+        exception "mismatched input 'sa'"
     }
 
     // date_ceil out of range

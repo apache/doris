@@ -148,9 +148,7 @@ public class ExpressionParserTest extends ParserTestBase {
         String subtract = "3 - 2";
         assertExpr(subtract);
 
-        parseExpression("3 += 2")
-                .assertThrowsExactly(SyntaxParseException.class)
-                .assertMessageContains("extraneous input '=' expecting {'(");
+        parseExpression("3 += 2").assertThrowsExactly(SyntaxParseException.class);
 
     }
 

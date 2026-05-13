@@ -148,7 +148,7 @@ suite("iceberg_branch_tag_operate", "p0,external") {
     // Test CREATE OR REPLACE BRANCH IF NOT EXISTS - this should fail
     test {
         sql """ alter table ${table_name} create or replace branch if not exists b7 """
-        exception "mismatched input"
+        exception "Syntax error near 'if'"
     }
 
     sql """ alter table ${table_name} create or replace branch b7 """
