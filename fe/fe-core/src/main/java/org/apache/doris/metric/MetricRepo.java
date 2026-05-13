@@ -91,6 +91,7 @@ public final class MetricRepo {
     public static final String STREAMING_JOB_PER_JOB_FILTERED_ROWS = "streaming_job_per_job_filtered_rows";
     public static final String STREAMING_JOB_PER_JOB_SUCCEED_TASK_COUNT = "streaming_job_per_job_succeed_task_count";
     public static final String STREAMING_JOB_PER_JOB_FAILED_TASK_COUNT = "streaming_job_per_job_failed_task_count";
+    public static final String STREAMING_JOB_PER_JOB_LAG = "streaming_job_per_job_lag";
     public static final String CLOUD_TAG = "cloud";
 
     public static LongCounterMetric COUNTER_REQUEST_ALL;
@@ -1246,6 +1247,7 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_FILTERED_ROWS);
         DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_SUCCEED_TASK_COUNT);
         DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_FAILED_TASK_COUNT);
+        DORIS_METRIC_REGISTER.removeMetrics(STREAMING_JOB_PER_JOB_LAG);
 
         try {
             List<org.apache.doris.job.base.AbstractJob> jobs =
@@ -1328,9 +1330,38 @@ public final class MetricRepo {
                 failedTaskCount.addLabel(new MetricLabel("job_id", jobId))
                         .addLabel(new MetricLabel("job_name", jobName));
                 DORIS_METRIC_REGISTER.addMetrics(failedTaskCount);
+
+                // Lag is only meaningful for CDC sources in binlog/WAL phase.
+                // Empty string means N/A (S3, snapshot phase) — skip the metric so Prometheus
+                // doesn't carry a misleading series for those jobs.
+                final Long lagValue = parseLagSeconds(sJob.getLag());
+                if (lagValue != null) {
+                    GaugeMetric<Long> lag = new GaugeMetric<Long>(
+                            STREAMING_JOB_PER_JOB_LAG, MetricUnit.SECONDS,
+                            "per job lag in seconds of streaming job") {
+                        @Override
+                        public Long getValue() {
+                            return lagValue;
+                        }
+                    };
+                    lag.addLabel(new MetricLabel("job_id", jobId))
+                            .addLabel(new MetricLabel("job_name", jobName));
+                    DORIS_METRIC_REGISTER.addMetrics(lag);
+                }
             }
         } catch (Throwable t) {
             LOG.warn("failed to update streaming job per-job metrics", t);
+        }
+    }
+
+    private static Long parseLagSeconds(String lagStr) {
+        if (lagStr == null || lagStr.isEmpty()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(lagStr);
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 

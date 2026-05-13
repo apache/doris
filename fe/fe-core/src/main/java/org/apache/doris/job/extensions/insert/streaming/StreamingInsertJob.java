@@ -871,6 +871,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         super.onReplayCreate();
     }
 
+    public String getLag() {
+        return offsetProvider != null ? offsetProvider.getLag() : "";
+    }
+
     /**
      * Because the offset statistics of the streamingInsertJob are all stored in txn,
      * only some fields are replayed here.
