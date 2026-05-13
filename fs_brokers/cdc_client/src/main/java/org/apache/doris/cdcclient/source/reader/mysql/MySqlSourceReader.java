@@ -20,7 +20,6 @@ package org.apache.doris.cdcclient.source.reader.mysql;
 import org.apache.doris.cdcclient.source.deserialize.DeserializeResult;
 import org.apache.doris.cdcclient.source.deserialize.MySqlDebeziumJsonDeserializer;
 import org.apache.doris.cdcclient.source.factory.DataSource;
-import org.apache.doris.cdcclient.utils.SplitKeyTypeResolver;
 import org.apache.doris.cdcclient.source.reader.AbstractCdcSourceReader;
 import org.apache.doris.cdcclient.source.reader.SnapshotReaderContext;
 import org.apache.doris.cdcclient.source.reader.SplitReadResult;
@@ -42,12 +41,12 @@ import org.apache.flink.api.connector.source.SourceSplit;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.cdc.common.utils.Preconditions;
 import org.apache.flink.cdc.connectors.mysql.debezium.DebeziumUtils;
-import org.apache.flink.cdc.connectors.mysql.schema.MySqlSchema;
-import org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlChunkSplitter;
-import org.apache.flink.cdc.connectors.mysql.source.assigners.state.ChunkSplitterState;
 import org.apache.flink.cdc.connectors.mysql.debezium.reader.BinlogSplitReader;
 import org.apache.flink.cdc.connectors.mysql.debezium.reader.SnapshotSplitReader;
 import org.apache.flink.cdc.connectors.mysql.debezium.task.context.StatefulTaskContext;
+import org.apache.flink.cdc.connectors.mysql.schema.MySqlSchema;
+import org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlChunkSplitter;
+import org.apache.flink.cdc.connectors.mysql.source.assigners.state.ChunkSplitterState;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfig;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfigFactory;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffset;
@@ -170,8 +169,8 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
      * PKs go through a single splitChunks() call returning all chunks at once, so batchSize is only
      * effective on the uneven path.
      *
-     * <p>Only INITIAL/SNAPSHOT startup modes go through the chunk path; other modes return a
-     * single BinlogSplit instead.
+     * <p>Only INITIAL/SNAPSHOT startup modes go through the chunk path; other modes return a single
+     * BinlogSplit instead.
      */
     @Override
     public List<AbstractSourceSplit> getSourceSplits(FetchTableSplitsRequest ftsReq) {
@@ -187,7 +186,8 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         if (!startupMode.equals(StartupMode.INITIAL) && !startupMode.equals(StartupMode.SNAPSHOT)) {
             BinlogSplit binlogSplit = new BinlogSplit();
             binlogSplit.setSplitId(BINLOG_SPLIT_ID);
-            binlogSplit.setStartingOffset(sourceConfig.getStartupOptions().binlogOffset.getOffset());
+            binlogSplit.setStartingOffset(
+                    sourceConfig.getStartupOptions().binlogOffset.getOffset());
             return Collections.singletonList(binlogSplit);
         }
 
@@ -205,7 +205,8 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         MySqlPartition partition =
                 new MySqlPartition(sourceConfig.getMySqlConnectorConfig().getLogicalName());
 
-        ChunkSplitterState state = buildChunkSplitterState(sourceConfig, tableId, ftsReq, mySqlSchema, partition);
+        ChunkSplitterState state =
+                buildChunkSplitterState(sourceConfig, tableId, ftsReq, mySqlSchema, partition);
         MySqlChunkSplitter splitter = new MySqlChunkSplitter(mySqlSchema, sourceConfig, state);
 
         try {
@@ -239,36 +240,49 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     }
 
     /**
-     * null start -> NO_SPLITTING_TABLE_STATE (analyze + maybe evenly); non-null -> resume mid-table.
-     * Cast pkValues[0] back to the JDBC driver's natural type (JSON round-trip downgrades types).
+     * null start -> NO_SPLITTING_TABLE_STATE (analyze + maybe evenly); non-null -> resume
+     * mid-table. Cast pkValues[0] back to the JDBC driver's natural type (JSON round-trip
+     * downgrades types).
      */
     private ChunkSplitterState buildChunkSplitterState(
-            MySqlSourceConfig sourceConfig, TableId tableId, FetchTableSplitsRequest ftsReq,
-            MySqlSchema mySqlSchema, MySqlPartition partition) {
+            MySqlSourceConfig sourceConfig,
+            TableId tableId,
+            FetchTableSplitsRequest ftsReq,
+            MySqlSchema mySqlSchema,
+            MySqlPartition partition) {
         Object[] pkValues = ftsReq.getNextSplitStart();
         if (pkValues == null || pkValues.length == 0) {
             return ChunkSplitterState.NO_SPLITTING_TABLE_STATE;
         }
-        Class<?> targetClass = resolveSplitKeyClass(sourceConfig, tableId, ftsReq, mySqlSchema, partition);
-        Object castStart = SplitKeyTypeResolver.cast(pkValues[0], targetClass);
+        Class<?> targetClass =
+                resolveSplitKeyClass(sourceConfig, tableId, ftsReq, mySqlSchema, partition);
+        Object castStart = objectMapper.convertValue(pkValues[0], targetClass);
         int splitId = ftsReq.getNextSplitId() == null ? 0 : ftsReq.getNextSplitId();
         return new ChunkSplitterState(
                 tableId, ChunkSplitterState.ChunkBound.middleOf(castStart), splitId);
     }
 
     /**
-     * Returns the JDBC driver's natural Java class for the split key column, matching what
-     * {@code rs.getObject()} returns inside flink-cdc's queryNextChunkMax/queryMin.
+     * Returns the JDBC driver's natural Java class for the split key column, matching what {@code
+     * rs.getObject()} returns inside flink-cdc's queryNextChunkMax/queryMin.
      */
     private Class<?> resolveSplitKeyClass(
-            MySqlSourceConfig sourceConfig, TableId tableId, FetchTableSplitsRequest ftsReq,
-            MySqlSchema mySqlSchema, MySqlPartition partition) {
+            MySqlSourceConfig sourceConfig,
+            TableId tableId,
+            FetchTableSplitsRequest ftsReq,
+            MySqlSchema mySqlSchema,
+            MySqlPartition partition) {
         try (MySqlConnection jdbc = DebeziumUtils.createMySqlConnection(sourceConfig)) {
-            Column splitColumn = ChunkUtils.getChunkKeyColumn(
-                    mySqlSchema.getTableSchema(partition, jdbc, tableId).getTable(),
-                    sourceConfig.getChunkKeyColumns());
-            String probeSql = "SELECT " + StatementUtils.quote(splitColumn.name())
-                    + " FROM " + StatementUtils.quote(tableId) + " WHERE 1=0";
+            Column splitColumn =
+                    ChunkUtils.getChunkKeyColumn(
+                            mySqlSchema.getTableSchema(partition, jdbc, tableId).getTable(),
+                            sourceConfig.getChunkKeyColumns());
+            String probeSql =
+                    "SELECT "
+                            + StatementUtils.quote(splitColumn.name())
+                            + " FROM "
+                            + StatementUtils.quote(tableId)
+                            + " WHERE 1=0";
             try (Statement st = jdbc.connection().createStatement();
                     ResultSet rs = st.executeQuery(probeSql)) {
                 return Class.forName(rs.getMetaData().getColumnClassName(1));
@@ -278,7 +292,9 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         }
     }
 
-    /** flink-cdc MySqlSnapshotSplit -> Doris SnapshotSplit (drops splitKeyType, keeps field names). */
+    /**
+     * flink-cdc MySqlSnapshotSplit -> Doris SnapshotSplit (drops splitKeyType, keeps field names).
+     */
     private SnapshotSplit toDorisSnapshotSplit(MySqlSnapshotSplit chunk) {
         return new SnapshotSplit(
                 chunk.splitId(),

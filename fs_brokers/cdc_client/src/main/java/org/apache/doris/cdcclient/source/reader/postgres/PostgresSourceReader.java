@@ -41,6 +41,7 @@ import org.apache.flink.cdc.connectors.base.source.meta.split.StreamSplit;
 import org.apache.flink.cdc.connectors.base.source.reader.external.FetchTask;
 import org.apache.flink.cdc.connectors.base.source.reader.external.IncrementalSourceScanFetcher;
 import org.apache.flink.cdc.connectors.base.source.reader.external.IncrementalSourceStreamFetcher;
+import org.apache.flink.cdc.connectors.base.source.utils.JdbcChunkUtils;
 import org.apache.flink.cdc.connectors.postgres.source.PostgresDialect;
 import org.apache.flink.cdc.connectors.postgres.source.config.PostgresSourceConfig;
 import org.apache.flink.cdc.connectors.postgres.source.config.PostgresSourceConfigFactory;
@@ -49,10 +50,13 @@ import org.apache.flink.cdc.connectors.postgres.source.fetch.PostgresStreamFetch
 import org.apache.flink.cdc.connectors.postgres.source.offset.PostgresOffset;
 import org.apache.flink.cdc.connectors.postgres.source.offset.PostgresOffsetFactory;
 import org.apache.flink.cdc.connectors.postgres.source.utils.CustomPostgresSchema;
+import org.apache.flink.cdc.connectors.postgres.source.utils.PostgresQueryUtils;
 import org.apache.flink.cdc.connectors.postgres.source.utils.PostgresTypeUtils;
 import org.apache.flink.cdc.connectors.postgres.source.utils.TableDiscoveryUtils;
 import org.apache.flink.table.types.DataType;
 
+import java.sql.ResultSet;
+import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
@@ -364,6 +368,30 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     @Override
     protected DataType fromDbzColumn(Column splitColumn) {
         return PostgresTypeUtils.fromDbzColumn(splitColumn);
+    }
+
+    @Override
+    protected Class<?> resolveSplitKeyClass(
+            JdbcSourceConfig sourceConfig, TableId tableId, JobBaseConfig config) {
+        try {
+            TableChanges.TableChange tableChange = getTableSchemas(config).get(tableId);
+            Column splitColumn =
+                    JdbcChunkUtils.getSplitColumn(
+                            tableChange.getTable(), sourceConfig.getChunkKeyColumn());
+            String probeSql =
+                    "SELECT "
+                            + PostgresQueryUtils.quote(splitColumn.name())
+                            + " FROM "
+                            + PostgresQueryUtils.quote(tableId)
+                            + " WHERE 1=0";
+            try (JdbcConnection jdbc = getDialect(sourceConfig).openJdbcConnection(sourceConfig);
+                    Statement st = jdbc.connection().createStatement();
+                    ResultSet rs = st.executeQuery(probeSql)) {
+                return Class.forName(rs.getMetaData().getColumnClassName(1));
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to resolve split key class for " + tableId, e);
+        }
     }
 
     /**

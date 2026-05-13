@@ -20,7 +20,6 @@ package org.apache.doris.cdcclient.source.reader;
 import org.apache.doris.cdcclient.source.deserialize.DebeziumJsonDeserializer;
 import org.apache.doris.cdcclient.source.deserialize.DeserializeResult;
 import org.apache.doris.cdcclient.source.factory.DataSource;
-import org.apache.doris.cdcclient.utils.SplitKeyTypeResolver;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
@@ -37,8 +36,6 @@ import org.apache.flink.cdc.connectors.base.config.JdbcSourceConfig;
 import org.apache.flink.cdc.connectors.base.dialect.JdbcDataSourceDialect;
 import org.apache.flink.cdc.connectors.base.options.StartupOptions;
 import org.apache.flink.cdc.connectors.base.source.assigner.splitter.ChunkSplitter;
-import org.apache.flink.cdc.connectors.base.source.utils.JdbcChunkUtils;
-import org.apache.flink.cdc.connectors.postgres.source.utils.PostgresQueryUtils;
 import org.apache.flink.cdc.connectors.base.source.assigner.state.ChunkSplitterState;
 import org.apache.flink.cdc.connectors.base.source.assigner.state.ChunkSplitterState.ChunkBound;
 import org.apache.flink.cdc.connectors.base.source.meta.offset.Offset;
@@ -60,8 +57,6 @@ import org.apache.flink.table.types.logical.RowType;
 import org.apache.kafka.connect.source.SourceRecord;
 
 import java.io.IOException;
-import java.sql.ResultSet;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -80,7 +75,6 @@ import java.util.concurrent.Executors;
 import static org.apache.flink.cdc.connectors.base.source.meta.split.StreamSplit.STREAM_SPLIT_ID;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.debezium.jdbc.JdbcConnection;
 import io.debezium.relational.Column;
 import io.debezium.relational.TableId;
 import io.debezium.relational.history.TableChanges;
@@ -169,15 +163,20 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
             while (result.size() < batchSize) {
                 Collection<org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit>
                         chunks = splitter.generateSplits(tableId);
-                for (org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit chunk : chunks) {
+                for (org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit chunk :
+                        chunks) {
                     result.add(toDorisSnapshotSplit(chunk));
                 }
                 if (!splitter.hasNextChunk()) {
                     break;
                 }
             }
-            LOG.info("Fetched {} splits for table {} (resume nextSplitId={}); hasNextChunk={}",
-                    result.size(), tableId, ftsReq.getNextSplitId(), splitter.hasNextChunk());
+            LOG.info(
+                    "Fetched {} splits for table {} (resume nextSplitId={}); hasNextChunk={}",
+                    result.size(),
+                    tableId,
+                    ftsReq.getNextSplitId(),
+                    splitter.hasNextChunk());
             return result;
         } catch (Exception e) {
             throw new RuntimeException("Failed to generate splits for " + tableId, e);
@@ -191,8 +190,9 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
     }
 
     /**
-     * null start -> NO_SPLITTING_TABLE_STATE (analyze + maybe evenly); non-null -> resume mid-table.
-     * Cast pkValues[0] back to the JDBC driver's natural type (JSON round-trip downgrades types).
+     * null start -> NO_SPLITTING_TABLE_STATE (analyze + maybe evenly); non-null -> resume
+     * mid-table. Cast pkValues[0] back to the JDBC driver's natural type (JSON round-trip
+     * downgrades types).
      */
     private ChunkSplitterState buildChunkSplitterState(
             JdbcSourceConfig sourceConfig, TableId tableId, FetchTableSplitsRequest ftsReq) {
@@ -201,34 +201,22 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
             return ChunkSplitterState.NO_SPLITTING_TABLE_STATE;
         }
         Class<?> targetClass = resolveSplitKeyClass(sourceConfig, tableId, ftsReq);
-        Object castStart = SplitKeyTypeResolver.cast(pkValues[0], targetClass);
+        Object castStart = objectMapper.convertValue(pkValues[0], targetClass);
         int splitId = ftsReq.getNextSplitId() == null ? 0 : ftsReq.getNextSplitId();
         return new ChunkSplitterState(tableId, ChunkBound.middleOf(castStart), splitId);
     }
 
     /**
-     * Returns the JDBC driver's natural Java class for the split key column, matching what
-     * {@code rs.getObject()} returns inside flink-cdc's queryNextChunkMax/queryMin.
+     * Returns the JDBC driver's natural Java class for the split key column, matching what {@code
+     * rs.getObject()} returns inside flink-cdc's queryNextChunkMax/queryMin. Dialect-specific
+     * (quote / connection / split column lookup) — implemented per concrete reader.
      */
-    private Class<?> resolveSplitKeyClass(
-            JdbcSourceConfig sourceConfig, TableId tableId, FetchTableSplitsRequest ftsReq) {
-        try {
-            TableChanges.TableChange tableChange = getTableSchemas(ftsReq).get(tableId);
-            Column splitColumn = JdbcChunkUtils.getSplitColumn(
-                    tableChange.getTable(), sourceConfig.getChunkKeyColumn());
-            String probeSql = "SELECT " + PostgresQueryUtils.quote(splitColumn.name())
-                    + " FROM " + PostgresQueryUtils.quote(tableId) + " WHERE 1=0";
-            try (JdbcConnection jdbc = getDialect(sourceConfig).openJdbcConnection(sourceConfig);
-                    Statement st = jdbc.connection().createStatement();
-                    ResultSet rs = st.executeQuery(probeSql)) {
-                return Class.forName(rs.getMetaData().getColumnClassName(1));
-            }
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to resolve split key class for " + tableId, e);
-        }
-    }
+    protected abstract Class<?> resolveSplitKeyClass(
+            JdbcSourceConfig sourceConfig, TableId tableId, JobBaseConfig config);
 
-    /** flink-cdc SnapshotSplit -> Doris SnapshotSplit (drops splitKeyType, keeps key field names). */
+    /**
+     * flink-cdc SnapshotSplit -> Doris SnapshotSplit (drops splitKeyType, keeps key field names).
+     */
     private SnapshotSplit toDorisSnapshotSplit(
             org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit chunk) {
         return new SnapshotSplit(
@@ -895,7 +883,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
         }
     }
 
-    private Map<TableId, TableChanges.TableChange> getTableSchemas(JobBaseConfig config) {
+    protected Map<TableId, TableChanges.TableChange> getTableSchemas(JobBaseConfig config) {
         Map<TableId, TableChanges.TableChange> schemas = this.getTableSchemas();
         if (schemas == null) {
             schemas = discoverTableSchemas(config);

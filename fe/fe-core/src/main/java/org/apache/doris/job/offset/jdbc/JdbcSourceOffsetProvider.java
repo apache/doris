@@ -65,6 +65,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -688,8 +689,11 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public void advanceSplits() throws JobException {
+        // Phase 1 (locked, fast): pick next table & snapshot the resume cursor.
+        String tbl;
+        Object[] startVal;
+        Integer splitId;
         synchronized (splitsLock) {
-            // 1. Pick next table if not currently splitting one.
             if (cdcSplitProgress.getCurrentSplittingTable() == null) {
                 List<String> remaining = computeCdcRemainingTables();
                 if (remaining.isEmpty()) {
@@ -699,17 +703,34 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 cdcSplitProgress.setNextSplitStart(null);
                 cdcSplitProgress.setNextSplitId(null);
             }
-            String tbl = cdcSplitProgress.getCurrentSplittingTable();
-            Object[] startVal = cdcSplitProgress.getNextSplitStart();
-            Integer splitId = cdcSplitProgress.getNextSplitId();
+            tbl = cdcSplitProgress.getCurrentSplittingTable();
+            startVal = cdcSplitProgress.getNextSplitStart();
+            splitId = cdcSplitProgress.getNextSplitId();
+        }
 
-            // 2. RPC under lock — updateOffset may wait briefly
-            List<SnapshotSplit> batch = rpcFetchSplitsBatch(tbl, startVal, splitId);
-            if (batch == null || batch.isEmpty()) {
+        // Phase 2 (unlocked, slow): RPC. Keeps updateOffset / scheduler tick unblocked
+        // so task dispatch can drain remainingSplits while we fetch the next batch.
+        List<SnapshotSplit> batch = rpcFetchSplitsBatch(tbl, startVal, splitId);
+        if (batch == null || batch.isEmpty()) {
+            return;
+        }
+
+        // Phase 3 (locked, fast): reconcile + merge + advance cdcSplitProgress.
+        List<SnapshotSplit> splitsOfTbl;
+        int newSplitCount;
+        synchronized (splitsLock) {
+            // Defensive reconciliation: replayIfNeed / pause-resume may have moved the cursor
+            // while we were waiting on the RPC; drop this batch and let the next loop iteration
+            // re-pick from the new state.
+            if (!tbl.equals(cdcSplitProgress.getCurrentSplittingTable())
+                    || !Objects.equals(splitId, cdcSplitProgress.getNextSplitId())) {
+                log.info("advanceSplits discard batch for job {} table {}: state moved on "
+                                + "during RPC (now table={}, splitId={})",
+                        getJobId(), tbl,
+                        cdcSplitProgress.getCurrentSplittingTable(),
+                        cdcSplitProgress.getNextSplitId());
                 return;
             }
-
-            // 3. mergeBySplitId (defensive dedup).
             Set<String> existingIds = new HashSet<>();
             finishedSplits.forEach(s -> existingIds.add(s.getSplitId()));
             remainingSplits.forEach(s -> existingIds.add(s.getSplitId()));
@@ -724,27 +745,29 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                         batch.size() - newSplits.size(), batch.size(), newSplits.size(), getJobId(), tbl);
             }
             remainingSplits.addAll(newSplits);
-
-            // 4. UPSERT this table's full chunk_list to system table.
-            List<SnapshotSplit> splitsOfTbl = Stream.concat(
-                            finishedSplits.stream(), remainingSplits.stream())
+            newSplitCount = newSplits.size();
+            splitsOfTbl = Stream.concat(finishedSplits.stream(), remainingSplits.stream())
                     .filter(s -> tbl.equals(s.getTableId()))
                     .sorted(Comparator.comparingInt(s -> splitIdOf(s.getSplitId())))
                     .collect(Collectors.toList());
-            try {
-                StreamingJobUtils.upsertChunkList(getJobId(), tbl, splitsOfTbl);
-            } catch (Exception e) {
-                throw new JobException("UPSERT chunk_list failed for " + tbl + ": " + e.getMessage());
-            }
-
-            // 5. Advance cdcSplitProgress to the last split in the batch.
             applySplitToProgress(cdcSplitProgress, batch.get(batch.size() - 1));
             log.info("advanceSplits jobId={} table={} request(nextStart={}, nextSplitId={}) "
                             + "got {} new splits, cdcSplitProgress -> (table={}, nextStart={}, nextSplitId={})",
-                    getJobId(), tbl, Arrays.toString(startVal), splitId, newSplits.size(),
+                    getJobId(), tbl, Arrays.toString(startVal), splitId, newSplitCount,
                     cdcSplitProgress.getCurrentSplittingTable(),
                     Arrays.toString(cdcSplitProgress.getNextSplitStart()),
                     cdcSplitProgress.getNextSplitId());
+        }
+
+        // Phase 4 (unlocked, slow): persist chunk_list. Failure here is recoverable — on
+        // restart, replayIfNeed reloads from system table at committedSplitProgress and
+        // cdc_client will re-cut these chunks; mergeBySplitId dedups on the next iteration.
+        try {
+            StreamingJobUtils.upsertChunkList(getJobId(), tbl, splitsOfTbl);
+        } catch (Exception e) {
+            log.warn("UPSERT chunk_list failed for job {} table {}: {} — in-memory state has "
+                            + "advanced; restart will re-cut and dedup via mergeBySplitId",
+                    getJobId(), tbl, e.getMessage(), e);
         }
     }
 
