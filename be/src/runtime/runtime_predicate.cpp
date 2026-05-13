@@ -81,8 +81,7 @@ Status RuntimePredicate::init_target(
 
 bool RuntimePredicate::_init(PrimitiveType type) {
     return is_int_or_bool(type) || is_decimal(type) || is_string_type(type) || is_date_type(type) ||
-           is_time_type(type) || is_timestamptz_type(type) || is_ip(type) ||
-           is_varbinary(type);
+           is_time_type(type) || is_timestamptz_type(type) || is_ip(type) || is_varbinary(type);
 }
 
 Status RuntimePredicate::update(const Field& value) {
