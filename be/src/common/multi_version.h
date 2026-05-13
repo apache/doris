@@ -21,6 +21,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <shared_mutex>
 
 /** Allow to store and read-only usage of an object in several threads,
