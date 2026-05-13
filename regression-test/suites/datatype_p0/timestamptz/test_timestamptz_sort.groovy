@@ -71,6 +71,11 @@ suite("test_timestamptz_sort") {
         (2, cast("2023-12-31 23:00:00 +08:00" as timestamptz(0)), cast("2024-01-01 01:30:00.123456 +08:00" as timestamptz(6)));
     """
 
+    // Set topn_filter_ratio high enough to force TopN runtime predicate pushdown regardless of
+    // row count (condition: max(rowCount,1) * ratio > limit). Without this, a small table with
+    // limit >= rowCount*0.5 would skip the filter and never hit RuntimePredicate::_init().
+    sql " set topn_filter_ratio = 10; "
+
     qt_sort_cast_union_topn """
         (
             select cast(tz0 as timestamptz(0)) as ts_col
