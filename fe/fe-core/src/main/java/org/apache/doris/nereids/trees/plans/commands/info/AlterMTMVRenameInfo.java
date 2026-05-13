@@ -34,12 +34,12 @@ import java.util.Optional;
  * rename
  */
 public class AlterMTMVRenameInfo extends AlterMTMVInfo {
-    private final String newName;
+    private final TableNameInfo newName;
 
     /**
      * constructor for alter MTMV
      */
-    public AlterMTMVRenameInfo(TableNameInfo mvName, String newName) {
+    public AlterMTMVRenameInfo(TableNameInfo mvName, TableNameInfo newName) {
         super(mvName);
         this.newName = Objects.requireNonNull(newName, "require newName object");
     }
@@ -53,9 +53,16 @@ public class AlterMTMVRenameInfo extends AlterMTMVInfo {
     public void analyze(ConnectContext ctx) throws AnalysisException {
         super.analyze(ctx);
         try {
-            FeNameFormat.checkTableName(newName);
+            FeNameFormat.checkTableName(newName.getTbl());
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new AnalysisException(e.getMessage(), e);
+        }
+        if (newName.getCtl() != null || newName.getDb() != null) {
+            newName.analyze(ctx.getNameSpaceContext());
+            if (!mvName.getCtl().equalsIgnoreCase(newName.getCtl())
+                    || !mvName.getDb().equalsIgnoreCase(newName.getDb())) {
+                throw new AnalysisException("Can not rename materialized view to another database or catalog");
+            }
         }
     }
 
@@ -64,7 +71,7 @@ public class AlterMTMVRenameInfo extends AlterMTMVInfo {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(mvName.getDb());
         Table table = db.getTableOrDdlException(mvName.getTbl());
         BaseTableInfo oldTableInfo = new BaseTableInfo(table);
-        Env.getCurrentEnv().renameTable(db, table, newName);
+        Env.getCurrentEnv().renameTable(db, table, newName.getTbl());
         BaseTableInfo newTableInfo = new BaseTableInfo(table);
         Env.getCurrentEnv().getMtmvService().alterTable(oldTableInfo, Optional.of(newTableInfo), false);
     }

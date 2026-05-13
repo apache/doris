@@ -46,12 +46,14 @@ public class AlterMTMVTest extends TestWithFeService {
                 + "AS select * from stu limit 1");
 
         alterMv("ALTER MATERIALIZED VIEW mv_a RENAME mv_b");
+        alterMv("ALTER MATERIALIZED VIEW test.mv_b RENAME test.mv_c");
 
         MTMVRelationManager relationManager = Env.getCurrentEnv().getMtmvService().getRelationManager();
         Table table = Env.getCurrentInternalCatalog().getDb("test").get().getTableOrMetaException("stu");
         Set<BaseTableInfo> allMTMVs = relationManager.getMtmvsByBaseTable(new BaseTableInfo(table));
         boolean hasMvA = false;
         boolean hasMvB = false;
+        boolean hasMvC = false;
         for (BaseTableInfo mtmv : allMTMVs) {
             if ("mv_a".equals(mtmv.getTableName())) {
                 hasMvA = true;
@@ -59,9 +61,13 @@ public class AlterMTMVTest extends TestWithFeService {
             if ("mv_b".equals(mtmv.getTableName())) {
                 hasMvB = true;
             }
+            if ("mv_c".equals(mtmv.getTableName())) {
+                hasMvC = true;
+            }
         }
         Assertions.assertFalse(hasMvA);
-        Assertions.assertTrue(hasMvB);
+        Assertions.assertFalse(hasMvB);
+        Assertions.assertTrue(hasMvC);
 
 
         createTable("CREATE TABLE `stu1` (`sid` int(32) NULL, `sname` varchar(32) NULL)\n"
@@ -71,8 +77,8 @@ public class AlterMTMVTest extends TestWithFeService {
                 + "PROPERTIES ('replication_allocation' = 'tag.location.default: 1')");
 
         DdlException exception = Assertions.assertThrows(DdlException.class, () ->
-                alterTableSync("ALTER TABLE stu1 REPLACE WITH TABLE mv_b PROPERTIES('swap' = 'true')"));
-        Assertions.assertEquals("errCode = 2, detailMessage = replace table[mv_b] cannot be a materialized view",
+                alterTableSync("ALTER TABLE stu1 REPLACE WITH TABLE mv_c PROPERTIES('swap' = 'true')"));
+        Assertions.assertEquals("errCode = 2, detailMessage = replace table[mv_c] cannot be a materialized view",
                 exception.getMessage());
     }
 }
