@@ -533,6 +533,7 @@ Status RowGroupReader::_read_column_data(Block* block,
                                          const std::vector<std::string>& table_columns,
                                          size_t batch_size, size_t* read_rows, bool* batch_eof,
                                          FilterMap& filter_map) {
+    DCHECK_EQ(block->rows(), 0);
     size_t batch_read_rows = 0;
     bool has_eof = false;
     for (auto& read_col_name : table_columns) {
