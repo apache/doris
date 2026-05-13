@@ -614,6 +614,7 @@ int main(int argc, char** argv) {
         if (!status.ok()) {
             std::cerr << msg << '\n';
             service->stop_works();
+            exec_env->destroy();
             exit(-1);
         }
     };
