@@ -310,7 +310,7 @@ void ColumnReader::check_data_by_zone_map_for_test(const MutableColumnPtr& dst) 
         return;
     }
 
-    FieldType type = _type_info->type();
+    FieldType type = _type;
 
     if (type != FieldType::OLAP_FIELD_TYPE_INT) {
         return;
@@ -346,16 +346,16 @@ void ColumnReader::check_data_by_zone_map_for_test(const MutableColumnPtr& dst) 
 #endif
 
 Status ColumnReader::init(const ColumnMetaPB* meta) {
-    _type_info = get_type_info(meta);
+    _type = (FieldType)meta->type();
 
     if (meta->has_be_exec_version()) {
         _be_exec_version = meta->be_exec_version();
     }
 
-    if (_type_info == nullptr) {
+    if (_type == FieldType::OLAP_FIELD_TYPE_NONE || _type == FieldType::OLAP_FIELD_TYPE_UNKNOWN) {
         return Status::NotSupported("unsupported typeinfo, type={}", meta->type());
     }
-    RETURN_IF_ERROR(EncodingInfo::get(_type_info->type(), meta->encoding(), {}, &_encoding_info));
+    RETURN_IF_ERROR(EncodingInfo::get(_type, meta->encoding(), {}, &_encoding_info));
 
     for (int i = 0; i < meta->indexes_size(); i++) {
         const auto& index_meta = meta->indexes(i);
@@ -635,7 +635,7 @@ Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_f
     if (_meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         type = _meta_children_column_type;
     } else {
-        type = _type_info->type();
+        type = _type;
     }
 
     if (index_meta->index_type() == IndexType::ANN) {
@@ -2512,19 +2512,19 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
         if (_default_value == "NULL") {
             _default_value_field = Field::create_field<TYPE_NULL>(Null {});
         } else {
-            if (_type_info->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+            if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
                 if (_default_value != "[]") {
                     return Status::NotSupported("Array default {} is unsupported", _default_value);
                 } else {
                     _default_value_field = Field::create_field<TYPE_ARRAY>(Array {});
                     return Status::OK();
                 }
-            } else if (_type_info->type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
+            } else if (_type == FieldType::OLAP_FIELD_TYPE_STRUCT) {
                 return Status::NotSupported("STRUCT default type is unsupported");
-            } else if (_type_info->type() == FieldType::OLAP_FIELD_TYPE_MAP) {
+            } else if (_type == FieldType::OLAP_FIELD_TYPE_MAP) {
                 return Status::NotSupported("MAP default type is unsupported");
             }
-            const auto t = _type_info->type();
+            const auto t = _type;
             const auto serde = DataTypeFactory::instance()
                                        .create_data_type(t, _precision, _scale, _len)
                                        ->get_serde();

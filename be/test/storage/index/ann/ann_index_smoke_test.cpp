@@ -57,10 +57,6 @@ protected:
 
         EXPECT_CALL(*_tablet_column_array, type())
                 .WillRepeatedly(testing::Return(FieldType::OLAP_FIELD_TYPE_ARRAY));
-        EXPECT_CALL(*_tablet_column_array, get_sub_column(0))
-                .WillOnce(testing::ReturnRef(*_tablet_column_float));
-        EXPECT_CALL(*_tablet_column_float, type())
-                .WillOnce(testing::Return(FieldType::OLAP_FIELD_TYPE_FLOAT));
 
         StorageField field(*_tablet_column_array);
 
