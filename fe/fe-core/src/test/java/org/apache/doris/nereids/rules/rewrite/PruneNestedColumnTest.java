@@ -117,6 +117,13 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 + "  >\n"
                 + ") properties ('replication_num'='1')");
 
+        createTable("create table map_array_value_tbl(\n"
+                + "  id int,\n"
+                + "  s struct<\n"
+                + "    m: map<string, array<struct<verified: boolean, value: int>>>\n"
+                + "  >\n"
+                + ") properties ('replication_num'='1')");
+
         connectContext.getSessionVariable().setDisableNereidsRules(RuleType.PRUNE_EMPTY_PARTITION.name());
         connectContext.getSessionVariable().enableNereidsTimeout = false;
     }
@@ -172,6 +179,24 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                         + "from nested_container_tbl",
                 ImmutableList.of(path("s", "m", "KEYS"), path("s", "m", "VALUES")),
                 ImmutableList.of(path("s", "m", "*", "OFFSET"), path("s", "m", "VALUES", "OFFSET")));
+    }
+
+    @Test
+    public void testCardinalityMapElementDoesNotUseOffsetPath() throws Exception {
+        Pair<PhysicalPlan, List<SlotDescriptor>> result = collectComplexSlots(
+                "select struct_element(element_at(element_at(struct_element(s, 'm'), 'null'), 1), 'verified') "
+                        + "from map_array_value_tbl "
+                        + "where cardinality(element_at(struct_element(s, 'm'), 'null')) > 0");
+        TreeSet<ColumnAccessPath> allAccessPaths = new TreeSet<>();
+        TreeSet<ColumnAccessPath> predicateAccessPaths = new TreeSet<>();
+        for (SlotDescriptor slotDescriptor : result.second) {
+            allAccessPaths.addAll(slotDescriptor.getAllAccessPaths());
+            predicateAccessPaths.addAll(slotDescriptor.getPredicateAccessPaths());
+        }
+        Assertions.assertTrue(allAccessPaths.contains(path("s", "m", "*")));
+        Assertions.assertTrue(predicateAccessPaths.contains(path("s", "m", "*")));
+        Assertions.assertFalse(allAccessPaths.contains(path("s", "m", "*", "OFFSET")));
+        Assertions.assertFalse(predicateAccessPaths.contains(path("s", "m", "*", "OFFSET")));
     }
 
     @Test
