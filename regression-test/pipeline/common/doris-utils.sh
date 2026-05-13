@@ -674,17 +674,19 @@ archive_doris_logs() {
     (
         cd "${DORIS_HOME}" || return 1
         cp --parents -rf "fe/conf" "${archive_dir}"/
+        if sed -i "s/${hwYunAk:-}//g;s/${hwYunSk:-}//g;s/${s3SourceAk:-}//g;s/${s3SourceSk:-}//g;s/${txYunAk:-}//g;s/${txYunSk:-}//g" fe/log/* &>/dev/null; then :; fi
         cp --parents -rf "fe/log" "${archive_dir}"/
         cp --parents -rf "be/conf" "${archive_dir}"/
+        if sed -i "s/${hwYunAk:-}//g;s/${hwYunSk:-}//g;s/${s3SourceAk:-}//g;s/${s3SourceSk:-}//g;s/${txYunAk:-}//g;s/${txYunSk:-}//g" be/log/* &>/dev/null; then :; fi
         cp --parents -rf "be/log" "${archive_dir}"/
         if [[ -d "${DORIS_HOME}"/regression-test/log ]]; then
             # try to hide ak and sk
-            if sed -i "s/${cos_ak:-}//g;s/${cos_sk:-}//g" regression-test/log/* &>/dev/null; then :; fi
+            if sed -i "s/${hwYunAk:-}//g;s/${hwYunSk:-}//g;s/${s3SourceAk:-}//g;s/${s3SourceSk:-}//g;s/${txYunAk:-}//g;s/${txYunSk:-}//g" regression-test/log/* &>/dev/null; then :; fi
             cp --parents -rf "regression-test/log" "${archive_dir}"/
         fi
         if [[ -d "${DORIS_HOME}"/../regression-test/conf ]]; then
             # try to hide ak and sk
-            if sed -i "s/${cos_ak:-}//g;s/${cos_sk:-}//g" ../regression-test/conf/* &>/dev/null; then :; fi
+            if sed -i "s/${hwYunAk:-}//g;s/${hwYunSk:-}//g;s/${s3SourceAk:-}//g;s/${s3SourceSk:-}//g;s/${txYunAk:-}//g;s/${txYunSk:-}//g" ../regression-test/conf/* &>/dev/null; then :; fi
             mkdir -p "${archive_dir}"/regression-test/conf
             cp -rf ../regression-test/conf/* "${archive_dir}"/regression-test/conf/
         fi
