@@ -34,9 +34,9 @@ suite("rf_partition_pruning", "nonConcurrent") {
     // ---- Profile utilities ----
     def profileAction = new ProfileAction(context)
 
-    def getProfileByToken = { String token ->
+    def getProfileByToken = { String token, List requiredCounters = [] ->
         String profileContent = ""
-        for (int attempt = 0; attempt < 15; attempt++) {
+        for (int attempt = 0; attempt < 60; attempt++) {
             List profileData = profileAction.getProfileList()
             for (final def profileItem in profileData) {
                 if (profileItem["Sql Statement"].toString().contains(token)) {
@@ -44,11 +44,13 @@ suite("rf_partition_pruning", "nonConcurrent") {
                     break
                 }
             }
-            if (profileContent != "") break
+            if (profileContent != "" && requiredCounters.every { profileContent.contains(it) }) break
             Thread.sleep(500)
         }
         return profileContent
     }
+
+    def rfPruningCounterNames = ["TotalPartitionsForRFPruning", "PartitionsPrunedByRuntimeFilter"]
 
     def extractCounterSum = { String profileText, String counterName ->
         def values = (profileText =~ /-\s*${counterName}:\s*(\d+)/).collect { it[1].toLong() }
@@ -101,15 +103,34 @@ suite("rf_partition_pruning", "nonConcurrent") {
         }
     }
 
+    def collectPruningDebugInfo = { String querySql, String profile ->
+        def sessionVars = getRfPruningSessionVars()
+        def changedVars = sql("SHOW VARIABLES WHERE Changed = 1")
+        def explainRows = sql("EXPLAIN ${querySql}")
+        def profileHead = profile.take(1000).replaceAll("\\s+", " ")
+        return "session=${sessionVars}; changed=${changedVars}; explain=${explainRows}; "
+                + "profile_length=${profile.length()}; "
+                + "has_total_counter=${profile.contains('TotalPartitionsForRFPruning')}; "
+                + "has_pruned_counter=${profile.contains('PartitionsPrunedByRuntimeFilter')}; "
+                + "profile_head=${profileHead}"
+    }
+
     def dumpPruningDebugInfo = { String tag, String querySql, String profile ->
-        logger.info("RF pruning debug [${tag}] session variables: ${getRfPruningSessionVars()}")
-        logger.info("RF pruning debug [${tag}] changed variables: "
-                + sql("SHOW VARIABLES WHERE Changed = 1"))
-        logger.info("RF pruning debug [${tag}] explain: " + sql("EXPLAIN ${querySql}"))
-        logger.info("RF pruning debug [${tag}] profile length=${profile.length()}, "
-                + "has_total_counter=${profile.contains('TotalPartitionsForRFPruning')}, "
-                + "has_pruned_counter=${profile.contains('PartitionsPrunedByRuntimeFilter')}, "
-                + "profile_head=${profile.take(2000)}")
+        def debugInfo = collectPruningDebugInfo(querySql, profile)
+        logger.info("RF pruning debug [${tag}]: ${debugInfo}")
+        return debugInfo
+    }
+
+    def assertProfileHasRfPruningCounters = { String tag, String querySql, String profile ->
+        def debugInfo = ""
+        def missingCounters = rfPruningCounterNames.findAll { !profile.contains(it) }
+        if (profile == "" || !missingCounters.isEmpty()) {
+            debugInfo = dumpPruningDebugInfo(tag, querySql, profile)
+        }
+        assertTrue(profile != "", "Profile not found for ${tag}; ${debugInfo}")
+        assertTrue(missingCounters.isEmpty(),
+                "Profile missing RF pruning counters ${missingCounters} for ${tag}; ${debugInfo}")
+        return debugInfo
     }
 
     // Run a join query with a unique token to capture profile, then assert pruning counters.
@@ -123,20 +144,21 @@ suite("rf_partition_pruning", "nonConcurrent") {
             SELECT /*+ SET_VAR(runtime_filter_type='${rfType}') */ "${token}", ${queryBody}
         """
         sql querySql
-        def profile = getProfileByToken(token)
+        def profile = getProfileByToken(token, rfPruningCounterNames)
+        def debugInfo = assertProfileHasRfPruningCounters(token, querySql, profile)
         def total = extractCounterSum(profile, "TotalPartitionsForRFPruning")
         def pruned = extractCounterSum(profile, "PartitionsPrunedByRuntimeFilter")
         logger.info("Profile [${token}]: total=${total}, pruned=${pruned}")
-        if (profile == "" || total < expectedTotal
-                || (expectedPruned == 0 ? pruned != 0 : pruned < expectedPruned)) {
-            dumpPruningDebugInfo(token, querySql, profile)
+        if (total < expectedTotal || (expectedPruned == 0 ? pruned != 0 : pruned < expectedPruned)) {
+            debugInfo = debugInfo == "" ? dumpPruningDebugInfo(token, querySql, profile) : debugInfo
         }
-        assertTrue(profile != "", "Profile not found for token ${token}")
-        assertTrue(total >= expectedTotal, "TotalPartitionsForRFPruning: expected >= ${expectedTotal}, got ${total}")
+        assertTrue(total >= expectedTotal,
+                "TotalPartitionsForRFPruning: expected >= ${expectedTotal}, got ${total}; ${debugInfo}")
         if (expectedPruned == 0) {
-            assertTrue(pruned == 0, "PartitionsPrunedByRuntimeFilter: expected 0, got ${pruned}")
+            assertTrue(pruned == 0, "PartitionsPrunedByRuntimeFilter: expected 0, got ${pruned}; ${debugInfo}")
         } else {
-            assertTrue(pruned >= expectedPruned, "PartitionsPrunedByRuntimeFilter: expected >= ${expectedPruned}, got ${pruned}")
+            assertTrue(pruned >= expectedPruned,
+                    "PartitionsPrunedByRuntimeFilter: expected >= ${expectedPruned}, got ${pruned}; ${debugInfo}")
         }
     }
 
@@ -147,16 +169,16 @@ suite("rf_partition_pruning", "nonConcurrent") {
             SELECT /*+ SET_VAR(runtime_filter_type='${rfType}') */ "${token}", ${queryBody}
         """
         sql querySql
-        def profile = getProfileByToken(token)
+        def profile = getProfileByToken(token, rfPruningCounterNames)
+        def debugInfo = assertProfileHasRfPruningCounters("no-prune ${token}", querySql, profile)
         def total = extractCounterSum(profile, "TotalPartitionsForRFPruning")
         def pruned = extractCounterSum(profile, "PartitionsPrunedByRuntimeFilter")
         logger.info("No-prune profile [${token}]: total=${total}, pruned=${pruned}")
-        if (profile == "" || total != 0 || pruned != 0) {
-            dumpPruningDebugInfo("no-prune ${token}", querySql, profile)
+        if (total != 0 || pruned != 0) {
+            debugInfo = debugInfo == "" ? dumpPruningDebugInfo("no-prune ${token}", querySql, profile) : debugInfo
         }
-        assertTrue(profile != "", "Profile not found for token ${token}")
-        assertTrue(total == 0, "TotalPartitionsForRFPruning: expected 0, got ${total}")
-        assertTrue(pruned == 0, "PartitionsPrunedByRuntimeFilter: expected 0, got ${pruned}")
+        assertTrue(total == 0, "TotalPartitionsForRFPruning: expected 0, got ${total}; ${debugInfo}")
+        assertTrue(pruned == 0, "PartitionsPrunedByRuntimeFilter: expected 0, got ${pruned}; ${debugInfo}")
     }
 
     // ============================================================
@@ -656,13 +678,15 @@ suite("rf_partition_pruning", "nonConcurrent") {
     sql """INSERT INTO rf_prune_dim_abs VALUES (50, 'x')"""
 
     def token16 = UUID.randomUUID().toString()
-    sql """
+    def query16 = """
         SELECT /*+ SET_VAR(runtime_filter_type='IN_OR_BLOOM_FILTER') */
             "${token16}", f.id, f.part_col, f.value
         FROM rf_prune_range_int f
         JOIN rf_prune_dim_abs d ON abs(f.part_col) = d.dim_key
     """
-    def profile16 = getProfileByToken(token16)
+    sql query16
+    def profile16 = getProfileByToken(token16, rfPruningCounterNames)
+    assertProfileHasRfPruningCounters(token16, query16, profile16)
     def pruned16 = extractCounterSum(profile16, "PartitionsPrunedByRuntimeFilter")
     logger.info("non_monotonic abs: pruned=${pruned16}")
     assertTrue(pruned16 == 0, "Non-monotonic expr should not prune, got ${pruned16}")
@@ -680,13 +704,15 @@ suite("rf_partition_pruning", "nonConcurrent") {
     sql """INSERT INTO rf_prune_dim_mod VALUES (10, 'x')"""
 
     def token17 = UUID.randomUUID().toString()
-    sql """
+    def query17 = """
         SELECT /*+ SET_VAR(runtime_filter_type='IN_OR_BLOOM_FILTER') */
             "${token17}", f.id, f.part_col, f.value
         FROM rf_prune_range_int f
         JOIN rf_prune_dim_mod d ON (f.part_col % 100) = d.dim_key
     """
-    def profile17 = getProfileByToken(token17)
+    sql query17
+    def profile17 = getProfileByToken(token17, rfPruningCounterNames)
+    assertProfileHasRfPruningCounters(token17, query17, profile17)
     def pruned17 = extractCounterSum(profile17, "PartitionsPrunedByRuntimeFilter")
     logger.info("non_monotonic mod: pruned=${pruned17}")
     assertTrue(pruned17 == 0, "Non-monotonic mod expr should not prune, got ${pruned17}")
@@ -704,13 +730,15 @@ suite("rf_partition_pruning", "nonConcurrent") {
     sql """INSERT INTO rf_prune_dim_nonpart VALUES (1, 'x'), (3, 'y')"""
 
     def token18 = UUID.randomUUID().toString()
-    sql """
+    def query18 = """
         SELECT /*+ SET_VAR(runtime_filter_type='IN_OR_BLOOM_FILTER') */
             "${token18}", f.id, f.part_col, f.value
         FROM rf_prune_range_int f
         JOIN rf_prune_dim_nonpart d ON f.id = d.dim_id
     """
-    def profile18 = getProfileByToken(token18)
+    sql query18
+    def profile18 = getProfileByToken(token18, rfPruningCounterNames)
+    assertProfileHasRfPruningCounters(token18, query18, profile18)
     def pruned18 = extractCounterSum(profile18, "PartitionsPrunedByRuntimeFilter")
     logger.info("non_partition_col: pruned=${pruned18}")
     assertTrue(pruned18 == 0, "Join on non-partition col should not prune, got ${pruned18}")
@@ -789,13 +817,15 @@ suite("rf_partition_pruning", "nonConcurrent") {
     sql """INSERT INTO rf_prune_dim_boundary VALUES (100, 'a'), (200, 'b'), (300, 'c')"""
 
     def token21 = UUID.randomUUID().toString()
-    sql """
+    def query21 = """
         SELECT /*+ SET_VAR(runtime_filter_type='IN_OR_BLOOM_FILTER') */
             "${token21}", f.id, f.part_col, f.value
         FROM rf_prune_range_int f
         JOIN rf_prune_dim_boundary d ON f.part_col = d.dim_key
     """
-    def profile21 = getProfileByToken(token21)
+    sql query21
+    def profile21 = getProfileByToken(token21, rfPruningCounterNames)
+    assertProfileHasRfPruningCounters(token21, query21, profile21)
     def pruned21 = extractCounterSum(profile21, "PartitionsPrunedByRuntimeFilter")
     def total21 = extractCounterSum(profile21, "TotalPartitionsForRFPruning")
     logger.info("boundary_exact: total=${total21}, pruned=${pruned21}")
@@ -815,14 +845,16 @@ suite("rf_partition_pruning", "nonConcurrent") {
     sql """INSERT INTO rf_prune_dim_outside VALUES (500, 'x'), (600, 'y'), (700, 'z')"""
 
     def token22 = UUID.randomUUID().toString()
-    def result22 = sql """
+    def query22 = """
         SELECT /*+ SET_VAR(runtime_filter_type='IN_OR_BLOOM_FILTER') */
             "${token22}", f.id, f.part_col, f.value
         FROM rf_prune_range_int f
         JOIN rf_prune_dim_outside d ON f.part_col = d.dim_key
     """
+    def result22 = sql query22
     assertTrue(result22.isEmpty(), "Dim outside all partitions should return empty result")
-    def profile22 = getProfileByToken(token22)
+    def profile22 = getProfileByToken(token22, rfPruningCounterNames)
+    assertProfileHasRfPruningCounters(token22, query22, profile22)
     def pruned22 = extractCounterSum(profile22, "PartitionsPrunedByRuntimeFilter")
     logger.info("outside_all: pruned=${pruned22}")
     // All 4 partitions should be pruned since RF IN {500,600,700} intersects none
@@ -1407,13 +1439,15 @@ suite("rf_partition_pruning", "nonConcurrent") {
     // ============================================================
     sql "set enable_runtime_filter_partition_prune=false"
     def token_off = UUID.randomUUID().toString()
-    sql """
+    def query_off = """
         SELECT /*+ SET_VAR(runtime_filter_type='IN_OR_BLOOM_FILTER') */
             "${token_off}", f.id
         FROM rf_prune_range_int f
         JOIN rf_prune_dim_int d ON f.part_col = d.dim_key
     """
-    def profile_off = getProfileByToken(token_off)
+    sql query_off
+    def profile_off = getProfileByToken(token_off, rfPruningCounterNames)
+    assertProfileHasRfPruningCounters(token_off, query_off, profile_off)
     def total_off = extractCounterSum(profile_off, "TotalPartitionsForRFPruning")
     def pruned_off = extractCounterSum(profile_off, "PartitionsPrunedByRuntimeFilter")
     logger.info("switch_off: total=${total_off}, pruned=${pruned_off}")
