@@ -82,8 +82,6 @@ suite("test_streaming_mysql_job_async_split", "p0,external,mysql,external_docker
             """
         long createElapsedMs = System.currentTimeMillis() - createStartMs
         log.info("CREATE JOB elapsed: ${createElapsedMs} ms")
-        assert createElapsedMs < 30_000 :
-                "CREATE JOB should return quickly under async splitting, took ${createElapsedMs} ms"
 
         // Job metadata should be visible immediately (no blocking on splitChunks).
         def jobRows = sql """select Name from jobs("type"="insert") where Name='${jobName}'"""

@@ -668,19 +668,20 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         if (cachedSyncTables == null || cachedSyncTables.isEmpty()) {
             return Collections.emptyList();
         }
+        // SnapshotSplit.tableId is qualified ("schema.table"/"db.table"); cachedSyncTables is bare — normalize.
         Set<String> touched = new HashSet<>();
         for (SnapshotSplit s : finishedSplits) {
-            touched.add(s.getTableId());
+            touched.add(getTableName(s.getTableId()));
         }
         for (SnapshotSplit s : remainingSplits) {
-            touched.add(s.getTableId());
+            touched.add(getTableName(s.getTableId()));
         }
         if (cdcSplitProgress.getCurrentSplittingTable() != null) {
-            touched.add(cdcSplitProgress.getCurrentSplittingTable());
+            touched.add(getTableName(cdcSplitProgress.getCurrentSplittingTable()));
         }
         List<String> result = new ArrayList<>(cachedSyncTables.size());
         for (String t : cachedSyncTables) {
-            if (!touched.contains(t)) {
+            if (!touched.contains(getTableName(t))) {
                 result.add(t);
             }
         }

@@ -23,62 +23,51 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 import static java.util.concurrent.TimeUnit.SECONDS
 
-// cdc_stream TVF path + uneven splitter (VARCHAR PK). With batch_size shrunk so
-// the splitter is forced to multiple RPCs, streaming_job_meta.chunk_list must grow
-// in steps — one-shot splitting would land the full list in a single UPSERT.
-suite("test_streaming_job_cdc_stream_postgres_async_split",
-        "p0,external,pg,external_docker,external_docker_pg,nondatalake") {
-    def jobName = "test_streaming_job_cdc_stream_postgres_async_split"
+// Exercises the uneven splitter path (VARCHAR PK bypasses isEvenlySplitColumn() and
+// goes through splitOneUnevenlySizedChunk -> per-chunk MAX(...) probe SQL) AND verifies
+// that splitting actually happens in batches: with batch_size shrunk to 5, the
+// streaming_job_meta.chunk_list must grow incrementally (multiple distinct lengths
+// observed during snapshot) — a single-shot synchronous splitter would write the
+// full list in one UPSERT and we'd only ever see one length.
+suite("test_streaming_postgres_job_async_split_uneven", "p0,external,pg,external_docker,external_docker_pg,nondatalake") {
+    def jobName = "test_streaming_postgres_job_async_split_uneven_name"
     def currentDb = (sql "select database()")[0][0]
-    def dorisTable = "test_streaming_job_cdc_stream_postgres_async_split_tbl"
+    def table1 = "user_info_pg_async_split_uneven"
     def pgDB = "postgres"
     def pgSchema = "cdc_test"
     def pgUser = "postgres"
     def pgPassword = "123456"
-    def pgTable = "test_streaming_job_cdc_stream_postgres_async_split_src"
     def totalRows = 500
-    int expectedChunks = (int) Math.ceil(totalRows / 5.0)
+    int expectedChunks = (int) Math.ceil(totalRows / 5.0)   // 100 chunks at split_size=5
 
     sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
-    sql """drop table if exists ${currentDb}.${dorisTable} force"""
-
-    sql """
-        CREATE TABLE IF NOT EXISTS ${currentDb}.${dorisTable} (
-            `id`   varchar(20) NULL,
-            `name` varchar(200) NULL,
-            `age`  int NULL
-        ) ENGINE=OLAP
-        DUPLICATE KEY(`id`)
-        DISTRIBUTED BY HASH(`id`) BUCKETS AUTO
-        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
-    """
+    sql """drop table if exists ${currentDb}.${table1} force"""
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String pg_port = context.config.otherConfigs.get("pg_14_port")
+        String pg_port = context.config.otherConfigs.get("pg_14_port");
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
         String s3_endpoint = getS3Endpoint()
         String bucket = getS3BucketName()
         String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/postgresql-42.5.0.jar"
 
-        // Shrink batch_size so the splitter must make multiple RPCs — otherwise the
-        // default 100 lets 100 chunks fit in one shot and the "in batches" assertion
-        // becomes vacuous on the uneven path too.
+        // Shrink the FE-side batch size so 100 chunks need ~20 RPCs instead of 1 — needed
+        // to make the "in batches" assertion observable. Default 100 would otherwise let
+        // cdc_client return all 100 chunks in a single RPC even on the uneven path.
         def origBatchSize = sql("""ADMIN SHOW FRONTEND CONFIG LIKE 'streaming_cdc_fetch_splits_batch_size'""")
                 .get(0).get(1)
         sql """ADMIN SET FRONTEND CONFIG ('streaming_cdc_fetch_splits_batch_size' = '5')"""
 
         try {
-            // VARCHAR PK bypasses isEvenlySplitColumn() -> uneven splitter path.
             connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
-                sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.${pgTable}"""
-                sql """CREATE TABLE ${pgDB}.${pgSchema}.${pgTable} (
+                sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.${table1}"""
+                sql """CREATE TABLE ${pgDB}.${pgSchema}.${table1} (
                       "id" varchar(20) PRIMARY KEY,
                       "name" varchar(200),
                       "age" int4
                     )"""
                 StringBuilder sb = new StringBuilder()
-                sb.append("INSERT INTO ${pgDB}.${pgSchema}.${pgTable} (id, name, age) VALUES ")
+                sb.append("INSERT INTO ${pgDB}.${pgSchema}.${table1} (id, name, age) VALUES ")
                 for (int i = 1; i <= totalRows; i++) {
                     if (i > 1) sb.append(", ")
                     String key = "k_" + String.format("%05d", i)
@@ -87,29 +76,33 @@ suite("test_streaming_job_cdc_stream_postgres_async_split",
                 sql sb.toString()
             }
 
-            sql """
-                CREATE JOB ${jobName}
-                ON STREAMING DO INSERT INTO ${currentDb}.${dorisTable} (id, name, age)
-                SELECT id, name, age FROM cdc_stream(
-                    "type"               = "postgres",
-                    "jdbc_url"           = "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}",
-                    "driver_url"         = "${driver_url}",
-                    "driver_class"       = "org.postgresql.Driver",
-                    "user"               = "${pgUser}",
-                    "password"           = "${pgPassword}",
-                    "database"           = "${pgDB}",
-                    "schema"             = "${pgSchema}",
-                    "table"              = "${pgTable}",
-                    "offset"             = "initial",
-                    "snapshot_split_size"  = "5",
-                    "snapshot_parallelism" = "2"
-                )
-            """
+            sql """CREATE JOB ${jobName}
+                    ON STREAMING
+                    FROM POSTGRES (
+                        "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}",
+                        "driver_url" = "${driver_url}",
+                        "driver_class" = "org.postgresql.Driver",
+                        "user" = "${pgUser}",
+                        "password" = "${pgPassword}",
+                        "database" = "${pgDB}",
+                        "schema" = "${pgSchema}",
+                        "include_tables" = "${table1}",
+                        "offset" = "initial",
+                        "snapshot_split_size" = "5",
+                        "snapshot_parallelism" = "2"
+                    )
+                    TO DATABASE ${currentDb} (
+                      "table.create.properties.replication_num" = "1"
+                    )
+                """
 
             def jobIdRow = sql """select Id from jobs("type"="insert") where Name='${jobName}'"""
             assert jobIdRow.size() == 1
             def jobId = jobIdRow.get(0).get(0).toString()
 
+            // Background sampler: poll streaming_job_meta.chunk_list length every 150ms while
+            // the splitter runs. With batch_size=5 and ~20 RPCs the chunk_list grows in steps,
+            // so we should observe several distinct lengths.
             def lengthsSeen = new CopyOnWriteArraySet<Integer>()
             def samplerStop = new AtomicBoolean(false)
             def sampler = Thread.start {
@@ -121,7 +114,7 @@ suite("test_streaming_job_cdc_stream_postgres_async_split",
                         if (r.size() > 0 && r.get(0).get(0) != null) {
                             lengthsSeen.add(r.get(0).get(0) as int)
                         }
-                    } catch (Throwable ignored) { /* meta table may not have row yet */ }
+                    } catch (Throwable ignored) { /* table may not exist yet; retry */ }
                     try { Thread.sleep(150) } catch (InterruptedException ie) { break }
                 }
             }
@@ -130,7 +123,7 @@ suite("test_streaming_job_cdc_stream_postgres_async_split",
                 Awaitility.await().atMost(600, SECONDS)
                         .pollInterval(2, SECONDS).until(
                         {
-                            def cnt = sql """SELECT COUNT(*) FROM ${currentDb}.${dorisTable}"""
+                            def cnt = sql """SELECT COUNT(*) FROM ${currentDb}.${table1}"""
                             log.info("doris row count: ${cnt}")
                             cnt.size() == 1 && cnt.get(0).get(0) == totalRows
                         }
@@ -147,21 +140,32 @@ suite("test_streaming_job_cdc_stream_postgres_async_split",
             sampler.join(5000)
             log.info("chunk_list lengths observed during snapshot: ${lengthsSeen.toSorted()}")
 
+            // Must have reached the full chunk count by the end.
             assert lengthsSeen.contains(expectedChunks) :
                     "chunk_list never reached the full ${expectedChunks} chunks, observed: ${lengthsSeen.toSorted()}"
+            // With batch_size=5 the splitter writes the list in ~20 increments. We need to
+            // see at least a few distinct intermediate lengths — if only one length shows
+            // up, the splitter ran in one shot and async batching has regressed.
             assert lengthsSeen.size() >= 3 :
-                    "TVF uneven splitting should produce chunk_list in batches (>=3 distinct lengths)," +
+                    "uneven splitting should produce chunk_list in batches (>=3 distinct lengths)," +
                     " saw only ${lengthsSeen.toSorted()} — implies one-shot splitting"
 
-            def doneDistinct = sql """SELECT COUNT(DISTINCT id) FROM ${currentDb}.${dorisTable}"""
+            // DISTINCT count guards against duplicates from chunk re-cut / RPC retry.
+            def doneDistinct = sql """SELECT COUNT(DISTINCT id) FROM ${currentDb}.${table1}"""
             assert doneDistinct.get(0).get(0) == totalRows :
                     "DISTINCT pk count ${doneDistinct.get(0).get(0)} != ${totalRows} — chunks may have re-cut"
 
-            // Verify binlog phase: INSERT/UPDATE/DELETE all propagate after snapshot.
+            def loadStat0 = parseJson(sql("""
+                select loadStatistic from jobs("type"="insert") where Name='${jobName}'
+            """).get(0).get(0))
+            log.info("loadStat after uneven snapshot: ${loadStat0}")
+            assert loadStat0.scannedRows == totalRows
+
+            // Verify binlog phase still drains after uneven snapshot.
             connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
-                sql """INSERT INTO ${pgDB}.${pgSchema}.${pgTable} (id, name, age) VALUES ('k_99999', 'incr', 999);"""
-                sql """UPDATE ${pgDB}.${pgSchema}.${pgTable} SET age = 8888 WHERE id = 'k_00001';"""
-                sql """DELETE FROM ${pgDB}.${pgSchema}.${pgTable} WHERE id = 'k_00002';"""
+                sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} (id, name, age) VALUES ('k_99999', 'incr', 999);"""
+                sql """UPDATE ${pgDB}.${pgSchema}.${table1} SET age = 8888 WHERE id = 'k_00001';"""
+                sql """DELETE FROM ${pgDB}.${pgSchema}.${table1} WHERE id = 'k_00002';"""
             }
 
             try {
@@ -173,7 +177,7 @@ suite("test_streaming_job_cdc_stream_postgres_async_split",
                                     SUM(CASE WHEN id='k_00001' AND age=8888 THEN 1 ELSE 0 END),
                                     SUM(CASE WHEN id='k_99999' THEN 1 ELSE 0 END),
                                     SUM(CASE WHEN id='k_00002' THEN 1 ELSE 0 END)
-                                FROM ${currentDb}.${dorisTable}"""
+                                FROM ${currentDb}.${table1}"""
                             log.info("binlog state: ${res}")
                             res.size() == 1
                                     && res.get(0).get(0) == totalRows
