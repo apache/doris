@@ -147,6 +147,8 @@ public:
         _utc_dt.unix_timestamp(timestamp, ctz);
     }
 
+    std::string debug_string() const { return _utc_dt.debug_string(); }
+
     // Convert UTC time to local time based on the given timezone
     void convert_utc_to_local(const cctz::time_zone& local_time_zone,
                               DateV2Value<DateTimeV2ValueType>& dt) const;

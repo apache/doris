@@ -88,11 +88,7 @@ struct DataValue {
         std::string result = "\n" + std::to_string(dt.size()) + " " +
                              std::to_string(event_columns_data[0].size()) + "\n";
         for (size_t i = 0; i < dt.size(); ++i) {
-            if constexpr (T == TYPE_TIMESTAMPTZ) {
-                result += dt[i].utc_dt().debug_string() + " ,";
-            } else {
-                result += dt[i].debug_string() + " ,";
-            }
+            result += dt[i].debug_string() + " ,";
             for (const auto& event : event_columns_data) {
                 result += std::to_string(event[i]) + ",";
             }
