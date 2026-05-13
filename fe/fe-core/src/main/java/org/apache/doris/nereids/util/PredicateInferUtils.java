@@ -132,6 +132,9 @@ public class PredicateInferUtils {
             if (dataType.equals(childType)) {
                 return validForInfer(child, inferType);
             }
+            if (childType instanceof IntegralType) {
+                return Optional.of(expression);
+            }
         } else if (inferType == InferType.DATE) {
             // avoid lost precision
             if (dataType instanceof DateType) {

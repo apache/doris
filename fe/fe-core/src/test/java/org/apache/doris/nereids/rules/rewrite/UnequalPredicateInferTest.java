@@ -25,9 +25,11 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.BigIntType;
@@ -650,6 +652,25 @@ public class UnequalPredicateInferTest {
         Assertions.assertTrue(result.contains(equalTo2));
         Assertions.assertFalse(result.contains(invalidInferred));
         Assertions.assertFalse(result.contains(invalidInferred.commute()));
+    }
+
+    @Test
+    public void testInferWithIntegralCastExpressionItself() {
+        SlotReference b = new SlotReference("b", BigIntType.INSTANCE, true, ImmutableList.of("t1"));
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE, true, ImmutableList.of("t2"));
+        Cast cast = new Cast(c, BigIntType.INSTANCE);
+        EqualTo equalTo = new EqualTo(b, cast);
+        InPredicate inPredicate = new InPredicate(cast, ImmutableList.of(new BigIntLiteral(1), new BigIntLiteral(2)));
+        InPredicate inferred = new InPredicate(b, ImmutableList.of(new BigIntLiteral(1), new BigIntLiteral(2)));
+
+        Set<Expression> inputs = new LinkedHashSet<>();
+        inputs.add(equalTo);
+        inputs.add(inPredicate);
+        Set<? extends Expression> result = PredicateInferUtils.inferPredicate(inputs);
+
+        Assertions.assertTrue(result.contains(equalTo));
+        Assertions.assertTrue(result.contains(inPredicate));
+        Assertions.assertTrue(result.contains(inferred));
     }
 
     @Test

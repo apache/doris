@@ -71,6 +71,10 @@ public class InferPredicateByReplace {
         getAllSubExpressions(expr.child(0), res);
     }
 
+    private static boolean validEqualSetExpression(Expression expression) {
+        return PredicateInferUtils.isSlotOrNotNullLiteral(expression) || expression instanceof Cast;
+    }
+
     /** fill map exprPredicates : expression and all its corresponding predicates */
     private static class PredicatesCollector extends ExpressionVisitor<Void, Map<Expression, Set<Expression>>> {
         public static PredicatesCollector INSTANCE = new PredicatesCollector();
@@ -189,8 +193,7 @@ public class InferPredicateByReplace {
                 continue;
             }
             PredicateInferUtils.getPairFromCast((ComparisonPredicate) input)
-                    .filter(pair -> PredicateInferUtils.isSlotOrNotNullLiteral(pair.first)
-                            && PredicateInferUtils.isSlotOrNotNullLiteral(pair.second))
+                    .filter(pair -> validEqualSetExpression(pair.first) && validEqualSetExpression(pair.second))
                     .ifPresent(pair -> {
                         Expression left = pair.first;
                         Expression right = pair.second;
