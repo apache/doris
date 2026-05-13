@@ -897,22 +897,15 @@ public abstract class DataType {
         if (catalogType.isScalarType()) {
             validateScalarType((ScalarType) catalogType);
         } else if (catalogType.isComplexType()) {
-            // now we not support array / map / struct nesting complex type
             if (catalogType.isArrayType()) {
                 Type itemType = ((org.apache.doris.catalog.ArrayType) catalogType).getItemType();
-                if (itemType instanceof ScalarType) {
-                    validateNestedType(catalogType, (ScalarType) itemType);
-                }
+                validateNestedType(catalogType, itemType);
             }
             if (catalogType.isMapType()) {
                 org.apache.doris.catalog.MapType mt =
                         (org.apache.doris.catalog.MapType) catalogType;
-                if (mt.getKeyType() instanceof ScalarType) {
-                    validateNestedType(catalogType, (ScalarType) mt.getKeyType());
-                }
-                if (mt.getValueType() instanceof ScalarType) {
-                    validateNestedType(catalogType, (ScalarType) mt.getValueType());
-                }
+                validateNestedType(catalogType, mt.getKeyType());
+                validateNestedType(catalogType, mt.getValueType());
             }
             if (catalogType.isStructType()) {
                 ArrayList<org.apache.doris.catalog.StructField> fields =
@@ -920,12 +913,10 @@ public abstract class DataType {
                 Set<String> fieldNames = new HashSet<>();
                 for (org.apache.doris.catalog.StructField field : fields) {
                     Type fieldType = field.getType();
-                    if (fieldType instanceof ScalarType) {
-                        validateNestedType(catalogType, (ScalarType) fieldType);
-                        if (!fieldNames.add(field.getName())) {
-                            throw new AnalysisException("Duplicate field name " + field.getName()
-                                    + " in struct " + catalogType.toSql());
-                        }
+                    validateNestedType(catalogType, fieldType);
+                    if (!fieldNames.add(field.getName())) {
+                        throw new AnalysisException("Duplicate field name " + field.getName()
+                                + " in struct " + catalogType.toSql());
                     }
                 }
             }
