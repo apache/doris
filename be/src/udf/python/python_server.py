@@ -631,11 +631,9 @@ class AdaptivePythonUDF:
                     converted_args,
                     traceback.format_exc(),
                 )
-                # Return None for failed rows if always_nullable is True
-                if self.python_udf_meta.always_nullable:
-                    result.append(None)
-                else:
-                    raise
+                raise RuntimeError(
+                    f"Error in scalar UDF execution at row {i}: {e}"
+                ) from e
 
         return pa.array(result, type=self._get_output_type())
 
@@ -1768,7 +1766,7 @@ class FlightServer(flight.FlightServerBase):
                 place_id,
                 e,
             )
-            success = False
+            raise RuntimeError(str(e)) from e
 
         return pa.RecordBatch.from_arrays(
             [pa.array([success], type=pa.bool_())], ["success"]
@@ -1916,7 +1914,7 @@ class FlightServer(flight.FlightServerBase):
                 place_id,
                 e,
             )
-            serialized = b""
+            raise RuntimeError(str(e)) from e
 
         return pa.RecordBatch.from_arrays(
             [pa.array([serialized], type=pa.binary())], ["serialized_state"]
@@ -1945,7 +1943,7 @@ class FlightServer(flight.FlightServerBase):
                 place_id,
                 e,
             )
-            success = False
+            raise RuntimeError(str(e)) from e
 
         return pa.RecordBatch.from_arrays(
             [pa.array([success], type=pa.bool_())], ["success"]
@@ -1969,7 +1967,7 @@ class FlightServer(flight.FlightServerBase):
                 place_id,
                 e,
             )
-            result = None
+            raise RuntimeError(str(e)) from e
 
         return pa.RecordBatch.from_arrays(
             [pa.array([result], type=output_type)], ["result"]
@@ -1991,7 +1989,7 @@ class FlightServer(flight.FlightServerBase):
                 place_id,
                 e,
             )
-            success = False
+            raise RuntimeError(str(e)) from e
 
         return pa.RecordBatch.from_arrays(
             [pa.array([success], type=pa.bool_())], ["success"]
@@ -2127,6 +2125,7 @@ class FlightServer(flight.FlightServerBase):
           * ACCUMULATE: use success + rows_processed (number of rows processed)
           * SERIALIZE: use success + serialized_data (serialized_state)
           * FINALIZE: use success + serialized_data (serialized result)
+          * Any failed operation: use success=false + serialized_data (UTF-8 error message)
         """
 
         # Get or create state manager for this specific UDAF function
@@ -2299,8 +2298,12 @@ class FlightServer(flight.FlightServerBase):
                     e,
                     traceback.format_exc(),
                 )
+                # Keep the UDAF Flight stream alive so C++ can still send DESTROY.
+                # On failure, serialized_data carries the user-visible Python error text.
                 result_batch = self._create_unified_response(
-                    success=False, rows_processed=0, data=b""
+                    success=False,
+                    rows_processed=0,
+                    data=str(e).encode("utf-8", errors="replace"),
                 )
 
             # Begin stream with unified schema on first call

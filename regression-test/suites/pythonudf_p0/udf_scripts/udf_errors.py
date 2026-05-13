@@ -15,8 +15,8 @@
 # specific language governing permissions and limitations
 # under the License.
 
+"""Module-based UDF error cases for regression tests."""
 
-def evaluate(arg1, arg2):
-    if arg1 is None or arg2 is None:
-        return None
-    return arg1 - arg2
+
+def raise_in_module(value):
+    raise TypeError("module_udf_error_42")
