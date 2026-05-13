@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
@@ -319,6 +320,24 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                 }
             }
             return getAvailableExpressions(allPredicates, project);
+        });
+    }
+
+    @Override
+    public ImmutableSet<Expression> visitLogicalSubQueryAlias(LogicalSubQueryAlias<? extends Plan> alias,
+            Void context) {
+        return cacheOrElse(alias, () -> {
+            ImmutableSet<Expression> childPredicates = alias.child().accept(this, context);
+            if (childPredicates.isEmpty()) {
+                return ImmutableSet.of();
+            }
+            Map<Expression, Expression> replaceMap = new LinkedHashMap<>();
+            List<Slot> childOutput = alias.child().getOutput();
+            List<Slot> aliasOutput = alias.getOutput();
+            for (int i = 0; i < childOutput.size(); i++) {
+                replaceMap.put(childOutput.get(i), aliasOutput.get(i));
+            }
+            return getAvailableExpressions(ExpressionUtils.replace(childPredicates, replaceMap), alias);
         });
     }
 
