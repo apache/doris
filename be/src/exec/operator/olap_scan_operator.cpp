@@ -516,8 +516,8 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     }
 
     bool enable_parallel_scan = state()->enable_parallel_scan();
-    bool read_row_binlog = p._olap_scan_node.__isset.read_row_binlog &&
-                 p._olap_scan_node.read_row_binlog;
+    bool read_row_binlog =
+            p._olap_scan_node.__isset.read_row_binlog && p._olap_scan_node.read_row_binlog;
 
     // The flag of preagg's meaning is whether return pre agg data(or partial agg data)
     // PreAgg ON: The storage layer returns partially aggregated data without additional processing. (Fast data reading)
@@ -619,18 +619,18 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
             for (auto& split : _read_sources[scan_range_idx].rs_splits) {
                 split.rs_reader = split.rs_reader->clone();
             }
-            auto scanner = OlapScanner::create_shared(
-                    this, OlapScanner::Params {
-                                  state(),
-                                  _scanner_profile.get(),
-                                  scanner_ranges,
-                                  _tablets[scan_range_idx].tablet,
-                                  version,
-                                  _read_sources[scan_range_idx],
-                                  p._limit,
-                                  p._olap_scan_node.is_preaggregation,
-                                  read_row_binlog,
-                          });
+            auto scanner =
+                    OlapScanner::create_shared(this, OlapScanner::Params {
+                                                             state(),
+                                                             _scanner_profile.get(),
+                                                             scanner_ranges,
+                                                             _tablets[scan_range_idx].tablet,
+                                                             version,
+                                                             _read_sources[scan_range_idx],
+                                                             p._limit,
+                                                             p._olap_scan_node.is_preaggregation,
+                                                             read_row_binlog,
+                                                     });
             RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
             scanners->push_back(std::move(scanner));
         }
