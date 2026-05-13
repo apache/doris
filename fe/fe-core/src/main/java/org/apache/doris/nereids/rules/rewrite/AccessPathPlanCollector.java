@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.NestedColumnPrunable;
 import org.apache.doris.nereids.types.VariantType;
+import org.apache.doris.thrift.TAccessPathType;
 
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Multimap;
@@ -75,7 +76,8 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
     private boolean shouldCollectAccessPath(Slot slot) {
         return slot.getDataType() instanceof NestedColumnPrunable
                 || slot.getDataType().isVariantType()
-                || slot.getDataType().isStringLikeType();
+                || slot.getDataType().isStringLikeType()
+                || slot.nullable();
     }
 
     @Override
@@ -364,7 +366,7 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
             }
             Collection<CollectAccessPathResult> accessPaths = allSlotToAccessPaths.get(slot.getExprId().asInt());
             if (!accessPaths.isEmpty()) {
-                scanSlotToAccessPaths.put(slot, new ArrayList<>(accessPaths));
+                scanSlotToAccessPaths.put(slot, normalizeDataSkippingOnlyAccessPaths(accessPaths));
             }
         }
         return null;
@@ -378,7 +380,7 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
             }
             Collection<CollectAccessPathResult> accessPaths = allSlotToAccessPaths.get(slot.getExprId().asInt());
             if (!accessPaths.isEmpty()) {
-                scanSlotToAccessPaths.put(slot, new ArrayList<>(accessPaths));
+                scanSlotToAccessPaths.put(slot, normalizeDataSkippingOnlyAccessPaths(accessPaths));
             }
         }
         return null;
@@ -404,5 +406,34 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
         for (Expression expression : plan.getExpressions()) {
             exprCollector.collect(expression);
         }
+    }
+
+    static List<CollectAccessPathResult> normalizeDataSkippingOnlyAccessPaths(
+            Collection<CollectAccessPathResult> accessPaths) {
+        List<CollectAccessPathResult> normalizedAccessPaths = new ArrayList<>();
+        for (CollectAccessPathResult accessPath : accessPaths) {
+            List<String> path = accessPath.getPath();
+            if (isDataSkippingOnlyAccessPath(path) && path.size() > 1) {
+                // NULL/OFFSET suffixes are OLAP segment-reader-only optimizations. External
+                // table and TVF readers use access paths as real nested field paths, so read
+                // the referenced column/sub-column normally instead of sending a pseudo field.
+                normalizedAccessPaths.add(new CollectAccessPathResult(
+                        new ArrayList<>(path.subList(0, path.size() - 1)),
+                        accessPath.isPredicate(),
+                        TAccessPathType.DATA));
+            } else {
+                normalizedAccessPaths.add(accessPath);
+            }
+        }
+        return normalizedAccessPaths;
+    }
+
+    private static boolean isDataSkippingOnlyAccessPath(List<String> path) {
+        if (path.isEmpty()) {
+            return false;
+        }
+        String lastComponent = path.get(path.size() - 1);
+        return AccessPathInfo.ACCESS_NULL.equals(lastComponent)
+                || AccessPathInfo.ACCESS_STRING_OFFSET.equals(lastComponent);
     }
 }
