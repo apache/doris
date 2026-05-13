@@ -15,8 +15,28 @@
 # specific language governing permissions and limitations
 # under the License.
 
+"""Module-based UDAF error cases for regression tests."""
 
-def evaluate(arg1, arg2):
-    if arg1 is None or arg2 is None:
-        return None
-    return arg1 - arg2
+
+class ModuleFinishErrorUDAF:
+    """Raise a stable error from finish() to verify propagation."""
+
+    def __init__(self):
+        self.count = 0
+
+    @property
+    def aggregate_state(self):
+        return self.count
+
+    def accumulate(self, value):
+        if value is not None:
+            self.count += 1
+
+    def merge(self, other_state):
+        self.count += other_state
+
+    def reset(self):
+        self.count = 0
+
+    def finish(self):
+        raise TypeError("module_udaf_error_42")
