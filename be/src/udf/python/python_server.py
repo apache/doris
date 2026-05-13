@@ -1729,9 +1729,7 @@ class FlightServer(flight.FlightServerBase):
                 place_id,
                 e,
             )
-            raise RuntimeError(
-                f"CREATE operation failed for place_id={place_id}: {e}"
-            ) from e
+            raise RuntimeError(str(e)) from e
 
         return pa.RecordBatch.from_arrays(
             [pa.array([success], type=pa.bool_())], ["success"]
@@ -1879,9 +1877,7 @@ class FlightServer(flight.FlightServerBase):
                 place_id,
                 e,
             )
-            raise RuntimeError(
-                f"SERIALIZE operation failed for place_id={place_id}: {e}"
-            ) from e
+            raise RuntimeError(str(e)) from e
 
         return pa.RecordBatch.from_arrays(
             [pa.array([serialized], type=pa.binary())], ["serialized_state"]
@@ -1910,9 +1906,7 @@ class FlightServer(flight.FlightServerBase):
                 place_id,
                 e,
             )
-            raise RuntimeError(
-                f"MERGE operation failed for place_id={place_id}: {e}"
-            ) from e
+            raise RuntimeError(str(e)) from e
 
         return pa.RecordBatch.from_arrays(
             [pa.array([success], type=pa.bool_())], ["success"]
@@ -1936,9 +1930,7 @@ class FlightServer(flight.FlightServerBase):
                 place_id,
                 e,
             )
-            raise RuntimeError(
-                f"FINALIZE operation failed for place_id={place_id}: {e}"
-            ) from e
+            raise RuntimeError(str(e)) from e
 
         return pa.RecordBatch.from_arrays(
             [pa.array([result], type=output_type)], ["result"]
@@ -1960,9 +1952,7 @@ class FlightServer(flight.FlightServerBase):
                 place_id,
                 e,
             )
-            raise RuntimeError(
-                f"RESET operation failed for place_id={place_id}: {e}"
-            ) from e
+            raise RuntimeError(str(e)) from e
 
         return pa.RecordBatch.from_arrays(
             [pa.array([success], type=pa.bool_())], ["success"]
