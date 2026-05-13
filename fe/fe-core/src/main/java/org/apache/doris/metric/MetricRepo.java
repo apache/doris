@@ -1331,37 +1331,20 @@ public final class MetricRepo {
                         .addLabel(new MetricLabel("job_name", jobName));
                 DORIS_METRIC_REGISTER.addMetrics(failedTaskCount);
 
-                // Lag is only meaningful for CDC sources in binlog/WAL phase.
-                // Empty string means N/A (S3, snapshot phase) — skip the metric so Prometheus
-                // doesn't carry a misleading series for those jobs.
-                final Long lagValue = parseLagSeconds(sJob.getLag());
-                if (lagValue != null) {
-                    GaugeMetric<Long> lag = new GaugeMetric<Long>(
-                            STREAMING_JOB_PER_JOB_LAG, MetricUnit.SECONDS,
-                            "per job lag in seconds of streaming job") {
-                        @Override
-                        public Long getValue() {
-                            return lagValue;
-                        }
-                    };
-                    lag.addLabel(new MetricLabel("job_id", jobId))
-                            .addLabel(new MetricLabel("job_name", jobName));
-                    DORIS_METRIC_REGISTER.addMetrics(lag);
-                }
+                GaugeMetric<Long> lag = new GaugeMetric<Long>(
+                        STREAMING_JOB_PER_JOB_LAG, MetricUnit.SECONDS,
+                        "per job lag in seconds of streaming job, -1 means N/A") {
+                    @Override
+                    public Long getValue() {
+                        return sJob.getLagSeconds();
+                    }
+                };
+                lag.addLabel(new MetricLabel("job_id", jobId))
+                        .addLabel(new MetricLabel("job_name", jobName));
+                DORIS_METRIC_REGISTER.addMetrics(lag);
             }
         } catch (Throwable t) {
             LOG.warn("failed to update streaming job per-job metrics", t);
-        }
-    }
-
-    private static Long parseLagSeconds(String lagStr) {
-        if (lagStr == null || lagStr.isEmpty()) {
-            return null;
-        }
-        try {
-            return Long.parseLong(lagStr);
-        } catch (NumberFormatException e) {
-            return null;
         }
     }
 

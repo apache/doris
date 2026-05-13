@@ -82,23 +82,6 @@ suite("test_streaming_mysql_job_metrics",
                                 Integer.parseInt(jobInfo[0][0] as String) >= 1 &&
                                 (jobInfo[0][1] as String) == "RUNNING"
                     })
-
-            // insert incremental data to push the job past snapshot into binlog phase
-            // so per-job lag metric becomes available
-            connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
-                sql """INSERT INTO ${mysqlDb}.${mysqlTable} (name, age) VALUES ('Carol', 30)"""
-            }
-
-            Awaitility.await().atMost(300, SECONDS)
-                    .pollInterval(1, SECONDS).until({
-                        def jobInfo = sql """ select Lag from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
-                        log.info("metrics lag jobInfo: " + jobInfo)
-                        if (jobInfo.size() != 1) {
-                            return false
-                        }
-                        def lagValue = jobInfo[0][0] as String
-                        return lagValue != null && lagValue != "" && lagValue.isNumber()
-                    })
         } catch (Exception ex) {
             def showjob = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
             def showtask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
