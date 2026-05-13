@@ -655,6 +655,8 @@ class UpCommand(Command):
 
             instance_id = getattr(args, 'instance_id', None)
             cluster_snapshot = getattr(args, 'cluster_snapshot', '')
+            enable_storage_vault = CLUSTER.is_true(
+                CLUSTER.get_env_value(args.env, "ENABLE_STORAGE_VAULT"))
 
             cluster = CLUSTER.Cluster.new(
                 args.NAME, args.IMAGE, args.cloud, args.root, args.fe_config,
@@ -663,7 +665,8 @@ class UpCommand(Command):
                 args.be_disks, args.be_cluster, args.reg_be, args.extra_hosts,
                 args.coverage_dir, cloud_store_config, args.sql_mode_node_mgr,
                 args.be_metaservice_endpoint, args.be_cluster_id, args.tde_ak, args.tde_sk,
-                external_ms_cluster, instance_id, cluster_snapshot)
+                external_ms_cluster, instance_id, cluster_snapshot,
+                enable_storage_vault)
             LOG.info("Create new cluster {} succ, cluster path is {}".format(
                 args.NAME, cluster.get_path()))
 
