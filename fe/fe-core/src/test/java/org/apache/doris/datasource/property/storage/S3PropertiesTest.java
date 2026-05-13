@@ -17,9 +17,13 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.catalog.S3StorageVault;
+import org.apache.doris.cloud.proto.Cloud.CredProviderTypePB;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
+import org.apache.doris.thrift.TCredProviderType;
+import org.apache.doris.thrift.TS3StorageParam;
 
 import com.google.common.collect.Maps;
 import mockit.Expectations;
@@ -261,6 +265,34 @@ public class S3PropertiesTest {
                 .get("AWS_ROLE_ARN"));
         Assertions.assertEquals("us-west-2", s3Props.getRegion());
         Assertions.assertEquals("s3.us-west-2.amazonaws.com", s3Props.getEndpoint());
+    }
+
+    @Test
+    public void testS3IamRoleCredentialsProviderTypeForCloudAndThrift() {
+        origProps.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
+        origProps.put("s3.region", "us-west-2");
+        origProps.put("s3.bucket", "bucket");
+        origProps.put("s3.root.path", "root");
+        origProps.put("s3.role_arn", "arn:aws:iam::123456789012:role/MyTestRole");
+
+        Assertions.assertEquals(CredProviderTypePB.INSTANCE_PROFILE,
+                S3Properties.getObjStoreInfoPB(origProps).getCredProviderType());
+        TS3StorageParam s3StorageParam = S3Properties.getS3TStorageParam(origProps);
+        Assertions.assertEquals(TCredProviderType.INSTANCE_PROFILE, s3StorageParam.getCredProviderType());
+
+        origProps.put("s3.credentials_provider_type", "container");
+        Assertions.assertEquals(CredProviderTypePB.CONTAINER,
+                S3Properties.getObjStoreInfoPB(origProps).getCredProviderType());
+        s3StorageParam = S3Properties.getS3TStorageParam(origProps);
+        Assertions.assertEquals(TCredProviderType.CONTAINER, s3StorageParam.getCredProviderType());
+
+        origProps.remove("s3.credentials_provider_type");
+        origProps.put("AWS_CREDENTIALS_PROVIDER_TYPE", "env");
+        Assertions.assertEquals(CredProviderTypePB.ENV,
+                S3Properties.getObjStoreInfoPB(origProps).getCredProviderType());
+        s3StorageParam = S3Properties.getS3TStorageParam(origProps);
+        Assertions.assertEquals(TCredProviderType.ENV, s3StorageParam.getCredProviderType());
+        Assertions.assertTrue(S3StorageVault.ALLOW_ALTER_PROPERTIES.contains(S3Properties.CREDENTIALS_PROVIDER_TYPE));
     }
 
 

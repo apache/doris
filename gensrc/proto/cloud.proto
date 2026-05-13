@@ -269,6 +269,11 @@ enum CredProviderTypePB {
     DEFAULT = 1;    // DefaultAWSCredentialsProviderChain
     SIMPLE = 2;     // SimpleAWSCredentialsProvider, corresponding to (ak, sk)
     INSTANCE_PROFILE = 3;  // InstanceProfileCredentialsProvider
+    ENV = 4;  // EnvironmentAWSCredentialsProvider
+    SYSTEM_PROPERTIES = 5;  // SystemPropertiesCredentialsProvider
+    WEB_IDENTITY = 6;  // STSAssumeRoleWebIdentityCredentialsProvider
+    CONTAINER = 7;  // TaskRoleCredentialsProvider
+    ANONYMOUS = 8;  // AnonymousAWSCredentialsProvider
 }
 
 message ObjectStoreInfoPB {
