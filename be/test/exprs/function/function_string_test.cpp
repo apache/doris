@@ -3648,6 +3648,9 @@ TEST(function_string_test, function_count_substring_test) {
                             {{std::string("hello world"), std::string("")}, std::int32_t(0)},
                             {{std::string(""), std::string("l")}, std::int32_t(0)},
                             {{std::string(""), std::string("")}, std::int32_t(0)},
+                            {{std::string("ccc"), std::string("cc")}, std::int32_t(1)},
+                            {{std::string("aaaa"), std::string("aa")}, std::int32_t(2)},
+                            {{std::string("ab"), std::string("abc")}, std::int32_t(0)},
                             // utf-8 characters
                             {{std::string("你好123世界"), std::string("世")}, std::int32_t(1)},
                             {{std::string("你好123世界"), std::string("你")}, std::int32_t(1)},
@@ -3673,6 +3676,9 @@ TEST(function_string_test, function_count_substring_test) {
                 {{std::string("hello world"), std::string(""), std::int32_t(0)}, std::int32_t(0)},
                 {{std::string(""), std::string("l"), std::int32_t(1)}, std::int32_t(0)},
                 {{std::string(""), std::string(""), std::int32_t(1)}, std::int32_t(0)},
+                {{std::string("ccc"), std::string("cc"), std::int32_t(1)}, std::int32_t(1)},
+                {{std::string("ccc"), std::string("cc"), std::int32_t(3)}, std::int32_t(0)},
+                {{std::string("ab"), std::string("abc"), std::int32_t(1)}, std::int32_t(0)},
                 // utf-8 characters
                 {{std::string("你好123世界"), std::string("世"), std::int32_t(3)}, std::int32_t(1)},
                 {{std::string("你好123世界"), std::string("你"), std::int32_t(1)}, std::int32_t(1)},
