@@ -520,8 +520,11 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             log.info("No need to replay offset provider for job {}", getJobId());
         }
 
-        // Resume cdcSplitProgress from the at-most-one table cut to mid so the next
-        // advanceSplits() RPC won't re-cut already-fetched splits.
+        resumeCdcSplitProgressFromSplits();
+    }
+
+    /** Rebuild cdcSplitProgress after restart so advanceSplits resumes mid-table instead of skipping it. */
+    protected void resumeCdcSplitProgressFromSplits() {
         synchronized (splitsLock) {
             if (cachedSyncTables == null || cachedSyncTables.isEmpty()) {
                 return;
@@ -532,13 +535,9 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             } else {
                 clearProgress(cdcSplitProgress);
             }
-            log.info("Replay summary for job {}: finishedSplits={}, remainingSplits={}, "
-                            + "committedSplitProgress=(table={}, nextStart={}, nextSplitId={}), "
+            log.info("Resume cdcSplitProgress for job {}: finishedSplits={}, remainingSplits={}, "
                             + "cdcSplitProgress=(table={}, nextStart={}, nextSplitId={})",
                     getJobId(), finishedSplits.size(), remainingSplits.size(),
-                    committedSplitProgress == null ? null : committedSplitProgress.getCurrentSplittingTable(),
-                    committedSplitProgress == null ? null : Arrays.toString(committedSplitProgress.getNextSplitStart()),
-                    committedSplitProgress == null ? null : committedSplitProgress.getNextSplitId(),
                     cdcSplitProgress.getCurrentSplittingTable(),
                     Arrays.toString(cdcSplitProgress.getNextSplitStart()),
                     cdcSplitProgress.getNextSplitId());

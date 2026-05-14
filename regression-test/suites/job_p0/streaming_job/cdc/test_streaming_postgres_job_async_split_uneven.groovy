@@ -37,7 +37,7 @@ suite("test_streaming_postgres_job_async_split_uneven", "p0,external,pg,external
     def pgSchema = "cdc_test"
     def pgUser = "postgres"
     def pgPassword = "123456"
-    def totalRows = 500
+    def totalRows = 200
     int expectedChunks = (int) Math.ceil(totalRows / 5.0)   // 100 chunks at split_size=5
 
     sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""

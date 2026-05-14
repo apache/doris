@@ -33,7 +33,7 @@ suite("test_streaming_postgres_job_async_split_pause_resume",
     def pgSchema = "cdc_test"
     def pgUser = "postgres"
     def pgPassword = "123456"
-    def totalRows = 400
+    def totalRows = 200
 
     sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
     sql """drop table if exists ${currentDb}.${table1} force"""

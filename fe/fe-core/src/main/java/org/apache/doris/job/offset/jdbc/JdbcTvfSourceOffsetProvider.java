@@ -344,6 +344,7 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
             log.info("Replaying TVF offset provider for job {}: binlog offset already set, nothing to do",
                     job.getJobId());
         }
+        resumeCdcSplitProgressFromSplits();
     }
 
     /**

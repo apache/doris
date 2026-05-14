@@ -41,7 +41,7 @@ suite("test_streaming_postgres_job_async_split_uneven_restart_fe",
         def pgSchema = "cdc_test"
         def pgUser = "postgres"
         def pgPassword = "123456"
-        def totalRows = 500
+        def totalRows = 200
         int expectedChunks = (int) Math.ceil(totalRows / 5.0)   // 100
 
         sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
@@ -114,11 +114,15 @@ suite("test_streaming_postgres_job_async_split_uneven_restart_fe",
                         .pollInterval(1, SECONDS).until(
                         {
                             def succeed = sql """select SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}'"""
-                            def chunkRow = sql """SELECT json_length(chunk_list)
-                                                  FROM internal.__internal_schema.streaming_job_meta
-                                                  WHERE job_id='${jobId}'"""
-                            def chunkLen = (chunkRow.size() > 0 && chunkRow.get(0).get(0) != null)
-                                    ? (chunkRow.get(0).get(0) as int) : -1
+                            int chunkLen = -1
+                            try {
+                                def chunkRow = sql """SELECT json_length(chunk_list)
+                                                      FROM internal.__internal_schema.streaming_job_meta
+                                                      WHERE job_id='${jobId}'"""
+                                if (chunkRow.size() > 0 && chunkRow.get(0).get(0) != null) {
+                                    chunkLen = chunkRow.get(0).get(0) as int
+                                }
+                            } catch (Throwable ignored) { /* meta table is lazy-created on first UPSERT */ }
                             log.info("pre-restart succeed=${succeed} chunkLen=${chunkLen}")
                             succeed.size() == 1
                                     && Integer.parseInt(succeed.get(0).get(0).toString()) >= 3

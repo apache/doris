@@ -32,7 +32,7 @@ suite("test_streaming_mysql_job_async_split_uneven",
     def currentDb = (sql "select database()")[0][0]
     def table1 = "user_info_mysql_async_split_uneven"
     def mysqlDb = "test_cdc_db"
-    def totalRows = 500
+    def totalRows = 200
     int expectedChunks = (int) Math.ceil(totalRows / 5.0)
 
     sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""

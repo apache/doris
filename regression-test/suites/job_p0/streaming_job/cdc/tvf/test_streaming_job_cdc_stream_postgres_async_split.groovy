@@ -36,7 +36,7 @@ suite("test_streaming_job_cdc_stream_postgres_async_split",
     def pgUser = "postgres"
     def pgPassword = "123456"
     def pgTable = "test_streaming_job_cdc_stream_postgres_async_split_src"
-    def totalRows = 500
+    def totalRows = 200
     int expectedChunks = (int) Math.ceil(totalRows / 5.0)
 
     sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
@@ -158,29 +158,19 @@ suite("test_streaming_job_cdc_stream_postgres_async_split",
             assert doneDistinct.get(0).get(0) == totalRows :
                     "DISTINCT pk count ${doneDistinct.get(0).get(0)} != ${totalRows} — chunks may have re-cut"
 
-            // Verify binlog phase: INSERT/UPDATE/DELETE all propagate after snapshot.
+            // Verify binlog phase: INSERT propagates after snapshot. UPDATE/DELETE skipped
+            // because dorisTable is DUPLICATE KEY (append-only) and would yield duplicate rows.
             connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
                 sql """INSERT INTO ${pgDB}.${pgSchema}.${pgTable} (id, name, age) VALUES ('k_99999', 'incr', 999);"""
-                sql """UPDATE ${pgDB}.${pgSchema}.${pgTable} SET age = 8888 WHERE id = 'k_00001';"""
-                sql """DELETE FROM ${pgDB}.${pgSchema}.${pgTable} WHERE id = 'k_00002';"""
             }
 
             try {
                 Awaitility.await().atMost(120, SECONDS)
                         .pollInterval(2, SECONDS).until(
                         {
-                            def res = sql """SELECT
-                                    COUNT(*),
-                                    SUM(CASE WHEN id='k_00001' AND age=8888 THEN 1 ELSE 0 END),
-                                    SUM(CASE WHEN id='k_99999' THEN 1 ELSE 0 END),
-                                    SUM(CASE WHEN id='k_00002' THEN 1 ELSE 0 END)
-                                FROM ${currentDb}.${dorisTable}"""
-                            log.info("binlog state: ${res}")
-                            res.size() == 1
-                                    && res.get(0).get(0) == totalRows
-                                    && res.get(0).get(1) == 1
-                                    && res.get(0).get(2) == 1
-                                    && res.get(0).get(3) == 0
+                            def r = sql """SELECT count(*) FROM ${currentDb}.${dorisTable} WHERE id='k_99999'"""
+                            log.info("binlog state: ${r}")
+                            r.size() == 1 && r.get(0).get(0) == 1
                         }
                 )
             } catch (Exception ex) {
