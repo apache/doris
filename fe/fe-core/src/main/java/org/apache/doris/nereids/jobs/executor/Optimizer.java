@@ -36,6 +36,8 @@ import org.apache.doris.nereids.rules.rewrite.EliminateUnnecessaryProject;
 import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
 import org.apache.doris.nereids.rules.rewrite.PushDownExpressionsInHashCondition;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.qe.ConnectContext;
@@ -66,7 +68,10 @@ public class Optimizer {
      */
     public void execute() {
         MoreFieldsThread.keepFunctionSignature(() -> {
-            cascadesContext.setRewritePlan(normalizeCtePlan(cascadesContext.getRewritePlan()));
+            Plan rewritePlan = cascadesContext.getRewritePlan();
+            if (containsCte(rewritePlan)) {
+                cascadesContext.setRewritePlan(normalizeCtePlan(rewritePlan));
+            }
             // generate inlined CTE alternative for CBO comparison
             Plan cboInlinedPlan = generateCTEInlineAlternative();
             // init memo
@@ -196,9 +201,9 @@ public class Optimizer {
     private Plan generateFullCTEInline() {
         Plan rewritePlan = cascadesContext.getRewritePlan();
         CTEInliner cteInliner = new CTEInliner(cascadesContext.getStatementContext());
-        Plan inlinedPlan = cteInliner.generateInlinedPlan(rewritePlan);
-        if (inlinedPlan != null) {
-            return normalizeCtePlan(rewriteInlinedPlan(inlinedPlan));
+        Plan pushedDownInlinedPlan = generateFilterPushedDownInlinedPlan(cteInliner, rewritePlan);
+        if (pushedDownInlinedPlan != null) {
+            return normalizeCtePlan(pushedDownInlinedPlan);
         }
         return null;
     }
@@ -209,12 +214,11 @@ public class Optimizer {
     private Plan generateSelectiveCTEInline() {
         Plan rewritePlan = cascadesContext.getRewritePlan();
         CTEInliner cteInliner = new CTEInliner(cascadesContext.getStatementContext(), true);
-        Plan inlinedPlan = cteInliner.generateInlinedPlan(rewritePlan);
-        if (inlinedPlan != null) {
-            inlinedPlan = rewriteInlinedPlan(inlinedPlan);
-            if (inlinedPlan.anyMatch(p -> p instanceof LogicalEmptyRelation)) {
-                inlinedPlan = normalizeCtePlan(inlinedPlan);
-                cascadesContext.setRewritePlan(inlinedPlan);
+        Plan pushedDownInlinedPlan = generateFilterPushedDownInlinedPlan(cteInliner, rewritePlan);
+        if (pushedDownInlinedPlan != null) {
+            if (pushedDownInlinedPlan.anyMatch(p -> p instanceof LogicalEmptyRelation)) {
+                pushedDownInlinedPlan = normalizeCtePlan(pushedDownInlinedPlan);
+                cascadesContext.setRewritePlan(pushedDownInlinedPlan);
                 return null;
             }
         }
@@ -224,30 +228,31 @@ public class Optimizer {
     private Plan normalizeCtePlan(Plan plan) {
         Plan currentPlan = plan;
         while (true) {
+            if (currentPlan.anyMatch(p -> p instanceof LogicalEmptyRelation)) {
+                currentPlan = eliminateEmptyRelation(currentPlan);
+            }
             CTEInliner cteInliner = new CTEInliner(cascadesContext.getStatementContext());
             CTEInliner.InlineResult inlineResult = cteInliner.inlineByCurrentConsumerCount(currentPlan);
             Plan normalizedPlan = inlineResult.getPlan();
-            boolean changed = inlineResult.isChanged();
-            if (normalizedPlan.anyMatch(p -> p instanceof LogicalEmptyRelation)) {
-                String beforeEliminate = normalizedPlan.treeString();
-                normalizedPlan = eliminateEmptyRelation(normalizedPlan);
-                changed = changed || !beforeEliminate.equals(normalizedPlan.treeString());
-            }
             // Do not use Plan.equals() as a fixpoint check here. Some logical nodes,
             // e.g. LogicalCTEAnchor and LogicalSubQueryAlias, intentionally ignore
             // children in equals(), so a child CTE rewrite under a kept parent may be
             // missed and block cascading consumer-count-based inlining.
-            if (!changed) {
+            if (!inlineResult.isChanged()) {
                 return normalizedPlan;
             }
             currentPlan = normalizedPlan;
         }
     }
 
+    private boolean containsCte(Plan plan) {
+        return plan.anyMatch(p -> p instanceof LogicalCTEAnchor || p instanceof LogicalCTEConsumer);
+    }
+
     private Plan eliminateEmptyRelation(Plan plan) {
         CascadesContext ctx = CascadesContext.initContext(
                 cascadesContext.getStatementContext(), plan, PhysicalProperties.ANY);
-        // Use getCteChildrenRewriter for the same reason as rewriteInlinedPlan:
+        // Use getCteChildrenRewriter for the same reason as pushDownFilterAndPruneInlinedPlan:
         // getWholeTreeRewriterWithCustomJobs would invoke RewriteCteChildren which
         // reads stale rewrittenCteConsumer cache from the main Rewriter phase,
         // reverting the inlined CTE subtrees back to the original structure.
@@ -256,6 +261,14 @@ public class Optimizer {
                 Rewriter.custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
                 Rewriter.custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new))).execute();
         return ctx.getRewritePlan();
+    }
+
+    private Plan generateFilterPushedDownInlinedPlan(CTEInliner cteInliner, Plan rewritePlan) {
+        Plan inlinedPlan = cteInliner.generateInlinedPlan(rewritePlan);
+        if (inlinedPlan == null) {
+            return null;
+        }
+        return pushDownFilterAndPruneInlinedPlan(inlinedPlan);
     }
 
     /**
@@ -270,7 +283,7 @@ public class Optimizer {
      * phase. That cached outer query still contains LogicalCTEConsumer nodes for the inlined CTE,
      * preventing the filter from ever reaching the inlined union body.
      */
-    private Plan rewriteInlinedPlan(Plan inlinedPlan) {
+    private Plan pushDownFilterAndPruneInlinedPlan(Plan inlinedPlan) {
         CascadesContext inlinedContext = CascadesContext.initContext(
                 cascadesContext.getStatementContext(), inlinedPlan, PhysicalProperties.ANY);
         Rewriter.getCteChildrenRewriter(inlinedContext, ImmutableList.of(

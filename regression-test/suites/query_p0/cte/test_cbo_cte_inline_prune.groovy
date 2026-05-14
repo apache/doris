@@ -28,8 +28,37 @@ suite("test_cbo_cte_inline_prune") {
     """
     sql "INSERT INTO cte_cbo_inline_tbl VALUES (1, 10), (2, 20), (3, 30)"
 
+    sql "DROP TABLE IF EXISTS cte_cbo_empty_array_tbl"
+    sql """
+        CREATE TABLE cte_cbo_empty_array_tbl (
+            id INT,
+            vals ARRAY<INT>
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+
     sql "SET cte_inline_mode=1"
     sql "SET inline_cte_referenced_threshold=1"
+
+    explain {
+        sql "SELECT count(*) FROM cte_cbo_empty_array_tbl"
+        contains("VEMPTYSET")
+    }
+
+    explain {
+        sql """
+            WITH cte_keep AS (
+                SELECT id FROM cte_cbo_inline_tbl
+            )
+            SELECT count(*) FROM cte_cbo_empty_array_tbl
+            UNION ALL
+            SELECT count(*) FROM cte_keep
+        """
+        contains("VUNION")
+        contains("constant exprs")
+    }
 
     explain {
         sql """
