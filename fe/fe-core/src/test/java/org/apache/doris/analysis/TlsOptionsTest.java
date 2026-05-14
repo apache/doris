@@ -59,7 +59,7 @@ public class TlsOptionsTest {
 
         tlsOptions.analyze();
         Assert.assertEquals(
-                "email:alice@example.com, DNS:example.com, URI:spiffe://example.com/workload, IP Address:192.168.1.1",
+                "email:alice@example.com, DNS:Example.com, URI:spiffe://Example.com/workload, IP Address:192.168.1.1",
                 tlsOptions.getSan());
     }
 }
