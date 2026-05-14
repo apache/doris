@@ -176,6 +176,41 @@ public class PropertyAnalyzerTest {
     }
 
     @Test
+    public void testAnalyzeTtl() throws AnalysisException {
+        Map<String, String> properties = Maps.newHashMap();
+        Assert.assertEquals(0L, PropertyAnalyzer.analyzeTTL(properties));
+
+        properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS,
+                String.valueOf(PropertyAnalyzer.MIN_FILE_CACHE_TTL_SECONDS));
+        Assert.assertEquals(PropertyAnalyzer.MIN_FILE_CACHE_TTL_SECONDS, PropertyAnalyzer.analyzeTTL(properties));
+
+        properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS, String.valueOf(Long.MAX_VALUE));
+        Assert.assertEquals(Long.MAX_VALUE, PropertyAnalyzer.analyzeTTL(properties));
+
+        properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS,
+                String.valueOf(PropertyAnalyzer.MIN_FILE_CACHE_TTL_SECONDS - 1));
+        AnalysisException exception = Assert.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeTTL(properties));
+        Assert.assertTrue(exception.getMessage().contains(PropertyAnalyzer.FILE_CACHE_TTL_CREATE_RESTRICTION_MSG));
+
+        properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS, "0");
+        exception = Assert.assertThrows(AnalysisException.class, () -> PropertyAnalyzer.analyzeTTL(properties));
+        Assert.assertTrue(exception.getMessage().contains(PropertyAnalyzer.FILE_CACHE_TTL_CREATE_RESTRICTION_MSG));
+
+        properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS, "-1");
+        exception = Assert.assertThrows(AnalysisException.class, () -> PropertyAnalyzer.analyzeTTL(properties));
+        Assert.assertTrue(exception.getMessage().contains(PropertyAnalyzer.FILE_CACHE_TTL_CREATE_RESTRICTION_MSG));
+
+        properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS, "invalid");
+        exception = Assert.assertThrows(AnalysisException.class, () -> PropertyAnalyzer.analyzeTTL(properties));
+        Assert.assertTrue(exception.getMessage().contains("formats error or is out of range"));
+
+        properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS, "9223372036854775808");
+        exception = Assert.assertThrows(AnalysisException.class, () -> PropertyAnalyzer.analyzeTTL(properties));
+        Assert.assertTrue(exception.getMessage().contains("formats error or is out of range"));
+    }
+
+    @Test
     public void testTag() throws AnalysisException {
         HashMap<String, String> properties = Maps.newHashMap();
         properties.put("tag.location", "l1");

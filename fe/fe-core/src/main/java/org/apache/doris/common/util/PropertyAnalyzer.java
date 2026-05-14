@@ -126,6 +126,15 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_INMEMORY = "in_memory";
 
     public static final String PROPERTIES_FILE_CACHE_TTL_SECONDS = "file_cache_ttl_seconds";
+    public static final long MIN_FILE_CACHE_TTL_SECONDS = 31536000L;
+    public static final String FILE_CACHE_TTL_CREATE_RESTRICTION_MSG =
+            PROPERTIES_FILE_CACHE_TTL_SECONDS + " temporarily only supports values greater than or equal to "
+                    + MIN_FILE_CACHE_TTL_SECONDS + " seconds (one year) to keep file cache resident. "
+                    + "The TTL feature will be restored in a future version.";
+    public static final String FILE_CACHE_TTL_ALTER_RESTRICTION_MSG =
+            "Modifying " + PROPERTIES_FILE_CACHE_TTL_SECONDS
+                    + " is not allowed in the current version. "
+                    + "The TTL feature will be available in a future version.";
 
     // _auto_bucket can only set in create table stmt rewrite bucket and can not be changed
     public static final String PROPERTIES_AUTO_BUCKET = "_auto_bucket";
@@ -322,7 +331,7 @@ public class PropertyAnalyzer {
 
     public PropertyAnalyzer() {
         forceProperties = ImmutableList.of(
-                RewriteProperty.replace(PROPERTIES_FILE_CACHE_TTL_SECONDS, "0")
+                RewriteProperty.delete(PROPERTIES_FILE_CACHE_TTL_SECONDS)
                 );
     }
 
@@ -609,15 +618,21 @@ public class PropertyAnalyzer {
             String ttlSecondsStr = properties.get(PROPERTIES_FILE_CACHE_TTL_SECONDS);
             try {
                 ttlSeconds = Long.parseLong(ttlSecondsStr);
-                if (ttlSeconds < 0) {
-                    throw new NumberFormatException();
-                }
             } catch (NumberFormatException e) {
-                throw new AnalysisException("The value " + ttlSecondsStr + " formats error or  is out of range "
-                           + "(0 < integer < Long.MAX_VALUE)");
+                throw new AnalysisException("The value " + ttlSecondsStr + " formats error or is out of range "
+                        + "(" + MIN_FILE_CACHE_TTL_SECONDS + " <= integer <= Long.MAX_VALUE)");
+            }
+            if (ttlSeconds < MIN_FILE_CACHE_TTL_SECONDS) {
+                throw new AnalysisException(FILE_CACHE_TTL_CREATE_RESTRICTION_MSG);
             }
         }
         return ttlSeconds;
+    }
+
+    public static void analyzeTTLAlter(Map<String, String> properties) throws AnalysisException {
+        if (properties.containsKey(PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
+            throw new AnalysisException(FILE_CACHE_TTL_ALTER_RESTRICTION_MSG);
+        }
     }
 
     public static int analyzePartitionRetentionCount(Map<String, String> properties) throws AnalysisException {

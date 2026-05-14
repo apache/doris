@@ -24,6 +24,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.utframe.TestWithFeService;
@@ -246,6 +247,34 @@ public class CreateTableTest extends TestWithFeService {
         ExceptionChecker.expectThrowsNoException(
                 () -> createTable("create table test.tbl17\n" + "(k1 int, k2 decimal(10,2) default 10.3)\n" + "duplicate key(k1)\n"
                 + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
+    }
+
+    @Test
+    public void testFileCacheTtlCreateValidation() throws Exception {
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                PropertyAnalyzer.FILE_CACHE_TTL_CREATE_RESTRICTION_MSG,
+                () -> createTable("create table test.tbl_ttl_low\n"
+                        + "(k1 int)\n"
+                        + "duplicate key(k1)\n"
+                        + "distributed by hash(k1) buckets 1\n"
+                        + "properties('replication_num' = '1', 'file_cache_ttl_seconds' = '31535999');"));
+
+        createTable("create table test.tbl_ttl_min\n"
+                + "(k1 int)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'file_cache_ttl_seconds' = '31536000');");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        OlapTable ttlTable = (OlapTable) db.getTableOrDdlException("tbl_ttl_min");
+        Assert.assertNotNull(ttlTable);
+
+        createTable("create table test.tbl_ttl_default\n"
+                + "(k1 int)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+        OlapTable defaultTable = (OlapTable) db.getTableOrDdlException("tbl_ttl_default");
+        Assert.assertEquals(0L, defaultTable.getTTLSeconds());
     }
 
     @Test

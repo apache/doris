@@ -98,11 +98,11 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
     @Override
     public void updateTableProperties(Database db, String tableName, Map<String, String> properties)
             throws UserException {
+        PropertyAnalyzer.analyzeTTLAlter(properties);
         final Set<String> allowedProps = new HashSet<String>() {
             {
                 add(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
                 add(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES);
-                add(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS);
                 add(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY);
                 add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES);
                 add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD);
@@ -136,22 +136,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                     + PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
         }
 
-        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
-            long ttlSeconds = PropertyAnalyzer.analyzeTTL(properties);
-            olapTable.readLock();
-            try {
-                if (ttlSeconds == olapTable.getTTLSeconds()) {
-                    LOG.info("ttlSeconds:{} is equal with olapTable.getTTLSeconds():{}", ttlSeconds,
-                            olapTable.getTTLSeconds());
-                    return;
-                }
-                partitions.addAll(olapTable.getPartitions());
-            } finally {
-                olapTable.readUnlock();
-            }
-            param.ttlSeconds = ttlSeconds;
-            param.type = UpdatePartitionMetaParam.TabletMetaType.TTL_SECONDS;
-        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)) {
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)) {
             long groupCommitIntervalMs = Long.parseLong(properties.get(PropertyAnalyzer
                     .PROPERTIES_GROUP_COMMIT_INTERVAL_MS));
             olapTable.readLock();

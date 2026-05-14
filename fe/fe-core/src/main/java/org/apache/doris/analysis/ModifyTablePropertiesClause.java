@@ -83,6 +83,8 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             throw new AnalysisException("Properties is not set");
         }
 
+        PropertyAnalyzer.analyzeTTLAlter(properties);
+
         if (properties.size() != 1
                 && !TableProperty.isSamePrefixProperties(
                         properties, DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)
@@ -346,9 +348,6 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
                 throw new AnalysisException("Invalid group_commit_data_bytes format: "
                     + groupCommitDataBytesStr);
             }
-            this.needTableStable = false;
-            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
-        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME)) {

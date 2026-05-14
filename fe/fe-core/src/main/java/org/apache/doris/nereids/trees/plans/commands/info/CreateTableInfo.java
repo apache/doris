@@ -190,8 +190,7 @@ public class CreateTableInfo {
         this.partitionTableInfo = partitionTableInfo;
         this.distribution = distribution;
         this.rollups = Utils.copyRequiredList(rollups);
-        this.properties = properties;
-        PropertyAnalyzer.getInstance().rewriteForceProperties(this.properties);
+        this.properties = analyzeTTLAndRewriteForceProperties(properties);
         this.extProperties = extProperties;
         this.clusterKeysColumnNames = Utils.copyRequiredList(clusterKeyColumnNames);
     }
@@ -234,8 +233,7 @@ public class CreateTableInfo {
         this.partitionTableInfo = partitionTableInfo;
         this.distribution = distribution;
         this.rollups = Utils.copyRequiredList(rollups);
-        this.properties = properties;
-        PropertyAnalyzer.getInstance().rewriteForceProperties(this.properties);
+        this.properties = analyzeTTLAndRewriteForceProperties(properties);
         this.extProperties = extProperties;
         this.clusterKeysColumnNames = Utils.copyRequiredList(clusterKeyColumnNames);
     }
@@ -255,8 +253,17 @@ public class CreateTableInfo {
         this.keys = keys;
         this.comment = comment;
         this.distribution = distribution;
-        this.properties = properties;
-        PropertyAnalyzer.getInstance().rewriteForceProperties(this.properties);
+        this.properties = analyzeTTLAndRewriteForceProperties(properties);
+    }
+
+    private static Map<String, String> analyzeTTLAndRewriteForceProperties(Map<String, String> properties) {
+        try {
+            PropertyAnalyzer.analyzeTTL(properties);
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
+        PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
+        return properties;
     }
 
     /**
@@ -488,6 +495,11 @@ public class CreateTableInfo {
 
         if (engineName.equalsIgnoreCase(ENGINE_OLAP)) {
             boolean enableDuplicateWithoutKeysByDefault = false;
+            try {
+                PropertyAnalyzer.analyzeTTL(properties);
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
+            }
             properties = PropertyAnalyzer.getInstance().rewriteOlapProperties(ctlName, dbName, properties);
 
             // In fuzzy tests, randomly set storage_format=V3 (ext_meta) for some tables.
