@@ -16,6 +16,7 @@
 // under the License.
 
 suite("infer_predicate_cast_scan_common_expr") {
+    sql "set enable_nereids_planner=true"
     sql "set enable_fallback_to_original_planner=false"
     sql "set runtime_filter_mode=OFF"
     sql "set enable_decimal256=true"
