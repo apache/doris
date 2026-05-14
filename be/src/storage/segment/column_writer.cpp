@@ -330,16 +330,15 @@ Status ColumnWriter::create_variant_writer(const ColumnWriterOptions& opts,
     if (column->is_extracted_column()) {
         if (column->name().find(DOC_VALUE_COLUMN_PATH) != std::string::npos) {
             *writer = std::make_unique<VariantDocCompactWriter>(
-                    opts, column, std::make_shared<TabletColumn>(*column));
+                    opts, std::make_shared<TabletColumn>(*column));
             return Status::OK();
         }
         VLOG_DEBUG << "gen subwriter for " << column->path_info_ptr()->get_path();
-        *writer = std::make_unique<VariantSubcolumnWriter>(opts, column,
+        *writer = std::make_unique<VariantSubcolumnWriter>(opts,
                                                            std::make_shared<TabletColumn>(*column));
         return Status::OK();
     }
-    *writer = std::make_unique<VariantColumnWriter>(opts, column,
-                                                    std::make_shared<TabletColumn>(*column));
+    *writer = std::make_unique<VariantColumnWriter>(opts, std::make_shared<TabletColumn>(*column));
     return Status::OK();
 }
 
@@ -407,7 +406,7 @@ Status ColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** pt
         if (non_null_count == 0) {
             // All NULL: skip run-length iteration, directly append all nulls
             RETURN_IF_ERROR(append_nulls(num_rows));
-            *ptr += field_type_size(get_column()->type()) * num_rows;
+            *ptr += cell_size() * num_rows;
             return Status::OK();
         }
 
@@ -435,10 +434,10 @@ Status ColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** pt
         auto step = next_run_step();
         if (null_map[offset]) {
             RETURN_IF_ERROR(append_nulls(step));
-            *ptr += field_type_size(get_column()->type()) * step;
+            *ptr += cell_size() * step;
         } else {
             // TODO:
-            //  1. `*ptr += field_type_size(get_column()->type()) * step;` should do in this function, not append_data;
+            //  1. `*ptr += cell_size() * step;` should do in this function, not append_data;
             //  2. support array vectorized load and ptr offset add
             RETURN_IF_ERROR(append_data(ptr, step));
         }
@@ -633,7 +632,7 @@ Status ScalarColumnWriter::_internal_append_data_in_current_page(const uint8_t* 
 
 Status ScalarColumnWriter::append_data_in_current_page(const uint8_t** data, size_t* num_written) {
     RETURN_IF_ERROR(append_data_in_current_page(*data, num_written));
-    *data += field_type_size(get_column()->type()) * (*num_written);
+    *data += cell_size() * (*num_written);
     return Status::OK();
 }
 
@@ -683,7 +682,7 @@ Status ScalarColumnWriter::append_nullable(const uint8_t* null_map, const uint8_
     if (non_null_count == 0) {
         // All NULL: skip data writing, only update null bitmap and indexes
         RETURN_IF_ERROR(append_nulls(num_rows));
-        *ptr += field_type_size(get_column()->type()) * num_rows;
+        *ptr += cell_size() * num_rows;
         return Status::OK();
     }
 
@@ -697,10 +696,10 @@ Status ScalarColumnWriter::append_nullable(const uint8_t* null_map, const uint8_
         size_t run_length = run.len;
         if (run.is_null) {
             RETURN_IF_ERROR(append_nulls(run_length));
-            *ptr += field_type_size(get_column()->type()) * run_length;
+            *ptr += cell_size() * run_length;
         } else {
             // TODO:
-            //  1. `*ptr += field_type_size(get_column()->type()) * step;` should do in this function, not append_data;
+            //  1. `*ptr += cell_size() * step;` should do in this function, not append_data;
             //  2. support array vectorized load and ptr offset add
             RETURN_IF_ERROR(append_data(ptr, run_length));
         }
@@ -1331,10 +1330,9 @@ Status MapColumnWriter::write_inverted_index() {
     return Status::OK();
 }
 
-VariantColumnWriter::VariantColumnWriter(const ColumnWriterOptions& opts,
-                                         const TabletColumn* column, TabletColumnPtr owned_column)
-        : ColumnWriter(std::move(owned_column), opts.meta->is_nullable(), opts.meta) {
-    _impl = std::make_unique<VariantColumnWriterImpl>(opts, column);
+VariantColumnWriter::VariantColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column)
+        : ColumnWriter(std::move(column), opts.meta->is_nullable(), opts.meta) {
+    _impl = std::make_unique<VariantColumnWriterImpl>(opts, get_column());
 }
 
 Status VariantColumnWriter::init() {

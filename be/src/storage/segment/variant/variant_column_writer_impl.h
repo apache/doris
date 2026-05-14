@@ -223,8 +223,7 @@ private:
 
 class VariantDocCompactWriter : public ColumnWriter {
 public:
-    explicit VariantDocCompactWriter(const ColumnWriterOptions& opts, const TabletColumn* column,
-                                     TabletColumnPtr owned_column);
+    explicit VariantDocCompactWriter(const ColumnWriterOptions& opts, TabletColumnPtr column);
 
     ~VariantDocCompactWriter() override = default;
 
@@ -279,7 +278,6 @@ private:
 
     ordinal_t _next_rowid = 0;
     MutableColumnPtr _column;
-    const TabletColumn* _tablet_column = nullptr;
     ColumnWriterOptions _opts;
     bool _is_finalized = false;
     bool _data_written = false;

@@ -115,9 +115,9 @@ struct TabletSize {
     size_t tablet_size;
 };
 
-// Storage-engine cell types, used by TabletColumn / Field / KeyCoder.
-// When adding a new value, also extend CppTypeTraits, FieldTypeTraits and
-// the field_type_size() switch in storage/types.h.
+// Storage-engine cell types, used by TabletColumn / KeyCoder and the
+// data_type traits chain. When adding a new value, also extend CppTypeTraits,
+// FieldTypeTraits and the field_type_size() switch in storage/types.h.
 enum class FieldType {
     OLAP_FIELD_TYPE_TINYINT = 1, // MYSQL_TYPE_TINY
     OLAP_FIELD_TYPE_UNSIGNED_TINYINT = 2,
@@ -162,9 +162,10 @@ enum class FieldType {
     OLAP_FIELD_TYPE_TIMESTAMPTZ = 40,
 };
 
-// Aggregation methods used by TabletColumn / Field for value columns.
-// In practice not all (type, agg) combinations are meaningful (e.g. SUM on
-// strings); validation happens at schema build time, not in TabletColumn itself.
+// Define all aggregation methods supported by TabletColumn
+// Note that in practice, not all types can use all the following aggregation methods
+// For example, it is meaningless to use SUM for the string type (but it will not cause the program to crash)
+// The implementation of the TabletColumn class does not perform such checks, and should be constrained when creating the table
 enum class FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_NONE = 0,
     OLAP_FIELD_AGGREGATION_SUM = 1,

@@ -39,6 +39,7 @@
 #include "storage/segment/variant/nested_group_provider.h"
 #include "storage/segment/variant/variant_statistics.h"
 #include "storage/tablet/tablet_schema.h" // for TabletColumnPtr
+#include "storage/types.h"                // for field_type_size
 #include "util/bitmap.h"                  // for BitmapChange
 #include "util/slice.h"                   // for OwnedSlice
 
@@ -194,6 +195,10 @@ public:
     bool is_nullable() const { return _is_nullable; }
 
     const TabletColumn* get_column() const { return _column.get(); }
+
+    // Per-row in-memory cell footprint of this writer's column, used to step
+    // the input pointer across rows in append_*/null-run loops.
+    size_t cell_size() const { return field_type_size(_column->type()); }
 
     ColumnMetaPB* get_column_meta() const { return _column_meta; }
 
@@ -572,8 +577,7 @@ private:
 // used for compaction to write sub variant column
 class VariantSubcolumnWriter : public ColumnWriter {
 public:
-    explicit VariantSubcolumnWriter(const ColumnWriterOptions& opts, const TabletColumn* column,
-                                    TabletColumnPtr owned_column);
+    explicit VariantSubcolumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column);
 
     ~VariantSubcolumnWriter() override = default;
 
@@ -624,7 +628,6 @@ private:
     ordinal_t _next_rowid = 0;
     size_t none_null_size = 0;
     ColumnVariant::MutablePtr _column;
-    const TabletColumn* _tablet_column = nullptr;
     ColumnWriterOptions _opts;
     std::unique_ptr<ColumnWriter> _writer;
     TabletIndexes _indexes;
@@ -635,8 +638,7 @@ private:
 
 class VariantColumnWriter : public ColumnWriter {
 public:
-    explicit VariantColumnWriter(const ColumnWriterOptions& opts, const TabletColumn* column,
-                                 TabletColumnPtr owned_column);
+    explicit VariantColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column);
 
     ~VariantColumnWriter() override = default;
 
