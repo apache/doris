@@ -73,7 +73,11 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_hive_text(
         IColumn& column, Slice& slice, const FormatOptions& options,
         int hive_text_complex_type_delimiter_level) const {
     if (slice.empty()) {
-        return Status::InvalidArgument("slice is empty!");
+        // Treat empty string as empty map to match Spark behavior ({} instead of null)
+        auto& map_column = assert_cast<ColumnMap&>(column);
+        auto& offsets = map_column.get_offsets();
+        offsets.push_back(offsets.back());
+        return Status::OK();
     }
     auto& array_column = assert_cast<ColumnMap&>(column);
     auto& offsets = array_column.get_offsets();
