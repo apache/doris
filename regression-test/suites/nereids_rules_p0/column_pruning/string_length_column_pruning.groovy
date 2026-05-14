@@ -55,8 +55,8 @@ suite("string_length_column_pruning") {
     sql """
         INSERT INTO slcp_str_tbl VALUES
             (1, 'hello', named_struct('f1', 10, 'f3', 'world'), [1, 2, 3], {'a': 'x', 'b': 'y'},
-             {'a': [1, 2], 'b': [3]},
-             NULL)
+              {'a': [1, 2], 'b': [3]},
+              map('a', array(named_struct('verified', true, 'value', 10))))
     """
 
     // ─── Optimizable cases ──────────────────────────────────────────────────────
@@ -266,12 +266,31 @@ suite("string_length_column_pruning") {
         notContains "type=bigint"
     }
 
+    // Predicate OFFSET path must also be removed when the projected value field already
+    // makes the corresponding array data path available. predicateAccessPaths remains a
+    // subset of allAccessPaths.
+    explain {
+        sql "select map_arr_struct_col['a'][1].verified from slcp_str_tbl where cardinality(map_arr_struct_col['a']) > 0"
+        contains "nested columns"
+        contains "all access paths: [map_arr_struct_col.*.*.verified]"
+        notContains "map_arr_struct_col.*.OFFSET"
+        notContains "predicate access paths:"
+        notContains "type=bigint"
+    }
+
+    order_qt_map_value_array_predicate_offset_covered """
+        select map_arr_struct_col['a'][1].verified from slcp_str_tbl
+        where cardinality(map_arr_struct_col['a']) > 0
+        order by 1
+    """
+
     // value array item also accessed directly → full VALUES item path covers value NULL.
     explain {
         sql "select map_arr_struct_col['a'][1].verified from slcp_str_tbl where map_arr_struct_col['a'] is null"
         contains "nested columns"
         contains "map_arr_struct_col.*.*.verified"
         notContains "map_arr_struct_col.*.NULL"
+        notContains "predicate access paths:"
     }
 
     // ─── Non-optimizable cases ──────────────────────────────────────────────────

@@ -621,12 +621,12 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         assertColumn("select map_keys(map_col) from str_tbl where map_keys(map_col) is null",
                 "map<text,text>",
                 ImmutableList.of(path("map_col", "KEYS")),
-                ImmutableList.of(path("map_col", "NULL"))
+                ImmutableList.of()
         );
         assertColumn("select map_values(map_col) from str_tbl where map_values(map_col) is null",
                 "map<text,text>",
                 ImmutableList.of(path("map_col", "VALUES")),
-                ImmutableList.of(path("map_col", "NULL"))
+                ImmutableList.of()
         );
     }
 
@@ -635,7 +635,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         assertColumn("select s from tbl where struct_element(s, 'city') is not null",
                 "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
                 ImmutableList.of(path("s")),
-                ImmutableList.of(path("s", "city", "NULL"))
+                ImmutableList.of()
         );
 
         assertColumn("select struct_element(s, 'data') from tbl where struct_element(s, 'city') is not null",
@@ -647,7 +647,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         assertColumn("select struct_element(s, 'data') from tbl where struct_element(s, 'city') is not null and struct_element(s, 'data') is not null",
                 "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
                 ImmutableList.of(path("s", "city", "NULL"), path("s", "data")),
-                ImmutableList.of(path("s", "city", "NULL"), path("s", "data", "NULL"))
+                ImmutableList.of(path("s", "city", "NULL"))
         );
     }
 
@@ -1271,6 +1271,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
             TreeSet<ColumnAccessPath> actualPredicateAccessPaths
                     = new TreeSet<>(slotDescriptor.getPredicateAccessPaths());
             Assertions.assertEquals(expectPredicateAccessPathSet, actualPredicateAccessPaths);
+            Assertions.assertTrue(actualAllAccessPaths.containsAll(actualPredicateAccessPaths));
 
             Map<Integer, DataType> slotIdToDataTypes = new LinkedHashMap<>();
             Consumer<Expression> assertHasSameType = e -> {
@@ -1345,21 +1346,22 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         // Parent NULL path must be stripped from allPaths when a child path is also required.
         // Otherwise BE StructFileColumnIterator sees the parent NULL sub-path first, switches
         // the whole struct iterator to NULL_MAP_ONLY, and skips the child iterator.
-        // predicateAccessPaths keeps [s, NULL] because the predicate itself still uses it.
+        // predicateAccessPaths drops [s, NULL] too, keeping it a subset of allAccessPaths.
         assertColumn("select struct_element(s, 'city') from tbl where s is null",
                 "struct<city:text>",
                 ImmutableList.of(path("s", "city")),
-                ImmutableList.of(path("s", "NULL")));
+                ImmutableList.of());
 
         // This shape is closer to the production bug: one predicate needs the parent
         // null map, another predicate needs a child null map, and the projection needs
         // a different child data path. The parent [s.NULL] cannot remain in allPaths
-        // with [s.data], but both predicate NULL paths must remain in predicate paths.
+        // with [s.data], so it is also removed from predicate paths; [s.city.NULL] stays
+        // because it is still present in allPaths.
         assertColumn("select struct_element(s, 'data') from tbl "
                         + "where s is null or struct_element(s, 'city') is null",
                 "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
                 ImmutableList.of(path("s", "city", "NULL"), path("s", "data")),
-                ImmutableList.of(path("s", "NULL"), path("s", "city", "NULL")));
+                ImmutableList.of(path("s", "city", "NULL")));
     }
 
     @Test

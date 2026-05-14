@@ -24,8 +24,8 @@
 //   nested columns:  <col>: all access paths: [<col>.NULL]
 //
 // When the same column is also accessed for data (e.g., projected or used in
-// struct_element), the NULL-only path must be stripped from allAccessPaths but
-// preserved in predicateAccessPaths.
+// struct_element), the NULL-only path must be stripped from allAccessPaths and
+// predicateAccessPaths unless the same path is still present in allAccessPaths.
 
 suite("null_column_pruning") {
     sql """ DROP TABLE IF EXISTS ncp_tbl """
@@ -143,7 +143,7 @@ suite("null_column_pruning") {
         sql "select int_col from ncp_tbl where int_col is null"
         contains "nested columns"
         contains "all access paths: [int_col]"
-        contains "predicate access paths: [int_col.NULL]"
+        notContains "predicate access paths:"
     }
 
     order_qt_10 "select int_col from ncp_tbl where int_col is null";
@@ -153,14 +153,14 @@ suite("null_column_pruning") {
     // The parent struct_col.NULL path must NOT stay in allAccessPaths with child paths.
     // BE StructFileColumnIterator treats a leading NULL sub-path as NULL_MAP_ONLY; if
     // allAccessPaths were [struct_col.NULL, struct_col.city], BE would skip the city
-    // child iterator and default-fill the projected value. predicateAccessPaths still
-    // keeps struct_col.NULL so the predicate requirement is visible, while the normal
-    // nullable struct read materializes the parent null map together with child data.
+    // child iterator and default-fill the projected value. The normal nullable struct
+    // read materializes the parent null map together with child data, and
+    // predicateAccessPaths is filtered so it remains a subset of allAccessPaths.
     explain {
         sql "select struct_element(struct_col, 'city') from ncp_tbl where struct_col is null"
         contains "nested columns"
         contains "all access paths: [struct_col.city]"
-        contains "predicate access paths: [struct_col.NULL]"
+        notContains "predicate access paths:"
     }
 
     order_qt_11 "select struct_element(struct_col, 'city') from ncp_tbl where struct_col is null";
@@ -174,7 +174,7 @@ suite("null_column_pruning") {
         sql "select struct_element(struct_col, 'zip') from ncp_tbl where struct_col is null or struct_element(struct_col, 'city') is null"
         contains "nested columns"
         contains "all access paths: [struct_col.city.NULL, struct_col.zip]"
-        contains "predicate access paths: [struct_col.NULL, struct_col.city.NULL]"
+        contains "predicate access paths: [struct_col.city.NULL]"
     }
 
     order_qt_parent_null_with_child_data "select struct_element(struct_col, 'zip') from ncp_tbl where struct_col is null or struct_element(struct_col, 'city') is null";
@@ -186,7 +186,7 @@ suite("null_column_pruning") {
         sql "select struct_col from ncp_tbl where struct_col is null"
         contains "nested columns"
         contains "all access paths: [struct_col]"
-        contains "predicate access paths: [struct_col.NULL]"
+        notContains "predicate access paths:"
     }
 
     order_qt_12 "select struct_col from ncp_tbl where struct_col is null";
@@ -200,7 +200,7 @@ suite("null_column_pruning") {
         sql "select struct_element(struct_col, 'city') from ncp_tbl where struct_element(struct_col, 'city') is null"
         contains "nested columns"
         contains "all access paths: [struct_col.city]"
-        contains "predicate access paths: [struct_col.city.NULL]"
+        notContains "predicate access paths:"
     }
 
     order_qt_13 "select struct_element(struct_col, 'city') from ncp_tbl where struct_element(struct_col, 'city') is null";
@@ -355,13 +355,13 @@ suite("null_column_pruning") {
 
     // ─── Mixed: map_keys IS NULL + map_keys projected ──────────────────────────
     // Projection needs key data, while the predicate checks whether the parent map
-    // is NULL. The parent NULL path is kept only in predicateAccessPaths so BE does
-    // not switch the whole map iterator to NULL_MAP_ONLY and skip the keys child.
+    // is NULL. The parent NULL path must not stay in either access path list, so BE
+    // does not switch the whole map iterator to NULL_MAP_ONLY and skip the keys child.
     explain {
         sql "select map_keys(map_col) from ncp_tbl where map_keys(map_col) is null"
         contains "nested columns"
         contains "all access paths: [map_col.KEYS]"
-        contains "predicate access paths: [map_col.NULL]"
+        notContains "predicate access paths:"
     }
 
     order_qt_25 "select map_keys(map_col) from ncp_tbl where map_keys(map_col) is null";
@@ -373,7 +373,7 @@ suite("null_column_pruning") {
         sql "select map_values(map_col) from ncp_tbl where map_values(map_col) is null"
         contains "nested columns"
         contains "all access paths: [map_col.VALUES]"
-        contains "predicate access paths: [map_col.NULL]"
+        notContains "predicate access paths:"
     }
 
     order_qt_26 "select map_values(map_col) from ncp_tbl where map_values(map_col) is null";

@@ -378,6 +378,7 @@ public class NestedColumnPruning implements CustomRewriter {
             stripCoveredOffsetSuffixPaths(slot, predicateAccessPaths, allAccessPaths);
             stripCoveredArrayNullSuffixPaths(slot, predicateAccessPaths, allAccessPaths);
             stripNullSuffixPaths(slot, predicateAccessPaths);
+            retainPredicatePathsInAllAccessPaths(slot, predicateAccessPaths, allAccessPaths);
             List<ColumnAccessPath> predicatePaths =
                     buildColumnAccessPaths(slot, predicateAccessPaths);
             AccessPathInfo accessPathInfo = result.get(slot.getExprId().asInt());
@@ -698,13 +699,15 @@ public class NestedColumnPruning implements CustomRewriter {
      *
      * A parent NULL path must also be removed when any child path is required under the
      * same prefix, e.g. [struct_col, NULL] with [struct_col, city]. This looks like the
-     * parent null map is still useful for predicates, but it cannot be kept in
+     * parent null map may still be useful for predicates, but it cannot be kept in
      * allAccessPaths with the current BE iterator contract: Struct/Array/Map iterators
      * treat a leading NULL sub-path as NULL_MAP_ONLY and skip all children. If FE kept
      * [struct_col.NULL, struct_col.city] in allAccessPaths, BE would read only the
      * struct null map and default-fill city instead of routing the city child iterator.
-     * predicateAccessPaths still retains the NULL path, while the normal nullable
-     * container read materializes the parent null map together with required children.
+     * When the NULL path is removed from allAccessPaths, it must also be removed from
+     * predicateAccessPaths so the BE can rely on predicate paths being a subset of all
+     * paths. The normal nullable container read materializes the parent null map
+     * together with required children.
      */
     private static void stripNullSuffixPaths(
             Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> allAccessPaths) {
@@ -753,6 +756,26 @@ public class NestedColumnPruning implements CustomRewriter {
         for (Pair<ColumnAccessPathType, List<String>> r : toRemove) {
             allAccessPaths.remove(slotId, r);
         }
+    }
+
+    private static void retainPredicatePathsInAllAccessPaths(
+            Slot slot,
+            Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> predicateAccessPaths,
+            Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> allAccessPaths) {
+        int slotId = slot.getExprId().asInt();
+        Collection<Pair<ColumnAccessPathType, List<String>>> predicatePaths = predicateAccessPaths.get(slotId);
+        if (predicatePaths.isEmpty()) {
+            return;
+        }
+
+        Collection<Pair<ColumnAccessPathType, List<String>>> allPaths = allAccessPaths.get(slotId);
+        List<Pair<ColumnAccessPathType, List<String>>> toRemove = new ArrayList<>();
+        for (Pair<ColumnAccessPathType, List<String>> predicatePath : predicatePaths) {
+            if (!allPaths.contains(predicatePath)) {
+                toRemove.add(predicatePath);
+            }
+        }
+        predicatePaths.removeAll(toRemove);
     }
 
     private static boolean hasStrictPrefix(List<String> path, List<String> prefix) {
