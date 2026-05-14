@@ -47,7 +47,6 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
 import java.util.Collections;
-import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -111,7 +110,8 @@ public class ExplainRefreshIvmCommand extends Command implements NoForward {
         }
     }
 
-    private void explainDeltaPlan(ConnectContext ctx, StmtExecutor executor, MTMV mtmv, Plan deltaPlan) throws Exception {
+    private void explainDeltaPlan(ConnectContext ctx, StmtExecutor executor,
+            MTMV mtmv, Plan deltaPlan) throws Exception {
         if (!(deltaPlan instanceof LogicalPlan)) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                     "IVM delta plan is not a logical plan: " + deltaPlan.getClass().getSimpleName());
