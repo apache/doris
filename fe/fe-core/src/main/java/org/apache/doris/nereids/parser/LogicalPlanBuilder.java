@@ -221,6 +221,7 @@ import org.apache.doris.nereids.DorisParser.ExceptContext;
 import org.apache.doris.nereids.DorisParser.ExceptOrReplaceContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
+import org.apache.doris.nereids.DorisParser.ExplainRefreshIvmContext;
 import org.apache.doris.nereids.DorisParser.ExportContext;
 import org.apache.doris.nereids.DorisParser.ExpressionWithEofContext;
 import org.apache.doris.nereids.DorisParser.ExpressionWithOrderContext;
@@ -764,6 +765,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExecuteActionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ExplainDictionaryCommand;
+import org.apache.doris.nereids.trees.plans.commands.ExplainRefreshIvmCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantResourcePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
@@ -1827,7 +1829,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public RefreshMTMVCommand visitRefreshMTMV(RefreshMTMVContext ctx) {
+    public LogicalPlan visitRefreshMTMV(RefreshMTMVContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
         List<String> partitions = ImmutableList.of();
         if (ctx.partitionSpec() != null) {
@@ -1852,8 +1854,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else {
             refreshMode = RefreshMode.AUTO;
         }
-        return new RefreshMTMVCommand(new RefreshMTMVInfo(new TableNameInfo(nameParts),
-                partitions, refreshMode));
+        RefreshMTMVInfo refreshMTMVInfo = new RefreshMTMVInfo(new TableNameInfo(nameParts), partitions, refreshMode);
+        return new RefreshMTMVCommand(refreshMTMVInfo);
+    }
+
+    @Override
+    public LogicalPlan visitExplainRefreshIvm(ExplainRefreshIvmContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
+        RefreshMTMVInfo refreshMTMVInfo = new RefreshMTMVInfo(
+                new TableNameInfo(nameParts), ImmutableList.of(), RefreshMode.INCREMENTAL);
+        Integer deltaId = ctx.explainDeltaClause() == null
+                ? null
+                : Integer.parseInt(ctx.explainDeltaClause().deltaId.getText());
+        return ParserUtils.withOrigin(ctx.explain(), () -> {
+            Pair<ExplainLevel, Boolean> explainInfo = parseExplain(ctx.explain());
+            return new ExplainRefreshIvmCommand(
+                    refreshMTMVInfo, explainInfo.first, explainInfo.second, deltaId);
+        });
     }
 
     private DropMTMVCommand visitDropMTMV(DropMVContext ctx) {
@@ -4459,28 +4476,33 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return inputPlan;
         }
         return ParserUtils.withOrigin(ctx, () -> {
-            ExplainLevel explainLevel = ExplainLevel.NORMAL;
-
-            if (ctx.planType() != null) {
-                if (ctx.level == null || !ctx.level.getText().equalsIgnoreCase("plan")) {
-                    throw new ParseException("Only explain plan can use plan type: " + ctx.planType().getText(), ctx);
-                }
-            }
-
-            boolean showPlanProcess = false;
-            if (ctx.level != null) {
-                if (!ctx.level.getText().equalsIgnoreCase("plan")) {
-                    explainLevel = ExplainLevel.valueOf(ctx.level.getText().toUpperCase(Locale.ROOT));
-                } else {
-                    explainLevel = parseExplainPlanType(ctx.planType());
-
-                    if (ctx.PROCESS() != null) {
-                        showPlanProcess = true;
-                    }
-                }
-            }
-            return new ExplainCommand(explainLevel, inputPlan, showPlanProcess);
+            Pair<ExplainLevel, Boolean> explainInfo = parseExplain(ctx);
+            return new ExplainCommand(explainInfo.first, inputPlan, explainInfo.second);
         });
+    }
+
+    private Pair<ExplainLevel, Boolean> parseExplain(ExplainContext ctx) {
+        ExplainLevel explainLevel = ExplainLevel.NORMAL;
+
+        if (ctx.planType() != null) {
+            if (ctx.level == null || !ctx.level.getText().equalsIgnoreCase("plan")) {
+                throw new ParseException("Only explain plan can use plan type: " + ctx.planType().getText(), ctx);
+            }
+        }
+
+        boolean showPlanProcess = false;
+        if (ctx.level != null) {
+            if (!ctx.level.getText().equalsIgnoreCase("plan")) {
+                explainLevel = ExplainLevel.valueOf(ctx.level.getText().toUpperCase(Locale.ROOT));
+            } else {
+                explainLevel = parseExplainPlanType(ctx.planType());
+
+                if (ctx.PROCESS() != null) {
+                    showPlanProcess = true;
+                }
+            }
+        }
+        return Pair.of(explainLevel, showPlanProcess);
     }
 
     private LogicalPlan withOutFile(LogicalPlan plan, OutFileClauseContext ctx) {

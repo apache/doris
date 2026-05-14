@@ -87,6 +87,19 @@ def convertPlanRow = { row, showFieldMap ->
     return [s]
 }
 
+def convertIvmExplainRow = { row ->
+    def planIndex = row.size() - 1
+    def plan = row[planIndex].toString()
+            .replaceAll(/#\d+/, "#")
+            .replaceAll(/\b([A-Za-z][A-Za-z0-9_]*)\[\d+\]/, '$1[]')
+            .replaceAll(/selectedIndexId=[^,\s\)]+/, "selectedIndexId=<id>")
+    def converted = []
+    for (int i = 0; i < row.size(); i++) {
+        converted.add(i == planIndex ? plan : row[i].toString())
+    }
+    return converted
+}
+
 Suite.metaClass.explainAndResult = { String tag, String sql ->
     "qt_${tag}_shape"          "explain shape plan ${sql}"
     "qt_${tag}_result"         "${sql}"
@@ -110,5 +123,14 @@ Suite.metaClass.explainAnalyzedPlan = { String tag, String sql,  overwriteShowFi
             "explain analyzed plan ${sql}".toString(),
             false,
             {row -> convertPlanRow(row, showFields) }
+            )
+}
+
+Suite.metaClass.explainIvmPlan = { String tag, String sql ->
+    delegate.quickRunTest(
+            tag,
+            sql,
+            false,
+            convertIvmExplainRow
             )
 }

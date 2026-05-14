@@ -34,6 +34,12 @@ The binlog/stream-based incremental data capture is **not yet implemented**. Dur
 - Real incremental behavior (capturing only inserted/deleted rows since last refresh) will require binlog/stream integration in the future
 - All current regression and unit tests operate under this mock-full-scan assumption
 
+## Explain IVM Refresh Plans
+
+Use `EXPLAIN REFRESH MATERIALIZED VIEW mv_name INCREMENTAL` to inspect IVM refresh dry-run plans without changing MV/IVM persisted state. The overview form prints the normalized MV plan and every delta rewriter plan, including no-op delta plans for streams whose consumed TSO is already up to date.
+
+Use `EXPLAIN LOGICAL PLAN REFRESH MATERIALIZED VIEW mv_name INCREMENTAL FOR DELTA k` to inspect one specific delta rewriter plan. The typed `EXPLAIN ... PLAN` forms require `FOR DELTA k`; the untyped overview command is the form that prints all IVM plans together.
+
 ## DML Factor from binlog_op
 
 The `dml_factor` column (+1 for inserts, −1 for deletes) drives all delta computations. It is derived in `IvmLinearDeltaStrategy.visitLogicalOlapScan()`:
