@@ -24,7 +24,9 @@ import static java.util.concurrent.TimeUnit.SECONDS
 // Restarts FE while the uneven splitter is mid-snapshot. Combines the slow uneven
 // path (VARCHAR PK -> splitOneUnevenlySizedChunk) with editlog replay to verify
 // cdcSplitProgress resumes from the system table — no rows lost, no duplicates
-// from re-cut chunks.
+// from re-cut chunks. batch_size is shrunk so the splitter must make multiple
+// RPCs, otherwise the default would let cdc_client finish all chunks in one shot
+// and the restart would only test task-dispatch resume, not split resume.
 suite("test_streaming_postgres_job_async_split_uneven_restart_fe",
         "docker,pg,external_docker,external_docker_pg,nondatalake") {
     def jobName = "test_streaming_postgres_job_async_split_uneven_restart_fe"
@@ -40,6 +42,7 @@ suite("test_streaming_postgres_job_async_split_uneven_restart_fe",
         def pgUser = "postgres"
         def pgPassword = "123456"
         def totalRows = 500
+        int expectedChunks = (int) Math.ceil(totalRows / 5.0)   // 100
 
         sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
         sql """drop table if exists ${currentDb}.${table1} force"""
@@ -52,6 +55,15 @@ suite("test_streaming_postgres_job_async_split_uneven_restart_fe",
             String bucket = getS3BucketName()
             String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/postgresql-42.5.0.jar"
 
+            // Shrink batch_size so 100 chunks need ~20 RPCs — required to keep the
+            // splitter mid-flight when restart fires. With default 100, cdc_client
+            // returns all chunks in one RPC and the restart only validates task
+            // dispatch resume, not cdcSplitProgress replay.
+            def origBatchSize = sql("""ADMIN SHOW FRONTEND CONFIG LIKE 'streaming_cdc_fetch_splits_batch_size'""")
+                    .get(0).get(1)
+            sql """ADMIN SET FRONTEND CONFIG ('streaming_cdc_fetch_splits_batch_size' = '5')"""
+
+            try {
             // VARCHAR PK forces the uneven splitter; split_size=5 + parallelism=1 keeps
             // consumption slow enough that we can restart while still mid-snapshot.
             connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
@@ -90,15 +102,27 @@ suite("test_streaming_postgres_job_async_split_uneven_restart_fe",
                     )
                 """
 
-            // Wait until at least 3 tasks succeeded before restarting, so cdcSplitProgress
-            // is mid-table and editlog has flushed some committedSplitProgress.
+            def jobIdRow = sql """select Id from jobs("type"="insert") where Name='${jobName}'"""
+            assert jobIdRow.size() == 1
+            def jobId = jobIdRow.get(0).get(0).toString()
+
+            // Wait until at least 3 tasks succeeded AND splitter is still mid-flight
+            // (chunk_list < expectedChunks). Both conditions: task dispatch has made
+            // observable progress AND cdcSplitProgress has work left to replay.
             try {
                 Awaitility.await().atMost(180, SECONDS)
                         .pollInterval(1, SECONDS).until(
                         {
                             def succeed = sql """select SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}'"""
-                            log.info("SucceedTaskCount before restart: ${succeed}")
-                            succeed.size() == 1 && Integer.parseInt(succeed.get(0).get(0).toString()) >= 3
+                            def chunkRow = sql """SELECT json_length(chunk_list)
+                                                  FROM internal.__internal_schema.streaming_job_meta
+                                                  WHERE job_id='${jobId}'"""
+                            def chunkLen = (chunkRow.size() > 0 && chunkRow.get(0).get(0) != null)
+                                    ? (chunkRow.get(0).get(0) as int) : -1
+                            log.info("pre-restart succeed=${succeed} chunkLen=${chunkLen}")
+                            succeed.size() == 1
+                                    && Integer.parseInt(succeed.get(0).get(0).toString()) >= 3
+                                    && chunkLen > 0 && chunkLen < expectedChunks
                         }
                 )
             } catch (Exception ex) {
@@ -108,9 +132,14 @@ suite("test_streaming_postgres_job_async_split_uneven_restart_fe",
             }
 
             def rowsBefore = sql """SELECT COUNT(*) FROM ${currentDb}.${table1}"""
-            log.info("before restart: rows=${rowsBefore}")
+            def chunkLenBefore = sql """SELECT json_length(chunk_list)
+                                        FROM internal.__internal_schema.streaming_job_meta
+                                        WHERE job_id='${jobId}'""".get(0).get(0) as int
+            log.info("before restart: rows=${rowsBefore} chunkLen=${chunkLenBefore}")
             assert rowsBefore.get(0).get(0) < totalRows :
                     "uneven snapshot finished too fast (${rowsBefore.get(0).get(0)} rows) — restart wouldn't be mid-snapshot"
+            assert chunkLenBefore < expectedChunks :
+                    "splitter already finished (chunk_list=${chunkLenBefore}/${expectedChunks}) — restart can't exercise cdcSplitProgress replay"
 
             cluster.restartFrontends()
             sleep(30000)
@@ -165,6 +194,9 @@ suite("test_streaming_postgres_job_async_split_uneven_restart_fe",
             }
 
             sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
+            } finally {
+                sql """ADMIN SET FRONTEND CONFIG ('streaming_cdc_fetch_splits_batch_size' = '${origBatchSize}')"""
+            }
         }
     }
 }
