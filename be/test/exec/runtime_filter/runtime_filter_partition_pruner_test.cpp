@@ -21,6 +21,7 @@
 
 #include <memory>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -132,7 +133,7 @@ protected:
         phmap::flat_hash_map<int, SlotDescriptor*> slots;
         slots[SLOT_ID] = &slot;
         auto parsed = std::make_unique<ParsedPartitionBoundaries>();
-        parsed->parse(boundaries, slots);
+        EXPECT_TRUE(parsed->parse(boundaries, slots).ok());
         return parsed;
     }
 
@@ -199,11 +200,19 @@ protected:
         return expr;
     }
 
-    TRuntimeFilterDesc rf_desc_with_monotonicity(int filter_id, int scan_node_id) {
+    TRuntimeFilterDesc rf_desc_with_monotonicity(int filter_id, int scan_node_id,
+                                                 const std::vector<int64_t>& partition_ids) {
         TRuntimeFilterDesc desc;
         desc.__set_filter_id(filter_id);
-        desc.__set_planId_to_target_monotonicity(
-                {{scan_node_id, TTargetExprMonotonicity::MONOTONIC_INCREASING}});
+        std::vector<TPartitionTargetExprMonotonicity> entries;
+        entries.reserve(partition_ids.size());
+        for (int64_t partition_id : partition_ids) {
+            TPartitionTargetExprMonotonicity entry;
+            entry.__set_partition_id(partition_id);
+            entry.__set_monotonicity(TTargetExprMonotonicity::MONOTONIC_INCREASING);
+            entries.emplace_back(std::move(entry));
+        }
+        desc.__set_planId_to_partition_target_monotonicity({{scan_node_id, std::move(entries)}});
         return desc;
     }
 
@@ -271,11 +280,14 @@ TEST_F(RuntimeFilterPartitionPrunerTest, ProjectedBoundariesPreserveOpenRangeBou
     auto target_expr = identity_wrapper_expr(slot.type());
     VExprContext ctx(target_expr);
 
+    std::unordered_map<int64_t, TTargetExprMonotonicity::type> increasing_directions {
+            {1, TTargetExprMonotonicity::MONOTONIC_INCREASING},
+            {2, TTargetExprMonotonicity::MONOTONIC_INCREASING},
+            {3, TTargetExprMonotonicity::MONOTONIC_INCREASING}};
     std::shared_ptr<const std::vector<ParsedBoundary>> increasing;
     ASSERT_TRUE(parsed->get_or_compute_projected_boundaries(
                               /*filter_id=*/101, target_expr, SLOT_ID, /*leaf_column_id=*/0,
-                              TTargetExprMonotonicity::MONOTONIC_INCREASING, nullptr, &ctx,
-                              &increasing)
+                              increasing_directions, &ctx, &increasing)
                         .ok());
     ASSERT_EQ(increasing->size(), 3);
     const auto& inc_lower_unbounded =
@@ -289,11 +301,14 @@ TEST_F(RuntimeFilterPartitionPrunerTest, ProjectedBoundariesPreserveOpenRangeBou
     EXPECT_EQ(inc_upper_unbounded.get_range_min_value(), ten);
     EXPECT_TRUE(inc_upper_unbounded.is_high_value_maximum());
 
+    std::unordered_map<int64_t, TTargetExprMonotonicity::type> decreasing_directions {
+            {1, TTargetExprMonotonicity::MONOTONIC_DECREASING},
+            {2, TTargetExprMonotonicity::MONOTONIC_DECREASING},
+            {3, TTargetExprMonotonicity::MONOTONIC_DECREASING}};
     std::shared_ptr<const std::vector<ParsedBoundary>> decreasing;
     ASSERT_TRUE(parsed->get_or_compute_projected_boundaries(
                               /*filter_id=*/102, target_expr, SLOT_ID, /*leaf_column_id=*/0,
-                              TTargetExprMonotonicity::MONOTONIC_DECREASING, nullptr, &ctx,
-                              &decreasing)
+                              decreasing_directions, &ctx, &decreasing)
                         .ok());
     ASSERT_EQ(decreasing->size(), 3);
     const auto& dec_lower_unbounded =
@@ -306,6 +321,17 @@ TEST_F(RuntimeFilterPartitionPrunerTest, ProjectedBoundariesPreserveOpenRangeBou
     EXPECT_TRUE(dec_upper_unbounded.is_low_value_minimum());
     EXPECT_FALSE(dec_upper_unbounded.is_high_value_maximum());
     EXPECT_EQ(dec_upper_unbounded.get_range_max_value(), ten);
+}
+
+TEST_F(RuntimeFilterPartitionPrunerTest, InvalidPartitionBoundaryRejected) {
+    TPartitionBoundary boundary;
+    boundary.__set_partition_id(1);
+    boundary.__set_slot_id(SLOT_ID);
+    auto slot = slot_desc(TYPE_INT, false);
+    phmap::flat_hash_map<int, SlotDescriptor*> slots;
+    slots[SLOT_ID] = &slot;
+    ParsedPartitionBoundaries parsed;
+    EXPECT_FALSE(parsed.parse({boundary}, slots).ok());
 }
 
 TEST_F(RuntimeFilterPartitionPrunerTest, ParseAndPrunePrimitiveTypeMatrix) {
@@ -386,7 +412,8 @@ TEST_F(RuntimeFilterPartitionPrunerTest, PublicPruneByRuntimeFiltersIdentitySlot
 
     RuntimeFilterPartitionPruner pruner;
     std::vector<TRuntimeFilterDesc> rf_descs {rf_desc_with_monotonicity(/*filter_id=*/7,
-                                                                        /*scan_node_id=*/0)};
+                                                                        /*scan_node_id=*/0,
+                                                                        {1, 2})};
     int64_t newly_pruned = 0;
     EXPECT_TRUE(pruner.prune_by_runtime_filters(*parsed, conjuncts, rf_descs, /*scan_node_id=*/0,
                                                 &newly_pruned)

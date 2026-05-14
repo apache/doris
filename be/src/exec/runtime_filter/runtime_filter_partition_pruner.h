@@ -70,8 +70,8 @@ public:
     // Build the parse result from the thrift `boundaries` list. Caller must
     // ensure this is invoked at most once per instance (OperatorX::prepare()
     // is the natural call site).
-    void parse(const std::vector<TPartitionBoundary>& boundaries,
-               const phmap::flat_hash_map<int, SlotDescriptor*>& slot_descs);
+    Status parse(const std::vector<TPartitionBoundary>& boundaries,
+                 const phmap::flat_hash_map<int, SlotDescriptor*>& slot_descs);
 
     bool empty() const { return _slot_to_boundaries.empty(); }
     int64_t total_partitions() const { return _total_partition_count; }
@@ -85,9 +85,8 @@ public:
     // the conjunct). `leaf_slot_id` is the unique VSlotRef leaf inside it
     // (FE asserted target_expr has exactly one input slot). `leaf_column_id`
     // is that slot ref's `column_id()` -- the position in the runtime block.
-    // `global_direction` is the FE-side scan-level monotonicity. When
-    // `partition_directions` is non-null, only partitions present in that map
-    // are projected and each partition uses its own FE-proven local direction.
+    // Only partitions present in `partition_directions` are projected and each
+    // partition uses its own FE-proven local direction.
     // `ctx` is the conjunct's VExprContext (used to execute the sub-expression).
     //
     // Direct SlotRef targets reuse the parsed partition boundaries. Expression
@@ -109,8 +108,7 @@ public:
     // from the result so this RF conservatively leaves them unpruned.
     Status get_or_compute_projected_boundaries(
             int filter_id, const VExprSPtr& target_expr, SlotId leaf_slot_id, int leaf_column_id,
-            TTargetExprMonotonicity::type global_direction,
-            const std::unordered_map<int64_t, TTargetExprMonotonicity::type>* partition_directions,
+            const std::unordered_map<int64_t, TTargetExprMonotonicity::type>& partition_directions,
             VExprContext* ctx, std::shared_ptr<const std::vector<ParsedBoundary>>* output) const;
 
 private:

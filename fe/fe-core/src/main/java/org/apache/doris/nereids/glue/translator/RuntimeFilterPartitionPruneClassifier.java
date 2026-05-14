@@ -79,7 +79,7 @@ final class RuntimeFilterPartitionPruneClassifier {
             if (!isPartitionColumnSlot(slotRef, partitionInfo.getPartitionColumns())) {
                 return Classification.unsupported("target SlotRef is not a partition column");
             }
-            return Classification.supportedIdentity(slotRef);
+            return Classification.supportedPartitions(slotRef, allSelectedPartitionsIncreasing(olapScanNode));
         }
 
         SlotRef leafSlot = findUniqueSlotRef(targetExpr);
@@ -211,6 +211,14 @@ final class RuntimeFilterPartitionPruneClassifier {
         return result;
     }
 
+    private static Map<Long, TTargetExprMonotonicity> allSelectedPartitionsIncreasing(OlapScanNode scanNode) {
+        Map<Long, TTargetExprMonotonicity> result = new HashMap<>();
+        for (Long partitionId : scanNode.getSelectedPartitionIds()) {
+            result.put(partitionId, TTargetExprMonotonicity.MONOTONIC_INCREASING);
+        }
+        return result;
+    }
+
     private static Literal toNereidsLiteral(LiteralExpr literalExpr, Column column) {
         try {
             return Literal.fromLegacyLiteral(literalExpr, column.getType());
@@ -221,53 +229,33 @@ final class RuntimeFilterPartitionPruneClassifier {
 
     static final class Classification {
         private final boolean canPrunePartitions;
-        private final boolean emitTargetMonotonicity;
         private final SlotRef partitionSlot;
-        private final TTargetExprMonotonicity monotonicity;
         private final Map<Long, TTargetExprMonotonicity> partitionMonotonicity;
         private final String unsupportedReason;
 
-        private Classification(boolean canPrunePartitions, boolean emitTargetMonotonicity,
-                SlotRef partitionSlot, TTargetExprMonotonicity monotonicity,
+        private Classification(boolean canPrunePartitions, SlotRef partitionSlot,
                 Map<Long, TTargetExprMonotonicity> partitionMonotonicity, String unsupportedReason) {
             this.canPrunePartitions = canPrunePartitions;
-            this.emitTargetMonotonicity = emitTargetMonotonicity;
             this.partitionSlot = partitionSlot;
-            this.monotonicity = monotonicity;
             this.partitionMonotonicity = partitionMonotonicity;
             this.unsupportedReason = unsupportedReason;
         }
 
-        static Classification supportedIdentity(SlotRef partitionSlot) {
-            return new Classification(true, true, partitionSlot,
-                    TTargetExprMonotonicity.MONOTONIC_INCREASING, new HashMap<>(), "");
-        }
-
         static Classification supportedPartitions(SlotRef partitionSlot,
                 Map<Long, TTargetExprMonotonicity> partitionMonotonicity) {
-            return new Classification(true, false, partitionSlot, TTargetExprMonotonicity.NON_MONOTONIC,
-                    partitionMonotonicity, "");
+            return new Classification(true, partitionSlot, partitionMonotonicity, "");
         }
 
         static Classification unsupported(String reason) {
-            return new Classification(false, false, null, TTargetExprMonotonicity.NON_MONOTONIC,
-                    new HashMap<>(), reason);
+            return new Classification(false, null, new HashMap<>(), reason);
         }
 
         boolean canPrunePartitions() {
             return canPrunePartitions;
         }
 
-        boolean emitTargetMonotonicity() {
-            return emitTargetMonotonicity;
-        }
-
         SlotRef getPartitionSlot() {
             return partitionSlot;
-        }
-
-        TTargetExprMonotonicity getMonotonicity() {
-            return monotonicity;
         }
 
         Map<Long, TTargetExprMonotonicity> getPartitionMonotonicity() {

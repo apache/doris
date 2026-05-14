@@ -145,8 +145,6 @@ public final class RuntimeFilter {
     // keyed by the target scan node's plan id. Filled by the Nereids
     // RuntimeFilterPartitionPruneClassifier at translation time from the final
     // legacy target expression that will be sent to BE.
-    private final Map<PlanNodeId, TTargetExprMonotonicity> targetMonotonicityByScanId
-            = new HashMap<>();
     private final Map<PlanNodeId, Map<Long, TTargetExprMonotonicity>> targetPartitionMonotonicityByScanId
             = new HashMap<>();
     private final Set<PlanNodeId> partitionPruningTargetScanIds = new HashSet<>();
@@ -332,7 +330,7 @@ public final class RuntimeFilter {
             tFilter.setWaitTimeMs(waitTimeMs);
         }
 
-        // Per-target monotonicity for BE-side partition pruning. Populated
+        // Per-target, per-partition monotonicity for BE-side partition pruning. Populated
         // upstream by RuntimeFilterPartitionPruneClassifier; direct partition
         // column targets are monotonic increasing so BE can use one unified
         // partition-pruning path.
@@ -341,18 +339,6 @@ public final class RuntimeFilter {
         boolean enableRfPartitionPrune = rfPruneCtx != null
                 && rfPruneCtx.getSessionVariable().isEnableRuntimeFilterPartitionPrune();
         if (enableRfPartitionPrune) {
-            if (!targetMonotonicityByScanId.isEmpty()) {
-                Map<Integer, TTargetExprMonotonicity> monoMap = new HashMap<>();
-                for (Map.Entry<PlanNodeId, TTargetExprMonotonicity> e
-                        : targetMonotonicityByScanId.entrySet()) {
-                    if (e.getValue() != TTargetExprMonotonicity.NON_MONOTONIC) {
-                        monoMap.put(e.getKey().asInt(), e.getValue());
-                    }
-                }
-                if (!monoMap.isEmpty()) {
-                    tFilter.setPlanIdToTargetMonotonicity(monoMap);
-                }
-            }
             if (!targetPartitionMonotonicityByScanId.isEmpty()) {
                 Map<Integer, List<TPartitionTargetExprMonotonicity>> partitionMonoMap = new HashMap<>();
                 for (Map.Entry<PlanNodeId, Map<Long, TTargetExprMonotonicity>> e
@@ -379,14 +365,6 @@ public final class RuntimeFilter {
         }
 
         return tFilter;
-    }
-
-    /**
-     * Record monotonicity for a target. Called by RuntimeFilterTranslator after
-     * the corresponding RuntimeFilterTarget has been added.
-     */
-    public void setTargetMonotonicity(PlanNodeId scanNodeId, TTargetExprMonotonicity m) {
-        targetMonotonicityByScanId.put(scanNodeId, m);
     }
 
     /**

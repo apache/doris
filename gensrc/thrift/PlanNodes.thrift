@@ -1483,10 +1483,9 @@ enum TMinMaxRuntimeFilterType {
   MIN_MAX = 4
 }
 
-// Monotonicity of a runtime filter's target expression, used by BE-side
-// partition pruning. FE may provide either one scan-level monotonicity or a
-// per-partition monotonicity list when the target expression is monotonic only
-// on some selected partition ranges.
+// Monotonicity of a runtime filter's target expression on one partition range,
+// used by BE-side partition pruning. FE sends this per partition so BE can
+// project each boundary with the direction proven for that exact range.
 enum TTargetExprMonotonicity {
   NON_MONOTONIC = 0,
   MONOTONIC_INCREASING = 1,
@@ -1569,17 +1568,14 @@ struct TRuntimeFilterDesc {
   // 0 means non-blocking (don't wait for this filter).
   18: optional i32 wait_time_ms;
 
-  // Per-target monotonicity for BE-side partition pruning, keyed by target
-  // plan-node ID. Only targets accepted by FE's partition-pruning classifier
-  // should be emitted. Absent entry / NON_MONOTONIC -> BE skips non-identity
-  // boundary projection for that target. Plain SlotRef targets do not need this
-  // metadata because BE can use partition boundaries directly.
+  // Deprecated compatibility field. Current RF partition pruning uses
+  // planId_to_partition_target_monotonicity for both direct SlotRef targets and
+  // expression targets, so BE can make one per-partition decision path.
   19: optional map<Types.TPlanNodeId, TTargetExprMonotonicity> planId_to_target_monotonicity;
 
-  // Per-target, per-partition monotonicity for expressions that are monotonic
-  // only on selected partition ranges. BE must apply the target RF only to the
-  // listed partitions with the listed direction; absent partitions are unsafe
-  // for this RF target and must not be pruned by it.
+  // Per-target, per-partition monotonicity. BE must apply the target RF only to
+  // the listed partitions with the listed direction; absent partitions are
+  // unsafe for this RF target and must not be pruned by it.
   20: optional map<Types.TPlanNodeId, list<TPartitionTargetExprMonotonicity>> planId_to_partition_target_monotonicity;
 }
 

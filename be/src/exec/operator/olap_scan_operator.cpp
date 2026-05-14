@@ -1266,8 +1266,8 @@ Status OlapScanOperatorX::prepare(RuntimeState* state) {
     if (state->query_options().enable_runtime_filter_partition_prune &&
         _olap_scan_node.__isset.partition_boundaries &&
         !_olap_scan_node.partition_boundaries.empty()) {
-        _parsed_partition_boundaries.parse(_olap_scan_node.partition_boundaries,
-                                           _slot_id_to_slot_desc);
+        RETURN_IF_ERROR(_parsed_partition_boundaries.parse(_olap_scan_node.partition_boundaries,
+                                                           _slot_id_to_slot_desc));
     }
     return Status::OK();
 }
