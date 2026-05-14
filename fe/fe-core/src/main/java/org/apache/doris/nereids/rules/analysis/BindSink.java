@@ -200,6 +200,14 @@ public class BindSink implements AnalysisRuleFactory {
                 && child.getOutput().size() < bindColumns.size()) {
             bindColumns = ImmutableList.copyOf(bindColumns.subList(0, child.getOutput().size()));
         }
+        if (sink.getColNames().isEmpty() && sink.getDMLCommandType() == DMLCommandType.INSERT) {
+            for (Column column : bindColumns) {
+                if (column.getGeneratedColumnInfo() != null) {
+                    throw new AnalysisException("The value specified for generated column '"
+                            + column.getName() + "' in table '" + table.getName() + "' is not allowed.");
+                }
+            }
+        }
 
         LogicalOlapTableSink<?> boundSink = new LogicalOlapTableSink<>(
                 database,
