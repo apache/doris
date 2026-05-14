@@ -361,6 +361,10 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
             }
         } else {
             if (request.block && !request.block->column_metas().empty()) {
+                // Use set_allocated_block as a scoped borrow to avoid copying the serialized
+                // payload. The TransmitInfo unique_ptr remains the real owner, and release_block()
+                // below detaches the borrowed block before this reusable protobuf request is
+                // cleared or destroyed.
                 brpc_request->set_allocated_block(request.block.get());
             }
         }
@@ -486,12 +490,17 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
             for (const auto& req : requests) {
                 if (auto block = req.block_holder->get_block();
                     block && !block->column_metas().empty()) {
+                    // Broadcast blocks are shared by multiple channels. Borrow the large
+                    // column_values string for this RPC request and release it below before
+                    // clear_blocks(), so BroadcastPBlockHolder remains the real owner.
                     add_borrowed_broadcast_block(*brpc_request, *block);
                 }
             }
         } else if (!_send_multi_blocks) {
             if (request.block_holder->get_block() &&
                 !request.block_holder->get_block()->column_metas().empty()) {
+                // Same scoped-borrow pattern as above: the broadcast holder owns this PBlock.
+                // release_block() below detaches it before protobuf cleanup can delete it.
                 brpc_request->set_allocated_block(request.block_holder->get_block());
             }
         }
@@ -568,7 +577,7 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
                                                                                   send_callback);
                 RETURN_IF_ERROR(transmit_block_httpv2(_context->exec_env(),
                                                       std::move(send_remote_block_closure),
-                                                      channel->_brpc_dest_addr));
+                                                      channel->_brpc_dest_addr, true));
             } else if (use_shared_protobuf) {
                 // The HTTP decision above needs the complete singular request. Detach its
                 // borrowed block before encoding only the per-RPC routing fields.
