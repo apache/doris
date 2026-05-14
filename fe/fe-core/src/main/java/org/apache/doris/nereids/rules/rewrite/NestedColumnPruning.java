@@ -352,31 +352,7 @@ public class NestedColumnPruning implements CustomRewriter {
             // container. The overlapping array/map container may live under the root slot itself
             // or under a nested struct field, so compare against the actual nested prefix instead
             // of gating this logic on the root slot type.
-            int slotId = slot.getExprId().asInt();
-            Collection<Pair<ColumnAccessPathType, List<String>>> paths = allAccessPaths.get(slotId);
-            List<List<String>> nonOffsetPaths = new ArrayList<>();
-            for (Pair<ColumnAccessPathType, List<String>> p : paths) {
-                List<String> path = p.second;
-                if (path.isEmpty()
-                        || !AccessPathInfo.ACCESS_STRING_OFFSET.equals(path.get(path.size() - 1))) {
-                    nonOffsetPaths.add(path);
-                }
-            }
-            List<Pair<ColumnAccessPathType, List<String>>> pathsToRemove = new ArrayList<>();
-            List<Pair<ColumnAccessPathType, List<String>>> pathsToAdd = new ArrayList<>();
-            for (Pair<ColumnAccessPathType, List<String>> p : new ArrayList<>(paths)) {
-                OffsetPathRewrite rewrite = analyzeOffsetPathRewrite(
-                        slot.getDataType(), p.second, nonOffsetPaths);
-                if (!rewrite.shouldRemoveOffsetPath()) {
-                    continue;
-                }
-                pathsToRemove.add(p);
-                for (List<String> supplementalPath : rewrite.getSupplementalPaths()) {
-                    pathsToAdd.add(Pair.of(p.first, supplementalPath));
-                }
-            }
-            paths.removeAll(pathsToRemove);
-            paths.addAll(pathsToAdd);
+            stripCoveredOffsetSuffixPaths(slot, allAccessPaths, allAccessPaths);
 
             // Strip NULL-suffix paths when a non-NULL path also exists for the same slot.
             // E.g. `SELECT col FROM t WHERE col IS NULL` — full data is needed, NULL path is redundant.
@@ -399,6 +375,8 @@ public class NestedColumnPruning implements CustomRewriter {
         // third: build predicate access path
         for (Entry<Slot, DataTypeAccessTree> kv : slotIdToPredicateAccessTree.entrySet()) {
             Slot slot = kv.getKey();
+            stripCoveredOffsetSuffixPaths(slot, predicateAccessPaths, allAccessPaths);
+            stripCoveredArrayNullSuffixPaths(slot, predicateAccessPaths, allAccessPaths);
             stripNullSuffixPaths(slot, predicateAccessPaths);
             List<ColumnAccessPath> predicatePaths =
                     buildColumnAccessPaths(slot, predicateAccessPaths);
@@ -456,6 +434,11 @@ public class NestedColumnPruning implements CustomRewriter {
             return OffsetPathRewrite.keep();
         }
         List<String> prefix = path.subList(0, path.size() - 1);
+        return analyzePrefixCoverage(slotType, prefix, nonOffsetPaths);
+    }
+
+    private static OffsetPathRewrite analyzePrefixCoverage(
+            DataType slotType, List<String> prefix, List<List<String>> nonOffsetPaths) {
         List<List<String>> supplementalPaths = new ArrayList<>();
         for (List<String> nonOffset : nonOffsetPaths) {
             OffsetPathRewrite candidate = compareOffsetPrefixCoverage(slotType, prefix, nonOffset);
@@ -471,6 +454,123 @@ public class NestedColumnPruning implements CustomRewriter {
             return OffsetPathRewrite.keep();
         }
         return OffsetPathRewrite.rewriteWithSupplementalPaths(supplementalPaths);
+    }
+
+    private static void stripCoveredOffsetSuffixPaths(
+            Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths,
+            Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> coveringAccessPaths) {
+        int slotId = slot.getExprId().asInt();
+        Collection<Pair<ColumnAccessPathType, List<String>>> targetPaths = targetAccessPaths.get(slotId);
+        if (targetPaths.isEmpty()) {
+            return;
+        }
+
+        List<List<String>> nonOffsetPaths = new ArrayList<>();
+        for (Pair<ColumnAccessPathType, List<String>> p : coveringAccessPaths.get(slotId)) {
+            List<String> path = p.second;
+            if (path.isEmpty()
+                    || !AccessPathInfo.ACCESS_STRING_OFFSET.equals(path.get(path.size() - 1))) {
+                nonOffsetPaths.add(path);
+            }
+        }
+        for (Pair<ColumnAccessPathType, List<String>> p : targetPaths) {
+            List<String> path = p.second;
+            if (path.isEmpty()
+                    || !AccessPathInfo.ACCESS_STRING_OFFSET.equals(path.get(path.size() - 1))) {
+                nonOffsetPaths.add(path);
+            }
+        }
+
+        List<Pair<ColumnAccessPathType, List<String>>> pathsToRemove = new ArrayList<>();
+        List<Pair<ColumnAccessPathType, List<String>>> pathsToAdd = new ArrayList<>();
+        for (Pair<ColumnAccessPathType, List<String>> p : new ArrayList<>(targetPaths)) {
+            OffsetPathRewrite rewrite = analyzeOffsetPathRewrite(
+                    slot.getDataType(), p.second, nonOffsetPaths);
+            if (!rewrite.shouldRemoveOffsetPath()) {
+                continue;
+            }
+            pathsToRemove.add(p);
+            for (List<String> supplementalPath : rewrite.getSupplementalPaths()) {
+                pathsToAdd.add(Pair.of(p.first, supplementalPath));
+            }
+        }
+        targetPaths.removeAll(pathsToRemove);
+        targetPaths.addAll(pathsToAdd);
+    }
+
+    private static void stripCoveredArrayNullSuffixPaths(
+            Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths,
+            Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> coveringAccessPaths) {
+        int slotId = slot.getExprId().asInt();
+        Collection<Pair<ColumnAccessPathType, List<String>>> targetPaths = targetAccessPaths.get(slotId);
+        if (targetPaths.isEmpty()) {
+            return;
+        }
+
+        List<List<String>> nonNullPaths = new ArrayList<>();
+        for (Pair<ColumnAccessPathType, List<String>> p : coveringAccessPaths.get(slotId)) {
+            List<String> path = p.second;
+            if (path.isEmpty() || !AccessPathInfo.ACCESS_NULL.equals(path.get(path.size() - 1))) {
+                nonNullPaths.add(path);
+            }
+        }
+        for (Pair<ColumnAccessPathType, List<String>> p : targetPaths) {
+            List<String> path = p.second;
+            if (path.isEmpty() || !AccessPathInfo.ACCESS_NULL.equals(path.get(path.size() - 1))) {
+                nonNullPaths.add(path);
+            }
+        }
+
+        List<Pair<ColumnAccessPathType, List<String>>> pathsToRemove = new ArrayList<>();
+        List<Pair<ColumnAccessPathType, List<String>>> pathsToAdd = new ArrayList<>();
+        for (Pair<ColumnAccessPathType, List<String>> p : new ArrayList<>(targetPaths)) {
+            List<String> path = p.second;
+            if (path.isEmpty() || !AccessPathInfo.ACCESS_NULL.equals(path.get(path.size() - 1))) {
+                continue;
+            }
+            List<String> prefix = path.subList(0, path.size() - 1);
+            Optional<DataType> prefixType = dataTypeAtPath(slot.getDataType(), prefix);
+            if (!prefixType.isPresent() || !prefixType.get().isArrayType()) {
+                continue;
+            }
+            OffsetPathRewrite rewrite = analyzePrefixCoverage(slot.getDataType(), prefix, nonNullPaths);
+            if (!rewrite.shouldRemoveOffsetPath()) {
+                continue;
+            }
+            pathsToRemove.add(p);
+            for (List<String> supplementalPath : rewrite.getSupplementalPaths()) {
+                pathsToAdd.add(Pair.of(p.first, supplementalPath));
+            }
+        }
+        targetPaths.removeAll(pathsToRemove);
+        targetPaths.addAll(pathsToAdd);
+    }
+
+    private static Optional<DataType> dataTypeAtPath(DataType slotType, List<String> path) {
+        if (path.isEmpty()) {
+            return Optional.empty();
+        }
+        DataType currentType = slotType;
+        for (int i = 1; i < path.size(); i++) {
+            String component = path.get(i);
+            if (currentType.isStructType()) {
+                StructField field = ((StructType) currentType).getField(component);
+                if (field == null) {
+                    return Optional.empty();
+                }
+                currentType = field.getDataType();
+            } else if (currentType.isArrayType()) {
+                if (!AccessPathInfo.ACCESS_ALL.equals(component)) {
+                    return Optional.empty();
+                }
+                currentType = ((ArrayType) currentType).getItemType();
+            } else if (currentType.isMapType()) {
+                currentType = descendMapType((MapType) currentType, component);
+            } else {
+                return Optional.empty();
+            }
+        }
+        return Optional.of(currentType);
     }
 
     private static OffsetPathRewrite compareOffsetPrefixCoverage(

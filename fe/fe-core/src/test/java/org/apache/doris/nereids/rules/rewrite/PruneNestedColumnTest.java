@@ -122,6 +122,11 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 + "  a array<array<int>>\n"
                 + ") properties ('replication_num'='1')");
 
+        createTable("create table map_array_tbl(\n"
+                + "  id int,\n"
+                + "  map_arr_col map<string, array<int>>\n"
+                + ") properties ('replication_num'='1')");
+
         createTable("create table map_array_value_tbl(\n"
                 + "  id int,\n"
                 + "  s struct<\n"
@@ -195,7 +200,15 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
-    public void testCardinalityMapElementDoesNotUseOffsetPath() throws Exception {
+    public void testCardinalityMapElementKeepsValueOffsetPath() throws Exception {
+        assertColumn("select cardinality(map_arr_col['a']) from map_array_tbl",
+                "map<text,array<int>>",
+                ImmutableList.of(path("map_arr_col", "KEYS"), path("map_arr_col", "VALUES", "OFFSET")),
+                ImmutableList.of());
+    }
+
+    @Test
+    public void testCardinalityMapElementOffsetCoveredByValueFieldAccess() throws Exception {
         Pair<PhysicalPlan, List<SlotDescriptor>> result = collectComplexSlots(
                 "select struct_element(element_at(element_at(struct_element(s, 'm'), 'null'), 1), 'verified') "
                         + "from map_array_value_tbl "
@@ -206,10 +219,26 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
             allAccessPaths.addAll(slotDescriptor.getAllAccessPaths());
             predicateAccessPaths.addAll(slotDescriptor.getPredicateAccessPaths());
         }
-        Assertions.assertTrue(allAccessPaths.contains(path("s", "m", "*")));
-        Assertions.assertTrue(predicateAccessPaths.contains(path("s", "m", "*")));
+        Assertions.assertTrue(allAccessPaths.contains(path("s", "m", "*", "*", "verified")));
         Assertions.assertFalse(allAccessPaths.contains(path("s", "m", "*", "OFFSET")));
         Assertions.assertFalse(predicateAccessPaths.contains(path("s", "m", "*", "OFFSET")));
+    }
+
+    @Test
+    public void testMapElementArrayNullPathCoveredByValueFieldAccess() throws Exception {
+        Pair<PhysicalPlan, List<SlotDescriptor>> result = collectComplexSlots(
+                "select struct_element(element_at(element_at(struct_element(s, 'm'), 'null'), 1), 'verified') "
+                        + "from map_array_value_tbl "
+                        + "where element_at(struct_element(s, 'm'), 'null') is null");
+        TreeSet<ColumnAccessPath> allAccessPaths = new TreeSet<>();
+        TreeSet<ColumnAccessPath> predicateAccessPaths = new TreeSet<>();
+        for (SlotDescriptor slotDescriptor : result.second) {
+            allAccessPaths.addAll(slotDescriptor.getAllAccessPaths());
+            predicateAccessPaths.addAll(slotDescriptor.getPredicateAccessPaths());
+        }
+        Assertions.assertTrue(allAccessPaths.contains(path("s", "m", "*", "*", "verified")));
+        Assertions.assertFalse(allAccessPaths.contains(path("s", "m", "*", "NULL")));
+        Assertions.assertFalse(predicateAccessPaths.contains(path("s", "m", "*", "NULL")));
     }
 
     @Test

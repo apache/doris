@@ -216,8 +216,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     public Void visitMapSize(MapSize mapSize, CollectorContext context) {
         Expression arg = mapSize.child();
         DataType argType = arg.getDataType();
-        if (argType.isMapType() && context.accessPathBuilder.isEmpty()
-                && !isMapElementAccessResult(arg)) {
+        if (argType.isMapType() && context.accessPathBuilder.isEmpty()) {
             CollectorContext offsetContext =
                     new CollectorContext(context.statementContext, context.bottomFilter);
             offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_STRING_OFFSET);
@@ -232,8 +231,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         // cardinality(arr) / cardinality(map) only needs the offset array, not element data.
         // Arrays and maps share the same offset-array + data storage layout as strings on the BE.
         DataType argType = arg.getDataType();
-        if ((argType.isArrayType() || argType.isMapType()) && context.accessPathBuilder.isEmpty()
-                && !isMapElementAccessResult(arg)) {
+        if ((argType.isArrayType() || argType.isMapType()) && context.accessPathBuilder.isEmpty()) {
             CollectorContext offsetContext =
                     new CollectorContext(context.statementContext, context.bottomFilter);
             offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_STRING_OFFSET);
@@ -245,11 +243,6 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         }
         // fall through to default
         return visit(cardinality, context);
-    }
-
-    private boolean isMapElementAccessResult(Expression arg) {
-        return arg instanceof ElementAt
-                && ((ElementAt) arg).getArguments().get(0).getDataType().isMapType();
     }
 
     @Override
