@@ -67,10 +67,15 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
 import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
+import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.FunctionArgTypesInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
@@ -1137,7 +1142,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                 ConnectContext.get().getStatementContext().getNextRelationId(), new ArrayList<>());
         CascadesContext cascadesContext = CascadesContext.initContext(ctx.getStatementContext(), plan,
                 PhysicalProperties.ANY);
-        Map<String, DataType> argTypeMap = new CaseInsensitiveMap();
+        Map<String, DataType> argTypeMap = new CaseInsensitiveMap<>();
         List<DataType> argTypes = argsDef.getArgTypeDefs();
         if (!parameters.isEmpty()) {
             if (parameters.size() != argTypes.size()) {
@@ -1150,6 +1155,13 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
         ExpressionAnalyzer analyzer = new CustomExpressionAnalyzer(cascadesContext, argTypeMap);
         expression = analyzer.analyze(expression);
+
+        if (expression.containsType(
+                org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction.class,
+                GroupingScalarFunction.class, WindowExpression.class, Placeholder.class,
+                TableValuedFunction.class, SubqueryExpr.class)) {
+            throw new AnalysisException("Alias function only supports scalar functions.");
+        }
 
         PlanTranslatorContext translatorContext = new PlanTranslatorContext(cascadesContext);
         ExpressionToExpr translator = new ExpressionToExpr();
