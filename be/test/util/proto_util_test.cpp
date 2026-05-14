@@ -66,15 +66,19 @@ TEST(ProtoUtilTest, EmbedAttachmentMovesOwnedColumnValuesByDefault) {
     EXPECT_EQ(extracted.block().column_values(), column_values);
 }
 
-TEST(ProtoUtilTest, EmbedAttachmentRestoresBorrowedColumnValues) {
+TEST(ProtoUtilTest, EmbedAttachmentUsesBorrowedColumnValuesWithoutMutation) {
     const std::string column_values = "borrowed-column-values";
+    auto borrowed_owner = make_transmit_request(column_values);
     auto request = make_transmit_request(column_values);
+    request.mutable_block()->clear_column_values();
     auto closure = std::make_unique<ProtoUtilTestClosure>();
 
-    auto status = request_embed_attachment_contain_blockv2(&request, closure, true);
+    auto status =
+            request_embed_attachmentv2(&request, borrowed_owner.block().column_values(), closure);
     ASSERT_TRUE(status.ok()) << status.to_string();
 
-    EXPECT_EQ(request.block().column_values(), column_values);
+    EXPECT_EQ(borrowed_owner.block().column_values(), column_values);
+    EXPECT_FALSE(request.block().has_column_values());
 
     auto extracted = extract_request_from_attachment(closure->cntl_.get());
     EXPECT_EQ(extracted.block().column_values(), column_values);
