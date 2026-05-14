@@ -222,6 +222,26 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         Assertions.assertTrue(plans.isEmpty(), "Up-to-date scan should produce no delta plans");
     }
 
+    @Test
+    void testGenExplainBundleIncludesUpToDateScan() {
+        LogicalOlapScan scan = buildScanForTable(1, "a");
+        Map<TableNameInfo, IvmStreamRef> streams = makeStreamsWithTso(scan, 20, 20);
+
+        List<IvmDeltaExplainBundle> bundles = new IvmDeltaRewriter()
+                .generateDeltaExplainBundles(scan, rewriteContext(streams), NO_EXCLUSIONS);
+
+        Assertions.assertEquals(1, bundles.size());
+        IvmDeltaExplainBundle bundle = bundles.get(0);
+        Assertions.assertEquals(1, bundle.getDeltaId());
+        Assertions.assertEquals(1, bundle.getOccurrence());
+        Assertions.assertEquals(20, bundle.getConsumedTso());
+        Assertions.assertEquals(20, bundle.getLatestTso());
+        Assertions.assertTrue(bundle.isNoOp());
+        List<LogicalOlapScan> scans = collectScans(bundle.getDeltaPlan());
+        Assertions.assertEquals(1, scans.size());
+        Assertions.assertTrue(scans.get(0).isDelta());
+    }
+
     // ---------- Two-table JOIN ----------
 
     @Test
