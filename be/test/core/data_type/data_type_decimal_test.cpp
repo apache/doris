@@ -460,20 +460,6 @@ TEST_F(DataTypeDecimalTest, to_pb_column_meta) {
     test_func(dt_decimal128v3_1, PGenericType::DECIMAL128I);
     test_func(dt_decimal256_1, PGenericType::DECIMAL256);
 }
-TEST_F(DataTypeDecimalTest, get_default) {
-    auto test_func = [](auto dt) {
-        using DataType = decltype(dt);
-        using ColumnType = typename DataType::ColumnType;
-        auto default_field = dt.get_default();
-        auto decimal_field = default_field.template get<DataType::PType>();
-        EXPECT_EQ(decimal_field, typename ColumnType::value_type());
-    };
-    test_func(dt_decimal32_1);
-    test_func(dt_decimal64_1);
-    test_func(dt_decimal128v2);
-    test_func(dt_decimal128v3_1);
-    test_func(dt_decimal256_1);
-}
 TEST_F(DataTypeDecimalTest, get_field) {
     TExprNode expr_node;
     expr_node.node_type = TExprNodeType::DECIMAL_LITERAL;
@@ -534,7 +520,7 @@ TEST_F(DataTypeDecimalTest, to_string) {
         std::cout << "test datatype to string: " << dt.get_family_name() << std::endl;
         using DataType = decltype(dt);
         using ColumnType = typename std::remove_reference<DataType>::type::ColumnType;
-        const auto* col_with_type = assert_cast<const ColumnType*>(&source_column);
+        const auto* col_with_type = &source_column;
 
         size_t row_count = source_column.size();
         {

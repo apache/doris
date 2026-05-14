@@ -73,7 +73,6 @@ inline bool validate_ascii_fast(const char* src, size_t len) {
 }
 
 #ifdef __AVX2__
-#include <x86intrin.h>
 // The function returns true (1) if all chars passed in src are
 // 7-bit values (0x00..0x7F). Otherwise, it returns false (0).
 inline bool validate_ascii_fast_avx(const char* src, size_t len) {

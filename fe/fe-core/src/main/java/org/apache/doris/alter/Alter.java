@@ -212,6 +212,11 @@ public class Alter {
             currentAlterOps.checkMTMVAllow(alterOps);
         }
 
+        // For row binlog tables, only allow operations explicitly marked as safe.
+        if (olapTable.needRowBinlog()) {
+            currentAlterOps.checkRowBinlogAllow(alterOps);
+        }
+
         // check cluster capacity and db quota, only need to check once.
         if (currentAlterOps.needCheckCapacity()) {
             Env.getCurrentInternalCatalog().checkAvailableCapacity(db);
@@ -612,6 +617,7 @@ public class Alter {
             case MAX_COMPUTE_EXTERNAL_TABLE:
             case HUDI_EXTERNAL_TABLE:
             case TRINO_CONNECTOR_EXTERNAL_TABLE:
+            case PLUGIN_EXTERNAL_TABLE:
                 alterOps.addAll(command.getOps());
                 processAlterTableForExternalTable((ExternalTable) tableIf, alterOps);
                 return;

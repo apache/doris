@@ -32,6 +32,8 @@ import org.apache.doris.catalog.SchemaTable.SchemaColumn;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
@@ -83,13 +85,12 @@ import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
-import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -264,6 +265,28 @@ public class BindRelation extends OneAnalysisRuleFactory {
             // add delete sign filter on olap scan if needed
             return checkAndAddDeleteSignFilter(scan, ConnectContext.get(), (OlapTable) table);
         }
+    }
+
+    private LogicalPlan makeOlapTableStreamScan(TableIf table, UnboundRelation unboundRelation,
+                                                List<String> qualifier, CascadesContext cascadesContext) {
+        LogicalOlapTableStreamScan scan;
+        List<Long> partIds = getPartitionIds(table, unboundRelation, qualifier);
+        List<Long> tabletIds = unboundRelation.getTabletIds();
+        if (!CollectionUtils.isEmpty(partIds) && !unboundRelation.getIndexName().isPresent()) {
+            scan = new LogicalOlapTableStreamScan(unboundRelation.getRelationId(),
+                    (OlapTable) table, qualifier, partIds, tabletIds, unboundRelation.getHints(),
+                    unboundRelation.getTableSample(), ImmutableList.of());
+        } else {
+            scan = new LogicalOlapTableStreamScan(unboundRelation.getRelationId(),
+                    (OlapTable) table, qualifier, tabletIds, unboundRelation.getHints(),
+                    unboundRelation.getTableSample(), ImmutableList.of());
+        }
+        if (!tabletIds.isEmpty()) {
+            // This tabletIds is set manually, so need to set specifiedTabletIds
+            scan = scan.withManuallySpecifiedTabletIds(tabletIds);
+        }
+        // for olap table stream scan we filter delete sign in rewrite phase
+        return scan;
     }
 
     private boolean needGenerateLogicalAggForRandomDistAggTable(LogicalOlapScan olapScan) {
@@ -517,6 +540,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 case MAX_COMPUTE_EXTERNAL_TABLE:
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:
                 case LAKESOUl_EXTERNAL_TABLE:
+                case PLUGIN_EXTERNAL_TABLE:
                     return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
                             qualifierWithoutTableName, ImmutableList.of(),
                             unboundRelation.getTableSample(),
@@ -572,16 +596,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         }
                     }
                     return new LogicalAggregate<>(groupByExpressions, outputExpressions, subQueryAlias);
-                case JDBC_EXTERNAL_TABLE:
-                case JDBC:
-                    return new LogicalJdbcScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
                 case ODBC:
                     return new LogicalOdbcScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
-                case ES_EXTERNAL_TABLE:
-                case ELASTICSEARCH:
-                    return new LogicalEsScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
                 case TEST_EXTERNAL_TABLE:
                     return new LogicalTestScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
+                case STREAM:
+                    return makeTableStreamScan(table, unboundRelation, qualifierWithoutTableName, cascadesContext);
                 default:
                     throw new AnalysisException("Unsupported tableType " + table.getType());
             }
@@ -707,4 +727,15 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }).collect(ImmutableList.toImmutableList());
     }
 
+    private LogicalPlan makeTableStreamScan(TableIf table, UnboundRelation unboundRelation, List<String> qualifier,
+                                     CascadesContext cascadesContext) throws AnalysisException {
+        if (table instanceof OlapTableStream) {
+            // create OlapTableStreamWrapper
+            OlapTableStream olapTableStream = (OlapTableStream) table;
+            OlapTableStreamWrapper olapTableStreamWrapper = new OlapTableStreamWrapper(olapTableStream,
+                    (OlapTable) olapTableStream.getBaseTableOrNereidsAnalysisException());
+            return makeOlapTableStreamScan(olapTableStreamWrapper, unboundRelation, qualifier, cascadesContext);
+        }
+        throw new AnalysisException("Unsupported stream Type: " + table.getClass().getName());
+    }
 }

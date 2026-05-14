@@ -269,6 +269,11 @@ enum CredProviderTypePB {
     DEFAULT = 1;    // DefaultAWSCredentialsProviderChain
     SIMPLE = 2;     // SimpleAWSCredentialsProvider, corresponding to (ak, sk)
     INSTANCE_PROFILE = 3;  // InstanceProfileCredentialsProvider
+    ENV = 4;  // EnvironmentAWSCredentialsProvider
+    SYSTEM_PROPERTIES = 5;  // SystemPropertiesCredentialsProvider
+    WEB_IDENTITY = 6;  // STSAssumeRoleWebIdentityCredentialsProvider
+    CONTAINER = 7;  // TaskRoleCredentialsProvider
+    ANONYMOUS = 8;  // AnonymousAWSCredentialsProvider
 }
 
 message ObjectStoreInfoPB {
@@ -418,6 +423,7 @@ message StreamingTaskCommitAttachmentPB {
     optional int64 load_bytes = 4;
     optional int64 num_files = 5;
     optional int64 file_bytes = 6;
+    optional int64 filtered_rows = 7;
 }
 
 message TxnCommitAttachmentPB {
@@ -1804,6 +1810,10 @@ enum MetaServiceCode {
     KV_TXN_STORE_COMMIT_RETRYABLE = 1009;
     KV_TXN_STORE_CREATE_RETRYABLE = 1010;
     KV_TXN_TOO_OLD = 1011;
+    // WARNING: KV_TXN_MAYBE_COMMITTED is NOT returned to clients. It is kept as an
+    // internal retry signal inside MetaServiceProxy::call_impl(), then downgraded to
+    // KV_TXN_COMMIT_ERR before the response is sent back. Older BE/FE versions do not
+    // recognize this enum value, and proto2 would otherwise fall back to OK (= 0).
     KV_TXN_MAYBE_COMMITTED = 1012;
 
     //Doris error
@@ -1867,6 +1877,11 @@ enum MetaServiceCode {
 
     SCHEMA_DICT_NOT_FOUND = 11001;
 
+    // WARNING: Before adding a new MetaServiceCode, consider backward compatibility.
+    // This is a proto2 optional enum field. If an older client receives an unrecognized
+    // enum value, the field is treated as unset and defaults to OK (= 0), silently
+    // turning errors into success. Any new error code that may be sent to older clients
+    // MUST be downgraded to a legacy code before the response is sent to the client.
     UNDEFINED_ERR = 1000000;
 }
 
@@ -2095,6 +2110,7 @@ message BeginSnapshotRequest {
     optional int64 timeout_seconds = 4;
     optional int64 ttl_seconds = 5;
     optional string request_ip = 6;
+    optional string vault_name = 7;
 }
 
 message BeginSnapshotResponse {
@@ -2163,6 +2179,7 @@ message SnapshotInfoPB {
     optional int64 snapshot_logical_data_size = 17;
     optional int64 snapshot_retained_data_size = 18;
     optional int64 snapshot_billable_data_size = 19;
+    optional string resource_id = 20;
 }
 
 message ListSnapshotRequest {

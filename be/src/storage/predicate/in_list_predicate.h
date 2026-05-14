@@ -27,6 +27,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "core/decimal12.h"
+#include "core/field.h"
 #include "core/string_ref.h"
 #include "core/type_limit.h"
 #include "core/types.h"
@@ -93,11 +94,9 @@ public:
             while (iter->has_next()) {
                 const auto* value = (const StringRef*)(iter->get_value());
                 if constexpr (Type == TYPE_CHAR) {
-                    _temp_datas.emplace_back("");
-                    _temp_datas.back().resize(std::max(char_length, value->size));
-                    memcpy(_temp_datas.back().data(), value->data, value->size);
-                    const std::string& str = _temp_datas.back();
-                    _values->insert((void*)str.data(), str.length());
+                    std::string padded(std::max(char_length, value->size), '\0');
+                    memcpy(padded.data(), value->data, value->size);
+                    _values->insert((void*)padded.data(), padded.length());
                 } else {
                     _values->insert((void*)value->data, value->size);
                 }
@@ -128,7 +127,6 @@ public:
         _values = other._values;
         _min_value = other._min_value;
         _max_value = other._max_value;
-        _temp_datas = other._temp_datas;
         DCHECK(_segment_id_to_value_in_dict_flags.empty());
     }
     InListPredicateBase(const InListPredicateBase<Type, PT, N>& other) = delete;
@@ -164,23 +162,20 @@ public:
         roaring::Roaring indices;
         HybridSetBase::IteratorBase* iter = _values->begin();
         while (iter->has_next()) {
-            std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
+            Field field_value;
             if constexpr (is_string_type(Type)) {
-                // get_value() returns StringRef*, not std::string*
+                // HybridSet's iter->get_value() yields StringRef*, not std::string*.
                 const auto* ref = (const StringRef*)(iter->get_value());
-                T str(ref->data, ref->size);
-                RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value<Type>(
-                        &str, query_param));
+                field_value = Field::create_field<Type>(std::string(ref->data, ref->size));
             } else {
                 const T* value = (const T*)(iter->get_value());
-                RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value<Type>(
-                        value, query_param));
+                field_value = Field::create_field<Type>(*value);
             }
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
             InvertedIndexParam param;
             param.column_name = name_with_type.first;
             param.column_type = name_with_type.second;
-            param.query_value = query_param->get_value();
+            param.query_value = field_value;
             param.query_type = query_type;
             param.num_rows = num_rows;
             param.roaring = std::make_shared<roaring::Roaring>();
@@ -214,8 +209,7 @@ public:
                        bool* flags) const {
         if (column.is_nullable()) {
             const auto* nullable_col = check_and_get_column<ColumnNullable>(column);
-            const auto& null_bitmap =
-                    assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column()).get_data();
+            const auto& null_bitmap = nullable_col->get_null_map_column().get_data();
             const auto& nested_col = nullable_col->get_nested_column();
 
             if (_opposite) {
@@ -468,8 +462,7 @@ private:
 
         if (column.is_nullable()) {
             const auto* nullable_col = check_and_get_column<ColumnNullable>(column);
-            const auto& null_map =
-                    assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column()).get_data();
+            const auto& null_map = nullable_col->get_null_map_column().get_data();
             const auto& nested_col = nullable_col->get_nested_column();
 
             if (_opposite) {
@@ -658,8 +651,5 @@ private:
             _segment_id_to_value_in_dict_flags;
     T _min_value;
     T _max_value;
-
-    // temp string for char type column
-    std::list<std::string> _temp_datas;
 };
 } //namespace doris

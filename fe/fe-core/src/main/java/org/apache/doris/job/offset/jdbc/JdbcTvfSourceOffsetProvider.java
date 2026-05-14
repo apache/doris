@@ -58,6 +58,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 /**
@@ -96,8 +98,16 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
      */
     @Override
     public void ensureInitialized(Long jobId, Map<String, String> originTvfProps) throws JobException {
+        String type = originTvfProps.get(DataSourceConfigKeys.TYPE);
+        Preconditions.checkArgument(type != null, "type is required");
+        DataSourceType resolvedType = DataSourceType.valueOf(type.toUpperCase());
+
+        // Populate default slot/pub into sourceProperties so cleanMeta -> /api/close
+        // carries the resolved names for cdcclient ownership-based cleanup.
+        Map<String, String> effective = new HashMap<>(originTvfProps);
+        StreamingJobUtils.populateDefaultSourceProperties(resolvedType, effective, String.valueOf(jobId));
         // Always refresh fields that may be updated via ALTER JOB (e.g. credentials, parallelism).
-        this.sourceProperties = originTvfProps;
+        this.sourceProperties = effective;
         this.snapshotParallelism = Integer.parseInt(
                 originTvfProps.getOrDefault(DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
                         DataSourceConfigKeys.SNAPSHOT_PARALLELISM_DEFAULT));
@@ -109,9 +119,7 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
         // is reconstructed fresh (getPersistInfo returns null), so jobId is null then too.
         this.jobId = jobId;
         this.chunkHighWatermarkMap = new HashMap<>();
-        String type = originTvfProps.get(DataSourceConfigKeys.TYPE);
-        Preconditions.checkArgument(type != null, "type is required");
-        this.sourceType = DataSourceType.valueOf(type.toUpperCase());
+        this.sourceType = resolvedType;
         String table = originTvfProps.get(DataSourceConfigKeys.TABLE);
         Preconditions.checkArgument(table != null, "table is required for cdc_stream TVF");
     }
@@ -197,9 +205,10 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
             String rawResponse = null;
             try {
                 TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
-                Future<PRequestCdcClientResult> future =
-                        BackendServiceProxy.getInstance().requestCdcClient(address, request);
-                InternalService.PRequestCdcClientResult result = future.get();
+                Future<PRequestCdcClientResult> future = BackendServiceProxy.getInstance()
+                        .requestCdcClient(address, request, Config.streaming_cdc_light_rpc_timeout_sec);
+                InternalService.PRequestCdcClientResult result =
+                        future.get(Config.streaming_cdc_light_rpc_timeout_sec, TimeUnit.SECONDS);
                 TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
                 if (code != TStatusCode.OK) {
                     log.warn("Failed to get task {} offset from BE {}: {}", taskId,
@@ -215,6 +224,11 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
                     log.info("Fetched task {} offset from BE {}: {}", taskId, backend.getHost(), data);
                     return data;
                 }
+            } catch (TimeoutException te) {
+                log.warn("cdc_client RPC timeout api=/api/getTaskOffset jobId={} taskId={} backend={}:{} "
+                                + "timeout_sec={}",
+                        jobId, taskId, backend.getHost(), backend.getBrpcPort(),
+                        Config.streaming_cdc_light_rpc_timeout_sec);
             } catch (Exception ex) {
                 log.warn("Get task offset error for task {} from BE {}, raw response: {}",
                         taskId, backend.getHost(), rawResponse, ex);

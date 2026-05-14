@@ -67,8 +67,6 @@ void TabletReader::ReaderParams::check_validation() const {
 }
 
 Status TabletReader::init(const ReaderParams& read_params) {
-    SCOPED_RAW_TIMER(&_stats.tablet_reader_init_timer_ns);
-
     Status res = _init_params(read_params);
     if (!res.ok()) {
         LOG(WARNING) << "fail to init reader when init params. res:" << res
@@ -158,7 +156,6 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.topn_filter_target_node_id = read_params.topn_filter_target_node_id;
     _reader_context.read_orderby_key_reverse = read_params.read_orderby_key_reverse;
     _reader_context.read_orderby_key_limit = read_params.read_orderby_key_limit;
-    _reader_context.filter_block_conjuncts = read_params.filter_block_conjuncts;
     _reader_context.return_columns = &_return_columns;
     _reader_context.read_orderby_key_columns =
             !_orderby_key_columns.empty() ? &_orderby_key_columns : nullptr;
@@ -200,6 +197,11 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
 
     // Propagate general read limit for DUP_KEYS and UNIQUE_KEYS with MOW
     _reader_context.general_read_limit = read_params.general_read_limit;
+
+    // Preserve the original requested output layout so BlockReader can map expanded storage
+    // columns (for non-direct AGG/UNIQUE paths) back to the final output block.
+    _reader_context.origin_return_columns = read_params.origin_return_columns;
+
     return Status::OK();
 }
 

@@ -63,24 +63,37 @@ public class MySQLTypeHandler extends DefaultTypeHandler {
         this.tableType = tableType != null ? tableType.toUpperCase() : "MYSQL";
     }
 
+    /**
+     * MySQL Connector/J 5.1.x's getObject(col, Type.class) may return the primitive
+     * default (0, 0.0, false) instead of null for SQL NULL columns.  Always follow
+     * up with wasNull() so we propagate NULLs correctly regardless of driver version.
+     */
+    private static <T> T getTypedObject(ResultSet rs, int col, Class<T> type) throws SQLException {
+        T val = rs.getObject(col, type);
+        return rs.wasNull() ? null : val;
+    }
+
     @Override
     public Object getColumnValue(ResultSet rs, int columnIndex, ColumnType type,
                                  ResultSetMetaData metadata) throws SQLException {
         switch (type.getType()) {
             case BOOLEAN:
-                return rs.getObject(columnIndex, Boolean.class);
+                return getTypedObject(rs, columnIndex, Boolean.class);
             case TINYINT:
             case SMALLINT:
+                // Must use typed getObject() to avoid MySQL YEAR returning java.sql.Date
+                // when yearIsDateType=true (the default in Connector/J 8.x)
+                return getTypedObject(rs, columnIndex, Integer.class);
             case LARGEINT:
                 return rs.getObject(columnIndex);
             case INT:
-                return rs.getObject(columnIndex, Integer.class);
+                return getTypedObject(rs, columnIndex, Integer.class);
             case BIGINT:
-                return rs.getObject(columnIndex, Long.class);
+                return getTypedObject(rs, columnIndex, Long.class);
             case FLOAT:
-                return rs.getObject(columnIndex, Float.class);
+                return getTypedObject(rs, columnIndex, Float.class);
             case DOUBLE:
-                return rs.getObject(columnIndex, Double.class);
+                return getTypedObject(rs, columnIndex, Double.class);
             case DECIMALV2:
             case DECIMAL32:
             case DECIMAL64:

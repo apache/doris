@@ -17,7 +17,11 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.SetType;
+import org.apache.doris.analysis.SetVar;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.utframe.TestWithFeService;
@@ -83,6 +87,29 @@ public class SessionVariablesTest extends TestWithFeService {
         String sql = "insert into test_t1 select /*+ set_var(enable_nereids_dml_with_pipeline=false)*/ * from test_t1 where enable_nereids_dml_with_pipeline=true";
         new NereidsParser().parseSQL(sql);
         Assertions.assertEquals(false, connectContext.getSessionVariable().enableNereidsDmlWithPipeline);
+    }
+
+    @Test
+    public void testAiSessionVariableChecker() throws Exception {
+        SessionVariable sv = new SessionVariable();
+
+        VariableMgr.setVar(sv, new SetVar(SetType.SESSION, SessionVariable.EMBED_MAX_BATCH_SIZE,
+                new IntLiteral(1)));
+        Assertions.assertEquals(1, sv.embedMaxBatchSize);
+        DdlException embedException = Assertions.assertThrows(DdlException.class,
+                () -> VariableMgr.setVar(sv, new SetVar(SetType.SESSION,
+                        SessionVariable.EMBED_MAX_BATCH_SIZE, new IntLiteral(0))));
+        Assertions.assertTrue(embedException.getMessage().contains(SessionVariable.EMBED_MAX_BATCH_SIZE));
+        Assertions.assertEquals(1, sv.embedMaxBatchSize);
+
+        VariableMgr.setVar(sv, new SetVar(SetType.SESSION, SessionVariable.AI_CONTEXT_WINDOW_SIZE,
+                new IntLiteral(1)));
+        Assertions.assertEquals(1, sv.aiContextWindowSize);
+        DdlException contextException = Assertions.assertThrows(DdlException.class,
+                () -> VariableMgr.setVar(sv, new SetVar(SetType.SESSION,
+                        SessionVariable.AI_CONTEXT_WINDOW_SIZE, new IntLiteral(-1))));
+        Assertions.assertTrue(contextException.getMessage().contains(SessionVariable.AI_CONTEXT_WINDOW_SIZE));
+        Assertions.assertEquals(1, sv.aiContextWindowSize);
     }
 
     @Test

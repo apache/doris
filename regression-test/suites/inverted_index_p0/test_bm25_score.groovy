@@ -227,6 +227,53 @@ suite("test_bm25_score", "p0") {
         }
 
         try {
+            sql """ set enable_common_expr_pushdown = true; """
+            sql """ set enable_match_without_inverted_index = false; """
+            sql """ set default_variant_enable_typed_paths_to_sparse = false; """
+            sql """ set default_variant_enable_doc_mode = false; """
+
+            sql "DROP TABLE IF EXISTS test_variant_field_pattern_score"
+            sql """
+                CREATE TABLE test_variant_field_pattern_score (
+                    id INT,
+                    meta VARIANT<MATCH_NAME_GLOB 'user.*':text, PROPERTIES("variant_max_subcolumns_count"="0")>,
+                    INDEX idx_meta_user(meta) USING INVERTED PROPERTIES(
+                        "parser"="english",
+                        "support_phrase"="true",
+                        "field_pattern"="user.*"
+                    )
+                ) ENGINE=OLAP
+                DUPLICATE KEY(id)
+                DISTRIBUTED BY HASH(id) BUCKETS 1
+                PROPERTIES (
+                    "replication_allocation" = "tag.location.default: 1",
+                    "disable_auto_compaction" = "true"
+                )
+            """
+
+            sql """ insert into test_variant_field_pattern_score values(3, '{"other": "alice"}'); """
+            sql """ sync """
+            sql """
+                insert into test_variant_field_pattern_score values
+                    (1, '{"user": {"name": "alice alpha"}}'),
+                    (2, '{"user": {"name": "bob beta"}}');
+            """
+            sql """ sync """
+
+            def res = sql """
+                select id, score() as score
+                from test_variant_field_pattern_score
+                where cast(meta["user"]["name"] as string) match_phrase "alice"
+                order by score() desc
+                limit 10;
+            """
+            assertEquals(1, res.size())
+            assertEquals(1, res[0][0] as int)
+            assertTrue(Double.parseDouble(res[0][1].toString()) > 0.0)
+        } finally {
+        }
+
+        try {
             sql "DROP TABLE IF EXISTS t2"
             sql """ create table t2(a int, b int, s text) unique key(a) DISTRIBUTED BY HASH(a) buckets 1 PROPERTIES ("replication_allocation" = "tag.location.default: 1"); """
             sql """ insert into t2 values(3,3, "abc def"); """

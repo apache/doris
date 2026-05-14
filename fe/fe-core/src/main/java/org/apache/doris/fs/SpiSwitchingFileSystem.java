@@ -59,9 +59,9 @@ public class SpiSwitchingFileSystem implements FileSystem {
     /** Non-null only when created via the test constructor — all paths delegate here. */
     private FileSystem testDelegate;
     /**
-     * Cache: StorageProperties (identity) → spi.FileSystem.
-     * Using identity comparison is correct because the properties map values are stable
-     * objects owned by the catalog instance.
+     * Cache: StorageProperties → spi.FileSystem.
+     * Uses value-based equality (via ConnectionProperties.equals/hashCode on origProps),
+     * so logically identical configurations share the same FileSystem instance.
      */
     private final Map<StorageProperties, FileSystem> cache = new ConcurrentHashMap<>();
     private final AtomicBoolean closed = new AtomicBoolean(false);

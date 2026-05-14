@@ -22,6 +22,12 @@
 
 #include <time.h>
 
+#include <ctime>
+#include <sstream>
+#include <thread>
+
+#include "util/time.h"
+
 namespace doris {
 
 // Stop watch for reporting elapsed time in nanosec based on CLOCK_MONOTONIC.
@@ -45,6 +51,7 @@ public:
 
     void start() {
         if (!_running) {
+            _record_start_thread_id();
             clock_gettime(Clock, &_start);
             _running = true;
         }
@@ -58,10 +65,11 @@ public:
     }
 
     // Restarts the timer. Returns the elapsed time until this point.
-    uint64_t reset() {
-        uint64_t ret = elapsed_time();
+    int64_t reset() {
+        int64_t ret = elapsed_time();
 
         if (_running) {
+            _record_start_thread_id();
             clock_gettime(Clock, &_start);
         }
 
@@ -69,35 +77,79 @@ public:
     }
 
     // Returns time in nanosecond.
-    uint64_t elapsed_time() const {
+    // Clamped to 0 to guard against rare CLOCK_MONOTONIC rollbacks.
+    int64_t elapsed_time() const {
         if (!_running) {
             return _total_time;
         }
 
+        _check_thread_id();
         timespec end;
         clock_gettime(Clock, &end);
-        return (end.tv_sec - _start.tv_sec) * 1000L * 1000L * 1000L +
-               (end.tv_nsec - _start.tv_nsec);
+        auto start_nanos = _start.tv_sec * NANOS_PER_SEC + _start.tv_nsec;
+        auto end_nanos = end.tv_sec * NANOS_PER_SEC + end.tv_nsec;
+        if (end_nanos < start_nanos) {
+            LOG(INFO) << "WARNING: time went backwards from " << start_nanos << " to " << end_nanos;
+            return 0;
+        }
+        return end_nanos - start_nanos;
     }
 
     // Return time in microseconds
-    uint64_t elapsed_time_microseconds() const { return elapsed_time() / 1000; }
+    int64_t elapsed_time_microseconds() const { return elapsed_time() / 1000; }
 
     // Return time in milliseconds
-    uint64_t elapsed_time_milliseconds() const { return elapsed_time() / 1000 / 1000; }
+    int64_t elapsed_time_milliseconds() const { return elapsed_time() / 1000 / 1000; }
 
-    // Returns time in nanosecond.
+    // Returns time in seconds.
+    // Clamped to 0 to guard against rare CLOCK_MONOTONIC rollbacks.
     int64_t elapsed_time_seconds(timespec end) const {
         if (!_running) {
             return _total_time / 1000L / 1000L / 1000L;
+        }
+        if (end.tv_sec < _start.tv_sec) {
+            auto start_nanos = _start.tv_sec * NANOS_PER_SEC + _start.tv_nsec;
+            auto end_nanos = end.tv_sec * NANOS_PER_SEC + end.tv_nsec;
+            LOG(INFO) << "WARNING: time went backwards from " << start_nanos << " to " << end_nanos;
+            return 0;
         }
         return end.tv_sec - _start.tv_sec;
     }
 
 private:
+    static std::string _get_thread_id() {
+        std::stringstream ss;
+        ss << std::this_thread::get_id();
+        return ss.str();
+    }
+    void _record_start_thread_id() {
+#ifndef NDEBUG
+        if constexpr (Clock == CLOCK_THREAD_CPUTIME_ID) {
+            // CLOCK_THREAD_CPUTIME_ID is not supported on some platforms, e.g. macOS.
+            // So that we need to check it at runtime and fallback to CLOCK_MONOTONIC if it is not supported.
+            _start_thread_id = _get_thread_id();
+        }
+#endif
+    }
+
+    void _check_thread_id() const {
+#ifndef NDEBUG
+        if constexpr (Clock == CLOCK_THREAD_CPUTIME_ID) {
+            auto current_thread_id = _get_thread_id();
+            if (current_thread_id != _start_thread_id) {
+                LOG(WARNING) << "StopWatch started in thread " << _start_thread_id
+                             << " but stopped in thread " << current_thread_id;
+            }
+        }
+#endif
+    }
+
     timespec _start;
-    uint64_t _total_time; // in nanosec
+    int64_t _total_time; // in nanosec
     bool _running;
+#ifndef NDEBUG
+    std::string _start_thread_id;
+#endif
 };
 
 // Stop watch for reporting elapsed time in nanosec based on CLOCK_MONOTONIC.

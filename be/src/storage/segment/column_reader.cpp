@@ -310,7 +310,7 @@ void ColumnReader::check_data_by_zone_map_for_test(const MutableColumnPtr& dst) 
         return;
     }
 
-    FieldType type = _type_info->type();
+    FieldType type = _type;
 
     if (type != FieldType::OLAP_FIELD_TYPE_INT) {
         return;
@@ -346,16 +346,16 @@ void ColumnReader::check_data_by_zone_map_for_test(const MutableColumnPtr& dst) 
 #endif
 
 Status ColumnReader::init(const ColumnMetaPB* meta) {
-    _type_info = get_type_info(meta);
+    _type = (FieldType)meta->type();
 
     if (meta->has_be_exec_version()) {
         _be_exec_version = meta->be_exec_version();
     }
 
-    if (_type_info == nullptr) {
+    if (_type == FieldType::OLAP_FIELD_TYPE_NONE || _type == FieldType::OLAP_FIELD_TYPE_UNKNOWN) {
         return Status::NotSupported("unsupported typeinfo, type={}", meta->type());
     }
-    RETURN_IF_ERROR(EncodingInfo::get(_type_info->type(), meta->encoding(), {}, &_encoding_info));
+    RETURN_IF_ERROR(EncodingInfo::get(_type, meta->encoding(), {}, &_encoding_info));
 
     for (int i = 0; i < meta->indexes_size(); i++) {
         const auto& index_meta = meta->indexes(i);
@@ -635,7 +635,7 @@ Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_f
     if (_meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         type = _meta_children_column_type;
     } else {
-        type = _type_info->type();
+        type = _type;
     }
 
     if (index_meta->index_type() == IndexType::ANN) {
@@ -1955,6 +1955,28 @@ Status StringFileColumnIterator::set_access_paths(
     // Raw paths look like ["col_name", "OFFSET"] or ["col_name", "NULL"].
     auto sub_all_access_paths = DORIS_TRY(_get_sub_access_paths(all_access_paths));
     _check_and_set_meta_read_mode(sub_all_access_paths);
+    // OFFSET_ONLY mode is fundamentally incompatible with CHAR columns:
+    // CHAR is stored padded to its declared length (see
+    // OlapColumnDataConvertorChar::clone_and_padding), so the per-row length
+    // recorded in dict word info / page headers is always the padded length
+    // (e.g. 25 for CHAR(25)) — never the logical length expected by length().
+    // Recovering the logical length requires scanning the chars buffer with
+    // strnlen() (shrink_padding_chars), which OFFSET_ONLY by definition skips.
+    // There is no partial-benefit path: any optimization that still produces
+    // the correct length() result must read the chars buffer in full.
+    //
+    // FE (NestedColumnPruning) already filters CHAR slots out of the
+    // OFFSET-only access plan, so reaching this branch means an FE/BE
+    // contract violation. Fail loudly instead of silently falling back.
+    if (read_offset_only() && get_reader() != nullptr &&
+        get_reader()->get_meta_type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
+        return Status::InternalError(
+                "OFFSET_ONLY access path is not supported on CHAR column '{}': CHAR is stored "
+                "padded so the per-row length information available without reading the chars "
+                "buffer is always the padded length, not the logical length. The FE planner "
+                "must not emit an OFFSET access path for CHAR columns.",
+                _column_name);
+    }
     if (read_offset_only()) {
         DLOG(INFO) << "String column iterator set column " << _column_name
                    << " to OFFSET_ONLY reading mode";
@@ -2214,8 +2236,6 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
         auto& null_map_data = nullable_col.get_null_map_data();
         const size_t base_size = null_map_data.size();
         null_map_data.resize(base_size + count);
-
-        nullable_col.get_nested_column().insert_many_defaults(count);
 
         size_t remaining = count;
         size_t total_read_count = 0;
@@ -2490,19 +2510,19 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
         if (_default_value == "NULL") {
             _default_value_field = Field::create_field<TYPE_NULL>(Null {});
         } else {
-            if (_type_info->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+            if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
                 if (_default_value != "[]") {
                     return Status::NotSupported("Array default {} is unsupported", _default_value);
                 } else {
                     _default_value_field = Field::create_field<TYPE_ARRAY>(Array {});
                     return Status::OK();
                 }
-            } else if (_type_info->type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
+            } else if (_type == FieldType::OLAP_FIELD_TYPE_STRUCT) {
                 return Status::NotSupported("STRUCT default type is unsupported");
-            } else if (_type_info->type() == FieldType::OLAP_FIELD_TYPE_MAP) {
+            } else if (_type == FieldType::OLAP_FIELD_TYPE_MAP) {
                 return Status::NotSupported("MAP default type is unsupported");
             }
-            const auto t = _type_info->type();
+            const auto t = _type;
             const auto serde = DataTypeFactory::instance()
                                        .create_data_type(t, _precision, _scale, _len)
                                        ->get_serde();

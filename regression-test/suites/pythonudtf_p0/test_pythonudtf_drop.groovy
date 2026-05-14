@@ -15,10 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_pythonudtf_drop") {
+suite("test_pythonudtf_drop", "nonConcurrent") {
     def runtime_version = getPythonUdfRuntimeVersion()
     def zipA = """${context.file.parent}/udtf_scripts/python_udtf_drop_a/python_udtf_drop_test.zip"""
     def zipB = """${context.file.parent}/udtf_scripts/python_udtf_drop_b/python_udtf_drop_test.zip"""
+    def localDorisHome = System.getenv("DORIS_HOME")
+    def localUdfRoot = localDorisHome != null ? "${localDorisHome}/lib/udf" : "/tmp"
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
+
+    def execOnBackend = { be_ip, localCmd, remoteCmd ->
+        if (be_ip == "127.0.0.1" || be_ip == "localhost") {
+            cmd(localCmd)
+        } else {
+            sshExec("root", be_ip, remoteCmd, false)
+        }
+    }
 
     scp_udf_file_to_all_be(zipA)
     scp_udf_file_to_all_be(zipB)
@@ -122,9 +135,45 @@ suite("test_pythonudtf_drop") {
             """
             exception "Can not found function"
         }
+
+        // Case 4: kill Python servers between two table-function queries, next handshake should recover
+        sql """DROP FUNCTION IF EXISTS py_drop_t_reconnect(INT)"""
+        sql """
+            CREATE TABLES FUNCTION py_drop_t_reconnect(INT)
+            RETURNS ARRAY<INT>
+            PROPERTIES (
+                "type" = "PYTHON_UDF",
+                "file" = "file://${zipA}",
+                "symbol" = "drop_udtf.process",
+                "runtime_version" = "${runtime_version}"
+            )
+        """
+
+        qt_py_udtf_drop_4 """
+            SELECT c
+            FROM py_udtf_drop_tbl
+            LATERAL VIEW py_drop_t_reconnect(v) tmp AS c
+            ORDER BY c;
+        """
+
+        backendId_to_backendIP.values().each { be_ip ->
+            execOnBackend(
+                be_ip,
+                "pkill -f 'python_server.py grpc+unix:///tmp/doris_python_udf' || true",
+                "pkill -f 'python_server.py grpc+unix:///tmp/doris_python_udf' || true")
+        }
+
+        qt_py_udtf_drop_5 """
+            SELECT c
+            FROM py_udtf_drop_tbl
+            LATERAL VIEW py_drop_t_reconnect(v) tmp AS c
+            ORDER BY c;
+        """
+        try_sql("DROP FUNCTION IF EXISTS py_drop_t_reconnect(INT);")
     } finally {
         try_sql("DROP FUNCTION IF EXISTS py_drop_t_once(INT);")
         try_sql("DROP FUNCTION IF EXISTS py_drop_t_a(INT);")
         try_sql("DROP FUNCTION IF EXISTS py_drop_t_b(INT);")
+        try_sql("DROP FUNCTION IF EXISTS py_drop_t_reconnect(INT);")
     }
 }

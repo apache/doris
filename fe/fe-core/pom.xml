@@ -82,6 +82,18 @@ under the License.
             <artifactId>fe-filesystem-spi</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- fe-connector-api: consumer-facing connector API (Connector, ConnectorMetadata, handles, etc.) -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- fe-connector-spi: provider contracts (ConnectorProvider, ConnectorContext) -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <!-- fe-filesystem impl modules: runtime dependencies removed in Phase 4 P4.1.
              Providers are now loaded from plugins/filesystem/ directory at startup
              via FileSystemPluginManager + DirectoryPluginRuntimeManager. -->
@@ -918,25 +930,24 @@ under the License.
                     </execution>
                 </executions>
             </plugin>
-            <!-- copy all dependency libs to target lib dir -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-dependency-plugin</artifactId>
+                <artifactId>maven-assembly-plugin</artifactId>
+                <configuration>
+                    <appendAssemblyId>true</appendAssemblyId>
+                    <outputDirectory>${project.build.directory}</outputDirectory>
+                    <recompressZippedFiles>false</recompressZippedFiles>
+                    <descriptors>
+                        <descriptor>src/main/assembly/fe-lib.xml</descriptor>
+                    </descriptors>
+                </configuration>
                 <executions>
                     <execution>
-                        <id>copy-dependencies</id>
+                        <id>make-fe-lib</id>
                         <phase>package</phase>
                         <goals>
-                            <goal>copy-dependencies</goal>
+                            <goal>single</goal>
                         </goals>
-                        <configuration>
-                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
-                            <overWriteReleases>false</overWriteReleases>
-                            <overWriteSnapshots>false</overWriteSnapshots>
-                            <overWriteIfNewer>true</overWriteIfNewer>
-                            <includeScope>runtime</includeScope>
-                            <skip>${skip.plugin}</skip>
-                        </configuration>
                     </execution>
                 </executions>
             </plugin>
@@ -949,33 +960,6 @@ under the License.
                         <maxmem>1024m</maxmem>
                     </check>
                 </configuration>
-            </plugin>
-            <!-- clean fe/target dir before building -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-clean-plugin</artifactId>
-                <version>3.1.0</version>
-                <configuration>
-                    <skip>${skip.clean}</skip>
-                    <excludeDefaultDirectories>true</excludeDefaultDirectories>
-                    <filesets>
-                        <fileset>
-                            <directory>target</directory>
-                            <excludes>
-                                <exclude>checkstyle-cachefile</exclude>
-                            </excludes>
-                        </fileset>
-                    </filesets>
-                </configuration>
-                <executions>
-                    <execution>
-                        <id>auto-clean</id>
-                        <phase>initialize</phase>
-                        <goals>
-                            <goal>clean</goal>
-                        </goals>
-                    </execution>
-                </executions>
             </plugin>
         </plugins>
         <extensions>

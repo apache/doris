@@ -37,6 +37,7 @@
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/virtual_slot_ref.h"
 #include "exprs/vslot_ref.h"
 #include "io/cache/block_file_cache_profile.h"
 #include "runtime/query_cache/query_cache.h"
@@ -135,8 +136,7 @@ Status OlapScanLocalState::_init_profile() {
             ADD_COUNTER(_segment_profile, "UncompressedBytesRead", TUnit::BYTES);
     _block_load_timer = ADD_TIMER(_segment_profile, "BlockLoadTime");
     _block_load_counter = ADD_COUNTER(_segment_profile, "BlocksLoad", TUnit::UNIT);
-    _block_fetch_timer = ADD_TIMER(_scanner_profile, "BlockFetchTime");
-    _delete_bitmap_get_agg_timer = ADD_TIMER(_scanner_profile, "DeleteBitmapGetAggTime");
+    _block_fetch_timer = ADD_CHILD_TIMER(_scanner_profile, "BlockFetchTime", "ScannerGetBlockTime");
     if (config::is_cloud_mode()) {
         static const char* sync_rowset_timer_name = "SyncRowsetTime";
         _sync_rowset_timer = ADD_TIMER(_scanner_profile, sync_rowset_timer_name);
@@ -274,46 +274,57 @@ Status OlapScanLocalState::_init_profile() {
     _total_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentTotal", TUnit::UNIT);
     _tablet_counter = ADD_COUNTER(custom_profile(), "TabletNum", TUnit::UNIT);
     _key_range_counter = ADD_COUNTER(custom_profile(), "KeyRangesNum", TUnit::UNIT);
-    _tablet_reader_init_timer = ADD_TIMER(_scanner_profile, "TabletReaderInitTimer");
-    _tablet_reader_capture_rs_readers_timer =
-            ADD_TIMER(_scanner_profile, "TabletReaderCaptureRsReadersTimer");
-    _tablet_reader_init_return_columns_timer =
-            ADD_TIMER(_scanner_profile, "TabletReaderInitReturnColumnsTimer");
-    _tablet_reader_init_keys_param_timer =
-            ADD_TIMER(_scanner_profile, "TabletReaderInitKeysParamTimer");
-    _tablet_reader_init_orderby_keys_param_timer =
-            ADD_TIMER(_scanner_profile, "TabletReaderInitOrderbyKeysParamTimer");
-    _tablet_reader_init_conditions_param_timer =
-            ADD_TIMER(_scanner_profile, "TabletReaderInitConditionsParamTimer");
-    _tablet_reader_init_delete_condition_param_timer =
-            ADD_TIMER(_scanner_profile, "TabletReaderInitDeleteConditionParamTimer");
-    _block_reader_vcollect_iter_init_timer =
-            ADD_TIMER(_scanner_profile, "BlockReaderVcollectIterInitTimer");
-    _block_reader_rs_readers_init_timer =
-            ADD_TIMER(_scanner_profile, "BlockReaderRsReadersInitTimer");
-    _block_reader_build_heap_init_timer =
-            ADD_TIMER(_scanner_profile, "BlockReaderBuildHeapInitTimer");
+    _tablet_reader_init_timer =
+            ADD_CHILD_TIMER(_scanner_profile, "TabletReaderInitTimer", "ReaderInitTime");
+    _tablet_reader_capture_rs_readers_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "TabletReaderCaptureRsReadersTimer", "TabletReaderInitTimer");
+    _tablet_reader_init_return_columns_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "TabletReaderInitReturnColumnsTimer", "TabletReaderInitTimer");
+    _tablet_reader_init_keys_param_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "TabletReaderInitKeysParamTimer", "TabletReaderInitTimer");
+    _tablet_reader_init_orderby_keys_param_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "TabletReaderInitOrderbyKeysParamTimer", "TabletReaderInitTimer");
+    _tablet_reader_init_conditions_param_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "TabletReaderInitConditionsParamTimer", "TabletReaderInitTimer");
+    _tablet_reader_init_delete_condition_param_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "TabletReaderInitDeleteConditionParamTimer", "TabletReaderInitTimer");
+    _block_reader_vcollect_iter_init_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "BlockReaderVcollectIterInitTimer", "TabletReaderInitTimer");
+    _block_reader_rs_readers_init_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "BlockReaderRsReadersInitTimer", "TabletReaderInitTimer");
+    _block_reader_build_heap_init_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "BlockReaderBuildHeapInitTimer", "TabletReaderInitTimer");
 
-    _rowset_reader_get_segment_iterators_timer =
-            ADD_TIMER(_scanner_profile, "RowsetReaderGetSegmentIteratorsTimer");
+    _rowset_reader_get_segment_iterators_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "RowsetReaderGetSegmentIteratorsTimer", "ScannerGetBlockTime");
+    _delete_bitmap_get_agg_timer = ADD_CHILD_TIMER(_scanner_profile, "DeleteBitmapGetAggTime",
+                                                   "RowsetReaderGetSegmentIteratorsTimer");
     _rowset_reader_create_iterators_timer =
-            ADD_TIMER(_scanner_profile, "RowsetReaderCreateIteratorsTimer");
-    _rowset_reader_init_iterators_timer =
-            ADD_TIMER(_scanner_profile, "RowsetReaderInitIteratorsTimer");
-    _rowset_reader_load_segments_timer =
-            ADD_TIMER(_scanner_profile, "RowsetReaderLoadSegmentsTimer");
+            ADD_CHILD_TIMER(_scanner_profile, "RowsetReaderCreateIteratorsTimer",
+                            "RowsetReaderGetSegmentIteratorsTimer");
+    _rowset_reader_init_iterators_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "RowsetReaderInitIteratorsTimer", "ScannerGetBlockTime");
+    _rowset_reader_load_segments_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "RowsetReaderLoadSegmentsTimer", "ScannerGetBlockTime");
 
-    _segment_iterator_init_timer = ADD_TIMER(_scanner_profile, "SegmentIteratorInitTimer");
+    _segment_iterator_init_timer =
+            ADD_CHILD_TIMER(_scanner_profile, "SegmentIteratorInitTimer", "BlockFetchTime");
     _segment_iterator_init_return_column_iterators_timer =
-            ADD_TIMER(_scanner_profile, "SegmentIteratorInitReturnColumnIteratorsTimer");
-    _segment_iterator_init_index_iterators_timer =
-            ADD_TIMER(_scanner_profile, "SegmentIteratorInitIndexIteratorsTimer");
+            ADD_CHILD_TIMER(_scanner_profile, "SegmentIteratorInitReturnColumnIteratorsTimer",
+                            "SegmentIteratorInitTimer");
+    _segment_iterator_init_index_iterators_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "SegmentIteratorInitIndexIteratorsTimer", "SegmentIteratorInitTimer");
     _segment_iterator_init_segment_prefetchers_timer =
-            ADD_TIMER(_scanner_profile, "SegmentIteratorInitSegmentPrefetchersTimer");
+            ADD_CHILD_TIMER(_scanner_profile, "SegmentIteratorInitSegmentPrefetchersTimer",
+                            "SegmentIteratorInitTimer");
 
-    _segment_create_column_readers_timer =
-            ADD_TIMER(_scanner_profile, "SegmentCreateColumnReadersTimer");
-    _segment_load_index_timer = ADD_TIMER(_scanner_profile, "SegmentLoadIndexTimer");
+    // These two timers span both iterator init and later lazy segment init paths,
+    // so their nearest stable ancestor is ScannerGetBlockTime instead of any
+    // narrower SegmentIterator/BlockFetch subphase.
+    _segment_create_column_readers_timer = ADD_CHILD_TIMER(
+            _scanner_profile, "SegmentCreateColumnReadersTimer", "ScannerGetBlockTime");
+    _segment_load_index_timer =
+            ADD_CHILD_TIMER(_scanner_profile, "SegmentLoadIndexTimer", "ScannerGetBlockTime");
 
     _index_filter_profile = std::make_unique<RuntimeProfile>("IndexFilter");
     _scanner_profile->add_child(_index_filter_profile.get(), true, nullptr);
@@ -389,6 +400,59 @@ Status OlapScanLocalState::_init_profile() {
     _variant_doc_value_column_iter_count =
             ADD_COUNTER(_segment_profile, "VariantDocValueColumnIterCount", TUnit::UNIT);
 
+    _adaptive_batch_predict_min_rows_counter =
+            ADD_COUNTER(_segment_profile, "AdaptiveBatchPredictMinRows", TUnit::UNIT);
+    _adaptive_batch_predict_max_rows_counter =
+            ADD_COUNTER(_segment_profile, "AdaptiveBatchPredictMaxRows", TUnit::UNIT);
+
+    return Status::OK();
+}
+
+static bool contains_expr_node_type(const VExprSPtr& expr, TExprNodeType::type node_type) {
+    DORIS_CHECK(expr != nullptr);
+    if (expr->node_type() == node_type) {
+        return true;
+    }
+    if (expr->is_rf_wrapper() && contains_expr_node_type(expr->get_impl(), node_type)) {
+        return true;
+    }
+    return std::ranges::any_of(expr->children(), [node_type](const auto& child) {
+        return contains_expr_node_type(child, node_type);
+    });
+}
+
+static Status validate_residual_scan_conjuncts(RuntimeState* state,
+                                               TPushAggOp::type push_down_agg_type,
+                                               const VExprContextSPtrs& conjuncts) {
+    for (const auto& conjunct : conjuncts) {
+        const auto& root = conjunct->root();
+        if (contains_expr_node_type(root, TExprNodeType::SEARCH_EXPR)) {
+            return Status::InvalidArgument(
+                    "SEARCH expression remains as a residual scan predicate. A valid search() "
+                    "must bind at least one indexed field and be evaluated in SegmentIterator. "
+                    "enable_segment_limit_pushdown only controls SegmentIterator LIMIT pushdown "
+                    "and cannot make residual SEARCH executable.");
+        }
+        if (!state->query_options().enable_match_without_inverted_index &&
+            contains_expr_node_type(root, TExprNodeType::MATCH_PRED)) {
+            return Status::InvalidArgument(
+                    "MATCH expression remains as a residual scan predicate and would fall back to "
+                    "a disabled slow path because enable_match_without_inverted_index is false. "
+                    "enable_segment_limit_pushdown only controls SegmentIterator LIMIT pushdown "
+                    "and cannot make residual MATCH executable. Set "
+                    "enable_match_without_inverted_index=true to allow slow MATCH execution.");
+        }
+    }
+
+    if (push_down_agg_type == TPushAggOp::COUNT_ON_INDEX && !conjuncts.empty()) {
+        return Status::InvalidArgument(
+                "COUNT_ON_INDEX pushdown cannot be used with residual scan predicates. "
+                "Residual predicates must be evaluated before COUNT_ON_INDEX counts rows; "
+                "otherwise the query may return incorrect results. "
+                "enable_segment_limit_pushdown only controls SegmentIterator LIMIT pushdown and "
+                "does not make COUNT_ON_INDEX safe with residual predicates. Set "
+                "enable_count_on_index_pushdown=false to disable COUNT_ON_INDEX pushdown.");
+    }
     return Status::OK();
 }
 
@@ -398,6 +462,8 @@ Status OlapScanLocalState::_process_conjuncts(RuntimeState* state) {
     if (ScanLocalState::_eos) {
         return Status::OK();
     }
+    auto& p = _parent->cast<OlapScanOperatorX>();
+    RETURN_IF_ERROR(validate_residual_scan_conjuncts(state, p._push_down_agg_type, _conjuncts));
     RETURN_IF_ERROR(_build_key_ranges_and_filters());
     return Status::OK();
 }
@@ -457,8 +523,38 @@ Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* f
     return Status::OK();
 }
 
-bool OlapScanLocalState::_should_push_down_common_expr() {
-    return state()->enable_common_expr_pushdown() && _storage_no_merge();
+bool OlapScanLocalState::_should_push_down_common_expr(const VExprSPtr& expr) {
+    // SegmentIterator common exprs must eventually act on at least one scan slot.
+    if (!_check_expr_storage_filter(expr, ExprStorageFilterCheckMode::HAS_SEGMENT_EVALUABLE_EXPR)) {
+        return false;
+    }
+
+    // DUP and UNIQUE-MOW/MOR-as-DUP do not need storage aggregation/merge, so any slot-based common
+    // expression can be evaluated together with SegmentIterator lazy materialization.
+    if (_storage_no_merge()) {
+        return true;
+    }
+
+    // AGG and UNIQUE-MOR may still merge value columns above SegmentIterator. Push only key-column
+    // expressions so filtering does not observe pre-merge values.
+    return !_check_expr_storage_filter(expr, ExprStorageFilterCheckMode::HAS_NON_KEY_SLOT);
+}
+
+bool OlapScanLocalState::_check_expr_storage_filter(const VExprSPtr& expr,
+                                                    ExprStorageFilterCheckMode mode) {
+    if (expr->is_slot_ref()) {
+        const auto* slot_ref = assert_cast<const VSlotRef*>(expr.get());
+        return mode == ExprStorageFilterCheckMode::HAS_SEGMENT_EVALUABLE_EXPR ||
+               !_is_key_column(slot_ref->expr_name());
+    }
+    if (expr->is_virtual_slot_ref()) {
+        // Treat virtual slot ref as non-key because it may depend on non-key source columns.
+        return true;
+    }
+
+    return std::ranges::any_of(expr->children(), [this, mode](const auto& child) {
+        return _check_expr_storage_filter(child, mode);
+    });
 }
 
 bool OlapScanLocalState::_storage_no_merge() {
@@ -1066,6 +1162,8 @@ OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, i
           _cache_param(param) {
     _output_tuple_id = tnode.olap_scan_node.tuple_id;
     if (_olap_scan_node.__isset.sort_info && _olap_scan_node.__isset.sort_limit) {
+        DORIS_CHECK(_limit < 0);
+        DORIS_CHECK(_olap_scan_node.sort_limit > 0);
         _limit_per_scanner = _olap_scan_node.sort_limit;
     }
     DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {

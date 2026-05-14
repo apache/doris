@@ -96,6 +96,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
 
     // convert RowsetReaderContext to StorageReadOptions
     _read_options.block_row_max = read_context->batch_size;
+    _read_options.preferred_block_size_bytes = read_context->preferred_block_size_bytes;
     _read_options.stats = _stats;
     _read_options.push_down_agg_type_opt = _read_context->push_down_agg_type_opt;
     _read_options.remaining_conjunct_roots = _read_context->remaining_conjunct_roots;
@@ -113,7 +114,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.rowset_id = _rowset->rowset_id();
     _read_options.version = _rowset->version();
     _read_options.tablet_id = _rowset->rowset_meta()->tablet_id();
-    _read_options.topn_limit = _topn_limit;
+    _read_options.read_limit = _topn_limit;
     if (_read_context->lower_bound_keys != nullptr) {
         for (int i = 0; i < _read_context->lower_bound_keys->size(); ++i) {
             _read_options.key_ranges.emplace_back(&_read_context->lower_bound_keys->at(i),

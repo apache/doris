@@ -18,12 +18,16 @@
 package org.apache.doris.maxcompute;
 
 import org.apache.doris.common.jni.JniWriter;
+import org.apache.doris.common.jni.utils.JNINativeMethod;
 import org.apache.doris.common.jni.vec.VectorColumn;
 import org.apache.doris.common.jni.vec.VectorTable;
+import org.apache.doris.common.maxcompute.MCProperties;
 import org.apache.doris.common.maxcompute.MCUtils;
 
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsType;
+import com.aliyun.odps.table.arrow.ArrowWriter;
+import com.aliyun.odps.table.arrow.ArrowWriterFactory;
 import com.aliyun.odps.table.configuration.ArrowOptions;
 import com.aliyun.odps.table.configuration.ArrowOptions.TimestampUnit;
 import com.aliyun.odps.table.configuration.CompressionCodec;
@@ -64,11 +68,13 @@ import org.apache.log4j.Logger;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
+import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
@@ -88,56 +94,38 @@ public class MaxComputeJniWriter extends JniWriter {
     private static final String QUOTA = "quota";
     private static final String PROJECT = "project";
     private static final String TABLE = "table";
+    private static final String TXN_ID = "txn_id";
     private static final String WRITE_SESSION_ID = "write_session_id";
     private static final String BLOCK_ID = "block_id";
     private static final String PARTITION_SPEC = "partition_spec";
     private static final String CONNECT_TIMEOUT = "connect_timeout";
     private static final String READ_TIMEOUT = "read_timeout";
     private static final String RETRY_COUNT = "retry_count";
-    private static final String MAX_WRITE_BATCH_ROWS = "max_write_batch_rows";
 
     private final Map<String, String> params;
-
-    // 128MB batch threshold — controls peak Arrow native memory per batch.
-    // Arrow uses sun.misc.Unsafe.allocateMemory() which is invisible to JVM metrics.
-    // Each batch temporarily holds ~batchDataBytes of native memory.
-    // With 3 concurrent writers, total Arrow native = 3 * 128MB = ~384MB.
-    // Using 1GB was too large: 3 writers * 1GB = 3GB invisible native memory.
-    private static final long MAX_ARROW_BATCH_BYTES = 128 * 1024 * 1024L;
-
-    // Segmented commit: commit and recreate batchWriter every N rows to prevent
-    // MaxCompute SDK native memory accumulation. Without this, the SDK buffers
-    // all written data internally, causing process RSS to grow linearly with
-    // total data volume until SIGSEGV.
-    private static final long ROWS_PER_SEGMENT = 5000;
-
     private final String endpoint;
     private final String project;
     private final String tableName;
     private final String quota;
-    private String writeSessionId;
-    private long blockId;
-    private long nextBlockId; // For creating new segments with unique blockIds
-    private String partitionSpec;
-    private int connectTimeout;
-    private int readTimeout;
-    private int retryCount;
-    private int maxWriteBatchRows;
+    private final long txnId;
+    private final String writeSessionId;
+    private final Long preallocatedBlockId;
+    private final String partitionSpec;
+    private final int connectTimeout;
+    private final int readTimeout;
+    private final int retryCount;
+    private final long maxBlockBytes;
 
     // Storage API objects
     private TableBatchWriteSession writeSession;
     private BatchWriter<VectorSchemaRoot> batchWriter;
     private BufferAllocator allocator;
+    private WriterOptions writerOptions;
     private List<TypeInfo> columnTypeInfos;
     private List<String> columnNames;
-    // Collect commit messages from all segments (each batchWriter commit produces one)
-    private final List<WriterCommitMessage> commitMessages = new java.util.ArrayList<>();
-
-    // Per-segment row counter (resets after each segment commit)
-    private long segmentRows = 0;
-
-    // Writer options cached for creating new batchWriters
-    private WriterOptions writerOptions;
+    private long currentBlockId = -1L;
+    private long currentBlockWrittenBytes = 0L;
+    private final List<WriterCommitMessage> commitMessages = new ArrayList<>();
 
     // Statistics
     private long writtenRows = 0;
@@ -150,15 +138,23 @@ public class MaxComputeJniWriter extends JniWriter {
         this.project = Objects.requireNonNull(params.get(PROJECT), "required property '" + PROJECT + "'.");
         this.tableName = Objects.requireNonNull(params.get(TABLE), "required property '" + TABLE + "'.");
         this.quota = params.getOrDefault(QUOTA, "");
+        String txnIdStr = params.get(TXN_ID);
+        if (Strings.isNullOrEmpty(txnIdStr)) {
+            throw new IllegalArgumentException(
+                    "MaxCompute writer requires txn_id from FE; mixed-version FE/BE is not supported");
+        }
+        this.txnId = Long.parseLong(txnIdStr);
         this.writeSessionId = Objects.requireNonNull(params.get(WRITE_SESSION_ID),
                 "required property '" + WRITE_SESSION_ID + "'.");
-        this.blockId = Long.parseLong(params.getOrDefault(BLOCK_ID, "0"));
-        this.nextBlockId = this.blockId + 1; // Reserve blockId for first writer, increment for segments
+        this.preallocatedBlockId = params.containsKey(BLOCK_ID)
+                ? Long.parseLong(params.get(BLOCK_ID)) : null;
         this.partitionSpec = params.getOrDefault(PARTITION_SPEC, "");
         this.connectTimeout = Integer.parseInt(params.getOrDefault(CONNECT_TIMEOUT, "10"));
         this.readTimeout = Integer.parseInt(params.getOrDefault(READ_TIMEOUT, "120"));
         this.retryCount = Integer.parseInt(params.getOrDefault(RETRY_COUNT, "4"));
-        this.maxWriteBatchRows = Integer.parseInt(params.getOrDefault(MAX_WRITE_BATCH_ROWS, "4096"));
+        this.maxBlockBytes = Long.parseLong(
+                params.getOrDefault(MCProperties.WRITE_MAX_BLOCK_BYTES,
+                        MCProperties.DEFAULT_WRITE_MAX_BLOCK_BYTES));
     }
 
     @Override
@@ -212,17 +208,15 @@ public class MaxComputeJniWriter extends JniWriter {
 
             allocator = new RootAllocator(Long.MAX_VALUE);
 
-            // Cache writer options for creating new batchWriters in segments
             writerOptions = WriterOptions.newBuilder()
                     .withSettings(settings)
                     .withCompressionCodec(CompressionCodec.ZSTD)
                     .build();
-            batchWriter = writeSession.createArrowWriter(blockId,
-                    WriterAttemptId.of(0), writerOptions);
+            openBatchWriter(resolveInitialBlockId());
 
             LOG.info("MaxComputeJniWriter opened: project=" + project + ", table=" + tableName
                     + ", writeSessionId=" + writeSessionId + ", partitionSpec=" + partitionSpec
-                    + ", blockId=" + blockId);
+                    + ", blockId=" + currentBlockId);
         } catch (Exception e) {
             String errorMsg = "Failed to open MaxCompute write session for table " + project + "." + tableName;
             LOG.error(errorMsg, e);
@@ -239,44 +233,7 @@ public class MaxComputeJniWriter extends JniWriter {
         }
 
         try {
-            // Stream data directly from off-heap VectorColumn to Arrow vectors.
-            // Unlike the previous getMaterializedData() approach that created
-            // Object[][] (with String objects for STRING columns causing 3x memory
-            // amplification), this reads bytes directly from VectorColumn and writes
-            // to Arrow, keeping peak heap usage per batch to O(batch_rows * row_size)
-            // instead of O(2 * batch_rows * row_size).
-            int rowOffset = 0;
-            while (rowOffset < numRows) {
-                int batchRows = Math.min(maxWriteBatchRows, numRows - rowOffset);
-
-                // For variable-width columns, check byte budget to avoid Arrow int32 overflow
-                batchRows = limitWriteBatchByBytesStreaming(inputTable, numCols,
-                        rowOffset, batchRows);
-
-                VectorSchemaRoot root = batchWriter.newElement();
-                try {
-                    root.setRowCount(batchRows);
-
-                    for (int col = 0; col < numCols && col < columnTypeInfos.size(); col++) {
-                        OdpsType odpsType = columnTypeInfos.get(col).getOdpsType();
-                        fillArrowVectorStreaming(root, col, odpsType,
-                                inputTable.getColumn(col), rowOffset, batchRows);
-                    }
-
-                    batchWriter.write(root);
-                } finally {
-                    root.close();
-                }
-
-                writtenRows += batchRows;
-                segmentRows += batchRows;
-                rowOffset += batchRows;
-
-                // Segmented commit: rotate batchWriter to release SDK native memory
-                if (segmentRows >= ROWS_PER_SEGMENT) {
-                    rotateBatchWriter();
-                }
-            }
+            writeRowsWithRowChecks(inputTable, numRows, numCols);
         } catch (Exception e) {
             String errorMsg = "Failed to write data to MaxCompute table " + project + "." + tableName;
             LOG.error(errorMsg, e);
@@ -284,116 +241,120 @@ public class MaxComputeJniWriter extends JniWriter {
         }
     }
 
-    /**
-     * Commit current batchWriter and create a new one with a fresh blockId.
-     * This forces the MaxCompute SDK to flush and release internal native memory
-     * buffers that accumulate during writes. Without rotation, the SDK holds all
-     * serialized Arrow data in native memory until close(), causing process RSS
-     * to grow linearly with total data volume.
-     */
-    private void rotateBatchWriter() throws IOException {
-        try {
-            // 1. Commit current batchWriter and save its commit message
-            WriterCommitMessage msg = batchWriter.commit();
-            commitMessages.add(msg);
-            batchWriter = null;
-
-            // 2. Close current allocator to release Arrow native memory
-            allocator.close();
-            allocator = null;
-
-            // 3. Create new allocator and batchWriter with a new blockId
-            long newBlockId = nextBlockId++;
-            allocator = new RootAllocator(Long.MAX_VALUE);
-            batchWriter = writeSession.createArrowWriter(newBlockId,
-                    WriterAttemptId.of(0), writerOptions);
-
-            LOG.info("Rotated batchWriter: oldBlockId=" + blockId + ", newBlockId=" + newBlockId
-                    + ", totalCommitMessages=" + commitMessages.size()
-                    + ", totalWrittenRows=" + writtenRows);
-
-            blockId = newBlockId;
-            segmentRows = 0;
-        } catch (Exception e) {
-            throw new IOException("Failed to rotate batchWriter for table "
-                    + project + "." + tableName, e);
-        }
+    private long resolveInitialBlockId() {
+        return preallocatedBlockId != null ? preallocatedBlockId : requestBlockId();
     }
 
-
-    private boolean isVariableWidthType(OdpsType type) {
-        return type == OdpsType.STRING || type == OdpsType.VARCHAR
-                || type == OdpsType.CHAR || type == OdpsType.BINARY;
+    private long requestBlockId() {
+        return JNINativeMethod.requestMaxComputeBlockId(txnId, writeSessionId);
     }
 
-    /**
-     * Limit write batch size by estimating variable-width column bytes directly
-     * from the off-heap VectorColumn, without materializing data to Java heap.
-     */
-    private int limitWriteBatchByBytesStreaming(VectorTable inputTable, int numCols,
-                                               int rowOffset, int batchRows) {
-        for (int col = 0; col < numCols && col < columnTypeInfos.size(); col++) {
-            OdpsType odpsType = columnTypeInfos.get(col).getOdpsType();
-            if (!isVariableWidthType(odpsType)) {
-                continue;
-            }
-            VectorColumn vc = inputTable.getColumn(col);
-            batchRows = findMaxRowsForColumnStreaming(vc, rowOffset, batchRows, MAX_ARROW_BATCH_BYTES);
-            if (batchRows <= 1) {
-                return Math.max(1, batchRows);
-            }
-        }
-        return batchRows;
+    private void openBatchWriter(long blockId) throws IOException {
+        currentBlockId = blockId;
+        currentBlockWrittenBytes = 0L;
+        batchWriter = writeSession.createArrowWriter(blockId, WriterAttemptId.of(0), writerOptions);
     }
 
-    /**
-     * Find the maximum number of rows (from rowOffset) whose total byte size
-     * fits within budget, by reading offset metadata directly from VectorColumn.
-     */
-    private int findMaxRowsForColumnStreaming(VectorColumn vc, int rowOffset, int maxRows, long budget) {
-        long totalBytes = estimateColumnBytesStreaming(vc, rowOffset, maxRows);
-        if (totalBytes <= budget) {
-            return maxRows;
+    private void closeCurrentBatchWriterAndCollectCommit() throws IOException {
+        if (batchWriter == null) {
+            return;
         }
-        int rows = maxRows;
-        while (rows > 1) {
-            rows = rows / 2;
-            totalBytes = estimateColumnBytesStreaming(vc, rowOffset, rows);
-            if (totalBytes <= budget) {
-                int lo = rows;
-                int hi = Math.min(rows * 2, maxRows);
-                while (lo < hi) {
-                    int mid = lo + (hi - lo + 1) / 2;
-                    if (estimateColumnBytesStreaming(vc, rowOffset, mid) <= budget) {
-                        lo = mid;
-                    } else {
-                        hi = mid - 1;
+        WriterCommitMessage commitMessage = batchWriter.commit();
+        if (commitMessage != null) {
+            commitMessages.add(commitMessage);
+        }
+        batchWriter = null;
+    }
+
+    private void rotateCurrentBatchWriter() throws IOException {
+        closeCurrentBatchWriterAndCollectCommit();
+        openBatchWriter(requestBlockId());
+    }
+
+    private void writeRowsWithRowChecks(VectorTable inputTable, int numRows, int numCols) throws IOException {
+        int rowStart = 0;
+        while (rowStart < numRows) {
+            int rowEnd = rowStart;
+            long batchEstimatedBytes = 0L;
+            boolean rotateAfterWrite = false;
+            while (rowEnd < numRows) {
+                long rowEstimatedBytes = estimateSingleRowPayloadBytes(inputTable, numCols, rowEnd);
+                boolean exceedsHardLimit = currentBlockWrittenBytes + batchEstimatedBytes
+                        + rowEstimatedBytes > maxBlockBytes;
+                if (exceedsHardLimit) {
+                    if (rowEnd == rowStart) {
+                        if (currentBlockWrittenBytes > 0) {
+                            rotateCurrentBatchWriter();
+                            continue;
+                        }
+                        batchEstimatedBytes += rowEstimatedBytes;
+                        rowEnd++;
+                        rotateAfterWrite = true;
                     }
+                    break;
                 }
-                return lo;
+                batchEstimatedBytes += rowEstimatedBytes;
+                rowEnd++;
+                if (currentBlockWrittenBytes + batchEstimatedBytes >= maxBlockBytes) {
+                    rotateAfterWrite = true;
+                    break;
+                }
+            }
+
+            if (rowEnd == rowStart) {
+                long rowEstimatedBytes = estimateSingleRowPayloadBytes(inputTable, numCols, rowStart);
+                batchEstimatedBytes = rowEstimatedBytes;
+                rowEnd = rowStart + 1;
+                rotateAfterWrite = true;
+            }
+
+            try (VectorSchemaRoot root = buildRowRangeRoot(inputTable, numCols, rowStart, rowEnd)) {
+                batchWriter.write(root);
+            }
+            batchWriter.flush();
+            int rowsWrittenNow = rowEnd - rowStart;
+            writtenRows += rowsWrittenNow;
+            currentBlockWrittenBytes += batchEstimatedBytes;
+            writtenBytes += batchEstimatedBytes;
+            rowStart = rowEnd;
+
+            if (rotateAfterWrite && rowStart < numRows) {
+                rotateCurrentBatchWriter();
             }
         }
-        return 1;
     }
 
-    /**
-     * Estimate total bytes for a range of rows in a VectorColumn by reading
-     * the offset array directly from off-heap memory, without creating any
-     * byte[] objects. This is O(1) per row (just offset subtraction).
-     */
-    private long estimateColumnBytesStreaming(VectorColumn vc, int rowOffset, int rows) {
-        long total = 0;
-        long offsetAddr = vc.offsetAddress();
-        for (int i = rowOffset; i < rowOffset + rows; i++) {
-            if (!vc.isNullAt(i)) {
-                // String offsets are stored as int32 in VectorColumn
-                int startOff = i == 0 ? 0
-                        : org.apache.doris.common.jni.utils.OffHeap.getInt(null, offsetAddr + 4L * (i - 1));
-                int endOff = org.apache.doris.common.jni.utils.OffHeap.getInt(null, offsetAddr + 4L * i);
-                total += (endOff - startOff);
-            }
+    private static class CountingDiscardOutputStream extends OutputStream {
+        @Override
+        public void write(int b) {
+            // Discard bytes while allowing WriteChannel to track payload size.
         }
-        return total;
+
+        @Override
+        public void write(byte[] b, int off, int len) {
+            // Discard bytes while allowing WriteChannel to track payload size.
+        }
+    }
+
+    private long estimateSingleRowPayloadBytes(VectorTable inputTable, int numCols, int rowIndex)
+            throws IOException {
+        try (VectorSchemaRoot root = buildRowRangeRoot(inputTable, numCols, rowIndex, rowIndex + 1);
+                ArrowWriter estimator = ArrowWriterFactory.getRecordBatchWriter(
+                        new CountingDiscardOutputStream(), writerOptions)) {
+            estimator.writeBatch(root);
+            return estimator.bytesWritten();
+        }
+    }
+
+    private VectorSchemaRoot buildRowRangeRoot(VectorTable inputTable, int numCols, int rowStart, int rowEnd) {
+        int rowCount = rowEnd - rowStart;
+        VectorSchemaRoot root = batchWriter.newElement();
+        root.setRowCount(rowCount);
+        for (int col = 0; col < numCols && col < columnTypeInfos.size(); col++) {
+            fillArrowVectorStreaming(root, col, columnTypeInfos.get(col).getOdpsType(),
+                    inputTable.getColumn(col), rowStart, rowCount);
+        }
+        return root;
     }
 
     /**
@@ -512,17 +473,13 @@ public class MaxComputeJniWriter extends JniWriter {
             case STRING:
             case VARCHAR:
             case CHAR: {
-                // KEY FIX: Read bytes directly from off-heap, no String creation.
-                // Previously: getMaterializedData -> String[] -> toString().getBytes() -> Arrow
-                // Now: getBytesWithOffset() -> byte[] -> Arrow (1 copy instead of 3)
                 VarCharVector vec = (VarCharVector) root.getVector(colIdx);
                 vec.allocateNew(numRows);
                 for (int i = 0; i < numRows; i++) {
                     if (vc.isNullAt(rowOffset + i)) {
                         vec.setNull(i);
                     } else {
-                        byte[] bytes = vc.getBytesWithOffset(rowOffset + i);
-                        vec.setSafe(i, bytes);
+                        vec.setSafe(i, vc.getBytesWithOffset(rowOffset + i));
                     }
                 }
                 vec.setValueCount(numRows);
@@ -535,8 +492,7 @@ public class MaxComputeJniWriter extends JniWriter {
                     if (vc.isNullAt(rowOffset + i)) {
                         vec.setNull(i);
                     } else {
-                        LocalDate date = vc.getDate(rowOffset + i);
-                        vec.set(i, (int) date.toEpochDay());
+                        vec.set(i, (int) vc.getDate(rowOffset + i).toEpochDay());
                     }
                 }
                 vec.setValueCount(numRows);
@@ -550,8 +506,8 @@ public class MaxComputeJniWriter extends JniWriter {
                     if (vc.isNullAt(rowOffset + i)) {
                         vec.setNull(i);
                     } else {
-                        LocalDateTime dt = vc.getDateTime(rowOffset + i);
-                        long millis = dt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+                        long millis = vc.getDateTime(rowOffset + i)
+                                .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
                         vec.set(i, millis);
                     }
                 }
@@ -565,16 +521,15 @@ public class MaxComputeJniWriter extends JniWriter {
                     if (vc.isNullAt(rowOffset + i)) {
                         vec.setNull(i);
                     } else {
-                        byte[] bytes = vc.getBytesWithOffset(rowOffset + i);
-                        vec.setSafe(i, bytes);
+                        vec.setSafe(i, vc.getBytesWithOffset(rowOffset + i));
                     }
                 }
                 vec.setValueCount(numRows);
                 break;
             }
             default: {
-                // For complex types (ARRAY, MAP, STRUCT) and other types,
-                // fall back to object-based materialization for this column only.
+                // Complex types still fall back to object materialization; the
+                // optimization target here is large variable-width primitive columns.
                 Object[] colData = vc.getObjectColumn(rowOffset, rowOffset + numRows);
                 fillArrowVector(root, colIdx, odpsType, colData, 0, numRows);
                 break;
@@ -583,16 +538,17 @@ public class MaxComputeJniWriter extends JniWriter {
     }
 
     private void fillArrowVector(VectorSchemaRoot root, int colIdx, OdpsType odpsType,
-                                  Object[] colData, int rowOffset, int numRows) {
+                                 Object[] colData, int startRow, int numRows) {
         switch (odpsType) {
             case BOOLEAN: {
                 BitVector vec = (BitVector) root.getVector(colIdx);
                 vec.allocateNew(numRows);
                 for (int i = 0; i < numRows; i++) {
-                    if (colData[rowOffset + i] == null) {
+                    Object value = colData[startRow + i];
+                    if (value == null) {
                         vec.setNull(i);
                     } else {
-                        vec.set(i, (Boolean) colData[rowOffset + i] ? 1 : 0);
+                        vec.set(i, (Boolean) value ? 1 : 0);
                     }
                 }
                 vec.setValueCount(numRows);
@@ -602,10 +558,11 @@ public class MaxComputeJniWriter extends JniWriter {
                 TinyIntVector vec = (TinyIntVector) root.getVector(colIdx);
                 vec.allocateNew(numRows);
                 for (int i = 0; i < numRows; i++) {
-                    if (colData[rowOffset + i] == null) {
+                    Object value = colData[startRow + i];
+                    if (value == null) {
                         vec.setNull(i);
                     } else {
-                        vec.set(i, ((Number) colData[rowOffset + i]).byteValue());
+                        vec.set(i, ((Number) value).byteValue());
                     }
                 }
                 vec.setValueCount(numRows);
@@ -615,10 +572,11 @@ public class MaxComputeJniWriter extends JniWriter {
                 SmallIntVector vec = (SmallIntVector) root.getVector(colIdx);
                 vec.allocateNew(numRows);
                 for (int i = 0; i < numRows; i++) {
-                    if (colData[rowOffset + i] == null) {
+                    Object value = colData[startRow + i];
+                    if (value == null) {
                         vec.setNull(i);
                     } else {
-                        vec.set(i, ((Number) colData[rowOffset + i]).shortValue());
+                        vec.set(i, ((Number) value).shortValue());
                     }
                 }
                 vec.setValueCount(numRows);
@@ -628,10 +586,11 @@ public class MaxComputeJniWriter extends JniWriter {
                 IntVector vec = (IntVector) root.getVector(colIdx);
                 vec.allocateNew(numRows);
                 for (int i = 0; i < numRows; i++) {
-                    if (colData[rowOffset + i] == null) {
+                    Object value = colData[startRow + i];
+                    if (value == null) {
                         vec.setNull(i);
                     } else {
-                        vec.set(i, ((Number) colData[rowOffset + i]).intValue());
+                        vec.set(i, ((Number) value).intValue());
                     }
                 }
                 vec.setValueCount(numRows);
@@ -641,10 +600,11 @@ public class MaxComputeJniWriter extends JniWriter {
                 BigIntVector vec = (BigIntVector) root.getVector(colIdx);
                 vec.allocateNew(numRows);
                 for (int i = 0; i < numRows; i++) {
-                    if (colData[rowOffset + i] == null) {
+                    Object value = colData[startRow + i];
+                    if (value == null) {
                         vec.setNull(i);
                     } else {
-                        vec.set(i, ((Number) colData[rowOffset + i]).longValue());
+                        vec.set(i, ((Number) value).longValue());
                     }
                 }
                 vec.setValueCount(numRows);
@@ -654,10 +614,11 @@ public class MaxComputeJniWriter extends JniWriter {
                 Float4Vector vec = (Float4Vector) root.getVector(colIdx);
                 vec.allocateNew(numRows);
                 for (int i = 0; i < numRows; i++) {
-                    if (colData[rowOffset + i] == null) {
+                    Object value = colData[startRow + i];
+                    if (value == null) {
                         vec.setNull(i);
                     } else {
-                        vec.set(i, ((Number) colData[rowOffset + i]).floatValue());
+                        vec.set(i, ((Number) value).floatValue());
                     }
                 }
                 vec.setValueCount(numRows);
@@ -667,10 +628,11 @@ public class MaxComputeJniWriter extends JniWriter {
                 Float8Vector vec = (Float8Vector) root.getVector(colIdx);
                 vec.allocateNew(numRows);
                 for (int i = 0; i < numRows; i++) {
-                    if (colData[rowOffset + i] == null) {
+                    Object value = colData[startRow + i];
+                    if (value == null) {
                         vec.setNull(i);
                     } else {
-                        vec.set(i, ((Number) colData[rowOffset + i]).doubleValue());
+                        vec.set(i, ((Number) value).doubleValue());
                     }
                 }
                 vec.setValueCount(numRows);
@@ -680,12 +642,13 @@ public class MaxComputeJniWriter extends JniWriter {
                 DecimalVector vec = (DecimalVector) root.getVector(colIdx);
                 vec.allocateNew(numRows);
                 for (int i = 0; i < numRows; i++) {
-                    if (colData[rowOffset + i] == null) {
+                    Object value = colData[startRow + i];
+                    if (value == null) {
                         vec.setNull(i);
                     } else {
-                        BigDecimal bd = (colData[rowOffset + i] instanceof BigDecimal)
-                                ? (BigDecimal) colData[rowOffset + i]
-                                : new BigDecimal(colData[rowOffset + i].toString());
+                        BigDecimal bd = (value instanceof BigDecimal)
+                                ? (BigDecimal) value
+                                : new BigDecimal(value.toString());
                         vec.set(i, bd);
                     }
                 }
@@ -698,14 +661,15 @@ public class MaxComputeJniWriter extends JniWriter {
                 VarCharVector vec = (VarCharVector) root.getVector(colIdx);
                 vec.allocateNew(numRows);
                 for (int i = 0; i < numRows; i++) {
-                    if (colData[rowOffset + i] == null) {
+                    Object value = colData[startRow + i];
+                    if (value == null) {
                         vec.setNull(i);
                     } else {
                         byte[] bytes;
-                        if (colData[rowOffset + i] instanceof byte[]) {
-                            bytes = (byte[]) colData[rowOffset + i];
+                        if (value instanceof byte[]) {
+                            bytes = (byte[]) value;
                         } else {
-                            bytes = colData[rowOffset + i].toString().getBytes(StandardCharsets.UTF_8);
+                            bytes = value.toString().getBytes(StandardCharsets.UTF_8);
                         }
                         vec.setSafe(i, bytes);
                     }
@@ -717,12 +681,13 @@ public class MaxComputeJniWriter extends JniWriter {
                 DateDayVector vec = (DateDayVector) root.getVector(colIdx);
                 vec.allocateNew(numRows);
                 for (int i = 0; i < numRows; i++) {
-                    if (colData[rowOffset + i] == null) {
+                    Object value = colData[startRow + i];
+                    if (value == null) {
                         vec.setNull(i);
-                    } else if (colData[rowOffset + i] instanceof LocalDate) {
-                        vec.set(i, (int) ((LocalDate) colData[rowOffset + i]).toEpochDay());
+                    } else if (value instanceof LocalDate) {
+                        vec.set(i, (int) ((LocalDate) value).toEpochDay());
                     } else {
-                        vec.set(i, (int) LocalDate.parse(colData[rowOffset + i].toString()).toEpochDay());
+                        vec.set(i, (int) LocalDate.parse(value.toString()).toEpochDay());
                     }
                 }
                 vec.setValueCount(numRows);
@@ -733,16 +698,17 @@ public class MaxComputeJniWriter extends JniWriter {
                 TimeStampMilliVector vec = (TimeStampMilliVector) root.getVector(colIdx);
                 vec.allocateNew(numRows);
                 for (int i = 0; i < numRows; i++) {
-                    if (colData[rowOffset + i] == null) {
+                    Object value = colData[startRow + i];
+                    if (value == null) {
                         vec.setNull(i);
-                    } else if (colData[rowOffset + i] instanceof LocalDateTime) {
-                        long millis = ((LocalDateTime) colData[rowOffset + i])
+                    } else if (value instanceof LocalDateTime) {
+                        long millis = ((LocalDateTime) value)
                                 .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
                         vec.set(i, millis);
-                    } else if (colData[rowOffset + i] instanceof java.sql.Timestamp) {
-                        vec.set(i, ((java.sql.Timestamp) colData[rowOffset + i]).getTime());
+                    } else if (value instanceof java.sql.Timestamp) {
+                        vec.set(i, ((java.sql.Timestamp) value).getTime());
                     } else {
-                        long millis = LocalDateTime.parse(colData[rowOffset + i].toString())
+                        long millis = LocalDateTime.parse(value.toString())
                                 .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
                         vec.set(i, millis);
                     }
@@ -754,12 +720,13 @@ public class MaxComputeJniWriter extends JniWriter {
                 VarBinaryVector vec = (VarBinaryVector) root.getVector(colIdx);
                 vec.allocateNew(numRows);
                 for (int i = 0; i < numRows; i++) {
-                    if (colData[rowOffset + i] == null) {
+                    Object value = colData[startRow + i];
+                    if (value == null) {
                         vec.setNull(i);
-                    } else if (colData[rowOffset + i] instanceof byte[]) {
-                        vec.setSafe(i, (byte[]) colData[rowOffset + i]);
+                    } else if (value instanceof byte[]) {
+                        vec.setSafe(i, (byte[]) value);
                     } else {
-                        vec.setSafe(i, colData[rowOffset + i].toString().getBytes(StandardCharsets.UTF_8));
+                        vec.setSafe(i, value.toString().getBytes(StandardCharsets.UTF_8));
                     }
                 }
                 vec.setValueCount(numRows);
@@ -771,10 +738,11 @@ public class MaxComputeJniWriter extends JniWriter {
                 FieldVector dataVec = listVec.getDataVector();
                 int elemIdx = 0;
                 for (int i = 0; i < numRows; i++) {
-                    if (colData[rowOffset + i] == null) {
+                    Object value = colData[startRow + i];
+                    if (value == null) {
                         listVec.setNull(i);
                     } else {
-                        List<?> list = (List<?>) colData[rowOffset + i];
+                        List<?> list = (List<?>) value;
                         listVec.startNewValue(i);
                         for (Object elem : list) {
                             writeListElement(dataVec, elemIdx++, elem);
@@ -794,10 +762,11 @@ public class MaxComputeJniWriter extends JniWriter {
                 FieldVector valVec = structVec.getChildrenFromFields().get(1);
                 int elemIdx = 0;
                 for (int i = 0; i < numRows; i++) {
-                    if (colData[rowOffset + i] == null) {
+                    Object value = colData[startRow + i];
+                    if (value == null) {
                         mapVec.setNull(i);
                     } else {
-                        Map<?, ?> map = (Map<?, ?>) colData[rowOffset + i];
+                        Map<?, ?> map = (Map<?, ?>) value;
                         mapVec.startNewValue(i);
                         for (Map.Entry<?, ?> entry : map.entrySet()) {
                             structVec.setIndexDefined(elemIdx);
@@ -818,11 +787,12 @@ public class MaxComputeJniWriter extends JniWriter {
                 StructVector structVec = (StructVector) root.getVector(colIdx);
                 structVec.allocateNew();
                 for (int i = 0; i < numRows; i++) {
-                    if (colData[rowOffset + i] == null) {
+                    Object value = colData[startRow + i];
+                    if (value == null) {
                         structVec.setNull(i);
                     } else {
                         structVec.setIndexDefined(i);
-                        Map<?, ?> struct = (Map<?, ?>) colData[rowOffset + i];
+                        Map<?, ?> struct = (Map<?, ?>) value;
                         for (FieldVector childVec : structVec.getChildrenFromFields()) {
                             Object val = struct.get(childVec.getName());
                             writeListElement(childVec, i, val);
@@ -840,10 +810,11 @@ public class MaxComputeJniWriter extends JniWriter {
                 VarCharVector vec = (VarCharVector) root.getVector(colIdx);
                 vec.allocateNew(numRows);
                 for (int i = 0; i < numRows; i++) {
-                    if (colData[rowOffset + i] == null) {
+                    Object value = colData[startRow + i];
+                    if (value == null) {
                         vec.setNull(i);
                     } else {
-                        vec.setSafe(i, colData[rowOffset + i].toString().getBytes(StandardCharsets.UTF_8));
+                        vec.setSafe(i, value.toString().getBytes(StandardCharsets.UTF_8));
                     }
                 }
                 vec.setValueCount(numRows);
@@ -932,41 +903,21 @@ public class MaxComputeJniWriter extends JniWriter {
 
     @Override
     public void close() throws IOException {
-        Exception firstException = null;
         try {
-            // Commit the final segment's batchWriter
-            if (batchWriter != null) {
-                try {
-                    WriterCommitMessage msg = batchWriter.commit();
-                    commitMessages.add(msg);
-                } catch (Exception e) {
-                    firstException = e;
-                    LOG.warn("Failed to commit batch writer for table " + project + "." + tableName, e);
-                } finally {
-                    batchWriter = null;
-                }
-            }
-        } finally {
+            closeCurrentBatchWriterAndCollectCommit();
             if (allocator != null) {
-                try {
-                    allocator.close();
-                } catch (Exception e) {
-                    LOG.warn("Failed to close Arrow allocator (possible memory leak)", e);
-                    if (firstException == null) {
-                        firstException = e;
-                    }
-                } finally {
-                    allocator = null;
-                }
+                allocator.close();
+                allocator = null;
             }
-        }
-        LOG.info("MaxComputeJniWriter closed: writeSessionId=" + writeSessionId
-                + ", partitionSpec=" + partitionSpec
-                + ", writtenRows=" + writtenRows
-                + ", totalSegments=" + commitMessages.size()
-                + ", blockId=" + blockId);
-        if (firstException != null) {
-            throw new IOException("Failed to close MaxCompute arrow writer", firstException);
+            LOG.info("MaxComputeJniWriter closed: writeSessionId=" + writeSessionId
+                    + ", partitionSpec=" + partitionSpec
+                    + ", writtenRows=" + writtenRows
+                    + ", lastBlockId=" + currentBlockId
+                    + ", commitMessageCount=" + commitMessages.size());
+        } catch (Exception e) {
+            String errorMsg = "Failed to close MaxCompute arrow writer";
+            LOG.error(errorMsg, e);
+            throw new IOException(errorMsg, e);
         }
     }
 
@@ -975,14 +926,12 @@ public class MaxComputeJniWriter extends JniWriter {
         Map<String, String> stats = new HashMap<>();
         stats.put("mc_partition_spec", partitionSpec != null ? partitionSpec : "");
 
-        // Serialize all WriterCommitMessages (one per segment) as a List object.
+        // Serialize commit messages to Base64.
         if (!commitMessages.isEmpty()) {
             try {
                 ByteArrayOutputStream baos = new ByteArrayOutputStream();
                 ObjectOutputStream oos = new ObjectOutputStream(baos);
-                // Serialize the entire list as one object to avoid mixing
-                // writeInt/writeObject which causes OptionalDataException
-                oos.writeObject(new java.util.ArrayList<>(commitMessages));
+                oos.writeObject(commitMessages);
                 oos.close();
                 stats.put("mc_commit_message", Base64.getEncoder().encodeToString(baos.toByteArray()));
             } catch (IOException e) {
@@ -997,4 +946,3 @@ public class MaxComputeJniWriter extends JniWriter {
         return stats;
     }
 }
-

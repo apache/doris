@@ -343,6 +343,16 @@ public abstract class Tablet {
         return 0;
     }
 
+    public long getBinlogDataSize() {
+        long binlogDataSize = 0;
+        for (Replica replica : getReplicas()) {
+            if (replica.getState() == ReplicaState.NORMAL) {
+                binlogDataSize += replica.getBinlogSize();
+            }
+        }
+        return binlogDataSize;
+    }
+
     public abstract long getRowCount(boolean singleReplica);
 
     // Get the least row count among all valid replicas.

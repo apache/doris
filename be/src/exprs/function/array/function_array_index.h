@@ -41,6 +41,7 @@
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
+#include "core/field.h"
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/function/function.h"
@@ -151,7 +152,6 @@ public:
         }
         Field param_value;
         arguments[0].column->get(0, param_value);
-        auto param_type = arguments[0].type->get_primitive_type();
         // The current implementation for the inverted index of arrays cannot handle cases where the array contains null values,
         // meaning an item in the array is null.
         if (param_value.is_null()) {
@@ -164,13 +164,10 @@ public:
             RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
             null_bitmap = null_bitmap_cache_handle.get_bitmap();
         }
-        std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
-        RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(param_type, &param_value,
-                                                                           query_param));
         InvertedIndexParam param;
         param.column_name = data_type_with_name.first;
         param.column_type = data_type_with_name.second;
-        param.query_value = query_param->get_value();
+        param.query_value = param_value;
         param.query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
         param.num_rows = num_rows;
         param.roaring = std::make_shared<roaring::Roaring>();
@@ -408,8 +405,8 @@ private:
         }
         // execute
         auto array_type = remove_nullable(block.get_by_position(arguments[0]).type);
-        auto left_element_type =
-                remove_nullable(assert_cast<const DataTypeArray&>(*array_type).get_nested_type());
+        auto left_element_type = remove_nullable(
+                assert_cast<const DataTypeArray*>(array_type.get())->get_nested_type());
         auto right_type = remove_nullable(block.get_by_position(arguments[1]).type);
 
         ColumnPtr return_column = nullptr;
@@ -417,48 +414,19 @@ private:
             is_string_type(left_element_type->get_primitive_type())) {
             return_column = _execute_string(offsets, nested_null_map, *nested_column, *right_column,
                                             right_nested_null_map, array_null_map);
-        } else if (is_number(right_type->get_primitive_type()) &&
-                   is_number(left_element_type->get_primitive_type())) {
+        } else if (right_type->get_primitive_type() == left_element_type->get_primitive_type()) {
             auto call = [&](const auto& type) -> bool {
                 using DispatchType = std::decay_t<decltype(type)>;
-                return_column = _execute_number<typename DispatchType::ColumnType,
-                                                typename DispatchType::ColumnType>(
+                auto col = _execute_number_expanded<typename DispatchType::ColumnType>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-                return true;
+                if (col) {
+                    return_column = std::move(col);
+                    return true;
+                }
+                return false;
             };
-            if (!dispatch_switch_number(right_type->get_primitive_type(), call)) {
-                return Status::InternalError(get_name() + " not support right type " +
-                                             right_type->get_name());
-            }
-        } else if ((is_date_v2_or_datetime_v2(right_type->get_primitive_type()) ||
-                    right_type->get_primitive_type() == TYPE_TIMEV2) &&
-                   (is_date_v2_or_datetime_v2(left_element_type->get_primitive_type()) ||
-                    left_element_type->get_primitive_type() == TYPE_TIMEV2)) {
-            if (left_element_type->get_primitive_type() == TYPE_DATEV2) {
-                return_column = _execute_number_expanded<ColumnDateV2>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-            } else if (left_element_type->get_primitive_type() == TYPE_DATETIMEV2) {
-                return_column = _execute_number_expanded<ColumnDateTimeV2>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-            } else if (left_element_type->get_primitive_type() == TYPE_TIMEV2) {
-                return_column = _execute_number_expanded<ColumnTimeV2>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-            }
-        } else if (is_ip(right_type->get_primitive_type()) &&
-                   is_ip(left_element_type->get_primitive_type())) {
-            if (left_element_type->get_primitive_type() == TYPE_IPV4) {
-                return_column = _execute_number_expanded<ColumnIPv4>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-            } else if (left_element_type->get_primitive_type() == TYPE_IPV6) {
-                return_column = _execute_number_expanded<ColumnIPv6>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-            }
+            dispatch_switch_scalar(right_type->get_primitive_type(), call);
         }
 
         if (return_column) {

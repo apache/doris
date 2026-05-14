@@ -263,6 +263,9 @@ Status Compaction::merge_input_rowsets() {
     }
 
     RowsetWriterContext ctx;
+    // Propagate input rowset readers into the rowset writer context before the writer is created.
+    // Variant nested-group compaction uses this metadata to enable the streaming writer path.
+    ctx.input_rs_readers = input_rs_readers;
     RETURN_IF_ERROR(construct_output_rowset_writer(ctx));
 
     // write merged rows to output rowset
@@ -419,6 +422,7 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     // link data to new rowset
     auto seg_id = 0;
     bool segments_key_bounds_truncated {false};
+    bool any_input_aggregated {false};
     std::vector<KeyBoundsPB> segment_key_bounds;
     std::vector<uint32_t> num_segment_rows;
     for (auto rowset : _input_rowsets) {
@@ -426,6 +430,7 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
                                               _output_rs_writer->rowset_id(), seg_id));
         seg_id += rowset->num_segments();
         segments_key_bounds_truncated |= rowset->is_segments_key_bounds_truncated();
+        any_input_aggregated |= rowset->rowset_meta()->is_segments_key_bounds_aggregated();
         std::vector<KeyBoundsPB> key_bounds;
         RETURN_IF_ERROR(rowset->get_segments_key_bounds(&key_bounds));
         segment_key_bounds.insert(segment_key_bounds.end(), key_bounds.begin(), key_bounds.end());
@@ -445,7 +450,13 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     rowset_meta->set_segments_overlap(NONOVERLAPPING);
     rowset_meta->set_rowset_state(VISIBLE);
     rowset_meta->set_segments_key_bounds_truncated(segments_key_bounds_truncated);
-    rowset_meta->set_segments_key_bounds(segment_key_bounds);
+    // If any input was already aggregated we have no way to recover per-segment
+    // bounds, so force aggregation on the output to keep the layout consistent
+    // with `num_segments` / the aggregated flag, even if the config is off now.
+    bool aggregate_key_bounds =
+            any_input_aggregated || (config::enable_aggregate_non_mow_key_bounds &&
+                                     !_tablet->enable_unique_key_merge_on_write());
+    rowset_meta->set_segments_key_bounds(segment_key_bounds, aggregate_key_bounds);
     rowset_meta->set_num_segment_rows(num_segment_rows);
 
     _output_rowset = _output_rs_writer->manual_build(rowset_meta);
@@ -1635,7 +1646,8 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
     // Currently, updates are only made in the time_series.
     update_compaction_level();
 
-    RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get(), _uuid));
+    RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get(), _uuid,
+                                                     _tablet->table_id()));
 
     // 4. modify rowsets in memory
     RETURN_IF_ERROR(modify_rowsets());
@@ -1861,8 +1873,8 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.job_id = _uuid;
 
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
-    RETURN_IF_ERROR(
-            _engine.meta_mgr().prepare_rowset(*_output_rs_writer->rowset_meta().get(), _uuid));
+    RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_output_rs_writer->rowset_meta().get(),
+                                                      _uuid, _tablet->table_id()));
     return Status::OK();
 }
 

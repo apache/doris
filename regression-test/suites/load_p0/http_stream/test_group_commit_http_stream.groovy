@@ -251,6 +251,10 @@ suite("test_group_commit_http_stream") {
 
         getRowCount(19)
         qt_sql " SELECT * FROM ${tableName} order by id, name, score asc; "
+
+        // group commit http stream (SELECT * FROM http_stream(...)) should not register load jobs
+        def showLoadResult = sql """ SHOW LOAD FROM ${db} """
+        assertEquals(0, showLoadResult.size())
     } finally {
         // try_sql("DROP TABLE ${tableName}")
     }

@@ -714,7 +714,7 @@ public:
         NullMap* result_null_map = nullptr;
         if (data_null_map || path_null_map) {
             result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-            result_null_map = &assert_cast<ColumnUInt8&>(*result_null_map_column).get_data();
+            result_null_map = &static_cast<ColumnUInt8&>(*result_null_map_column).get_data();
 
             if (data_null_map) {
                 VectorizedUtils::update_null_map(*result_null_map, *data_null_map,

@@ -1,5 +1,7 @@
 use `default`;
 
+drop table if exists decimals_1_10;
+
 create table decimals_1_10 
 (
     d_1 DECIMAL(1, 0), 

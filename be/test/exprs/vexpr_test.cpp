@@ -36,7 +36,11 @@
 
 #include "common/object_pool.h"
 #include "core/block/block.h"
+#include "core/column/column_nothing.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_nothing.h"
+#include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
 #include "core/types.h"
@@ -421,106 +425,92 @@ TEST(TEST_VEXPR, LITERALTEST) {
     // bool
     {
         VLiteral literal(create_literal<TYPE_BOOLEAN>(true));
-        Block block;
-        int ret = -1;
-        static_cast<void>(literal.execute(nullptr, &block, &ret));
-        auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<TYPE_BOOLEAN>();
+        ColumnPtr result_column;
+        static_cast<void>(literal.execute_column(nullptr, nullptr, nullptr, 1, result_column));
+        auto v = (*result_column)[0].get<TYPE_BOOLEAN>();
         EXPECT_EQ(v, true);
         EXPECT_EQ("1", literal.value());
 
         auto node = std::make_shared<VLiteral>(
-                create_texpr_node_from((*ctn.column)[0], TYPE_BOOLEAN, 0, 0), true);
+                create_texpr_node_from((*result_column)[0], TYPE_BOOLEAN, 0, 0), true);
         EXPECT_EQ("1", node->value());
     }
     // smallint
     {
         VLiteral literal(create_literal<TYPE_SMALLINT>(1024));
-        Block block;
-        int ret = -1;
-        static_cast<void>(literal.execute(nullptr, &block, &ret));
-        auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<TYPE_SMALLINT>();
+        ColumnPtr result_column;
+        static_cast<void>(literal.execute_column(nullptr, nullptr, nullptr, 1, result_column));
+        auto v = (*result_column)[0].get<TYPE_SMALLINT>();
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
 
         auto node = std::make_shared<VLiteral>(
-                create_texpr_node_from((*ctn.column)[0], TYPE_SMALLINT, 0, 0), true);
+                create_texpr_node_from((*result_column)[0], TYPE_SMALLINT, 0, 0), true);
         EXPECT_EQ("1024", node->value());
     }
     // int
     {
         VLiteral literal(create_literal<TYPE_INT>(1024));
-        Block block;
-        int ret = -1;
-        static_cast<void>(literal.execute(nullptr, &block, &ret));
-        auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<TYPE_INT>();
+        ColumnPtr result_column;
+        static_cast<void>(literal.execute_column(nullptr, nullptr, nullptr, 1, result_column));
+        auto v = (*result_column)[0].get<TYPE_INT>();
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
 
         auto node = std::make_shared<VLiteral>(
-                create_texpr_node_from((*ctn.column)[0], TYPE_INT, 0, 0), true);
+                create_texpr_node_from((*result_column)[0], TYPE_INT, 0, 0), true);
         EXPECT_EQ("1024", node->value());
     }
     // bigint
     {
         VLiteral literal(create_literal<TYPE_BIGINT>(1024));
-        Block block;
-        int ret = -1;
-        static_cast<void>(literal.execute(nullptr, &block, &ret));
-        auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<TYPE_BIGINT>();
+        ColumnPtr result_column;
+        static_cast<void>(literal.execute_column(nullptr, nullptr, nullptr, 1, result_column));
+        auto v = (*result_column)[0].get<TYPE_BIGINT>();
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
 
         auto node = std::make_shared<VLiteral>(
-                create_texpr_node_from((*ctn.column)[0], TYPE_BIGINT, 0, 0), true);
+                create_texpr_node_from((*result_column)[0], TYPE_BIGINT, 0, 0), true);
         EXPECT_EQ("1024", node->value());
     }
     // large int
     {
         VLiteral literal(create_literal<TYPE_LARGEINT, __int128_t>(1024));
-        Block block;
-        int ret = -1;
-        static_cast<void>(literal.execute(nullptr, &block, &ret));
-        auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<TYPE_LARGEINT>();
+        ColumnPtr result_column;
+        static_cast<void>(literal.execute_column(nullptr, nullptr, nullptr, 1, result_column));
+        auto v = (*result_column)[0].get<TYPE_LARGEINT>();
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
 
         auto node = std::make_shared<VLiteral>(
-                create_texpr_node_from((*ctn.column)[0], TYPE_LARGEINT, 0, 0), true);
+                create_texpr_node_from((*result_column)[0], TYPE_LARGEINT, 0, 0), true);
         EXPECT_EQ("1024", node->value());
     }
     // float
     {
         VLiteral literal(create_literal<TYPE_FLOAT, float>(1024.0f));
-        Block block;
-        int ret = -1;
-        static_cast<void>(literal.execute(nullptr, &block, &ret));
-        auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<TYPE_FLOAT>();
+        ColumnPtr result_column;
+        static_cast<void>(literal.execute_column(nullptr, nullptr, nullptr, 1, result_column));
+        auto v = (*result_column)[0].get<TYPE_FLOAT>();
         EXPECT_FLOAT_EQ(v, 1024.0f);
         EXPECT_EQ("1024", literal.value());
 
         auto node = std::make_shared<VLiteral>(
-                create_texpr_node_from((*ctn.column)[0], TYPE_FLOAT, 0, 0), true);
+                create_texpr_node_from((*result_column)[0], TYPE_FLOAT, 0, 0), true);
         EXPECT_EQ("1024", node->value());
     }
     // double
     {
         VLiteral literal(create_literal<TYPE_DOUBLE, double>(1024.0));
-        Block block;
-        int ret = -1;
-        static_cast<void>(literal.execute(nullptr, &block, &ret));
-        auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<TYPE_DOUBLE>();
-        EXPECT_FLOAT_EQ(v, 1024.0) << ctn.column->get_name();
-        EXPECT_EQ("1024", literal.value()) << ctn.column->get_name();
+        ColumnPtr result_column;
+        static_cast<void>(literal.execute_column(nullptr, nullptr, nullptr, 1, result_column));
+        auto v = (*result_column)[0].get<TYPE_DOUBLE>();
+        EXPECT_FLOAT_EQ(v, 1024.0) << result_column->get_name();
+        EXPECT_EQ("1024", literal.value()) << result_column->get_name();
 
         auto node = std::make_shared<VLiteral>(
-                create_texpr_node_from((*ctn.column)[0], TYPE_DOUBLE, 0, 0), true);
+                create_texpr_node_from((*result_column)[0], TYPE_DOUBLE, 0, 0), true);
         EXPECT_EQ("1024", node->value());
     }
     // datetime
@@ -535,14 +525,12 @@ TEST(TEST_VEXPR, LITERALTEST) {
         }
         std::cout << data_time_value.type() << std::endl;
         VLiteral literal(create_literal<TYPE_DATETIME, std::string>(std::string(date)));
-        Block block;
-        int ret = -1;
-        static_cast<void>(literal.execute(nullptr, &block, &ret));
-        auto ctn = block.safe_get_by_position(ret);
+        ColumnPtr result_column;
+        static_cast<void>(literal.execute_column(nullptr, nullptr, nullptr, 1, result_column));
         EXPECT_EQ("2021-04-07 00:00:00", literal.value());
 
         auto node = std::make_shared<VLiteral>(
-                create_texpr_node_from((*ctn.column)[0], TYPE_DATETIME, 0, 0), true);
+                create_texpr_node_from((*result_column)[0], TYPE_DATETIME, 0, 0), true);
         EXPECT_EQ("2021-04-07 00:00:00", node->value());
     }
     // datetimev2
@@ -559,14 +547,12 @@ TEST(TEST_VEXPR, LITERALTEST) {
         std::string date = datetime_v2.to_string();
 
         VLiteral literal(create_literal<TYPE_DATETIMEV2, std::string>(date, 4));
-        Block block;
-        int ret = -1;
-        EXPECT_TRUE(literal.execute(nullptr, &block, &ret).ok());
+        ColumnPtr result_column;
+        EXPECT_TRUE(literal.execute_column(nullptr, nullptr, nullptr, 1, result_column).ok());
         EXPECT_EQ("1997-11-18 09:12:47.0000", literal.value());
 
-        auto ctn = block.safe_get_by_position(ret);
         auto node = std::make_shared<VLiteral>(
-                create_texpr_node_from((*ctn.column)[0], TYPE_DATETIMEV2, 0, 4), true);
+                create_texpr_node_from((*result_column)[0], TYPE_DATETIMEV2, 0, 4), true);
         EXPECT_EQ("1997-11-18 09:12:47.0000", node->value());
     }
     // timestamptz
@@ -590,14 +576,12 @@ TEST(TEST_VEXPR, LITERALTEST) {
         std::string tz_value_str = tz_value.to_string(tz, scale);
 
         VLiteral literal(create_literal<TYPE_TIMESTAMPTZ, std::string>(tz_value_str, scale));
-        Block block;
-        int ret = -1;
-        EXPECT_TRUE(literal.execute(nullptr, &block, &ret).ok());
+        ColumnPtr result_column;
+        EXPECT_TRUE(literal.execute_column(nullptr, nullptr, nullptr, 1, result_column).ok());
         EXPECT_EQ("1997-11-18 01:12:46.999999+00:00", literal.value());
 
-        auto ctn = block.safe_get_by_position(ret);
         auto node = std::make_shared<VLiteral>(
-                create_texpr_node_from((*ctn.column)[0], TYPE_TIMESTAMPTZ, 0, scale), true);
+                create_texpr_node_from((*result_column)[0], TYPE_TIMESTAMPTZ, 0, scale), true);
         EXPECT_EQ("1997-11-18 01:12:46.999999+00:00", node->value());
 
         node = std::make_shared<VLiteral>(
@@ -618,14 +602,12 @@ TEST(TEST_VEXPR, LITERALTEST) {
         __int64_t dt;
         memcpy(&dt, &date_time_value, sizeof(__int64_t));
         VLiteral literal(create_literal<TYPE_DATE, std::string>(std::string(date)));
-        Block block;
-        int ret = -1;
-        static_cast<void>(literal.execute(nullptr, &block, &ret));
-        auto ctn = block.safe_get_by_position(ret);
+        ColumnPtr result_column;
+        static_cast<void>(literal.execute_column(nullptr, nullptr, nullptr, 1, result_column));
         EXPECT_EQ("2021-04-07", literal.value());
 
         auto node = std::make_shared<VLiteral>(
-                create_texpr_node_from((*ctn.column)[0], TYPE_DATE, 0, 0), true);
+                create_texpr_node_from((*result_column)[0], TYPE_DATE, 0, 0), true);
         EXPECT_EQ("2021-04-07", node->value());
     }
     // datev2
@@ -640,16 +622,14 @@ TEST(TEST_VEXPR, LITERALTEST) {
         uint32_t dt;
         memcpy(&dt, &data_time_value, sizeof(uint32_t));
         VLiteral literal(create_literal<TYPE_DATEV2, std::string>(std::string(date)));
-        Block block;
-        int ret = -1;
-        static_cast<void>(literal.execute(nullptr, &block, &ret));
-        auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<TYPE_DATEV2>();
+        ColumnPtr result_column;
+        static_cast<void>(literal.execute_column(nullptr, nullptr, nullptr, 1, result_column));
+        auto v = (*result_column)[0].get<TYPE_DATEV2>();
         EXPECT_EQ(v, dt);
         EXPECT_EQ("2021-04-07", literal.value());
 
         auto node = std::make_shared<VLiteral>(
-                create_texpr_node_from((*ctn.column)[0], TYPE_DATEV2, 0, 0), true);
+                create_texpr_node_from((*result_column)[0], TYPE_DATEV2, 0, 0), true);
         EXPECT_EQ("2021-04-07", node->value());
     }
     config::allow_zero_date = true;
@@ -711,56 +691,48 @@ TEST(TEST_VEXPR, LITERALTEST) {
     {
         std::string j = R"([null,true,false,100,6.18,"abc"])";
         VLiteral literal(create_literal<TYPE_JSONB, std::string>(j));
-        Block block;
-        int ret = -1;
-        static_cast<void>(literal.execute(nullptr, &block, &ret));
-        auto ctn = block.safe_get_by_position(ret);
+        ColumnPtr result_column;
+        static_cast<void>(literal.execute_column(nullptr, nullptr, nullptr, 1, result_column));
         EXPECT_EQ(j, literal.value());
     }
     // string
     {
         std::string s = "I am Amory, 24";
         VLiteral literal(create_literal<TYPE_STRING, std::string>(std::string("I am Amory, 24")));
-        Block block;
-        int ret = -1;
-        static_cast<void>(literal.execute(nullptr, &block, &ret));
-        auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<TYPE_STRING>();
+        ColumnPtr result_column;
+        static_cast<void>(literal.execute_column(nullptr, nullptr, nullptr, 1, result_column));
+        auto v = (*result_column)[0].get<TYPE_STRING>();
         EXPECT_EQ(v, s);
         EXPECT_EQ(s, literal.value());
 
         auto node = std::make_shared<VLiteral>(
-                create_texpr_node_from((*ctn.column)[0], TYPE_STRING, 0, 0), true);
+                create_texpr_node_from((*result_column)[0], TYPE_STRING, 0, 0), true);
         EXPECT_EQ(s, node->value());
     }
     // decimalv2
     {
         VLiteral literal(create_literal<TYPE_DECIMALV2, std::string>(std::string("1234.56")));
-        Block block;
-        int ret = -1;
-        static_cast<void>(literal.execute(nullptr, &block, &ret));
-        auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<TYPE_DECIMALV2>();
+        ColumnPtr result_column;
+        static_cast<void>(literal.execute_column(nullptr, nullptr, nullptr, 1, result_column));
+        auto v = (*result_column)[0].get<TYPE_DECIMALV2>();
         EXPECT_FLOAT_EQ(((double)v.value()) / (std::pow(10, 9)), 1234.56);
         EXPECT_EQ("1234.560000000", literal.value());
 
         auto node = std::make_shared<VLiteral>(
-                create_texpr_node_from((*ctn.column)[0], TYPE_DECIMALV2, 27, 9), true);
+                create_texpr_node_from((*result_column)[0], TYPE_DECIMALV2, 27, 9), true);
         EXPECT_EQ("1234.560000000", node->value());
     }
     // timev2
     {
         VLiteral literal(create_literal<TYPE_TIMEV2, double>(12123400, 4));
-        Block block;
-        int ret = -1;
-        EXPECT_TRUE(literal.execute(nullptr, &block, &ret).ok());
-        auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<TYPE_TIMEV2>();
+        ColumnPtr result_column;
+        EXPECT_TRUE(literal.execute_column(nullptr, nullptr, nullptr, 1, result_column).ok());
+        auto v = (*result_column)[0].get<TYPE_TIMEV2>();
         EXPECT_FLOAT_EQ(v / 1000000, 12.1234);
         EXPECT_EQ("00:00:12.1234", literal.value());
 
         auto node = std::make_shared<VLiteral>(
-                create_texpr_node_from((*ctn.column)[0], TYPE_TIMEV2, 0, 0), true);
+                create_texpr_node_from((*result_column)[0], TYPE_TIMEV2, 0, 0), true);
         EXPECT_EQ("00:00:12", node->value());
     }
     // deciaml32
@@ -837,4 +809,108 @@ TEST(TEST_VEXPR, LITERALTEST) {
         }
     }
     config::allow_zero_date = false;
+}
+
+namespace doris {
+
+// A concrete VExpr that returns a column provided at construction time.
+// The declared type is set via set_data_type(); the returned column may differ.
+class FakeVExpr final : public VExpr {
+public:
+    FakeVExpr() = default;
+    const std::string& expr_name() const override {
+        static const std::string name = "FakeVExpr";
+        return name;
+    }
+    Status execute_column_impl(VExprContext* /*context*/, const Block* /*block*/,
+                               const Selector* /*selector*/, size_t /*count*/,
+                               ColumnPtr& result_column) const override {
+        result_column = _column;
+        return Status::OK();
+    }
+    void set_column(ColumnPtr col) { _column = std::move(col); }
+    void set_data_type(DataTypePtr type) { _data_type = std::move(type); }
+
+private:
+    ColumnPtr _column;
+};
+
+} // namespace doris
+
+// Tests for VExpr::execute_column post-condition checks.
+TEST(VExprExecuteColumnTest, SizeCheckFails) {
+    using namespace doris;
+    FakeVExpr expr;
+    auto type = std::make_shared<DataTypeInt32>();
+    expr.set_data_type(type);
+
+    // Column has 2 rows but count == 1 → size mismatch
+    auto col = ColumnInt32::create();
+    col->insert_value(1);
+    col->insert_value(2);
+    expr.set_column(std::move(col));
+
+    ColumnPtr result;
+    auto st = expr.execute_column(nullptr, nullptr, nullptr, 1, result);
+    EXPECT_FALSE(st.ok());
+    EXPECT_TRUE(st.to_string().find("not equal to expected size") != std::string::npos);
+}
+
+TEST(VExprExecuteColumnTest, TypeMismatchFails) {
+    using namespace doris;
+    FakeVExpr expr;
+    // Declare type as Int32, but return a Float64 column — clear type mismatch
+    expr.set_data_type(std::make_shared<DataTypeInt32>());
+
+    auto col = ColumnFloat64::create();
+    col->insert_value(3.14);
+    expr.set_column(std::move(col));
+
+    ColumnPtr result;
+    auto st = expr.execute_column(nullptr, nullptr, nullptr, 1, result);
+    EXPECT_FALSE(st.ok());
+}
+
+TEST(VExprExecuteColumnTest, NullableTypeWithNonNullableColumnPasses) {
+    using namespace doris;
+    FakeVExpr expr;
+    // Declared type is Nullable(Int32) but result is Int32 (non-nullable).
+    // This mirrors the use_default_implementation_for_nulls optimization and must pass.
+    expr.set_data_type(std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()));
+
+    auto col = ColumnInt32::create();
+    col->insert_value(7);
+    expr.set_column(std::move(col));
+
+    ColumnPtr result;
+    auto st = expr.execute_column(nullptr, nullptr, nullptr, 1, result);
+    EXPECT_TRUE(st.ok());
+}
+
+TEST(VExprExecuteColumnTest, ColumnNothingPassesTypeCheck) {
+    using namespace doris;
+    FakeVExpr expr;
+    // Declare type as Int32, but return ColumnNothing — check should be skipped
+    expr.set_data_type(std::make_shared<DataTypeInt32>());
+    expr.set_column(ColumnNothing::create(1));
+
+    ColumnPtr result;
+    auto st = expr.execute_column(nullptr, nullptr, nullptr, 1, result);
+    EXPECT_TRUE(st.ok());
+}
+
+TEST(VExprExecuteColumnTest, CorrectColumnPasses) {
+    using namespace doris;
+    FakeVExpr expr;
+    auto type = std::make_shared<DataTypeInt32>();
+    expr.set_data_type(type);
+
+    auto col = ColumnInt32::create();
+    col->insert_value(42);
+    expr.set_column(std::move(col));
+
+    ColumnPtr result;
+    auto st = expr.execute_column(nullptr, nullptr, nullptr, 1, result);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(result->size(), 1u);
 }

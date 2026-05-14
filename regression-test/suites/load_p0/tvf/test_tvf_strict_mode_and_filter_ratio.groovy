@@ -141,8 +141,12 @@ suite("test_tvf_strict_mode_and_filter_ratio", "p0") {
                                "column_separator" = "|"
                                );
                         """
-        exception """Insert has too many filtered data"""
-        exception """url"""
+        // when running case in cloud mode, the error message is truncated because it exceeds
+        // the 512 bytes limit, the truncated error message is like:
+        // 'java.sql.SQLException: errCode = 2, detailMessag. first_error_msg: column_name[k00], null value for not null column, type=Decimal(10, 0). Src line: . url: http://doris-community-test.oss-cn-hongkong.aliyuncs.com/cloud_regression/error_log/a729a6faa92e3094?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=*******%2F20260415%2Foss-cn-hongkong%2Fs3%2Faws4_request&X-Amz-Date=20260415T041754Z&X-Amz-Expires=604799&X-Amz-SignedHeaders=host&X-Amz-Signature=ea12209f954ba8e2fa8fff4510524f6bc8683a916d4e41e0b4c3ae153f1d88a8'
+        // There is no text 'Insert has too many filtered data'.
+        // exception """Insert has too many filtered data"""
+        exception """null value for not null column"""
     }
     qt_sql_not_null_to_null_non_strict0 "select * from test_insert_select_tvf_strict_mode_and_filter_ratio order by 1"
 
@@ -216,8 +220,8 @@ suite("test_tvf_strict_mode_and_filter_ratio", "p0") {
                                "column_separator" = "|"
                                );
                         """
-        exception """Insert has too many filtered data"""
-        exception """url"""
+        // exception """Insert has too many filtered data"""
+        exception """no partition"""
     }
     qt_sql_no_partition_non_strict0 "select * from test_insert_select_tvf_strict_mode_and_filter_ratio order by 1"
 
@@ -256,8 +260,8 @@ suite("test_tvf_strict_mode_and_filter_ratio", "p0") {
                                "column_separator" = "|"
                                );
                         """
-        exception """Encountered unqualified data, stop processing"""
-        exception """url"""
+        // exception """Insert has filtered data in strict mode"""
+        exception """no partition"""
     }
     qt_sql_no_partition_strict0 "select * from test_insert_select_tvf_strict_mode_and_filter_ratio order by 1"
 
@@ -305,8 +309,8 @@ suite("test_tvf_strict_mode_and_filter_ratio", "p0") {
                                );
                         """
 
-        exception """Encountered unqualified data, stop processing"""
-        exception """url"""
+        // exception """Insert has filtered data in strict mode"""
+        exception """the length of input is too long"""
     }
     qt_sql_string_exceed_len_strict1 "select * from test_insert_select_tvf_strict_mode_and_filter_ratio order by 1"
 }

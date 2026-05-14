@@ -41,9 +41,6 @@ public:
                    std::shared_ptr<IndexFileReader> index_file_reader);
     ~AnnIndexReader() override = default;
 
-    static void update_result(const IndexSearchResult&, std::vector<float>& distance,
-                              roaring::Roaring& row_id);
-
     Status load_index(io::IOContext* io_ctx);
 
     // Try to load index, return true if successful, false if failed

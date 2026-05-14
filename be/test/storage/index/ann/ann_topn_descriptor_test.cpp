@@ -157,17 +157,17 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeEvaluateTopN) {
             .Times(1)
             .WillOnce(testing::Invoke([](const segment_v2::IndexParam& value) {
                 auto* ann_param = std::get<segment_v2::AnnTopNParam*>(value);
-                ann_param->distance = std::make_unique<std::vector<float>>();
-                ann_param->row_ids = std::make_unique<std::vector<uint64_t>>();
+                ann_param->distance = std::shared_ptr<float[]>(new float[10]);
+                ann_param->row_ids = std::make_shared<std::vector<uint64_t>>();
                 for (size_t i = 0; i < 10; ++i) {
-                    ann_param->distance->push_back(static_cast<float>(i));
+                    ann_param->distance[i] = static_cast<float>(i);
                     ann_param->row_ids->push_back(i);
                 }
                 return Status::OK();
             }));
 
     _result_column = ColumnFloat32::create(0, 0);
-    std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
+    std::shared_ptr<std::vector<uint64_t>> row_ids = std::make_shared<std::vector<uint64_t>>();
 
     roaring::Roaring roaring;
     doris::segment_v2::AnnIndexStats ann_index_stats;

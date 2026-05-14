@@ -86,18 +86,20 @@ public:
      */
     Status open(RuntimeState* state, RuntimeProfile* profile);
 
-    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                       std::unordered_set<std::string>* missing_cols) override {
+    Status _get_columns_impl(std::unordered_map<std::string, DataTypePtr>* name_to_type) override {
         for (const auto& desc : _file_slot_descs) {
             name_to_type->emplace(desc->col_name(), desc->type());
         }
         return Status::OK();
     }
 
+    void set_batch_size(size_t batch_size) override;
+    size_t get_batch_size() const override { return _batch_size; }
+
     /**
      * Read next batch from Java scanner and fill the block.
      */
-    virtual Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
     /**
      * Get table schema from Java scanner (used by Avro schema discovery).
@@ -176,8 +178,10 @@ private:
     Jni::MethodId _jni_scanner_release_column;
     Jni::MethodId _jni_scanner_release_table;
     Jni::MethodId _jni_scanner_get_statistics;
+    Jni::MethodId _jni_scanner_set_batch_size;
 
     JniDataBridge::TableMetaAddress _table_meta;
+    size_t _batch_size = 0;
 
     // Column name to block index map, passed from FileScanner to avoid repeated map creation
     const std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;

@@ -297,7 +297,8 @@ public abstract class AlterJobV2 implements Writable {
         int maxFailedTimes = 0;
         if (Config.enable_schema_change_retry && task.getErrorCode() != null
                 && (task.getErrorCode().equals(TStatusCode.DELETE_BITMAP_LOCK_ERROR)
-                    || task.getErrorCode().equals(TStatusCode.NETWORK_ERROR))) {
+                    || task.getErrorCode().equals(TStatusCode.NETWORK_ERROR)
+                    || task.getErrorCode().equals(TStatusCode.SC_COMPACTION_CONFLICT))) {
             maxFailedTimes = Config.schema_change_max_retry_time;
         }
         return maxFailedTimes;

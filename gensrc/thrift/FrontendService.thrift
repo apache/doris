@@ -202,6 +202,9 @@ struct TQueryStatistics {
     12: optional i64 spill_write_bytes_to_local_storage
     13: optional i64 spill_read_bytes_from_local_storage
     14: optional i64 bytes_write_into_cache
+    15: optional i64 process_rows
+    16: optional i32 finished_tasks_num
+    17: optional i32 total_tasks_num
 }
 
 struct TQueryStatisticsResult {
@@ -1344,6 +1347,19 @@ struct TAutoIncrementRangeResult {
     4: optional Types.TNetworkAddress master_address
 }
 
+struct TMaxComputeBlockIdRequest {
+    1: optional i64 txn_id
+    2: optional string write_session_id
+    3: optional i64 length
+}
+
+struct TMaxComputeBlockIdResult {
+    1: optional Status.TStatus status
+    2: optional i64 start
+    3: optional i64 length
+    4: optional Types.TNetworkAddress master_address
+}
+
 struct TCreatePartitionRequest {
     1: optional i64 txn_id
     2: optional i64 db_id
@@ -1957,6 +1973,7 @@ service FrontendService {
     Status.TStatus updatePlanStatsCache(1: TUpdatePlanStatsCacheRequest request)
 
     TAutoIncrementRangeResult getAutoIncrementRange(1: TAutoIncrementRangeRequest request)
+    TMaxComputeBlockIdResult getMaxComputeBlockIdRange(1: TMaxComputeBlockIdRequest request)
 
     TCreatePartitionResult createPartition(1: TCreatePartitionRequest request)
     // insert overwrite partition(*)

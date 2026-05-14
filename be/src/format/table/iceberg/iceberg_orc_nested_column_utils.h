@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#include "format/table/table_format_reader.h"
+#include "format/table/table_schema_change_helper.h"
 
 namespace orc {
 class Type;
