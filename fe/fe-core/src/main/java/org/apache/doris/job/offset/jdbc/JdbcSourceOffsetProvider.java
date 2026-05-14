@@ -700,7 +700,9 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 if (remaining.isEmpty()) {
                     return;
                 }
-                cdcSplitProgress.setCurrentSplittingTable(remaining.get(0));
+                // Normalize to bare so cdcSplitProgress/committedSplitProgress agree on format
+                // regardless of what cachedSyncTables holds (production: bare; some test fixtures: qualified).
+                cdcSplitProgress.setCurrentSplittingTable(getTableName(remaining.get(0)));
                 cdcSplitProgress.setNextSplitStart(null);
                 cdcSplitProgress.setNextSplitId(null);
             }
