@@ -154,7 +154,7 @@ abstract class IvmDeltaTestBase {
         return new JobContext(cascadesContext, PhysicalProperties.ANY);
     }
 
-    protected PlanBundle normalizeAggPlan(LogicalAggregate<LogicalOlapScan> agg) {
+    protected PlanBundle normalizeAggPlan(LogicalAggregate<? extends Plan> agg) {
         ConnectContext connectContext = newConnectContext();
         JobContext jobContext = newJobContextForRoot(agg, connectContext);
         Plan normalizedPlan = new IvmNormalizeMtmv().rewriteRoot(agg, jobContext);

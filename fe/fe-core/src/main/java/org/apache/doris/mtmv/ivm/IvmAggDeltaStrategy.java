@@ -95,16 +95,16 @@ import java.util.Optional;
  * </ol>
  *
  * <h3>Visitor integration</h3>
- * <p>Inherits from {@link IvmLinearDeltaStrategy} and overrides:
+ * <p>Inherits from {@link IvmOuterJoinDeltaStrategy} and overrides:
  * <ul>
  *   <li>{@code visitLogicalProject}: skips the normalize top-project when its child is an aggregate,
  *       since the aggregate visitor produces a complete replacement plan.</li>
  *   <li>{@code visitLogicalAggregate}: main entry point that builds delta + apply + insert.</li>
  * </ul>
  *
- * @see IvmLinearDeltaStrategy
+ * @see IvmOuterJoinDeltaStrategy
  */
-public class IvmAggDeltaStrategy extends IvmLinearDeltaStrategy {
+public class IvmAggDeltaStrategy extends IvmOuterJoinDeltaStrategy {
 
     /** Transient semantic key for MIN of deleted values (not stored in MV). */
     private static final String DELMIN = "DELMIN";

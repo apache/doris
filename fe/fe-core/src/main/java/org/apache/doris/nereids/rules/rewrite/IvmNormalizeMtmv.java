@@ -135,13 +135,40 @@ import java.util.stream.Collectors;
  * without confusing them with real right rows.
  *
  * <h3>Supported plan nodes</h3>
- * OlapScan, filter, project, aggregate, inner/cross join, root left outer join, UNION ALL,
- * result sink, logical olap table sink.
+ * OlapScan, filter, project, aggregate, inner/cross join, left outer join chain whose
+ * nullable side does not contain another outer join, UNION ALL, result sink, logical olap table sink.
  */
-public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements CustomRewriter {
+public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.NormalizeContext>
+        implements CustomRewriter {
 
     private static final Set<Class<? extends AggregateFunction>> SUPPORTED_AGG_FUNCTIONS =
             ImmutableSet.of(Count.class, Sum.class, Avg.class, Min.class, Max.class);
+
+    static final class NormalizeContext {
+        private static final NormalizeContext ROOT = new NormalizeContext(true, false);
+
+        private final boolean isFirstNonSink;
+        private final boolean isOuterJoinNullableSide;
+
+        private NormalizeContext(boolean isFirstNonSink, boolean isOuterJoinNullableSide) {
+            this.isFirstNonSink = isFirstNonSink;
+            this.isOuterJoinNullableSide = isOuterJoinNullableSide;
+        }
+
+        private NormalizeContext afterNonSink() {
+            if (!isFirstNonSink) {
+                return this;
+            }
+            return new NormalizeContext(false, isOuterJoinNullableSide);
+        }
+
+        private NormalizeContext enterOuterJoinNullableSide() {
+            if (isOuterJoinNullableSide) {
+                return this;
+            }
+            return new NormalizeContext(isFirstNonSink, true);
+        }
+    }
 
     private final IvmNormalizeResult normalizeResult = new IvmNormalizeResult();
     private StatementContext statementContext;
@@ -158,21 +185,21 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
         }
         statementContext = jobContext.getCascadesContext().getStatementContext();
         jobContext.getCascadesContext().setIvmNormalizeResult(normalizeResult);
-        Plan result = plan.accept(this, true);
+        Plan result = plan.accept(this, NormalizeContext.ROOT);
         normalizeResult.setNormalizedPlan(result);
         return result;
     }
 
     // unsupported: any plan node not explicitly whitelisted below
     @Override
-    public Plan visit(Plan plan, Boolean isFirstNonSink) {
+    public Plan visit(Plan plan, NormalizeContext context) {
         throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED, "IVM does not support plan node: "
                 + plan.getClass().getSimpleName());
     }
 
     // whitelisted: only OlapScan — inject IVM row-id at index 0
     @Override
-    public Plan visitLogicalOlapScan(LogicalOlapScan scan, Boolean isFirstNonSink) {
+    public Plan visitLogicalOlapScan(LogicalOlapScan scan, NormalizeContext context) {
         OlapTable table = scan.getTable();
         Pair<Expression, Boolean> rowId = buildRowId(table, scan);
         validateBinlogEnabled(scan);
@@ -187,8 +214,8 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
 
     // whitelisted: project — recurse into child, then propagate row-id if not already present
     @Override
-    public Plan visitLogicalProject(LogicalProject<? extends Plan> project, Boolean isFirstNonSink) {
-        Plan newChild = project.child().accept(this, isFirstNonSink);
+    public Plan visitLogicalProject(LogicalProject<? extends Plan> project, NormalizeContext context) {
+        Plan newChild = project.child().accept(this, context);
         List<NamedExpression> newOutputs = rewriteOutputsWithIvmHiddenColumns(newChild, project.getProjects());
         if (newChild == project.child() && newOutputs.equals(project.getProjects())) {
             return project;
@@ -197,17 +224,18 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
     }
 
     @Override
-    public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, Boolean isFirstNonSink) {
-        Plan newChild = filter.child().accept(this, false);
+    public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, NormalizeContext context) {
+        Plan newChild = filter.child().accept(this, context.afterNonSink());
         return newChild == filter.child() ? filter : filter.withChildren(ImmutableList.of(newChild));
     }
 
     /**
-     * Handles inner join / cross join / root left outer join normalization.
+     * Handles inner join / cross join / left outer join normalization.
      *
      * <ol>
-     *   <li>Validates join type is INNER_JOIN, CROSS_JOIN, or root LEFT_OUTER_JOIN</li>
-     *   <li>Normalizes both children (isFirstNonSink = false)</li>
+     *   <li>Validates join type is INNER_JOIN, CROSS_JOIN, or LEFT_OUTER_JOIN</li>
+     *   <li>Rejects LEFT_OUTER_JOIN below another LEFT_OUTER_JOIN nullable side</li>
+     *   <li>Normalizes both children (first non-sink = false)</li>
      *   <li>Composes a single row_id = hash(left_row_id, right_row_id)</li>
      *   <li>Wraps with Project that replaces child row_id slots with the composed one</li>
      * </ol>
@@ -219,7 +247,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
      * strategy phase can look up individual child row_id determinism.
      */
     @Override
-    public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Boolean isFirstNonSink) {
+    public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, NormalizeContext context) {
         JoinType joinType = join.getJoinType();
         if (joinType != JoinType.INNER_JOIN && joinType != JoinType.CROSS_JOIN
                 && joinType != JoinType.LEFT_OUTER_JOIN) {
@@ -232,19 +260,20 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
                     "IVM does not support mark join (subquery with disjunction).");
         }
         if (joinType.isOuterJoin()) {
-            if (!isFirstNonSink) {
+            if (context.isOuterJoinNullableSide) {
                 throw new IvmException(IvmFailureReason.OUTER_JOIN_RETRACTION_UNSUPPORTED,
-                        "IVM OUTER JOIN must be the top-level operator "
-                                + "(only sinks and projects allowed above it)");
+                        "IVM LEFT OUTER JOIN nullable side must not contain another outer join");
             }
             // TODO: tighten nullable-side snapshot validation to an explicit allowlist:
             // OlapScan, Project, Filter, Inner/Cross Join, and excluded-only UNION ALL.
             checkNullableSideSnapshotSupported(join.right());
-            normalizeResult.setOuterJoinMv(true);
         }
 
-        Plan newLeft = join.left().accept(this, false);
-        Plan newRight = join.right().accept(this, false);
+        NormalizeContext childContext = context.afterNonSink();
+        NormalizeContext rightChildContext = joinType == JoinType.LEFT_OUTER_JOIN
+                ? childContext.enterOuterJoinNullableSide() : childContext;
+        Plan newLeft = join.left().accept(this, childContext);
+        Plan newRight = join.right().accept(this, rightChildContext);
         LogicalJoin<Plan, Plan> newJoin = (LogicalJoin<Plan, Plan>) join.withChildren(newLeft, newRight);
 
         // Find left and right row_id slots from children's output
@@ -299,7 +328,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
      * The union row_id is deterministic iff all arms' row_ids are deterministic.
      */
     @Override
-    public Plan visitLogicalUnion(LogicalUnion union, Boolean isFirstNonSink) {
+    public Plan visitLogicalUnion(LogicalUnion union, NormalizeContext context) {
         if (union.getQualifier() != Qualifier.ALL) {
             throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                     "IVM does not support UNION DISTINCT. Only UNION ALL is supported.");
@@ -314,7 +343,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
         boolean allDet = true;
 
         for (int i = 0; i < union.children().size(); i++) {
-            Plan normalizedChild = union.child(i).accept(this, false);
+            Plan normalizedChild = union.child(i).accept(this, context.afterNonSink());
             Slot childRowId = IvmUtil.findRowIdSlot(normalizedChild.getOutput(),
                     "child " + i + " of union");
             allDet &= normalizeResult.isDeterministic(childRowId);
@@ -373,12 +402,12 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
      * <p>Returns: {@code Project(ivm hidden cols + original agg outputs) → Aggregate(with hidden aggs)}
      */
     @Override
-    public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> agg, Boolean isFirstNonSink) {
-        if (!isFirstNonSink) {
+    public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> agg, NormalizeContext context) {
+        if (!context.isFirstNonSink) {
             throw new IvmException(IvmFailureReason.AGG_UNSUPPORTED,
                     "IVM aggregate must be the top-level operator (only sinks and projects allowed above it)");
         }
-        Plan newChild = agg.child().accept(this, false);
+        Plan newChild = agg.child().accept(this, context.afterNonSink());
 
         // After NormalizeAggregate, outputs are: group-by key Slots + Alias(AggFunc)
         List<NamedExpression> origOutputs = agg.getOutputExpressions();
@@ -595,8 +624,8 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
 
     // whitelisted: result sink — recurse into child, then prepend row-id to output exprs
     @Override
-    public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> sink, Boolean isFirstNonSink) {
-        Plan newChild = sink.child().accept(this, isFirstNonSink);
+    public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> sink, NormalizeContext context) {
+        Plan newChild = sink.child().accept(this, context);
         List<NamedExpression> newOutputs = rewriteOutputsWithIvmHiddenColumns(newChild, sink.getOutputExprs());
         if (newChild == sink.child() && newOutputs.equals(sink.getOutputExprs())) {
             return sink;
@@ -606,8 +635,8 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<Boolean> implements Cu
 
     @Override
     public Plan visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> sink,
-            Boolean isFirstNonSink) {
-        Plan newChild = sink.child().accept(this, isFirstNonSink);
+            NormalizeContext context) {
+        Plan newChild = sink.child().accept(this, context);
         if (newChild == sink.child()) {
             return sink;
         }

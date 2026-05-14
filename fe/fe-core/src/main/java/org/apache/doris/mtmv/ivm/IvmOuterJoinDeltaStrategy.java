@@ -39,7 +39,6 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
-import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -63,7 +62,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Delta rewrite strategy for the restricted single LEFT OUTER JOIN shape.
+ * Delta rewrite strategy for the restricted LEFT OUTER JOIN topology.
  *
  * <p>The strategy emits the regular joined delta for the preserved-side change:
  * <ul>
@@ -85,16 +84,6 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
 
     public IvmOuterJoinDeltaStrategy(IvmRefreshContext ctx) {
         super(ctx);
-    }
-
-    /**
-     * Rewrite the normalized outer-join MV plan and build one insert command for the target MV.
-     */
-    @Override
-    public List<Command> rewrite(Plan normalizedPlan) {
-        RewriteResult result = rewritePlan(normalizedPlan);
-        Plan finalPlan = buildSinkProject(result);
-        return ImmutableList.of(buildInsertCommandWithDeleteSign(finalPlan));
     }
 
     /**

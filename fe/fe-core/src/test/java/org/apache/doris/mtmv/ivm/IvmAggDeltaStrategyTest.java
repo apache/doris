@@ -18,9 +18,12 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -32,12 +35,14 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -45,11 +50,12 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 class IvmAggDeltaStrategyTest extends IvmDeltaTestBase {
 
-    private AggRewriteResult rewriteAgg(LogicalAggregate<LogicalOlapScan> agg) {
+    private AggRewriteResult rewriteAgg(LogicalAggregate<? extends Plan> agg) {
         PlanBundle bundle = normalizeAggPlan(agg);
         MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
         IvmRefreshContext ctx = new IvmRefreshContext(mtmv, bundle.connectContext, bundle.normalizeResult);
@@ -70,6 +76,16 @@ class IvmAggDeltaStrategyTest extends IvmDeltaTestBase {
         return (LogicalProject<?>) getJoin(result).right();
     }
 
+    private LogicalOlapScan buildMowScan(long tableId, String tableName, boolean delta) {
+        OlapTable table = PlanConstructor.newOlapTable(tableId, tableName, 0, KeysType.UNIQUE_KEYS);
+        table.setEnableUniqueKeyMergeOnWrite(true);
+        enableRowBinlog(table);
+        table.setQualifiedDbName("test_db");
+        LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,
+                ImmutableList.of("test_db"));
+        return delta ? (LogicalOlapScan) scan.withIsDelta(true) : scan;
+    }
+
     @Test
     void testGroupedAggUsesRightOuterJoinAndDeleteSignSink() {
         AggRewriteResult result = rewriteAgg(buildGroupedAgg(buildScan()));
@@ -83,6 +99,25 @@ class IvmAggDeltaStrategyTest extends IvmDeltaTestBase {
         List<String> outputNames = result.finalProject.getOutput().stream().map(Slot::getName).collect(Collectors.toList());
         Assertions.assertEquals(result.mtmv.getInsertedColumnNames(),
                 outputNames.subList(0, result.mtmv.getInsertedColumnNames().size()));
+    }
+
+    @Test
+    void testRootAggAboveLeftOuterJoinUsesOuterJoinDeltaRewrite() {
+        LogicalOlapScan leftDelta = buildMowScan(1, "a", true);
+        LogicalOlapScan rightSnapshot = buildMowScan(2, "b", false);
+        LogicalJoin<?, ?> outerJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(), leftDelta, rightSnapshot, JoinReorderContext.EMPTY);
+        Slot groupSlot = outerJoin.getOutput().get(0);
+        Alias countAlias = new Alias(new Count(), "cnt");
+        LogicalAggregate<Plan> agg = new LogicalAggregate<>(
+                ImmutableList.of(groupSlot), ImmutableList.of(groupSlot, countAlias),
+                true, Optional.empty(), outerJoin);
+
+        AggRewriteResult result = rewriteAgg(agg);
+
+        Assertions.assertEquals(Column.DELETE_SIGN,
+                result.sink.getColNames().get(result.sink.getColNames().size() - 1));
+        Assertions.assertInstanceOf(LogicalProject.class, result.finalProject);
     }
 
     @Test
