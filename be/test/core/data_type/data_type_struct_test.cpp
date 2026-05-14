@@ -520,4 +520,14 @@ TEST_F(DataTypeStructTest, insertColumnLastValueMultipleTimes) {
     std::cout << "block: " << block.dump_data() << std::endl;
 }
 
+TEST_F(DataTypeStructTest, StructFieldNameValidation) {
+        std::vector<DataTypePtr> elems = {std::make_shared<DataTypeInt32>(),
+                                                                          std::make_shared<DataTypeString>()};
+
+        EXPECT_NO_THROW({ DataTypeStruct data_type(elems, {"a", "b"}); });
+        EXPECT_THROW({ DataTypeStruct data_type(elems, {"", "b"}); }, Exception);
+        EXPECT_THROW({ DataTypeStruct data_type(elems, {"a", ""}); }, Exception);
+        EXPECT_THROW({ DataTypeStruct data_type(elems, {"a", "a"}); }, Exception);
+}
+
 } // namespace doris

@@ -57,19 +57,19 @@ DataTypeStruct::DataTypeStruct(const DataTypes& elems_)
     }
 }
 
-static Status check_tuple_names(const Strings& names) {
+
+static void check_tuple_names_or_throw(const Strings& names) {
     std::unordered_set<String> names_set;
     for (const auto& name : names) {
         if (name.empty()) {
-            return Status::InvalidArgument("Names of struct elements cannot be empty");
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Names of struct elements cannot be empty");
         }
-
         if (!names_set.insert(name).second) {
-            return Status::InvalidArgument("Names of struct elements must be unique");
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Names of struct elements must be unique");
         }
     }
-
-    return {};
 }
 
 DataTypeStruct::DataTypeStruct(const DataTypes& elems_, const Strings& names_)
@@ -80,8 +80,7 @@ DataTypeStruct::DataTypeStruct(const DataTypes& elems_, const Strings& names_)
                                "Wrong number of names passed to constructor of DataTypeStruct");
         __builtin_unreachable();
     }
-
-    Status st = check_tuple_names(names);
+    check_tuple_names_or_throw(names);
 }
 
 std::string DataTypeStruct::do_get_name() const {
