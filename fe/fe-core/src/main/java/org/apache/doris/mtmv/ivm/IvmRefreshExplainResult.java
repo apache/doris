@@ -54,7 +54,12 @@ public class IvmRefreshExplainResult {
                 return bundle;
             }
         }
-        throw new AnalysisException("Unknown IVM delta id: " + deltaId);
+        if (deltaBundles.isEmpty()) {
+            throw new AnalysisException("Unknown IVM delta id: " + deltaId
+                    + ". No IVM delta plans are available.");
+        }
+        throw new AnalysisException("Unknown IVM delta id: " + deltaId
+                + ". Valid delta id range is [1, " + deltaBundles.size() + "].");
     }
 
     public List<List<String>> formatOverviewRows() {
@@ -70,9 +75,8 @@ public class IvmRefreshExplainResult {
         return rows;
     }
 
-    public List<List<String>> formatDeltaPlanRows(int deltaId) throws AnalysisException {
-        IvmDeltaExplainBundle bundle = getDeltaBundle(deltaId);
-        return ImmutableList.of(ImmutableList.of(bundle.getDeltaPlan().treeString()));
+    public static List<List<String>> formatDeltaPlanRows(Plan deltaPlan) {
+        return ImmutableList.of(ImmutableList.of(deltaPlan.treeString()));
     }
 
     private String formatNormalizedDelta() {

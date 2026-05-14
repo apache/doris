@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -25,20 +26,30 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.ivm.IvmRefreshExplainResult;
 import org.apache.doris.mtmv.ivm.IvmRefreshManager;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Explain IVM refresh dry-run plans.
@@ -72,10 +83,6 @@ public class ExplainRefreshIvmCommand extends Command implements NoForward {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        if (showPlanProcess) {
-            throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                    "EXPLAIN REFRESH does not support PLAN PROCESS");
-        }
         if (refreshMTMVInfo.getRefreshMode() != RefreshMode.INCREMENTAL) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                     "EXPLAIN REFRESH only supports IVM materialized views");
@@ -84,20 +91,82 @@ public class ExplainRefreshIvmCommand extends Command implements NoForward {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                     "EXPLAIN " + level + " REFRESH requires FOR DELTA k");
         }
-        if (deltaId != null && level != ExplainLevel.REWRITTEN_PLAN) {
+        if (showPlanProcess && deltaId == null) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                    "EXPLAIN " + level + " REFRESH FOR DELTA is not supported yet; "
-                            + "use EXPLAIN LOGICAL PLAN REFRESH ... FOR DELTA k");
+                    "EXPLAIN REFRESH PLAN PROCESS requires FOR DELTA k");
         }
 
         refreshMTMVInfo.analyze(ctx);
         MTMV mtmv = getMtmv();
-        IvmRefreshExplainResult result = createIvmRefreshManager().explainRefresh(mtmv);
+        IvmRefreshExplainResult result;
+        try {
+            result = createIvmRefreshManager().explainRefresh(mtmv);
+        } finally {
+            ctx.setThreadLocalInfo();
+        }
         if (deltaId == null) {
             executor.sendResultSet(new ShowResultSet(OVERVIEW_META_DATA, result.formatOverviewRows()));
         } else {
-            executor.sendResultSet(new ShowResultSet(DELTA_PLAN_META_DATA, result.formatDeltaPlanRows(deltaId)));
+            explainDeltaPlan(ctx, executor, mtmv, result.getDeltaBundle(deltaId).getDeltaPlan());
         }
+    }
+
+    private void explainDeltaPlan(ConnectContext ctx, StmtExecutor executor, MTMV mtmv, Plan deltaPlan) throws Exception {
+        if (!(deltaPlan instanceof LogicalPlan)) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "IVM delta plan is not a logical plan: " + deltaPlan.getClass().getSimpleName());
+        }
+        if (level == ExplainLevel.ANALYZED_PLAN && !showPlanProcess) {
+            executor.sendResultSet(new ShowResultSet(DELTA_PLAN_META_DATA,
+                    IvmRefreshExplainResult.formatDeltaPlanRows(deltaPlan)));
+            return;
+        }
+
+        LogicalPlan logicalPlan = removeNestedResultSink((LogicalPlan) deltaPlan);
+        ConnectContext planCtx = MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
+        try (StatementContext deltaStatementContext = new StatementContext(planCtx, null)) {
+            planCtx.setStatementContext(deltaStatementContext);
+            NereidsPlanner planner = new NereidsPlanner(deltaStatementContext);
+            LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalPlan, deltaStatementContext);
+            ExplainOptions explainOptions = new ExplainOptions(level, showPlanProcess);
+            logicalPlanAdapter.setIsExplain(explainOptions);
+            executor.setParsedStmt(logicalPlanAdapter);
+            planner.plan(logicalPlanAdapter, planCtx.getSessionVariable().toThrift());
+            executor.setPlanner(planner);
+            if (showPlanProcess) {
+                executor.handleExplainPlanProcessStmt(planner.getCascadesContext().getPlanProcesses());
+            } else {
+                executor.handleExplainStmt(planner.getExplainString(explainOptions), true);
+            }
+            for (ScanNode scanNode : planner.getScanNodes()) {
+                scanNode.stop();
+            }
+        } finally {
+            ctx.setThreadLocalInfo();
+        }
+    }
+
+    private LogicalPlan removeNestedResultSink(LogicalPlan logicalPlan) {
+        if (!(logicalPlan instanceof LogicalResultSink)) {
+            return logicalPlan;
+        }
+
+        // IVM normalized plans can contain nested result sinks because the MV query is parsed as a
+        // query statement with its own result sink, and MTMV analyze wraps the logical query with
+        // another result sink before planning. For EXPLAIN ANALYZED PLAN we print the raw delta
+        // rewriter output, but for fragment/logical/physical explain we continue planning the delta
+        // plan. Collapse consecutive root result sinks first so Nereids sees a single root sink,
+        // matching the shape of a normal query explain.
+        LogicalResultSink<?> resultSink = (LogicalResultSink<?>) logicalPlan;
+        Plan child = resultSink.child();
+        if (!(child instanceof LogicalResultSink)) {
+            return logicalPlan;
+        }
+        while (child instanceof LogicalResultSink) {
+            child = ((LogicalResultSink<?>) child).child();
+        }
+        return resultSink.withGroupExprLogicalPropChildren(resultSink.getGroupExpression(),
+                Optional.of(resultSink.getLogicalProperties()), Collections.singletonList(child));
     }
 
     private MTMV getMtmv() throws org.apache.doris.common.AnalysisException, MetaNotFoundException {
