@@ -141,7 +141,7 @@ public:
         }
 
         if (haystack_nullable) {
-            auto column_nullable = check_and_get_column<ColumnNullable>(haystack_column.get());
+            const auto* column_nullable = assert_cast<const ColumnNullable*>(haystack_column.get());
             auto& null_map = column_nullable->get_null_map_data();
             for (size_t i = 0; i != input_rows_count; ++i) {
                 if (null_map[i] == 1) {
@@ -153,7 +153,7 @@ public:
         }
 
         if (needles_nullable) {
-            auto column_nullable = check_and_get_column<ColumnNullable>(needles_column.get());
+            const auto* column_nullable = assert_cast<const ColumnNullable*>(needles_column.get());
             auto& null_map = column_nullable->get_null_map_data();
             for (size_t i = 0; i != input_rows_count; ++i) {
                 if (null_map[i] == 1) {
@@ -247,9 +247,8 @@ public:
         offsets_res.reserve(haystack_data.size());
         uint64_t offset_now = 0;
 
-        auto& nested_column =
-                check_and_get_column<ColumnNullable>(needles_data)->get_nested_column();
-        const ColumnString* needles_data_string = check_and_get_column<ColumnString>(nested_column);
+        auto& nested_column = assert_cast<const ColumnNullable&>(needles_data).get_nested_column();
+        const ColumnString* needles_data_string = assert_cast<const ColumnString*>(&nested_column);
 
         std::vector<StringRef> needles_for_row;
         // haystack first, row by row.

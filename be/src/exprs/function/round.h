@@ -460,7 +460,7 @@ struct Dispatcher {
                                      [[maybe_unused]] Int16 result_scale) {
         if constexpr (is_int_or_bool(T) || is_ip(T) || is_date_type(T) || is_float_or_double(T) ||
                       T == TYPE_TIMEV2 || T == TYPE_UINT32 || T == TYPE_UINT64) {
-            const auto* const col = check_and_get_column<ColumnVector<T>>(col_general);
+            const auto* const col = assert_cast<const ColumnVector<T>*>(col_general);
             auto col_res = ColumnVector<T>::create();
 
             typename ColumnVector<T>::Container& vec_res = col_res->get_data();
@@ -484,7 +484,7 @@ struct Dispatcher {
             return col_res;
         } else if constexpr (T == TYPE_DECIMALV2) {
             const auto* const decimal_col =
-                    check_and_get_column<typename PrimitiveTypeTraits<T>::ColumnType>(col_general);
+                    assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType*>(col_general);
             const auto& vec_src = decimal_col->get_data();
             const size_t input_rows_count = vec_src.size();
             auto col_res = PrimitiveTypeTraits<T>::ColumnType::create(vec_src.size(), result_scale);
@@ -520,7 +520,7 @@ struct Dispatcher {
             return col_res;
         } else if constexpr (is_decimal(T)) {
             const auto* const decimal_col =
-                    check_and_get_column<typename PrimitiveTypeTraits<T>::ColumnType>(col_general);
+                    assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType*>(col_general);
             const auto& vec_src = decimal_col->get_data();
             const size_t input_rows_count = vec_src.size();
             auto col_res = PrimitiveTypeTraits<T>::ColumnType::create(vec_src.size(), result_scale);
