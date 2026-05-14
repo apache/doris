@@ -26,9 +26,9 @@
 #include <glog/logging.h>
 #include <google/protobuf/stubs/callback.h>
 #include <pdqsort.h>
-#include <stddef.h>
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <functional>
@@ -48,6 +48,49 @@
 #include "util/time.h"
 
 namespace doris {
+
+namespace {
+
+void copy_block_metadata_without_column_values(const PBlock& src, PBlock* dst) {
+    for (int i = 0; i < src.column_metas_size(); ++i) {
+        dst->add_column_metas()->CopyFrom(src.column_metas(i));
+    }
+    dst->set_be_exec_version(src.be_exec_version());
+    dst->set_compressed(src.compressed());
+    dst->set_compression_type(src.compression_type());
+    dst->set_uncompressed_size(src.uncompressed_size());
+}
+
+std::shared_ptr<PTransmitDataParams> make_http_request_without_column_values(
+        const PTransmitDataParams& src) {
+    DORIS_CHECK(src.has_block());
+    DORIS_CHECK(src.blocks_size() == 0);
+    DORIS_CHECK(!src.has_row_batch());
+
+    auto dst = std::make_shared<PTransmitDataParams>();
+    dst->mutable_finst_id()->CopyFrom(src.finst_id());
+    dst->set_node_id(src.node_id());
+    dst->set_sender_id(src.sender_id());
+    dst->set_be_number(src.be_number());
+    dst->set_eos(src.eos());
+    dst->set_packet_seq(src.packet_seq());
+    if (src.has_query_statistics()) {
+        dst->mutable_query_statistics()->CopyFrom(src.query_statistics());
+    }
+    if (src.has_transfer_by_attachment()) {
+        dst->set_transfer_by_attachment(src.transfer_by_attachment());
+    }
+    if (src.has_query_id()) {
+        dst->mutable_query_id()->CopyFrom(src.query_id());
+    }
+    if (src.has_exec_status()) {
+        dst->mutable_exec_status()->CopyFrom(src.exec_status());
+    }
+    copy_block_metadata_without_column_values(src.block(), dst->mutable_block());
+    return dst;
+}
+
+} // namespace
 
 BroadcastPBlockHolder::~BroadcastPBlockHolder() {
     // lock the parent queue, if the queue could lock success, then return the block
@@ -223,6 +266,8 @@ Status ExchangeSinkBuffer::add_block(Channel* channel, BroadcastTransmitInfo&& r
     return Status::OK();
 }
 
+// Keep the existing send state machine intact; this change only adjusts ownership in one branch.
+// NOLINTNEXTLINE(readability-function-size, readability-function-cognitive-complexity)
 Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
     std::unique_lock<std::mutex> lock(*(instance_data.mutex));
 
@@ -504,15 +549,25 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
             }
         });
         {
-            auto send_remote_block_closure = AutoReleaseClosure<
-                    PTransmitDataParams,
-                    ExchangeSendCallback<PTransmitDataResult>>::create_unique(brpc_request,
-                                                                              send_callback);
             if (enable_http_send_block(*brpc_request)) {
-                RETURN_IF_ERROR(transmit_block_httpv2(_context->exec_env(),
-                                                      std::move(send_remote_block_closure),
-                                                      channel->_brpc_dest_addr, true));
+                // The broadcast holder is shared by all destination channels. For HTTP we must
+                // serialize a request without column_values, but must not release/restore the
+                // shared block because different RPC callback threads can send the same holder
+                // concurrently. Copy only the small request/block metadata and borrow the
+                // column_values string as read-only attachment data.
+                auto http_request = make_http_request_without_column_values(*brpc_request);
+                auto send_remote_block_closure = AutoReleaseClosure<
+                        PTransmitDataParams,
+                        ExchangeSendCallback<PTransmitDataResult>>::create_unique(http_request,
+                                                                                  send_callback);
+                RETURN_IF_ERROR(transmit_block_httpv2_with_attachment_data(
+                        _context->exec_env(), std::move(send_remote_block_closure),
+                        channel->_brpc_dest_addr, brpc_request->block().column_values()));
             } else {
+                auto send_remote_block_closure = AutoReleaseClosure<
+                        PTransmitDataParams,
+                        ExchangeSendCallback<PTransmitDataResult>>::create_unique(brpc_request,
+                                                                                  send_callback);
                 transmit_blockv2(channel->_brpc_stub.get(), std::move(send_remote_block_closure));
             }
         }
