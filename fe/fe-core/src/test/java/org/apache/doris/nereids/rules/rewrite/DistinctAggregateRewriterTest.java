@@ -52,6 +52,24 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
         createTable("create table test.distinct_agg_split_t(a int null, b int not null,"
                 + "c varchar(10) null, d date, dt datetime)\n"
                 + "distributed by hash(a) properties('replication_num' = '1');");
+        createTable("CREATE TABLE IF NOT EXISTS test.sales_records\n"
+                + "(\n"
+                + "    record_id BIGINT,\n"
+                + "    seller_id BIGINT,\n"
+                + "    sale_date DATE,\n"
+                + "    amount DECIMAL(18,2)\n"
+                + ")\n"
+                + "DUPLICATE KEY(record_id, seller_id)\n"
+                + "PARTITION BY RANGE(sale_date)\n"
+                + "(\n"
+                + "    PARTITION p202301 VALUES LESS THAN ('2023-02-01'),\n"
+                + "    PARTITION p202302 VALUES LESS THAN ('2023-03-01'),\n"
+                + "    PARTITION p202303 VALUES LESS THAN ('2023-04-01')\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(record_id) BUCKETS 10\n"
+                + "PROPERTIES (\n"
+                + "    \"replication_num\" = \"1\"\n"
+                + ");");
         connectContext.setDatabase("test");
         SessionVariable spySessionVariable = Mockito.spy(connectContext.getSessionVariable());
         Mockito.doReturn(24).when(spySessionVariable).getParallelExecInstanceNum(Mockito.anyString());
@@ -249,6 +267,24 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
         aggregate.setStatistics(new Statistics(240, ImmutableMap.of()));
 
         Assertions.assertFalse(rewriter.shouldUseMultiDistinct(aggregate));
+    }
+
+    @Test
+    void testShouldUseMultiDistinctWithPartitionTable() {
+        DistinctAggregateRewriter rewriter = DistinctAggregateRewriter.INSTANCE;
+        LogicalAggregate<? extends Plan> aggregate = getLogicalAggregate(
+                "select count(distinct record_id) from sales_records group by sale_date;"
+        );
+        Plan child = aggregate.child();
+        Map<org.apache.doris.nereids.trees.expressions.Expression, ColumnStatistic> colStats = new HashMap<>();
+        aggregate.getGroupByExpressions().forEach(expr ->
+                colStats.put(expr, unknownColumnStats()));
+        aggregate.getDistinctArguments().forEach(expr ->
+                colStats.put(expr, unknownColumnStats()));
+        ((AbstractPlan) child).setStatistics(new Statistics(10000, colStats));
+        aggregate.setStatistics(new Statistics(100, ImmutableMap.of()));
+
+        Assertions.assertTrue(rewriter.shouldUseMultiDistinct(aggregate));
     }
 
     private LogicalAggregate<? extends Plan> getLogicalAggregate(String sql) {
