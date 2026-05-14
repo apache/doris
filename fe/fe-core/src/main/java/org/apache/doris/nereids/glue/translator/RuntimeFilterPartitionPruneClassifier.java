@@ -22,6 +22,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
@@ -79,7 +80,12 @@ final class RuntimeFilterPartitionPruneClassifier {
             if (!isPartitionColumnSlot(slotRef, partitionInfo.getPartitionColumns())) {
                 return Classification.unsupported("target SlotRef is not a partition column");
             }
-            return Classification.supportedPartitions(slotRef, allSelectedPartitionsIncreasing(olapScanNode));
+            Map<Long, TTargetExprMonotonicity> partitionMonotonicity =
+                    allSelectedPartitionsIncreasing(olapScanNode, partitionInfo);
+            if (partitionMonotonicity.isEmpty()) {
+                return Classification.unsupported("target SlotRef has no prunable selected partitions");
+            }
+            return Classification.supportedPartitions(slotRef, partitionMonotonicity);
         }
 
         SlotRef leafSlot = findUniqueSlotRef(targetExpr);
@@ -211,9 +217,15 @@ final class RuntimeFilterPartitionPruneClassifier {
         return result;
     }
 
-    private static Map<Long, TTargetExprMonotonicity> allSelectedPartitionsIncreasing(OlapScanNode scanNode) {
+    private static Map<Long, TTargetExprMonotonicity> allSelectedPartitionsIncreasing(
+            OlapScanNode scanNode, PartitionInfo partitionInfo) {
         Map<Long, TTargetExprMonotonicity> result = new HashMap<>();
         for (Long partitionId : scanNode.getSelectedPartitionIds()) {
+            PartitionItem item = partitionInfo.getItem(partitionId);
+            if (item == null || (item instanceof ListPartitionItem
+                    && ((ListPartitionItem) item).isDefaultPartition())) {
+                continue;
+            }
             result.put(partitionId, TTargetExprMonotonicity.MONOTONIC_INCREASING);
         }
         return result;

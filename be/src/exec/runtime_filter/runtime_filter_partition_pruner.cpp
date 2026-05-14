@@ -20,6 +20,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 
 #include <optional>
+#include <unordered_set>
 #include <utility>
 
 #include "core/block/block.h"
@@ -262,6 +263,26 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
     const auto& orig_boundaries = slot_boundaries_it->second;
     if (orig_boundaries.empty()) {
         return store_projected_boundaries(std::move(projected));
+    }
+
+    std::unordered_set<int64_t> boundary_partition_ids;
+    boundary_partition_ids.reserve(orig_boundaries.size());
+    for (const auto& boundary : orig_boundaries) {
+        boundary_partition_ids.insert(boundary.partition_id);
+    }
+    for (const auto& [partition_id, direction] : partition_directions) {
+        if (direction == TTargetExprMonotonicity::NON_MONOTONIC) {
+            return Status::InternalError(
+                    "Runtime filter partition pruning received NON_MONOTONIC partition "
+                    "metadata, filter_id={}, partition_id={}",
+                    filter_id, partition_id);
+        }
+        if (!boundary_partition_ids.contains(partition_id)) {
+            return Status::InternalError(
+                    "Runtime filter partition pruning received monotonicity for a partition "
+                    "without boundary, filter_id={}, partition_id={}, slot_id={}",
+                    filter_id, partition_id, leaf_slot_id);
+        }
     }
 
     if (target_expr->is_slot_ref()) {
@@ -735,13 +756,32 @@ Status RuntimeFilterPartitionPruner::prune_by_runtime_filters(
             if (it != desc.planId_to_partition_target_monotonicity.end()) {
                 auto& partition_monotonicity = filter_id_to_partition_monotonicity[desc.filter_id];
                 for (const auto& partition_entry : it->second) {
-                    if (!partition_entry.__isset.partition_id ||
-                        !partition_entry.__isset.monotonicity ||
-                        partition_entry.monotonicity == TTargetExprMonotonicity::NON_MONOTONIC) {
-                        continue;
+                    if (!partition_entry.__isset.partition_id) {
+                        return Status::InternalError(
+                                "Runtime filter partition pruning monotonicity entry misses "
+                                "partition_id, filter_id={}",
+                                desc.filter_id);
                     }
-                    partition_monotonicity[partition_entry.partition_id] =
-                            partition_entry.monotonicity;
+                    if (!partition_entry.__isset.monotonicity) {
+                        return Status::InternalError(
+                                "Runtime filter partition pruning monotonicity entry misses "
+                                "monotonicity, filter_id={}, partition_id={}",
+                                desc.filter_id, partition_entry.partition_id);
+                    }
+                    if (partition_entry.monotonicity == TTargetExprMonotonicity::NON_MONOTONIC) {
+                        return Status::InternalError(
+                                "Runtime filter partition pruning monotonicity entry must not be "
+                                "NON_MONOTONIC, filter_id={}, partition_id={}",
+                                desc.filter_id, partition_entry.partition_id);
+                    }
+                    auto [_, inserted] = partition_monotonicity.emplace(
+                            partition_entry.partition_id, partition_entry.monotonicity);
+                    if (!inserted) {
+                        return Status::InternalError(
+                                "Runtime filter partition pruning monotonicity entry has "
+                                "duplicate partition_id, filter_id={}, partition_id={}",
+                                desc.filter_id, partition_entry.partition_id);
+                    }
                 }
             }
         }

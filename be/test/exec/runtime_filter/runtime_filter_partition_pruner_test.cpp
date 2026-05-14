@@ -334,6 +334,26 @@ TEST_F(RuntimeFilterPartitionPrunerTest, InvalidPartitionBoundaryRejected) {
     EXPECT_FALSE(parsed.parse({boundary}, slots).ok());
 }
 
+TEST_F(RuntimeFilterPartitionPrunerTest, InvalidPartitionMonotonicityRejected) {
+    int32_t one = 1;
+    std::vector<TPartitionBoundary> boundaries {
+            list_boundary<TYPE_INT>(1, {literal_node<TYPE_INT>(one)})};
+    auto parsed = parse_boundaries(TYPE_INT, boundaries);
+
+    TPartitionTargetExprMonotonicity entry;
+    entry.__set_partition_id(1);
+    entry.__set_monotonicity(TTargetExprMonotonicity::NON_MONOTONIC);
+    TRuntimeFilterDesc desc;
+    desc.__set_filter_id(7);
+    desc.__set_planId_to_partition_target_monotonicity({{/*scan_node_id=*/0, {entry}}});
+
+    RuntimeFilterPartitionPruner pruner;
+    int64_t newly_pruned = 0;
+    EXPECT_FALSE(
+            pruner.prune_by_runtime_filters(*parsed, {}, {desc}, /*scan_node_id=*/0, &newly_pruned)
+                    .ok());
+}
+
 TEST_F(RuntimeFilterPartitionPrunerTest, ParseAndPrunePrimitiveTypeMatrix) {
     assert_parse_and_prune_type<TYPE_BOOLEAN>(false, true);
     assert_parse_and_prune_type<TYPE_TINYINT>(int8_t {1}, int8_t {2});

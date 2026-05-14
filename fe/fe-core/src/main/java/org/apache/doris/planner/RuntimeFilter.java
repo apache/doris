@@ -345,9 +345,9 @@ public final class RuntimeFilter {
                         : targetPartitionMonotonicityByScanId.entrySet()) {
                     List<TPartitionTargetExprMonotonicity> partitionMonoList = new ArrayList<>();
                     for (Map.Entry<Long, TTargetExprMonotonicity> partitionEntry : e.getValue().entrySet()) {
-                        if (partitionEntry.getValue() == TTargetExprMonotonicity.NON_MONOTONIC) {
-                            continue;
-                        }
+                        Preconditions.checkArgument(
+                                partitionEntry.getValue() != TTargetExprMonotonicity.NON_MONOTONIC,
+                                "partition pruning monotonicity must not be NON_MONOTONIC");
                         TPartitionTargetExprMonotonicity partitionMono =
                                 new TPartitionTargetExprMonotonicity();
                         partitionMono.setPartitionId(partitionEntry.getKey());
