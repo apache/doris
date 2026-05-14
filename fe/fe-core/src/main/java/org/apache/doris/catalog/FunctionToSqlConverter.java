@@ -23,6 +23,8 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Function.NullableMode;
 
+import com.google.common.base.Strings;
+
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -81,13 +83,19 @@ public class FunctionToSqlConverter {
                     .append("\"" + (fn.getLocation() == null ? "" : fn.getLocation().toString()) + "\"");
             boolean isReturnNull = fn.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
             sb.append(",\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\"");
+            sb.append(",\n  \"RUNTIME_VERSION\"=").append("\"" + Strings.nullToEmpty(fn.getRuntimeVersion()) + "\"");
             sb.append(",\n  \"VOLATILITY\"=").append("\"" + fn.getVolatility().toSql() + "\"");
         } else {
             sb.append(",\n  \"OBJECT_FILE\"=")
                     .append("\"" + (fn.getLocation() == null ? "" : fn.getLocation().toString()) + "\"");
         }
         sb.append(",\n  \"TYPE\"=").append("\"" + fn.getBinaryType() + "\"");
-        sb.append("\n);");
+        if (fn.getBinaryType() == Function.BinaryType.PYTHON_UDF && !Strings.isNullOrEmpty(fn.getFunctionCode())) {
+            // Preserve inline Python UDF bodies so SHOW CREATE FUNCTION output can be replayed directly.
+            sb.append("\n)\nAS $$\n").append(fn.getFunctionCode()).append("\n$$;");
+        } else {
+            sb.append("\n);");
+        }
         return sb.toString();
     }
 
@@ -137,12 +145,19 @@ public class FunctionToSqlConverter {
                     .append("\"" + (fn.getLocation() == null ? "" : fn.getLocation().toString()) + "\",");
             boolean isReturnNull = fn.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
             sb.append("\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\",");
+            sb.append("\n  \"RUNTIME_VERSION\"=")
+                    .append("\"" + Strings.nullToEmpty(fn.getRuntimeVersion()) + "\",");
         } else {
             sb.append("\n  \"OBJECT_FILE\"=")
                     .append("\"" + (fn.getLocation() == null ? "" : fn.getLocation().toString()) + "\",");
         }
         sb.append("\n  \"TYPE\"=").append("\"" + fn.getBinaryType() + "\"");
-        sb.append("\n);");
+        if (fn.getBinaryType() == Function.BinaryType.PYTHON_UDF && !Strings.isNullOrEmpty(fn.getFunctionCode())) {
+            // Preserve inline Python UDAF bodies so SHOW CREATE FUNCTION output can be replayed directly.
+            sb.append("\n)\nAS $$\n").append(fn.getFunctionCode()).append("\n$$;");
+        } else {
+            sb.append("\n);");
+        }
         return sb.toString();
     }
 

@@ -19,6 +19,8 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.Function.BinaryType;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.URI;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -102,6 +104,43 @@ public class FunctionToSqlConverterTest {
 
         Assertions.assertFalse(sql.contains("PREPARE_FN"));
         Assertions.assertFalse(sql.contains("CLOSE_FN"));
+    }
+
+    @Test
+    void testScalarFunction_pythonUdf_inlineReplaySql() {
+        FunctionName name = new FunctionName("testDb", "py_inline");
+        Type[] argTypes = {Type.INT};
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.PYTHON_UDF, name, argTypes,
+                Type.INT, false, null, "evaluate", null, null);
+        fn.setRuntimeVersion("3.10.2");
+        fn.setFunctionCode("def evaluate(x):\n    return x + 1");
+        fn.setVolatility(FunctionVolatility.IMMUTABLE);
+
+        String sql = FunctionToSqlConverter.toSql(fn, false);
+
+        Assertions.assertTrue(sql.contains("\"RUNTIME_VERSION\"=\"3.10.2\""));
+        Assertions.assertTrue(sql.contains("\"VOLATILITY\"=\"immutable\""));
+        Assertions.assertTrue(sql.contains("\"TYPE\"=\"PYTHON_UDF\""));
+        Assertions.assertTrue(sql.contains("AS $$\ndef evaluate(x):\n    return x + 1\n$$;"));
+        Assertions.assertFalse(sql.endsWith(");"));
+    }
+
+    @Test
+    void testScalarFunction_pythonUdf_moduleReplaySql() throws AnalysisException {
+        FunctionName name = new FunctionName("testDb", "py_module");
+        Type[] argTypes = {Type.INT};
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.PYTHON_UDF, name, argTypes,
+                Type.INT, false, URI.create("file:///tmp/pyudf.zip"), "pkg.mod.evaluate", null, null);
+        fn.setRuntimeVersion("3.10.2");
+        fn.setVolatility(FunctionVolatility.STABLE);
+
+        String sql = FunctionToSqlConverter.toSql(fn, false);
+
+        Assertions.assertTrue(sql.contains("\"FILE\"=\"file:///tmp/pyudf.zip\""));
+        Assertions.assertTrue(sql.contains("\"RUNTIME_VERSION\"=\"3.10.2\""));
+        Assertions.assertTrue(sql.contains("\"VOLATILITY\"=\"stable\""));
+        Assertions.assertTrue(sql.endsWith(");"));
+        Assertions.assertFalse(sql.contains("AS $$"));
     }
 
     // ======================== ScalarFunction — IF NOT EXISTS ========================
@@ -210,6 +249,30 @@ public class FunctionToSqlConverterTest {
         String sql = FunctionToSqlConverter.toSql(fn, true);
 
         Assertions.assertTrue(sql.contains("CREATE AGGREGATE FUNCTION IF NOT EXISTS "));
+    }
+
+    @Test
+    void testAggregateFunction_pythonUdf_inlineReplaySql() {
+        FunctionName name = new FunctionName("testDb", "py_agg");
+        Type[] argTypes = {Type.INT};
+        AggregateFunction fn = AggregateFunction.AggregateFunctionBuilder.createUdfBuilder()
+                .binaryType(BinaryType.PYTHON_UDF)
+                .name(name)
+                .argsType(argTypes)
+                .retType(Type.INT)
+                .intermediateType(Type.INT)
+                .hasVarArgs(false)
+                .symbolName("SumState")
+                .build();
+        fn.setRuntimeVersion("3.10.2");
+        fn.setFunctionCode("class SumState:\n    pass");
+
+        String sql = FunctionToSqlConverter.toSql(fn, false);
+
+        Assertions.assertTrue(sql.contains("\"RUNTIME_VERSION\"=\"3.10.2\""));
+        Assertions.assertTrue(sql.contains("\"TYPE\"=\"PYTHON_UDF\""));
+        Assertions.assertTrue(sql.contains("AS $$\nclass SumState:\n    pass\n$$;"));
+        Assertions.assertFalse(sql.endsWith(");"));
     }
 
     // ======================== AggregateFunction — NATIVE ========================
