@@ -239,8 +239,8 @@ final class RuntimeFilterPartitionPruneClassifier {
         }
 
         static Classification supportedIdentity(SlotRef partitionSlot) {
-            return new Classification(true, false, partitionSlot,
-                    TTargetExprMonotonicity.NON_MONOTONIC, new HashMap<>(), "");
+            return new Classification(true, true, partitionSlot,
+                    TTargetExprMonotonicity.MONOTONIC_INCREASING, new HashMap<>(), "");
         }
 
         static Classification supportedPartitions(SlotRef partitionSlot,

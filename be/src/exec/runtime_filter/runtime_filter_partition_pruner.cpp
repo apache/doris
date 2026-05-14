@@ -217,17 +217,17 @@ static const VSlotRef* find_unique_slot_ref(const VExpr* expr) {
 }
 
 // NOLINTBEGIN(readability-function-cognitive-complexity,readability-function-size)
-std::shared_ptr<const std::vector<ParsedBoundary>>
-ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
+Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
         int filter_id, const VExprSPtr& target_expr, SlotId leaf_slot_id, int leaf_column_id,
         TTargetExprMonotonicity::type global_direction,
         const std::unordered_map<int64_t, TTargetExprMonotonicity::type>* partition_directions,
-        VExprContext* ctx) const {
+        VExprContext* ctx, std::shared_ptr<const std::vector<ParsedBoundary>>* output) const {
     {
         std::lock_guard<std::mutex> lock(_projected_boundaries_mutex);
         auto it = _projected_boundaries_by_filter_id.find(filter_id);
         if (it != _projected_boundaries_by_filter_id.end()) {
-            return it->second;
+            *output = it->second;
+            return Status::OK();
         }
     }
 
@@ -236,7 +236,8 @@ ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
         auto cached = std::make_shared<const std::vector<ParsedBoundary>>(std::move(boundaries));
         std::lock_guard<std::mutex> lock(_projected_boundaries_mutex);
         auto [it, inserted] = _projected_boundaries_by_filter_id.emplace(filter_id, cached);
-        return inserted ? cached : it->second;
+        *output = inserted ? cached : it->second;
+        return Status::OK();
     };
 
     auto slot_boundaries_it = _slot_to_boundaries.find(leaf_slot_id);
@@ -247,6 +248,25 @@ ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
     const auto& orig_boundaries = slot_boundaries_it->second;
     if (orig_boundaries.empty()) {
         return store_projected_boundaries(std::move(projected));
+    }
+
+    if (target_expr->is_slot_ref()) {
+        auto* slot_ref = assert_cast<VSlotRef*>(target_expr.get());
+        if (slot_ref->slot_id() != leaf_slot_id) {
+            return Status::InternalError(
+                    "Runtime filter partition pruning SlotRef target mismatch, filter_id={}, "
+                    "target_slot_id={}, leaf_slot_id={}",
+                    filter_id, slot_ref->slot_id(), leaf_slot_id);
+        }
+        if (partition_directions != nullptr ||
+            global_direction != TTargetExprMonotonicity::MONOTONIC_INCREASING) {
+            return Status::InternalError(
+                    "Runtime filter partition pruning SlotRef target must use global increasing "
+                    "monotonicity, filter_id={}, monotonicity={}",
+                    filter_id, global_direction);
+        }
+        return store_projected_boundaries(
+                std::vector<ParsedBoundary>(orig_boundaries.begin(), orig_boundaries.end()));
     }
 
     std::vector<std::pair<size_t, TTargetExprMonotonicity::type>> selected_boundaries;
@@ -283,19 +303,24 @@ ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
 
     auto slot_type_it = _slot_data_types.find(leaf_slot_id);
     if (slot_type_it == _slot_data_types.end()) {
-        return store_projected_boundaries(std::move(projected));
+        return Status::InternalError(
+                "Runtime filter partition pruning target slot has no boundary type, filter_id={}, "
+                "slot_id={}, target_expr={}",
+                filter_id, leaf_slot_id, target_expr->expr_name());
     }
 
-    // LIST partitions: TODO(rf-partition-prune) -- projecting through a
-    // monotonic function preserves set membership but requires re-grouping
-    // the projected values back per-partition. Skip for now (caller treats
-    // an empty result as "no projection available").
+    // LIST partitions require regrouping projected values per partition and
+    // should not be marked as expression-prunable by FE yet.
     for (const auto& selected_boundary : selected_boundaries) {
         bool is_list = false;
         std::visit([&](const auto& cvr) { is_list = cvr.is_fixed_value_range(); },
                    orig_boundaries[selected_boundary.first].boundary_cvr);
         if (is_list) {
-            return store_projected_boundaries(std::move(projected));
+            return Status::InternalError(
+                    "Runtime filter partition pruning expression target does not support LIST "
+                    "partition boundaries, filter_id={}, partition_id={}, target_expr={}",
+                    filter_id, orig_boundaries[selected_boundary.first].partition_id,
+                    target_expr->expr_name());
         }
     }
 
@@ -408,7 +433,10 @@ ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
 #undef BUILD_INPUT_COLUMNS
 
     if (!input_built) {
-        return store_projected_boundaries(std::move(projected));
+        return Status::InternalError(
+                "Runtime filter partition pruning expression target has unsupported input type, "
+                "filter_id={}, input_type={}, target_expr={}",
+                filter_id, input_type->get_name(), target_expr->expr_name());
     }
 
     int lo_result_id = -1;
@@ -416,23 +444,25 @@ ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
     ColumnPtr lo_result_col;
     ColumnPtr hi_result_col;
     if (lo_row_count > 0) {
-        auto status_lo = target_expr->execute(ctx, &lo_block, &lo_result_id);
-        if (!status_lo.ok() || lo_result_id < 0) {
-            return store_projected_boundaries(std::move(projected));
+        RETURN_IF_ERROR(target_expr->execute(ctx, &lo_block, &lo_result_id));
+        if (lo_result_id < 0) {
+            return Status::InternalError(
+                    "Runtime filter partition pruning failed to project lower boundary, "
+                    "filter_id={}, target_expr={}",
+                    filter_id, target_expr->expr_name());
         }
         lo_result_col = lo_block.get_by_position(lo_result_id).column;
     }
     if (hi_row_count > 0) {
-        auto status_hi = target_expr->execute(ctx, &hi_block, &hi_result_id);
-        if (!status_hi.ok() || hi_result_id < 0) {
-            return store_projected_boundaries(std::move(projected));
+        RETURN_IF_ERROR(target_expr->execute(ctx, &hi_block, &hi_result_id));
+        if (hi_result_id < 0) {
+            return Status::InternalError(
+                    "Runtime filter partition pruning failed to project upper boundary, "
+                    "filter_id={}, target_expr={}",
+                    filter_id, target_expr->expr_name());
         }
         hi_result_col = hi_block.get_by_position(hi_result_id).column;
     }
-    if (lo_row_count == 0 && hi_row_count == 0) {
-        return store_projected_boundaries(std::move(projected));
-    }
-
     int out_precision = cast_set<int>(target_expr->data_type()->get_precision());
     int out_scale = cast_set<int>(target_expr->data_type()->get_scale());
     bool out_nullable = target_expr->data_type()->is_nullable();
@@ -440,6 +470,7 @@ ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
 
     projected.reserve(N);
 
+    bool output_built = false;
 #define BUILD_PROJECTED_CVR(OUTPUT_PT)                                                          \
     case TYPE_##OUTPUT_PT: {                                                                    \
         using OutputCppType = typename PrimitiveTypeTraits<TYPE_##OUTPUT_PT>::CppType;          \
@@ -483,6 +514,7 @@ ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
             projected_boundary.boundary_cvr = std::move(cvr);                                   \
             projected.emplace_back(std::move(projected_boundary));                              \
         }                                                                                       \
+        output_built = true;                                                                    \
         break;                                                                                  \
     }
 
@@ -515,6 +547,13 @@ ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
     }
 
 #undef BUILD_PROJECTED_CVR
+
+    if (!output_built) {
+        return Status::InternalError(
+                "Runtime filter partition pruning expression target has unsupported output type, "
+                "filter_id={}, output_type={}, target_expr={}",
+                filter_id, target_expr->data_type()->get_name(), target_expr->expr_name());
+    }
 
     return store_projected_boundaries(std::move(projected));
 }
@@ -662,11 +701,13 @@ void RuntimeFilterPartitionPruner::_try_prune_by_single_rf(
     }
 }
 
-int64_t RuntimeFilterPartitionPruner::prune_by_runtime_filters(
+Status RuntimeFilterPartitionPruner::prune_by_runtime_filters(
         const ParsedPartitionBoundaries& parsed, const VExprContextSPtrs& conjuncts,
-        const std::vector<TRuntimeFilterDesc>& rf_descs, int scan_node_id) {
+        const std::vector<TRuntimeFilterDesc>& rf_descs, int scan_node_id,
+        int64_t* newly_pruned_count) {
+    *newly_pruned_count = 0;
     if (parsed.empty()) {
-        return 0;
+        return Status::OK();
     }
     const auto& slot_to_boundaries = parsed.slot_to_boundaries();
 
@@ -724,55 +765,48 @@ int64_t RuntimeFilterPartitionPruner::prune_by_runtime_filters(
 
         VExprSPtr target_subtree = impl->children()[0];
 
-        // Identity case: target is a simple SlotRef on a partition column
-        if (target_subtree->is_slot_ref()) {
-            auto* slot_ref = assert_cast<VSlotRef*>(target_subtree.get());
-            SlotId slot_id = slot_ref->slot_id();
-            auto boundaries_it = slot_to_boundaries.find(slot_id);
-            if (boundaries_it == slot_to_boundaries.end()) {
-                continue;
-            }
-
-            _try_prune_by_single_rf(boundaries_it->second, impl, newly_pruned);
-        } else {
-            // Non-identity case: check if it's a monotonic target
-            auto mono_it = filter_id_to_monotonicity.find(filter_id);
-            auto partition_mono_it = filter_id_to_partition_monotonicity.find(filter_id);
-            bool has_global_mono = mono_it != filter_id_to_monotonicity.end() &&
-                                   mono_it->second != TTargetExprMonotonicity::NON_MONOTONIC;
-            bool has_partition_mono =
-                    partition_mono_it != filter_id_to_partition_monotonicity.end() &&
-                    !partition_mono_it->second.empty();
-            if (!has_global_mono && !has_partition_mono) {
-                continue;
-            }
-
-            const VSlotRef* leaf_slot = find_unique_slot_ref(target_subtree.get());
-            if (!leaf_slot) {
-                continue;
-            }
-
-            SlotId leaf_slot_id = leaf_slot->slot_id();
-            if (!slot_to_boundaries.contains(leaf_slot_id)) {
-                continue;
-            }
-
-            int leaf_column_id = leaf_slot->column_id();
-            TTargetExprMonotonicity::type direction =
-                    has_global_mono ? mono_it->second : TTargetExprMonotonicity::NON_MONOTONIC;
-            const auto* partition_directions =
-                    has_partition_mono ? &partition_mono_it->second : nullptr;
-
-            auto projected = parsed.get_or_compute_projected_boundaries(
-                    filter_id, target_subtree, leaf_slot_id, leaf_column_id, direction,
-                    partition_directions, conjunct_ctx.get());
-
-            if (projected == nullptr || projected->empty()) {
-                continue;
-            }
-
-            _try_prune_by_single_rf(*projected, impl, newly_pruned);
+        auto mono_it = filter_id_to_monotonicity.find(filter_id);
+        auto partition_mono_it = filter_id_to_partition_monotonicity.find(filter_id);
+        bool has_global_mono = mono_it != filter_id_to_monotonicity.end() &&
+                               mono_it->second != TTargetExprMonotonicity::NON_MONOTONIC;
+        bool has_partition_mono = partition_mono_it != filter_id_to_partition_monotonicity.end() &&
+                                  !partition_mono_it->second.empty();
+        if (!has_global_mono && !has_partition_mono) {
+            continue;
         }
+
+        const VSlotRef* leaf_slot = find_unique_slot_ref(target_subtree.get());
+        if (!leaf_slot) {
+            return Status::InternalError(
+                    "Runtime filter partition pruning target expression must contain exactly one "
+                    "partition slot, filter_id={}, target_expr={}",
+                    filter_id, target_subtree->expr_name());
+        }
+
+        SlotId leaf_slot_id = leaf_slot->slot_id();
+        if (!slot_to_boundaries.contains(leaf_slot_id)) {
+            return Status::InternalError(
+                    "Runtime filter partition pruning target slot is not a partition boundary "
+                    "slot, filter_id={}, slot_id={}, target_expr={}",
+                    filter_id, leaf_slot_id, target_subtree->expr_name());
+        }
+
+        int leaf_column_id = leaf_slot->column_id();
+        TTargetExprMonotonicity::type direction =
+                has_global_mono ? mono_it->second : TTargetExprMonotonicity::NON_MONOTONIC;
+        const auto* partition_directions =
+                has_partition_mono ? &partition_mono_it->second : nullptr;
+
+        std::shared_ptr<const std::vector<ParsedBoundary>> projected;
+        RETURN_IF_ERROR(parsed.get_or_compute_projected_boundaries(
+                filter_id, target_subtree, leaf_slot_id, leaf_column_id, direction,
+                partition_directions, conjunct_ctx.get(), &projected));
+
+        if (projected == nullptr || projected->empty()) {
+            continue;
+        }
+
+        _try_prune_by_single_rf(*projected, impl, newly_pruned);
     }
 
     auto count = static_cast<int64_t>(newly_pruned.size());
@@ -782,7 +816,8 @@ int64_t RuntimeFilterPartitionPruner::prune_by_runtime_filters(
             _pruned_partition_ids.insert(pid);
         }
     }
-    return count;
+    *newly_pruned_count = count;
+    return Status::OK();
 }
 // NOLINTEND(readability-function-cognitive-complexity,readability-function-size)
 

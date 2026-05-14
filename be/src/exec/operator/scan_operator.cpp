@@ -88,7 +88,7 @@ Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* stat
     // unapplied RFs (Scanner::_applied_rf_num is not advanced here), wasting
     // CPU re-evaluating the same set of RFs against the same boundaries.
     if (_conjuncts.size() > conjuncts_before) {
-        _on_runtime_filter_update();
+        RETURN_IF_ERROR(_on_runtime_filter_update());
     }
     return Status::OK();
 }
@@ -107,27 +107,31 @@ bool ScanLocalStateBase::is_partition_pruned(int64_t partition_id) const {
     return _rf_partition_pruner.is_partition_pruned(partition_id);
 }
 
-void ScanLocalStateBase::_on_runtime_filter_update() {
+Status ScanLocalStateBase::_on_runtime_filter_update() {
     const auto* parsed = _parent->parsed_partition_boundaries();
     if (parsed != nullptr && !parsed->empty()) {
-        _do_partition_pruning_by_rf();
+        RETURN_IF_ERROR(_do_partition_pruning_by_rf());
     }
+    return Status::OK();
 }
 
-void ScanLocalStateBase::_do_partition_pruning_by_rf() {
+Status ScanLocalStateBase::_do_partition_pruning_by_rf() {
     if (!_state->query_options().enable_runtime_filter_partition_prune) {
-        return;
+        return Status::OK();
     }
     const auto* parsed = _parent->parsed_partition_boundaries();
     if (parsed == nullptr || parsed->empty()) {
-        return;
+        return Status::OK();
     }
-    int64_t newly_pruned = _rf_partition_pruner.prune_by_runtime_filters(
-            *parsed, _conjuncts, _parent->runtime_filter_descs(), _parent->node_id());
+    int64_t newly_pruned = 0;
+    RETURN_IF_ERROR(_rf_partition_pruner.prune_by_runtime_filters(
+            *parsed, _conjuncts, _parent->runtime_filter_descs(), _parent->node_id(),
+            &newly_pruned));
     if (newly_pruned > 0) {
         COUNTER_SET(_partitions_pruned_by_rf_counter,
                     _rf_partition_pruner.pruned_partition_count());
     }
+    return Status::OK();
 }
 
 int ScanLocalStateBase::max_scanners_concurrency(RuntimeState* state) const {
@@ -229,7 +233,7 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     size_t conjuncts_before = _conjuncts.size();
     RETURN_IF_ERROR(_helper.acquire_runtime_filter(state, _conjuncts, p.row_descriptor()));
     if (_conjuncts.size() > conjuncts_before) {
-        _on_runtime_filter_update();
+        RETURN_IF_ERROR(_on_runtime_filter_update());
     }
 
     // Disable condition cache in topn filter valid. TODO:: Try to support the topn filter in condition cache

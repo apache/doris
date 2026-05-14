@@ -333,9 +333,9 @@ public final class RuntimeFilter {
         }
 
         // Per-target monotonicity for BE-side partition pruning. Populated
-        // upstream by RuntimeFilterPartitionPruneClassifier; we only forward
-        // non-identity projection directions to the BE here. Identity targets
-        // only need partition boundaries, not monotonicity metadata.
+        // upstream by RuntimeFilterPartitionPruneClassifier; direct partition
+        // column targets are monotonic increasing so BE can use one unified
+        // partition-pruning path.
         // Gated by session variable `enable_runtime_filter_partition_prune`.
         ConnectContext rfPruneCtx = ConnectContext.get();
         boolean enableRfPartitionPrune = rfPruneCtx != null

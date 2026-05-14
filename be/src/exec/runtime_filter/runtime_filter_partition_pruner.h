@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "common/global_types.h"
+#include "common/status.h"
 #include "core/data_type/data_type.h"
 #include "exec/common/hash_table/phmap_fwd_decl.h"
 #include "exprs/vexpr_fwd.h"
@@ -79,7 +80,7 @@ public:
         return _slot_to_boundaries;
     }
 
-    // Lazily compute projected boundaries for a non-identity monotonic target.
+    // Lazily compute target-domain boundaries for a monotonic RF target.
     // `target_expr` is `impl->children()[0]` of the RF wrapper (a sub-tree of
     // the conjunct). `leaf_slot_id` is the unique VSlotRef leaf inside it
     // (FE asserted target_expr has exactly one input slot). `leaf_column_id`
@@ -89,8 +90,12 @@ public:
     // are projected and each partition uses its own FE-proven local direction.
     // `ctx` is the conjunct's VExprContext (used to execute the sub-expression).
     //
-    // Returns an empty vector if projection is unsupported (e.g. non-RANGE
-    // partition, unsupported primitive type) -- caller then skips this RF.
+    // Direct SlotRef targets reuse the parsed partition boundaries. Expression
+    // targets project finite RANGE endpoints by executing `target_expr`.
+    //
+    // Returns an empty vector when no selected boundary can be projected (e.g.
+    // every candidate contains NULL). Unexpected FE/BE metadata mismatches
+    // return an error instead of disabling pruning silently.
     // The shared_ptr keeps the computed vector alive even if another pipeline
     // instance inserts into the shared map and triggers unordered_map rehash.
     //
@@ -102,11 +107,11 @@ public:
     // sides for monotonic decreasing targets. Boundaries containing NULL
     // partition values, or finite endpoints that project to NULL, are omitted
     // from the result so this RF conservatively leaves them unpruned.
-    std::shared_ptr<const std::vector<ParsedBoundary>> get_or_compute_projected_boundaries(
+    Status get_or_compute_projected_boundaries(
             int filter_id, const VExprSPtr& target_expr, SlotId leaf_slot_id, int leaf_column_id,
             TTargetExprMonotonicity::type global_direction,
             const std::unordered_map<int64_t, TTargetExprMonotonicity::type>* partition_directions,
-            VExprContext* ctx) const;
+            VExprContext* ctx, std::shared_ptr<const std::vector<ParsedBoundary>>* output) const;
 
 private:
     std::unordered_map<SlotId, std::vector<ParsedBoundary>> _slot_to_boundaries;
@@ -135,10 +140,10 @@ public:
     // Evaluate RF conjuncts against the given parsed boundaries and mark
     // pruned partitions on this per-instance state. Returns the number of
     // *newly* pruned partitions in this call.
-    int64_t prune_by_runtime_filters(const ParsedPartitionBoundaries& parsed,
-                                     const VExprContextSPtrs& conjuncts,
-                                     const std::vector<TRuntimeFilterDesc>& rf_descs,
-                                     int scan_node_id);
+    Status prune_by_runtime_filters(const ParsedPartitionBoundaries& parsed,
+                                    const VExprContextSPtrs& conjuncts,
+                                    const std::vector<TRuntimeFilterDesc>& rf_descs,
+                                    int scan_node_id, int64_t* newly_pruned_count);
 
     // Thread-safe query: is the given partition_id pruned?
     bool is_partition_pruned(int64_t partition_id) const;

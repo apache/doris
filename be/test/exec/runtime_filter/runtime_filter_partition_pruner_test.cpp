@@ -21,6 +21,7 @@
 
 #include <memory>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "core/data_type/data_type_factory.hpp"
@@ -37,6 +38,21 @@
 #include "runtime/descriptors.h"
 
 namespace doris {
+
+class IdentityWrapperExpr final : public VExpr {
+public:
+    explicit IdentityWrapperExpr(DataTypePtr type) : VExpr(std::move(type), false) {}
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        return get_child(0)->execute_column(context, block, selector, count, result_column);
+    }
+
+private:
+    std::string _expr_name = "identity_wrapper";
+};
 
 class RuntimeFilterPartitionPrunerTest : public testing::Test {
 protected:
@@ -177,6 +193,20 @@ protected:
         return slot_ref;
     }
 
+    VExprSPtr identity_wrapper_expr(const DataTypePtr& type) {
+        auto expr = std::make_shared<IdentityWrapperExpr>(type);
+        expr->add_child(slot_ref_expr(type));
+        return expr;
+    }
+
+    TRuntimeFilterDesc rf_desc_with_monotonicity(int filter_id, int scan_node_id) {
+        TRuntimeFilterDesc desc;
+        desc.__set_filter_id(filter_id);
+        desc.__set_planId_to_target_monotonicity(
+                {{scan_node_id, TTargetExprMonotonicity::MONOTONIC_INCREASING}});
+        return desc;
+    }
+
     template <PrimitiveType PT>
     void assert_parse_and_prune_type(const CppType<PT>& keep_value, const CppType<PT>& prune_value,
                                      int precision = 0, int scale = 0) {
@@ -238,12 +268,15 @@ TEST_F(RuntimeFilterPartitionPrunerTest, ProjectedBoundariesPreserveOpenRangeBou
                                                 range_boundary<TYPE_INT>(3, ten, twenty)};
     auto parsed = parse_boundaries(TYPE_INT, boundaries);
     auto slot = slot_desc(TYPE_INT, false);
-    auto target_expr = slot_ref_expr(slot.type());
+    auto target_expr = identity_wrapper_expr(slot.type());
     VExprContext ctx(target_expr);
 
-    auto increasing = parsed->get_or_compute_projected_boundaries(
-            /*filter_id=*/101, target_expr, SLOT_ID, /*leaf_column_id=*/0,
-            TTargetExprMonotonicity::MONOTONIC_INCREASING, nullptr, &ctx);
+    std::shared_ptr<const std::vector<ParsedBoundary>> increasing;
+    ASSERT_TRUE(parsed->get_or_compute_projected_boundaries(
+                              /*filter_id=*/101, target_expr, SLOT_ID, /*leaf_column_id=*/0,
+                              TTargetExprMonotonicity::MONOTONIC_INCREASING, nullptr, &ctx,
+                              &increasing)
+                        .ok());
     ASSERT_EQ(increasing->size(), 3);
     const auto& inc_lower_unbounded =
             std::get<ColumnValueRange<TYPE_INT>>(increasing->at(0).boundary_cvr);
@@ -256,9 +289,12 @@ TEST_F(RuntimeFilterPartitionPrunerTest, ProjectedBoundariesPreserveOpenRangeBou
     EXPECT_EQ(inc_upper_unbounded.get_range_min_value(), ten);
     EXPECT_TRUE(inc_upper_unbounded.is_high_value_maximum());
 
-    auto decreasing = parsed->get_or_compute_projected_boundaries(
-            /*filter_id=*/102, target_expr, SLOT_ID, /*leaf_column_id=*/0,
-            TTargetExprMonotonicity::MONOTONIC_DECREASING, nullptr, &ctx);
+    std::shared_ptr<const std::vector<ParsedBoundary>> decreasing;
+    ASSERT_TRUE(parsed->get_or_compute_projected_boundaries(
+                              /*filter_id=*/102, target_expr, SLOT_ID, /*leaf_column_id=*/0,
+                              TTargetExprMonotonicity::MONOTONIC_DECREASING, nullptr, &ctx,
+                              &decreasing)
+                        .ok());
     ASSERT_EQ(decreasing->size(), 3);
     const auto& dec_lower_unbounded =
             std::get<ColumnValueRange<TYPE_INT>>(decreasing->at(0).boundary_cvr);
@@ -349,11 +385,20 @@ TEST_F(RuntimeFilterPartitionPrunerTest, PublicPruneByRuntimeFiltersIdentitySlot
     VExprContextSPtrs conjuncts {std::make_shared<VExprContext>(wrapper)};
 
     RuntimeFilterPartitionPruner pruner;
-    EXPECT_EQ(pruner.prune_by_runtime_filters(*parsed, conjuncts, {}, /*scan_node_id=*/0), 1);
+    std::vector<TRuntimeFilterDesc> rf_descs {rf_desc_with_monotonicity(/*filter_id=*/7,
+                                                                        /*scan_node_id=*/0)};
+    int64_t newly_pruned = 0;
+    EXPECT_TRUE(pruner.prune_by_runtime_filters(*parsed, conjuncts, rf_descs, /*scan_node_id=*/0,
+                                                &newly_pruned)
+                        .ok());
+    EXPECT_EQ(newly_pruned, 1);
     EXPECT_FALSE(pruner.is_partition_pruned(1));
     EXPECT_TRUE(pruner.is_partition_pruned(2));
     EXPECT_EQ(pruner.pruned_partition_count(), 1);
-    EXPECT_EQ(pruner.prune_by_runtime_filters(*parsed, conjuncts, {}, /*scan_node_id=*/0), 0);
+    EXPECT_TRUE(pruner.prune_by_runtime_filters(*parsed, conjuncts, rf_descs, /*scan_node_id=*/0,
+                                                &newly_pruned)
+                        .ok());
+    EXPECT_EQ(newly_pruned, 0);
 }
 
 } // namespace doris

@@ -107,9 +107,9 @@ protected:
     // Hook for subclasses to react after new runtime filters are appended.
     // Called inside update_late_arrival_runtime_filter() while _conjuncts_lock is held.
     // Default implementation runs partition pruning on the newly appended RFs.
-    virtual void _on_runtime_filter_update();
+    virtual Status _on_runtime_filter_update();
 
-    void _do_partition_pruning_by_rf();
+    Status _do_partition_pruning_by_rf();
 
     std::atomic<bool> _opened {false};
 
@@ -299,7 +299,7 @@ protected:
 
     Status _init_profile() override;
     virtual Status _process_conjuncts(RuntimeState* state) {
-        _do_partition_pruning_by_rf();
+        RETURN_IF_ERROR(_do_partition_pruning_by_rf());
         return _normalize_conjuncts(state);
     }
     virtual bool _should_push_down_common_expr(const VExprSPtr&) { return false; }
