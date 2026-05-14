@@ -57,7 +57,6 @@ DataTypeStruct::DataTypeStruct(const DataTypes& elems_)
     }
 }
 
-
 static void check_tuple_names_or_throw(const Strings& names) {
     std::unordered_set<String> names_set;
     for (const auto& name : names) {
