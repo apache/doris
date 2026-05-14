@@ -42,8 +42,7 @@ import java.util.function.Predicate;
  * Entry point for IVM delta rewriting. Routes the normalized plan to the appropriate strategy:
  * <ul>
  *   <li>Aggregate MVs → {@link IvmAggDeltaStrategy}</li>
- *   <li>Outer-join MVs → {@link IvmOuterJoinDeltaStrategy}</li>
- *   <li>Linear (non-aggregate) MVs → {@link IvmLinearDeltaStrategy}</li>
+ *   <li>Non-aggregate MVs → {@link IvmOuterJoinDeltaStrategy}</li>
  * </ul>
  *
  * <h3>Multi-bundle generation</h3>
@@ -268,10 +267,8 @@ public class IvmDeltaRewriter {
         IvmNormalizeResult normalizeResult = ctx.getNormalizeResult();
         if (normalizeResult.isAggMv()) {
             return new IvmAggDeltaStrategy(ctx);
-        } else if (normalizeResult.isOuterJoinMv()) {
-            return new IvmOuterJoinDeltaStrategy(ctx);
         } else {
-            return new IvmLinearDeltaStrategy(ctx);
+            return new IvmOuterJoinDeltaStrategy(ctx);
         }
     }
 
