@@ -19,12 +19,22 @@
 
 #include <DataSketches/hll.hpp>
 
+#include "agent/be_exec_version_manager.h"
+#include "common/status.h"
 #include "core/column/column.h"
 #include "core/column/column_string.h"
+#include "core/column/column_varbinary.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "exec/common/hash_table/hash.h"
 #include "exprs/aggregate/aggregate_function_datasketches_hll_union_agg.h"
+#include "exprs/aggregate/aggregate_function_simple_factory.h"
 
 namespace doris {
+
+void register_aggregate_function_datasketches_HLL_union_agg(AggregateFunctionSimpleFactory& factory);
 
 class AggregateFunctionDataSketchesHllUnionAggTest : public ::testing::Test {
 protected:
@@ -226,6 +236,226 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testReset) {
     ColumnInt64 result;
     agg_func->insert_result_into(place, result);
     EXPECT_EQ(result.get_data()[0], 0);
+
+    agg_func->destroy(place);
+}
+
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testFactoryCreateAndAliases) {
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_datasketches_HLL_union_agg(factory);
+    int be_version = BeExecVersionManager::get_newest_version();
+
+    DataTypes argument_types = {std::make_shared<DataTypeString>()};
+
+    auto fn_main = factory.get("datasketches_hll_union_agg", argument_types, nullptr, false, be_version);
+    auto fn_alias_union_count = factory.get("ds_hll_union_count", argument_types, nullptr, false, be_version);
+    auto fn_alias_cardinality = factory.get("ds_cardinality", argument_types, nullptr, false, be_version);
+
+    ASSERT_NE(fn_main, nullptr);
+    ASSERT_NE(fn_alias_union_count, nullptr);
+    ASSERT_NE(fn_alias_cardinality, nullptr);
+
+    datasketches::hll_sketch sketch(8, datasketches::HLL_8);
+    for (int i = 0; i < 7; ++i) sketch.update(i);
+    const auto ser = sketch.serialize_compact();
+
+    auto column_string = ColumnString::create();
+    column_string->insert_data((const char*)ser.data(), ser.size());
+    const IColumn* columns[1] = {column_string.get()};
+
+    auto run_and_get_result = [&](const AggregateFunctionPtr& fn) {
+        AggregateDataPtr place = arena->aligned_alloc(fn->size_of_data(), fn->align_of_data());
+        fn->create(place);
+        fn->add(place, columns, 0, *arena);
+        ColumnInt64 result;
+        fn->insert_result_into(place, result);
+        fn->destroy(place);
+        return result.get_data()[0];
+    };
+
+    int64_t expected = static_cast<int64_t>(sketch.get_estimate());
+    EXPECT_EQ(run_and_get_result(fn_main), expected);
+    EXPECT_EQ(run_and_get_result(fn_alias_union_count), expected);
+    EXPECT_EQ(run_and_get_result(fn_alias_cardinality), expected);
+}
+
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testFactoryCreateForVarcharAndNullableAndUnsupportedType) {
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_datasketches_HLL_union_agg(factory);
+    int be_version = BeExecVersionManager::get_newest_version();
+
+    DataTypes varchar_types = {std::make_shared<DataTypeString>(-1, TYPE_VARCHAR)};
+    auto fn_varchar = factory.get("datasketches_hll_union_agg", varchar_types, nullptr, false, be_version);
+    auto fn_varchar_alias = factory.get("ds_cardinality", varchar_types, nullptr, false, be_version);
+    ASSERT_NE(fn_varchar, nullptr);
+    ASSERT_NE(fn_varchar_alias, nullptr);
+
+    datasketches::hll_sketch sketch(8, datasketches::HLL_8);
+    for (int i = 0; i < 7; ++i) {
+        sketch.update(i);
+    }
+    const auto ser = sketch.serialize_compact();
+
+    auto column_string = ColumnString::create();
+    column_string->insert_data((const char*)ser.data(), ser.size());
+    const IColumn* columns[1] = {column_string.get()};
+
+    auto run_and_get_result = [&](const AggregateFunctionPtr& fn) {
+        AggregateDataPtr place = arena->aligned_alloc(fn->size_of_data(), fn->align_of_data());
+        fn->create(place);
+        fn->add(place, columns, 0, *arena);
+        ColumnInt64 result;
+        fn->insert_result_into(place, result);
+        fn->destroy(place);
+        return result.get_data()[0];
+    };
+
+    int64_t expected = static_cast<int64_t>(sketch.get_estimate());
+    EXPECT_EQ(run_and_get_result(fn_varchar), expected);
+    EXPECT_EQ(run_and_get_result(fn_varchar_alias), expected);
+
+    DataTypes nullable_varchar_types = {make_nullable(std::make_shared<DataTypeString>(-1, TYPE_VARCHAR))};
+    auto fn_nullable_varchar =
+            factory.get("datasketches_hll_union_agg", nullable_varchar_types, nullptr, false, be_version);
+    ASSERT_NE(fn_nullable_varchar, nullptr);
+
+    DataTypes unsupported_types = {std::make_shared<DataTypeInt32>()};
+    auto fn_unsupported = factory.get("datasketches_hll_union_agg", unsupported_types, nullptr, false, be_version);
+    EXPECT_EQ(fn_unsupported, nullptr);
+}
+
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testAddEmptyStringIsIgnored) {
+    DataTypes argument_types = {std::make_shared<DataTypeString>()};
+    auto agg_func = std::make_shared<AggregateFunctionDataSketchesHllUnionAgg<
+            TYPE_STRING, AggregateFunctionHllSketchData<TYPE_STRING>>>(argument_types);
+
+    datasketches::hll_sketch sketch(8, datasketches::HLL_8);
+    for (int i = 0; i < 7; ++i) sketch.update(i);
+    const auto ser = sketch.serialize_compact();
+
+    auto column_string = ColumnString::create();
+    column_string->insert_data("", 0); // cover value.empty() branch
+    column_string->insert_data((const char*)ser.data(), ser.size());
+
+    AggregateDataPtr place = arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(place);
+
+    const IColumn* columns[1] = {column_string.get()};
+    EXPECT_NO_THROW(agg_func->add(place, columns, 0, *arena));
+    agg_func->add(place, columns, 1, *arena);
+
+    ColumnInt64 result;
+    agg_func->insert_result_into(place, result);
+    EXPECT_EQ(result.get_data()[0], static_cast<int64_t>(sketch.get_estimate()));
+
+    agg_func->destroy(place);
+}
+
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testResetOnEmptyState) {
+    DataTypes argument_types = {std::make_shared<DataTypeString>()};
+    auto agg_func = std::make_shared<AggregateFunctionDataSketchesHllUnionAgg<
+            TYPE_STRING, AggregateFunctionHllSketchData<TYPE_STRING>>>(argument_types);
+
+    AggregateDataPtr place = arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(place);
+
+    EXPECT_NO_THROW(agg_func->reset(place)); // cover reset() branch when union_data is nullptr
+
+    ColumnInt64 result;
+    agg_func->insert_result_into(place, result);
+    EXPECT_EQ(result.get_data()[0], 0);
+
+    agg_func->destroy(place);
+}
+
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testVarbinaryInput) {
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_datasketches_HLL_union_agg(factory);
+    int be_version = BeExecVersionManager::get_newest_version();
+
+    DataTypes argument_types = {std::make_shared<DataTypeVarbinary>()};
+    auto fn = factory.get("datasketches_hll_union_agg", argument_types, nullptr, false, be_version);
+    ASSERT_NE(fn, nullptr);
+
+    datasketches::hll_sketch sketch(8, datasketches::HLL_8);
+    for (int i = 20; i < 30; ++i) sketch.update(i);
+    const auto ser = sketch.serialize_compact();
+
+    auto column_varbinary = ColumnVarbinary::create();
+    column_varbinary->insert_data((const char*)ser.data(), ser.size());
+
+    const IColumn* columns[1] = {column_varbinary.get()};
+
+    AggregateDataPtr place = arena->aligned_alloc(fn->size_of_data(), fn->align_of_data());
+    fn->create(place);
+    fn->add(place, columns, 0, *arena);
+
+    ColumnInt64 result;
+    fn->insert_result_into(place, result);
+    EXPECT_EQ(result.get_data()[0], static_cast<int64_t>(sketch.get_estimate()));
+
+    fn->destroy(place);
+}
+
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testSerializeDeserializeEmptyState) {
+    DataTypes argument_types = {std::make_shared<DataTypeString>()};
+    auto agg_func = std::make_shared<AggregateFunctionDataSketchesHllUnionAgg<
+            TYPE_STRING, AggregateFunctionHllSketchData<TYPE_STRING>>>(argument_types);
+
+    AggregateDataPtr place = arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(place);
+
+    auto buffer = ColumnString::create();
+    BufferWritable w(*buffer);
+    EXPECT_NO_THROW(agg_func->serialize(place, w)); // covers write() empty-state branch
+    w.commit();
+
+    AggregateDataPtr new_place = arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(new_place);
+
+    BufferReadable r(buffer->get_data_at(0));
+    agg_func->deserialize(new_place, r, *arena);
+
+    ColumnInt64 result;
+    agg_func->insert_result_into(new_place, result);
+    EXPECT_EQ(result.get_data()[0], 0);
+
+    agg_func->destroy(place);
+    agg_func->destroy(new_place);
+}
+
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testCorruptedInputThrows) {
+    DataTypes argument_types = {std::make_shared<DataTypeString>()};
+    auto agg_func = std::make_shared<AggregateFunctionDataSketchesHllUnionAgg<
+            TYPE_STRING, AggregateFunctionHllSketchData<TYPE_STRING>>>(argument_types);
+
+    auto column_string = ColumnString::create();
+    column_string->insert_data("x", 1); // definitely not a valid sketch
+    const IColumn* columns[1] = {column_string.get()};
+
+    AggregateDataPtr place = arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(place);
+
+    try {
+        agg_func->add(place, columns, 0, *arena); // covers add() CORRUPTION catch branch
+        FAIL() << "Expected doris::Exception";
+    } catch (const doris::Exception& e) {
+        EXPECT_EQ(e.code(), doris::ErrorCode::CORRUPTION);
+    }
+
+    auto corrupt_buf = ColumnString::create();
+    BufferWritable corrupt_w(*corrupt_buf);
+    StringRef corrupted("x", 1);
+    corrupt_w.write_binary(corrupted);
+    corrupt_w.commit();
+
+    BufferReadable r(corrupt_buf->get_data_at(0));
+    try {
+        agg_func->deserialize(place, r, *arena); // covers read() CORRUPTION catch branch
+        FAIL() << "Expected doris::Exception";
+    } catch (const doris::Exception& e) {
+        EXPECT_EQ(e.code(), doris::ErrorCode::CORRUPTION);
+    }
 
     agg_func->destroy(place);
 }

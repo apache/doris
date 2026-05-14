@@ -86,6 +86,7 @@ struct AggregateFunctionHllSketchData {
               */
             datasketches::hll_union u(DEFAULT_LOG_K);
             write_sketch(buf, u.get_result());
+            return;
         }
         try {
             auto cache = hll_union_data->get_result();
