@@ -25,6 +25,7 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mtmv.ivm.IvmDeltaExplainBundle;
 import org.apache.doris.mtmv.ivm.IvmRefreshExplainResult;
 import org.apache.doris.mtmv.ivm.IvmRefreshManager;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -42,10 +43,12 @@ import org.apache.doris.qe.StmtExecutor;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Collections;
+import java.util.List;
 
 public class ExplainRefreshIvmCommandTest {
     private final NereidsParser parser = new NereidsParser();
@@ -72,6 +75,62 @@ public class ExplainRefreshIvmCommandTest {
     }
 
     @Test
+    public void testParseExplainRefreshPhysicalForDelta() {
+        LogicalPlan plan = extractLogicalPlan(
+                "EXPLAIN PHYSICAL PLAN REFRESH MATERIALIZED VIEW db1.mv1 INCREMENTAL FOR DELTA 1");
+
+        Assertions.assertInstanceOf(ExplainRefreshIvmCommand.class, plan);
+        ExplainRefreshIvmCommand explain = (ExplainRefreshIvmCommand) plan;
+        Assertions.assertEquals(ExplainLevel.OPTIMIZED_PLAN, explain.getLevel());
+        Assertions.assertEquals(1, explain.getDeltaId());
+    }
+
+    @Test
+    public void testParseExplainRefreshDistributedForDelta() {
+        LogicalPlan plan = extractLogicalPlan(
+                "EXPLAIN DISTRIBUTED PLAN REFRESH MATERIALIZED VIEW db1.mv1 INCREMENTAL FOR DELTA 1");
+
+        Assertions.assertInstanceOf(ExplainRefreshIvmCommand.class, plan);
+        ExplainRefreshIvmCommand explain = (ExplainRefreshIvmCommand) plan;
+        Assertions.assertEquals(ExplainLevel.DISTRIBUTED_PLAN, explain.getLevel());
+        Assertions.assertEquals(1, explain.getDeltaId());
+    }
+
+    @Test
+    public void testParseExplainRefreshLogicalPlanProcessForDelta() {
+        LogicalPlan plan = extractLogicalPlan(
+                "EXPLAIN LOGICAL PLAN PROCESS REFRESH MATERIALIZED VIEW db1.mv1 INCREMENTAL FOR DELTA 1");
+
+        Assertions.assertInstanceOf(ExplainRefreshIvmCommand.class, plan);
+        ExplainRefreshIvmCommand explain = (ExplainRefreshIvmCommand) plan;
+        Assertions.assertEquals(ExplainLevel.REWRITTEN_PLAN, explain.getLevel());
+        Assertions.assertEquals(1, explain.getDeltaId());
+        Assertions.assertTrue(explain.showPlanProcess());
+    }
+
+    @Test
+    public void testParseExplainRefreshAllForDelta() {
+        LogicalPlan plan = extractLogicalPlan(
+                "EXPLAIN ALL PLAN REFRESH MATERIALIZED VIEW db1.mv1 INCREMENTAL FOR DELTA 1");
+
+        Assertions.assertInstanceOf(ExplainRefreshIvmCommand.class, plan);
+        ExplainRefreshIvmCommand explain = (ExplainRefreshIvmCommand) plan;
+        Assertions.assertEquals(ExplainLevel.ALL_PLAN, explain.getLevel());
+        Assertions.assertEquals(1, explain.getDeltaId());
+    }
+
+    @Test
+    public void testParseExplainRefreshNormalForDelta() {
+        LogicalPlan plan = extractLogicalPlan(
+                "EXPLAIN REFRESH MATERIALIZED VIEW db1.mv1 INCREMENTAL FOR DELTA 1");
+
+        Assertions.assertInstanceOf(ExplainRefreshIvmCommand.class, plan);
+        ExplainRefreshIvmCommand explain = (ExplainRefreshIvmCommand) plan;
+        Assertions.assertEquals(ExplainLevel.NORMAL, explain.getLevel());
+        Assertions.assertEquals(1, explain.getDeltaId());
+    }
+
+    @Test
     public void testParseForDeltaWithoutExplainFails() {
         assertParseFails("REFRESH MATERIALIZED VIEW db1.mv1 INCREMENTAL FOR DELTA 1");
     }
@@ -91,7 +150,7 @@ public class ExplainRefreshIvmCommandTest {
         MTMV mtmv = Mockito.mock(MTMV.class);
         Mockito.when(mtmv.isIvm()).thenReturn(true);
         IvmRefreshManager manager = Mockito.mock(IvmRefreshManager.class);
-        IvmRefreshExplainResult result = mockExplainResult();
+        IvmRefreshExplainResult result = mockExplainResultWithTwoDeltas();
         Mockito.when(manager.explainRefresh(mtmv)).thenReturn(result);
         StmtExecutor executor = Mockito.mock(StmtExecutor.class);
 
@@ -101,7 +160,68 @@ public class ExplainRefreshIvmCommandTest {
         }
 
         Mockito.verify(manager).explainRefresh(mtmv);
-        Mockito.verify(executor).sendResultSet(Mockito.any(ResultSet.class));
+        ResultSet resultSet = captureResultSet(executor);
+        List<List<String>> rows = resultSet.getResultRows();
+        Assertions.assertEquals(3, rows.size());
+        Assertions.assertEquals("IVM_NORMALIZED_PLAN", rows.get(0).get(0));
+        Assertions.assertTrue(rows.get(0).get(1).contains("base_table=internal.db1.t1"));
+        Assertions.assertTrue(rows.get(0).get(1).contains("base_table=internal.db1.t2"));
+        Assertions.assertTrue(rows.get(0).get(1).contains("consumedTso=0"));
+        Assertions.assertTrue(rows.get(0).get(1).contains("latestTso=1"));
+        Assertions.assertTrue(rows.get(0).get(1).contains("status=PENDING"));
+        Assertions.assertEquals("normalized plan", rows.get(0).get(2));
+        Assertions.assertEquals("IVM_DELTA_PLAN_1", rows.get(1).get(0));
+        Assertions.assertEquals("delta_id=1, base_table=internal.db1.t1, occurrence=1, "
+                + "consumedTso=0, latestTso=1, status=PENDING", rows.get(1).get(1));
+        Assertions.assertEquals("left delta plan", rows.get(1).get(2));
+        Assertions.assertEquals("IVM_DELTA_PLAN_2", rows.get(2).get(0));
+        Assertions.assertEquals("delta_id=2, base_table=internal.db1.t2, occurrence=1, "
+                + "consumedTso=0, latestTso=1, status=NO_OP", rows.get(2).get(1));
+        Assertions.assertEquals("right delta plan", rows.get(2).get(2));
+    }
+
+    @Test
+    public void testRunExplainRefreshAnalyzedDeltaSuccess() throws Exception {
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        IvmRefreshManager manager = Mockito.mock(IvmRefreshManager.class);
+        IvmRefreshExplainResult result = mockExplainResultWithDelta();
+        Mockito.when(manager.explainRefresh(mtmv)).thenReturn(result);
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+
+        try (MockedStatic<Env> mockedEnv = mockEnvWithMtmv(mtmv)) {
+            newExplainCommand(RefreshMode.INCREMENTAL, ExplainLevel.ANALYZED_PLAN, 1, manager)
+                    .run(new ConnectContext(), executor);
+        }
+
+        Mockito.verify(manager).explainRefresh(mtmv);
+        ResultSet resultSet = captureResultSet(executor);
+        List<List<String>> rows = resultSet.getResultRows();
+        Assertions.assertEquals(1, rows.size());
+        Assertions.assertEquals(1, rows.get(0).size());
+        Assertions.assertEquals("delta analyzed plan", rows.get(0).get(0));
+    }
+
+    @Test
+    public void testRunExplainRefreshUnknownDeltaFails() throws Exception {
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        IvmRefreshManager manager = Mockito.mock(IvmRefreshManager.class);
+        IvmRefreshExplainResult result = mockExplainResultWithTwoDeltas();
+        Mockito.when(manager.explainRefresh(mtmv)).thenReturn(result);
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+
+        try (MockedStatic<Env> mockedEnv = mockEnvWithMtmv(mtmv)) {
+            org.apache.doris.common.AnalysisException exception = Assertions.assertThrows(
+                    org.apache.doris.common.AnalysisException.class,
+                    () -> newExplainCommand(RefreshMode.INCREMENTAL, ExplainLevel.NORMAL, 3, manager)
+                            .run(new ConnectContext(), executor));
+            Assertions.assertTrue(exception.getMessage().contains("Unknown IVM delta id: 3"));
+            Assertions.assertTrue(exception.getMessage().contains("Valid delta id range is [1, 2]."));
+        }
+
+        Mockito.verify(manager).explainRefresh(mtmv);
+        Mockito.verify(executor, Mockito.never()).sendResultSet(Mockito.any(ResultSet.class));
     }
 
     @Test
@@ -190,10 +310,34 @@ public class ExplainRefreshIvmCommandTest {
         };
     }
 
-    private IvmRefreshExplainResult mockExplainResult() {
+    private ResultSet captureResultSet(StmtExecutor executor) throws Exception {
+        ArgumentCaptor<ResultSet> resultSetCaptor = ArgumentCaptor.forClass(ResultSet.class);
+        Mockito.verify(executor).sendResultSet(resultSetCaptor.capture());
+        return resultSetCaptor.getValue();
+    }
+
+    private IvmRefreshExplainResult mockExplainResultWithDelta() {
         Plan normalizedPlan = Mockito.mock(Plan.class);
         Mockito.when(normalizedPlan.treeString()).thenReturn("normalized plan");
-        return new IvmRefreshExplainResult(normalizedPlan, ImmutableList.of());
+        LogicalPlan deltaPlan = Mockito.mock(LogicalPlan.class);
+        Mockito.when(deltaPlan.treeString()).thenReturn("delta analyzed plan");
+        IvmDeltaExplainBundle bundle = new IvmDeltaExplainBundle(1,
+                new TableNameInfo("internal", "db1", "t1"), 1, 0, 1, false, deltaPlan);
+        return new IvmRefreshExplainResult(normalizedPlan, ImmutableList.of(bundle));
+    }
+
+    private IvmRefreshExplainResult mockExplainResultWithTwoDeltas() {
+        Plan normalizedPlan = Mockito.mock(Plan.class);
+        Mockito.when(normalizedPlan.treeString()).thenReturn("normalized plan");
+        LogicalPlan leftDeltaPlan = Mockito.mock(LogicalPlan.class);
+        Mockito.when(leftDeltaPlan.treeString()).thenReturn("left delta plan");
+        LogicalPlan rightDeltaPlan = Mockito.mock(LogicalPlan.class);
+        Mockito.when(rightDeltaPlan.treeString()).thenReturn("right delta plan");
+        IvmDeltaExplainBundle leftBundle = new IvmDeltaExplainBundle(1,
+                new TableNameInfo("internal", "db1", "t1"), 1, 0, 1, false, leftDeltaPlan);
+        IvmDeltaExplainBundle rightBundle = new IvmDeltaExplainBundle(2,
+                new TableNameInfo("internal", "db1", "t2"), 1, 0, 1, true, rightDeltaPlan);
+        return new IvmRefreshExplainResult(normalizedPlan, ImmutableList.of(leftBundle, rightBundle));
     }
 
     private MockedStatic<Env> mockEnvWithMtmv(MTMV mtmv) throws Exception {
