@@ -31,7 +31,7 @@ public interface AbstractInsertOverwriteManager {
 
     void registerTaskInGroup(long groupId, long taskId) throws Exception;
 
-    void taskGroupSuccess(long groupId, OlapTable targetTable) throws DdlException;
+    void taskGroupSuccess(long groupId, OlapTable targetTable, boolean forceDropPartition) throws DdlException;
 
     void taskSuccess(long taskId) throws Exception;
 

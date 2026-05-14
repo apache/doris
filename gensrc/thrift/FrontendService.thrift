@@ -1837,6 +1837,7 @@ struct TInsertOverwriteTaskRequest {
     7: optional i64 group_id
     8: optional i64 task_id
     9: optional bool is_success
+    10: optional bool force_drop_partition
 }
 
 struct TInsertOverwriteTaskResult {
