@@ -491,11 +491,13 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
     TEST_SYNC_POINT_RETURN_WITH_VALUE(
             "s3_client_factory::create",
             std::make_shared<io::S3ObjStorageClient>(std::make_shared<Aws::S3::S3Client>()));
-    Aws::Client::ClientConfiguration aws_config = S3ClientFactory::getClientConfiguration();
-    if (s3_conf.need_override_endpoint) {
-        aws_config.endpointOverride = s3_conf.endpoint;
-    }
+    // Use S3ClientConfiguration (not the legacy ClientConfiguration) so the SDK's
+    // endpoint-rules resolver is active. This is required for S3 Express One Zone:
+    // the resolver detects the --x-s3 bucket suffix, calls CreateSession, and signs
+    // requests with service name "s3express" instead of "s3".
+    Aws::S3::S3ClientConfiguration aws_config;
     aws_config.region = s3_conf.region;
+    aws_config.useVirtualAddressing = s3_conf.use_virtual_addressing;
 
     if (_ca_cert_file_path.empty()) {
         _ca_cert_file_path = get_valid_ca_cert_path(doris::split(config::ca_cert_file_paths, ";"));
@@ -527,10 +529,20 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
     aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
             config::max_s3_client_retry /*scaleFactor = 25*/, /*retry_slow_down=*/false);
 
-    std::shared_ptr<Aws::S3::S3Client> new_client = std::make_shared<Aws::S3::S3Client>(
-            get_aws_credentials_provider(s3_conf), std::move(aws_config),
-            Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
-            s3_conf.use_virtual_addressing);
+    // S3 Express buckets are identified by the --x-s3 suffix or an s3express endpoint.
+    // Skip endpointOverride for these so the SDK resolves the bucket-specific endpoint
+    // and manages CreateSession automatically. For all other buckets, keep the override.
+    const bool is_s3_express = s3_conf.endpoint.find("s3express") != std::string::npos ||
+                               s3_conf.bucket.find("--x-s3") != std::string::npos;
+    if (s3_conf.need_override_endpoint && !is_s3_express) {
+        aws_config.endpointOverride = s3_conf.endpoint;
+    }
+    aws_config.disableS3ExpressAuth = !is_s3_express;
+
+    auto new_client = std::make_shared<Aws::S3::S3Client>(
+            get_aws_credentials_provider(s3_conf),
+            Aws::MakeShared<Aws::S3::S3EndpointProvider>("S3Client"),
+            aws_config);
 
     auto obj_client =
             std::make_shared<io::S3ObjStorageClient>(std::move(new_client), s3_conf.endpoint);
