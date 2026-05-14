@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.StatsDerive.DeriveContext;
@@ -212,8 +213,13 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
         if (!(child instanceof LogicalOlapScan)) {
             return null;
         }
-        OlapTable olapTable = ((LogicalOlapScan) child).getTable();
+        LogicalOlapScan scan = (LogicalOlapScan) child;
+        OlapTable olapTable = scan.getTable();
         if (olapTable == null) {
+            return null;
+        }
+        if (olapTable.getPartitionInfo().getType() != PartitionType.UNPARTITIONED
+                && scan.getSelectedPartitionIds().size() > 1) {
             return null;
         }
         for (SlotReference slot : distinctSlots) {
