@@ -31,6 +31,7 @@
 
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -65,11 +66,16 @@ public:
 
     void static check_chars_length(size_t total_length, size_t element_number, size_t rows = 0) {
         if constexpr (std::is_same_v<T, UInt32>) {
-            if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
+            size_t max_string_size = MAX_STRING_SIZE;
+            if (config::string_overflow_size > 0 &&
+                config::string_overflow_size < static_cast<int64_t>(MAX_STRING_SIZE)) {
+                max_string_size = static_cast<size_t>(config::string_overflow_size);
+            }
+            if (UNLIKELY(total_length > max_string_size)) {
                 throw Exception(ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
                                 "string column length is too large: total_length={}, "
-                                "element_number={}, rows={}",
-                                total_length, element_number, rows);
+                                "limit={}, element_number={}, rows={}",
+                                total_length, max_string_size, element_number, rows);
             }
         }
     }
