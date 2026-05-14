@@ -137,6 +137,13 @@ public class InternalSchema {
                 TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA.add(new ColumnDef("frontend_ip",
                 TypeDef.createVarchar(1024), ColumnNullableType.NULLABLE));
+        // lakehouse auth info
+        AUDIT_SCHEMA.add(new ColumnDef("source",
+                TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("hadoop_user_name",
+                TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("erp",
+                TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));
         // default ctl and db
         AUDIT_SCHEMA.add(new ColumnDef("catalog",
                 TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));

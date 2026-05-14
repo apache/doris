@@ -197,6 +197,9 @@ public class AuditLogHelper {
         String cluster = Config.isCloudMode() ? cloudCluster : "";
         String stmtType = getStmtType(parsedStmt);
 
+        String source = ctx.getBdpAuthContext() == null ? "" : ctx.getBdpAuthContext().getSource();
+        String hadoopUserName = ctx.getBdpAuthContext() == null ? "" : ctx.getBdpAuthContext().getHadoopUserName();
+        String erp = ctx.getBdpAuthContext() == null ? "" : ctx.getBdpAuthContext().getErp();
         AuditEventBuilder auditEventBuilder = ctx.getAuditEventBuilder();
         // ATTN: MUST reset, otherwise, the same AuditEventBuilder instance will be used in the next query.
         auditEventBuilder.reset();
@@ -207,6 +210,9 @@ public class AuditLogHelper {
                 .setClientIp(ctx.getClientIP())
                 .setUser(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()))
                 .setFeIp(FrontendOptions.getLocalHostAddress())
+                .setSource(source == null ? "" : source)
+                .setHadoopUserName(hadoopUserName == null ? "" : hadoopUserName)
+                .setErp(erp == null ? "" : erp)
                 .setCtl(catalog == null ? InternalCatalog.INTERNAL_CATALOG_NAME : catalog.getName())
                 .setDb(ClusterNamespace.getNameFromFullName(ctx.getDatabase()))
                 .setState(ctx.getState().toString())

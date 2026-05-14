@@ -157,6 +157,11 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         logBuffer.append(event.user).append(AUDIT_TABLE_COL_SEPARATOR);
         logBuffer.append(event.feIp).append(AUDIT_TABLE_COL_SEPARATOR);
 
+        // lakehouse auth info
+        logBuffer.append(event.source).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.hadoopUserName).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.erp).append(AUDIT_TABLE_COL_SEPARATOR);
+
         // default ctl and db
         logBuffer.append(event.ctl).append(AUDIT_TABLE_COL_SEPARATOR);
         logBuffer.append(event.db).append(AUDIT_TABLE_COL_SEPARATOR);

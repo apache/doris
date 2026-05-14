@@ -67,6 +67,14 @@ public class AuditEvent {
     @AuditField(value = "FeIp", colName = "frontend_ip")
     public String feIp = "";
 
+    // lakehouse auth info
+    @AuditField(value = "Source", colName = "source")
+    public String source = "";
+    @AuditField(value = "HadoopUserName", colName = "hadoop_user_name")
+    public String hadoopUserName = "";
+    @AuditField(value = "Erp", colName = "erp")
+    public String erp = "";
+
     // default ctl and db
     @AuditField(value = "Ctl", colName = "catalog")
     public String ctl = "";
@@ -198,6 +206,21 @@ public class AuditEvent {
 
         public AuditEventBuilder setCtl(String ctl) {
             auditEvent.ctl = ctl;
+            return this;
+        }
+
+        public AuditEventBuilder setSource(String source) {
+            auditEvent.source = source;
+            return this;
+        }
+
+        public AuditEventBuilder setHadoopUserName(String hadoopUserName) {
+            auditEvent.hadoopUserName = hadoopUserName;
+            return this;
+        }
+
+        public AuditEventBuilder setErp(String erp) {
+            auditEvent.erp = erp;
             return this;
         }
 
