@@ -34,7 +34,8 @@
 
 namespace doris {
 
-void register_aggregate_function_datasketches_HLL_union_agg(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_datasketches_HLL_union_agg(
+        AggregateFunctionSimpleFactory& factory);
 
 class AggregateFunctionDataSketchesHllUnionAggTest : public ::testing::Test {
 protected:
@@ -247,9 +248,12 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testFactoryCreateAndAliases
 
     DataTypes argument_types = {std::make_shared<DataTypeString>()};
 
-    auto fn_main = factory.get("datasketches_hll_union_agg", argument_types, nullptr, false, be_version);
-    auto fn_alias_union_count = factory.get("ds_hll_union_count", argument_types, nullptr, false, be_version);
-    auto fn_alias_cardinality = factory.get("ds_cardinality", argument_types, nullptr, false, be_version);
+    auto fn_main =
+            factory.get("datasketches_hll_union_agg", argument_types, nullptr, false, be_version);
+    auto fn_alias_union_count =
+            factory.get("ds_hll_union_count", argument_types, nullptr, false, be_version);
+    auto fn_alias_cardinality =
+            factory.get("ds_cardinality", argument_types, nullptr, false, be_version);
 
     ASSERT_NE(fn_main, nullptr);
     ASSERT_NE(fn_alias_union_count, nullptr);
@@ -279,14 +283,17 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testFactoryCreateAndAliases
     EXPECT_EQ(run_and_get_result(fn_alias_cardinality), expected);
 }
 
-TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testFactoryCreateForVarcharAndNullableAndUnsupportedType) {
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest,
+       testFactoryCreateForVarcharAndNullableAndUnsupportedType) {
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_datasketches_HLL_union_agg(factory);
     int be_version = BeExecVersionManager::get_newest_version();
 
     DataTypes varchar_types = {std::make_shared<DataTypeString>(-1, TYPE_VARCHAR)};
-    auto fn_varchar = factory.get("datasketches_hll_union_agg", varchar_types, nullptr, false, be_version);
-    auto fn_varchar_alias = factory.get("ds_cardinality", varchar_types, nullptr, false, be_version);
+    auto fn_varchar =
+            factory.get("datasketches_hll_union_agg", varchar_types, nullptr, false, be_version);
+    auto fn_varchar_alias =
+            factory.get("ds_cardinality", varchar_types, nullptr, false, be_version);
     ASSERT_NE(fn_varchar, nullptr);
     ASSERT_NE(fn_varchar_alias, nullptr);
 
@@ -314,13 +321,15 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testFactoryCreateForVarchar
     EXPECT_EQ(run_and_get_result(fn_varchar), expected);
     EXPECT_EQ(run_and_get_result(fn_varchar_alias), expected);
 
-    DataTypes nullable_varchar_types = {make_nullable(std::make_shared<DataTypeString>(-1, TYPE_VARCHAR))};
-    auto fn_nullable_varchar =
-            factory.get("datasketches_hll_union_agg", nullable_varchar_types, nullptr, false, be_version);
+    DataTypes nullable_varchar_types = {
+            make_nullable(std::make_shared<DataTypeString>(-1, TYPE_VARCHAR))};
+    auto fn_nullable_varchar = factory.get("datasketches_hll_union_agg", nullable_varchar_types,
+                                           nullptr, false, be_version);
     ASSERT_NE(fn_nullable_varchar, nullptr);
 
     DataTypes unsupported_types = {std::make_shared<DataTypeInt32>()};
-    auto fn_unsupported = factory.get("datasketches_hll_union_agg", unsupported_types, nullptr, false, be_version);
+    auto fn_unsupported = factory.get("datasketches_hll_union_agg", unsupported_types, nullptr,
+                                      false, be_version);
     EXPECT_EQ(fn_unsupported, nullptr);
 }
 
@@ -337,7 +346,8 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testAddEmptyStringIsIgnored
     column_string->insert_data("", 0); // cover value.empty() branch
     column_string->insert_data((const char*)ser.data(), ser.size());
 
-    AggregateDataPtr place = arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    AggregateDataPtr place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
     agg_func->create(place);
 
     const IColumn* columns[1] = {column_string.get()};
@@ -356,7 +366,8 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testResetOnEmptyState) {
     auto agg_func = std::make_shared<AggregateFunctionDataSketchesHllUnionAgg<
             TYPE_STRING, AggregateFunctionHllSketchData<TYPE_STRING>>>(argument_types);
 
-    AggregateDataPtr place = arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    AggregateDataPtr place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
     agg_func->create(place);
 
     EXPECT_NO_THROW(agg_func->reset(place)); // cover reset() branch when union_data is nullptr
@@ -402,7 +413,8 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testSerializeDeserializeEmp
     auto agg_func = std::make_shared<AggregateFunctionDataSketchesHllUnionAgg<
             TYPE_STRING, AggregateFunctionHllSketchData<TYPE_STRING>>>(argument_types);
 
-    AggregateDataPtr place = arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    AggregateDataPtr place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
     agg_func->create(place);
 
     auto buffer = ColumnString::create();
@@ -410,7 +422,8 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testSerializeDeserializeEmp
     EXPECT_NO_THROW(agg_func->serialize(place, w)); // covers write() empty-state branch
     w.commit();
 
-    AggregateDataPtr new_place = arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    AggregateDataPtr new_place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
     agg_func->create(new_place);
 
     BufferReadable r(buffer->get_data_at(0));
@@ -433,7 +446,8 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testCorruptedInputThrows) {
     column_string->insert_data("x", 1); // definitely not a valid sketch
     const IColumn* columns[1] = {column_string.get()};
 
-    AggregateDataPtr place = arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    AggregateDataPtr place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
     agg_func->create(place);
 
     try {
