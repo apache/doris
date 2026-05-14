@@ -1060,7 +1060,7 @@ void gen_empty_segment() {
 int main(int argc, char** argv) {
     SCOPED_INIT_THREAD_CONTEXT();
     std::string usage = get_usage(argv[0]);
-    gflags::SetUsageMessage(usage);
+    google::SetUsageMessage(usage);
     google::ParseCommandLineFlags(&argc, &argv, true);
 
     if (FLAGS_operation == "show_meta") {
@@ -1141,6 +1141,6 @@ int main(int argc, char** argv) {
             return -1;
         }
     }
-    gflags::ShutDownCommandLineFlags();
+    google::ShutDownCommandLineFlags();
     return 0;
 }

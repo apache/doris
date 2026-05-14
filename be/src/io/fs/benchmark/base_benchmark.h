@@ -40,7 +40,9 @@ void bm_log(const std::string& fmt, Args&&... args) {
     std::tm* local_time = std::localtime(&now_time);
     char time_str[20];
     std::strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", local_time);
-    std::cout << "[" << time_str << "] " << fmt::format(fmt, std::forward<Args>(args)...)
+    // fmt 8+ requires a literal format string for fmt::format (consteval check).
+    // bm_log takes a runtime std::string, so route through fmt::runtime.
+    std::cout << "[" << time_str << "] " << fmt::vformat(fmt, fmt::make_format_args(args...))
               << std::endl;
 }
 

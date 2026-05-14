@@ -29,11 +29,13 @@
 #undef __msan_test_shadow
 #undef __msan_print_shadow
 #undef __msan_unpoison_string
+#undef __msan_check_mem_is_initialized
 
-#define __msan_unpoison(X, Y)            /// NOLINT
-#define __msan_test_shadow(X, Y) (false) /// NOLINT
-#define __msan_print_shadow(X, Y)        /// NOLINT
-#define __msan_unpoison_string(X)        /// NOLINT
+#define __msan_unpoison(X, Y)                 /// NOLINT
+#define __msan_test_shadow(X, Y) ((long)(-1)) /// NOLINT  (-1 means all initialized)
+#define __msan_print_shadow(X, Y)             /// NOLINT
+#define __msan_unpoison_string(X)             /// NOLINT
+#define __msan_check_mem_is_initialized(X, Y) /// NOLINT
 
 #if defined(__clang__) && defined(__has_feature)
 #if __has_feature(memory_sanitizer)
@@ -41,6 +43,7 @@
 #undef __msan_test_shadow
 #undef __msan_print_shadow
 #undef __msan_unpoison_string
+#undef __msan_check_mem_is_initialized
 #include <sanitizer/msan_interface.h>
 #endif
 #endif

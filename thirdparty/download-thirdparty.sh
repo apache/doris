@@ -731,6 +731,12 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP " ]]; then
         touch "${PATCHED_MARK}"
     fi
     cd -
+    # Source-mode paimon_cpp.cmake expects ${TP_SOURCE_DIR}/paimon-cpp;
+    # the tarball extracts to doris-thirdparty-paimon-cpp-<sha>. Create the
+    # alias symlink so source-mode and the historical layout agree.
+    if [[ ! -e "${TP_SOURCE_DIR}/paimon-cpp" ]]; then
+        ln -sfn "${PAIMON_CPP_SOURCE}" "${TP_SOURCE_DIR}/paimon-cpp"
+    fi
     echo "Finished patching ${PAIMON_CPP_SOURCE}"
 fi
 
@@ -758,6 +764,19 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " BOOST " ]]; then
     fi
     cd -
     echo "Finished patching ${BOOST_SOURCE}"
+fi
+
+# hadoop libhdfs MSAN unpoison patch — annotates JVM-written buffers
+# (Get*Region / GetStringUTFChars) so MemorySanitizer doesn't flag them.
+# Lets us drop `src:*/doris-thirdparty-hadoop*/*` from msan_ignorelist.txt.
+if [[ " ${TP_ARCHIVES[*]} " =~ " HADOOP_LIBS " ]]; then
+    cd "${TP_SOURCE_DIR}/${HADOOP_LIBS_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/doris-thirdparty-hadoop-3.3.6.6-for-doris-msan.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${HADOOP_LIBS_SOURCE}"
 fi
 
 # vim: ts=4 sw=4 ts=4 tw=100:

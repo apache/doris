@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <fmt/args.h>
+#include <fmt/format.h>
 #include <glog/logging.h>
 
 #include <cstdio>
@@ -90,7 +92,7 @@ public:
             // eg: 999999999999999 ---> 1000T only want to show 0 decimal
             fmt::format_to(buffer, "{:.0f}", abs_number);
         }
-        fmt::format_to(buffer, UNITS[unit_index]);
+        fmt::format_to(buffer, fmt::runtime(UNITS[unit_index]));
         return fmt::to_string(buffer);
     }
 };
@@ -186,10 +188,10 @@ public:
             try {
                 if constexpr (is_string_type(T)) {
                     auto value = value_column.get_data_at(index_check_const(i, is_consts[1]));
-                    res = fmt::format(format, value);
+                    res = fmt::format(fmt::runtime(format), value);
                 } else {
                     auto value = value_column.get_data()[index_check_const(i, is_consts[1])];
-                    res = fmt::format(format, value);
+                    res = fmt::format(fmt::runtime(format), value);
                 }
             } catch (const std::exception& e) {
                 throw doris::Exception(

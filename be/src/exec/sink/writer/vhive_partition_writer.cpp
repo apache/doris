@@ -17,8 +17,6 @@
 
 #include "exec/sink/writer/vhive_partition_writer.h"
 
-#include <aws/s3/model/CompletedPart.h>
-
 #include "core/block/materialize_block.h"
 #include "core/column/column_map.h"
 #include "format/transformer/vcsv_transformer.h"

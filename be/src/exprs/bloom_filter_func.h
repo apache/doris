@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <numbers>
+
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/column/column_dictionary.h"

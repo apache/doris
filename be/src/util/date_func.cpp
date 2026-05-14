@@ -119,14 +119,14 @@ std::string timev2_to_buffer_from_double(double time, int scale) {
     fmt::memory_buffer buffer;
     if (time < 0) {
         time = -time;
-        fmt::format_to(buffer, "-");
+        fmt::format_to(std::back_inserter(buffer), "-");
     }
     auto m_time = TimeValue::limit_with_bound(time);
     auto hour = TimeValue::hour(m_time);
     if (hour >= 100) {
-        fmt::format_to(buffer, fmt::format("{}", hour));
+        fmt::format_to(std::back_inserter(buffer), "{}", hour);
     } else {
-        fmt::format_to(buffer, fmt::format("{:02d}", hour));
+        fmt::format_to(std::back_inserter(buffer), "{:02d}", hour);
     }
     auto minute = TimeValue::minute(m_time);
     auto second = TimeValue::second(m_time);
@@ -134,31 +134,31 @@ std::string timev2_to_buffer_from_double(double time, int scale) {
     micosecond /= common::exp10_i32(6 - scale);
     switch (scale) {
     case 0:
-        fmt::format_to(buffer, fmt::format(FMT_COMPILE(":{:02d}:{:02d}"), minute, second));
+        fmt::format_to(std::back_inserter(buffer), FMT_COMPILE(":{:02d}:{:02d}"), minute, second);
         break;
     case 1:
-        fmt::format_to(buffer, fmt::format(FMT_COMPILE(":{:02d}:{:02d}.{:01d}"), minute, second,
-                                           micosecond));
+        fmt::format_to(std::back_inserter(buffer), FMT_COMPILE(":{:02d}:{:02d}.{:01d}"), minute,
+                       second, micosecond);
         break;
     case 2:
-        fmt::format_to(buffer, fmt::format(FMT_COMPILE(":{:02d}:{:02d}.{:02d}"), minute, second,
-                                           micosecond));
+        fmt::format_to(std::back_inserter(buffer), FMT_COMPILE(":{:02d}:{:02d}.{:02d}"), minute,
+                       second, micosecond);
         break;
     case 3:
-        fmt::format_to(buffer, fmt::format(FMT_COMPILE(":{:02d}:{:02d}.{:03d}"), minute, second,
-                                           micosecond));
+        fmt::format_to(std::back_inserter(buffer), FMT_COMPILE(":{:02d}:{:02d}.{:03d}"), minute,
+                       second, micosecond);
         break;
     case 4:
-        fmt::format_to(buffer, fmt::format(FMT_COMPILE(":{:02d}:{:02d}.{:04d}"), minute, second,
-                                           micosecond));
+        fmt::format_to(std::back_inserter(buffer), FMT_COMPILE(":{:02d}:{:02d}.{:04d}"), minute,
+                       second, micosecond);
         break;
     case 5:
-        fmt::format_to(buffer, fmt::format(FMT_COMPILE(":{:02d}:{:02d}.{:05d}"), minute, second,
-                                           micosecond));
+        fmt::format_to(std::back_inserter(buffer), FMT_COMPILE(":{:02d}:{:02d}.{:05d}"), minute,
+                       second, micosecond);
         break;
     case 6:
-        fmt::format_to(buffer, fmt::format(FMT_COMPILE(":{:02d}:{:02d}.{:06d}"), minute, second,
-                                           micosecond));
+        fmt::format_to(std::back_inserter(buffer), FMT_COMPILE(":{:02d}:{:02d}.{:06d}"), minute,
+                       second, micosecond);
         break;
     }
 

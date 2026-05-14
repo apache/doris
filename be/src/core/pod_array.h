@@ -33,7 +33,8 @@
 
 #include "common/compiler_util.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "core/allocator.h"       // IWYU pragma: keep
+#include "common/memory_sanitizer.h"
+#include "core/allocator.h" // IWYU pragma: keep
 #include "core/memcpy_small.h"
 #include "runtime/thread_context.h"
 
@@ -166,6 +167,9 @@ protected:
         c_end_of_storage = allocated + bytes - pad_right;
 
         if (pad_left) memset(c_start - ELEMENT_SIZE, 0, ELEMENT_SIZE);
+        // pad_right is intentionally over-read by LZ4 / memcmp / SSE.
+        // Tell MSAN those bytes are safe to read even though uninitialized.
+        __msan_unpoison(c_end_of_storage, pad_right);
     }
 
     void dealloc() {
@@ -194,6 +198,8 @@ protected:
         c_start = allocated + pad_left;
         c_end = c_start + end_diff;
         c_end_of_storage = allocated + bytes - pad_right;
+        // See alloc() for rationale.
+        __msan_unpoison(c_end_of_storage, pad_right);
     }
 
     bool is_initialized() const {

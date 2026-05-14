@@ -27,47 +27,47 @@
 
 extern "C" {
 void* doris_malloc(size_t size) __THROW {
-    return jemalloc(size);
+    return je_malloc(size);
 }
 
 void doris_free(void* p) __THROW {
-    jefree(p);
+    je_free(p);
 }
 
 void* doris_realloc(void* p, size_t size) __THROW {
-    return jerealloc(p, size);
+    return je_realloc(p, size);
 }
 
 void* doris_calloc(size_t n, size_t size) __THROW {
-    return jecalloc(n, size);
+    return je_calloc(n, size);
 }
 
 void doris_cfree(void* ptr) __THROW {
-    jefree(ptr);
+    je_free(ptr);
 }
 
 void* doris_memalign(size_t align, size_t size) __THROW {
-    return jealigned_alloc(align, size);
+    return je_aligned_alloc(align, size);
 }
 
 void* doris_aligned_alloc(size_t align, size_t size) __THROW {
-    return jealigned_alloc(align, size);
+    return je_aligned_alloc(align, size);
 }
 
 void* doris_valloc(size_t size) __THROW {
-    return jevalloc(size);
+    return je_valloc(size);
 }
 
 void* doris_pvalloc(size_t size) __THROW {
-    return jevalloc(size);
+    return je_valloc(size);
 }
 
 int doris_posix_memalign(void** r, size_t align, size_t size) __THROW {
-    return jeposix_memalign(r, align, size);
+    return je_posix_memalign(r, align, size);
 }
 
 size_t doris_malloc_usable_size(void* ptr) __THROW {
-    return jemalloc_usable_size(ptr);
+    return je_malloc_usable_size(ptr);
 }
 
 #define ALIAS(doris_fn) __attribute__((alias(#doris_fn), used))

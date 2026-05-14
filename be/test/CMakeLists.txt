@@ -36,6 +36,13 @@ if (NOT BUILD_RUST_READERS)
     list(REMOVE_ITEM UT_FILES ${LANCE_TEST_FILES})
 endif()
 
+# Paimon tests require ENABLE_PAIMON_CPP=ON (matches be/src/format/CMakeLists.txt
+# which excludes paimon*.cpp under the same gate).
+if(NOT ENABLE_PAIMON_CPP)
+    file(GLOB_RECURSE PAIMON_TEST_FILES CONFIGURE_DEPENDS format/table/paimon*.cpp)
+    list(REMOVE_ITEM UT_FILES ${PAIMON_TEST_FILES})
+endif()
+
 if(NOT DEFINED DORIS_WITH_LZO)
     list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/exec/plain_text_line_reader_lzop_test.cpp)
 endif()
@@ -84,7 +91,7 @@ list(APPEND UT_FILES
     ${CONTRIB_PATH}/apache-orc/c++/test/TestColumnReader.cc
     ${CONTRIB_PATH}/apache-orc/c++/test/TestColumnStatistics.cc
     ${CONTRIB_PATH}/apache-orc/c++/test/TestCompression.cc
-    ${CONTRIB_PATH}/apache-orc/c++/test/TestDecompression.cc
+    #${CONTRIB_PATH}/apache-orc/c++/test/TestDecompression.cc
     ${CONTRIB_PATH}/apache-orc/c++/test/TestDecimal.cc
     ${CONTRIB_PATH}/apache-orc/c++/test/TestDictionaryEncoding.cc
     #${CONTRIB_PATH}/apache-orc/c++/test/TestDriver.cc

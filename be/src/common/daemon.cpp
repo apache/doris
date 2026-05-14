@@ -23,7 +23,7 @@
 
 #include "runtime/memory/jemalloc_control.h"
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
-        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
+        !defined(THREAD_SANITIZER) && !defined(MEMORY_SANITIZER) && !defined(USE_JEMALLOC)
 #include <gperftools/malloc_extension.h> // IWYU pragma: keep
 #endif
 // IWYU pragma: no_include <bits/std_abs.h>
@@ -88,7 +88,7 @@ void update_rowsets_and_segments_num_metrics() {
 void Daemon::tcmalloc_gc_thread() {
     // TODO All cache GC wish to be supported
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && \
-        !defined(USE_JEMALLOC)
+        !defined(MEMORY_SANITIZER) && !defined(USE_JEMALLOC)
 
     // Limit size of tcmalloc cache via release_rate and max_cache_percent.
     // We adjust release_rate according to memory_pressure, which is usage percent of memory.

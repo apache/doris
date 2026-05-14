@@ -21,6 +21,7 @@
 #include <errno.h> // IWYU pragma: keep
 #include <limits.h>
 #include <stdint.h>
+#include <string.h>
 #include <sys/time.h>
 
 #include <cstdio>
@@ -265,8 +266,16 @@ struct GlobalRowLoacation {
 };
 
 struct GlobalRowLoacationV2 {
-    GlobalRowLoacationV2(uint8_t ver, uint64_t bid, uint32_t fid, uint32_t rid)
-            : version(ver), backend_id(bid), file_id(fid), row_id(rid) {}
+    GlobalRowLoacationV2(uint8_t ver, uint64_t bid, uint32_t fid, uint32_t rid) {
+        // Zero entire struct first to clear padding bytes between `version`
+        // and `backend_id`. The struct is reinterpret_cast'd to char* and
+        // copied wholesale into a string column, so padding must be defined.
+        memset(this, 0, sizeof(*this));
+        version = ver;
+        backend_id = bid;
+        file_id = fid;
+        row_id = rid;
+    }
     uint8_t version;
     int64_t backend_id;
     uint32_t file_id;

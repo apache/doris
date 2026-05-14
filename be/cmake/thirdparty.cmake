@@ -33,6 +33,15 @@ function(add_thirdparty)
         ${ARGN})
 
     set(DORIS_THIRDPARTY_NAME ${DORIS_THIRDPARTY_UNPARSED_ARGUMENTS})
+
+    # Skip if target already exists (e.g., from source build via USE_CONTRIB_SOURCE)
+    if(TARGET ${DORIS_THIRDPARTY_NAME})
+        if (NOT DORIS_THIRDPARTY_NOTADD)
+            set(COMMON_THIRDPARTY ${COMMON_THIRDPARTY} ${DORIS_THIRDPARTY_NAME} PARENT_SCOPE)
+        endif()
+        return()
+    endif()
+
     add_library(${DORIS_THIRDPARTY_NAME} STATIC IMPORTED)
 
     if (NOT DORIS_THIRDPARTY_NOTADD)
@@ -118,6 +127,23 @@ add_thirdparty(rdkafka)
 add_thirdparty(s2)
 add_thirdparty(bitshuffle)
 add_thirdparty(roaring)
+# fmt: tp-build upgraded fmt 7.1.3 → 8.1.1 for MSAN libc++ ABI compat. Prebuilt
+# thirdparty packages still ship fmt 7, whose symbols don't match BE's fmt 8
+# includes (`fmt::v8::*` vs `fmt::v7::*`). Pre-declare `fmt` as a STATIC built
+# from the in-tree fmt 8 sources; the idempotent add_thirdparty(fmt) below sees
+# the target exists, skips IMPORTED registration, and just appends `fmt` to
+# COMMON_THIRDPARTY. Source mode already builds fmt 8 from
+# thirdparty/cmake/fmt.cmake, so this branch only kicks in for prebuilt mode.
+if (NOT TARGET fmt)
+    add_library(fmt STATIC
+        ${THIRDPARTY_SRC_DIR}/src/fmt-8.1.1/src/format.cc
+        ${THIRDPARTY_SRC_DIR}/src/fmt-8.1.1/src/os.cc
+    )
+    target_include_directories(fmt PUBLIC
+        ${THIRDPARTY_SRC_DIR}/src/fmt-8.1.1/include
+    )
+    set_target_properties(fmt PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
 add_thirdparty(fmt)
 add_thirdparty(cctz)
 add_thirdparty(base64)
@@ -197,3 +223,72 @@ if (ENABLE_PAIMON_CPP)
     add_thirdparty(fmt_paimon LIB64)
     add_thirdparty(tbb_paimon LIB64)
 endif()
+
+# ============================================================================
+# Reconcile target names with source-mode (USE_CONTRIB_SOURCE=ON).
+# Source mode uses different target names for some libraries; alias them so
+# code paths written against source-mode names also compile in prebuilt mode.
+# ============================================================================
+
+# BE main CMakeLists references `libprotobuf` directly when wiring ORC.
+# Source mode's protobuf target is named `libprotobuf`; prebuilt mode is `protobuf`.
+if (TARGET protobuf AND NOT TARGET libprotobuf)
+    add_library(libprotobuf ALIAS protobuf)
+endif()
+
+# Arrow/Parquet: source mode appends _static suffix because Arrow's CMake adds
+# it for STATIC library targets. Alias to the prebuilt names so either form works.
+foreach(_arrow_t arrow arrow_flight arrow_flight_sql arrow_dataset arrow_acero parquet)
+    if (TARGET ${_arrow_t} AND NOT TARGET ${_arrow_t}_static)
+        add_library(${_arrow_t}_static ALIAS ${_arrow_t})
+    endif()
+endforeach()
+
+# hyperscan: source mode names its target `hs` after libhs.a; prebuilt is `hyperscan`.
+if (TARGET hyperscan AND NOT TARGET hs)
+    add_library(hs ALIAS hyperscan)
+endif()
+
+# s2n: source mode `s2n`, prebuilt `aws-s2n`.
+if (TARGET aws-s2n AND NOT TARGET s2n)
+    add_library(s2n ALIAS aws-s2n)
+endif()
+
+# contrib/clucene's bundled CMakeLists references `lz4_static`, `libzstd_static`,
+# `zlibstatic`. Source mode declares those names directly; prebuilt mode aliases.
+if (TARGET lz4 AND NOT TARGET lz4_static)
+    add_library(lz4_static ALIAS lz4)
+endif()
+if (TARGET zstd AND NOT TARGET libzstd_static)
+    add_library(libzstd_static ALIAS zstd)
+endif()
+if (TARGET libz AND NOT TARGET zlibstatic)
+    add_library(zlibstatic ALIAS libz)
+endif()
+
+# hadoop_hdfs: source mode declares this in thirdparty/cmake/hadoop_hdfs.cmake
+# (builds libhdfs.a from sources via JNI). Prebuilt mode imports the prebuilt
+# libhdfs.a from the bundled hadoop layout under installed/lib*/hadoop_hdfs_3_4/.
+if (NOT TARGET hadoop_hdfs)
+    if (EXISTS "${THIRDPARTY_DIR}/lib64/hadoop_hdfs_3_4/native/libhdfs.a")
+        set(_HDFS_A "${THIRDPARTY_DIR}/lib64/hadoop_hdfs_3_4/native/libhdfs.a")
+    elseif (EXISTS "${THIRDPARTY_DIR}/lib/hadoop_hdfs_3_4/native/libhdfs.a")
+        set(_HDFS_A "${THIRDPARTY_DIR}/lib/hadoop_hdfs_3_4/native/libhdfs.a")
+    else()
+        message(WARNING "hadoop_hdfs prebuilt not found; falling back to libhdfs3")
+    endif()
+    if (DEFINED _HDFS_A)
+        add_library(hadoop_hdfs STATIC IMPORTED)
+        set_target_properties(hadoop_hdfs PROPERTIES IMPORTED_LOCATION "${_HDFS_A}")
+        list(APPEND COMMON_THIRDPARTY hadoop_hdfs)
+    endif()
+endif()
+
+# krb5_headers: source mode is a dummy static lib with INTERFACE_INCLUDE_DIRECTORIES
+# pointing at krb5 headers. Prebuilt mode uses an INTERFACE target with the
+# installed include dir.
+if (NOT TARGET krb5_headers)
+    add_library(krb5_headers INTERFACE)
+    target_include_directories(krb5_headers INTERFACE ${THIRDPARTY_DIR}/include)
+endif()
+

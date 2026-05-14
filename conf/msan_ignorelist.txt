@@ -1,0 +1,141 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# MSAN ignorelist for Doris BE
+#
+# STRATEGY: Ignore most thirdparty libraries (SIMD, crypto, syscall-heavy, old libs
+# with known MSAN issues). Keep pure-computation / MSAN-friendly libs instrumented.
+#
+# As Doris warnings are fixed, we'll gradually re-enable ignored libs one by one.
+#
+# NOTE: Doris source (be/src/, cloud/src/) and libraries NOT listed here stay
+# instrumented. Libraries that remain instrumented:
+#   abseil-cpp, cctz, concurrentqueue, CRoaring, dragonbox, fast_float,
+#   json, jsoncpp, parallel-hashmap, pdqsort, rapidjson, s2geometry, xxHash
+
+# ============================================================================
+# Always ignore: fundamental incompatibilities
+# ============================================================================
+
+# glibc-compatibility: dead in MSAN — be/CMakeLists.txt sets GLIBC_COMPATIBILITY=OFF
+# under MSAN, so the directory is never add_subdirectory'd. Entry removed 2026-05-07.
+
+# libunwind reads CPU registers — infinite recursion if instrumented
+src:*/libunwind*/*
+fun:*libunwind*
+fun:*Unwind*
+fun:*unwind*
+fun:*unw_*
+
+# ============================================================================
+# SIMD / assembly — only kept for libs MSAN truly can't handle.
+# Wave 12 (2026-04-28) removed: AvxToNeon, sse2neon, xsimd, libdivide
+#   (all header-only — inline in caller TU; ignorelist entry was a no-op).
+# Wave 13 (2026-05-07) removed: bitshuffle, streamvbyte
+#   (single-file C SIMD libs; ClickHouse pattern — instrument and let MSAN
+#   IR pass propagate shadow through intrinsics).
+# Wave 14 (2026-05-07) removed: simdjson
+#   (single .cpp; ClickHouse contrib/simdjson-cmake/CMakeLists.txt has
+#   zero MSAN code — fully instrumentable).
+# Wave 15 (2026-05-07) removed: hyperscan
+#   (large SIMD regex engine; ClickHouse's vectorscan fork has zero MSAN
+#   code in contrib/vectorscan-cmake/CMakeLists.txt and callers in
+#   src/Functions/MultiMatchAnyImpl.h call hs_scan with no unpoison).
+# Per ClickHouse precedent, MSAN can track shadow through SIMD intrinsics
+# when the SIMD lib itself is instrumented; ignoring it actually creates
+# downstream false positives. Keep only libs we have specific evidence
+# can't be instrumented.
+# ============================================================================
+
+# ============================================================================
+# Compression — SIMD + custom memory management
+# Wave 2 (2026-04-21) removed: zstd, zlib, lz4
+# Wave 3 (2026-04-21) removed: snappy, brotli, bzip2, libdeflate, liblzma, lzo
+# ============================================================================
+
+# ============================================================================
+# Network / I/O / syscall
+# Wave 7 (2026-04-21) removed: brpc, c-ares, curl, libevent, librdkafka
+# (brpc epoll_wait already has __msan_unpoison patch)
+# ============================================================================
+
+# ============================================================================
+# Crypto / auth
+# Wave 8 (2026-04-21) removed: openssl, cyrus-sasl, krb5, libidn, libgsasl
+# ============================================================================
+
+# ============================================================================
+# Serialization
+# thrift removed 2026-04-20 (zero warnings)
+# Wave 5 (2026-04-21) removed: arrow, flatbuffers, grpc, protobuf
+# ============================================================================
+
+# ============================================================================
+# Storage engines
+# Wave 6 (2026-04-21) removed: leveldb, rocksdb, orc
+# Wave 17 (2026-05-07) removed: faiss
+#   (SIMD-dense vector indexing; ClickHouse pattern says try instrument
+#   first — MSAN IR pass handles AVX2 intrinsics; ARM SVE not in play here.
+#   Falls back to ignorelist if runtime false positives explode.)
+# ============================================================================
+
+# ============================================================================
+# Old libraries (all removed after fmt upgrade 2026-04-20).
+# Wave final (2026-04-21) removed: gflags, glog, re2
+# ============================================================================
+
+# ============================================================================
+# Cloud SDKs
+# Wave 10 (2026-04-21) removed: aliyun, aws, azure, jindofs
+# ============================================================================
+
+# ============================================================================
+# HDFS / JNI / Java bridge — all entries removed 2026-05-07
+# ============================================================================
+# Removed 2026-05-07:
+#   src:*/doris-thirdparty-hadoop*/*    : libhdfs JNI now patched at boundary
+#                                         (HDFS_MSAN_UNPOISON after Get*Region /
+#                                         GetStringUTFChars, see thirdparty/patches/
+#                                         doris-thirdparty-hadoop-3.3.6.6-for-doris-msan.patch).
+#   src:*/doris-thirdparty-libhdfs3*/*  : dead code — libhdfs3 not compiled into BE
+#                                         (no add_contrib in thirdparty/CMakeLists.txt;
+#                                         only used by cloud/ as IMPORTED prebuilt .a).
+#   src:*/paimon-cpp*/*                 : dead code — paimon_cpp.cmake early-returns
+#                                         when ENABLE_PAIMON_CPP=OFF (default in MSAN).
+#                                         Also paimon-cpp is pure C++ (no <jni.h>).
+
+# jemalloc: thirdparty/cmake/jemalloc.cmake now early-returns under MSAN, so
+# jemalloc source no longer compiles. compiler-rt's MSAN runtime allocator
+# (MsanAllocate + sanitizer_common) takes over via __interceptor_malloc.
+# ClickHouse precedent: contrib/jemalloc-cmake/CMakeLists.txt does the same.
+# Entry removed 2026-05-07.
+
+# ============================================================================
+# CLucene — Wave 9 (2026-04-21): now instrumented under MSAN.
+# The strip in be/CMakeLists.txt was removed for MSAN build type.
+# ============================================================================
+
+# ============================================================================
+# Misc support libraries
+# Wave 1 (2026-04-21) removed: base64, pugixml, libuuid, crc32c, libxml2
+# Wave 4 (2026-04-21) removed: boost, icu, ragel
+# Wave 11 (2026-04-28) removed: mysql-server, unixODBC (header-only, no lib linked)
+# Wave 16 (2026-05-07) removed: libbacktrace
+#   (MSAN's symbolizer is out-of-process, so instrumenting libbacktrace
+#   doesn't recurse through it; only Doris's own boost::stacktrace path
+#   uses libbacktrace, on infrequent crash dumps).
+# ============================================================================

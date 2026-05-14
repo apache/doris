@@ -26,7 +26,7 @@
 #include <fcntl.h>
 #include <fmt/core.h>
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
-        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
+        !defined(THREAD_SANITIZER) && !defined(MEMORY_SANITIZER) && !defined(USE_JEMALLOC)
 #include <gperftools/malloc_extension.h> // IWYU pragma: keep
 #endif
 #include <libgen.h>
@@ -60,6 +60,7 @@
 #endif
 
 #include <curl/curl.h>
+#include <gflags/gflags.h>
 #include <thrift/TOutput.h>
 
 #include "agent/heartbeat_server.h"
@@ -404,7 +405,7 @@ int main(int argc, char** argv) {
     }
 
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
-        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
+        !defined(THREAD_SANITIZER) && !defined(MEMORY_SANITIZER) && !defined(USE_JEMALLOC)
     // Change the total TCMalloc thread cache size if necessary.
     const size_t kDefaultTotalThreadCacheBytes = 1024 * 1024 * 1024;
     if (!MallocExtension::instance()->SetNumericProperty("tcmalloc.max_total_thread_cache_bytes",

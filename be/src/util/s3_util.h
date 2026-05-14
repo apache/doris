@@ -112,8 +112,8 @@ struct S3ClientConf {
                 "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={}, "
                 "cred_provider_type={},role_arn={}, external_id={}",
                 hide_access_key(ak), token, endpoint, region, bucket, max_connections,
-                request_timeout_ms, connect_timeout_ms, use_virtual_addressing, cred_provider_type,
-                role_arn, external_id);
+                request_timeout_ms, connect_timeout_ms, use_virtual_addressing,
+                static_cast<int>(cred_provider_type), role_arn, external_id);
     }
 };
 

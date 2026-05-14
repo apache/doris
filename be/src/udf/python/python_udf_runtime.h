@@ -23,12 +23,12 @@
 
 namespace doris {
 
-static const char* UNIX_SOCKET_PREFIX = "grpc+unix://";
+static constexpr const char* UNIX_SOCKET_PREFIX = "grpc+unix://";
 // Use /tmp directory for Unix socket to avoid path length limit (max 107 chars)
-static const char* BASE_UNIX_SOCKET_PATH_TEMPLATE = "/tmp/doris_python_udf";
-static const char* UNIX_SOCKET_PATH_TEMPLATE = "{}_{}.sock";
-static const char* FLIGHT_SERVER_PATH_TEMPLATE = "{}/plugins/python_udf/{}";
-static const char* FLIGHT_SERVER_FILENAME = "python_server.py";
+static constexpr const char* BASE_UNIX_SOCKET_PATH_TEMPLATE = "/tmp/doris_python_udf";
+static constexpr const char* UNIX_SOCKET_PATH_TEMPLATE = "{}_{}.sock";
+static constexpr const char* FLIGHT_SERVER_PATH_TEMPLATE = "{}/plugins/python_udf/{}";
+static constexpr const char* FLIGHT_SERVER_FILENAME = "python_server.py";
 
 inline std::string get_base_unix_socket_path() {
     return fmt::format("{}{}", UNIX_SOCKET_PREFIX, BASE_UNIX_SOCKET_PATH_TEMPLATE);

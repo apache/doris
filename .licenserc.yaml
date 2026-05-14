@@ -40,6 +40,7 @@ header:
     - "**/*.svg"
     - "**/*.md5"
     - "**/*.patch"
+    - "**/*.inc"
     - "**/*.log"
     - "**/*.sql"
     - "**/*.lock"
@@ -115,4 +116,8 @@ header:
     - "tools/FlameGraph/*"
     - "thirdparty/LICENSE.txt"
     - "fs_brokers/cdc_client/src/main/java/io/debezium/**"
+    # Pre-extracted autoconf-equivalent headers / parser sources from upstream
+    # thirdparty libraries (cares, curl, hyperscan, libevent). They keep
+    # their upstream licenses, not Apache 2.0.
+    - "thirdparty/src/_pregenerated/**"
   comment: on-failure

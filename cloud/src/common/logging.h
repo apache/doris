@@ -65,7 +65,9 @@ public:
         if constexpr (sizeof...(args) == 0) {
             stream_ << fmt;
         } else {
-            stream_ << fmt::format(fmt, std::forward<Args>(args)...);
+            // fmt 8 makes fmt::format's first arg consteval; std::string_view
+            // is a runtime value, so route through vformat to keep it valid.
+            stream_ << fmt::vformat(fmt, fmt::make_format_args(args...));
         }
         AnnotateTag::format_tag_list(stream_);
     };

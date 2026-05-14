@@ -24,7 +24,7 @@
 #include "jemalloc/jemalloc.h"
 #endif
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
-        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
+        !defined(THREAD_SANITIZER) && !defined(MEMORY_SANITIZER) && !defined(USE_JEMALLOC)
 #include <gperftools/malloc_extension.h>
 #endif
 
@@ -138,7 +138,8 @@ void memory_info_handler(std::stringstream* output) {
     (*output) << "\n---\n\n";
 
     (*output) << "<h4 id=\"jemallocProfilesTitle\">Jemalloc Profiles</h4>\n";
-#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER) || \
+        defined(MEMORY_SANITIZER)
     (*output) << "Memory tracking is not available with address sanitizer builds.";
 #elif defined(USE_JEMALLOC)
     std::string tmp;
@@ -146,7 +147,7 @@ void memory_info_handler(std::stringstream* output) {
         auto* _opaque = static_cast<std::string*>(opaque);
         _opaque->append(buf);
     };
-    jemalloc_stats_print(write_cb, &tmp, "a");
+    je_malloc_stats_print(write_cb, &tmp, "a");
     boost::replace_all(tmp, "\n", "<br>");
     (*output) << tmp;
 #else

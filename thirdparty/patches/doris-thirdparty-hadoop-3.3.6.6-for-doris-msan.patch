@@ -1,0 +1,127 @@
+--- a/hadoop-hdfs-project/hadoop-hdfs-native-client/src/main/native/libhdfs/jni_helper.h
++++ b/hadoop-hdfs-project/hadoop-hdfs-native-client/src/main/native/libhdfs/jni_helper.h
+@@ -27,6 +27,22 @@
+ #include <stdlib.h>
+ #include <stdarg.h>
+ #include <errno.h>
++#include <string.h>
++
++/*
++ * MSAN boundary: JVM-written buffers (via Get*Region / GetStringUTFChars) are
++ * invisible to MemorySanitizer. Mark them initialized so callers don't see
++ * false-positive uninitialized reads.
++ */
++#if defined(__has_feature)
++#  if __has_feature(memory_sanitizer)
++#    include <sanitizer/msan_interface.h>
++#    define HDFS_MSAN_UNPOISON(p, n) __msan_unpoison((p), (n))
++#  endif
++#endif
++#ifndef HDFS_MSAN_UNPOISON
++#  define HDFS_MSAN_UNPOISON(p, n) ((void)0)
++#endif
+ 
+ #ifdef WIN32
+     #define PATH_SEPARATOR ';'
+--- a/hadoop-hdfs-project/hadoop-hdfs-native-client/src/main/native/libhdfs/jni_helper.c
++++ b/hadoop-hdfs-project/hadoop-hdfs-native-client/src/main/native/libhdfs/jni_helper.c
+@@ -91,6 +91,7 @@
+         return NULL;
+     }
+     tmp = (*env)->GetStringUTFChars(env, jstr, NULL);
++    if (tmp) HDFS_MSAN_UNPOISON((void*)tmp, strlen(tmp) + 1);
+     if (!tmp) {
+         return getPendingExceptionAndClear(env);
+     }
+@@ -349,6 +350,7 @@
+         goto done;
+     }
+     cstr = (*env)->GetStringUTFChars(env, str, NULL);
++    if (cstr) HDFS_MSAN_UNPOISON((void*)cstr, strlen(cstr) + 1);
+     if (!cstr) {
+         jthr = getPendingExceptionAndClear(env);
+         goto done;
+--- a/hadoop-hdfs-project/hadoop-hdfs-native-client/src/main/native/libhdfs/hdfs.c
++++ b/hadoop-hdfs-project/hadoop-hdfs-native-client/src/main/native/libhdfs/hdfs.c
+@@ -2168,6 +2168,7 @@
+     // buffer; we use the return value as the input in GetByteArrayRegion to
+     // ensure don't copy more bytes than necessary
+     (*env)->GetByteArrayRegion(env, jbRarray, 0, jVal.i, buffer);
++    HDFS_MSAN_UNPOISON(buffer, jVal.i);
+     destroyLocalReference(env, jbRarray);
+     if ((*env)->ExceptionCheck(env)) {
+         errno = printPendingExceptionAndFree(env, PRINT_EXC_ALL,
+@@ -2300,6 +2301,7 @@
+         return -1;
+     }
+     (*env)->GetByteArrayRegion(env, jbRarray, 0, jVal.i, buffer);
++    HDFS_MSAN_UNPOISON(buffer, jVal.i);
+     destroyLocalReference(env, jbRarray);
+     if ((*env)->ExceptionCheck(env)) {
+         errno = printPendingExceptionAndFree(env, PRINT_EXC_ALL,
+@@ -2423,6 +2425,7 @@
+     }
+ 
+     (*env)->GetByteArrayRegion(env, jbRarray, 0, length, buffer);
++    HDFS_MSAN_UNPOISON(buffer, length);
+     destroyLocalReference(env, jbRarray);
+     if ((*env)->ExceptionCheck(env)) {
+         errno = printPendingExceptionAndFree(env, PRINT_EXC_ALL,
+@@ -2980,6 +2983,7 @@
+     }
+     jPathString = jVal.l;
+     jPathChars = (*env)->GetStringUTFChars(env, jPathString, NULL);
++    if (jPathChars) HDFS_MSAN_UNPOISON((void*)jPathChars, strlen(jPathChars) + 1);
+     if (!jPathChars) {
+         ret = printPendingExceptionAndFree(env, PRINT_EXC_ALL,
+             "hdfsGetWorkingDirectory: GetStringUTFChars");
+@@ -3580,6 +3584,7 @@
+         goto done;
+     }
+     (*env)->GetByteArrayRegion(env, array, position, buffer->length, mallocBuf);
++    HDFS_MSAN_UNPOISON(mallocBuf, buffer->length);
+     jthr = (*env)->ExceptionOccurred(env);
+     if (jthr) {
+         ret = printExceptionAndFree(env, jthr, PRINT_EXC_ALL,
+@@ -3858,6 +3863,7 @@
+             }
+             hostName =
+                 (const char*)((*env)->GetStringUTFChars(env, jHost, NULL));
++            if (hostName) HDFS_MSAN_UNPOISON((void*)hostName, strlen(hostName) + 1);
+             if (!hostName) {
+                 ret = printPendingExceptionAndFree(env, PRINT_EXC_ALL,
+                     "hdfsGetHosts(path=%s, start=%"PRId64", length=%"PRId64", "
+@@ -4155,6 +4161,7 @@
+     jPathName = jVal.l;
+     cPathName =
+         (const char*) ((*env)->GetStringUTFChars(env, jPathName, NULL));
++    if (cPathName) HDFS_MSAN_UNPOISON((void*)cPathName, strlen(cPathName) + 1);
+     if (!cPathName) {
+         jthr = getPendingExceptionAndClear(env);
+         goto done;
+@@ -4168,6 +4175,7 @@
+     jUserName = jVal.l;
+     cUserName =
+         (const char*) ((*env)->GetStringUTFChars(env, jUserName, NULL));
++    if (cUserName) HDFS_MSAN_UNPOISON((void*)cUserName, strlen(cUserName) + 1);
+     if (!cUserName) {
+         jthr = getPendingExceptionAndClear(env);
+         goto done;
+@@ -4196,6 +4204,7 @@
+         goto done;
+     jGroupName = jVal.l;
+     cGroupName = (const char*) ((*env)->GetStringUTFChars(env, jGroupName, NULL));
++    if (cGroupName) HDFS_MSAN_UNPOISON((void*)cGroupName, strlen(cGroupName) + 1);
+     if (!cGroupName) {
+         jthr = getPendingExceptionAndClear(env);
+         goto done;
+--- a/hadoop-hdfs-project/hadoop-hdfs-native-client/src/main/native/libhdfs/os/posix/thread_local_storage.c
++++ b/hadoop-hdfs-project/hadoop-hdfs-native-client/src/main/native/libhdfs/os/posix/thread_local_storage.c
+@@ -128,6 +128,7 @@
+   thr_name = jVal.l;
+ 
+   thr_name_str = (*env)->GetStringUTFChars(env, thr_name, NULL);
++  if (thr_name_str) HDFS_MSAN_UNPOISON((void*)thr_name_str, strlen(thr_name_str) + 1);
+   if (!thr_name_str) {
+     printPendingExceptionAndFree(env, PRINT_EXC_ALL,
+             "get_current_thread_id: GetStringUTFChars failed: ");

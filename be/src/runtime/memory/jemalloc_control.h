@@ -26,7 +26,7 @@
 #include "jemalloc/jemalloc.h"
 #endif
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
-        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
+        !defined(THREAD_SANITIZER) && !defined(MEMORY_SANITIZER) && !defined(USE_JEMALLOC)
 #include <gperftools/malloc_extension.h>
 #endif
 
@@ -36,7 +36,7 @@ class JemallocControl {
 public:
     static inline int64_t get_tc_metrics(const std::string& name) {
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
-        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
+        !defined(THREAD_SANITIZER) && !defined(MEMORY_SANITIZER) && !defined(USE_JEMALLOC)
         size_t value = 0;
         MallocExtension::instance()->GetNumericProperty(name.c_str(), &value);
         return value;
@@ -49,7 +49,7 @@ public:
 #ifdef USE_JEMALLOC
         T value;
         size_t value_size = sizeof(T);
-        if (jemallctl(name.c_str(), &value, &value_size, nullptr, 0) != 0) {
+        if (je_mallctl(name.c_str(), &value, &value_size, nullptr, 0) != 0) {
             LOG(WARNING) << fmt::format("Failed, jemallctl get {}", name);
         }
         return value;
@@ -63,8 +63,8 @@ public:
         T old_value;
         size_t old_value_size = sizeof(T);
         try {
-            int err = jemallctl(name.c_str(), &old_value, &old_value_size,
-                                reinterpret_cast<void*>(&value), sizeof(T));
+            int err = je_mallctl(name.c_str(), &old_value, &old_value_size,
+                                 reinterpret_cast<void*>(&value), sizeof(T));
             if (err) {
                 LOG(WARNING) << fmt::format("Failed, jemallctl value for {} set to {} (old {})",
                                             name, value, old_value);

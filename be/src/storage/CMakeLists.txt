@@ -36,4 +36,7 @@ if (OS_MACOSX)
     target_compile_options(Storage PRIVATE -Wno-unused-lambda-capture)
 endif()
 
+# Suppress nlohmann/json deprecated-literal-operator warnings under -Werror
+target_compile_options(Storage PRIVATE -Wno-deprecated-literal-operator)
+
 pch_reuse(Storage)
