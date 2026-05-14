@@ -22,11 +22,11 @@
 #include <glog/logging.h>
 
 #include <algorithm>
-#include <cctype>
 #include <cstdlib>
 #include <memory>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "common/config.h"
@@ -45,6 +45,7 @@
 #include "runtime/runtime_state.h"
 #include "service/http/http_client.h"
 #include "util/security.h"
+#include "util/string_util.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -77,8 +78,7 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         TAIResource config;
         std::shared_ptr<AIAdapter> adapter;
-        if (Status status = assert_cast<const Derived*>(this)->_init_from_resource(
-                    context, block, arguments, config, adapter);
+        if (Status status = this->_init_from_resource(context, block, arguments, config, adapter);
             !status.ok()) {
             return status;
         }
@@ -88,41 +88,74 @@ public:
     }
 
 protected:
+    // Reads the shared AI context window size from query options. String AI batch functions and
+    // ai_agg both use the same byte-based session variable so batching behavior stays consistent.
+    static int64_t get_ai_context_window_size(FunctionContext* context) {
+        DORIS_CHECK(context != nullptr);
+        QueryContext* query_ctx = context->state()->get_query_ctx();
+        DORIS_CHECK(query_ctx != nullptr);
+
+        return query_ctx->query_options().ai_context_window_size;
+    }
+
     // Derived classes can override this method for non-text/default behavior.
-    // The base implementation keeps previous text-oriented processing unchanged.
+    // The base implementation handles all string-input/string-output batchable functions.
     Status execute_with_adapter(FunctionContext* context, Block& block,
                                 const ColumnNumbers& arguments, uint32_t result,
                                 size_t input_rows_count, const TAIResource& config,
                                 std::shared_ptr<AIAdapter>& adapter) const {
-        DataTypePtr return_type_impl =
-                assert_cast<const Derived&>(*this).get_return_type_impl(DataTypes());
-        if (return_type_impl->get_primitive_type() != PrimitiveType::TYPE_STRING) {
-            return Status::InternalError("{} must override execute for non-string return type",
-                                         get_name());
-        }
-        MutableColumnPtr col_result = ColumnString::create();
-
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            // Build AI prompt text
-            std::string prompt;
-            RETURN_IF_ERROR(
-                    assert_cast<const Derived&>(*this).build_prompt(block, arguments, i, prompt));
-
-            std::string string_result;
-            RETURN_IF_ERROR(
-                    execute_single_request(prompt, string_result, config, adapter, context));
-            assert_cast<ColumnString&>(*col_result)
-                    .insert_data(string_result.data(), string_result.size());
-        }
+        auto col_result = assert_cast<const Derived&>(*this).create_result_column();
+        RETURN_IF_ERROR(execute_batched_prompts(context, block, arguments, input_rows_count, config,
+                                                adapter, *col_result));
 
         block.replace_by_position(result, std::move(col_result));
         return Status::OK();
     }
 
-    // The endpoint `v1/completions` does not support `system_prompt`.
-    // To ensure a clear structure and stable AI results.
-    // Convert from `v1/completions` to `v1/chat/completions`
+    MutableColumnPtr create_result_column() const { return ColumnString::create(); }
+
+    // Provider-reusable hook for AI functions(string) -> string.
+    Status append_batch_results(const std::vector<std::string>& batch_results,
+                                IColumn& col_result) const {
+        auto& string_col = assert_cast<ColumnString&>(col_result);
+        for (const auto& batch_result : batch_results) {
+            string_col.insert_data(batch_result.data(), batch_result.size());
+        }
+        return Status::OK();
+    }
+
     static void normalize_endpoint(TAIResource& config) {
+        // 1. If users configure only the version root like `.../v1` or `.../v1beta`, append
+        //    `models/<model>:batchEmbedContents` for `embed`, and `models/<model>:generateContent`
+        //    for other AI scalar functions.
+        // 2. `:embedContent` -> `:batchEmbedContents`
+        if (iequal(config.provider_type, "GEMINI")) {
+            if (iequal(Derived::name, "embed") && config.endpoint.ends_with(":embedContent")) {
+                static constexpr std::string_view legacy_suffix = ":embedContent";
+                config.endpoint.replace(config.endpoint.size() - legacy_suffix.size(),
+                                        legacy_suffix.size(), ":batchEmbedContents");
+                return;
+            }
+
+            if (!config.endpoint.ends_with("v1") && !config.endpoint.ends_with("v1beta")) {
+                return;
+            }
+
+            std::string model_name = config.model_name;
+            if (!model_name.starts_with("models/")) {
+                model_name = "models/" + model_name;
+            }
+
+            config.endpoint += "/";
+            config.endpoint += model_name;
+            config.endpoint +=
+                    iequal(Derived::name, "embed") ? ":batchEmbedContents" : ":generateContent";
+            return;
+        }
+
+        // The endpoint `v1/completions` does not support `system_prompt`.
+        // To ensure a clear structure and stable AI results.
+        // Convert from `v1/completions` to `v1/chat/completions`
         if (config.endpoint.ends_with("v1/completions")) {
             static constexpr std::string_view legacy_suffix = "v1/completions";
             config.endpoint.replace(config.endpoint.size() - legacy_suffix.size(),
@@ -130,39 +163,7 @@ protected:
         }
     }
 
-    // The ai resource must be literal
-    Status _init_from_resource(FunctionContext* context, const Block& block,
-                               const ColumnNumbers& arguments, TAIResource& config,
-                               std::shared_ptr<AIAdapter>& adapter) const {
-        // 1. Initialize config
-        const ColumnWithTypeAndName& resource_column = block.get_by_position(arguments[0]);
-        StringRef resource_name_ref = resource_column.column->get_data_at(0);
-        std::string resource_name = std::string(resource_name_ref.data, resource_name_ref.size);
-
-        const std::shared_ptr<std::map<std::string, TAIResource>>& ai_resources =
-                context->state()->get_query_ctx()->get_ai_resources();
-        if (!ai_resources) {
-            return Status::InternalError("AI resources metadata missing in QueryContext");
-        }
-        auto it = ai_resources->find(resource_name);
-        if (it == ai_resources->end()) {
-            return Status::InvalidArgument("AI resource not found: " + resource_name);
-        }
-        config = it->second;
-
-        normalize_endpoint(config);
-
-        // 2. Create an adapter based on provider_type
-        adapter = AIAdapterFactory::create_adapter(config.provider_type);
-        if (!adapter) {
-            return Status::InvalidArgument("Unsupported AI provider type: " + config.provider_type);
-        }
-        adapter->init(config);
-
-        return Status::OK();
-    }
-
-    // Executes the actual HTTP request
+    // Executes one HTTP POST request and validates transport-level success.
     Status do_send_request(HttpClient* client, const std::string& request_body,
                            std::string& response, const TAIResource& config,
                            std::shared_ptr<AIAdapter>& adapter, FunctionContext* context) const {
@@ -211,77 +212,187 @@ protected:
                                               });
     }
 
-    // Wrapper for executing a single LLM request
-    Status execute_single_request(const std::string& input, std::string& result,
-                                  const TAIResource& config, std::shared_ptr<AIAdapter>& adapter,
-                                  FunctionContext* context) const {
-        std::vector<std::string> inputs = {input};
-        std::vector<std::string> results;
+    // Provider-reusable helper for string-returning functions.
+    // Estimates one batch entry size using the raw prompt length plus the fixed JSON wrapper cost.
+    size_t estimate_batch_entry_size(size_t idx, const std::string& prompt) const {
+        static constexpr size_t json_wrapper_size = 20;
+        return prompt.size() + std::to_string(idx).size() + json_wrapper_size;
+    }
+
+    // Provider-reusable helper for string-returning functions.
+    // Executes one batch request and parses the provider result into one string per input row.
+    Status execute_batch_request(const std::vector<std::string>& batch_prompts,
+                                 std::vector<std::string>& results, const TAIResource& config,
+                                 std::shared_ptr<AIAdapter>& adapter,
+                                 FunctionContext* context) const {
+#ifdef BE_TEST
+        const char* test_result = std::getenv("AI_TEST_RESULT");
+        if (test_result != nullptr) {
+            std::vector<std::string> parsed_test_response;
+            RETURN_IF_ERROR(
+                    adapter->parse_response(std::string(test_result), parsed_test_response));
+            if (parsed_test_response.empty()) {
+                return Status::InternalError("AI returned empty result");
+            }
+            if (parsed_test_response.size() != batch_prompts.size()) {
+                return Status::RuntimeError(
+                        "Failed to parse {} batch result, expected {} items but got {}", get_name(),
+                        batch_prompts.size(), parsed_test_response.size());
+            }
+            results = std::move(parsed_test_response);
+            return Status::OK();
+        }
+        if (config.provider_type == "MOCK") {
+            results.clear();
+            results.reserve(batch_prompts.size());
+            for (const auto& prompt : batch_prompts) {
+                results.emplace_back("this is a mock response. " + prompt);
+            }
+            return Status::OK();
+        }
+#endif
+
+        std::string batch_prompt;
+        RETURN_IF_ERROR(build_batch_prompt(batch_prompts, batch_prompt));
+
+        std::vector<std::string> inputs = {batch_prompt};
+        std::vector<std::string> parsed_response;
 
         std::string request_body;
         RETURN_IF_ERROR(adapter->build_request_payload(
                 inputs, assert_cast<const Derived&>(*this).system_prompt, request_body));
 
         std::string response;
-        if (config.provider_type == "MOCK") {
-            // Mock path for UT
-            response = "this is a mock response. " + input;
-        } else {
-            RETURN_IF_ERROR(send_request_to_llm(request_body, response, config, adapter, context));
-        }
-
-        RETURN_IF_ERROR(adapter->parse_response(response, results));
-        if (results.empty()) {
+        RETURN_IF_ERROR(send_request_to_llm(request_body, response, config, adapter, context));
+        RETURN_IF_ERROR(adapter->parse_response(response, parsed_response));
+        if (parsed_response.empty()) {
             return Status::InternalError("AI returned empty result");
         }
-
-        result = std::move(results[0]);
+        if (parsed_response.size() != batch_prompts.size()) {
+            LOG(WARNING) << "AI batch result size mismatch, function=" << get_name()
+                         << ", provider=" << config.provider_type << ", model=" << config.model_name
+                         << ", expected_rows=" << batch_prompts.size()
+                         << ", actual_rows=" << parsed_response.size()
+                         << ", response_body=" << response;
+            return Status::RuntimeError(
+                    "Failed to parse {} batch result, expected {} items but got {}", get_name(),
+                    batch_prompts.size(), parsed_response.size());
+        }
+        results = std::move(parsed_response);
         return Status::OK();
     }
 
-    Status execute_single_request(const std::string& input, std::vector<float>& result,
-                                  const TAIResource& config, std::shared_ptr<AIAdapter>& adapter,
-                                  FunctionContext* context) const {
-        std::vector<std::string> inputs = {input};
-        std::vector<std::vector<float>> results;
+    // Provider-reusable helper for string-returning functions.
+    // Runs the common batch execution flow; derived classes only need to define how one batch of
+    // string results is inserted into the final output column.
+    Status execute_batched_prompts(FunctionContext* context, Block& block,
+                                   const ColumnNumbers& arguments, size_t input_rows_count,
+                                   const TAIResource& config, std::shared_ptr<AIAdapter>& adapter,
+                                   IColumn& col_result) const {
+        std::vector<std::string> batch_prompts;
+        size_t current_batch_size = 2; // []
+        const size_t max_batch_prompt_size =
+                static_cast<size_t>(get_ai_context_window_size(context));
 
-        std::string request_body;
-        RETURN_IF_ERROR(adapter->build_embedding_request(inputs, request_body));
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            std::string prompt;
+            RETURN_IF_ERROR(
+                    assert_cast<const Derived&>(*this).build_prompt(block, arguments, i, prompt));
 
-        std::string response;
-        if (config.provider_type == "MOCK") {
-            // Mock path for UT
-            response = "{\"embedding\": [0, 1, 2, 3, 4]}";
-        } else {
-            RETURN_IF_ERROR(send_request_to_llm(request_body, response, config, adapter, context));
+            size_t entry_size = estimate_batch_entry_size(batch_prompts.size(), prompt);
+            if (entry_size > max_batch_prompt_size) {
+                if (!batch_prompts.empty()) {
+                    std::vector<std::string> batch_results;
+                    RETURN_IF_ERROR(this->execute_batch_request(batch_prompts, batch_results,
+                                                                config, adapter, context));
+                    RETURN_IF_ERROR(assert_cast<const Derived&>(*this).append_batch_results(
+                            batch_results, col_result));
+                    batch_prompts.clear();
+                    current_batch_size = 2;
+                }
+
+                std::vector<std::string> single_prompts;
+                single_prompts.emplace_back(std::move(prompt));
+                std::vector<std::string> single_results;
+                RETURN_IF_ERROR(this->execute_batch_request(single_prompts, single_results, config,
+                                                            adapter, context));
+                RETURN_IF_ERROR(assert_cast<const Derived&>(*this).append_batch_results(
+                        single_results, col_result));
+                continue;
+            }
+
+            size_t additional_size = entry_size + (batch_prompts.empty() ? 0 : 1);
+            if (!batch_prompts.empty() &&
+                current_batch_size + additional_size > max_batch_prompt_size) {
+                std::vector<std::string> batch_results;
+                RETURN_IF_ERROR(this->execute_batch_request(batch_prompts, batch_results, config,
+                                                            adapter, context));
+                RETURN_IF_ERROR(assert_cast<const Derived&>(*this).append_batch_results(
+                        batch_results, col_result));
+                batch_prompts.clear();
+                current_batch_size = 2;
+                additional_size = entry_size;
+            }
+
+            batch_prompts.emplace_back(std::move(prompt));
+            current_batch_size += additional_size;
         }
 
-        RETURN_IF_ERROR(adapter->parse_embedding_response(response, results));
-        if (results.empty()) {
-            return Status::InternalError("AI returned empty result");
+        if (!batch_prompts.empty()) {
+            std::vector<std::string> batch_results;
+            RETURN_IF_ERROR(this->execute_batch_request(batch_prompts, batch_results, config,
+                                                        adapter, context));
+            RETURN_IF_ERROR(assert_cast<const Derived&>(*this).append_batch_results(batch_results,
+                                                                                    col_result));
         }
-
-        result = std::move(results[0]);
         return Status::OK();
     }
 
-    // Sends a pre-built embedding request body and parses the float vector result.
-    // Used when the request body has already been constructed (e.g., multimodal embedding).
-    Status execute_embedding_request(const std::string& request_body, std::vector<float>& result,
-                                     const TAIResource& config, std::shared_ptr<AIAdapter>& adapter,
-                                     FunctionContext* context) const {
-        std::vector<std::vector<float>> results;
-        std::string response;
-        if (config.provider_type == "MOCK") {
-            response = "{\"embedding\": [0, 1, 2, 3, 4]}";
-        } else {
-            RETURN_IF_ERROR(send_request_to_llm(request_body, response, config, adapter, context));
+private:
+    // The ai resource must be literal
+    Status _init_from_resource(FunctionContext* context, const Block& block,
+                               const ColumnNumbers& arguments, TAIResource& config,
+                               std::shared_ptr<AIAdapter>& adapter) const {
+        const ColumnWithTypeAndName& resource_column = block.get_by_position(arguments[0]);
+        StringRef resource_name_ref = resource_column.column->get_data_at(0);
+        std::string resource_name = std::string(resource_name_ref.data, resource_name_ref.size);
+
+        const std::shared_ptr<std::map<std::string, TAIResource>>& ai_resources =
+                context->state()->get_query_ctx()->get_ai_resources();
+        DORIS_CHECK(ai_resources);
+        auto it = ai_resources->find(resource_name);
+        DORIS_CHECK(it != ai_resources->end());
+        config = it->second;
+
+        normalize_endpoint(config);
+
+        adapter = AIAdapterFactory::create_adapter(config.provider_type);
+        DORIS_CHECK(adapter);
+
+        adapter->init(config);
+        return Status::OK();
+    }
+
+    // Serializes one text batch into the shared JSON-array prompt format consumed by LLM
+    // providers for batch string functions.
+    Status build_batch_prompt(const std::vector<std::string>& batch_prompts,
+                              std::string& prompt) const {
+        rapidjson::StringBuffer buffer;
+        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+
+        writer.StartArray();
+        for (size_t i = 0; i < batch_prompts.size(); ++i) {
+            writer.StartObject();
+            writer.Key("idx");
+            writer.Uint64(i);
+            writer.Key("input");
+            writer.String(batch_prompts[i].data(),
+                          static_cast<rapidjson::SizeType>(batch_prompts[i].size()));
+            writer.EndObject();
         }
-        RETURN_IF_ERROR(adapter->parse_embedding_response(response, results));
-        if (results.empty()) {
-            return Status::InternalError("AI returned empty result");
-        }
-        result = std::move(results[0]);
+        writer.EndArray();
+
+        prompt = buffer.GetString();
         return Status::OK();
     }
 };

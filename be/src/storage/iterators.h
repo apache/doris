@@ -111,6 +111,8 @@ public:
     OlapReaderStatistics* stats = nullptr;
     bool use_page_cache = false;
     uint32_t block_row_max = 4096 - 32; // see https://github.com/apache/doris/pull/11816
+    // Effective adaptive batch size byte budget.
+    size_t preferred_block_size_bytes = 8388608UL;
 
     TabletSchemaSPtr tablet_schema = nullptr;
     bool enable_unique_key_merge_on_write = false;
@@ -134,7 +136,12 @@ public:
     // slots that cast may be eliminated in storage layer
     std::map<std::string, DataTypePtr> target_cast_type_for_variants;
     RowRanges row_ranges;
-    size_t topn_limit = 0;
+
+    // Per-segment row budget pushed down from the scanner (topn or general
+    // limit). SegmentIterator applies it after predicate/common-expr filtering;
+    // _can_opt_limit_reads() only decides whether the pre-filter read can also
+    // be capped. 0 disables the optimization.
+    size_t read_limit = 0;
 
     std::map<ColumnId, VExprContextSPtr> virtual_column_exprs;
     std::shared_ptr<segment_v2::AnnTopNRuntime> ann_topn_runtime;

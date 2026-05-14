@@ -30,18 +30,17 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundBlackholeSink;
+import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundInlineTable;
-import org.apache.doris.nereids.analyzer.UnboundJdbcTableSink;
 import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
@@ -292,11 +291,6 @@ public class InsertUtils {
             if (hiveTable.isView()) {
                 throw new AnalysisException("View is not support in hive external table.");
             }
-        }
-        if (table instanceof JdbcExternalTable) {
-            // todo:
-            // For JDBC External Table, we always allow certain columns to be missing during insertion
-            // Specific check for non-nullable columns only if insertion is direct VALUES or SELECT constants
         }
         // Re-read partial update settings from session variable to handle multi-statement
         // batches where SET and INSERT are parsed together before execution.
@@ -606,17 +600,18 @@ public class InsertUtils {
             unboundTableSink = (UnboundHiveTableSink<? extends Plan>) plan;
         } else if (plan instanceof UnboundIcebergTableSink) {
             unboundTableSink = (UnboundIcebergTableSink<? extends Plan>) plan;
-        } else if (plan instanceof UnboundJdbcTableSink) {
-            unboundTableSink = (UnboundJdbcTableSink<? extends Plan>) plan;
         } else if (plan instanceof UnboundDictionarySink) {
             unboundTableSink = (UnboundDictionarySink<? extends Plan>) plan;
         } else if (plan instanceof UnboundBlackholeSink) {
             unboundTableSink = (UnboundBlackholeSink<? extends Plan>) plan;
         } else if (plan instanceof UnboundMaxComputeTableSink) {
             unboundTableSink = (UnboundMaxComputeTableSink<? extends Plan>) plan;
+        } else if (plan instanceof UnboundConnectorTableSink) {
+            unboundTableSink = (UnboundConnectorTableSink<? extends Plan>) plan;
         } else {
             throw new AnalysisException(
-                    "the root of plan only accept Olap, Dictionary, Hive, Iceberg or Jdbc table sink, but it is "
+                    "the root of plan only accept Olap, Dictionary, Hive, Iceberg, Connector"
+                            + " or Jdbc table sink, but it is "
                             + plan.getType());
         }
         return RelationUtil.getQualifierName(ctx, unboundTableSink.getNameParts());

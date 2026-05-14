@@ -72,7 +72,7 @@ suite("test_jdbc_call", "p0,external") {
 
     test {
         sql """call execute_stmt("${non_jdbc_catalog_name}", "select 1")"""
-        exception "Only support JDBC catalog"
+        exception "executeStmt not supported"
     }
 
     test {

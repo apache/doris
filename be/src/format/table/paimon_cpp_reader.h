@@ -58,13 +58,15 @@ public:
     ~PaimonCppReader() override;
 
     Status init_reader();
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
-    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                       std::unordered_set<std::string>* missing_cols) override;
+    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+    Status _get_columns_impl(std::unordered_map<std::string, DataTypePtr>* name_to_type) override;
     Status close() override;
     void set_predicate(std::shared_ptr<paimon::Predicate> predicate) {
         _predicate = std::move(predicate);
     }
+
+protected:
+    Status _do_init_reader(ReaderInitContext* /*ctx*/) override { return init_reader(); }
 
 private:
     Status _init_paimon_reader();

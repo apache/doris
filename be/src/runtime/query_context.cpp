@@ -24,7 +24,6 @@
 #include <glog/logging.h>
 
 #include <algorithm>
-#include <exception>
 #include <memory>
 #include <mutex>
 #include <utility>
@@ -223,26 +222,12 @@ QueryContext::~QueryContext() {
                 PrettyPrinter::print_bytes(query_mem_tracker()->consumption()),
                 PrettyPrinter::print_bytes(query_mem_tracker()->peak_consumption()));
     }
-    [[maybe_unused]] uint64_t group_id = 0;
-    if (workload_group()) {
-        group_id = workload_group()->id(); // before remove
-    }
-
     _resource_ctx->task_controller()->finish();
 
     if (enable_profile()) {
         _report_query_profile();
     }
 
-#ifndef BE_TEST
-    if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) [[unlikely]] {
-        try {
-            ExecEnv::GetInstance()->pipeline_tracer_context()->end_query(_query_id, group_id);
-        } catch (std::exception& e) {
-            LOG(WARNING) << "Dump trace log failed bacause " << e.what();
-        }
-    }
-#endif
     _runtime_filter_mgr.reset();
     _execution_dependency.reset();
     _runtime_predicates.clear();
@@ -556,6 +541,18 @@ Status QueryContext::reset_global_rf(const google::protobuf::RepeatedField<int32
         return _merge_controller_handler->reset_global_rf(this, filter_ids);
     }
     return Status::OK();
+}
+
+void QueryContext::add_total_task_num(int delta) {
+    if (auto* qtc = dynamic_cast<QueryTaskController*>(_resource_ctx->task_controller())) {
+        qtc->add_total_task_num(delta);
+    }
+}
+
+void QueryContext::inc_finished_task_num() {
+    if (auto* qtc = dynamic_cast<QueryTaskController*>(_resource_ctx->task_controller())) {
+        qtc->inc_finished_task_num();
+    }
 }
 
 } // namespace doris

@@ -61,11 +61,11 @@ static Status check_tuple_names(const Strings& names) {
     std::unordered_set<String> names_set;
     for (const auto& name : names) {
         if (name.empty()) {
-            return Status::InvalidArgument("Names of tuple elements cannot be empty");
+            return Status::InvalidArgument("Names of struct elements cannot be empty");
         }
 
         if (!names_set.insert(name).second) {
-            return Status::InvalidArgument("Names of tuple elements must be unique");
+            return Status::InvalidArgument("Names of struct elements must be unique");
         }
     }
 
@@ -123,15 +123,6 @@ Status DataTypeStruct::check_column(const IColumn& column) const {
         RETURN_IF_ERROR(elem->check_column(child_column));
     }
     return Status::OK();
-}
-
-Field DataTypeStruct::get_default() const {
-    size_t size = elems.size();
-    Tuple t;
-    for (size_t i = 0; i < size; ++i) {
-        t.push_back(elems[i]->get_default());
-    }
-    return Field::create_field<TYPE_STRUCT>(t);
 }
 
 bool DataTypeStruct::equals(const IDataType& rhs) const {

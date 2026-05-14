@@ -29,6 +29,7 @@ import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CaseExpr;
 import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.ColumnRefExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
@@ -62,6 +63,7 @@ import org.apache.doris.analysis.TimeV2Literal;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.analysis.TryCastExpr;
 import org.apache.doris.analysis.VarBinaryLiteral;
+import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.analysis.VirtualSlotRef;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.RestoreJob;
@@ -123,7 +125,9 @@ import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
+import org.apache.doris.catalog.stream.AbstractTableStreamUpdate;
 import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
 import org.apache.doris.cloud.backup.CloudRestoreJob;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
@@ -137,10 +141,10 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalDatabase;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
-import org.apache.doris.datasource.es.EsExternalCatalog;
-import org.apache.doris.datasource.es.EsExternalDatabase;
-import org.apache.doris.datasource.es.EsExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -158,9 +162,6 @@ import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaTable;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlTable;
-import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
-import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
-import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalCatalog;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalDatabase;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalTable;
@@ -275,46 +276,48 @@ public class GsonUtils {
     private static final RuntimeTypeAdapterFactory<org.apache.doris.analysis.Expr> exprAdapterFactory
             = RuntimeTypeAdapterFactory
             .of(Expr.class, "clazz")
+            .registerSubtype(ArithmeticExpr.class, ArithmeticExpr.class.getSimpleName())
+            .registerSubtype(CaseExpr.class, CaseExpr.class.getSimpleName())
+            .registerSubtype(CastExpr.class, CastExpr.class.getSimpleName())
+            .registerSubtype(ColumnRefExpr.class, ColumnRefExpr.class.getSimpleName())
+            .registerSubtype(TryCastExpr.class, TryCastExpr.class.getSimpleName())
+            .registerSubtype(EncryptKeyRef.class, EncryptKeyRef.class.getSimpleName())
             .registerSubtype(FunctionCallExpr.class, FunctionCallExpr.class.getSimpleName())
             .registerSubtype(LambdaFunctionCallExpr.class, LambdaFunctionCallExpr.class.getSimpleName())
-            .registerSubtype(CastExpr.class, CastExpr.class.getSimpleName())
-            .registerSubtype(TryCastExpr.class, TryCastExpr.class.getSimpleName())
-            .registerSubtype(TimestampArithmeticExpr.class, TimestampArithmeticExpr.class.getSimpleName())
-            .registerSubtype(IsNullPredicate.class, IsNullPredicate.class.getSimpleName())
+            .registerSubtype(InformationFunction.class, InformationFunction.class.getSimpleName())
+            .registerSubtype(LambdaFunctionExpr.class, LambdaFunctionExpr.class.getSimpleName())
+            .registerSubtype(LiteralExpr.class, LiteralExpr.class.getSimpleName())
+            .registerSubtype(ArrayLiteral.class, ArrayLiteral.class.getSimpleName())
+            .registerSubtype(BoolLiteral.class, BoolLiteral.class.getSimpleName())
+            .registerSubtype(DateLiteral.class, DateLiteral.class.getSimpleName())
+            .registerSubtype(IPv4Literal.class, IPv4Literal.class.getSimpleName())
+            .registerSubtype(IPv6Literal.class, IPv6Literal.class.getSimpleName())
+            .registerSubtype(JsonLiteral.class, JsonLiteral.class.getSimpleName())
+            .registerSubtype(MapLiteral.class, MapLiteral.class.getSimpleName())
+            .registerSubtype(MaxLiteral.class, MaxLiteral.class.getSimpleName())
+            .registerSubtype(NullLiteral.class, NullLiteral.class.getSimpleName())
+            .registerSubtype(NumericLiteralExpr.class, NumericLiteralExpr.class.getSimpleName())
+            .registerSubtype(DecimalLiteral.class, DecimalLiteral.class.getSimpleName())
+            .registerSubtype(FloatLiteral.class, FloatLiteral.class.getSimpleName())
+            .registerSubtype(IntLiteral.class, IntLiteral.class.getSimpleName())
+            .registerSubtype(LargeIntLiteral.class, LargeIntLiteral.class.getSimpleName())
+            .registerSubtype(PlaceHolderExpr.class, PlaceHolderExpr.class.getSimpleName())
+            .registerSubtype(StringLiteral.class, StringLiteral.class.getSimpleName())
+            .registerSubtype(StructLiteral.class, StructLiteral.class.getSimpleName())
+            .registerSubtype(TimeV2Literal.class, TimeV2Literal.class.getSimpleName())
+            .registerSubtype(VarBinaryLiteral.class, VarBinaryLiteral.class.getSimpleName())
             .registerSubtype(BetweenPredicate.class, BetweenPredicate.class.getSimpleName())
             .registerSubtype(BinaryPredicate.class, BinaryPredicate.class.getSimpleName())
+            .registerSubtype(CompoundPredicate.class, CompoundPredicate.class.getSimpleName())
+            .registerSubtype(InPredicate.class, InPredicate.class.getSimpleName())
+            .registerSubtype(IsNullPredicate.class, IsNullPredicate.class.getSimpleName())
             .registerSubtype(LikePredicate.class, LikePredicate.class.getSimpleName())
             .registerSubtype(MatchPredicate.class, MatchPredicate.class.getSimpleName())
             .registerSubtype(SearchPredicate.class, SearchPredicate.class.getSimpleName())
-            .registerSubtype(InPredicate.class, InPredicate.class.getSimpleName())
-            .registerSubtype(CompoundPredicate.class, CompoundPredicate.class.getSimpleName())
-            .registerSubtype(BoolLiteral.class, BoolLiteral.class.getSimpleName())
-            .registerSubtype(MaxLiteral.class, MaxLiteral.class.getSimpleName())
-            .registerSubtype(StringLiteral.class, StringLiteral.class.getSimpleName())
-            .registerSubtype(IntLiteral.class, IntLiteral.class.getSimpleName())
-            .registerSubtype(LargeIntLiteral.class, LargeIntLiteral.class.getSimpleName())
-            .registerSubtype(LiteralExpr.class, LiteralExpr.class.getSimpleName())
-            .registerSubtype(DecimalLiteral.class, DecimalLiteral.class.getSimpleName())
-            .registerSubtype(FloatLiteral.class, FloatLiteral.class.getSimpleName())
-            .registerSubtype(NullLiteral.class, NullLiteral.class.getSimpleName())
-            .registerSubtype(VarBinaryLiteral.class, VarBinaryLiteral.class.getSimpleName())
-            .registerSubtype(MapLiteral.class, MapLiteral.class.getSimpleName())
-            .registerSubtype(DateLiteral.class, DateLiteral.class.getSimpleName())
-            .registerSubtype(IPv6Literal.class, IPv6Literal.class.getSimpleName())
-            .registerSubtype(IPv4Literal.class, IPv4Literal.class.getSimpleName())
-            .registerSubtype(TimeV2Literal.class, TimeV2Literal.class.getSimpleName())
-            .registerSubtype(JsonLiteral.class, JsonLiteral.class.getSimpleName())
-            .registerSubtype(ArrayLiteral.class, ArrayLiteral.class.getSimpleName())
-            .registerSubtype(StructLiteral.class, StructLiteral.class.getSimpleName())
-            .registerSubtype(NumericLiteralExpr.class, NumericLiteralExpr.class.getSimpleName())
-            .registerSubtype(PlaceHolderExpr.class, PlaceHolderExpr.class.getSimpleName())
-            .registerSubtype(CaseExpr.class, CaseExpr.class.getSimpleName())
-            .registerSubtype(LambdaFunctionExpr.class, LambdaFunctionExpr.class.getSimpleName())
-            .registerSubtype(EncryptKeyRef.class, EncryptKeyRef.class.getSimpleName())
-            .registerSubtype(ArithmeticExpr.class, ArithmeticExpr.class.getSimpleName())
             .registerSubtype(SlotRef.class, SlotRef.class.getSimpleName())
             .registerSubtype(VirtualSlotRef.class, VirtualSlotRef.class.getSimpleName())
-            .registerSubtype(InformationFunction.class, InformationFunction.class.getSimpleName());
+            .registerSubtype(TimestampArithmeticExpr.class, TimestampArithmeticExpr.class.getSimpleName())
+            .registerSubtype(VariableExpr.class, VariableExpr.class.getSimpleName());
 
     // runtime adapter for class "DistributionInfo"
     private static RuntimeTypeAdapterFactory<DistributionInfo> distributionInfoTypeAdapterFactory
@@ -378,8 +381,6 @@ public class GsonUtils {
         dsTypeAdapterFactory = RuntimeTypeAdapterFactory.of(CatalogIf.class, "clazz")
                 .registerSubtype(CloudInternalCatalog.class, CloudInternalCatalog.class.getSimpleName())
                 .registerSubtype(HMSExternalCatalog.class, HMSExternalCatalog.class.getSimpleName())
-                .registerSubtype(EsExternalCatalog.class, EsExternalCatalog.class.getSimpleName())
-                .registerSubtype(JdbcExternalCatalog.class, JdbcExternalCatalog.class.getSimpleName())
                 .registerSubtype(IcebergExternalCatalog.class, IcebergExternalCatalog.class.getSimpleName())
                 .registerSubtype(IcebergHMSExternalCatalog.class, IcebergHMSExternalCatalog.class.getSimpleName())
                 .registerSubtype(IcebergGlueExternalCatalog.class, IcebergGlueExternalCatalog.class.getSimpleName())
@@ -399,7 +400,15 @@ public class GsonUtils {
                 .registerSubtype(LakeSoulExternalCatalog.class, LakeSoulExternalCatalog.class.getSimpleName())
                 .registerSubtype(TestExternalCatalog.class, TestExternalCatalog.class.getSimpleName())
                 .registerSubtype(PaimonDLFExternalCatalog.class, PaimonDLFExternalCatalog.class.getSimpleName())
-                .registerSubtype(RemoteDorisExternalCatalog.class, RemoteDorisExternalCatalog.class.getSimpleName());
+                .registerSubtype(RemoteDorisExternalCatalog.class, RemoteDorisExternalCatalog.class.getSimpleName())
+                .registerSubtype(PluginDrivenExternalCatalog.class,
+                        PluginDrivenExternalCatalog.class.getSimpleName())
+                // Migrate old ES catalogs to PluginDriven on deserialization
+                .registerCompatibleSubtype(
+                        PluginDrivenExternalCatalog.class, "EsExternalCatalog")
+                // Migrate old JDBC catalogs to PluginDriven on deserialization
+                .registerCompatibleSubtype(
+                        PluginDrivenExternalCatalog.class, "JdbcExternalCatalog");
         if (Config.isNotCloudMode()) {
             dsTypeAdapterFactory
                     .registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName());
@@ -432,9 +441,7 @@ public class GsonUtils {
     private static RuntimeTypeAdapterFactory<DatabaseIf> dbTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     DatabaseIf.class, "clazz")
             .registerSubtype(ExternalDatabase.class, ExternalDatabase.class.getSimpleName())
-            .registerSubtype(EsExternalDatabase.class, EsExternalDatabase.class.getSimpleName())
             .registerSubtype(HMSExternalDatabase.class, HMSExternalDatabase.class.getSimpleName())
-            .registerSubtype(JdbcExternalDatabase.class, JdbcExternalDatabase.class.getSimpleName())
             .registerSubtype(IcebergExternalDatabase.class, IcebergExternalDatabase.class.getSimpleName())
             .registerSubtype(LakeSoulExternalDatabase.class, LakeSoulExternalDatabase.class.getSimpleName())
             .registerSubtype(PaimonExternalDatabase.class, PaimonExternalDatabase.class.getSimpleName())
@@ -442,14 +449,18 @@ public class GsonUtils {
             .registerSubtype(ExternalInfoSchemaDatabase.class, ExternalInfoSchemaDatabase.class.getSimpleName())
             .registerSubtype(ExternalMysqlDatabase.class, ExternalMysqlDatabase.class.getSimpleName())
             .registerSubtype(TrinoConnectorExternalDatabase.class, TrinoConnectorExternalDatabase.class.getSimpleName())
-            .registerSubtype(TestExternalDatabase.class, TestExternalDatabase.class.getSimpleName());
+            .registerSubtype(TestExternalDatabase.class, TestExternalDatabase.class.getSimpleName())
+            .registerSubtype(PluginDrivenExternalDatabase.class,
+                    PluginDrivenExternalDatabase.class.getSimpleName())
+            .registerCompatibleSubtype(
+                    PluginDrivenExternalDatabase.class, "EsExternalDatabase")
+            .registerCompatibleSubtype(
+                    PluginDrivenExternalDatabase.class, "JdbcExternalDatabase");
 
     private static RuntimeTypeAdapterFactory<TableIf> tblTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     TableIf.class, "clazz").registerSubtype(ExternalTable.class, ExternalTable.class.getSimpleName())
-            .registerSubtype(EsExternalTable.class, EsExternalTable.class.getSimpleName())
             .registerSubtype(OlapTable.class, OlapTable.class.getSimpleName())
             .registerSubtype(HMSExternalTable.class, HMSExternalTable.class.getSimpleName())
-            .registerSubtype(JdbcExternalTable.class, JdbcExternalTable.class.getSimpleName())
             .registerSubtype(IcebergExternalTable.class, IcebergExternalTable.class.getSimpleName())
             .registerSubtype(LakeSoulExternalTable.class, LakeSoulExternalTable.class.getSimpleName())
             .registerSubtype(PaimonExternalTable.class, PaimonExternalTable.class.getSimpleName())
@@ -458,6 +469,12 @@ public class GsonUtils {
             .registerSubtype(ExternalMysqlTable.class, ExternalMysqlTable.class.getSimpleName())
             .registerSubtype(TrinoConnectorExternalTable.class, TrinoConnectorExternalTable.class.getSimpleName())
             .registerSubtype(TestExternalTable.class, TestExternalTable.class.getSimpleName())
+            .registerSubtype(PluginDrivenExternalTable.class,
+                    PluginDrivenExternalTable.class.getSimpleName())
+            .registerCompatibleSubtype(
+                    PluginDrivenExternalTable.class, "EsExternalTable")
+            .registerCompatibleSubtype(
+                    PluginDrivenExternalTable.class, "JdbcExternalTable")
             .registerSubtype(BrokerTable.class, BrokerTable.class.getSimpleName())
             .registerSubtype(EsTable.class, EsTable.class.getSimpleName())
             .registerSubtype(FunctionGenTable.class, FunctionGenTable.class.getSimpleName())
@@ -515,7 +532,9 @@ public class GsonUtils {
         } else {
             // compatible with old cloud code.
             tabletTypeAdapterFactory.registerDefaultSubtype(CloudTablet.class);
+            tabletTypeAdapterFactory.registerCompatibleSubtype(CloudTablet.class, Tablet.class.getSimpleName());
             replicaTypeAdapterFactory.registerDefaultSubtype(CloudReplica.class);
+            replicaTypeAdapterFactory.registerCompatibleSubtype(CloudReplica.class, Replica.class.getSimpleName());
         }
     }
 
@@ -569,6 +588,11 @@ public class GsonUtils {
                     .registerSubtype(ListPartitionItem.class, ListPartitionItem.class.getSimpleName())
                     .registerSubtype(RangePartitionItem.class, RangePartitionItem.class.getSimpleName());
 
+    // runtime adapter for class "AbstractTableStreamUpdate"
+    private static RuntimeTypeAdapterFactory<AbstractTableStreamUpdate> streamUpdateTypeAdapterFactory
+                    = RuntimeTypeAdapterFactory.of(AbstractTableStreamUpdate.class, "clazz")
+                    .registerSubtype(OlapTableStreamUpdate.class, OlapTableStreamUpdate.class.getSimpleName());
+
     // the builder of GSON instance.
     // Add any other adapters if necessary.
     //
@@ -614,6 +638,7 @@ public class GsonUtils {
             .registerTypeAdapterFactory(jobBackupTypeAdapterFactory)
             .registerTypeAdapterFactory(loadJobTypeAdapterFactory)
             .registerTypeAdapterFactory(partitionItemTypeAdapterFactory)
+            .registerTypeAdapterFactory(streamUpdateTypeAdapterFactory)
             .registerTypeAdapter(PartitionKey.class, new PartitionKey.PartitionKeySerializer())
             .registerTypeAdapter(Range.class, new RangeUtils.RangeSerializer());
 

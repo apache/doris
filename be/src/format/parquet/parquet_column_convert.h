@@ -17,7 +17,12 @@
 
 #pragma once
 
+#include <cctz/time_zone.h>
 #include <gen_cpp/parquet_types.h>
+#include <libdivide.h>
+
+#include <chrono>
+#include <limits>
 
 #include "common/cast_set.h"
 #include "core/column/column_varbinary.h"
@@ -31,13 +36,86 @@
 #include "format/parquet/decoder.h"
 #include "format/parquet/parquet_common.h"
 #include "format/parquet/schema_desc.h"
+#include "util/timezone_utils.h"
 
 namespace doris::parquet {
+namespace detail {
+
+inline bool try_split_local_time(int64_t local_time, uint16_t* year, uint8_t* month, uint8_t* day,
+                                 uint8_t* hour, uint8_t* minute, uint8_t* second) {
+    static const libdivide::divider<int64_t> fast_div_86400(86400);
+    static const libdivide::divider<int64_t> fast_div_3600(3600);
+    static const libdivide::divider<int64_t> fast_div_60(60);
+    static constexpr int64_t kMinSupportedDays = -365LL * 10000;
+    static constexpr int64_t kMaxSupportedDays = 365LL * 10000;
+
+    int64_t days = local_time / fast_div_86400;
+    int64_t second_of_day = local_time - days * 86400;
+    if (second_of_day < 0) {
+        second_of_day += 86400;
+        --days;
+    }
+    if (days < kMinSupportedDays || days > kMaxSupportedDays) {
+        return false;
+    }
+
+    const auto ymd = std::chrono::year_month_day {std::chrono::sys_days {std::chrono::days {days}}};
+    const int y = static_cast<int>(ymd.year());
+    if (y < 0 || y > std::numeric_limits<uint16_t>::max()) {
+        return false;
+    }
+
+    const int64_t h = second_of_day / fast_div_3600;
+    const int64_t minute_second = second_of_day - h * 3600;
+    const int64_t m = minute_second / fast_div_60;
+    const int64_t s = minute_second - m * 60;
+
+    *year = static_cast<uint16_t>(y);
+    *month = static_cast<uint8_t>(static_cast<unsigned>(ymd.month()));
+    *day = static_cast<uint8_t>(static_cast<unsigned>(ymd.day()));
+    *hour = static_cast<uint8_t>(h);
+    *minute = static_cast<uint8_t>(m);
+    *second = static_cast<uint8_t>(s);
+    return true;
+}
+
+template <typename DateType>
+inline bool try_convert_timestamp_with_fixed_offset(DateType& value, int64_t epoch_seconds,
+                                                    int32_t offset_seconds) {
+    uint16_t year = 0;
+    uint8_t month = 0;
+    uint8_t day = 0;
+    uint8_t hour = 0;
+    uint8_t minute = 0;
+    uint8_t second = 0;
+    if (!try_split_local_time(epoch_seconds + offset_seconds, &year, &month, &day, &hour, &minute,
+                              &second)) {
+        return false;
+    }
+    // The caller sets sub-second precision immediately after this conversion.
+    value.unchecked_set_time(year, month, day, hour, minute, second, 0);
+    return true;
+}
+
+template <typename DateType>
+inline bool try_convert_timestamp_with_lookup(DateType& value, int64_t epoch_seconds,
+                                              const cctz::time_zone& ctz) {
+    static const auto epoch = std::chrono::time_point_cast<cctz::sys_seconds>(
+            std::chrono::system_clock::from_time_t(0));
+    cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(epoch_seconds);
+    const int32_t offset = ctz.lookup_offset(t).offset;
+    return try_convert_timestamp_with_fixed_offset(value, epoch_seconds, offset);
+}
+
+} // namespace detail
+
 struct ConvertParams {
     // schema.logicalType.TIMESTAMP.isAdjustedToUTC == false
     static const cctz::time_zone utc0;
     // schema.logicalType.TIMESTAMP.isAdjustedToUTC == true, we should set local time zone
     const cctz::time_zone* ctz = nullptr;
+    bool is_fixed_offset = false;
+    int32_t fixed_offset_seconds = 0;
     int64_t second_mask = 1;
     int64_t scale_to_nano_factor = 1;
     const FieldSchema* field_schema = nullptr;
@@ -108,6 +186,10 @@ struct ConvertParams {
             }
         }
 
+        if (ctz != nullptr) {
+            is_fixed_offset =
+                    TimezoneUtils::try_get_fixed_offset_seconds(*ctz, &fixed_offset_seconds);
+        }
         is_type_compatibility = field_schema_->is_type_compatibility;
     }
 };
@@ -658,7 +740,16 @@ struct Int64ToTimestamp : public PhysicalToLogicalConverter {
             int64_t x = src_data[i];
             auto& num = data[start_idx + i];
             auto& value = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(num);
-            value.from_unixtime(x / _convert_params->second_mask, *_convert_params->ctz);
+            const int64_t epoch_seconds = x / _convert_params->second_mask;
+            if (_convert_params->is_fixed_offset) {
+                if (!detail::try_convert_timestamp_with_fixed_offset(
+                            value, epoch_seconds, _convert_params->fixed_offset_seconds)) {
+                    value.from_unixtime(epoch_seconds, *_convert_params->ctz);
+                }
+            } else if (!detail::try_convert_timestamp_with_lookup(value, epoch_seconds,
+                                                                  *_convert_params->ctz)) {
+                value.from_unixtime(epoch_seconds, *_convert_params->ctz);
+            }
             value.set_microsecond((x % _convert_params->second_mask) *
                                   (_convert_params->scale_to_nano_factor / 1000));
         }
@@ -708,7 +799,16 @@ struct Int96toTimestamp : public PhysicalToLogicalConverter {
                     reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(data[start_idx + i]);
 
             int64_t timestamp_with_micros = src_cell_data.to_timestamp_micros();
-            dst_value.from_unixtime(timestamp_with_micros / 1000000, *_convert_params->ctz);
+            const int64_t epoch_seconds = timestamp_with_micros / 1000000;
+            if (_convert_params->is_fixed_offset) {
+                if (!detail::try_convert_timestamp_with_fixed_offset(
+                            dst_value, epoch_seconds, _convert_params->fixed_offset_seconds)) {
+                    dst_value.from_unixtime(epoch_seconds, *_convert_params->ctz);
+                }
+            } else if (!detail::try_convert_timestamp_with_lookup(dst_value, epoch_seconds,
+                                                                  *_convert_params->ctz)) {
+                dst_value.from_unixtime(epoch_seconds, *_convert_params->ctz);
+            }
             dst_value.set_microsecond(timestamp_with_micros % 1000000);
         }
         return Status::OK();

@@ -42,36 +42,31 @@ public:
 };
 
 TEST_F(EncodingInfoTest, normal) {
-    const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_BIGINT>();
+    constexpr FieldType type = FieldType::OLAP_FIELD_TYPE_BIGINT;
     const EncodingInfo* encoding_info = nullptr;
     EncodingPreference encoding_preference;
-    auto status = EncodingInfo::get(type_info->type(), PLAIN_ENCODING, encoding_preference,
-                                    &encoding_info);
+    auto status = EncodingInfo::get(type, PLAIN_ENCODING, encoding_preference, &encoding_info);
     EXPECT_TRUE(status.ok());
     EXPECT_NE(nullptr, encoding_info);
 }
 
 TEST_F(EncodingInfoTest, no_encoding) {
-    const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_BIGINT>();
+    constexpr FieldType type = FieldType::OLAP_FIELD_TYPE_BIGINT;
     const EncodingInfo* encoding_info = nullptr;
     EncodingPreference encoding_preference;
-    auto status = EncodingInfo::get(type_info->type(), DICT_ENCODING, encoding_preference,
-                                    &encoding_info);
+    auto status = EncodingInfo::get(type, DICT_ENCODING, encoding_preference, &encoding_info);
     EXPECT_FALSE(status.ok());
 }
 
 TEST_F(EncodingInfoTest, test_use_plain_binary_v2_config) {
     // Helper lambda to test string/JSON types with DICT_ENCODING as default
     auto test_dict_type_encoding = [](FieldType type, const std::string& type_name) {
-        const auto* type_info = get_scalar_type_info(type);
-
         // Test with BINARY_PLAIN_ENCODING_V1 (default)
         // String and JSON types default to DICT_ENCODING
         EncodingPreference pref_v1;
         pref_v1.binary_plain_encoding_default_impl =
                 BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1;
-        EncodingTypePB encoding_type =
-                EncodingInfo::get_default_encoding(type_info->type(), pref_v1, false);
+        EncodingTypePB encoding_type = EncodingInfo::get_default_encoding(type, pref_v1, false);
         EXPECT_EQ(DICT_ENCODING, encoding_type)
                 << "Type " << type_name << " should use DICT_ENCODING with V1 preference";
 
@@ -80,21 +75,18 @@ TEST_F(EncodingInfoTest, test_use_plain_binary_v2_config) {
         EncodingPreference pref_v2;
         pref_v2.binary_plain_encoding_default_impl =
                 BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2;
-        encoding_type = EncodingInfo::get_default_encoding(type_info->type(), pref_v2, false);
+        encoding_type = EncodingInfo::get_default_encoding(type, pref_v2, false);
         EXPECT_EQ(DICT_ENCODING, encoding_type)
                 << "Type " << type_name << " should still use DICT_ENCODING with V2 preference";
     };
 
     // Helper lambda to test aggregate state types with PLAIN_ENCODING as default
     auto test_plain_type_encoding = [](FieldType type, const std::string& type_name) {
-        const auto* type_info = get_scalar_type_info(type);
-
         // Test with BINARY_PLAIN_ENCODING_V1 (default)
         EncodingPreference pref_v1;
         pref_v1.binary_plain_encoding_default_impl =
                 BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1;
-        EncodingTypePB encoding_type =
-                EncodingInfo::get_default_encoding(type_info->type(), pref_v1, false);
+        EncodingTypePB encoding_type = EncodingInfo::get_default_encoding(type, pref_v1, false);
         EXPECT_EQ(PLAIN_ENCODING, encoding_type)
                 << "Type " << type_name << " should use PLAIN_ENCODING with V1 preference";
 
@@ -102,7 +94,7 @@ TEST_F(EncodingInfoTest, test_use_plain_binary_v2_config) {
         EncodingPreference pref_v2;
         pref_v2.binary_plain_encoding_default_impl =
                 BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2;
-        encoding_type = EncodingInfo::get_default_encoding(type_info->type(), pref_v2, false);
+        encoding_type = EncodingInfo::get_default_encoding(type, pref_v2, false);
         EXPECT_EQ(PLAIN_ENCODING_V2, encoding_type)
                 << "Type " << type_name << " should use PLAIN_ENCODING_V2 with V2 preference";
     };
@@ -123,15 +115,15 @@ TEST_F(EncodingInfoTest, test_use_plain_binary_v2_config) {
     test_plain_type_encoding(FieldType::OLAP_FIELD_TYPE_AGG_STATE, "AGG_STATE");
 
     // Test non-binary type (BIGINT) - should not be affected by binary preference
-    const auto* bigint_type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_BIGINT>();
+    constexpr FieldType bigint_type = FieldType::OLAP_FIELD_TYPE_BIGINT;
 
     // Test with plain encoding disabled for integers (default)
     EncodingPreference pref_plain_disabled;
     pref_plain_disabled.integer_type_default_use_plain_encoding = false;
     pref_plain_disabled.binary_plain_encoding_default_impl =
             BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1;
-    EncodingTypePB encoding_type = EncodingInfo::get_default_encoding(bigint_type_info->type(),
-                                                                      pref_plain_disabled, false);
+    EncodingTypePB encoding_type =
+            EncodingInfo::get_default_encoding(bigint_type, pref_plain_disabled, false);
     EXPECT_EQ(BIT_SHUFFLE, encoding_type);
 
     // Test with plain encoding enabled for integers
@@ -139,15 +131,13 @@ TEST_F(EncodingInfoTest, test_use_plain_binary_v2_config) {
     pref_plain_enabled.integer_type_default_use_plain_encoding = true;
     pref_plain_enabled.binary_plain_encoding_default_impl =
             BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V1;
-    encoding_type =
-            EncodingInfo::get_default_encoding(bigint_type_info->type(), pref_plain_enabled, false);
+    encoding_type = EncodingInfo::get_default_encoding(bigint_type, pref_plain_enabled, false);
     EXPECT_EQ(PLAIN_ENCODING, encoding_type);
 
     // Verify binary preference doesn't affect integer types
     pref_plain_enabled.binary_plain_encoding_default_impl =
             BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2;
-    encoding_type =
-            EncodingInfo::get_default_encoding(bigint_type_info->type(), pref_plain_enabled, false);
+    encoding_type = EncodingInfo::get_default_encoding(bigint_type, pref_plain_enabled, false);
     EXPECT_EQ(PLAIN_ENCODING, encoding_type); // Should still be PLAIN_ENCODING
 }
 

@@ -32,7 +32,7 @@
 #include "common/status.h"
 #include "core/data_type/data_type.h"
 #include "format/file_reader/new_plain_text_line_reader.h"
-#include "format/generic_reader.h"
+#include "format/table/table_format_reader.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "util/decompressor.h"
@@ -50,6 +50,11 @@ struct IOContext;
 
 struct ScannerCounter;
 class Block;
+
+/// CSV/Text-specific initialization context.
+struct CsvInitContext final : public ReaderInitContext {
+    bool is_load = false;
+};
 
 class LineFieldSplitterIf {
 public:
@@ -165,20 +170,21 @@ private:
     std::string _value_sep;
 };
 
-class CsvReader : public GenericReader {
+class CsvReader : public TableFormatReader {
     ENABLE_FACTORY_CREATOR(CsvReader);
 
 public:
     CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
               const TFileScanRangeParams& params, const TFileRangeDesc& range,
-              const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx,
-              std::shared_ptr<io::IOContext> io_ctx_holder = nullptr);
+              const std::vector<SlotDescriptor*>& file_slot_descs, size_t batch_size,
+              io::IOContext* io_ctx, std::shared_ptr<io::IOContext> io_ctx_holder = nullptr);
     ~CsvReader() override = default;
 
     Status init_reader(bool is_load);
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
-    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                       std::unordered_set<std::string>* missing_cols) override;
+
+    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+    Status _get_columns_impl(std::unordered_map<std::string, DataTypePtr>* name_to_type) override;
+    void set_batch_size(size_t batch_size) override;
 
     Status init_schema_reader() override;
     // get schema of csv file from first one line or first two lines.
@@ -192,6 +198,10 @@ public:
     Status close() override;
 
 protected:
+    // ---- Unified init_reader(ReaderInitContext*) overrides ----
+    Status _open_file_reader(ReaderInitContext* ctx) override;
+    Status _do_init_reader(ReaderInitContext* ctx) override;
+
     // init options for type serde
     virtual Status _init_options();
     virtual Status _create_line_reader();
@@ -278,6 +288,8 @@ private:
 
     io::IOContext* _io_ctx = nullptr;
     std::shared_ptr<io::IOContext> _io_ctx_holder;
+    // Adaptive batch size set by FileScanner. 0 means not set (use _state->batch_size()).
+    size_t _batch_size;
     // Stored to adjust column_sep_positions when BOM is removed in enclose mode
     std::shared_ptr<EncloseCsvLineReaderCtx> _enclose_reader_ctx;
     // save source text which have been splitted.

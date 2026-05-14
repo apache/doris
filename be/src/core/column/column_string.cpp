@@ -36,6 +36,7 @@
 #include "util/simd/bits.h"
 #include "util/simd/vstring_function.h"
 #include "util/unaligned.h"
+#include "util/utf8_check.h"
 namespace doris {
 
 template <typename T>
@@ -757,6 +758,20 @@ void ColumnStr<T>::insert(const Field& x) {
 template <typename T>
 bool ColumnStr<T>::is_ascii() const {
     return simd::VStringFunctions::is_ascii(StringRef(chars.data(), chars.size()));
+}
+
+template <typename T>
+bool ColumnStr<T>::is_valid_utf8() const {
+    const auto num_rows = offsets.size();
+    const char* data = reinterpret_cast<const char*>(chars.data());
+    for (size_t i = 0; i < num_rows; ++i) {
+        auto str_offset = offset_at(i);
+        auto str_size = size_at(i);
+        if (!validate_utf8(data + str_offset, str_size)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 template class ColumnStr<uint32_t>;

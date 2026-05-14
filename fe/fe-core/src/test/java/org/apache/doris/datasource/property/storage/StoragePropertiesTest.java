@@ -418,4 +418,95 @@ public class StoragePropertiesTest {
         String region = AbstractS3CompatibleProperties.getRegionFromProperties(props);
         Assertions.assertNull(region);
     }
+
+    // ========================================================================================
+    // equals() / hashCode() tests — ConnectionProperties value-based equality
+    // ========================================================================================
+
+    @Test
+    public void testEqualsAndHashCode_sameOrigProps() throws UserException {
+        Map<String, String> props1 = new HashMap<>();
+        props1.put("type", "hms");
+        props1.put("hive.metastore.uris", "thrift://localhost:9083");
+
+        Map<String, String> props2 = new HashMap<>(props1);
+
+        List<StorageProperties> list1 = StorageProperties.createAll(props1);
+        List<StorageProperties> list2 = StorageProperties.createAll(props2);
+
+        Assertions.assertFalse(list1.isEmpty());
+        Assertions.assertEquals(list1.size(), list2.size());
+
+        for (int i = 0; i < list1.size(); i++) {
+            StorageProperties sp1 = list1.get(i);
+            StorageProperties sp2 = list2.get(i);
+            Assertions.assertNotSame(sp1, sp2, "Different instances expected");
+            Assertions.assertEquals(sp1, sp2, "Same origProps should be equal");
+            Assertions.assertEquals(sp1.hashCode(), sp2.hashCode(),
+                    "Equal objects must have equal hashCodes");
+        }
+    }
+
+    @Test
+    public void testNotEquals_differentOrigProps() throws UserException {
+        Map<String, String> hdfsProps = new HashMap<>();
+        hdfsProps.put("type", "hms");
+        hdfsProps.put("hive.metastore.uris", "thrift://host1:9083");
+
+        Map<String, String> hdfsProps2 = new HashMap<>();
+        hdfsProps2.put("type", "hms");
+        hdfsProps2.put("hive.metastore.uris", "thrift://host2:9083");
+
+        List<StorageProperties> list1 = StorageProperties.createAll(hdfsProps);
+        List<StorageProperties> list2 = StorageProperties.createAll(hdfsProps2);
+
+        Assertions.assertFalse(list1.isEmpty());
+        Assertions.assertEquals(list1.size(), list2.size());
+
+        for (int i = 0; i < list1.size(); i++) {
+            Assertions.assertNotEquals(list1.get(i), list2.get(i),
+                    "Different origProps should not be equal");
+        }
+    }
+
+    @Test
+    public void testNotEquals_differentTypes() throws UserException {
+        Map<String, String> hdfsProps = new HashMap<>();
+        hdfsProps.put("fs.hdfs.support", "true");
+
+        Map<String, String> s3Props = new HashMap<>();
+        s3Props.put("fs.s3.support", "true");
+        s3Props.put("s3.endpoint", "http://s3.us-east-1.amazonaws.com");
+        s3Props.put("s3.region", "us-east-1");
+        s3Props.put("s3.access_key", "ak");
+        s3Props.put("s3.secret_key", "sk");
+
+        List<StorageProperties> hdfsList = StorageProperties.createAll(hdfsProps);
+        List<StorageProperties> s3List = StorageProperties.createAll(s3Props);
+
+        Assertions.assertFalse(hdfsList.isEmpty());
+        Assertions.assertFalse(s3List.isEmpty());
+
+        // HDFS and S3 properties should never be equal
+        for (StorageProperties hdfs : hdfsList) {
+            for (StorageProperties s3 : s3List) {
+                Assertions.assertNotEquals(hdfs, s3,
+                        "Properties of different storage types should not be equal");
+            }
+        }
+    }
+
+    @Test
+    public void testEquals_nullAndSelf() throws UserException {
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "hms");
+        List<StorageProperties> list = StorageProperties.createAll(props);
+        Assertions.assertFalse(list.isEmpty());
+        StorageProperties sp = list.get(0);
+
+        Assertions.assertEquals(sp, sp, "Same instance should be equal to itself");
+        Assertions.assertNotEquals(null, sp, "Should not be equal to null");
+        Assertions.assertNotEquals(sp, "not a StorageProperties",
+                "Should not be equal to different type");
+    }
 }

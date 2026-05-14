@@ -104,7 +104,7 @@ bool JdbcJniReader::_is_special_type(PrimitiveType type) {
            type == PrimitiveType::TYPE_QUANTILE_STATE || type == PrimitiveType::TYPE_JSONB;
 }
 
-Status JdbcJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status JdbcJniReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     // Identify columns with special types (bitmap, HLL, quantile_state, JSONB)
     // and temporarily replace them with string columns for JNI data transfer.
     // This follows the same pattern as the old vjdbc_connector.cpp _get_reader_params.
@@ -143,7 +143,7 @@ Status JdbcJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
     }
 
     // Call parent to do the actual JNI read with string columns
-    RETURN_IF_ERROR(JniReader::get_next_block(block, read_rows, eof));
+    RETURN_IF_ERROR(JniReader::_do_get_next_block(block, read_rows, eof));
 
     // Cast string columns back to their target types
     if (*read_rows > 0 && !special_columns.empty()) {

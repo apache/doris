@@ -1,7 +1,9 @@
 create database if not exists multi_catalog;
 use multi_catalog;
 
-CREATE TABLE IF NOT EXISTS `hive_textfile_array_delimiter`(
+drop table if exists `hive_textfile_array_delimiter`;
+
+create table `hive_textfile_array_delimiter`(
   `col1` array<tinyint>,
   `col2` array<smallint>,
   `col3` array<int>,
@@ -28,5 +30,3 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'
 LOCATION
   '/user/doris/suites/multi_catalog/hive_textfile_array_delimiter';
-
-msck repair table hive_textfile_array_delimiter;

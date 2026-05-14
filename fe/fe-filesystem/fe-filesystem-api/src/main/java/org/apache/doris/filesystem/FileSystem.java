@@ -155,9 +155,17 @@ public interface FileSystem extends AutoCloseable {
      * <p>The listing is resumed from {@code startAfter} (exclusive, lexicographic order) when
      * non-null and non-empty.  Results are returned in ascending lexicographic key order.
      *
-     * <p>The returned {@link GlobListing#getMaxFile()} contains the last key <em>seen</em>
-     * in the full listing (which may be beyond the page limit), allowing callers to detect
-     * whether additional objects exist without issuing another request.
+     * <p>The returned {@link GlobListing#getMaxFile()} is a pagination cursor:
+     * <ul>
+     *   <li>If a page-limit ({@code maxFiles} or {@code maxBytes}) was hit AND another
+     *       matching key exists strictly past it, {@code maxFile} is that next matching
+     *       key — pass it back as {@code startAfter} to fetch the next page.</li>
+     *   <li>Otherwise (listing was exhaustive), {@code maxFile} is the last matching
+     *       key on the returned page, or empty string if nothing matched.</li>
+     * </ul>
+     * Callers wanting "is there more data?" should compare {@code maxFile} against the
+     * last entry in {@link GlobListing#getFiles()}: if equal (or files is empty), the
+     * listing is exhausted; otherwise more matches remain.
      *
      * @param path       the base object-storage URI (may include a glob pattern, e.g.
      *                   {@code s3://bucket/prefix/*.csv})

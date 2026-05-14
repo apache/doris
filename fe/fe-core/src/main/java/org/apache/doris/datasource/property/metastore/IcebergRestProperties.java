@@ -18,6 +18,9 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
+import org.apache.doris.datasource.property.common.IcebergAwsClientCredentialsProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
@@ -41,8 +44,11 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     private static final String PREFIX_PROPERTY = "prefix";
     private static final String VENDED_CREDENTIALS_HEADER = "header.X-Iceberg-Access-Delegation";
     private static final String VENDED_CREDENTIALS_VALUE = "vended-credentials";
+    private static final String ICEBERG_REST_ROLE_ARN = "iceberg.rest.role_arn";
+    private static final String ICEBERG_REST_EXTERNAL_ID = "iceberg.rest.external-id";
 
     private Map<String, String> icebergRestCatalogProperties;
+    private S3Properties s3Properties;
 
     @Getter
     @ConnectorProperty(names = {"iceberg.rest.uri", "uri"},
@@ -110,6 +116,11 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             description = "Enable nested namespace for the iceberg rest catalog service.")
     private String icebergRestNestedNamespaceEnabled = "false";
 
+    @ConnectorProperty(names = {"iceberg.rest.view-enabled"},
+            required = false,
+            description = "Enable view operations for the iceberg rest catalog service.")
+    private String icebergRestViewEnabled = "true";
+
     @ConnectorProperty(names = {"iceberg.rest.case-insensitive-name-matching"},
             required = false,
             supported = false,
@@ -149,6 +160,22 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             description = "The secret access key for the iceberg rest catalog service.")
     private String icebergRestSecretAccessKey = "";
 
+    @ConnectorProperty(names = {"iceberg.rest.session-token"},
+            required = false,
+            sensitive = true,
+            description = "The session-token for the iceberg rest catalog service.")
+    private String icebergRestSessionToken = "";
+
+    @ConnectorProperty(names = {"iceberg.rest.credentials_provider_type"},
+            required = false,
+            description = "The credentials provider type for AWS authentication. "
+                    + "Options are: DEFAULT, INSTANCE_PROFILE, ENV, SYSTEM_PROPERTIES, "
+                    + "WEB_IDENTITY, CONTAINER. "
+                    + "If not set, defaults to DEFAULT (provider chain).")
+    private String icebergRestCredentialsProviderType = AwsCredentialsProviderMode.DEFAULT.name();
+
+    private AwsCredentialsProviderMode icebergRestCredentialsProviderMode;
+
     @ConnectorProperty(names = {"iceberg.rest.connection-timeout-ms"},
             required = false,
             description = "Connection timeout in milliseconds for the REST catalog HTTP client. Default: 10000 (10s).")
@@ -182,7 +209,12 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         validateSecurityType();
+        icebergRestCredentialsProviderMode =
+                AwsCredentialsProviderMode.fromString(icebergRestCredentialsProviderType);
         buildRules().validate();
+        if (shouldUseS3PropertiesForRestCredentials()) {
+            s3Properties = S3Properties.of(origProps);
+        }
         initIcebergRestCatalogProperties();
     }
 
@@ -218,15 +250,30 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             }
         }
 
-        // Check for glue rest catalog specific properties
+        // When signing-name is glue or s3tables: require signing-region and sigv4-enabled
         rules.requireIf(icebergRestSigningName, "glue",
-                new String[] {icebergRestSigningRegion,
-                        icebergRestAccessKeyId,
-                        icebergRestSecretAccessKey,
-                        icebergRestSigV4Enabled},
-                "Rest Catalog requires signing-region, access-key-id, secret-access-key "
-                        + "and sigv4-enabled set to true when signing-name is glue");
+                new String[] {icebergRestSigningRegion, icebergRestSigV4Enabled},
+                "Rest Catalog requires signing-region and sigv4-enabled set to true when signing-name is glue");
+        rules.requireIf(icebergRestSigningName, "s3tables",
+                new String[] {icebergRestSigningRegion, icebergRestSigV4Enabled},
+                "Rest Catalog requires signing-region and sigv4-enabled set to true when signing-name is s3tables");
+
+        rejectUnsupportedAwsAssumeRoleProperty(ICEBERG_REST_ROLE_ARN);
+        rejectUnsupportedAwsAssumeRoleProperty(ICEBERG_REST_EXTERNAL_ID);
+
+        // access-key-id and secret-access-key must be set together when either is set
+        rules.requireTogether(new String[] {icebergRestAccessKeyId, icebergRestSecretAccessKey},
+                "iceberg.rest.access-key-id and iceberg.rest.secret-access-key must be set together");
+
         return rules;
+    }
+
+    private void rejectUnsupportedAwsAssumeRoleProperty(String propertyName) {
+        if (Strings.isNotBlank(origProps.get(propertyName))) {
+            throw new IllegalArgumentException(propertyName + " is not supported for Iceberg REST catalog. "
+                    + "Use iceberg.rest.access-key-id and iceberg.rest.secret-access-key, "
+                    + "or iceberg.rest.credentials_provider_type instead");
+        }
     }
 
     private void initIcebergRestCatalogProperties() {
@@ -299,10 +346,22 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             // signing-name is case sensible, do not use lowercase()
             icebergRestCatalogProperties.put("rest.signing-name", icebergRestSigningName);
             icebergRestCatalogProperties.put("rest.sigv4-enabled", icebergRestSigV4Enabled);
-            icebergRestCatalogProperties.put("rest.access-key-id", icebergRestAccessKeyId);
-            icebergRestCatalogProperties.put("rest.secret-access-key", icebergRestSecretAccessKey);
             icebergRestCatalogProperties.put("rest.signing-region", icebergRestSigningRegion);
+
+            if (shouldUseS3PropertiesForRestCredentials()) {
+                IcebergAwsClientCredentialsProperties.putCredentialProviderProperties(
+                        icebergRestCatalogProperties, s3Properties);
+            } else {
+                IcebergAwsClientCredentialsProperties.putCredentialProviderProperties(
+                        icebergRestCatalogProperties, icebergRestAccessKeyId,
+                        icebergRestSecretAccessKey, icebergRestSessionToken, icebergRestCredentialsProviderMode);
+            }
         }
+    }
+
+    private boolean shouldUseS3PropertiesForRestCredentials() {
+        return "glue".equals(icebergRestSigningName)
+                || "s3tables".equals(icebergRestSigningName);
     }
 
     public Map<String, String> getIcebergRestCatalogProperties() {
@@ -315,6 +374,10 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     public boolean isIcebergRestNestedNamespaceEnabled() {
         return Boolean.parseBoolean(icebergRestNestedNamespaceEnabled);
+    }
+
+    public boolean isIcebergRestViewEnabled() {
+        return Boolean.parseBoolean(icebergRestViewEnabled);
     }
 
     public enum Security {

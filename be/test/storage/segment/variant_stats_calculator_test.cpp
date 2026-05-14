@@ -447,4 +447,39 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithExtendedSchema) {
     EXPECT_TRUE(status.ok());
 }
 
+TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithFooterOffset) {
+    // Vertical compaction calls SegmentWriter::init() multiple times against
+    // the same writer (key columns first, then each value-column group). The
+    // footer accumulates entries across calls, so the calculator built for the
+    // second init() must only index its own slice — not the leftover entries
+    // from the first init(). The offset tells the constructor where its slice
+    // starts and also where stats results should land.
+    add_footer_column_with_path(1, "stale_from_prev_init"); // pre-existing
+    add_footer_column_with_path(1, "another_stale_entry");  // pre-existing
+    const int footer_offset = _footer->columns_size();
+    add_footer_column_with_path(1, "sub_column"); // belongs to this init()
+
+    TabletColumn sub_column = create_variant_column(2, "variant.sub_column", 1, "sub_column");
+    _tablet_schema->append_column(sub_column);
+
+    std::vector<uint32_t> column_ids = {0};
+    VariantStatsCaculator calculator(_footer.get(), _tablet_schema, column_ids, footer_offset);
+
+    Block block;
+    auto nullable_column = create_nullable_column({false, true, false}, {"a", "", "c"});
+    block.insert({std::move(nullable_column),
+                  std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
+                  "sub_column"});
+
+    auto status = calculator.calculate_variant_stats(&block, 0, 3);
+    EXPECT_TRUE(status.ok());
+
+    // Stats land on this init()'s slice, not the pre-existing entries — proves
+    // we ignored the stale entries even though they share parent_unique_id=1
+    // and the same path keys would otherwise collide in the index map.
+    EXPECT_EQ(_footer->columns(0).none_null_size(), 0);
+    EXPECT_EQ(_footer->columns(1).none_null_size(), 0);
+    EXPECT_EQ(_footer->columns(footer_offset).none_null_size(), 2);
+}
+
 } // namespace doris::segment_v2

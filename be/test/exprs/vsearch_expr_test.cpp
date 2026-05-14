@@ -25,7 +25,9 @@
 #include <vector>
 
 #include "core/block/block.h"
+#include "core/column/column_nothing.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_nothing.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "exprs/vexpr_context.h"
@@ -71,8 +73,8 @@ public:
     }
 
     Status execute(VExprContext*, Block*, int*) const override { return Status::OK(); }
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override {
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
         return Status::OK();
     }
 };
@@ -843,21 +845,6 @@ TEST_F(VSearchExprTest, TestSingleChildBooleanClause) {
 
     auto vsearch_expr = VSearchExpr::create_shared(single_child_node);
     ASSERT_NE(nullptr, vsearch_expr);
-}
-
-TEST_F(VSearchExprTest, TestExecuteWithNullBlock) {
-    auto vsearch_expr = VSearchExpr::create_shared(test_node);
-
-    // Create a basic VExprContext without inverted index context
-    auto dummy_expr = VSearchExpr::create_shared(test_node);
-    VExprContext context(dummy_expr);
-
-    // Test with null block (should not crash)
-
-    ColumnPtr result_column;
-    auto status = vsearch_expr->execute_column(&context, nullptr, nullptr, 0, result_column);
-    EXPECT_FALSE(status.ok());
-    EXPECT_TRUE(status.code() == ErrorCode::INTERNAL_ERROR);
 }
 
 TEST_F(VSearchExprTest, TestEvaluateInvertedIndexWithWhitespaceOnlyDSL) {

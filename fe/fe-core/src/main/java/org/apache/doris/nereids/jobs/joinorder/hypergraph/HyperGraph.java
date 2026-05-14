@@ -333,6 +333,8 @@ public class HyperGraph {
         private final List<FilterEdge> filterEdges = new ArrayList<>();
         private final List<AbstractNode> nodes = new ArrayList<>();
 
+        // These hyperGraphs should be replaced nodes when building all
+        private final Map<Long, List<HyperGraph>> replacedHyperGraphs = new LinkedHashMap<>();
         private final HashMap<Slot, Long> slotToNodeMap = new LinkedHashMap<>();
         private final Map<Long, List<NamedExpression>> complexProject = new LinkedHashMap<>();
         private Set<Slot> finalOutputs;
@@ -573,8 +575,14 @@ public class HyperGraph {
         }
 
         private BitSet addFilter(LogicalFilter<?> filter, Pair<BitSet, Long> childEdgeNodes) {
+            // Record the nodes actually used by the filter predicates when building the graph.
+            // slotToNodeMap already follows project aliases through addAlias(), so filters on alias
+            // slots still point back to the original base nodes. Slot-free predicates, e.g. 1 = 0,
+            // affect the whole child subtree and must not be treated as unrelated to every node.
+            long inputNodes = filter.getInputSlots().isEmpty()
+                    ? childEdgeNodes.second : calNodeMap(filter.getInputSlots());
             FilterEdge edge = new FilterEdge(filter, filterEdges.size(), childEdgeNodes.first, childEdgeNodes.second,
-                    childEdgeNodes.second);
+                    childEdgeNodes.second, inputNodes);
             filterEdges.add(edge);
             BitSet bitSet = new BitSet();
             bitSet.set(edge.getIndex());

@@ -75,17 +75,6 @@ public:
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(slices.size(), page_builder->count());
 
-        // Check first and last value
-        Slice first_value;
-        status = page_builder->get_first_value(&first_value);
-        EXPECT_TRUE(status.ok());
-        EXPECT_EQ(slices[0], first_value);
-
-        Slice last_value;
-        status = page_builder->get_last_value(&last_value);
-        EXPECT_TRUE(status.ok());
-        EXPECT_EQ(slices[slices.size() - 1], last_value);
-
         // Decode the page
         // First apply pre-decode to convert V2 format to V1 format
         Slice page_slice = owned_slice.slice();
@@ -251,14 +240,6 @@ public:
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(0, page_builder->count());
 
-        // Try to get first/last value from empty page
-        Slice value;
-        status = page_builder->get_first_value(&value);
-        EXPECT_FALSE(status.ok());
-
-        status = page_builder->get_last_value(&value);
-        EXPECT_FALSE(status.ok());
-
         // Decode empty page
         // First apply pre-decode to convert V2 format to V1 format
         Slice page_slice = owned_slice.slice();
@@ -347,47 +328,6 @@ public:
         src_strings.push_back("中文测试");
 
         test_encode_decode_page<Type>(src_strings);
-    }
-
-    template <FieldType Type>
-    void test_get_dict_word() {
-        std::vector<std::string> src_strings = {"apple", "banana", "cherry", "date"};
-        std::vector<Slice> slices;
-        for (const auto& str : src_strings) {
-            slices.emplace_back(str);
-        }
-
-        // Build the page
-        PageBuilderOptions builder_options;
-        builder_options.data_page_size = 256 * 1024;
-
-        PageBuilder* builder_ptr = nullptr;
-        Status status = BinaryPlainPageV2Builder<Type>::create(&builder_ptr, builder_options);
-        EXPECT_TRUE(status.ok());
-        std::unique_ptr<PageBuilder> page_builder_wrapper(builder_ptr);
-        auto* page_builder = static_cast<BinaryPlainPageV2Builder<Type>*>(builder_ptr);
-
-        size_t count = slices.size();
-        const Slice* ptr = slices.data();
-        status = page_builder->add(reinterpret_cast<const uint8_t*>(ptr), &count);
-        EXPECT_TRUE(status.ok());
-
-        // Test get_dict_word before finish
-        for (uint32_t i = 0; i < slices.size(); ++i) {
-            Slice word;
-            status = page_builder->get_dict_word(i, &word);
-            EXPECT_TRUE(status.ok());
-            EXPECT_EQ(src_strings[i], word.to_string()) << "Mismatch at index " << i;
-        }
-
-        // Test invalid value_code
-        Slice word;
-        status = page_builder->get_dict_word(slices.size(), &word);
-        EXPECT_FALSE(status.ok());
-
-        OwnedSlice owned_slice;
-        status = page_builder->finish(&owned_slice);
-        EXPECT_TRUE(status.ok());
     }
 
     template <FieldType Type>
@@ -504,10 +444,6 @@ TEST_F(BinaryPlainPageV2Test, TestPageFullVarchar) {
 
 TEST_F(BinaryPlainPageV2Test, TestVariousLengthStringsVarchar) {
     test_various_length_strings<FieldType::OLAP_FIELD_TYPE_VARCHAR>();
-}
-
-TEST_F(BinaryPlainPageV2Test, TestGetDictWordVarchar) {
-    test_get_dict_word<FieldType::OLAP_FIELD_TYPE_VARCHAR>();
 }
 
 TEST_F(BinaryPlainPageV2Test, TestResetVarchar) {

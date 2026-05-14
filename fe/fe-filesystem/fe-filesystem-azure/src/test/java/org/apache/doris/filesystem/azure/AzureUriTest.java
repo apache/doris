@@ -117,4 +117,64 @@ class AzureUriTest {
     void wasbMissingAtSignThrows() {
         Assertions.assertThrows(IOException.class, () -> AzureUri.parse("wasb://container.blob.core.windows.net/path"));
     }
+
+    // ---------------------------------------------------------------------
+    // F18 — percent-encoding/decoding, query/fragment stripping, container validation
+    // ---------------------------------------------------------------------
+
+    @Test
+    void parse_decodesPercentEncodedKey() throws IOException {
+        AzureUri uri = AzureUri.parse(
+                "wasbs://mycontainer@myaccount.blob.core.windows.net/dir/with%20space/a%2Bb.csv");
+        Assertions.assertEquals("dir/with space/a+b.csv", uri.key());
+        Assertions.assertEquals("mycontainer", uri.container());
+    }
+
+    @Test
+    void parse_stripsQueryAndFragment() throws IOException {
+        AzureUri withQuery = AzureUri.parse(
+                "wasbs://mycontainer@myaccount.blob.core.windows.net/dir/file.csv?sig=token&se=2030");
+        Assertions.assertEquals("dir/file.csv", withQuery.key());
+
+        AzureUri withFragment = AzureUri.parse(
+                "wasbs://mycontainer@myaccount.blob.core.windows.net/dir/file.csv#anchor");
+        Assertions.assertEquals("dir/file.csv", withFragment.key());
+
+        AzureUri withBoth = AzureUri.parse(
+                "wasbs://mycontainer@myaccount.blob.core.windows.net/dir/file.csv?sig=t#frag");
+        Assertions.assertEquals("dir/file.csv", withBoth.key());
+    }
+
+    @Test
+    void parse_rejectsInvalidContainerName() {
+        // Uppercase chars are not allowed in Azure container names.
+        IOException upperEx = Assertions.assertThrows(IOException.class, () -> AzureUri.parse(
+                "wasbs://BadName@account.blob.core.windows.net/key"));
+        Assertions.assertTrue(upperEx.getMessage().contains("Invalid Azure container name"),
+                "expected container validation message, got: " + upperEx.getMessage());
+
+        // Trailing hyphen is also invalid.
+        Assertions.assertThrows(IOException.class, () -> AzureUri.parse(
+                "wasbs://bad-@account.blob.core.windows.net/key"));
+    }
+
+    @Test
+    void parse_emptyKeyWithTrailingSlash() throws IOException {
+        AzureUri uri = AzureUri.parse("wasbs://c@a.host/");
+        Assertions.assertEquals("wasbs", uri.scheme());
+        Assertions.assertEquals("c", uri.container());
+        Assertions.assertEquals("a", uri.accountName());
+        Assertions.assertEquals("", uri.key());
+    }
+
+    @Test
+    void toString_percentEncodesKey_keepsSlashes() throws IOException {
+        // Input contains percent-encoded space (%20) and percent-encoded '+' (%2B);
+        // round-tripping through parse/toString must preserve them and keep '/' literal.
+        AzureUri uri = AzureUri.parse(
+                "wasbs://mycontainer@myaccount.blob.core.windows.net/dir/with%20space/a%2Bb.csv");
+        Assertions.assertEquals(
+                "wasbs://mycontainer@myaccount/dir/with%20space/a%2Bb.csv",
+                uri.toString());
+    }
 }

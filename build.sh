@@ -615,6 +615,15 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         fi
     done
     unset _fs_mod
+    # Connector API, SPI, and plugin modules (loaded at runtime as plugins)
+    modules+=("fe-connector/fe-connector-api")
+    modules+=("fe-connector/fe-connector-spi")
+    for _conn_mod in es jdbc maxcompute trino hms hive paimon hudi iceberg; do
+        if [[ -d "${DORIS_HOME}/fe/fe-connector/fe-connector-${_conn_mod}" ]]; then
+            modules+=("fe-connector/fe-connector-${_conn_mod}")
+        fi
+    done
+    unset _conn_mod
     if [[ "${WITH_TDE_DIR}" != "" ]]; then
         modules+=("fe-${WITH_TDE_DIR}")
     fi
@@ -883,7 +892,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/conf/ldap.conf" "${DORIS_OUTPUT}/fe/conf"/
     cp -r -p "${DORIS_HOME}/conf/mysql_ssl_default_certificate" "${DORIS_OUTPUT}/fe/"/
     rm -rf "${DORIS_OUTPUT}/fe/lib"/*
-    cp -r -p "${DORIS_HOME}/fe/fe-core/target/lib"/* "${DORIS_OUTPUT}/fe/lib"/
+    unzip -q -o "${DORIS_HOME}/fe/fe-core/target/doris-fe-lib.zip" -d "${DORIS_OUTPUT}/fe/lib"
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/doris-fe.jar" "${DORIS_OUTPUT}/fe/lib"/
     if [[ "${WITH_TDE_DIR}" != "" ]]; then
         cp -r -p "${DORIS_HOME}/fe/fe-${WITH_TDE_DIR}/target/fe-${WITH_TDE_DIR}-1.2-SNAPSHOT.jar" "${DORIS_OUTPUT}/fe/lib"/
@@ -925,6 +934,24 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
             -d "${fs_plugin_target}/"
     done
     unset FS_PLUGIN_DIR fs_module fs_plugin_target fs_module_dir
+
+    # Deploy connector provider plugins as independent plugin directories.
+    # Each sub-directory is one connector backend loaded at runtime by ConnectorPluginManager.
+    CONN_PLUGIN_DIR="${DORIS_OUTPUT}/fe/plugins/connector"
+    for conn_module in es jdbc maxcompute trino hms hive paimon hudi iceberg; do
+        conn_plugin_target="${CONN_PLUGIN_DIR}/${conn_module}"
+        conn_module_dir="${DORIS_HOME}/fe/fe-connector/fe-connector-${conn_module}"
+        if [ ! -d "${conn_module_dir}" ]; then
+            continue
+        fi
+        conn_zip=$(find "${conn_module_dir}/target" -maxdepth 1 -name '*.zip' 2>/dev/null | head -1)
+        if [ -z "${conn_zip}" ]; then
+            continue
+        fi
+        mkdir -p "${conn_plugin_target}"
+        unzip -o "${conn_zip}" -d "${conn_plugin_target}/"
+    done
+    unset CONN_PLUGIN_DIR conn_module conn_plugin_target conn_module_dir conn_zip
 
     if [ "${TARGET_SYSTEM}" = "Darwin" ] || [ "${TARGET_SYSTEM}" = "Linux" ]; then
       mkdir -p "${DORIS_OUTPUT}/fe/arthas"
@@ -1091,7 +1118,6 @@ EOF
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
     copy_common_files "${DORIS_OUTPUT}/be/"
     mkdir -p "${DORIS_OUTPUT}/be/log"
-    mkdir -p "${DORIS_OUTPUT}/be/log/pipe_tracing"
     mkdir -p "${DORIS_OUTPUT}/be/storage"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/jdbc_drivers/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/java_udf/"

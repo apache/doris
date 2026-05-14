@@ -27,6 +27,7 @@
 #include "core/data_type/primitive_type.h"
 #include "exec/common/hash_table/phmap_fwd_decl.h"
 #include "exec/runtime_filter/utils.h"
+#include "exprs/bitset_container.h"
 #include "exprs/filter_base.h"
 
 namespace doris {
@@ -134,6 +135,12 @@ struct IsFixedContainer : std::false_type {};
 
 template <typename T, size_t N>
 struct IsFixedContainer<FixedContainer<T, N>> : std::true_type {};
+
+template <typename T>
+struct IsBitSetContainer : std::false_type {};
+
+template <typename T>
+struct IsBitSetContainer<BitSetContainer<T>> : std::true_type {};
 
 /**
  * Dynamic Container uses phmap::flat_hash_set.
@@ -264,8 +271,7 @@ public:
         if (column->is_nullable()) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& col = nullable->get_nested_column();
-            const auto& nullmap =
-                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
+            const auto& nullmap = nullable->get_null_map_column().get_data();
 
             const ElementType* data = (ElementType*)col.get_raw_data().data;
             for (size_t i = start; i < end; i++) {
@@ -456,8 +462,7 @@ public:
         }
         if (column->is_nullable()) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
-            const auto& nullmap =
-                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
+            const auto& nullmap = nullable->get_null_map_column().get_data();
             if (nullable->get_nested_column().is_column_string64()) {
                 _insert_fixed_len_string(
                         assert_cast<const ColumnString64&>(nullable->get_nested_column()),
@@ -660,8 +665,7 @@ public:
         }
         if (column->is_nullable()) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
-            const auto& nullmap =
-                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
+            const auto& nullmap = nullable->get_null_map_column().get_data();
             if (nullable->get_nested_column().is_column_string64()) {
                 _insert_fixed_len_string(
                         assert_cast<const ColumnString64&>(nullable->get_nested_column()),

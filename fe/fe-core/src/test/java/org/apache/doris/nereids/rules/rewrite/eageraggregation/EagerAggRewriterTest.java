@@ -17,10 +17,14 @@
 
 package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatchSupported {
@@ -365,5 +369,74 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
             connectContext.getSessionVariable().setEagerAggregationMode(0);
             connectContext.getSessionVariable().setDisableJoinReorder(false);
         }
+    }
+
+    @Test
+    void testUniqueFunctionFilterBlocksPushDownThroughFilter() {
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            String sql = "select count(s.name1), t2.id2"
+                    + " from (select * from (select id1, name as name1 from t1) s1 where random() < 0.5) s"
+                    + " join t2 on s.id1 = t2.id2 group by t2.id2";
+            Plan plan = PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .getPlan();
+            Assertions.assertEquals(2, countPlans(plan, LogicalAggregate.class), plan.treeString());
+            LogicalFilter<?> filter = findFirstPlan(plan, LogicalFilter.class);
+            Assertions.assertNotNull(filter, plan.treeString());
+            Assertions.assertFalse(containsPlan(filter.child(), LogicalAggregate.class), plan.treeString());
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
+    @Test
+    void testInvalidFilterContextFallsBackToCurrentFilter() {
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            String sql = "select count(s.name1), t2.id2"
+                    + " from (select * from (select id1, name as name1 from t1) s1 where s1.name1 is not null) s"
+                    + " join t2 on s.id1 = t2.id2 group by t2.id2";
+            Plan plan = PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .getPlan();
+            Assertions.assertEquals(2, countPlans(plan, LogicalAggregate.class), plan.treeString());
+            LogicalFilter<?> filter = findFirstPlan(plan, LogicalFilter.class);
+            Assertions.assertNotNull(filter, plan.treeString());
+            Assertions.assertFalse(containsPlan(filter.child(), LogicalAggregate.class), plan.treeString());
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
+    private int countPlans(Plan plan, Class<? extends Plan> clazz) {
+        int count = clazz.isInstance(plan) ? 1 : 0;
+        for (Plan child : plan.children()) {
+            count += countPlans(child, clazz);
+        }
+        return count;
+    }
+
+    private boolean containsPlan(Plan plan, Class<? extends Plan> clazz) {
+        return countPlans(plan, clazz) > 0;
+    }
+
+    private <T extends Plan> T findFirstPlan(Plan plan, Class<T> clazz) {
+        if (clazz.isInstance(plan)) {
+            return clazz.cast(plan);
+        }
+        for (Plan child : plan.children()) {
+            T matched = findFirstPlan(child, clazz);
+            if (matched != null) {
+                return matched;
+            }
+        }
+        return null;
     }
 }

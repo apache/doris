@@ -191,7 +191,7 @@ public:
     const PathInDataPtr& path_info_ptr() const { return _column_path; }
     // If it is an extracted column from variant column
     bool is_extracted_column() const {
-        return _column_path != nullptr && !_column_path->empty() && _parent_col_unique_id > 0;
+        return _column_path != nullptr && !_column_path->empty() && _parent_col_unique_id >= 0;
     };
     std::string suffix_path() const {
         return is_extracted_column() ? _column_path->get_path() : "";
@@ -694,6 +694,12 @@ public:
         std::unordered_map<std::string, TabletIndexes> subcolumn_indexes; // subcolumns indexes
         PathSet sub_path_set;                                             // extracted columns
         PathSet sparse_path_set;                                          // sparse columns
+
+        // "Materialized regular path" means compaction chose to store this path as a dedicated
+        // column in the schema, either typed or extracted, instead of re-emitting it dynamically.
+        bool contains_materialized_regular_path(const std::string& path) const {
+            return typed_path_set.contains(path) || sub_path_set.contains(path);
+        }
     };
 
     void set_path_set_info(std::unordered_map<int32_t, PathsSetInfo>&& path_set_info_map) {
@@ -702,6 +708,11 @@ public:
 
     const PathsSetInfo& path_set_info(int32_t unique_id) const {
         return _path_set_info_map.at(unique_id);
+    }
+
+    const PathsSetInfo* try_path_set_info(int32_t unique_id) const {
+        auto it = _path_set_info_map.find(unique_id);
+        return it == _path_set_info_map.end() ? nullptr : &it->second;
     }
 
     bool need_record_variant_extended_schema() const { return variant_max_subcolumns_count() == 0; }

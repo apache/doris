@@ -318,10 +318,15 @@ void BaseTablet::_print_missed_versions(const Versions& missed_versions) const {
 }
 
 bool BaseTablet::_reconstruct_version_tracker_if_necessary() {
-    double orphan_vertex_ratio = _timestamped_version_tracker.get_orphan_vertex_ratio();
-    if (orphan_vertex_ratio >= config::tablet_version_graph_orphan_vertex_ratio) {
+    double data_orphan_vertex_ratio = _timestamped_version_tracker.get_orphan_vertex_ratio();
+    double row_binlog_orphan_vertex_ratio = _row_binlog_version_tracker.get_orphan_vertex_ratio();
+    if (data_orphan_vertex_ratio >= config::tablet_version_graph_orphan_vertex_ratio) {
         _timestamped_version_tracker.construct_versioned_tracker(
                 _tablet_meta->all_rs_metas(), _tablet_meta->all_stale_rs_metas());
+        return true;
+    } else if (row_binlog_orphan_vertex_ratio >= config::tablet_version_graph_orphan_vertex_ratio) {
+        _row_binlog_version_tracker.construct_versioned_tracker(
+                _tablet_meta->all_row_binlog_rs_metas());
         return true;
     }
     return false;
@@ -463,7 +468,18 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
         std::vector<KeyBoundsPB> segments_key_bounds;
         rs->rowset_meta()->get_segments_key_bounds(&segments_key_bounds);
         int num_segments = cast_set<int>(rs->num_segments());
-        DCHECK_EQ(segments_key_bounds.size(), num_segments);
+        // MOW lookup requires per-segment bounds. Aggregation must be disabled
+        // for MOW writers, but enforce at runtime too — indexing segments_key_bounds[j]
+        // below would be out-of-bounds otherwise.
+        if (UNLIKELY(rs->rowset_meta()->is_segments_key_bounds_aggregated() ||
+                     static_cast<int>(segments_key_bounds.size()) != num_segments)) {
+            return Status::InternalError(
+                    "MOW lookup got rowset with inconsistent segments_key_bounds, rowset_id={}, "
+                    "aggregated={}, bounds_size={}, num_segments={}",
+                    rs->rowset_id().to_string(),
+                    rs->rowset_meta()->is_segments_key_bounds_aggregated(),
+                    segments_key_bounds.size(), num_segments);
+        }
         std::vector<uint32_t> picked_segments;
         for (int j = num_segments - 1; j >= 0; j--) {
             if (_key_is_not_in_segment(key_without_seq, segments_key_bounds[j],
@@ -616,8 +632,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         RETURN_IF_ERROR(pk_idx->new_iterator(&iter, nullptr));
 
         size_t num_to_read = std::min<int64_t>(batch_size, remaining);
-        auto index_type =
-                DataTypeFactory::instance().create_data_type(pk_idx->type_info()->type(), 1, 0);
+        auto index_type = DataTypeFactory::instance().create_data_type(pk_idx->type(), 1, 0);
         auto index_column = index_type->create_column();
         Slice last_key_slice(last_key);
         RETURN_IF_ERROR(iter->seek_at_or_after(&last_key_slice, &exact_match));
@@ -655,9 +670,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 Slice rowid_slice =
                         Slice(key.get_data() + key_without_seq.get_size() + seq_col_length + 1,
                               rowid_length - 1);
-                const auto* type_info =
-                        get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>();
-                const auto* rowid_coder = get_key_coder(type_info->type());
+                const auto* rowid_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
                 RETURN_IF_ERROR(rowid_coder->decode_ascending(&rowid_slice, rowid_length,
                                                               (uint8_t*)&row_id));
             }
@@ -1057,7 +1070,7 @@ Status BaseTablet::generate_new_block_for_partial_update(
                                 mutable_column.get())
                                 ->insert_default();
                     } else {
-                        mutable_column->insert(rs_column.get_vec_type()->get_default());
+                        mutable_column->insert_default();
                     }
                 } else {
                     mutable_column->insert_from(*old_block.get_by_position(i).column,
@@ -1109,7 +1122,7 @@ static void fill_cell_for_flexible_partial_update(
                 //       keep consistency between replicas
                 new_col->insert_from(cur_col, read_index_update[cast_set<uint32_t>(idx)]);
             } else {
-                new_col->insert(tablet_column.get_vec_type()->get_default());
+                new_col->insert_default();
             }
         } else {
             new_col->insert_from(old_value_col, read_index_old[cast_set<uint32_t>(idx)]);

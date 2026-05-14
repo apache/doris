@@ -37,12 +37,18 @@ class HdfsInputFile implements DorisInputFile {
     private final HadoopAuthenticator authenticator;
     private final DFSFileSystem dfs;
     private final Location location;
+    private final long lengthHint;
 
     HdfsInputFile(Path path, HadoopAuthenticator authenticator, DFSFileSystem dfs) {
+        this(path, authenticator, dfs, -1L);
+    }
+
+    HdfsInputFile(Path path, HadoopAuthenticator authenticator, DFSFileSystem dfs, long lengthHint) {
         this.path = path;
         this.authenticator = authenticator;
         this.dfs = dfs;
         this.location = Location.of(path.toString());
+        this.lengthHint = lengthHint;
     }
 
     @Override
@@ -52,6 +58,9 @@ class HdfsInputFile implements DorisInputFile {
 
     @Override
     public long length() throws IOException {
+        if (lengthHint > 0) {
+            return lengthHint;
+        }
         return authenticator.doAs(() -> dfs.requireFs(path).getFileStatus(path).getLen());
     }
 

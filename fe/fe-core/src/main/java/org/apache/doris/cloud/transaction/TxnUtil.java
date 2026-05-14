@@ -285,7 +285,8 @@ public class TxnUtil {
                 .setScannedRows(streamingTaskTxnCommitAttachment.getScannedRows())
                 .setLoadBytes(streamingTaskTxnCommitAttachment.getLoadBytes())
                 .setNumFiles(streamingTaskTxnCommitAttachment.getNumFiles())
-                .setFileBytes(streamingTaskTxnCommitAttachment.getFileBytes());
+                .setFileBytes(streamingTaskTxnCommitAttachment.getFileBytes())
+                .setFilteredRows(streamingTaskTxnCommitAttachment.getFilteredRows());
 
         if (streamingTaskTxnCommitAttachment.getOffset() != null) {
             builder.setOffset(streamingTaskTxnCommitAttachment.getOffset());

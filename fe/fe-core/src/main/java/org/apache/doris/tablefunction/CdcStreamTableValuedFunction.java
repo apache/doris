@@ -61,6 +61,16 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
     private void processProps(Map<String, String> properties) throws AnalysisException {
         Map<String, String> copyProps = new HashMap<>(properties);
         copyProps.put("format", "json");
+
+        // Standalone TVF: random jobId. TVF-in-job: job.id injected by rewriteTvfParams.
+        String jobId = copyProps.computeIfAbsent(JOB_ID_KEY,
+                k -> UUID.randomUUID().toString().replace("-", ""));
+
+        // Default PG slot/pub so cdcclient auto-creates per-job resources
+        StreamingJobUtils.populateDefaultSourceProperties(
+                DataSourceType.valueOf(copyProps.get(DataSourceConfigKeys.TYPE).toUpperCase()),
+                copyProps, jobId);
+
         super.parseCommonProperties(copyProps);
         this.processedParams.put(ENABLE_CDC_CLIENT_KEY, "true");
         this.processedParams.put(URI_KEY, URI);
@@ -68,7 +78,7 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
         this.processedParams.put(HTTP_ENABLE_CHUNK_RESPONSE_KEY, "true");
         this.processedParams.put(HTTP_METHOD_KEY, "POST");
 
-        String payload = generateParams(properties);
+        String payload = generateParams(copyProps);
         this.processedParams.put(HTTP_PAYLOAD_KEY, payload);
         this.backendConnectProperties.putAll(processedParams);
         generateFileStatus();
@@ -76,8 +86,7 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
 
     private String generateParams(Map<String, String> properties) throws AnalysisException {
         FetchRecordRequest recordRequest = new FetchRecordRequest();
-        String defaultJobId = UUID.randomUUID().toString().replace("-", "");
-        recordRequest.setJobId(properties.getOrDefault(JOB_ID_KEY, defaultJobId));
+        recordRequest.setJobId(properties.get(JOB_ID_KEY));
         recordRequest.setDataSource(properties.get(DataSourceConfigKeys.TYPE));
         recordRequest.setConfig(properties);
         try {
@@ -89,7 +98,6 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
                 Map<String, Object> metaMap = objectMapper.readValue(meta, new TypeReference<Map<String, Object>>() {});
                 recordRequest.setMeta(metaMap);
             }
-
             return objectMapper.writeValueAsString(recordRequest);
         } catch (IOException e) {
             LOG.warn("Failed to serialize fetch record request", e);

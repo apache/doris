@@ -189,16 +189,6 @@ public:
         EXPECT_EQ(slices.size(), page_builder->count());
         EXPECT_FALSE(page_builder->is_page_full());
 
-        // Check first value and last value
-        Slice first_value;
-        ret = page_builder->get_first_value(&first_value);
-        EXPECT_TRUE(ret.ok());
-        EXPECT_EQ(slices[0], first_value);
-        Slice last_value;
-        ret = page_builder->get_last_value(&last_value);
-        EXPECT_TRUE(ret.ok());
-        EXPECT_EQ(slices[count - 1], last_value);
-
         // Construct dict page
         OwnedSlice dict_slice;
         Status status = page_builder->get_dictionary_page(&dict_slice);
