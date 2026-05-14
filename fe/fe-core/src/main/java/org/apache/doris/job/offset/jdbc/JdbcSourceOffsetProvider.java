@@ -551,11 +551,12 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     static SnapshotSplit findResumeMidSplit(List<String> syncTables,
                                             List<SnapshotSplit> finishedSplits,
                                             List<SnapshotSplit> remainingSplits) {
+        // Map keys are bare names so syncTables (bare) and SnapshotSplit.tableId (qualified) align.
         Map<String, SnapshotSplit> lastPerTable = new HashMap<>();
         pickLastById(finishedSplits, lastPerTable);
         pickLastById(remainingSplits, lastPerTable);
         for (String tbl : syncTables) {
-            SnapshotSplit last = lastPerTable.get(tbl);
+            SnapshotSplit last = lastPerTable.get(getTableName(tbl));
             if (last != null && last.getSplitEnd() != null && last.getSplitEnd().length > 0) {
                 return last;
             }
@@ -565,9 +566,10 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     private static void pickLastById(List<SnapshotSplit> splits, Map<String, SnapshotSplit> out) {
         for (SnapshotSplit s : splits) {
-            SnapshotSplit prev = out.get(s.getTableId());
+            String key = getTableName(s.getTableId());
+            SnapshotSplit prev = out.get(key);
             if (prev == null || splitIdOf(s.getSplitId()) > splitIdOf(prev.getSplitId())) {
-                out.put(s.getTableId(), s);
+                out.put(key, s);
             }
         }
     }
@@ -617,7 +619,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         return lastSnapshotSplits;
     }
 
-    private String getTableName(String tableId) {
+    private static String getTableName(String tableId) {
         if (tableId == null) {
             return null;
         }

@@ -136,9 +136,9 @@ suite("test_streaming_postgres_job_async_split_uneven_restart_fe",
             }
 
             def rowsBefore = sql """SELECT COUNT(*) FROM ${currentDb}.${table1}"""
-            def chunkLenBefore = sql """SELECT json_length(chunk_list)
+            def chunkLenBefore = (sql """SELECT json_length(chunk_list)
                                         FROM internal.__internal_schema.streaming_job_meta
-                                        WHERE job_id='${jobId}'""".get(0).get(0) as int
+                                        WHERE job_id='${jobId}'""").get(0).get(0) as int
             log.info("before restart: rows=${rowsBefore} chunkLen=${chunkLenBefore}")
             assert rowsBefore.get(0).get(0) < totalRows :
                     "uneven snapshot finished too fast (${rowsBefore.get(0).get(0)} rows) — restart wouldn't be mid-snapshot"
@@ -172,10 +172,11 @@ suite("test_streaming_postgres_job_async_split_uneven_restart_fe",
 
             // Spot-check both ends of the PK range; if any chunk was lost on the boundary
             // the missing rows would cluster at one end.
+            def lastKey = "k_" + String.format("%05d", totalRows)
             def firstRow = sql """SELECT name FROM ${currentDb}.${table1} WHERE id='k_00001'"""
-            def lastRow  = sql """SELECT name FROM ${currentDb}.${table1} WHERE id='k_00500'"""
+            def lastRow  = sql """SELECT name FROM ${currentDb}.${table1} WHERE id='${lastKey}'"""
             assert firstRow.size() == 1 && firstRow.get(0).get(0) == 'name_1'
-            assert lastRow.size()  == 1 && lastRow.get(0).get(0) == 'name_500'
+            assert lastRow.size()  == 1 && lastRow.get(0).get(0) == "name_${totalRows}"
 
             def status = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
             assert status.get(0).get(0) == "RUNNING"

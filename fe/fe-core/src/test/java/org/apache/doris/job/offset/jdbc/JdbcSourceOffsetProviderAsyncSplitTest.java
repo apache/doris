@@ -383,6 +383,21 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
     }
 
     @Test
+    public void testFindResumeMidSplitBareSyncTableQualifiedSplitTableId() {
+        // Production layout: cachedSyncTables = bare ("tbl_a"); SnapshotSplit.tableId = qualified
+        // ("schema.tbl_a"). Map keys must normalize to bare on both sides, otherwise the lookup
+        // misses and resume returns null even when there is a mid-cut to continue from.
+        SnapshotSplit s0 = split("schema.tbl_a", 0, null, 100L);
+        SnapshotSplit s1 = split("schema.tbl_a", 1, 100L, 200L);
+        SnapshotSplit mid = JdbcSourceOffsetProvider.findResumeMidSplit(
+                Collections.singletonList("tbl_a"),
+                Arrays.asList(s0, s1),
+                Collections.emptyList());
+        Assert.assertNotNull(mid);
+        Assert.assertEquals("schema.tbl_a:1", mid.getSplitId());
+    }
+
+    @Test
     public void testFindResumeMidSplitSyncTablesContainsUntouchedTable() {
         // syncTables lists tbl_a and tbl_b; only tbl_a appears in splits, fully cut.
         // tbl_b is untouched (no splits) -> still returns null (no mid).
