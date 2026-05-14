@@ -316,9 +316,8 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
                 log.info("Replaying TVF offset provider for job {}: no committed txn,"
                         + " no snapshot splits in meta", job.getJobId());
             }
-            return;
-        }
-        if (currentOffset.snapshotSplit()) {
+            // Fall through: cdcSplitProgress cursor must be rebuilt or advanceSplits truncates.
+        } else if (currentOffset.snapshotSplit()) {
             log.info("Replaying TVF offset provider for job {}: restoring snapshot state from txn replay",
                     job.getJobId());
             Map<String, List<SnapshotSplit>> snapshotSplits = StreamingJobUtils.restoreSplitsToJob(job.getJobId());

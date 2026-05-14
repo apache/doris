@@ -135,6 +135,13 @@ public class StreamingJobUtils {
     }
 
     public static Map<String, List<SnapshotSplit>> restoreSplitsToJob(Long jobId) throws JobException {
+        // Meta table is lazy-created on first upsert; skip the internal SQL when absent.
+        Optional<Database> optionalDatabase =
+                Env.getCurrentEnv().getInternalCatalog().getDb(FeConstants.INTERNAL_DB_NAME);
+        if (!optionalDatabase.isPresent()
+                || optionalDatabase.get().getTableNullable(INTERNAL_STREAMING_JOB_META_TABLE_NAME) == null) {
+            return new LinkedHashMap<>();
+        }
         List<ResultRow> resultRows;
         String sql = String.format(SELECT_SPLITS_TABLE_TEMPLATE, jobId);
         try (AutoCloseConnectContext context
