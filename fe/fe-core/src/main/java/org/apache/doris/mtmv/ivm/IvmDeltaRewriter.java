@@ -29,7 +29,9 @@ import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -94,11 +96,81 @@ public class IvmDeltaRewriter {
     List<Plan> generateDeltaPlans(Plan normalizedPlan,
             IvmRefreshContext ctx,
             Predicate<LogicalOlapScan> isExcluded) {
-        // Phase 1: Collect all non-excluded OlapScans and their stream refs.
+        List<DeltaPlanContext> deltaPlanContexts = generateDeltaPlanContexts(normalizedPlan, ctx,
+                isExcluded, false);
+        if (deltaPlanContexts.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<Plan> deltaPlans = new ArrayList<>();
+        for (DeltaPlanContext deltaPlanContext : deltaPlanContexts) {
+            deltaPlans.add(deltaPlanContext.deltaPlan);
+        }
+        return deltaPlans;
+    }
+
+    private List<DeltaPlanContext> generateDeltaPlanContexts(Plan normalizedPlan,
+            IvmRefreshContext ctx,
+            Predicate<LogicalOlapScan> isExcluded,
+            boolean includeUpToDateStreams) {
+        List<DeltaScanContext> scanContexts = collectDeltaScanContexts(normalizedPlan, ctx, isExcluded);
+        if (scanContexts.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<DeltaPlanContext> deltaPlanContexts = new ArrayList<>();
+        for (int i = 0; i < scanContexts.size(); i++) {
+            DeltaScanContext scanContext = scanContexts.get(i);
+            if (!includeUpToDateStreams && scanContext.streamRef.isUpToDate()) {
+                continue;
+            }
+            Plan deltaPlan = generateDeltaPlan(normalizedPlan, isExcluded, scanContexts, i);
+            deltaPlanContexts.add(new DeltaPlanContext(scanContext, deltaPlan));
+        }
+        return deltaPlanContexts;
+    }
+
+    /**
+     * Generates dry-run delta bundles for EXPLAIN. Unlike execution, this includes
+     * up-to-date streams so users can inspect the delta plan shape even when a base
+     * table currently has no pending rows.
+     */
+    List<IvmDeltaExplainBundle> generateDeltaExplainBundles(Plan normalizedPlan,
+            IvmRefreshContext ctx,
+            Predicate<LogicalOlapScan> isExcluded) {
+        List<DeltaPlanContext> deltaPlanContexts = generateDeltaPlanContexts(normalizedPlan, ctx,
+                isExcluded, true);
+        if (deltaPlanContexts.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<IvmDeltaExplainBundle> bundles = new ArrayList<>();
+        for (int i = 0; i < deltaPlanContexts.size(); i++) {
+            DeltaPlanContext deltaPlanContext = deltaPlanContexts.get(i);
+            DeltaScanContext scanContext = deltaPlanContext.scanContext;
+            bundles.add(new IvmDeltaExplainBundle(i + 1, scanContext.tableNameInfo,
+                    scanContext.occurrence, scanContext.streamRef.getConsumedTso(),
+                    scanContext.streamRef.getLatestTso(), scanContext.streamRef.isUpToDate(),
+                    deltaPlanContext.deltaPlan));
+        }
+        return bundles;
+    }
+
+    private List<DeltaScanContext> collectDeltaScanContexts(Plan normalizedPlan,
+            IvmRefreshContext ctx,
+            Predicate<LogicalOlapScan> isExcluded) {
         List<LogicalOlapScan> allScans = new ArrayList<>();
         List<IvmStreamRef> scanRefs = new ArrayList<>();
+        List<TableNameInfo> tableNames = new ArrayList<>();
+        Map<TableNameInfo, Integer> occurrences = new HashMap<>();
+        List<Integer> occurrenceIndexes = new ArrayList<>();
         rewriteOlapScans(normalizedPlan, isExcluded, scan -> {
             allScans.add(scan);
+            TableNameInfo tableNameInfo = IvmRefreshContext.toTableNameInfo(scan);
+            if (tableNameInfo == null) {
+                throw new AnalysisException(
+                        "IVM: failed to resolve base table for scan: " + scan.getTable().getName());
+            }
             IvmStreamRef ref = ctx.getBaseTableStream(scan);
             if (ref == null) {
                 throw new AnalysisException(
@@ -108,6 +180,10 @@ public class IvmDeltaRewriter {
                     "IVM: latestTso (%s) must be >= consumedTso (%s) for table %s",
                     ref.getLatestTso(), ref.getConsumedTso(), scan.getTable().getName());
             scanRefs.add(ref);
+            tableNames.add(tableNameInfo);
+            int occurrence = occurrences.getOrDefault(tableNameInfo, 0) + 1;
+            occurrences.put(tableNameInfo, occurrence);
+            occurrenceIndexes.add(occurrence);
             return scan;
         });
 
@@ -115,37 +191,37 @@ public class IvmDeltaRewriter {
             return Collections.emptyList();
         }
 
-        // Phase 2: Generate one plan per scan with pending delta
-        List<Plan> deltaPlans = new ArrayList<>();
+        List<DeltaScanContext> contexts = new ArrayList<>();
         for (int i = 0; i < allScans.size(); i++) {
-            if (scanRefs.get(i).isUpToDate()) {
-                continue;
-            }
-
-            final int deltaIndex = i;
-            AtomicInteger scanIdx = new AtomicInteger(0);
-            Plan modifiedPlan = rewriteOlapScans(normalizedPlan, isExcluded, scan -> {
-                int currentIndex = scanIdx.getAndIncrement();
-                IvmStreamRef ref = scanRefs.get(currentIndex);
-                if (currentIndex == deltaIndex) {
-                    return replaceWithDelta(scan, ref);
-                } else if (currentIndex < deltaIndex) {
-                    return scan.withTso(ref.getLatestTso());
-                } else {
-                    return scan.withTso(ref.getConsumedTso());
-                }
-            });
-
-            // Invariant: each modified plan must have exactly one isDelta=true scan
-            long deltaCount = modifiedPlan.<LogicalOlapScan>collectToList(
-                    n -> n instanceof LogicalOlapScan && ((LogicalOlapScan) n).isDelta()).size();
-            Preconditions.checkState(deltaCount == 1,
-                    "IVM: expected exactly 1 delta scan per bundle, got " + deltaCount);
-
-            deltaPlans.add(detachMemo(modifiedPlan));
+            contexts.add(new DeltaScanContext(tableNames.get(i),
+                    occurrenceIndexes.get(i), scanRefs.get(i)));
         }
+        return contexts;
+    }
 
-        return deltaPlans;
+    private Plan generateDeltaPlan(Plan normalizedPlan,
+            Predicate<LogicalOlapScan> isExcluded,
+            List<DeltaScanContext> scanContexts,
+            int deltaIndex) {
+        AtomicInteger scanIdx = new AtomicInteger(0);
+        Plan modifiedPlan = rewriteOlapScans(normalizedPlan, isExcluded, scan -> {
+            int currentIndex = scanIdx.getAndIncrement();
+            IvmStreamRef ref = scanContexts.get(currentIndex).streamRef;
+            if (currentIndex == deltaIndex) {
+                return replaceWithDelta(scan, ref);
+            } else if (currentIndex < deltaIndex) {
+                return scan.withTso(ref.getLatestTso());
+            } else {
+                return scan.withTso(ref.getConsumedTso());
+            }
+        });
+
+        long deltaCount = modifiedPlan.<LogicalOlapScan>collectToList(
+                n -> n instanceof LogicalOlapScan && ((LogicalOlapScan) n).isDelta()).size();
+        Preconditions.checkState(deltaCount == 1,
+                "IVM: expected exactly 1 delta scan per bundle, got " + deltaCount);
+
+        return detachMemo(modifiedPlan);
     }
 
     private Plan detachMemo(Plan plan) {
@@ -199,7 +275,7 @@ public class IvmDeltaRewriter {
         }
     }
 
-    private boolean isExcludedTriggerTable(LogicalOlapScan scan, Set<TableNameInfo> excludedTriggerTables) {
+    boolean isExcludedTriggerTable(LogicalOlapScan scan, Set<TableNameInfo> excludedTriggerTables) {
         if (excludedTriggerTables == null || excludedTriggerTables.isEmpty()) {
             return false;
         }
@@ -208,5 +284,29 @@ public class IvmDeltaRewriter {
             return false;
         }
         return MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, tableNameInfo);
+    }
+
+    private static class DeltaScanContext {
+        private final TableNameInfo tableNameInfo;
+        // 1-based scan occurrence for the same base table, used to identify self-join delta plans.
+        private final int occurrence;
+        private final IvmStreamRef streamRef;
+
+        private DeltaScanContext(TableNameInfo tableNameInfo,
+                int occurrence, IvmStreamRef streamRef) {
+            this.tableNameInfo = tableNameInfo;
+            this.occurrence = occurrence;
+            this.streamRef = streamRef;
+        }
+    }
+
+    private static class DeltaPlanContext {
+        private final DeltaScanContext scanContext;
+        private final Plan deltaPlan;
+
+        private DeltaPlanContext(DeltaScanContext scanContext, Plan deltaPlan) {
+            this.scanContext = scanContext;
+            this.deltaPlan = deltaPlan;
+        }
     }
 }

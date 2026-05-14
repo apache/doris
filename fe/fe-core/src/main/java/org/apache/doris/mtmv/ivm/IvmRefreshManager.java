@@ -126,6 +126,57 @@ public class IvmRefreshManager {
     }
 
     /**
+     * Builds the IVM normalized plan and all dry-run delta plans for EXPLAIN REFRESH.
+     * This method does not mutate persisted IVM state and intentionally includes
+     * no-op streams so users can inspect every delta plan shape.
+     */
+    public IvmRefreshExplainResult explainRefresh(MTMV mtmv) throws Exception {
+        Objects.requireNonNull(mtmv, "mtmv can not be null");
+        IvmRefreshContext context = buildRefreshContext(mtmv);
+        MTMVAnalyzeQueryInfo queryInfo = MTMVPlanUtil.analyzeQueryWithSql(
+                mtmv, context.getConnectContext(), true);
+        IvmNormalizeResult normalizeResult = queryInfo.getIvmNormalizeResult();
+        Plan normalizedPlan = queryInfo.getIvmNormalizedPlan();
+        if (normalizedPlan == null) {
+            throw new AnalysisException("IVM normalized plan is empty");
+        }
+
+        Map<BaseTableInfo, IvmStreamRef> baseTableStreams = buildBaseTableStreamsForExplain(mtmv);
+        populateLatestTso(baseTableStreams);
+        IvmRefreshContext rewriteCtx = new IvmRefreshContext(
+                mtmv, context.getConnectContext(), normalizeResult,
+                IvmRefreshContext.buildBaseTableStreams(baseTableStreams));
+        IvmDeltaRewriter rewriter = new IvmDeltaRewriter();
+        List<IvmDeltaExplainBundle> bundles = rewriter
+                .generateDeltaExplainBundles(normalizedPlan, rewriteCtx,
+                        scan -> rewriter.isExcludedTriggerTable(scan, mtmv.getExcludedTriggerTables()));
+        return new IvmRefreshExplainResult(normalizedPlan, bundles);
+    }
+
+    private Map<BaseTableInfo, IvmStreamRef> buildBaseTableStreamsForExplain(MTMV mtmv) {
+        Map<BaseTableInfo, IvmStreamRef> streams = mtmv.getIvmInfo().getBaseTableStreams();
+        Map<BaseTableInfo, IvmStreamRef> explainStreams = new HashMap<>();
+        if (streams != null && !streams.isEmpty()) {
+            for (Map.Entry<BaseTableInfo, IvmStreamRef> entry : streams.entrySet()) {
+                IvmStreamRef source = entry.getValue();
+                IvmStreamRef copy = new IvmStreamRef(source.getConsumedTso());
+                copy.setLatestTso(source.getLatestTso());
+                explainStreams.put(entry.getKey(), copy);
+            }
+            return explainStreams;
+        }
+
+        Set<BaseTableInfo> baseTables = getBaseTablesForIvmState(mtmv);
+        if (baseTables == null || baseTables.isEmpty()) {
+            return explainStreams;
+        }
+        for (BaseTableInfo tableInfo : baseTables) {
+            explainStreams.put(tableInfo, new IvmStreamRef());
+        }
+        return explainStreams;
+    }
+
+    /**
      * Reads the current visible TSO from each base table and stores it in the
      * corresponding {@link IvmStreamRef#setLatestTso}. Throws on failure to ensure
      * the caller falls back to full refresh rather than proceeding with stale TSO
