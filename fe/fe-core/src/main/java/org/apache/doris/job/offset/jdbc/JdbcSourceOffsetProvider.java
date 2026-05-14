@@ -238,7 +238,8 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
                         // Advance committedSplitProgress to this committed chunk.
                         if (committedSplitProgress != null) {
-                            applySplitToProgress(committedSplitProgress, snapshotSplit);
+                            applySplitToProgress(committedSplitProgress, snapshotSplit,
+                                    getTableName(snapshotSplit.getTableId()));
                         }
                     } else {
                         // Replay before remainingSplits is restored, or a duplicate commit.
@@ -528,7 +529,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             }
             SnapshotSplit mid = findResumeMidSplit(cachedSyncTables, finishedSplits, remainingSplits);
             if (mid != null) {
-                applySplitToProgress(cdcSplitProgress, mid);
+                applySplitToProgress(cdcSplitProgress, mid, getTableName(mid.getTableId()));
             } else {
                 clearProgress(cdcSplitProgress);
             }
@@ -716,13 +717,13 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             return;
         }
 
-        // Phase 3 (locked, fast): reconcile + merge + advance cdcSplitProgress.
+        // Phase 3 (locked, fast): compute newSplits + splitsOfTbl WITHOUT mutating in-memory.
+        // Persist-before-publish keeps streaming_job_meta from lagging cdcSplitProgress, so a
+        // crash never leaves an HW recorded for a split whose definition was not written.
+        List<SnapshotSplit> newSplits;
         List<SnapshotSplit> splitsOfTbl;
-        int newSplitCount;
         synchronized (splitsLock) {
-            // Defensive reconciliation: replayIfNeed / pause-resume may have moved the cursor
-            // while we were waiting on the RPC; drop this batch and let the next loop iteration
-            // re-pick from the new state.
+            // replayIfNeed / pause-resume may have moved the cursor during the RPC — discard.
             if (!tbl.equals(cdcSplitProgress.getCurrentSplittingTable())
                     || !Objects.equals(splitId, cdcSplitProgress.getNextSplitId())) {
                 log.info("advanceSplits discard batch for job {} table {}: state moved on "
@@ -735,7 +736,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             Set<String> existingIds = new HashSet<>();
             finishedSplits.forEach(s -> existingIds.add(s.getSplitId()));
             remainingSplits.forEach(s -> existingIds.add(s.getSplitId()));
-            List<SnapshotSplit> newSplits = new ArrayList<>();
+            newSplits = new ArrayList<>();
             for (SnapshotSplit s : batch) {
                 if (!existingIds.contains(s.getSplitId())) {
                     newSplits.add(s);
@@ -745,30 +746,49 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 log.info("advanceSplits dedup'd {} duplicate splits (batch={}, new={}) for job {} table {}",
                         batch.size() - newSplits.size(), batch.size(), newSplits.size(), getJobId(), tbl);
             }
-            remainingSplits.addAll(newSplits);
-            newSplitCount = newSplits.size();
-            splitsOfTbl = Stream.concat(finishedSplits.stream(), remainingSplits.stream())
-                    .filter(s -> tbl.equals(s.getTableId()))
+            // Post-batch meta state: finished + remaining + newSplits, filtered by table.
+            List<SnapshotSplit> allForTbl = new ArrayList<>(
+                    finishedSplits.size() + remainingSplits.size() + newSplits.size());
+            allForTbl.addAll(finishedSplits);
+            allForTbl.addAll(remainingSplits);
+            allForTbl.addAll(newSplits);
+            // tbl is bare (matches cachedSyncTables); SnapshotSplit.tableId is qualified.
+            splitsOfTbl = allForTbl.stream()
+                    .filter(s -> tbl.equals(getTableName(s.getTableId())))
                     .sorted(Comparator.comparingInt(s -> splitIdOf(s.getSplitId())))
                     .collect(Collectors.toList());
-            applySplitToProgress(cdcSplitProgress, batch.get(batch.size() - 1));
-            log.info("advanceSplits jobId={} table={} request(nextStart={}, nextSplitId={}) "
-                            + "got {} new splits, cdcSplitProgress -> (table={}, nextStart={}, nextSplitId={})",
-                    getJobId(), tbl, Arrays.toString(startVal), splitId, newSplitCount,
-                    cdcSplitProgress.getCurrentSplittingTable(),
-                    Arrays.toString(cdcSplitProgress.getNextSplitStart()),
-                    cdcSplitProgress.getNextSplitId());
         }
 
-        // Phase 4 (unlocked, slow): persist chunk_list. Failure here is recoverable — on
-        // restart, replayIfNeed reloads from system table at committedSplitProgress and
-        // cdc_client will re-cut these chunks; mergeBySplitId dedups on the next iteration.
+        // Phase 4 (unlocked, slow): persist FIRST. On failure, throw → advanceSplitsIfNeed
+        // PAUSEs the job; autoResume re-picks the same (tbl, startVal, splitId), so cdc_client
+        // regenerates identical splitIds and the retried UPSERT is idempotent.
         try {
             StreamingJobUtils.upsertChunkList(getJobId(), tbl, splitsOfTbl);
         } catch (Exception e) {
-            log.warn("UPSERT chunk_list failed for job {} table {}: {} — in-memory state has "
-                            + "advanced; restart will re-cut and dedup via mergeBySplitId",
-                    getJobId(), tbl, e.getMessage(), e);
+            throw new JobException("Failed to persist chunk_list for job " + getJobId()
+                    + " table " + tbl + ": " + e.getMessage(), e);
+        }
+
+        // Phase 5 (locked, fast): publish. Skip if cursor moved during Phase 4 — splits are
+        // already in meta, next iteration / replayIfNeed reconciles via splitId.
+        synchronized (splitsLock) {
+            if (!tbl.equals(cdcSplitProgress.getCurrentSplittingTable())
+                    || !Objects.equals(splitId, cdcSplitProgress.getNextSplitId())) {
+                log.info("advanceSplits discard publish for job {} table {}: state moved on "
+                                + "after UPSERT (now table={}, splitId={})",
+                        getJobId(), tbl,
+                        cdcSplitProgress.getCurrentSplittingTable(),
+                        cdcSplitProgress.getNextSplitId());
+                return;
+            }
+            remainingSplits.addAll(newSplits);
+            applySplitToProgress(cdcSplitProgress, batch.get(batch.size() - 1), tbl);
+            log.info("advanceSplits jobId={} table={} request(nextStart={}, nextSplitId={}) "
+                            + "published {} new splits, cdcSplitProgress -> (table={}, nextStart={}, nextSplitId={})",
+                    getJobId(), tbl, Arrays.toString(startVal), splitId, newSplits.size(),
+                    cdcSplitProgress.getCurrentSplittingTable(),
+                    Arrays.toString(cdcSplitProgress.getNextSplitStart()),
+                    cdcSplitProgress.getNextSplitId());
         }
     }
 
@@ -798,13 +818,16 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     /**
      * Apply a split's position to a progress object.
      * - splitEnd null/empty (final split of table) → clear all fields.
-     * - splitEnd non-empty → set currentSplittingTable to split.tableId, advance start/id.
+     * - splitEnd non-empty → set currentSplittingTable to tableName (bare, matching the
+     *   form used in cachedSyncTables / snapshotTable), advance start/id.
+     * tableName must be the bare name; SnapshotSplit.tableId is qualified (schema.table)
+     * and would break the fetchSplits RPC contract if reused as currentSplittingTable.
      */
-    private static void applySplitToProgress(SplitProgress progress, SnapshotSplit split) {
+    private static void applySplitToProgress(SplitProgress progress, SnapshotSplit split, String tableName) {
         if (split.getSplitEnd() == null || split.getSplitEnd().length == 0) {
             clearProgress(progress);
         } else {
-            progress.setCurrentSplittingTable(split.getTableId());
+            progress.setCurrentSplittingTable(tableName);
             progress.setNextSplitStart(split.getSplitEnd());
             progress.setNextSplitId(splitIdOf(split.getSplitId()) + 1);
         }
