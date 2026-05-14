@@ -1226,8 +1226,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         "Access denied; you need (at least one of) the (" + predicate.toString()
                                 + ") privilege(s) for this operation");
             }
-            Preconditions.checkState(currentUser.size() == 1);
-            return currentUser.get(0);
+            return currentUser;
         }
 
         for (String tbl : tables) {
@@ -1239,8 +1238,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                                 + ") privilege(s) for this operation");
             }
         }
-        Preconditions.checkState(currentUser.size() == 1);
-        return currentUser.get(0);
+        return currentUser;
     }
 
     private UserIdentity resolveForwardedAuthUserIdentity(String fullUserName, String passwd, String clientIp,
