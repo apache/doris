@@ -59,6 +59,9 @@
 #include "storage/olap_utils.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema.h"
+#ifndef NDEBUG
+#include "util/debug_points.h"
+#endif
 #include "util/json/path_in_data.h"
 
 namespace doris {
@@ -658,6 +661,9 @@ Status OlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof
         _tablet_reader_params.tablet->read_block_count.fetch_add(1, std::memory_order_relaxed);
         *eof = false;
     }
+#ifndef NDEBUG
+    RETURN_IF_ERROR(_check_ann_cache_hit_debug_points(_tablet_reader->stats()));
+#endif
     return Status::OK();
 }
 
@@ -938,6 +944,8 @@ void OlapScanner::_collect_profile_before_close() {
 
     COUNTER_UPDATE(local_state->_ann_topn_search_costs, stats.ann_topn_search_ns);
     COUNTER_UPDATE(local_state->_ann_topn_search_cnt, stats.ann_index_topn_search_cnt);
+    COUNTER_UPDATE(local_state->_ann_cache_hit_cnt, stats.ann_index_cache_hits);
+    COUNTER_UPDATE(local_state->_ann_range_cache_hit_cnt, stats.ann_index_range_cache_hits);
 
     // Detailed ANN timers
     // ANN TopN timers with hierarchy
@@ -962,6 +970,40 @@ void OlapScanner::_collect_profile_before_close() {
 
     // Overhead counter removed; precise instrumentation is reported via engine_prepare above.
 }
+
+#ifndef NDEBUG
+Status OlapScanner::_check_ann_cache_hit_debug_points(const OlapReaderStatistics& stats) {
+    DBUG_EXECUTE_IF("olap_scanner.ann_topn_cache_hits", {
+        auto expected_hits = dp->param<int32_t>("expected_hits", -1);
+        auto min_hits = dp->param<int32_t>("min_hits", -1);
+        if (expected_hits >= 0 && stats.ann_index_cache_hits != expected_hits) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "ann_index_cache_hits: {} not equal to expected: {}",
+                    stats.ann_index_cache_hits, expected_hits);
+        }
+        if (min_hits >= 0 && stats.ann_index_cache_hits < min_hits) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "ann_index_cache_hits: {} less than expected min: {}",
+                    stats.ann_index_cache_hits, min_hits);
+        }
+    })
+    DBUG_EXECUTE_IF("olap_scanner.ann_range_cache_hits", {
+        auto expected_hits = dp->param<int32_t>("expected_hits", -1);
+        auto min_hits = dp->param<int32_t>("min_hits", -1);
+        if (expected_hits >= 0 && stats.ann_index_range_cache_hits != expected_hits) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "ann_index_range_cache_hits: {} not equal to expected: {}",
+                    stats.ann_index_range_cache_hits, expected_hits);
+        }
+        if (min_hits >= 0 && stats.ann_index_range_cache_hits < min_hits) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "ann_index_range_cache_hits: {} less than expected min: {}",
+                    stats.ann_index_range_cache_hits, min_hits);
+        }
+    })
+    return Status::OK();
+}
+#endif
 
 #include "common/compile_check_avoid_end.h"
 } // namespace doris

@@ -352,6 +352,9 @@ TEST_F(PythonUDFMetaTest, SerializeToJsonBasic) {
     doc.Parse(json_str.c_str());
     EXPECT_FALSE(doc.HasParseError());
 
+    EXPECT_TRUE(doc.HasMember("id"));
+    EXPECT_EQ(doc["id"].GetInt64(), 1);
+
     EXPECT_TRUE(doc.HasMember("name"));
     EXPECT_STREQ(doc["name"].GetString(), "test_udf");
 

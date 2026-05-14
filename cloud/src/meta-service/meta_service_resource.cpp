@@ -59,6 +59,11 @@ bool is_valid_storage_vault_name(const std::string& str) {
 
 namespace doris::cloud {
 
+static CredProviderTypePB get_cred_provider_type(const ObjectStoreInfoPB& obj) {
+    return obj.has_cred_provider_type() ? obj.cred_provider_type()
+                                        : CredProviderTypePB::INSTANCE_PROFILE;
+}
+
 static std::string_view print_cluster_status(const ClusterStatus& status) {
     switch (status) {
     case ClusterStatus::UNKNOWN:
@@ -679,12 +684,11 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
     std::string region = obj->has_region() ? obj->region() : "";
 
     if (obj->has_role_arn()) {
-        if (obj->role_arn().empty() || !obj->has_cred_provider_type() ||
-            obj->cred_provider_type() != CredProviderTypePB::INSTANCE_PROFILE ||
-            !obj->has_provider() || obj->provider() != ObjectStoreInfoPB::S3 || bucket.empty() ||
-            endpoint.empty() || region.empty()) {
+        if (obj->role_arn().empty() || !obj->has_cred_provider_type() || !obj->has_provider() ||
+            obj->provider() != ObjectStoreInfoPB::S3 || bucket.empty() || endpoint.empty() ||
+            region.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "s3 conf info err with role_arn, please check it";
+            msg = "s3 conf info err with role_arn or cred provider, please check it";
             return;
         }
     } else {
@@ -1037,7 +1041,7 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
         new_vault.mutable_obj_info()->clear_encryption_info();
 
         new_vault.mutable_obj_info()->set_role_arn(obj_info.role_arn());
-        new_vault.mutable_obj_info()->set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
+        new_vault.mutable_obj_info()->set_cred_provider_type(get_cred_provider_type(obj_info));
         if (obj_info.has_external_id()) {
             new_vault.mutable_obj_info()->set_external_id(obj_info.external_id());
         }
@@ -1170,7 +1174,7 @@ static ObjectStoreInfoPB object_info_pb_factory(ObjectStorageDesc& obj_desc,
     } else {
         last_item.set_role_arn(role_arn);
         last_item.set_external_id(external_id);
-        last_item.set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
+        last_item.set_cred_provider_type(get_cred_provider_type(obj));
     }
     last_item.set_bucket(bucket);
     // format prefix, such as `/aa/bb/`, `aa/bb//`, `//aa/bb`, `  /aa/bb` -> `aa/bb`
@@ -1330,9 +1334,8 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         }
 
         if (!role_arn.empty()) {
-            if (!obj.has_cred_provider_type() ||
-                obj.cred_provider_type() != CredProviderTypePB::INSTANCE_PROFILE ||
-                !obj.has_provider() || obj.provider() != ObjectStoreInfoPB::S3) {
+            if (!obj.has_cred_provider_type() || !obj.has_provider() ||
+                obj.provider() != ObjectStoreInfoPB::S3) {
                 code = MetaServiceCode::INVALID_ARGUMENT;
                 msg = "s3 conf info err with role_arn, please check it";
                 return;
@@ -1627,7 +1630,8 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
                         return;
                     }
 
-                    if (it.role_arn() == role_arn && it.external_id() == external_id) {
+                    if (it.role_arn() == role_arn && it.external_id() == external_id &&
+                        get_cred_provider_type(it) == get_cred_provider_type(request->obj())) {
                         // not change, just return ok
                         code = MetaServiceCode::OK;
                         msg = "ak/sk not changed";
@@ -1639,7 +1643,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
 
                     it.set_role_arn(role_arn);
                     it.set_external_id(external_id);
-                    it.set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
+                    it.set_cred_provider_type(get_cred_provider_type(request->obj()));
                 }
 
                 auto now_time = std::chrono::system_clock::now();

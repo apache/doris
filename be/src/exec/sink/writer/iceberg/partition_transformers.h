@@ -338,7 +338,7 @@ public:
             is_nullable = false;
         }
 
-        const auto* const decimal_col = check_and_get_column<ColumnDecimal<PT>>(column_ptr.get());
+        const auto* const decimal_col = assert_cast<const ColumnDecimal<PT>*>(column_ptr.get());
         const auto& vec_src = decimal_col->get_data();
 
         auto col_res = ColumnDecimal<PT>::create(vec_src.size(), decimal_col->get_scale());
