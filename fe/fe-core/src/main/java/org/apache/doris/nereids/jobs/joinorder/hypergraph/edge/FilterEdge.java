@@ -31,11 +31,13 @@ import java.util.Set;
  */
 public class FilterEdge extends Edge {
     private final LogicalFilter<? extends Plan> filter;
+    private final long inputNodes;
 
     public FilterEdge(LogicalFilter<? extends Plan> filter, int index,
-            BitSet childEdges, long subTreeNodes, long childRequireNodes) {
+            BitSet childEdges, long subTreeNodes, long childRequireNodes, long inputNodes) {
         super(index, childEdges, new BitSet(), subTreeNodes, childRequireNodes, 0L);
         this.filter = filter;
+        this.inputNodes = inputNodes;
     }
 
     @Override
@@ -48,7 +50,12 @@ public class FilterEdge extends Edge {
         return filter.getExpressions();
     }
 
+    public long getInputNodes() {
+        return inputNodes;
+    }
+
     public FilterEdge clear() {
-        return new FilterEdge(filter, getIndex(), getLeftChildEdges(), getSubTreeNodes(), getLeftRequiredNodes());
+        return new FilterEdge(filter, getIndex(), getLeftChildEdges(), getSubTreeNodes(), getLeftRequiredNodes(),
+                inputNodes);
     }
 }

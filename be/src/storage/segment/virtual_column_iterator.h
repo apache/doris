@@ -20,7 +20,9 @@
 #include <sys/types.h>
 
 #include <cstdint>
+#include <memory>
 #include <unordered_map>
+#include <vector>
 
 #include "common/be_mock_util.h"
 #include "core/column/column.h"

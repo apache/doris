@@ -310,8 +310,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
             RETURN_IF_ERROR(_normalize_predicate(conjunct.get(), conjunct->root(), new_root));
             if (new_root) {
                 conjunct->set_root(new_root);
-                if (_should_push_down_common_expr() &&
-                    VExpr::is_acting_on_a_slot(*(conjunct->root()))) {
+                if (_should_push_down_common_expr(conjunct->root())) {
                     _common_expr_ctxs_push_down.emplace_back(conjunct);
                     it = _conjuncts.erase(it);
                     continue;
@@ -1039,6 +1038,14 @@ TPushAggOp::type ScanLocalState<Derived>::get_push_down_agg_type() {
 template <typename Derived>
 int64_t ScanLocalState<Derived>::limit_per_scanner() {
     return _parent->cast<typename Derived::Parent>()._limit_per_scanner;
+}
+
+template <typename Derived>
+std::atomic<int64_t>* ScanLocalState<Derived>::shared_scan_limit_ptr() {
+    auto* p = &_parent->cast<typename Derived::Parent>()._shared_scan_limit;
+    // -1 means "no SQL LIMIT" — return nullptr so callers naturally skip
+    // all limit logic.
+    return p->load(std::memory_order_relaxed) < 0 ? nullptr : p;
 }
 
 template <typename Derived>

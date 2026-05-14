@@ -556,7 +556,8 @@ Status VectorizedFnCall::evaluate_ann_range_search(
         const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
         const std::vector<ColumnId>& idx_to_cid,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-        roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats) {
+        roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
+        bool enable_result_cache) {
     if (range_search_runtime.is_ann_range_search == false) {
         return Status::OK();
     }
@@ -627,6 +628,7 @@ Status VectorizedFnCall::evaluate_ann_range_search(
     AnnRangeSearchParams params = range_search_runtime.to_range_search_params();
 
     params.roaring = &row_bitmap;
+    params.enable_result_cache = enable_result_cache;
     DCHECK(params.roaring != nullptr);
     DCHECK(params.query_value != nullptr);
     segment_v2::AnnRangeSearchResult result;

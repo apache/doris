@@ -82,7 +82,7 @@ public:
         for (size_t col : arguments) {
             ColumnPtr src_column =
                     block.get_by_position(col).column->convert_to_full_column_if_const();
-            const auto& src_column_array = check_and_get_column<ColumnArray>(*src_column);
+            const auto* src_column_array = assert_cast<const ColumnArray*>(src_column.get());
             total_size += src_column_array->get_data().size();
         }
         result_nested_col.reserve(total_size);
@@ -92,7 +92,7 @@ public:
             for (size_t col : arguments) {
                 ColumnPtr src_column =
                         block.get_by_position(col).column->convert_to_full_column_if_const();
-                const auto& src_column_array = check_and_get_column<ColumnArray>(*src_column);
+                const auto* src_column_array = assert_cast<const ColumnArray*>(src_column.get());
                 const auto& src_column_offsets = src_column_array->get_offsets();
                 const size_t length = src_column_offsets[row] - src_column_offsets[row - 1];
                 result_nested_col.insert_range_from(src_column_array->get_data(),

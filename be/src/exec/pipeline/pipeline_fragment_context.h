@@ -39,6 +39,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/task_execution_context.h"
 #include "util/stopwatch.hpp"
+#include "util/uid_util.h"
 
 namespace doris {
 struct ReportStatusRequest;
@@ -88,10 +89,10 @@ public:
 
     [[nodiscard]] int get_fragment_id() const { return _fragment_id; }
 
+    void decrement_running_task(PipelineId pipeline_id);
+
     uint32_t rec_cte_stage() const { return _rec_cte_stage; }
     void set_rec_cte_stage(uint32_t stage) { _rec_cte_stage = stage; }
-
-    void decrement_running_task(PipelineId pipeline_id);
 
     Status send_report(bool);
 

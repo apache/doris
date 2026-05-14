@@ -124,10 +124,115 @@ suite("test_pythonudf_drop", "nonConcurrent") {
 
         qt_py_udf_drop_5 """SELECT py_drop_reconnect(32);"""
         try_sql("DROP FUNCTION IF EXISTS py_drop_reconnect(INT);")
+
+        // Case 4: recreating the same signature must use the new inline function body.
+        sql """DROP FUNCTION IF EXISTS py_drop_recreate(INT)"""
+        sql """
+            CREATE FUNCTION py_drop_recreate(INT)
+            RETURNS INT
+            PROPERTIES (
+                "type" = "PYTHON_UDF",
+                "symbol" = "evaluate",
+                "runtime_version" = "${runtime_version}",
+                "always_nullable" = "true"
+            )
+            AS \$\$
+def evaluate(x):
+    if x is None:
+        return None
+    return x + 1
+\$\$
+        """
+        def recreateOldResult = sql """SELECT py_drop_recreate(10);"""
+        assert recreateOldResult[0][0] == 11
+
+        sql """DROP FUNCTION IF EXISTS py_drop_recreate(INT)"""
+        sql """
+            CREATE FUNCTION py_drop_recreate(INT)
+            RETURNS INT
+            PROPERTIES (
+                "type" = "PYTHON_UDF",
+                "symbol" = "evaluate",
+                "runtime_version" = "${runtime_version}",
+                "always_nullable" = "true"
+            )
+            AS \$\$
+def evaluate(x):
+    if x is None:
+        return None
+    return x + 999
+\$\$
+        """
+        def recreateNewResult = sql """SELECT py_drop_recreate(10);"""
+        assert recreateNewResult[0][0] == 1009
+        sql """DROP FUNCTION IF EXISTS py_drop_recreate(INT)"""
+
+        // Case 5: dropping a database must also clear Nereids UDF registry.
+        // SHOW FUNCTIONS reads catalog metadata, while SELECT resolves from FunctionRegistry.
+        // Without registry cleanup, SELECT could still bind the stale x + 1 inline UDF
+        // after the database had been dropped and recreated.
+        def originalDb = sql("SELECT DATABASE()")[0][0]
+        def registryDb = "${originalDb}_registry_cleanup"
+        try {
+            sql """DROP DATABASE IF EXISTS ${registryDb} FORCE"""
+            sql """CREATE DATABASE ${registryDb}"""
+            sql """USE ${registryDb}"""
+            sql """
+                CREATE FUNCTION py_drop_db_registry(INT)
+                RETURNS INT
+                PROPERTIES (
+                    "type" = "PYTHON_UDF",
+                    "symbol" = "evaluate",
+                    "runtime_version" = "${runtime_version}",
+                    "always_nullable" = "true"
+                )
+                AS \$\$
+def evaluate(x):
+    if x is None:
+        return None
+    return x + 1
+\$\$
+            """
+            def oldResult = sql """SELECT py_drop_db_registry(10);"""
+            assert oldResult[0][0] == 11
+
+            sql """DROP DATABASE ${registryDb} FORCE"""
+            sql """CREATE DATABASE ${registryDb}"""
+            sql """USE ${registryDb}"""
+            def functions = sql """SHOW FUNCTIONS LIKE 'py_drop_db_registry'"""
+            assert functions.isEmpty()
+            test {
+                sql """SELECT py_drop_db_registry(10);"""
+                exception "Can not found function"
+            }
+
+            sql """
+                CREATE FUNCTION py_drop_db_registry(INT)
+                RETURNS INT
+                PROPERTIES (
+                    "type" = "PYTHON_UDF",
+                    "symbol" = "evaluate",
+                    "runtime_version" = "${runtime_version}",
+                    "always_nullable" = "true"
+                )
+                AS \$\$
+def evaluate(x):
+    if x is None:
+        return None
+    return x + 999
+\$\$
+            """
+            def rebuiltResult = sql """SELECT py_drop_db_registry(10);"""
+            assert rebuiltResult[0][0] == 1009
+        } finally {
+            sql """USE ${originalDb}"""
+            try_sql("DROP DATABASE IF EXISTS ${registryDb} FORCE")
+        }
     } finally {
         try_sql("DROP FUNCTION IF EXISTS py_drop_once(INT);")
         try_sql("DROP FUNCTION IF EXISTS py_drop_a(INT);")
         try_sql("DROP FUNCTION IF EXISTS py_drop_b(INT);")
         try_sql("DROP FUNCTION IF EXISTS py_drop_reconnect(INT);")
+        try_sql("DROP FUNCTION IF EXISTS py_drop_recreate(INT);")
     }
 }

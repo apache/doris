@@ -202,6 +202,9 @@ struct TQueryStatistics {
     12: optional i64 spill_write_bytes_to_local_storage
     13: optional i64 spill_read_bytes_from_local_storage
     14: optional i64 bytes_write_into_cache
+    15: optional i64 process_rows
+    16: optional i32 finished_tasks_num
+    17: optional i32 total_tasks_num
 }
 
 struct TQueryStatisticsResult {
@@ -1834,6 +1837,7 @@ struct TInsertOverwriteTaskRequest {
     7: optional i64 group_id
     8: optional i64 task_id
     9: optional bool is_success
+    10: optional bool force_drop_partition
 }
 
 struct TInsertOverwriteTaskResult {

@@ -228,8 +228,7 @@ public:
                     Core::vector_vector_anchor(sources->get_data(), delta_vec_column0->get_data(),
                                                col_to->get_data(), result_null_map, context);
                 } else {
-                    const auto* delta_vec_column1 = check_and_get_column<ColumnInt32>(delta_column);
-                    DCHECK(delta_vec_column1 != nullptr);
+                    const auto* delta_vec_column1 = assert_cast<const ColumnInt32*>(&delta_column);
                     // time_round(datetime, period)
                     Core::vector_vector_period(sources->get_data(), delta_vec_column1->get_data(),
                                                col_to->get_data(), result_null_map, context);
@@ -248,8 +247,8 @@ public:
                 Core::vector_const_const(sources->get_data(), period, origin, col_to->get_data(),
                                          result_null_map, context);
             } else if (col_const[1] && !col_const[2]) {
-                const auto arg2_column =
-                        check_and_get_column<ColumnVector<PType>>(*argument_columns[2]);
+                const auto* arg2_column =
+                        assert_cast<const ColumnVector<PType>*>(argument_columns[2].get());
                 // time_round(datetime, const(period), origin)
                 Int32 period = (*argument_columns[1])[0].get<TYPE_INT>();
                 bool period_is_null = block.get_by_position(arguments[1]).type->is_nullable() &&
@@ -260,17 +259,17 @@ public:
                 Core::vector_const_vector(sources->get_data(), period, arg2_column->get_data(),
                                           col_to->get_data(), result_null_map, context);
             } else if (!col_const[1] && col_const[2]) {
-                const auto* arg1_column = check_and_get_column<ColumnInt32>(*argument_columns[1]);
+                const auto* arg1_column =
+                        assert_cast<const ColumnInt32*>(argument_columns[1].get());
                 // time_round(datetime, period, const(origin))
                 Core::vector_vector_const(sources->get_data(), arg1_column->get_data(),
                                           (*argument_columns[2])[0].get<PType>(),
                                           col_to->get_data(), result_null_map, context);
             } else {
-                const auto* arg1_column = check_and_get_column<ColumnInt32>(*argument_columns[1]);
-                const auto arg2_column =
-                        check_and_get_column<ColumnVector<PType>>(*argument_columns[2]);
-                DCHECK(arg1_column != nullptr);
-                DCHECK(arg2_column != nullptr);
+                const auto* arg1_column =
+                        assert_cast<const ColumnInt32*>(argument_columns[1].get());
+                const auto* arg2_column =
+                        assert_cast<const ColumnVector<PType>*>(argument_columns[2].get());
                 // time_round(datetime, period, origin)
                 Core::vector_vector_vector(sources->get_data(), arg1_column->get_data(),
                                            arg2_column->get_data(), col_to->get_data(),

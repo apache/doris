@@ -235,7 +235,7 @@ public:
 
     RowsetReaderSharedPtr clone() override { return std::make_shared<MockRowsetReader>(_rowset); }
 
-    void set_topn_limit(size_t topn_limit) override {}
+    void set_topn_limit(size_t limit) override {}
 
 private:
     std::shared_ptr<MockRowset> _rowset;
