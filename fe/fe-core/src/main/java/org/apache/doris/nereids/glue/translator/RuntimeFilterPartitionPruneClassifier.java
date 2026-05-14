@@ -80,6 +80,9 @@ final class RuntimeFilterPartitionPruneClassifier {
             if (!isPartitionColumnSlot(slotRef, partitionInfo.getPartitionColumns())) {
                 return Classification.unsupported("target SlotRef is not a partition column");
             }
+            if (!hasSerializedBoundary(slotRef, partitionInfo, partType)) {
+                return Classification.unsupported("target SlotRef has no serialized partition boundary");
+            }
             Map<Long, TTargetExprMonotonicity> partitionMonotonicity =
                     allSelectedPartitionsIncreasing(olapScanNode, partitionInfo);
             if (partitionMonotonicity.isEmpty()) {
@@ -94,6 +97,9 @@ final class RuntimeFilterPartitionPruneClassifier {
         }
         if (partType != PartitionType.RANGE) {
             return Classification.unsupported("local monotonicity is only supported for RANGE partition");
+        }
+        if (!hasSerializedBoundary(leafSlot, partitionInfo, partType)) {
+            return Classification.unsupported("target expression has no serialized partition boundary");
         }
 
         Map<Long, TTargetExprMonotonicity> partitionMonotonicity =
@@ -126,6 +132,14 @@ final class RuntimeFilterPartitionPruneClassifier {
             }
         }
         return false;
+    }
+
+    private static boolean hasSerializedBoundary(SlotRef slotRef, PartitionInfo partitionInfo, PartitionType partType) {
+        if (partType != PartitionType.RANGE) {
+            return true;
+        }
+        List<Column> partitionColumns = partitionInfo.getPartitionColumns();
+        return !partitionColumns.isEmpty() && sameColumn(slotRef.getColumn(), partitionColumns.get(0));
     }
 
     private static boolean isPartitionColumnSlot(SlotRef slotRef, List<Column> partitionColumns) {

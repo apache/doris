@@ -1140,6 +1140,21 @@ suite("rf_partition_pruning", "nonConcurrent") {
         "* FROM rf_prune_range_multi f JOIN rf_prune_dim_one d ON f.k1 = d.dim_key",
         "MIN_MAX", 3, 1)
 
+    // Test 34b: RF target on a non-first RANGE partition column must not drive
+    // partition pruning, because RANGE boundaries are only serialized for the
+    // first partition column.
+    def rangeMultiSecondColRows = sql """
+        SELECT /*+ SET_VAR(runtime_filter_type='IN_OR_BLOOM_FILTER') */
+            f.id, f.k1, f.k2, f.value
+        FROM rf_prune_range_multi f
+        JOIN rf_prune_dim_one d ON f.k2 = d.dim_key
+        ORDER BY f.id
+    """
+    assertEquals([[1, 1, 1, "a"]], rangeMultiSecondColRows)
+    assertNoPartitionPruningProfile(
+        "f.id FROM rf_prune_range_multi f JOIN rf_prune_dim_one d ON f.k2 = d.dim_key",
+        "IN_OR_BLOOM_FILTER")
+
     // ============================================================
     // Tests 35-41: Type coverage
     // ============================================================
