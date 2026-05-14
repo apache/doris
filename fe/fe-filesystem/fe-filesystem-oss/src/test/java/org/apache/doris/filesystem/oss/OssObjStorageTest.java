@@ -137,6 +137,7 @@ class OssObjStorageTest {
         props.put("AWS_ENDPOINT", "https://oss.aliyuncs.com");
         props.put("OSS_ACCESS_KEY", "ak");
         props.put("OSS_SECRET_KEY", "sk");
+        props.put("OSS_REGION", "cn-hangzhou");
         // no bucket
 
         OssObjStorage storage = new TestableOssObjStorage(props, mockOss);
