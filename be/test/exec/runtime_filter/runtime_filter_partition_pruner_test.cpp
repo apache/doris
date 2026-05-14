@@ -79,6 +79,27 @@ protected:
         return boundary;
     }
 
+    template <PrimitiveType PT>
+    TPartitionBoundary lower_unbounded_range_boundary(int64_t partition_id, const CppType<PT>& end,
+                                                      int precision = 0, int scale = 0) {
+        TPartitionBoundary boundary;
+        boundary.__set_partition_id(partition_id);
+        boundary.__set_slot_id(SLOT_ID);
+        boundary.__set_range_end(literal_node<PT>(end, precision, scale));
+        return boundary;
+    }
+
+    template <PrimitiveType PT>
+    TPartitionBoundary upper_unbounded_range_boundary(int64_t partition_id,
+                                                      const CppType<PT>& start, int precision = 0,
+                                                      int scale = 0) {
+        TPartitionBoundary boundary;
+        boundary.__set_partition_id(partition_id);
+        boundary.__set_slot_id(SLOT_ID);
+        boundary.__set_range_start(literal_node<PT>(start, precision, scale));
+        return boundary;
+    }
+
     SlotDescriptor slot_desc(PrimitiveType ptype, bool nullable, int precision = 0, int scale = 0) {
         SlotDescriptor slot;
         slot._id = SLOT_ID;
@@ -208,6 +229,48 @@ protected:
         return value;
     }
 };
+
+TEST_F(RuntimeFilterPartitionPrunerTest, ProjectedBoundariesPreserveOpenRangeBounds) {
+    int32_t ten = 10;
+    int32_t twenty = 20;
+    std::vector<TPartitionBoundary> boundaries {lower_unbounded_range_boundary<TYPE_INT>(1, ten),
+                                                upper_unbounded_range_boundary<TYPE_INT>(2, ten),
+                                                range_boundary<TYPE_INT>(3, ten, twenty)};
+    auto parsed = parse_boundaries(TYPE_INT, boundaries);
+    auto slot = slot_desc(TYPE_INT, false);
+    auto target_expr = slot_ref_expr(slot.type());
+    VExprContext ctx(target_expr);
+
+    auto increasing = parsed->get_or_compute_projected_boundaries(
+            /*filter_id=*/101, target_expr, SLOT_ID, /*leaf_column_id=*/0,
+            TTargetExprMonotonicity::MONOTONIC_INCREASING, nullptr, &ctx);
+    ASSERT_EQ(increasing->size(), 3);
+    const auto& inc_lower_unbounded =
+            std::get<ColumnValueRange<TYPE_INT>>(increasing->at(0).boundary_cvr);
+    EXPECT_TRUE(inc_lower_unbounded.is_low_value_minimum());
+    EXPECT_FALSE(inc_lower_unbounded.is_high_value_maximum());
+    EXPECT_EQ(inc_lower_unbounded.get_range_max_value(), ten);
+    const auto& inc_upper_unbounded =
+            std::get<ColumnValueRange<TYPE_INT>>(increasing->at(1).boundary_cvr);
+    EXPECT_FALSE(inc_upper_unbounded.is_low_value_minimum());
+    EXPECT_EQ(inc_upper_unbounded.get_range_min_value(), ten);
+    EXPECT_TRUE(inc_upper_unbounded.is_high_value_maximum());
+
+    auto decreasing = parsed->get_or_compute_projected_boundaries(
+            /*filter_id=*/102, target_expr, SLOT_ID, /*leaf_column_id=*/0,
+            TTargetExprMonotonicity::MONOTONIC_DECREASING, nullptr, &ctx);
+    ASSERT_EQ(decreasing->size(), 3);
+    const auto& dec_lower_unbounded =
+            std::get<ColumnValueRange<TYPE_INT>>(decreasing->at(0).boundary_cvr);
+    EXPECT_FALSE(dec_lower_unbounded.is_low_value_minimum());
+    EXPECT_EQ(dec_lower_unbounded.get_range_min_value(), ten);
+    EXPECT_TRUE(dec_lower_unbounded.is_high_value_maximum());
+    const auto& dec_upper_unbounded =
+            std::get<ColumnValueRange<TYPE_INT>>(decreasing->at(1).boundary_cvr);
+    EXPECT_TRUE(dec_upper_unbounded.is_low_value_minimum());
+    EXPECT_FALSE(dec_upper_unbounded.is_high_value_maximum());
+    EXPECT_EQ(dec_upper_unbounded.get_range_max_value(), ten);
+}
 
 TEST_F(RuntimeFilterPartitionPrunerTest, ParseAndPrunePrimitiveTypeMatrix) {
     assert_parse_and_prune_type<TYPE_BOOLEAN>(false, true);

@@ -98,9 +98,10 @@ public:
     //   MONOTONIC_INCREASING: projected lo and hi keep their roles
     //   MONOTONIC_DECREASING: swap (projected lo, hi) -> (hi, lo)
     //
-    // Boundaries with open endpoints (MINVALUE/MAXVALUE) or projection results
-    // that evaluate to NULL are omitted from the result, so this RF
-    // conservatively leaves those partitions unpruned.
+    // Open endpoints (MINVALUE/MAXVALUE) stay open after projection and swap
+    // sides for monotonic decreasing targets. Boundaries containing NULL
+    // partition values, or finite endpoints that project to NULL, are omitted
+    // from the result so this RF conservatively leaves them unpruned.
     std::shared_ptr<const std::vector<ParsedBoundary>> get_or_compute_projected_boundaries(
             int filter_id, const VExprSPtr& target_expr, SlotId leaf_slot_id, int leaf_column_id,
             TTargetExprMonotonicity::type global_direction,
