@@ -294,6 +294,10 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
             }
         } else {
             if (request.block && !request.block->column_metas().empty()) {
+                // Use set_allocated_block as a scoped borrow to avoid copying the serialized
+                // payload. The TransmitInfo unique_ptr remains the real owner, and release_block()
+                // below detaches the borrowed block before this reusable protobuf request is
+                // cleared or destroyed.
                 brpc_request->set_allocated_block(request.block.get());
             }
         }
@@ -420,12 +424,17 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
                     add_block->set_compressed(block->compressed());
                     add_block->set_compression_type(block->compression_type());
                     add_block->set_uncompressed_size(block->uncompressed_size());
+                    // Broadcast blocks are shared by multiple channels. Borrow the large
+                    // column_values string for this RPC request and release it below before
+                    // clear_blocks(), so BroadcastPBlockHolder remains the real owner.
                     add_block->set_allocated_column_values(block->mutable_column_values());
                 }
             }
         } else {
             if (request.block_holder->get_block() &&
                 !request.block_holder->get_block()->column_metas().empty()) {
+                // Same scoped-borrow pattern as above: the broadcast holder owns this PBlock.
+                // release_block() below detaches it before protobuf cleanup can delete it.
                 brpc_request->set_allocated_block(request.block_holder->get_block());
             }
         }
