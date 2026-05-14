@@ -32,15 +32,15 @@
 #include "common/metrics/doris_metrics.h"
 #include "core/block/block.h"
 #include "core/column/column.h"
+#include "exec/sink/writer/paimon/paimon_doris_hdfs_file_system.h"
+#include "exec/sink/writer/paimon/paimon_writer_utils.h"
+#include "exec/sink/writer/paimon/vpaimon_partition_writer.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "util/defer_op.h"
-#include "exec/sink/writer/paimon/paimon_writer_utils.h"
-#include "exec/sink/writer/paimon/paimon_doris_hdfs_file_system.h"
-#include "exec/sink/writer/paimon/vpaimon_partition_writer.h"
 
 #ifdef WITH_PAIMON_CPP
 #include <arrow/array.h>
@@ -50,6 +50,7 @@
 
 #include <cstdint>
 
+#include "exec/sink/writer/paimon/paimon_doris_memory_pool.h"
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "format/parquet/arrow_memory_pool.h"
@@ -62,7 +63,6 @@
 #include "paimon/metrics.h"
 #include "paimon/utils/bucket_id_calculator.h"
 #include "paimon/write_context.h"
-#include "exec/sink/writer/paimon/paimon_doris_memory_pool.h"
 
 // Force link paimon file format factories
 namespace paimon {
@@ -258,11 +258,10 @@ Status VPaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     if (options.find("manifest.format") == options.end()) {
         options["manifest.format"] = "parquet";
     }
-    if ((!paimon_sink.__isset.bucket_num || paimon_sink.bucket_num <= 0) &&
-        paimon_sink.__isset.bucket_keys && !paimon_sink.bucket_keys.empty()) {
+    if (!paimon_sink.__isset.bucket_num || paimon_sink.bucket_num <= 0) {
         return Status::NotSupported(
-                "paimon-cpp native writer does not support primary-key table with dynamic bucket "
-                "(bucket=-1) yet; enable_paimon_jni_writer=true is required");
+                "paimon-cpp native writer does not support paimon tables without fixed bucket "
+                "yet; enable_paimon_jni_writer=true is required");
     }
 
     ::paimon::WriteContextBuilder builder(table_location, commit_user);

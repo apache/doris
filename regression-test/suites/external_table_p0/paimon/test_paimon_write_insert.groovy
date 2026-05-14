@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_write_insert", "p0,external") {
+suite("test_paimon_write_insert", "p0,external,doris,external_docker,external_docker_doris") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable paimon test.")
@@ -153,23 +153,22 @@ suite("test_paimon_write_insert", "p0,external") {
         """
 
         // ========== Helper: insert single row and verify count ==========
-        def verifyInsert = { boolean enableJni, String tableName, int id, String value, String dt ->
-            sql """set enable_paimon_jni_writer=${enableJni}"""
+        def verifyInsert = { String tableName, int id, String value, String dt ->
             sql """insert into ${tableName} values (${id}, '${value}', '${dt}')"""
             def result = sql """select count(*) from ${tableName} where id=${id} and dt='${dt}'"""
             assertEquals("1", result[0][0].toString())
         }
 
-        // ========== Test JNI writer (enable_paimon_jni_writer=true) ==========
+        // ========== Test default JNI writer ==========
         // pk_partition_no_bucket (bucket=-1) only supports JNI writer
-        verifyInsert(true, "pk_partition_no_bucket", 1, "jni_pk_nb_1", "2026-04-01")
-        verifyInsert(true, "pk_partition_no_bucket", 2, "jni_pk_nb_2", "2026-04-02")
-        verifyInsert(true, "append_partition_no_bucket", 3, "jni_ap_nb_1", "2026-04-01")
-        verifyInsert(true, "append_partition_no_bucket", 4, "jni_ap_nb_2", "2026-04-02")
-        verifyInsert(true, "pk_partition_bucketed", 5, "jni_pk_bk_1", "2026-04-01")
-        verifyInsert(true, "pk_partition_bucketed", 6, "jni_pk_bk_2", "2026-04-02")
-        verifyInsert(true, "append_partition_bucketed", 7, "jni_ap_bk_1", "2026-04-01")
-        verifyInsert(true, "append_partition_bucketed", 8, "jni_ap_bk_2", "2026-04-02")
+        verifyInsert("pk_partition_no_bucket", 1, "jni_pk_nb_1", "2026-04-01")
+        verifyInsert("pk_partition_no_bucket", 2, "jni_pk_nb_2", "2026-04-02")
+        verifyInsert("append_partition_no_bucket", 3, "jni_ap_nb_1", "2026-04-01")
+        verifyInsert("append_partition_no_bucket", 4, "jni_ap_nb_2", "2026-04-02")
+        verifyInsert("pk_partition_bucketed", 5, "jni_pk_bk_1", "2026-04-01")
+        verifyInsert("pk_partition_bucketed", 6, "jni_pk_bk_2", "2026-04-02")
+        verifyInsert("append_partition_bucketed", 7, "jni_ap_bk_1", "2026-04-01")
+        verifyInsert("append_partition_bucketed", 8, "jni_ap_bk_2", "2026-04-02")
 
         // ========== Verify total row counts in partitioned tables ==========
         def pkNbCount = sql """select count(*) from pk_partition_no_bucket"""
@@ -185,7 +184,6 @@ suite("test_paimon_write_insert", "p0,external") {
         assertEquals("2", apBkCount[0][0].toString())
 
         // ========== Test multi-row insert on unpartitioned tables ==========
-        sql """set enable_paimon_jni_writer=true"""
         sql """
             insert into pk_no_partition values
             (1, 'alice', 95.50, '2026-01-01'),
@@ -195,7 +193,6 @@ suite("test_paimon_write_insert", "p0,external") {
         def jniPkCount = sql """select count(*) from pk_no_partition"""
         assertEquals("3", jniPkCount[0][0].toString())
 
-        sql """set enable_paimon_jni_writer=true"""
         sql """
             insert into append_no_partition values
             (1, 'dave', 78.00, '2026-02-01'),
@@ -212,7 +209,6 @@ suite("test_paimon_write_insert", "p0,external") {
         assertEquals("2026-01-01", aliceRow[0][2].toString())
 
         // ========== Test primary-key upsert (same id, new value) ==========
-        sql """set enable_paimon_jni_writer=true"""
         sql """insert into pk_no_partition values (1, 'alice_updated', 99.00, '2026-01-01')"""
         def upsertResult = sql """select name, score from pk_no_partition where id=1"""
         assertEquals("alice_updated", upsertResult[0][0].toString())
@@ -222,7 +218,6 @@ suite("test_paimon_write_insert", "p0,external") {
         assertEquals("3", afterUpsertCount[0][0].toString())
 
         // ========== Test insert into select ==========
-        sql """set enable_paimon_jni_writer=true"""
         sql """drop table if exists append_for_ctas"""
         sql """
             CREATE TABLE append_for_ctas (

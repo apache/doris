@@ -482,7 +482,6 @@ public class SessionVariable implements Serializable, Writable {
             = "enable_share_hash_table_for_broadcast_join";
     public static final String ENABLE_PAIMON_DISTRIBUTED_BUCKET_SHUFFLE =
             "enable_paimon_distributed_bucket_shuffle";
-    public static final String PAIMON_WRITER_QUEUE_SIZE = "paimon_writer_queue_size";
     // support unicode in label, table, column, common name check
     public static final String ENABLE_UNICODE_NAME_SUPPORT = "enable_unicode_name_support";
 
@@ -2201,9 +2200,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN, fuzzy = true)
     public boolean enableShareHashTableForBroadcastJoin = true;
-
-    @VariableMgr.VarAttr(name = PAIMON_WRITER_QUEUE_SIZE, fuzzy = true, needForward = true)
-    public int paimonWriterQueueSize = 3;
 
     @VariableMgr.VarAttr(name = ENABLE_PAIMON_ADAPTIVE_BUFFER_SIZE, fuzzy = true, needForward = true)
     public boolean enablePaimonAdaptiveBufferSize = false;
@@ -5331,7 +5327,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
         tResult.setEnableShareHashTableForBroadcastJoin(enableShareHashTableForBroadcastJoin);
-        tResult.setEnablePaimonDistributedBucketShuffle(enablePaimonDistributedBucketShuffle);
         tResult.setEnablePaimonAdaptiveBufferSize(enablePaimonAdaptiveBufferSize);
         tResult.setPaimonTargetFileSize(paimonTargetFileSize);
         tResult.setPaimonWriteBufferSize(paimonWriteBufferSize);
@@ -5341,8 +5336,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setPaimonSpillSortThreshold(paimonSpillSortThreshold);
         tResult.setPaimonSpillCompression(paimonSpillCompression);
         tResult.setPaimonGlobalMemoryPoolSize(paimonGlobalMemoryPoolSize);
-        tResult.setEnablePaimonJniWriter(enablePaimonJniWriter);
-        tResult.setPaimonWriterQueueSize(paimonWriterQueueSize);
 
         tResult.setBatchSize(batchSize);
         tResult.setPreferredBlockSizeBytes(preferredBlockSizeBytes);

@@ -25,6 +25,7 @@
 
 #include "common/metrics/doris_metrics.h"
 #include "core/block/block.h"
+#include "exec/sink/writer/paimon/paimon_writer_utils.h"
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "runtime/exec_env.h"
@@ -36,7 +37,6 @@
 #include "util/defer_op.h"
 #include "util/jni-util.h"
 #include "util/jni_native_method.h"
-#include "exec/sink/writer/paimon/paimon_writer_utils.h"
 
 namespace doris {
 

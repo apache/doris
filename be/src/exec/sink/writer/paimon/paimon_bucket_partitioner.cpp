@@ -19,19 +19,20 @@
 
 #ifdef WITH_PAIMON_CPP
 
+#include <arrow/array.h>
 #include <arrow/c/bridge.h>
 #include <arrow/memory_pool.h>
 #include <arrow/record_batch.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
 
-#include "paimon/utils/bucket_id_calculator.h"
-#include "runtime/query_context.h"
-#include "runtime/runtime_state.h"
+#include "exec/sink/writer/paimon/paimon_doris_memory_pool.h"
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "format/parquet/arrow_memory_pool.h"
-#include "exec/sink/writer/paimon/paimon_doris_memory_pool.h"
+#include "paimon/utils/bucket_id_calculator.h"
+#include "runtime/query_context.h"
+#include "runtime/runtime_state.h"
 
 namespace doris {
 

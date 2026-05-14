@@ -61,6 +61,7 @@
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/operator/olap_table_sink_operator.h"
 #include "exec/operator/olap_table_sink_v2_operator.h"
+#include "exec/operator/paimon_table_sink_operator.h"
 #include "exec/operator/partition_sort_sink_operator.h"
 #include "exec/operator/partition_sort_source_operator.h"
 #include "exec/operator/partitioned_aggregation_sink_operator.h"
@@ -91,13 +92,12 @@
 #include "exec/operator/union_source_operator.h"
 #include "exec/pipeline/dependency.h"
 #include "exec/pipeline/pipeline.h"
+#include "exec/sink/writer/paimon/vpaimon_table_writer.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
-#include "exec/operator/paimon_table_sink_operator.h"
 #include "runtime/runtime_profile.h"
 #include "util/debug_util.h"
 #include "util/string_util.h"
-#include "exec/sink/writer/paimon/vpaimon_table_writer.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -922,8 +922,7 @@ template class AsyncWriterSink<doris::VJdbcTableWriter, JdbcTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VTabletWriter, OlapTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VTabletWriterV2, OlapTableSinkV2OperatorX>;
 template class AsyncWriterSink<doris::VHiveTableWriter, HiveTableSinkOperatorX>;
-template class AsyncWriterSink<doris::VPaimonTableWriter,
-                               doris::PaimonTableSinkOperatorX>;
+template class AsyncWriterSink<doris::VPaimonTableWriter, doris::PaimonTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VIcebergTableWriter, IcebergTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VIcebergTableWriter, SpillIcebergTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VIcebergDeleteSink, IcebergDeleteSinkOperatorX>;

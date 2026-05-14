@@ -24,8 +24,8 @@
 #include <vector>
 
 #include "common/status.h"
-#include "format/parquet/arrow_memory_pool.h"
 #include "exec/sink/writer/paimon/vpaimon_table_writer.h"
+#include "format/parquet/arrow_memory_pool.h"
 
 namespace doris {
 

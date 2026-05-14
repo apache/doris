@@ -56,8 +56,7 @@ public:
     Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
 
 private:
-    Status _compute_bucket_ids(RuntimeState* state, const Block& block,
-                               int32_t* bucket_ids) const;
+    Status _compute_bucket_ids(RuntimeState* state, const Block& block, int32_t* bucket_ids) const;
 
     PaimonBucketShuffleParams _params;
     mutable std::vector<HashValType> _channel_ids;

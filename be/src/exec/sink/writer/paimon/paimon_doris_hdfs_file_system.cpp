@@ -461,9 +461,7 @@ private:
 
 class DorisHdfsFileSystemFactory final : public paimon::FileSystemFactory {
 public:
-    const char* Identifier() const override {
-        return doris::kPaimonDorisHdfsFsIdentifier;
-    }
+    const char* Identifier() const override { return doris::kPaimonDorisHdfsFsIdentifier; }
 
     paimon::Result<std::unique_ptr<paimon::FileSystem>> Create(
             const std::string& path,

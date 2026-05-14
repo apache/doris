@@ -32,6 +32,7 @@
 #include "core/column/column_const.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
+#include "exec/sink/writer/paimon/paimon_doris_memory_pool.h"
 #include "exprs/function/function.h"
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
@@ -39,7 +40,6 @@
 #include "paimon/utils/bucket_id_calculator.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
-#include "exec/sink/writer/paimon/paimon_doris_memory_pool.h"
 
 namespace doris {
 
