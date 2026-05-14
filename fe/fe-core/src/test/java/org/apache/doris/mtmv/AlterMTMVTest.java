@@ -20,6 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -80,5 +81,21 @@ public class AlterMTMVTest extends TestWithFeService {
                 alterTableSync("ALTER TABLE stu1 REPLACE WITH TABLE mv_c PROPERTIES('swap' = 'true')"));
         Assertions.assertEquals("errCode = 2, detailMessage = replace table[mv_c] cannot be a materialized view",
                 exception.getMessage());
+
+        createDatabaseAndUse("Test");
+        createTable("CREATE TABLE `case_stu` (`sid` int(32) NULL, `sname` varchar(32) NULL)\n"
+                + "ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`sid`)\n"
+                + "DISTRIBUTED BY HASH(`sid`) BUCKETS 1\n"
+                + "PROPERTIES ('replication_allocation' = 'tag.location.default: 1')");
+        createMvByNereids("CREATE MATERIALIZED VIEW mv_case BUILD DEFERRED REFRESH COMPLETE ON COMMIT\n"
+                + "DISTRIBUTED BY HASH(`sid`) BUCKETS 1\n"
+                + "PROPERTIES ('replication_allocation' = 'tag.location.default: 1') "
+                + "AS select * from case_stu limit 1");
+
+        AnalysisException renameException = Assertions.assertThrows(AnalysisException.class, () ->
+                alterMv("ALTER MATERIALIZED VIEW Test.mv_case RENAME test.mv_case_new"));
+        Assertions.assertEquals("Can not rename materialized view to another database or catalog",
+                renameException.getMessage());
     }
 }

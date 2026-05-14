@@ -59,8 +59,8 @@ public class AlterMTMVRenameInfo extends AlterMTMVInfo {
         }
         if (newName.getCtl() != null || newName.getDb() != null) {
             newName.analyze(ctx.getNameSpaceContext());
-            if (!mvName.getCtl().equalsIgnoreCase(newName.getCtl())
-                    || !mvName.getDb().equalsIgnoreCase(newName.getDb())) {
+            if (!Objects.equals(mvName.getCtl(), newName.getCtl())
+                    || !Objects.equals(mvName.getDb(), newName.getDb())) {
                 throw new AnalysisException("Can not rename materialized view to another database or catalog");
             }
         }
