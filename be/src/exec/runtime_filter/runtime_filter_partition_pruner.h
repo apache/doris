@@ -21,7 +21,6 @@
 #include <mutex>
 #include <shared_mutex>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include "common/global_types.h"
@@ -55,9 +54,6 @@ struct ParsedBoundary {
     // fixed-value set, so we cannot stash the NULL flag inside the CVR
     // alongside the concrete values.
     bool contains_null = false;
-    // For projected boundaries: true if the target_expr produced NULL on this
-    // partition's input value (cannot prune conservatively).
-    bool null_in_projection = false;
 };
 
 // Immutable, fragment-shared parse result of TPartitionBoundary list.
@@ -76,14 +72,11 @@ public:
     void parse(const std::vector<TPartitionBoundary>& boundaries,
                const phmap::flat_hash_map<int, SlotDescriptor*>& slot_descs);
 
-    bool empty() const { return _partition_column_slot_ids.empty(); }
+    bool empty() const { return _slot_to_boundaries.empty(); }
     int64_t total_partitions() const { return _total_partition_count; }
 
     const std::unordered_map<SlotId, std::vector<ParsedBoundary>>& slot_to_boundaries() const {
         return _slot_to_boundaries;
-    }
-    const std::unordered_set<SlotId>& partition_column_slot_ids() const {
-        return _partition_column_slot_ids;
     }
 
     // Lazily compute projected boundaries for a non-identity monotonic target.
@@ -98,17 +91,17 @@ public:
     //
     // Returns an empty vector if projection is unsupported (e.g. non-RANGE
     // partition, unsupported primitive type) -- caller then skips this RF.
-    // The shared_ptr keeps the cached vector alive even if another pipeline
-    // instance inserts into the shared cache and triggers unordered_map rehash.
+    // The shared_ptr keeps the computed vector alive even if another pipeline
+    // instance inserts into the shared map and triggers unordered_map rehash.
     //
     // Direction:
     //   MONOTONIC_INCREASING: projected lo and hi keep their roles
     //   MONOTONIC_DECREASING: swap (projected lo, hi) -> (hi, lo)
     //
-    // NULL: any input value that projects to NULL marks
-    //   null_in_projection=true; the existing _try_prune_by_single_rf
-    //   conservatively keeps the partition.
-    std::shared_ptr<const std::vector<ParsedBoundary>> get_or_compute_projection(
+    // Boundaries with open endpoints (MINVALUE/MAXVALUE) or projection results
+    // that evaluate to NULL are omitted from the result, so this RF
+    // conservatively leaves those partitions unpruned.
+    std::shared_ptr<const std::vector<ParsedBoundary>> get_or_compute_projected_boundaries(
             int filter_id, const VExprSPtr& target_expr, SlotId leaf_slot_id, int leaf_column_id,
             TTargetExprMonotonicity::type global_direction,
             const std::unordered_map<int64_t, TTargetExprMonotonicity::type>* partition_directions,
@@ -116,14 +109,13 @@ public:
 
 private:
     std::unordered_map<SlotId, std::vector<ParsedBoundary>> _slot_to_boundaries;
-    std::unordered_set<SlotId> _partition_column_slot_ids;
     int64_t _total_partition_count = 0;
     std::unordered_map<SlotId, DataTypePtr> _slot_data_types;
 
-    mutable std::mutex _projection_cache_mutex;
+    mutable std::mutex _projected_boundaries_mutex;
     mutable std::unordered_map<int /*filter_id*/,
                                std::shared_ptr<const std::vector<ParsedBoundary>>>
-            _projection_cache;
+            _projected_boundaries_by_filter_id;
 };
 
 // Per-instance pruning state for runtime-filter partition pruning.

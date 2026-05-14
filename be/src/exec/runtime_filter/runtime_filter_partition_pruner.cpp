@@ -179,13 +179,12 @@ void ParsedPartitionBoundaries::parse(
 #undef BUILD_BOUNDARY_CVR
 
         if (parsed_ok) {
-            _partition_column_slot_ids.insert(slot_id);
             _slot_to_boundaries[slot_id].push_back(std::move(boundary));
         }
     }
 
     // Count distinct partition IDs across all boundaries.
-    if (!_partition_column_slot_ids.empty()) {
+    if (!_slot_to_boundaries.empty()) {
         phmap::flat_hash_set<int64_t> all_partition_ids;
         for (const auto& [_, slot_boundaries] : _slot_to_boundaries) {
             for (const auto& pb : slot_boundaries) {
@@ -219,36 +218,35 @@ static const VSlotRef* find_unique_slot_ref(const VExpr* expr) {
 
 // NOLINTBEGIN(readability-function-cognitive-complexity,readability-function-size)
 std::shared_ptr<const std::vector<ParsedBoundary>>
-ParsedPartitionBoundaries::get_or_compute_projection(
+ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
         int filter_id, const VExprSPtr& target_expr, SlotId leaf_slot_id, int leaf_column_id,
         TTargetExprMonotonicity::type global_direction,
         const std::unordered_map<int64_t, TTargetExprMonotonicity::type>* partition_directions,
         VExprContext* ctx) const {
     {
-        std::lock_guard<std::mutex> lock(_projection_cache_mutex);
-        auto it = _projection_cache.find(filter_id);
-        if (it != _projection_cache.end()) {
+        std::lock_guard<std::mutex> lock(_projected_boundaries_mutex);
+        auto it = _projected_boundaries_by_filter_id.find(filter_id);
+        if (it != _projected_boundaries_by_filter_id.end()) {
             return it->second;
         }
     }
 
-    // Build projection
     std::vector<ParsedBoundary> projected;
-    auto cache_projection = [&](std::vector<ParsedBoundary>&& boundaries) {
+    auto store_projected_boundaries = [&](std::vector<ParsedBoundary>&& boundaries) {
         auto cached = std::make_shared<const std::vector<ParsedBoundary>>(std::move(boundaries));
-        std::lock_guard<std::mutex> lock(_projection_cache_mutex);
-        auto [it, inserted] = _projection_cache.emplace(filter_id, cached);
+        std::lock_guard<std::mutex> lock(_projected_boundaries_mutex);
+        auto [it, inserted] = _projected_boundaries_by_filter_id.emplace(filter_id, cached);
         return inserted ? cached : it->second;
     };
 
     auto slot_boundaries_it = _slot_to_boundaries.find(leaf_slot_id);
     if (slot_boundaries_it == _slot_to_boundaries.end()) {
-        return cache_projection(std::move(projected));
+        return store_projected_boundaries(std::move(projected));
     }
 
     const auto& orig_boundaries = slot_boundaries_it->second;
     if (orig_boundaries.empty()) {
-        return cache_projection(std::move(projected));
+        return store_projected_boundaries(std::move(projected));
     }
 
     std::vector<std::pair<size_t, TTargetExprMonotonicity::type>> selected_boundaries;
@@ -267,25 +265,48 @@ ParsedPartitionBoundaries::get_or_compute_projection(
         }
     }
     if (selected_boundaries.empty()) {
-        return cache_projection(std::move(projected));
+        return store_projected_boundaries(std::move(projected));
     }
 
     auto slot_type_it = _slot_data_types.find(leaf_slot_id);
     if (slot_type_it == _slot_data_types.end()) {
-        return cache_projection(std::move(projected));
+        return store_projected_boundaries(std::move(projected));
     }
 
     // LIST partitions: TODO(rf-partition-prune) -- projecting through a
     // monotonic function preserves set membership but requires re-grouping
     // the projected values back per-partition. Skip for now (caller treats
-    // empty cache as "no projection available").
-    {
-        bool any_list = false;
-        std::visit([&](const auto& cvr) { any_list = cvr.is_fixed_value_range(); },
-                   orig_boundaries[selected_boundaries[0].first].boundary_cvr);
-        if (any_list) {
-            return cache_projection(std::move(projected));
+    // an empty result as "no projection available").
+    for (const auto& selected_boundary : selected_boundaries) {
+        bool is_list = false;
+        std::visit([&](const auto& cvr) { is_list = cvr.is_fixed_value_range(); },
+                   orig_boundaries[selected_boundary.first].boundary_cvr);
+        if (is_list) {
+            return store_projected_boundaries(std::move(projected));
         }
+    }
+
+    // Open RANGE endpoints (MINVALUE/MAXVALUE) have no finite input value to
+    // feed into target_expr. Skip those partitions for this RF instead of
+    // executing the projection on dummy values; absence from `projected` means
+    // _try_prune_by_single_rf conservatively leaves the partition unpruned.
+    std::vector<std::pair<size_t, TTargetExprMonotonicity::type>> projectable_boundaries;
+    projectable_boundaries.reserve(selected_boundaries.size());
+    for (const auto& selected_boundary : selected_boundaries) {
+        const auto& boundary = orig_boundaries[selected_boundary.first];
+        bool has_open_bound = true;
+        std::visit(
+                [&](const auto& cvr) {
+                    has_open_bound = cvr.is_low_value_minimum() || cvr.is_high_value_maximum();
+                },
+                boundary.boundary_cvr);
+        if (!boundary.only_null && !has_open_bound) {
+            projectable_boundaries.emplace_back(selected_boundary);
+        }
+    }
+    selected_boundaries.swap(projectable_boundaries);
+    if (selected_boundaries.empty()) {
+        return store_projected_boundaries(std::move(projected));
     }
 
     const DataTypePtr& input_type = slot_type_it->second;
@@ -294,12 +315,6 @@ ParsedPartitionBoundaries::get_or_compute_projection(
     PrimitiveType input_ptype = input_type->get_primitive_type();
 
     size_t N = selected_boundaries.size();
-
-    // Track open bounds (low_value == TYPE_MIN or high_value == TYPE_MAX)
-    // externally so we can propagate null_in_projection regardless of whether
-    // the input column is nullable.
-    std::vector<bool> ext_null_lo(N, false);
-    std::vector<bool> ext_null_hi(N, false);
 
     // Build input blocks for lo and hi
     Block lo_block;
@@ -317,11 +332,8 @@ ParsedPartitionBoundaries::get_or_compute_projection(
         add_dummy(hi_block);
     }
 
-    // Macro-dispatch on input PrimitiveType to build the typed value column
-    // for each side. Inserts NULL (when input column is nullable) or default
-    // (when not) for boundaries that are only_null / open / type-mismatched;
-    // ext_null_lo/hi tracks these so we can mark them null_in_projection
-    // after executing the projection.
+    // Macro-dispatch on input PrimitiveType to build the typed value columns
+    // for each finite RANGE endpoint.
     bool input_built = false;
 #define BUILD_INPUT_COLUMNS(INPUT_PT)                                                            \
     case TYPE_##INPUT_PT: {                                                                      \
@@ -338,32 +350,16 @@ ParsedPartitionBoundaries::get_or_compute_projection(
         hi_nulls->reserve(N);                                                                    \
         for (size_t i = 0; i < N; ++i) {                                                         \
             const auto& boundary = orig_boundaries[selected_boundaries[i].first];                \
-            bool null_lo = boundary.only_null;                                                   \
-            bool null_hi = boundary.only_null;                                                   \
             const auto* cvr =                                                                    \
                     std::get_if<ColumnValueRange<TYPE_##INPUT_PT>>(&boundary.boundary_cvr);      \
-            if (cvr == nullptr) {                                                                \
-                null_lo = null_hi = true;                                                        \
-            } else {                                                                             \
-                if (cvr->is_low_value_minimum()) null_lo = true;                                 \
-                if (cvr->is_high_value_maximum()) null_hi = true;                                \
-            }                                                                                    \
-            ext_null_lo[i] = null_lo;                                                            \
-            ext_null_hi[i] = null_hi;                                                            \
-            if (null_lo) {                                                                       \
-                lo_inner->insert_default();                                                      \
-                lo_nulls->get_data().push_back(1);                                               \
-            } else {                                                                             \
-                lo_inner->insert_value(cvr->get_range_min_value());                              \
-                lo_nulls->get_data().push_back(0);                                               \
-            }                                                                                    \
-            if (null_hi) {                                                                       \
-                hi_inner->insert_default();                                                      \
-                hi_nulls->get_data().push_back(1);                                               \
-            } else {                                                                             \
-                hi_inner->insert_value(cvr->get_range_max_value());                              \
-                hi_nulls->get_data().push_back(0);                                               \
-            }                                                                                    \
+            DCHECK(cvr != nullptr);                                                              \
+            DCHECK(!boundary.only_null);                                                         \
+            DCHECK(!cvr->is_low_value_minimum());                                                \
+            DCHECK(!cvr->is_high_value_maximum());                                               \
+            lo_inner->insert_value(cvr->get_range_min_value());                                  \
+            lo_nulls->get_data().push_back(0);                                                   \
+            hi_inner->insert_value(cvr->get_range_max_value());                                  \
+            hi_nulls->get_data().push_back(0);                                                   \
         }                                                                                        \
         if (input_is_nullable) {                                                                 \
             auto lo_col = ColumnNullable::create(std::move(lo_inner_base), std::move(lo_nulls)); \
@@ -408,7 +404,7 @@ ParsedPartitionBoundaries::get_or_compute_projection(
 #undef BUILD_INPUT_COLUMNS
 
     if (!input_built) {
-        return cache_projection(std::move(projected));
+        return store_projected_boundaries(std::move(projected));
     }
 
     int lo_result_id = -1;
@@ -416,7 +412,7 @@ ParsedPartitionBoundaries::get_or_compute_projection(
     auto status_lo = target_expr->execute(ctx, &lo_block, &lo_result_id);
     auto status_hi = target_expr->execute(ctx, &hi_block, &hi_result_id);
     if (!status_lo.ok() || !status_hi.ok() || lo_result_id < 0 || hi_result_id < 0) {
-        return cache_projection(std::move(projected));
+        return store_projected_boundaries(std::move(projected));
     }
 
     const auto& lo_result_col = lo_block.get_by_position(lo_result_id).column;
@@ -427,44 +423,39 @@ ParsedPartitionBoundaries::get_or_compute_projection(
     bool out_nullable = target_expr->data_type()->is_nullable();
     PrimitiveType output_ptype = target_expr->data_type()->get_primitive_type();
 
-    projected.resize(N);
+    projected.reserve(N);
 
-#define BUILD_PROJECTED_CVR(OUTPUT_PT)                                                         \
-    case TYPE_##OUTPUT_PT: {                                                                   \
-        using OutputCppType = typename PrimitiveTypeTraits<TYPE_##OUTPUT_PT>::CppType;         \
-        for (size_t i = 0; i < N; ++i) {                                                       \
-            const auto& orig_boundary = orig_boundaries[selected_boundaries[i].first];         \
-            TTargetExprMonotonicity::type direction = selected_boundaries[i].second;           \
-            projected[i].partition_id = orig_boundary.partition_id;                            \
-            projected[i].slot_id = leaf_slot_id;                                               \
-            projected[i].is_nullable = out_nullable;                                           \
-            projected[i].only_null = orig_boundary.only_null;                                  \
-            projected[i].contains_null = orig_boundary.contains_null;                          \
-            bool lo_is_null = ext_null_lo[i] || lo_result_col->is_null_at(i);                  \
-            bool hi_is_null = ext_null_hi[i] || hi_result_col->is_null_at(i);                  \
-            if (lo_is_null || hi_is_null) {                                                    \
-                projected[i].null_in_projection = true;                                        \
-                ColumnValueRange<TYPE_##OUTPUT_PT> full_range("", out_nullable, out_precision, \
-                                                              out_scale);                      \
-                projected[i].boundary_cvr = std::move(full_range);                             \
-            } else {                                                                           \
-                Field lo_field = (*lo_result_col)[i];                                          \
-                Field hi_field = (*hi_result_col)[i];                                          \
-                OutputCppType lo_projected = lo_field.get<TYPE_##OUTPUT_PT>();                 \
-                OutputCppType hi_projected = hi_field.get<TYPE_##OUTPUT_PT>();                 \
-                ColumnValueRange<TYPE_##OUTPUT_PT> cvr("", out_nullable, out_precision,        \
-                                                       out_scale);                             \
-                if (direction == TTargetExprMonotonicity::MONOTONIC_DECREASING) {              \
-                    static_cast<void>(cvr.add_range(FILTER_LARGER_OR_EQUAL, hi_projected));    \
-                    static_cast<void>(cvr.add_range(FILTER_LESS_OR_EQUAL, lo_projected));      \
-                } else {                                                                       \
-                    static_cast<void>(cvr.add_range(FILTER_LARGER_OR_EQUAL, lo_projected));    \
-                    static_cast<void>(cvr.add_range(FILTER_LESS_OR_EQUAL, hi_projected));      \
-                }                                                                              \
-                projected[i].boundary_cvr = std::move(cvr);                                    \
-            }                                                                                  \
-        }                                                                                      \
-        break;                                                                                 \
+#define BUILD_PROJECTED_CVR(OUTPUT_PT)                                                          \
+    case TYPE_##OUTPUT_PT: {                                                                    \
+        using OutputCppType = typename PrimitiveTypeTraits<TYPE_##OUTPUT_PT>::CppType;          \
+        for (size_t i = 0; i < N; ++i) {                                                        \
+            const auto& orig_boundary = orig_boundaries[selected_boundaries[i].first];          \
+            TTargetExprMonotonicity::type direction = selected_boundaries[i].second;            \
+            if (lo_result_col->is_null_at(i) || hi_result_col->is_null_at(i)) {                 \
+                continue;                                                                       \
+            }                                                                                   \
+            Field lo_field = (*lo_result_col)[i];                                               \
+            Field hi_field = (*hi_result_col)[i];                                               \
+            OutputCppType lo_projected = lo_field.get<TYPE_##OUTPUT_PT>();                      \
+            OutputCppType hi_projected = hi_field.get<TYPE_##OUTPUT_PT>();                      \
+            ColumnValueRange<TYPE_##OUTPUT_PT> cvr("", out_nullable, out_precision, out_scale); \
+            if (direction == TTargetExprMonotonicity::MONOTONIC_DECREASING) {                   \
+                static_cast<void>(cvr.add_range(FILTER_LARGER_OR_EQUAL, hi_projected));         \
+                static_cast<void>(cvr.add_range(FILTER_LESS_OR_EQUAL, lo_projected));           \
+            } else {                                                                            \
+                static_cast<void>(cvr.add_range(FILTER_LARGER_OR_EQUAL, lo_projected));         \
+                static_cast<void>(cvr.add_range(FILTER_LESS_OR_EQUAL, hi_projected));           \
+            }                                                                                   \
+            ParsedBoundary projected_boundary;                                                  \
+            projected_boundary.partition_id = orig_boundary.partition_id;                       \
+            projected_boundary.slot_id = leaf_slot_id;                                          \
+            projected_boundary.is_nullable = out_nullable;                                      \
+            projected_boundary.only_null = orig_boundary.only_null;                             \
+            projected_boundary.contains_null = orig_boundary.contains_null;                     \
+            projected_boundary.boundary_cvr = std::move(cvr);                                   \
+            projected.emplace_back(std::move(projected_boundary));                              \
+        }                                                                                       \
+        break;                                                                                  \
     }
 
     switch (output_ptype) {
@@ -497,7 +488,7 @@ ParsedPartitionBoundaries::get_or_compute_projection(
 
 #undef BUILD_PROJECTED_CVR
 
-    return cache_projection(std::move(projected));
+    return store_projected_boundaries(std::move(projected));
 }
 // NOLINTEND(readability-function-cognitive-complexity,readability-function-size)
 
@@ -547,11 +538,6 @@ void RuntimeFilterPartitionPruner::_try_prune_by_single_rf(
     for (const auto& pb : boundaries) {
         if (_pruned_partition_ids.contains(pb.partition_id) ||
             newly_pruned.contains(pb.partition_id)) {
-            continue;
-        }
-
-        // Skip partitions with NULL projection conservatively
-        if (pb.null_in_projection) {
             continue;
         }
 
@@ -654,7 +640,7 @@ int64_t RuntimeFilterPartitionPruner::prune_by_runtime_filters(
     if (parsed.empty()) {
         return 0;
     }
-    const auto& partition_column_slot_ids = parsed.partition_column_slot_ids();
+    const auto& slot_to_boundaries = parsed.slot_to_boundaries();
 
     // Build filter_id -> monotonicity maps.
     std::unordered_map<int, TTargetExprMonotonicity::type> filter_id_to_monotonicity;
@@ -714,11 +700,6 @@ int64_t RuntimeFilterPartitionPruner::prune_by_runtime_filters(
         if (target_subtree->is_slot_ref()) {
             auto* slot_ref = assert_cast<VSlotRef*>(target_subtree.get());
             SlotId slot_id = slot_ref->slot_id();
-            if (!partition_column_slot_ids.contains(slot_id)) {
-                continue;
-            }
-
-            const auto& slot_to_boundaries = parsed.slot_to_boundaries();
             auto boundaries_it = slot_to_boundaries.find(slot_id);
             if (boundaries_it == slot_to_boundaries.end()) {
                 continue;
@@ -744,7 +725,7 @@ int64_t RuntimeFilterPartitionPruner::prune_by_runtime_filters(
             }
 
             SlotId leaf_slot_id = leaf_slot->slot_id();
-            if (!partition_column_slot_ids.contains(leaf_slot_id)) {
+            if (!slot_to_boundaries.contains(leaf_slot_id)) {
                 continue;
             }
 
@@ -754,7 +735,7 @@ int64_t RuntimeFilterPartitionPruner::prune_by_runtime_filters(
             const auto* partition_directions =
                     has_partition_mono ? &partition_mono_it->second : nullptr;
 
-            auto projected = parsed.get_or_compute_projection(
+            auto projected = parsed.get_or_compute_projected_boundaries(
                     filter_id, target_subtree, leaf_slot_id, leaf_column_id, direction,
                     partition_directions, conjunct_ctx.get());
 
