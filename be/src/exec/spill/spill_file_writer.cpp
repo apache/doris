@@ -146,6 +146,7 @@ Status SpillFileWriter::write_block(RuntimeState* state, const Block& block) {
     // accounting would be out of sync.
     auto spill_file = _spill_file_wptr.lock();
     if (!spill_file) {
+        DCHECK(false);
         return Status::Error<INTERNAL_ERROR>(
                 "SpillFile has been destroyed, cannot write more data, spill_dir={}", _spill_dir);
     }

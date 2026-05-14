@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <filesystem>
 #include <map>
@@ -30,6 +31,7 @@
 #include <mutex>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <utility>
 
 #include "absl/strings/substitute.h"
@@ -381,6 +383,10 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
 void SegcompactionWorker::compact_segments(SegCompactionCandidatesSharedPtr segments) {
     Status status = Status::OK();
     if (_is_compacting_state_mutable.exchange(false)) {
+        DBUG_EXECUTE_IF("SegcompactionWorker::compact_segments.sleep", {
+            auto ms = dp->param<int64_t>("ms", 1000);
+            std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+        });
         status = _do_compact_segments(segments);
     } else {
         // note: be aware that _writer maybe released when the task is cancelled

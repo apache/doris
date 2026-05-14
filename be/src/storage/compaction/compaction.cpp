@@ -375,6 +375,12 @@ void Compaction::set_delete_predicate_for_output_rowset() {
 }
 
 int64_t Compaction::get_avg_segment_rows() {
+    DBUG_EXECUTE_IF("Compaction::get_avg_segment_rows.return", {
+        auto rows = dp->param<int64_t>("rows", 10);
+        LOG(INFO) << "Compaction::get_avg_segment_rows.return, rows=" << rows
+                  << ", tablet_id=" << _tablet->tablet_id();
+        return std::max<int64_t>(1, rows);
+    });
     // take care of empty rowset
     // input_rowsets_size is total disk_size of input_rowset, this size is the
     // final size after codec and compress, so expect dest segment file size

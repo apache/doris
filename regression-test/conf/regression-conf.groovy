@@ -24,8 +24,8 @@ defaultDb = "regression_test"
 // init cmd like: select @@session.tx_read_only
 // at each time we connect.
 // add allowLoadLocalInfile so that the jdbc can execute mysql load data from client.
-jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
-targetJdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
+jdbcUrl = "jdbc:mysql://127.0.0.1:49546/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
+targetJdbcUrl = "jdbc:mysql://127.0.0.1:49546/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
 jdbcUser = "root"
 jdbcPassword = ""
 
@@ -35,7 +35,7 @@ syncerAddress = "127.0.0.1:9190"
 feSyncerUser = "root"
 feSyncerPassword = ""
 
-feHttpAddress = "127.0.0.1:8030"
+feHttpAddress = "127.0.0.1:48536"
 feHttpUser = "root"
 feHttpPassword = ""
 
@@ -125,7 +125,7 @@ pg_14_port=5442
 oracle_11_port=1521
 sqlserver_2022_port=1433
 clickhouse_22_port=8123
-doris_port=9030
+doris_port=49546
 mariadb_10_port=3326
 db2_11_port=50000
 oceanbase_port=2881

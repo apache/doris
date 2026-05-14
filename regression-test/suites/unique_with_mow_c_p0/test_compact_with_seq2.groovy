@@ -61,6 +61,9 @@ suite("test_compact_with_seq2", "nonConcurrent") {
             for (def tablet in tablets) {
                 String tablet_id = tablet.TabletId
                 def backend_id = tablet.BackendId
+                GetDebugPoint().enableDebugPointForAllBEs(
+                    "SizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
+                    [tablet_id: tablet_id.toLong(), start_version: 2, end_version: 11])
 
                 def (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                 logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
@@ -152,6 +155,7 @@ suite("test_compact_with_seq2", "nonConcurrent") {
             assertEquals(0, json.NumberFilteredRows)
         }
     }
+    GetDebugPoint().enableDebugPointForAllBEs("SegcompactionWorker::compact_segments.sleep", [ms: 500])
     streamLoad {
         table "${tableName}"
         set 'column_separator', ','
