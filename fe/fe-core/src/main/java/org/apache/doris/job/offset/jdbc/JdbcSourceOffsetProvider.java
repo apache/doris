@@ -700,8 +700,6 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 if (remaining.isEmpty()) {
                     return;
                 }
-                // Normalize to bare so cdcSplitProgress/committedSplitProgress agree on format
-                // regardless of what cachedSyncTables holds (production: bare; some test fixtures: qualified).
                 cdcSplitProgress.setCurrentSplittingTable(getTableName(remaining.get(0)));
                 cdcSplitProgress.setNextSplitStart(null);
                 cdcSplitProgress.setNextSplitId(null);
@@ -760,9 +758,8 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                     .collect(Collectors.toList());
         }
 
-        // Phase 4 (unlocked, slow): persist FIRST. On failure, throw → advanceSplitsIfNeed
-        // PAUSEs the job; autoResume re-picks the same (tbl, startVal, splitId), so cdc_client
-        // regenerates identical splitIds and the retried UPSERT is idempotent.
+        // Phase 4 (unlocked, slow): persist FIRST. On failure throw → PAUSE; autoResume retries
+        // with the same (tbl, startVal, splitId), idempotent on UNIQUE KEY (id, job_id).
         try {
             StreamingJobUtils.upsertChunkList(getJobId(), tbl, splitsOfTbl);
         } catch (Exception e) {
@@ -770,8 +767,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                     + " table " + tbl + ": " + e.getMessage(), e);
         }
 
-        // Phase 5 (locked, fast): publish. Skip if cursor moved during Phase 4 — splits are
-        // already in meta, next iteration / replayIfNeed reconciles via splitId.
+        // Phase 5 (locked, fast): publish. Skip if cursor moved during Phase 4 (already in meta).
         synchronized (splitsLock) {
             if (!tbl.equals(cdcSplitProgress.getCurrentSplittingTable())
                     || !Objects.equals(splitId, cdcSplitProgress.getNextSplitId())) {
