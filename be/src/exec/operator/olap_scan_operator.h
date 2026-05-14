@@ -238,6 +238,8 @@ private:
     // topn_search_costs = index_load_costs + engine_search_costs + pre_process_costs + post_process_costs
     RuntimeProfile::Counter* _ann_topn_search_costs = nullptr;
     RuntimeProfile::Counter* _ann_topn_search_cnt = nullptr;
+    RuntimeProfile::Counter* _ann_cache_hit_cnt = nullptr;
+    RuntimeProfile::Counter* _ann_range_cache_hit_cnt = nullptr;
 
     RuntimeProfile::Counter* _ann_index_load_costs = nullptr;
     RuntimeProfile::Counter* _ann_ivf_on_disk_load_costs = nullptr;

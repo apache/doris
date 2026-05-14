@@ -396,9 +396,11 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
 }
 
 Status ColumnReader::new_index_iterator(const std::shared_ptr<IndexFileReader>& index_file_reader,
-                                        const TabletIndex* index_meta,
+                                        const TabletIndex* index_meta, const std::string& rowset_id,
+                                        uint32_t segment_id, size_t rows_of_segment,
                                         std::unique_ptr<IndexIterator>* iterator) {
-    RETURN_IF_ERROR(_load_index(index_file_reader, index_meta));
+    RETURN_IF_ERROR(
+            _load_index(index_file_reader, index_meta, rowset_id, segment_id, rows_of_segment));
     {
         std::shared_lock<std::shared_mutex> rlock(_load_index_lock);
         auto iter = _index_readers.find(index_meta->index_id());
@@ -615,7 +617,8 @@ Status ColumnReader::_load_zone_map_index(bool use_page_cache, bool kept_in_memo
 }
 
 Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_file_reader,
-                                 const TabletIndex* index_meta) {
+                                 const TabletIndex* index_meta, const std::string& rowset_id,
+                                 uint32_t segment_id, size_t rows_of_segment) {
     std::unique_lock<std::shared_mutex> wlock(_load_index_lock);
 
     if (index_meta == nullptr) {
@@ -639,8 +642,8 @@ Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_f
     }
 
     if (index_meta->index_type() == IndexType::ANN) {
-        _index_readers[index_meta->index_id()] =
-                std::make_shared<AnnIndexReader>(index_meta, index_file_reader);
+        _index_readers[index_meta->index_id()] = std::make_shared<AnnIndexReader>(
+                index_meta, index_file_reader, rowset_id, segment_id, rows_of_segment);
         return Status::OK();
     }
 

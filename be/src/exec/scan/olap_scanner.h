@@ -49,6 +49,9 @@ class RuntimeState;
 class TPaloScanRange;
 class ScanLocalStateBase;
 struct FilterPredicates;
+#ifndef NDEBUG
+struct OlapReaderStatistics;
+#endif
 
 class Block;
 
@@ -93,6 +96,9 @@ private:
 
     [[nodiscard]] Status _init_return_columns();
     [[nodiscard]] Status _init_variant_columns();
+#ifndef NDEBUG
+    Status _check_ann_cache_hit_debug_points(const OlapReaderStatistics& stats);
+#endif
 
     std::vector<OlapScanRange*> _key_ranges;
 
