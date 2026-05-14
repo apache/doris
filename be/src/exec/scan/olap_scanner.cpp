@@ -95,6 +95,13 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .tso_predicate_column_id {},
                                  .output_columns {},
                                  .extra_columns {},
+                                 .profile = nullptr,
+                                 .runtime_state = nullptr,
+                                 .table_name = std::move(params.table_name),
+                                 .partition_name = std::move(params.partition_name),
+                                 .origin_return_columns = nullptr,
+                                 .tablet_columns_convert_to_null_set = nullptr,
+                                 .push_down_agg_type_opt = TPushAggOp::NONE,
                                  .common_expr_ctxs_push_down {},
                                  .topn_filter_source_node_ids {},
                                  .key_group_cluster_key_idxes {},
@@ -109,8 +116,6 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
           _initial_file_cache_stats(std::move(params.initial_file_cache_stats)) {
     _tablet_reader_params.set_read_source(std::move(params.read_source),
                                           _state->skip_delete_bitmap());
-    _tablet_reader_params.table_name = std::move(params.table_name);
-    _tablet_reader_params.partition_name = std::move(params.partition_name);
     _has_prepared = false;
     _vector_search_params = params.state->get_vector_search_params();
 }
