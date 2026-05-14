@@ -108,13 +108,32 @@ Status RuntimeFilterProducerHelper::build(
 
     for (const auto& filter : _producers) {
         if (use_shared_table) {
-            DCHECK(_is_broadcast_join);
+            if (!_is_broadcast_join) {
+                return Status::InternalError(
+                        "use_shared_table is true but _is_broadcast_join is false");
+            }
+            auto wrapper = filter->wrapper();
+            if (wrapper == nullptr) {
+                return Status::InternalError("runtime filter wrapper is null when building filter");
+            }
+            auto filter_id = wrapper->filter_id();
             if (_should_build_hash_table) {
-                DCHECK(!runtime_filters.contains(filter->wrapper()->filter_id()));
-                runtime_filters[filter->wrapper()->filter_id()] = filter->wrapper();
+                if (runtime_filters.contains(filter_id)) {
+                    return Status::InternalError(
+                            "runtime_filters already contains filter_id {} when building hash "
+                            "table",
+                            filter_id);
+                }
+                runtime_filters[filter_id] = wrapper;
             } else {
-                DCHECK(runtime_filters.contains(filter->wrapper()->filter_id()));
-                filter->set_wrapper(runtime_filters[filter->wrapper()->filter_id()]);
+                auto it = runtime_filters.find(filter_id);
+                if (it == runtime_filters.end() || it->second == nullptr) {
+                    return Status::InternalError(
+                            "runtime_filters does not contain valid filter_id {} when not building "
+                            "hash table",
+                            filter_id);
+                }
+                filter->set_wrapper(it->second);
             }
         }
         filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
