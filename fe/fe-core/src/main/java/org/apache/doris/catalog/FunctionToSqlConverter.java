@@ -56,13 +56,13 @@ public class FunctionToSqlConverter {
         if (fn.isGlobal()) {
             sb.append("GLOBAL ");
         }
-        sb.append("FUNCTION ");
+        sb.append(fn.isUDTFunction() ? "TABLES FUNCTION " : "FUNCTION ");
 
         if (ifNotExists) {
             sb.append("IF NOT EXISTS ");
         }
         sb.append(fn.signatureString())
-                .append(" RETURNS " + fn.getReturnType())
+                .append(" RETURNS " + getScalarFunctionReturnTypeSql(fn))
                 .append(" PROPERTIES (");
         sb.append("\n  \"SYMBOL\"=").append("\"" + fn.getSymbolName() + "\"");
         if (fn.getPrepareFnSymbol() != null) {
@@ -77,14 +77,18 @@ public class FunctionToSqlConverter {
                     .append("\"" + (fn.getLocation() == null ? "" : fn.getLocation().toString()) + "\"");
             boolean isReturnNull = fn.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
             sb.append(",\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\"");
-            sb.append(",\n  \"VOLATILITY\"=").append("\"" + fn.getVolatility().toSql() + "\"");
+            if (!fn.isUDTFunction()) {
+                sb.append(",\n  \"VOLATILITY\"=").append("\"" + fn.getVolatility().toSql() + "\"");
+            }
         } else if (fn.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
             sb.append(",\n  \"FILE\"=")
                     .append("\"" + (fn.getLocation() == null ? "" : fn.getLocation().toString()) + "\"");
             boolean isReturnNull = fn.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
             sb.append(",\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\"");
             sb.append(",\n  \"RUNTIME_VERSION\"=").append("\"" + Strings.nullToEmpty(fn.getRuntimeVersion()) + "\"");
-            sb.append(",\n  \"VOLATILITY\"=").append("\"" + fn.getVolatility().toSql() + "\"");
+            if (!fn.isUDTFunction()) {
+                sb.append(",\n  \"VOLATILITY\"=").append("\"" + fn.getVolatility().toSql() + "\"");
+            }
         } else {
             sb.append(",\n  \"OBJECT_FILE\"=")
                     .append("\"" + (fn.getLocation() == null ? "" : fn.getLocation().toString()) + "\"");
@@ -97,6 +101,13 @@ public class FunctionToSqlConverter {
             sb.append("\n);");
         }
         return sb.toString();
+    }
+
+    private static String getScalarFunctionReturnTypeSql(ScalarFunction fn) {
+        if (fn.isUDTFunction()) {
+            return new ArrayType(fn.getReturnType()).toSql();
+        }
+        return fn.getReturnType().toSql();
     }
 
     /**

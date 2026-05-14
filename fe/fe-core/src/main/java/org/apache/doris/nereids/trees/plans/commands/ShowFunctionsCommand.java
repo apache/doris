@@ -295,8 +295,9 @@ public class ShowFunctionsCommand extends ShowCommand {
         }
         if (function instanceof ScalarFunction) {
             ScalarFunction scalarFunction = (ScalarFunction) function;
-            if (function.getBinaryType() == Function.BinaryType.JAVA_UDF
-                    || function.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
+            if (!scalarFunction.isUDTFunction()
+                    && (function.getBinaryType() == Function.BinaryType.JAVA_UDF
+                    || function.getBinaryType() == Function.BinaryType.PYTHON_UDF)) {
                 properties.put("VOLATILITY", function.getVolatility().toSql());
             }
             properties.put("SYMBOL", Strings.nullToEmpty(scalarFunction.getSymbolName()));
@@ -349,6 +350,11 @@ public class ShowFunctionsCommand extends ShowCommand {
         return properties.entrySet().stream()
                 .map(entry -> entry.getKey() + "=" + entry.getValue())
                 .collect(Collectors.joining(", "));
+    }
+
+    @VisibleForTesting
+    String buildPropertiesForTest(Function function) {
+        return buildProperties(function);
     }
 
 }

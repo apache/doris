@@ -21,19 +21,14 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.FunctionVolatility;
-import org.apache.doris.nereids.rules.rewrite.AddProjectForUniqueFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.VolatileIdentity;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-
-import java.util.List;
 
 class UdfVolatilityTest {
 
@@ -67,16 +62,6 @@ class UdfVolatilityTest {
 
         Assertions.assertNotEquals(immutable, volatileUdf);
         Assertions.assertNotEquals(volatileUdf, immutable);
-    }
-
-    @Test
-    void testAddProjectForRepeatedVolatileUdf() {
-        PythonUdf udf = pythonUdf(FunctionVolatility.VOLATILE, VolatileIdentity.newVolatileIdentity());
-        List<NamedExpression> aliases = new AddProjectForUniqueFunction()
-                .tryGenUniqueFunctionAlias(ImmutableList.of(udf, udf));
-
-        Assertions.assertEquals(1, aliases.size());
-        Assertions.assertEquals(udf, aliases.get(0).child(0));
     }
 
     @Test

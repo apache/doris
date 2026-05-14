@@ -70,14 +70,13 @@ public class VolatileIdentity {
 
     /** Compare volatile expressions by identity unless either side temporarily ignores it. */
     public boolean equalsByIdentity(VolatileIdentity other, boolean fallbackEquals) {
-        if (!isVolatile() && !other.isVolatile()) {
+        if ((!isVolatile() && !other.isVolatile())
+                || (ignoreUniqueId && other.ignoreUniqueId())) {
             return fallbackEquals;
         }
-        if (!isVolatile() || !other.isVolatile()) {
+        if ((!isVolatile() || !other.isVolatile())
+                || (ignoreUniqueId || other.ignoreUniqueId())) {
             return false;
-        }
-        if (ignoreUniqueId || other.ignoreUniqueId()) {
-            return fallbackEquals;
         }
         return uniqueId.equals(other.getUniqueIdOptional());
     }

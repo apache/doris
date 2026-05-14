@@ -143,6 +143,46 @@ public class FunctionToSqlConverterTest {
         Assertions.assertFalse(sql.contains("AS $$"));
     }
 
+    @Test
+    void testScalarFunction_javaUdtfReplaySql() {
+        FunctionName name = new FunctionName("testDb", "java_table_fn");
+        Type[] argTypes = {Type.INT};
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.JAVA_UDF, name, argTypes,
+                Type.INT, false, null, "com.example.TableFn", null, null);
+        fn.setUDTFunction(true);
+        fn.setVolatility(FunctionVolatility.IMMUTABLE);
+
+        String sql = FunctionToSqlConverter.toSql(fn, true);
+
+        Assertions.assertTrue(sql.startsWith("CREATE TABLES FUNCTION IF NOT EXISTS "));
+        Assertions.assertTrue(sql.contains("java_table_fn(int)"));
+        Assertions.assertTrue(sql.contains("RETURNS array<int>"));
+        Assertions.assertTrue(sql.contains("\"TYPE\"=\"JAVA_UDF\""));
+        Assertions.assertFalse(sql.contains("VOLATILITY"));
+    }
+
+    @Test
+    void testScalarFunction_pythonUdtfReplaySql() {
+        FunctionName name = new FunctionName("testDb", "py_table_fn");
+        Type[] argTypes = {Type.INT};
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.PYTHON_UDF, name, argTypes,
+                Type.INT, false, null, "evaluate", null, null);
+        fn.setUDTFunction(true);
+        fn.setRuntimeVersion("3.10.2");
+        fn.setFunctionCode("def evaluate(x):\n    yield x");
+        fn.setVolatility(FunctionVolatility.IMMUTABLE);
+
+        String sql = FunctionToSqlConverter.toSql(fn, false);
+
+        Assertions.assertTrue(sql.startsWith("CREATE TABLES FUNCTION "));
+        Assertions.assertTrue(sql.contains("py_table_fn(int)"));
+        Assertions.assertTrue(sql.contains("RETURNS array<int>"));
+        Assertions.assertTrue(sql.contains("\"RUNTIME_VERSION\"=\"3.10.2\""));
+        Assertions.assertTrue(sql.contains("\"TYPE\"=\"PYTHON_UDF\""));
+        Assertions.assertTrue(sql.contains("AS $$\ndef evaluate(x):\n    yield x\n$$;"));
+        Assertions.assertFalse(sql.contains("VOLATILITY"));
+    }
+
     // ======================== ScalarFunction — IF NOT EXISTS ========================
 
     @Test
