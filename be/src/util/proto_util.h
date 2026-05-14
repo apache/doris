@@ -50,7 +50,8 @@ Status request_embed_attachment_contain_blockv2(Params* brpc_request,
         auto* column_values = block->release_column_values();
         DORIS_CHECK(column_values != nullptr);
 
-        Defer restore([block, column_values] { block->set_allocated_column_values(column_values); });
+        Defer restore(
+                [block, column_values] { block->set_allocated_column_values(column_values); });
 
         return request_embed_attachmentv2(brpc_request, *column_values, closure);
     }
