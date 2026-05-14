@@ -312,7 +312,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     childContext -> {
                         Rewriter.getWholeTreeRewriter(childContext).execute();
                         return childContext.getRewritePlan();
-                    }, rewrittenPlan, queryPlan, false);
+                    }, rewrittenPlan, queryPlan, false, true);
             if (rewrittenPlan == null) {
                 continue;
             }

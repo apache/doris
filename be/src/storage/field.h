@@ -40,7 +40,7 @@ namespace doris {
 class StorageField {
 public:
     StorageField(const TabletColumn& column)
-            : _type_info(get_type_info(&column)),
+            : _type(column.type()),
               _desc(column),
               _length(column.length()),
               _key_coder(get_key_coder(column.type())),
@@ -54,7 +54,7 @@ public:
 
     virtual ~StorageField() = default;
 
-    size_t size() const { return _type_info->size(); }
+    size_t size() const { return field_type_size(_type); }
     size_t length() const { return _length; }
     size_t field_size() const { return size() + 1; }
     size_t index_size() const { return _index_size; }
@@ -70,8 +70,7 @@ public:
         return local;
     }
 
-    FieldType type() const { return _type_info->type(); }
-    const TypeInfo* type_info() const { return _type_info.get(); }
+    FieldType type() const { return _type; }
     bool is_nullable() const { return _is_nullable; }
 
     // similar to `full_encode_ascending`, but only encode part (the first `index_size` bytes) of the value.
@@ -103,7 +102,7 @@ public:
     }
 
 protected:
-    TypeInfoPtr _type_info;
+    FieldType _type;
     TabletColumn _desc;
     // unit : byte
     // except for strings, other types have fixed lengths
@@ -113,7 +112,7 @@ protected:
     size_t _length;
 
     void clone(StorageField* other) const {
-        other->_type_info = clone_type_info(this->_type_info.get());
+        other->_type = this->_type;
         other->_key_coder = this->_key_coder;
         other->_name = this->_name;
         other->_index_size = this->_index_size;

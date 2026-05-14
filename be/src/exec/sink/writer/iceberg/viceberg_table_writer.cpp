@@ -664,7 +664,7 @@ std::any VIcebergTableWriter::_get_iceberg_partition_value(
     auto [item, size] = col_ptr->get_data_at(position);
     switch (type_desc) {
     case TYPE_BOOLEAN: {
-        Field field = check_and_get_column<const ColumnUInt8>(*col_ptr)->operator[](position);
+        Field field = assert_cast<const ColumnUInt8*>(col_ptr.get())->operator[](position);
         return field.get<TYPE_BOOLEAN>();
     }
     case TYPE_TINYINT: {
