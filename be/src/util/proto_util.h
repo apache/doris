@@ -25,6 +25,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/brpc_client_cache.h"
+#include "util/defer_op.h"
 #include "util/network_util.h"
 
 namespace doris {
@@ -39,9 +40,23 @@ constexpr size_t MIN_HTTP_BRPC_SIZE = (1ULL << 31);
 // Embed column_values and brpc request serialization string in controller attachment.
 template <typename Params, typename Closure>
 Status request_embed_attachment_contain_blockv2(Params* brpc_request,
-                                                std::unique_ptr<Closure>& closure) {
-    std::string column_values = std::move(*brpc_request->mutable_block()->mutable_column_values());
-    brpc_request->mutable_block()->mutable_column_values()->clear();
+                                                std::unique_ptr<Closure>& closure,
+                                                bool restore_column_values = false) {
+    auto* block = brpc_request->mutable_block();
+    if (restore_column_values) {
+        // Some callers borrow block storage from a shared owner. Temporarily detach the large
+        // column_values field so the serialized request stays small, then restore it before
+        // returning so the real owner can still be reused by later sends.
+        auto* column_values = block->release_column_values();
+        DORIS_CHECK(column_values != nullptr);
+
+        Defer restore([block, column_values] { block->set_allocated_column_values(column_values); });
+
+        return request_embed_attachmentv2(brpc_request, *column_values, closure);
+    }
+
+    std::string column_values = std::move(*block->mutable_column_values());
+    block->mutable_column_values()->clear();
     return request_embed_attachmentv2(brpc_request, column_values, closure);
 }
 
@@ -68,8 +83,9 @@ void transmit_blockv2(PBackendService_Stub* stub, std::unique_ptr<Closure> closu
 
 template <typename Closure>
 Status transmit_block_httpv2(ExecEnv* exec_env, std::unique_ptr<Closure> closure,
-                             TNetworkAddress brpc_dest_addr) {
-    RETURN_IF_ERROR(request_embed_attachment_contain_blockv2(closure->request_.get(), closure));
+                             TNetworkAddress brpc_dest_addr, bool restore_column_values = false) {
+    RETURN_IF_ERROR(request_embed_attachment_contain_blockv2(closure->request_.get(), closure,
+                                                             restore_column_values));
 
     std::string host = brpc_dest_addr.hostname;
     auto dns_cache = ExecEnv::GetInstance()->dns_cache();
