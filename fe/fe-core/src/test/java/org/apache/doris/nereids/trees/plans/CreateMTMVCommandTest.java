@@ -45,7 +45,10 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -347,7 +350,49 @@ public class CreateMTMVCommandTest extends TestWithFeService {
     }
 
     @Test
-    public void testCreateAutoMTMVDoesNotFallbackOnGeneralAnalysisException() throws Exception {
+    public void testCreateAutoMTMVFallsBackToNonIvmOnPlainAnalysisException() throws Exception {
+        createTable("create table test.mtmv_auto_fallback_plain_base (k1 int)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW');");
+
+        String sql = "CREATE MATERIALIZED VIEW mtmv_auto_fallback_plain\n"
+                + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1 FROM mtmv_auto_fallback_plain_base;";
+        resetStatementContext(sql);
+        LogicalPlan plan = new NereidsParser().parseSingle(sql);
+        Assertions.assertTrue(plan instanceof CreateMTMVCommand);
+        CreateMTMVInfo info = Mockito.spy(((CreateMTMVCommand) plan).getCreateMTMVInfo());
+        List<LogicalPlan> analyzeQueries = new ArrayList<>();
+        List<StatementContext> statementContexts = new ArrayList<>();
+        Mockito.doAnswer(invocation -> {
+            analyzeQueries.add(getLogicalQuery(info));
+            statementContexts.add(connectContext.getStatementContext());
+            if (info.isEnableIvm()) {
+                throw new AnalysisException("mock plain analysis failure during IVM probe");
+            }
+            return invocation.callRealMethod();
+        }).when(info).analyzeQuery(Mockito.any());
+
+        info.analyze(connectContext);
+
+        Assertions.assertFalse(info.isEnableIvm());
+        Assertions.assertEquals(2, analyzeQueries.size());
+        Assertions.assertEquals(2, statementContexts.size());
+        Assertions.assertNotSame(analyzeQueries.get(0), analyzeQueries.get(1));
+        Assertions.assertNotSame(statementContexts.get(0), statementContexts.get(1));
+    }
+
+    private LogicalPlan getLogicalQuery(CreateMTMVInfo info) throws Exception {
+        Field logicalQueryField = CreateMTMVInfo.class.getDeclaredField("logicalQuery");
+        logicalQueryField.setAccessible(true);
+        return (LogicalPlan) logicalQueryField.get(info);
+    }
+
+    @Test
+    public void testCreateAutoMTMVStillFailsWhenFallbackAnalyzeFails() throws Exception {
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
                 () -> getPartitionTableInfo("CREATE MATERIALIZED VIEW mtmv_auto_bad_sql\n"
                         + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"

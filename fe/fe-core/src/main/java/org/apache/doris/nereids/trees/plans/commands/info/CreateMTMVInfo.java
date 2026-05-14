@@ -200,14 +200,24 @@ public class CreateMTMVInfo extends CreateTableInfo {
         try {
             enableIvm = true;
             analyzeQuery(ctx);
-        } catch (IvmException e) {
-            LOG.info("AUTO refresh materialized view {} fallback to non-IVM: {}",
+        } catch (AnalysisException e) {
+            // AUTO uses IVM analysis only as a capability probe. Most IVM unsupported cases are reported as
+            // IvmException, but planner/PCT/nullable analysis can also throw a plain AnalysisException after
+            // IVM rewrite changes the plan shape. Treat those as probe failures too: restore the original create
+            // state and retry regular MTMV analysis. If the regular path also fails, that error is still returned
+            // to the user. Explicit INCREMENTAL does not call this helper, so its strict failure semantics remain.
+            LOG.info("AUTO refresh materialized view {} fallback to non-IVM after IVM probe failed: {}",
                     tableNameInfo.getTbl(), e.getMessage());
             origin.restore(this);
+            logicalQuery = parseFreshLogicalQuery();
             resetStatementContext(ctx);
             enableIvm = false;
             analyzeQuery(ctx);
         }
+    }
+
+    private LogicalPlan parseFreshLogicalQuery() {
+        return new NereidsParser().parseQuery(querySql);
     }
 
     private void resetStatementContext(ConnectContext ctx) {
@@ -431,6 +441,9 @@ public class CreateMTMVInfo extends CreateTableInfo {
     private static class AnalyzeQueryState {
         private final Map<String, String> properties;
         private final List<ColumnDefinition> columns;
+        private final DistributionDescriptor distribution;
+        private final PartitionDesc partitionDesc;
+        private final LogicalPlan logicalQuery;
         private final MTMVRelation relation;
         private final MTMVPartitionInfo mvPartitionInfo;
         private final MTMVPartitionType mvPartitionType;
@@ -440,6 +453,9 @@ public class CreateMTMVInfo extends CreateTableInfo {
         private AnalyzeQueryState(CreateMTMVInfo info) {
             this.properties = info.properties == null ? null : Maps.newHashMap(info.properties);
             this.columns = info.columns;
+            this.distribution = info.distribution;
+            this.partitionDesc = info.partitionDesc;
+            this.logicalQuery = info.logicalQuery;
             this.relation = info.relation;
             this.mvPartitionInfo = info.mvPartitionInfo;
             this.mvPartitionType = info.mvPartitionDefinition.getPartitionType();
@@ -454,6 +470,9 @@ public class CreateMTMVInfo extends CreateTableInfo {
         private void restore(CreateMTMVInfo info) {
             info.properties = properties == null ? null : Maps.newHashMap(properties);
             info.columns = columns;
+            info.distribution = distribution;
+            info.partitionDesc = partitionDesc;
+            info.logicalQuery = logicalQuery;
             info.relation = relation;
             info.mvPartitionInfo = mvPartitionInfo;
             info.mvPartitionDefinition.setPartitionType(mvPartitionType);
