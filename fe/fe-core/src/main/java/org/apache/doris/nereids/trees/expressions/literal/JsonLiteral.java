@@ -49,8 +49,31 @@ public class JsonLiteral extends Literal {
         }
         if (jsonNode == null || jsonNode.isMissingNode()) {
             throw new AnalysisException("Invalid jsonb literal: ''");
+        }
+        validateNoLoneSurrogate(jsonNode);
+        this.value = jsonNode.toString();
+    }
+
+    // RFC 8259 §8.2: JSON strings must not contain lone UTF-16 surrogates.
+    // Jackson accepts them by default, so we validate after parsing.
+    private static void validateNoLoneSurrogate(JsonNode node) {
+        if (node.isTextual()) {
+            String s = node.textValue();
+            for (int i = 0; i < s.length(); i++) {
+                char c = s.charAt(i);
+                if (Character.isHighSurrogate(c)) {
+                    if (i + 1 >= s.length() || !Character.isLowSurrogate(s.charAt(i + 1))) {
+                        throw new AnalysisException(
+                                "Invalid jsonb literal: JSON string contains lone high surrogate");
+                    }
+                    i++; // skip the paired low surrogate
+                } else if (Character.isLowSurrogate(c)) {
+                    throw new AnalysisException(
+                            "Invalid jsonb literal: JSON string contains lone low surrogate");
+                }
+            }
         } else {
-            this.value = jsonNode.toString();
+            node.forEach(JsonLiteral::validateNoLoneSurrogate);
         }
     }
 
