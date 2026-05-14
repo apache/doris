@@ -236,6 +236,51 @@ class IvmOuterJoinDeltaStrategyTest extends IvmDeltaTestBase {
         assertSnapshotBranch(union.child(2), 20);
     }
 
+    @Test
+    void testLeftDeepOuterJoinChainPropagatesPreservedSideDelta() {
+        LogicalOlapScan leftDelta = (LogicalOlapScan) buildScanForTable(1, "t1").withIsDelta(true);
+        LogicalOlapScan middleSnapshot = buildScanForTable(2, "t2");
+        LogicalOlapScan rightSnapshot = buildScanForTable(3, "t3");
+        NormalizedOuterJoinPlan firstJoin = normalizedOuterJoin(rowIdProject(leftDelta), rowIdProject(middleSnapshot));
+        NormalizedOuterJoinPlan topJoin = normalizedOuterJoin(firstJoin.topProject, rowIdProject(rightSnapshot));
+
+        TestableIvmOuterJoinDeltaStrategy strategy = new TestableIvmOuterJoinDeltaStrategy(
+                context(topJoin, ImmutableMap.<TableNameInfo, IvmStreamRef>of()));
+
+        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(topJoin.topProject);
+
+        Assertions.assertNotNull(result.dmlFactorSlot);
+        Assertions.assertEquals(2, result.plan.collectToList(node ->
+                node instanceof LogicalJoin
+                        && ((LogicalJoin<?, ?>) node).getJoinType() == JoinType.LEFT_OUTER_JOIN).size());
+        Assertions.assertInstanceOf(LogicalProject.class, result.plan);
+        assertSingleFinalRowId((LogicalProject<?>) result.plan);
+    }
+
+    @Test
+    void testLeftDeepOuterJoinChainRewritesTopNullableSideDelta() {
+        LogicalOlapScan leftSnapshot = buildScanForTable(1, "t1");
+        LogicalOlapScan middleSnapshot = buildScanForTable(2, "t2");
+        LogicalOlapScan rightDelta = (LogicalOlapScan) buildScanForTable(3, "t3").withIsDelta(true);
+        NormalizedOuterJoinPlan firstJoin = normalizedOuterJoin(rowIdProject(leftSnapshot), rowIdProject(middleSnapshot));
+        NormalizedOuterJoinPlan topJoin = normalizedOuterJoin(firstJoin.topProject, rowIdProject(rightDelta));
+
+        IvmStreamRef rightStream = stream(10, 20);
+        TestableIvmOuterJoinDeltaStrategy strategy = new TestableIvmOuterJoinDeltaStrategy(
+                context(topJoin, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(rightDelta), rightStream)));
+
+        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(topJoin.topProject);
+
+        Assertions.assertNotNull(result.dmlFactorSlot);
+        Assertions.assertEquals(1, result.plan.collectToList(node ->
+                node instanceof LogicalJoin
+                        && ((LogicalJoin<?, ?>) node).getJoinType() == JoinType.LEFT_OUTER_JOIN).size());
+        LogicalUnion union = nullableSideRightEventUnion(result.plan);
+        Assertions.assertEquals(3, union.children().size());
+        assertUnionChildrenAlign(union);
+        assertNoDuplicateScanRelationIds(result.plan);
+    }
+
     private void assertSnapshotBranch(Plan branch, long expectedDeltaSnapshotTso) {
         List<LogicalOlapScan> scans = branch.collectToList(node -> node instanceof LogicalOlapScan);
         LogicalOlapScan deltaSnapshot = scans.stream()
@@ -364,7 +409,6 @@ class IvmOuterJoinDeltaStrategyTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = leftOuterJoin(left, right);
         LogicalProject<Plan> topProject = normalizedJoinProject(join);
         IvmNormalizeResult normalizeResult = deterministicNormalizeResult(topProject);
-        normalizeResult.setOuterJoinMv(true);
         return new NormalizedOuterJoinPlan(topProject, left.getOutput().size(), normalizeResult);
     }
 
@@ -375,7 +419,6 @@ class IvmOuterJoinDeltaStrategyTest extends IvmDeltaTestBase {
                 left, right, JoinReorderContext.EMPTY);
         LogicalProject<Plan> topProject = normalizedJoinProject(join);
         IvmNormalizeResult normalizeResult = deterministicNormalizeResult(topProject);
-        normalizeResult.setOuterJoinMv(true);
         return new NormalizedOuterJoinPlan(topProject, left.getOutput().size(), normalizeResult);
     }
 
@@ -386,7 +429,6 @@ class IvmOuterJoinDeltaStrategyTest extends IvmDeltaTestBase {
                 left, right, JoinReorderContext.EMPTY);
         LogicalProject<Plan> topProject = normalizedJoinProject(join);
         IvmNormalizeResult normalizeResult = deterministicNormalizeResult(topProject);
-        normalizeResult.setOuterJoinMv(true);
         return new NormalizedOuterJoinPlan(topProject, left.getOutput().size(), normalizeResult);
     }
 
@@ -396,7 +438,6 @@ class IvmOuterJoinDeltaStrategyTest extends IvmDeltaTestBase {
                 left, right, JoinReorderContext.EMPTY);
         LogicalProject<Plan> topProject = normalizedJoinProject(join);
         IvmNormalizeResult normalizeResult = deterministicNormalizeResult(topProject);
-        normalizeResult.setOuterJoinMv(true);
         return new NormalizedOuterJoinPlan(topProject, left.getOutput().size(), normalizeResult);
     }
 

@@ -25,16 +25,19 @@ import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.rules.rewrite.IvmNormalizeMtmv;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -264,8 +267,6 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
                 .filter(s -> Column.IVM_ROW_ID_COL.equals(s.getName()))
                 .count();
         Assertions.assertEquals(1, rowIdCount, "Left outer join should have one composed row_id");
-        Assertions.assertTrue(result.isOuterJoinMv(),
-                "Normalize result should record LEFT OUTER JOIN for delta strategy selection");
     }
 
     @Test
@@ -280,7 +281,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
 
         IvmNormalizeResult result = getNormalizeResult(outerJoin);
 
-        Assertions.assertTrue(result.isOuterJoinMv(),
+        Assertions.assertNotNull(result.getNormalizedPlan(),
                 "Root LEFT_OUTER_JOIN should allow inner joins in its children");
     }
 
@@ -322,7 +323,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         IvmNormalizeResult result = getNormalizeResult(join,
                 ImmutableSet.of(new TableNameInfo("test_db", "b"), new TableNameInfo("test_db", "c")));
 
-        Assertions.assertTrue(result.isOuterJoinMv(),
+        Assertions.assertNotNull(result.getNormalizedPlan(),
                 "Nullable-side UNION ALL should be allowed when all OlapScans are excluded trigger tables");
     }
 
@@ -338,7 +339,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testNormalizeFilterAboveLeftOuterJoinThrows() {
+    void testNormalizeFilterAboveLeftOuterJoin() {
         LogicalOlapScan scanA = buildMowScan(1, "a");
         LogicalOlapScan scanB = buildMowScan(2, "b");
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
@@ -346,12 +347,14 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         Plan filter = new LogicalFilter<>(ImmutableSet.of(new EqualTo(
                 join.getOutput().get(0), join.getOutput().get(0))), join);
 
-        assertIvmException(IvmFailureReason.OUTER_JOIN_RETRACTION_UNSUPPORTED,
-                () -> normalizeJoinPlan(filter));
+        IvmNormalizeResult result = getNormalizeResult(filter);
+
+        Assertions.assertNotNull(result.getNormalizedPlan(),
+                "Filter above LEFT_OUTER_JOIN should preserve outer join IVM routing");
     }
 
     @Test
-    void testNormalizeLeftOuterJoinBelowJoinThrows() {
+    void testNormalizeLeftOuterJoinBelowInnerJoin() {
         LogicalOlapScan scanA = buildMowScan(1, "a");
         LogicalOlapScan scanB = buildMowScan(2, "b");
         LogicalOlapScan scanC = buildMowScan(3, "c");
@@ -360,8 +363,113 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> topJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), outerJoin, scanC, JoinReorderContext.EMPTY);
 
-        assertIvmException(IvmFailureReason.OUTER_JOIN_RETRACTION_UNSUPPORTED,
-                () -> normalizeJoinPlan(topJoin));
+        IvmNormalizeResult result = getNormalizeResult(topJoin);
+
+        Assertions.assertNotNull(result.getNormalizedPlan(),
+                "LEFT_OUTER_JOIN below a linear parent join should be normalized");
+    }
+
+    @Test
+    void testNormalizeLeftDeepOuterJoinChain() {
+        LogicalOlapScan scanA = buildMowScan(1, "a");
+        LogicalOlapScan scanB = buildMowScan(2, "b");
+        LogicalOlapScan scanC = buildMowScan(3, "c");
+        LogicalJoin<?, ?> firstOuterJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
+        LogicalJoin<?, ?> secondOuterJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(), firstOuterJoin, scanC, JoinReorderContext.EMPTY);
+
+        IvmNormalizeResult result = getNormalizeResult(secondOuterJoin);
+
+        Assertions.assertNotNull(result.getNormalizedPlan(),
+                "LEFT_OUTER_JOIN chain on preserved side should be normalized");
+    }
+
+    @Test
+    void testNormalizeProjectedLeftDeepOuterJoinChain() {
+        LogicalOlapScan scanA = buildMowScan(1, "a");
+        LogicalOlapScan scanB = buildMowScan(2, "b");
+        LogicalOlapScan scanC = buildMowScan(3, "c");
+        LogicalJoin<?, ?> firstOuterJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
+        LogicalProject<?> projectedFirstJoin = new LogicalProject<>(
+                ImmutableList.copyOf(firstOuterJoin.getOutput()), firstOuterJoin);
+        LogicalJoin<?, ?> secondOuterJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(), projectedFirstJoin, scanC, JoinReorderContext.EMPTY);
+
+        IvmNormalizeResult result = getNormalizeResult(secondOuterJoin);
+
+        Assertions.assertNotNull(result.getNormalizedPlan(),
+                "LEFT_OUTER_JOIN chain should allow projects on the preserved-side path");
+    }
+
+    @Test
+    void testNormalizeLeftOuterJoinOnNullableSideThrows() {
+        LogicalOlapScan scanA = buildMowScan(1, "a");
+        LogicalOlapScan scanB = buildMowScan(2, "b");
+        LogicalOlapScan scanC = buildMowScan(3, "c");
+        LogicalJoin<?, ?> nullableOuterJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(), scanB, scanC, JoinReorderContext.EMPTY);
+        LogicalJoin<?, ?> rootOuterJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(), scanA, nullableOuterJoin, JoinReorderContext.EMPTY);
+
+        IvmException ex = Assertions.assertThrows(IvmException.class, () -> normalizeJoinPlan(rootOuterJoin));
+        Assertions.assertEquals(IvmFailureReason.OUTER_JOIN_RETRACTION_UNSUPPORTED, ex.getFailureReason());
+        Assertions.assertTrue(ex.getMessage().contains("nullable side"),
+                "unexpected message: " + ex.getMessage());
+    }
+
+    @Test
+    void testNormalizeProjectedLeftOuterJoinOnNullableSideThrows() {
+        LogicalOlapScan scanA = buildMowScan(1, "a");
+        LogicalOlapScan scanB = buildMowScan(2, "b");
+        LogicalOlapScan scanC = buildMowScan(3, "c");
+        LogicalJoin<?, ?> nullableOuterJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(), scanB, scanC, JoinReorderContext.EMPTY);
+        LogicalProject<?> projectedNullableSide = new LogicalProject<>(
+                ImmutableList.copyOf(nullableOuterJoin.getOutput()), nullableOuterJoin);
+        LogicalJoin<?, ?> rootOuterJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(), scanA, projectedNullableSide, JoinReorderContext.EMPTY);
+
+        IvmException ex = Assertions.assertThrows(IvmException.class, () -> normalizeJoinPlan(rootOuterJoin));
+        Assertions.assertEquals(IvmFailureReason.OUTER_JOIN_RETRACTION_UNSUPPORTED, ex.getFailureReason());
+        Assertions.assertTrue(ex.getMessage().contains("nullable side"),
+                "unexpected message: " + ex.getMessage());
+    }
+
+    @Test
+    void testNormalizeFilteredLeftOuterJoinOnNullableSideThrows() {
+        LogicalOlapScan scanA = buildMowScan(1, "a");
+        LogicalOlapScan scanB = buildMowScan(2, "b");
+        LogicalOlapScan scanC = buildMowScan(3, "c");
+        LogicalJoin<?, ?> nullableOuterJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(), scanB, scanC, JoinReorderContext.EMPTY);
+        LogicalFilter<?> filteredNullableSide = new LogicalFilter<>(ImmutableSet.of(new EqualTo(
+                nullableOuterJoin.getOutput().get(0), nullableOuterJoin.getOutput().get(0))), nullableOuterJoin);
+        LogicalJoin<?, ?> rootOuterJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(), scanA, filteredNullableSide, JoinReorderContext.EMPTY);
+
+        IvmException ex = Assertions.assertThrows(IvmException.class, () -> normalizeJoinPlan(rootOuterJoin));
+        Assertions.assertEquals(IvmFailureReason.OUTER_JOIN_RETRACTION_UNSUPPORTED, ex.getFailureReason());
+        Assertions.assertTrue(ex.getMessage().contains("nullable side"),
+                "unexpected message: " + ex.getMessage());
+    }
+
+    @Test
+    void testNormalizeRootAggregateAboveLeftOuterJoin() {
+        LogicalOlapScan scanA = buildMowScan(1, "a");
+        LogicalOlapScan scanB = buildMowScan(2, "b");
+        LogicalJoin<?, ?> outerJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
+        Slot groupSlot = outerJoin.getOutput().get(0);
+        Alias countAlias = new Alias(new Count(), "cnt");
+        LogicalAggregate<Plan> aggregate = new LogicalAggregate<>(
+                ImmutableList.of(groupSlot), ImmutableList.of(groupSlot, countAlias),
+                true, Optional.empty(), outerJoin);
+
+        IvmNormalizeResult result = getNormalizeResult(aggregate);
+
+        Assertions.assertTrue(result.isAggMv(), "Root aggregate should keep aggregate IVM routing");
     }
 
     @Test
