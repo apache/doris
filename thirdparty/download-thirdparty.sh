@@ -435,6 +435,13 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
             # apache-arrow-17.0.0-force-write-int96-timestamps.patch : 
             # Introducing the parameter that forces writing int96 timestampes for compatibility with Paimon cpp. 
             patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-force-write-int96-timestamps.patch"
+
+            # apache-arrow-17.0.0-status-inline-static-fix.patch :
+            # Move Status::message()/detail() empty sentinels out of header
+            # inline function-local statics. Clang can place those weak inline
+            # std::string objects in RELRO, then crash while initializing them.
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-status-inline-static-fix.patch"
+
             touch "${PATCHED_MARK}"
         fi
         cd -
