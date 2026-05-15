@@ -205,9 +205,9 @@ public class CacheTest extends TestWithFeService {
         };
 
         StatisticsCache statisticsCache = new StatisticsCache();
-        statisticsCache.refreshHistogramSync(0, 0, 0, -1, "col");
+        statisticsCache.refreshHistogramSync(1, 1, 0, -1, "col");
         Thread.sleep(10000);
-        Histogram histogram = statisticsCache.getHistogram(0, 0, 0, "col");
+        Histogram histogram = statisticsCache.getHistogram(1, 1, 0, "col");
         Assertions.assertNotNull(histogram);
     }
 
