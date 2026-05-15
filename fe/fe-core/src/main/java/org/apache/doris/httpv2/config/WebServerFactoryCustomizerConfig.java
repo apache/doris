@@ -19,6 +19,7 @@ package org.apache.doris.httpv2.config;
 
 import org.apache.doris.common.Config;
 
+import org.eclipse.jetty.server.Connector;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.HttpConnectionFactory;
 import org.eclipse.jetty.server.ServerConnector;
@@ -37,12 +38,16 @@ public class WebServerFactoryCustomizerConfig implements WebServerFactoryCustomi
             ((JettyServletWebServerFactory) factory).setConfigurations(
                     Collections.singletonList(new HttpToHttpsJettyConfig())
             );
+        }
 
-            factory.addServerCustomizers(
-                    server -> {
+        factory.addServerCustomizers(
+                server -> {
+                    if (Config.enable_https) {
                         HttpConfiguration httpConfiguration = new HttpConfiguration();
                         httpConfiguration.setSecurePort(Config.https_port);
                         httpConfiguration.setSecureScheme("https");
+                        httpConfiguration.setMaxUnconsumedRequestContentReads(
+                                Config.jetty_server_max_unconsumed_request_content_reads);
 
                         ServerConnector connector = new ServerConnector(server);
                         connector.addConnectionFactory(new HttpConnectionFactory(httpConfiguration));
@@ -50,7 +55,19 @@ public class WebServerFactoryCustomizerConfig implements WebServerFactoryCustomi
 
                         server.addConnector(connector);
                     }
-            );
-        }
+
+                    for (Connector connector : server.getConnectors()) {
+                        if (!(connector instanceof ServerConnector)) {
+                            continue;
+                        }
+                        HttpConnectionFactory httpConnectionFactory =
+                                ((ServerConnector) connector).getConnectionFactory(HttpConnectionFactory.class);
+                        if (httpConnectionFactory != null) {
+                            httpConnectionFactory.getHttpConfiguration().setMaxUnconsumedRequestContentReads(
+                                    Config.jetty_server_max_unconsumed_request_content_reads);
+                        }
+                    }
+                }
+        );
     }
 }
