@@ -44,6 +44,7 @@ import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.rewrite.IvmNormalizeMtmv;
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -292,7 +293,7 @@ abstract class IvmDeltaTestBase {
     protected LogicalAggregate<LogicalOlapScan> buildExprAgg(LogicalOlapScan scan) {
         Slot idSlot = scan.getOutput().get(0);
         Slot nameSlot = scan.getOutput().get(1);
-        Expression addExpr = new org.apache.doris.nereids.trees.expressions.Add(idSlot, nameSlot);
+        Expression addExpr = new Add(idSlot, nameSlot);
         Alias sumAlias = new Alias(new Sum(addExpr), "sum_expr");
         Alias cntAlias = new Alias(new Count(), "cnt");
         return new LogicalAggregate<>(ImmutableList.of(idSlot),
@@ -304,7 +305,7 @@ abstract class IvmDeltaTestBase {
     protected LogicalAggregate<LogicalOlapScan> buildExprMinMaxAgg(LogicalOlapScan scan) {
         Slot idSlot = scan.getOutput().get(0);
         Slot nameSlot = scan.getOutput().get(1);
-        Expression addExpr = new org.apache.doris.nereids.trees.expressions.Add(idSlot, nameSlot);
+        Expression addExpr = new Add(idSlot, nameSlot);
         Alias minAlias = new Alias(new Min(addExpr), "mn_expr");
         Alias maxAlias = new Alias(new Max(addExpr), "mx_expr");
         return new LogicalAggregate<>(ImmutableList.of(idSlot),

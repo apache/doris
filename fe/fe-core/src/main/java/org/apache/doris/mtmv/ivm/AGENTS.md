@@ -23,6 +23,10 @@ Run all IVM-related FE unit tests. The relevant test files are located in:
 - `fe/fe-core/src/test/java/org/apache/doris/nereids/trees/plans/CreateMTMVCommandTest.java`
 - `fe/fe-core/src/test/java/org/apache/doris/catalog/ShowCreateMTMVTest.java`
 
+When running IVM FE unit tests, always include
+`fe/fe-core/src/test/java/org/apache/doris/nereids/trees/plans/CreateMTMVCommandTest.java`;
+it covers MTMV creation paths that can be affected by IVM normalize/metadata changes.
+
 New test classes are added over time — always check the directories above for the current set.
 
 ## Important: Binlog/Stream Not Ready

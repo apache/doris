@@ -515,7 +515,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
 
         IvmNormalizeResult result = getNormalizeResult(aggregate);
 
-        Assertions.assertTrue(result.isAggMv(), "Root aggregate should keep aggregate IVM routing");
+        Assertions.assertNotNull(result.getAggMeta(), "Root aggregate should keep aggregate IVM metadata");
     }
 
     @Test

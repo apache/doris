@@ -28,11 +28,14 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -59,8 +62,8 @@ class IvmAggDeltaStrategyTest extends IvmDeltaTestBase {
         PlanBundle bundle = normalizeAggPlan(agg);
         MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
         IvmRefreshContext ctx = new IvmRefreshContext(mtmv, bundle.connectContext, bundle.normalizeResult);
-        InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmAggDeltaStrategy(ctx)
-                .rewrite(bundle.normalizedPlan).get(0);
+        InsertIntoTableCommand command = (InsertIntoTableCommand) IvmAggDeltaStrategy.INSTANCE
+                .rewrite(bundle.normalizedPlan, ctx).get(0);
         UnboundTableSink<?> sink = getSink(command);
         return new AggRewriteResult(bundle, mtmv, sink, (LogicalProject<?>) sink.child());
     }
@@ -179,11 +182,11 @@ class IvmAggDeltaStrategyTest extends IvmDeltaTestBase {
         Assertions.assertTrue(hasAssertTrue, "Expected assert_true guard in MIN apply plan");
     }
 
-    private boolean containsAssertTrue(org.apache.doris.nereids.trees.expressions.Expression expr) {
+    private boolean containsAssertTrue(Expression expr) {
         if (expr instanceof AssertTrue) {
             return true;
         }
-        for (org.apache.doris.nereids.trees.expressions.Expression child : expr.children()) {
+        for (Expression child : expr.children()) {
             if (containsAssertTrue(child)) {
                 return true;
             }
@@ -271,7 +274,7 @@ class IvmAggDeltaStrategyTest extends IvmDeltaTestBase {
 
         IvmRefreshContext ctx = new IvmRefreshContext(mtmv, bundle.connectContext, null);
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
-                () -> new IvmAggDeltaStrategy(ctx).rewrite(bundle.normalizedPlan));
+                () -> IvmAggDeltaStrategy.INSTANCE.rewrite(bundle.normalizedPlan, ctx));
         Assertions.assertTrue(ex.getMessage().contains("normalize result"));
     }
 
@@ -282,8 +285,7 @@ class IvmAggDeltaStrategyTest extends IvmDeltaTestBase {
         Assertions.assertInstanceOf(LogicalFilter.class, result.finalProject.child());
         LogicalFilter<?> filter = (LogicalFilter<?>) result.finalProject.child();
         Assertions.assertEquals(1, filter.getConjuncts().size());
-        Assertions.assertInstanceOf(org.apache.doris.nereids.trees.expressions.Not.class,
-                filter.getConjuncts().iterator().next());
+        Assertions.assertInstanceOf(Not.class, filter.getConjuncts().iterator().next());
     }
 
     @Test
@@ -369,7 +371,7 @@ class IvmAggDeltaStrategyTest extends IvmDeltaTestBase {
 
         AssertTrue boundaryGuard = null;
         for (AssertTrue at : allAssertTrue) {
-            if (at.child(0) instanceof org.apache.doris.nereids.trees.expressions.Or) {
+            if (at.child(0) instanceof Or) {
                 boundaryGuard = at;
                 break;
             }
@@ -384,16 +386,15 @@ class IvmAggDeltaStrategyTest extends IvmDeltaTestBase {
 
         // Guard should be: OR(IS_NULL(deltaDel), OR(IS_NULL(old), deltaDel > old))
         Expression guardCondition = boundaryGuard.child(0);
-        Assertions.assertInstanceOf(org.apache.doris.nereids.trees.expressions.Or.class, guardCondition,
+        Assertions.assertInstanceOf(Or.class, guardCondition,
                 "Guard predicate should be a compound Or expression");
         // The second child of AssertTrue should be the error message (StringLiteral)
         Assertions.assertInstanceOf(
-                org.apache.doris.nereids.trees.expressions.literal.StringLiteral.class,
+                StringLiteral.class,
                 boundaryGuard.child(1),
                 "AssertTrue second argument should be error message StringLiteral");
         // Verify the message mentions MIN
-        String msg = ((org.apache.doris.nereids.trees.expressions.literal.StringLiteral)
-                boundaryGuard.child(1)).getStringValue();
+        String msg = ((StringLiteral) boundaryGuard.child(1)).getStringValue();
         Assertions.assertTrue(msg.contains("MIN"),
                 "Guard message should mention MIN, got: " + msg);
     }
