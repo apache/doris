@@ -410,7 +410,7 @@ suite("regression_test_variant", "p0"){
               "replication_allocation" = "tag.location.default: 1"
             );
             """
-            exception("errCode = 2, detailMessage = Hash distribution info should not contain variant columns")
+            exception("errCode = 2, detailMessage = Variant type should not be used in distribution column[content].")
         }
 
          test {
