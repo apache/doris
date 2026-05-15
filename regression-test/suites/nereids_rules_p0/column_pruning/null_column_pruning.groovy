@@ -69,6 +69,19 @@ suite("null_column_pruning") {
 
     order_qt_2 "select 1 from ncp_tbl where str_col is null";
 
+    // Direct full access to the same field covers its null flag for any data type.
+    // The exact [str_col.NULL] metadata path must be removed.
+    explain {
+        sql "select id, str_col from ncp_tbl where str_col is null"
+        notContains "str_col.NULL"
+        notContains "predicate access paths:"
+    }
+
+    order_qt_string_full_access_strips_null """
+        select id, str_col from ncp_tbl where str_col is null
+        order by id
+    """
+
     // ─── String IS NOT NULL only ────────────────────────────────────────────────
     explain {
         sql "select 1 from ncp_tbl where str_col is not null"
@@ -106,6 +119,19 @@ suite("null_column_pruning") {
 
     order_qt_6 "select 1 from ncp_tbl where arr_col is null";
 
+    explain {
+        sql "select id, arr_col from ncp_tbl where arr_col is null"
+        contains "nested columns"
+        contains "all access paths: [arr_col]"
+        notContains "arr_col.NULL"
+        notContains "predicate access paths:"
+    }
+
+    order_qt_array_full_access_strips_null """
+        select id, arr_col from ncp_tbl where arr_col is null
+        order by id
+    """
+
     // ─── Map IS NULL only ───────────────────────────────────────────────────────
     explain {
         sql "select 1 from ncp_tbl where map_col is null"
@@ -114,6 +140,19 @@ suite("null_column_pruning") {
     }
 
     order_qt_7 "select 1 from ncp_tbl where map_col is null";
+
+    explain {
+        sql "select id, map_col from ncp_tbl where map_col is null"
+        contains "nested columns"
+        contains "all access paths: [map_col]"
+        notContains "map_col.NULL"
+        notContains "predicate access paths:"
+    }
+
+    order_qt_map_full_access_strips_null """
+        select id, map_col from ncp_tbl where map_col is null
+        order by id
+    """
 
     // ─── Int IS NULL only ───────────────────────────────────────────────────────
     // Nullable primitive type (INT) accessed only via IS NULL → emit [int_col, NULL]

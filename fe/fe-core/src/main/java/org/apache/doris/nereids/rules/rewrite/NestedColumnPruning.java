@@ -283,6 +283,7 @@ public class NestedColumnPruning implements CustomRewriter {
                     }
                     // Offset-only access (e.g. length(str_col)): type stays varchar,
                     // but we must still send the access path to BE so it skips the char data.
+                    stripExactCoveredDataSkippingSuffixPaths(slot, allAccessPaths, allAccessPaths);
                     stripNullSuffixPaths(slot, allAccessPaths);
                     List<ColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
                     result.put(slot.getExprId().asInt(),
@@ -348,6 +349,10 @@ public class NestedColumnPruning implements CustomRewriter {
                 continue;
             }
 
+            // If a field is read in full, its metadata-only NULL/OFFSET access is redundant
+            // for any data type: e.g. [s] covers both [s.NULL] and [s.OFFSET].
+            stripExactCoveredDataSkippingSuffixPaths(slot, allAccessPaths, allAccessPaths);
+
             // Strip OFFSET-suffix paths when a non-OFFSET path covers the same nested field or
             // container. The overlapping array/map container may live under the root slot itself
             // or under a nested struct field, so compare against the actual nested prefix instead
@@ -375,6 +380,7 @@ public class NestedColumnPruning implements CustomRewriter {
         // third: build predicate access path
         for (Entry<Slot, DataTypeAccessTree> kv : slotIdToPredicateAccessTree.entrySet()) {
             Slot slot = kv.getKey();
+            stripExactCoveredDataSkippingSuffixPaths(slot, predicateAccessPaths, allAccessPaths);
             stripCoveredOffsetSuffixPaths(slot, predicateAccessPaths, allAccessPaths);
             stripCoveredArrayNullSuffixPaths(slot, predicateAccessPaths, allAccessPaths);
             stripNullSuffixPaths(slot, predicateAccessPaths);
@@ -547,6 +553,44 @@ public class NestedColumnPruning implements CustomRewriter {
         targetPaths.addAll(pathsToAdd);
     }
 
+    private static void stripExactCoveredDataSkippingSuffixPaths(
+            Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths,
+            Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> coveringAccessPaths) {
+        int slotId = slot.getExprId().asInt();
+        Collection<Pair<ColumnAccessPathType, List<String>>> targetPaths = targetAccessPaths.get(slotId);
+        if (targetPaths.isEmpty()) {
+            return;
+        }
+
+        List<List<String>> fullAccessPaths = new ArrayList<>();
+        for (Pair<ColumnAccessPathType, List<String>> p : coveringAccessPaths.get(slotId)) {
+            if (!isDataSkippingOnlyAccessPath(p.second)) {
+                fullAccessPaths.add(p.second);
+            }
+        }
+        for (Pair<ColumnAccessPathType, List<String>> p : targetPaths) {
+            if (!isDataSkippingOnlyAccessPath(p.second)) {
+                fullAccessPaths.add(p.second);
+            }
+        }
+
+        List<Pair<ColumnAccessPathType, List<String>>> pathsToRemove = new ArrayList<>();
+        for (Pair<ColumnAccessPathType, List<String>> p : targetPaths) {
+            List<String> path = p.second;
+            if (!isDataSkippingOnlyAccessPath(path)) {
+                continue;
+            }
+            List<String> prefix = path.subList(0, path.size() - 1);
+            for (List<String> fullAccessPath : fullAccessPaths) {
+                if (fullAccessPath.equals(prefix)) {
+                    pathsToRemove.add(p);
+                    break;
+                }
+            }
+        }
+        targetPaths.removeAll(pathsToRemove);
+    }
+
     private static Optional<DataType> dataTypeAtPath(DataType slotType, List<String> path) {
         if (path.isEmpty()) {
             return Optional.empty();
@@ -691,11 +735,8 @@ public class NestedColumnPruning implements CustomRewriter {
     }
 
     /**
-     * Strip NULL-suffix paths that are redundant because a non-NULL path reads the same
-     * column/subcolumn in full (its data inherently includes the null flag).
-     *
-     * For example, [int_col, NULL] is removed when [int_col] exists — reading the full
-     * column includes its null flag.
+     * Strip NULL-suffix paths that are redundant because a non-NULL path reads child
+     * data below the same prefix or reads an OFFSET path over the same prefix.
      *
      * A parent NULL path must also be removed when any child path is required under the
      * same prefix, e.g. [struct_col, NULL] with [struct_col, city]. This looks like the

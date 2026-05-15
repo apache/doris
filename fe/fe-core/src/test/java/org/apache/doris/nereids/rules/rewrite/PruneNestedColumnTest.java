@@ -208,6 +208,30 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testFullFieldAccessStripsExactDataSkippingPath() throws Exception {
+        assertColumn("select struct_element(s, 'city') from tbl "
+                        + "where struct_element(s, 'city') is null",
+                "struct<city:text>",
+                ImmutableList.of(path("s", "city")),
+                ImmutableList.of());
+
+        assertColumn("select cardinality(struct_element(s, 'data')), struct_element(s, 'data') from tbl",
+                "struct<data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s", "data")),
+                ImmutableList.of());
+
+        assertColumn("select cardinality(a), a from nested_array_tbl",
+                "array<array<int>>",
+                ImmutableList.of(path("a")),
+                ImmutableList.of());
+
+        assertColumn("select cardinality(map_arr_col['a']), map_arr_col['a'] from map_array_tbl",
+                "map<text,array<int>>",
+                ImmutableList.of(path("map_arr_col", "*")),
+                ImmutableList.of());
+    }
+
+    @Test
     public void testCardinalityMapElementOffsetCoveredByValueFieldAccess() throws Exception {
         Pair<PhysicalPlan, List<SlotDescriptor>> result = collectComplexSlots(
                 "select struct_element(element_at(element_at(struct_element(s, 'm'), 'null'), 1), 'verified') "

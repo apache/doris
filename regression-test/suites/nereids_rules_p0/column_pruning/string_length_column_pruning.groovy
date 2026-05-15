@@ -154,6 +154,21 @@ suite("string_length_column_pruning") {
         notContains "type=bigint"
     }
 
+    // Full access to the same array field covers its OFFSET metadata for any data type.
+    explain {
+        sql "select id, cardinality(arr_col), arr_col from slcp_str_tbl"
+        contains "nested columns"
+        contains "all access paths: [arr_col]"
+        notContains "arr_col.OFFSET"
+        notContains "predicate access paths:"
+        notContains "type=bigint"
+    }
+
+    order_qt_array_full_access_strips_offset """
+        select id, cardinality(arr_col), arr_col from slcp_str_tbl
+        order by id
+    """
+
     // ─── Map column cases ────────────────────────────────────────────────────────
 
     // cardinality(map_col): only the offset array is needed → OFFSET access path emitted,
@@ -265,6 +280,20 @@ suite("string_length_column_pruning") {
         notContains "map_arr_struct_col.*.OFFSET"
         notContains "type=bigint"
     }
+
+    explain {
+        sql "select id, cardinality(map_arr_col['a']), map_arr_col['a'] from slcp_str_tbl"
+        contains "nested columns"
+        contains "all access paths: [map_arr_col.*]"
+        notContains "map_arr_col.*.OFFSET"
+        notContains "predicate access paths:"
+        notContains "type=bigint"
+    }
+
+    order_qt_map_element_full_access_strips_offset """
+        select id, cardinality(map_arr_col['a']), map_arr_col['a'] from slcp_str_tbl
+        order by id
+    """
 
     // Predicate OFFSET path must also be removed when the projected value field already
     // makes the corresponding array data path available. predicateAccessPaths remains a
