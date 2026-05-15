@@ -787,11 +787,6 @@ under the License.
             <name>central maven repo https</name>
             <url>https://repo.maven.apache.org/maven2</url>
         </repository>
-        <!-- for huawei obs sdk -->
-        <repository>
-            <id>huawei-obs-sdk</id>
-            <url>https://repo.huaweicloud.com/repository/maven/huaweicloudsdk/</url>
-        </repository>
     </repositories>
     <build>
         <finalName>doris-fe</finalName>
