@@ -194,7 +194,7 @@ public abstract class PartitionDefinition {
      */
     protected PartitionValue toLegacyPartitionValueStmt(Expression e) {
         if (e.isLiteral()) {
-            return new PartitionValue(((Literal) e).getStringValue(), e.isNullLiteral());
+            return new PartitionValue(((Literal) e).toLegacyLiteral().getStringValue(), e.isNullLiteral());
         } else if (e instanceof MaxValue) {
             return PartitionValue.MAX_VALUE;
         }

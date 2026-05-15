@@ -293,14 +293,14 @@ public class PartitionKeyTest {
     }
 
     @Test
-        public void testTimestampTzPartitionKeyKeepsExplicitOffset() throws Exception {
+    public void testTimestampTzPartitionKeyKeepsExplicitOffset() throws Exception {
         ConnectContext context = new ConnectContext();
         context.setThreadLocalInfo();
         try {
             context.getSessionVariable().setTimeZone("America/New_York");
 
             PartitionKey key = PartitionKey.createPartitionKey(
-                                        Arrays.asList(new PartitionValue("2024-01-15 12:00:00 +00:00")),
+                    Arrays.asList(new PartitionValue("2024-01-15 12:00:00 +00:00")),
                     Arrays.asList(timestampTz));
 
             DateLiteral literal = (DateLiteral) key.getKeys().get(0);
@@ -312,6 +312,32 @@ public class PartitionKeyTest {
             Assert.assertEquals(0, literal.getSecond());
             Assert.assertEquals(0, literal.getMicrosecond());
             Assert.assertTrue(literal.getStringValue().startsWith("2024-01-15 12:00:00"));
+            Assert.assertTrue(literal.getStringValue().endsWith("+00:00"));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testTimestampTzPartitionKeyUsesSessionTimezoneWithoutExplicitOffset() throws Exception {
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("America/New_York");
+
+            PartitionKey key = PartitionKey.createPartitionKey(
+                    Arrays.asList(new PartitionValue("2024-01-15 12:00:00")),
+                    Arrays.asList(timestampTz));
+
+            DateLiteral literal = (DateLiteral) key.getKeys().get(0);
+            Assert.assertEquals(2024, literal.getYear());
+            Assert.assertEquals(1, literal.getMonth());
+            Assert.assertEquals(15, literal.getDay());
+            Assert.assertEquals(17, literal.getHour());
+            Assert.assertEquals(0, literal.getMinute());
+            Assert.assertEquals(0, literal.getSecond());
+            Assert.assertEquals(0, literal.getMicrosecond());
+            Assert.assertTrue(literal.getStringValue().startsWith("2024-01-15 17:00:00"));
             Assert.assertTrue(literal.getStringValue().endsWith("+00:00"));
         } finally {
             ConnectContext.remove();

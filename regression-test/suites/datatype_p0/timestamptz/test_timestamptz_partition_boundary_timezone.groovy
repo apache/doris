@@ -127,9 +127,9 @@ suite("test_timestamptz_partition_boundary_timezone") {
     """
 
     def bug110Create = sql "SHOW CREATE TABLE bug110_src"
-        assertTrue(bug110Create[0][1].contains(
+    assertTrue(bug110Create[0][1].contains(
             "PARTITION p0 VALUES [('0000-01-01 00:00:00.000000+00:00'), ('2024-01-15 13:00:00.000000+00:00'))"))
-        assertTrue(bug110Create[0][1].contains(
+    assertTrue(bug110Create[0][1].contains(
             "PARTITION p1 VALUES [('2024-01-15 13:00:00.000000+00:00'), ('2024-01-15 14:00:00.000000+00:00'))"))
 
     sql """
@@ -141,6 +141,44 @@ suite("test_timestamptz_partition_boundary_timezone") {
     order_qt_bug110_src """
         SELECT CAST(ts AS STRING), seq
         FROM bug110_src
+        ORDER BY seq
+    """
+
+    sql "SET time_zone = 'America/New_York'"
+    sql "DROP TABLE IF EXISTS bug111_src"
+    sql """
+        CREATE TABLE bug111_src (
+            ts TIMESTAMPTZ(6) NOT NULL,
+            seq INT NOT NULL
+        )
+        UNIQUE KEY(ts)
+        PARTITION BY RANGE(ts) (
+            PARTITION p0 VALUES LESS THAN ('2024-01-15 13:00:00'),
+            PARTITION p1 VALUES LESS THAN ('2024-01-15 14:00:00')
+        )
+        DISTRIBUTED BY HASH(ts) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true"
+        )
+    """
+
+    def bug111Create = sql "SHOW CREATE TABLE bug111_src"
+    assertTrue(bug111Create[0][1].contains(
+            "PARTITION p0 VALUES [('0000-01-01 00:00:00.000000+00:00'), ('2024-01-15 18:00:00.000000+00:00'))"))
+    assertTrue(bug111Create[0][1].contains(
+            "PARTITION p1 VALUES [('2024-01-15 18:00:00.000000+00:00'), ('2024-01-15 19:00:00.000000+00:00'))"))
+
+    sql "SET time_zone = '+00:00'"
+    sql """
+        INSERT INTO bug111_src VALUES
+        (CAST('2024-01-15 17:30:00 +00:00' AS TIMESTAMPTZ(6)), 1),
+        (CAST('2024-01-15 18:30:00 +00:00' AS TIMESTAMPTZ(6)), 2)
+    """
+
+    order_qt_bug111_src """
+        SELECT CAST(ts AS STRING), seq
+        FROM bug111_src
         ORDER BY seq
     """
 }
