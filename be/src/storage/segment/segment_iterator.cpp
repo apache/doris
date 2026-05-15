@@ -187,8 +187,7 @@ Status rebind_storage_expr_to_reader_schema(
 
 Status rebind_storage_exprs_to_reader_schema(const StorageReadOptions& opts, const Schema& schema,
                                              const VExprContextSPtrs& common_exprs,
-                                             std::map<ColumnId, VExprContextSPtr>& virtual_exprs,
-                                             std::vector<VExprSPtr>* remaining_conjunct_roots) {
+                                             std::map<ColumnId, VExprContextSPtr>& virtual_exprs) {
     if (common_exprs.empty() && virtual_exprs.empty()) {
         return Status::OK();
     }
@@ -201,12 +200,8 @@ Status rebind_storage_exprs_to_reader_schema(const StorageReadOptions& opts, con
         cid_to_pos.emplace(schema.column_id(cast_set<int>(pos)), pos);
     }
 
-    if (!common_exprs.empty()) {
-        remaining_conjunct_roots->clear();
-    }
     for (const auto& ctx : common_exprs) {
         RETURN_IF_ERROR(rebind_storage_expr_to_reader_schema(opts, ctx->root(), cid_to_pos));
-        remaining_conjunct_roots->emplace_back(ctx->root());
     }
     for (const auto& [_, ctx] : virtual_exprs) {
         RETURN_IF_ERROR(rebind_storage_expr_to_reader_schema(opts, ctx->root(), cid_to_pos));
@@ -3293,8 +3288,7 @@ Status SegmentIterator::_construct_compound_expr_context() {
         expr_ctx = context;
     }
     RETURN_IF_ERROR(rebind_storage_exprs_to_reader_schema(
-            _opts, *_schema, _common_expr_ctxs_push_down, _virtual_column_exprs,
-            &_remaining_conjunct_roots));
+            _opts, *_schema, _common_expr_ctxs_push_down, _virtual_column_exprs));
     return Status::OK();
 }
 
