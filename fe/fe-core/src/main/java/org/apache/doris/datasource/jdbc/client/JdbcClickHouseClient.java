@@ -36,6 +36,11 @@ public class JdbcClickHouseClient extends JdbcClient {
 
     private final Boolean databaseTermIsCatalog;
 
+    protected JdbcClickHouseClient() {
+        super();
+        this.databaseTermIsCatalog = false;
+    }
+
     protected JdbcClickHouseClient(JdbcClientConfig jdbcClientConfig) {
         super(jdbcClientConfig);
         try (Connection conn = getConnection()) {
@@ -184,6 +189,7 @@ public class JdbcClickHouseClient extends JdbcClient {
             case "Bool":
                 return Type.BOOLEAN;
             case "Int8":
+            case "Nothing":
                 return Type.TINYINT;
             case "Int16":
             case "UInt8":

@@ -70,6 +70,9 @@ public abstract class JdbcClient {
     protected boolean enableMappingVarbinary;
     protected boolean enableMappingTimestampTz;
 
+    protected JdbcClient() {
+    }
+
     public static JdbcClient createJdbcClient(JdbcClientConfig jdbcClientConfig) {
         String dbType = parseDbType(jdbcClientConfig.getJdbcUrl());
         switch (dbType) {
