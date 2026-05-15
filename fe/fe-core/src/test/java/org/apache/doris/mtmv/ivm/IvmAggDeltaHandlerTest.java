@@ -56,13 +56,13 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-class IvmAggDeltaStrategyTest extends IvmDeltaTestBase {
+class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
 
     private AggRewriteResult rewriteAgg(LogicalAggregate<? extends Plan> agg) {
         PlanBundle bundle = normalizeAggPlan(agg);
         MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
         IvmRefreshContext ctx = new IvmRefreshContext(mtmv, bundle.connectContext, bundle.normalizeResult);
-        InsertIntoTableCommand command = (InsertIntoTableCommand) IvmAggDeltaStrategy.INSTANCE
+        InsertIntoTableCommand command = (InsertIntoTableCommand) IvmDeltaCommandBuilder.INSTANCE
                 .rewrite(bundle.normalizedPlan, ctx).get(0);
         UnboundTableSink<?> sink = getSink(command);
         return new AggRewriteResult(bundle, mtmv, sink, (LogicalProject<?>) sink.child());
@@ -274,7 +274,7 @@ class IvmAggDeltaStrategyTest extends IvmDeltaTestBase {
 
         IvmRefreshContext ctx = new IvmRefreshContext(mtmv, bundle.connectContext, null);
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
-                () -> IvmAggDeltaStrategy.INSTANCE.rewrite(bundle.normalizedPlan, ctx));
+                () -> IvmDeltaCommandBuilder.INSTANCE.rewrite(bundle.normalizedPlan, ctx));
         Assertions.assertTrue(ex.getMessage().contains("normalize result"));
     }
 
