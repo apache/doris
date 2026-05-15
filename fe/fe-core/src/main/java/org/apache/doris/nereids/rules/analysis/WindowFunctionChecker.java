@@ -41,10 +41,8 @@ import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
-import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
@@ -85,13 +83,11 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
     /**
      * step 2: check windowFunction in window
      */
-    public Expression checkWindowFunction() {
-        // todo: visitNtile()
-
+    public void checkWindowFunction() {
         // in checkWindowFrameBeforeFunc() we have confirmed that both left and right boundary are set as long as
         // windowFrame exists, therefore in all following visitXXX functions we don't need to check whether the right
         // boundary is null.
-        return windowExpression.accept(this, null);
+        windowExpression.accept(this, null);
     }
 
     /**
@@ -246,20 +242,12 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
             throw new AnalysisException("Lag must have three parameters");
         }
 
-        Expression column = lag.child(0);
         Expression offset = lag.getOffset();
-        Expression defaultValue = lag.getDefaultValue();
         WindowFrame requiredFrame = new WindowFrame(FrameUnitsType.ROWS,
                 FrameBoundary.newPrecedingBoundary(), FrameBoundary.newPrecedingBoundary(offset));
         windowExpression = windowExpression.withWindowFrame(requiredFrame);
 
-        // check if the class of lag's column matches defaultValue, and cast it
-        if (!TypeCoercionUtils.implicitCast(column.getDataType(), defaultValue.getDataType()).isPresent()) {
-            throw new AnalysisException("DefaultValue's Datatype of LAG() cannot match its relevant column. The column "
-                + "type is " + column.getDataType() + ", but the defaultValue type is " + defaultValue.getDataType());
-        }
-        return lag.withChildren(ImmutableList.of(column, offset,
-                TypeCoercionUtils.castIfNotMatchType(defaultValue, column.getDataType())));
+        return lag;
     }
 
     /**
@@ -275,20 +263,12 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
             throw new AnalysisException("Lead must have three parameters");
         }
 
-        Expression column = lead.child(0);
         Expression offset = lead.getOffset();
-        Expression defaultValue = lead.getDefaultValue();
         WindowFrame requiredFrame = new WindowFrame(FrameUnitsType.ROWS,
                 FrameBoundary.newPrecedingBoundary(), FrameBoundary.newFollowingBoundary(offset));
         windowExpression = windowExpression.withWindowFrame(requiredFrame);
 
-        // check if the class of lag's column matches defaultValue, and cast it
-        if (!TypeCoercionUtils.implicitCast(column.getDataType(), defaultValue.getDataType()).isPresent()) {
-            throw new AnalysisException("DefaultValue's Datatype of LEAD() can't match its relevant column. The column "
-                + "type is " + column.getDataType() + ", but the defaultValue type is " + defaultValue.getDataType());
-        }
-        return lead.withChildren(ImmutableList.of(column, offset,
-            TypeCoercionUtils.castIfNotMatchType(defaultValue, column.getDataType())));
+        return lead;
     }
 
     /**
