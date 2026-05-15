@@ -867,10 +867,11 @@ private:
                                          /*nan_direction_hint=*/1) == 0;
     }
 
-    // whether this function supports equality comparison for the given primitive type
+    // whether this function supports equality comparison for the given primitive type.
+    // Uses dispatch_switch_all as the single source of truth so any type supported
+    // by the dispatch layer is automatically accepted here.
     bool is_equality_comparison_supported(PrimitiveType type) const {
-        return is_string_type(type) || is_number(type) || is_date_type(type) ||
-               is_time_type(type) || is_ip(type);
+        return dispatch_switch_all(type, [](const auto&) { return true; });
     }
 };
 
