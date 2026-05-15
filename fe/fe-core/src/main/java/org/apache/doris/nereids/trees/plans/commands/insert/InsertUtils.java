@@ -686,7 +686,18 @@ public class InsertUtils {
             if (unboundLogicalSink.getColNames() != null) {
                 insertNames.addAll(unboundLogicalSink.getColNames());
             }
-            if (!insertNames.isEmpty()) {
+            if (insertNames.isEmpty()) {
+                List<Column> implicitTargetColumns = olapTable.getBaseSchema(true);
+                int outputColumnSize = Math.min(query.getOutput().size(), implicitTargetColumns.size());
+                for (int i = 0; i < outputColumnSize; i++) {
+                    Column col = implicitTargetColumns.get(i);
+                    if (col.getGeneratedColumnInfo() != null) {
+                        throw new AnalysisException("The value specified for generated column '"
+                                + col.getName()
+                                + "' in table '" + table.getName() + "' is not allowed.");
+                    }
+                }
+            } else {
                 for (Column col : olapTable.getFullSchema()) {
                     if (col.getGeneratedColumnInfo() != null && insertNames.contains(col.getName())) {
                         throw new AnalysisException("The value specified for generated column '"

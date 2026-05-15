@@ -9,9 +9,6 @@
 2	20	100	\N
 2	20	100	\N
 
--- !unique_partial_insert --
-1	new	7
-
 -- !agg_partial --
 1	100
 2	100
@@ -19,6 +16,10 @@
 -- !generated_partial --
 1	10	11
 2	20	21
+
+-- !unique_partial --
+1	11	100	\N
+2	20	100	\N
 
 -- !seq_with_input --
 1	10	2024-01-01T00:00

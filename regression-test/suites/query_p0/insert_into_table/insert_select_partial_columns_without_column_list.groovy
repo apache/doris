@@ -69,41 +69,6 @@ suite("insert_select_partial_columns_without_column_list", "p0") {
             exception "insert into cols should be corresponding to the query output"
         }
 
-        sql "drop table if exists insert_select_partial_unique_dst"
-        sql "drop table if exists insert_select_partial_unique_src"
-        sql """
-            create table insert_select_partial_unique_dst (
-                id int,
-                name varchar(20),
-                score int default "7"
-            )
-            unique key(id)
-            distributed by hash(id) buckets 1
-            properties(
-                "replication_num" = "1",
-                "enable_unique_key_merge_on_write" = "true"
-            );
-        """
-        sql """
-            create table insert_select_partial_unique_src (
-                id int,
-                name varchar(20)
-            )
-            duplicate key(id)
-            distributed by hash(id) buckets 1
-            properties("replication_num" = "1");
-        """
-        sql "insert into insert_select_partial_unique_dst values (1, 'old', 99)"
-        sql "insert into insert_select_partial_unique_src values (1, 'new')"
-        sql "set enable_unique_key_partial_update=true;"
-        sql "sync;"
-        sql "insert into insert_select_partial_unique_dst select id, name from insert_select_partial_unique_src"
-        sql "set enable_unique_key_partial_update=false;"
-        sql "sync;"
-        order_qt_unique_partial_insert """
-            select * from insert_select_partial_unique_dst order by id, name, score
-        """
-
         sql "drop table if exists insert_select_partial_agg_dst"
         sql "drop table if exists insert_select_partial_agg_src"
         sql """
@@ -181,6 +146,39 @@ suite("insert_select_partial_columns_without_column_list", "p0") {
         sql "sync"
         order_qt_generated_partial """
             select * from insert_select_partial_generated_dst order by k1, v1, g1
+        """
+
+        sql "drop table if exists insert_select_partial_unique_dst"
+        sql "drop table if exists insert_select_partial_unique_src"
+        sql """
+            create table insert_select_partial_unique_dst (
+                id int,
+                score int,
+                v1 int default "100",
+                v2 string null
+            )
+            unique key(id)
+            distributed by hash(id) buckets 1
+            properties(
+                "replication_num" = "1",
+                "enable_unique_key_merge_on_write" = "true"
+            );
+        """
+        sql """
+            create table insert_select_partial_unique_src (
+                id int,
+                score int
+            )
+            duplicate key(id)
+            distributed by hash(id) buckets 1
+            properties("replication_num" = "1");
+        """
+        sql "insert into insert_select_partial_unique_dst values (1, 10, 500, 'old')"
+        sql "insert into insert_select_partial_unique_src values (1, 11), (2, 20)"
+        sql "insert into insert_select_partial_unique_dst select id, score from insert_select_partial_unique_src"
+        sql "sync"
+        order_qt_unique_partial """
+            select * from insert_select_partial_unique_dst order by id, score, v1, v2
         """
 
         sql "drop table if exists insert_select_partial_seq_dst"

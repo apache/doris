@@ -134,6 +134,32 @@ import java.util.stream.Collectors;
 public class BindSink implements AnalysisRuleFactory {
     private static final Logger LOG = LogManager.getLogger(BindSink.class);
 
+    private enum ImplicitInsertColumnPolicy {
+        REJECT,
+        FILL_MISSING_BY_DEFAULT,
+        UNIQUE_FULL_ROW_INSERT,
+        UNIQUE_PARTIAL_UPDATE
+    }
+
+    private static class ImplicitInsertBindingResult {
+        private final ImplicitInsertColumnPolicy policy;
+        private final int inputColumnSize;
+        private final List<Column> omittedColumns;
+
+        private ImplicitInsertBindingResult(
+                ImplicitInsertColumnPolicy policy, int inputColumnSize, List<Column> omittedColumns) {
+            this.policy = policy;
+            this.inputColumnSize = inputColumnSize;
+            this.omittedColumns = omittedColumns;
+        }
+
+        private boolean shouldFillMissingColumnsByDefault() {
+            return !omittedColumns.isEmpty()
+                    && (policy == ImplicitInsertColumnPolicy.FILL_MISSING_BY_DEFAULT
+                    || policy == ImplicitInsertColumnPolicy.UNIQUE_FULL_ROW_INSERT);
+        }
+    }
+
     public boolean needTruncateStringWhenInsert;
 
     public BindSink() {
@@ -197,18 +223,11 @@ public class BindSink implements AnalysisRuleFactory {
                         sink.getDMLCommandType() == DMLCommandType.GROUP_COMMIT);
         List<Column> bindColumns = bindColumnsResult.first;
         int extraColumnsNum = bindColumnsResult.second;
-        if (sink.getColNames().isEmpty()
-                && sink.getDMLCommandType() == DMLCommandType.INSERT
-                && child.getOutput().size() < bindColumns.size()) {
-            bindColumns = ImmutableList.copyOf(bindColumns.subList(0, child.getOutput().size()));
-        }
-        if (sink.getColNames().isEmpty() && sink.getDMLCommandType() == DMLCommandType.INSERT) {
-            for (Column column : bindColumns) {
-                if (column.getGeneratedColumnInfo() != null) {
-                    throw new AnalysisException("The value specified for generated column '"
-                            + column.getName() + "' in table '" + table.getName() + "' is not allowed.");
-                }
-            }
+        ImplicitInsertBindingResult implicitInsertBindingResult = resolveImplicitInsertBindingPolicy(
+                table, sink, child, bindColumns, isPartialUpdate);
+        if (implicitInsertBindingResult.shouldFillMissingColumnsByDefault()) {
+            bindColumns = ImmutableList.copyOf(bindColumns.subList(0,
+                    implicitInsertBindingResult.inputColumnSize));
         }
 
         LogicalOlapTableSink<?> boundSink = new LogicalOlapTableSink<>(
@@ -1132,6 +1151,35 @@ public class BindSink implements AnalysisRuleFactory {
                     }
                     return partition.getId();
                 }).collect(Collectors.toList());
+    }
+
+    private ImplicitInsertBindingResult resolveImplicitInsertBindingPolicy(
+            OlapTable table, UnboundTableSink<?> sink, LogicalPlan child, List<Column> bindColumns,
+            boolean isPartialUpdate) {
+        int inputColumnSize = child.getOutput().size();
+        if (!sink.getColNames().isEmpty()
+                || sink.getDMLCommandType() != DMLCommandType.INSERT
+                || inputColumnSize >= bindColumns.size()) {
+            return new ImplicitInsertBindingResult(ImplicitInsertColumnPolicy.REJECT,
+                    inputColumnSize, ImmutableList.of());
+        }
+
+        List<Column> omittedColumns = ImmutableList.copyOf(
+                bindColumns.subList(inputColumnSize, bindColumns.size()));
+        if (isPartialUpdate) {
+            return new ImplicitInsertBindingResult(ImplicitInsertColumnPolicy.UNIQUE_PARTIAL_UPDATE,
+                    inputColumnSize, omittedColumns);
+        }
+
+        if (table.getKeysType() == KeysType.UNIQUE_KEYS) {
+            return new ImplicitInsertBindingResult(ImplicitInsertColumnPolicy.UNIQUE_FULL_ROW_INSERT,
+                    inputColumnSize, omittedColumns);
+        }
+        if (table.getKeysType() == KeysType.DUP_KEYS || table.getKeysType() == KeysType.AGG_KEYS) {
+            return new ImplicitInsertBindingResult(ImplicitInsertColumnPolicy.FILL_MISSING_BY_DEFAULT,
+                    inputColumnSize, omittedColumns);
+        }
+        return new ImplicitInsertBindingResult(ImplicitInsertColumnPolicy.REJECT, inputColumnSize, omittedColumns);
     }
 
     // bindTargetColumns means bind sink node's target columns' names to target table's columns
