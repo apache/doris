@@ -145,28 +145,37 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
             ImmutableSet.of(Count.class, Sum.class, Avg.class, Min.class, Max.class);
 
     static final class NormalizeContext {
-        private static final NormalizeContext ROOT = new NormalizeContext(true, false);
+        private static final NormalizeContext ROOT = new NormalizeContext(true, false, false);
 
         private final boolean isFirstNonSink;
         private final boolean isOuterJoinNullableSide;
+        private final boolean isInsideUnion;
 
-        private NormalizeContext(boolean isFirstNonSink, boolean isOuterJoinNullableSide) {
+        private NormalizeContext(boolean isFirstNonSink, boolean isOuterJoinNullableSide, boolean isInsideUnion) {
             this.isFirstNonSink = isFirstNonSink;
             this.isOuterJoinNullableSide = isOuterJoinNullableSide;
+            this.isInsideUnion = isInsideUnion;
         }
 
         private NormalizeContext afterNonSink() {
             if (!isFirstNonSink) {
                 return this;
             }
-            return new NormalizeContext(false, isOuterJoinNullableSide);
+            return new NormalizeContext(false, isOuterJoinNullableSide, isInsideUnion);
         }
 
         private NormalizeContext enterOuterJoinNullableSide() {
             if (isOuterJoinNullableSide) {
                 return this;
             }
-            return new NormalizeContext(isFirstNonSink, true);
+            return new NormalizeContext(isFirstNonSink, true, isInsideUnion);
+        }
+
+        private NormalizeContext enterUnion() {
+            if (isInsideUnion) {
+                return this;
+            }
+            return new NormalizeContext(isFirstNonSink, isOuterJoinNullableSide, true);
         }
     }
 
@@ -200,6 +209,10 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
     // whitelisted: only OlapScan — inject IVM row-id at index 0
     @Override
     public Plan visitLogicalOlapScan(LogicalOlapScan scan, NormalizeContext context) {
+        if (context.isOuterJoinNullableSide && context.isInsideUnion && !isExcludedTriggerTable(scan)) {
+            throw new IvmException(IvmFailureReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED,
+                    "IVM OUTER JOIN does not support UNION ALL with OlapScan on nullable side");
+        }
         OlapTable table = scan.getTable();
         Pair<Expression, Boolean> rowId = buildRowId(table, scan);
         validateBinlogEnabled(scan);
@@ -328,11 +341,6 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
      */
     @Override
     public Plan visitLogicalUnion(LogicalUnion union, NormalizeContext context) {
-        if (context.isOuterJoinNullableSide && union.getQualifier() == Qualifier.ALL
-                && containsNonExcludedOlapScan(union)) {
-            throw new IvmException(IvmFailureReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED,
-                    "IVM OUTER JOIN does not support UNION ALL with OlapScan on nullable side");
-        }
         if (union.getQualifier() != Qualifier.ALL) {
             throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                     "IVM does not support UNION DISTINCT. Only UNION ALL is supported.");
@@ -345,9 +353,10 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
         List<Plan> newChildren = new ArrayList<>();
         List<List<SlotReference>> newChildrenOutputs = new ArrayList<>();
         boolean allDet = true;
+        NormalizeContext childContext = context.afterNonSink().enterUnion();
 
         for (int i = 0; i < union.children().size(); i++) {
-            Plan normalizedChild = union.child(i).accept(this, context.afterNonSink());
+            Plan normalizedChild = union.child(i).accept(this, childContext);
             Slot childRowId = IvmUtil.findRowIdSlot(normalizedChild.getOutput(),
                     "child " + i + " of union");
             allDet &= normalizeResult.isDeterministic(childRowId);
@@ -506,16 +515,6 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
 
     private boolean isNullableOnRight(JoinType joinType) {
         return joinType == JoinType.LEFT_OUTER_JOIN;
-    }
-
-    private boolean containsNonExcludedOlapScan(Plan plan) {
-        return plan.<LogicalOlapScan>collectFirst(child -> {
-            if (!(child instanceof LogicalOlapScan)) {
-                return false;
-            }
-            LogicalOlapScan scan = (LogicalOlapScan) child;
-            return !isExcludedTriggerTable(scan);
-        }).isPresent();
     }
 
     private void checkSupportedOuterJoin(JoinType joinType) {
