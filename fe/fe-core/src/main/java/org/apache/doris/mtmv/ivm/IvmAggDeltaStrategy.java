@@ -77,7 +77,11 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Aggregate delta rewrite strategy for IVM.
+ * Unified delta rewrite strategy for IVM.
+ *
+ * <p>Non-aggregate plans use the inherited linear and outer-join visitors and are
+ * wrapped with the regular sink project. Aggregate plans return a terminal apply
+ * plan from {@link #visitLogicalAggregate(LogicalAggregate, IvmRefreshContext)}.
  *
  * <p>Handles single-table aggregate MVs with count/sum/avg/min/max.
  * Min/max use an assert_true guard: if a deleted row matches the current extreme,
@@ -106,15 +110,14 @@ import java.util.Optional;
  */
 public class IvmAggDeltaStrategy extends IvmOuterJoinDeltaStrategy {
 
+    public static final IvmAggDeltaStrategy INSTANCE = new IvmAggDeltaStrategy();
+
     /** Transient semantic key for MIN of deleted values (not stored in MV). */
     private static final String DELMIN = "DELMIN";
     /** Transient semantic key for MAX of deleted values (not stored in MV). */
     private static final String DELMAX = "DELMAX";
 
-    /** Set via constructor, used by visitor methods. Single-use: create a fresh instance per rewrite. */
-
-    public IvmAggDeltaStrategy(IvmRefreshContext ctx) {
-        super(ctx);
+    private IvmAggDeltaStrategy() {
     }
 
     /**
@@ -144,17 +147,13 @@ public class IvmAggDeltaStrategy extends IvmOuterJoinDeltaStrategy {
         }
     }
 
-    @Override
-    public List<Command> rewrite(Plan normalizedPlan) {
-        RewriteResult result = rewritePlan(normalizedPlan);
-        Command insertCommand = buildInsertCommandWithDeleteSign(result.plan);
+    public List<Command> rewrite(Plan normalizedPlan, IvmRefreshContext ctx) {
+        RewriteResult result = rewritePlan(normalizedPlan, ctx);
+        Plan finalPlan = result.isTerminal ? result.plan : buildSinkProject(result, ctx);
+        Command insertCommand = buildInsertCommandWithDeleteSign(finalPlan, ctx);
         return ImmutableList.of(insertCommand);
     }
 
-    /**
-     * When the normalize top project sits above an aggregate, skip it entirely —
-     * the aggregate visitor produces the complete apply plan.
-     */
     /**
      * Handles projects in the agg plan tree.
      *
@@ -176,7 +175,7 @@ public class IvmAggDeltaStrategy extends IvmOuterJoinDeltaStrategy {
      * </ol>
      */
     @Override
-    public RewriteResult visitLogicalProject(LogicalProject<? extends Plan> project, Void context) {
+    public RewriteResult visitLogicalProject(LogicalProject<? extends Plan> project, IvmRefreshContext context) {
         if (project.child() instanceof LogicalAggregate) {
             return project.child().accept(this, context);
         }
@@ -207,8 +206,8 @@ public class IvmAggDeltaStrategy extends IvmOuterJoinDeltaStrategy {
      * 5. Returns RewriteResult with null dmlFactorSlot (apply plan is terminal).
      */
     @Override
-    public RewriteResult visitLogicalAggregate(LogicalAggregate<? extends Plan> agg, Void context) {
-        IvmNormalizeResult normalizeResult = ctx.getNormalizeResult();
+    public RewriteResult visitLogicalAggregate(LogicalAggregate<? extends Plan> agg, IvmRefreshContext context) {
+        IvmNormalizeResult normalizeResult = context.getNormalizeResult();
         if (normalizeResult == null) {
             throw new AnalysisException("IVM agg delta rewrite requires normalize result");
         }
@@ -221,7 +220,7 @@ public class IvmAggDeltaStrategy extends IvmOuterJoinDeltaStrategy {
         RewriteResult childResult = agg.child().accept(this, context);
 
         DeltaPlanParts delta = buildDeltaSubPlan(agg, childResult, aggMeta);
-        LogicalProject<?> applyProject = buildApplyPlan(delta, aggMeta, ctx);
+        LogicalProject<?> applyProject = buildApplyPlan(delta, aggMeta, context);
         return new RewriteResult(applyProject, null, true);
     }
 

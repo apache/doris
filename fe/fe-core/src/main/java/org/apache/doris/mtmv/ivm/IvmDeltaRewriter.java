@@ -39,11 +39,7 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 
 /**
- * Entry point for IVM delta rewriting. Routes the normalized plan to the appropriate strategy:
- * <ul>
- *   <li>Aggregate MVs → {@link IvmAggDeltaStrategy}</li>
- *   <li>Non-aggregate MVs → {@link IvmOuterJoinDeltaStrategy}</li>
- * </ul>
+ * Entry point for IVM delta rewriting.
  *
  * <h3>Multi-bundle generation</h3>
  * <p>The rewriter generates one bundle per OlapScan that has pending delta data
@@ -61,10 +57,7 @@ import java.util.function.Predicate;
  */
 public class IvmDeltaRewriter {
 
-    /**
-     * Rewrites the normalized plan into a list of delta commands.
-     * Dispatches to the appropriate strategy based on the normalize result.
-     */
+    /** Rewrites the normalized plan into a list of delta commands. */
     public List<Command> rewrite(Plan normalizedPlan, IvmRefreshContext ctx) {
         Set<TableNameInfo> excluded = ctx.getMtmv().getExcludedTriggerTables();
         Predicate<LogicalOlapScan> isExcluded = scan -> isExcludedTriggerTable(scan, excluded);
@@ -72,8 +65,7 @@ public class IvmDeltaRewriter {
 
         List<Command> allCommands = new ArrayList<>();
         for (Plan deltaPlan : deltaPlans) {
-            // Each strategy instance is single-use
-            allCommands.addAll(createStrategy(ctx).rewrite(deltaPlan));
+            allCommands.addAll(IvmAggDeltaStrategy.INSTANCE.rewrite(deltaPlan, ctx));
         }
         return allCommands;
     }
@@ -261,15 +253,6 @@ public class IvmDeltaRewriter {
      */
     private LogicalOlapScan replaceWithDelta(LogicalOlapScan scan, IvmStreamRef ref) {
         return (LogicalOlapScan) scan.withIsDelta(true);
-    }
-
-    private IvmDeltaStrategy createStrategy(IvmRefreshContext ctx) {
-        IvmNormalizeResult normalizeResult = ctx.getNormalizeResult();
-        if (normalizeResult.isAggMv()) {
-            return new IvmAggDeltaStrategy(ctx);
-        } else {
-            return new IvmOuterJoinDeltaStrategy(ctx);
-        }
     }
 
     boolean isExcludedTriggerTable(LogicalOlapScan scan, Set<TableNameInfo> excludedTriggerTables) {

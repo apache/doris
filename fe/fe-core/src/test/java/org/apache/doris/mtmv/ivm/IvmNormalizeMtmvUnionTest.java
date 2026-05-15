@@ -23,10 +23,12 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.rules.rewrite.IvmNormalizeMtmv;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
@@ -275,8 +277,7 @@ class IvmNormalizeMtmvUnionTest extends IvmDeltaTestBase {
             childrenOutputs.add(childMapping.build());
         }
 
-        NamedExpression constExpr = new org.apache.doris.nereids.trees.expressions.Alias(
-                new org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral(1), "const_col");
+        NamedExpression constExpr = new Alias(new IntegerLiteral(1), "const_col");
         List<List<NamedExpression>> constantExprs = ImmutableList.of(
                 ImmutableList.of(constExpr));
         LogicalUnion union = new LogicalUnion(Qualifier.ALL, outputs.build(),

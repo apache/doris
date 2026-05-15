@@ -22,6 +22,7 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.Command;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -51,6 +53,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         Mockito.when(mtmv.getQualifiedDbName()).thenReturn("test_db");
         Mockito.when(mtmv.getName()).thenReturn("test_mv");
         Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(Sets.newHashSet());
+        Mockito.when(mtmv.getInsertedColumnNames()).thenReturn(ImmutableList.of("id", "name"));
         return mtmv;
     }
 
@@ -84,14 +87,14 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     private LogicalJoin<LogicalOlapScan, LogicalOlapScan> crossJoin(
             LogicalOlapScan left, LogicalOlapScan right) {
         return new LogicalJoin<>(JoinType.CROSS_JOIN, left, right,
-                new org.apache.doris.nereids.rules.exploration.join.JoinReorderContext());
+                new JoinReorderContext());
     }
 
     private List<LogicalOlapScan> collectScans(Plan plan) {
         return plan.collectToList(n -> n instanceof LogicalOlapScan);
     }
 
-    // ==================== Strategy routing tests ====================
+    // ==================== Delta rewrite tests ====================
 
     @Test
     void testScanOnlyProducesInsertBundle() {
@@ -150,7 +153,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testRouteWithAggMetaUsesAggStrategy() {
+    void testUnifiedStrategyKeepsAggTerminalApplyPlan() {
         LogicalOlapScan scan = buildScan();
         Map<TableNameInfo, IvmStreamRef> streams = makeStreams(scan);
         PlanBundle bundle = normalizeAggPlan(buildGroupedAgg(scan));
@@ -167,7 +170,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testRouteWithoutAggMetaUsesScanStrategy() {
+    void testUnifiedStrategyBuildsSinkProjectForNonAggPlan() {
         MTMV mtmv = mockMtmv();
         LogicalOlapScan scan = buildScan();
         Map<TableNameInfo, IvmStreamRef> streams = makeStreams(scan);
@@ -177,6 +180,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
                 .rewrite(buildScanPlan(scan), ctx).get(0);
         UnboundTableSink<?> sink = getSink(command);
         Plan child = sink.child();
+        Assertions.assertEquals(ImmutableList.of("id", "name", Column.DELETE_SIGN), sink.getColNames());
         Assertions.assertInstanceOf(LogicalProject.class, child);
         Assertions.assertFalse(child instanceof LogicalJoin);
     }
@@ -346,7 +350,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         Plan abJoin = crossJoin(scanA, scanB);
         LogicalJoin<Plan, LogicalOlapScan> abcJoin = new LogicalJoin<>(
                 JoinType.CROSS_JOIN, abJoin, scanC,
-                new org.apache.doris.nereids.rules.exploration.join.JoinReorderContext());
+                new JoinReorderContext());
 
         Map<TableNameInfo, IvmStreamRef> streams = new HashMap<>();
         addStream(streams, scanA, 10, 20);
@@ -385,7 +389,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         Plan abJoin = crossJoin(scanA, scanB);
         LogicalJoin<Plan, LogicalOlapScan> abcJoin = new LogicalJoin<>(
                 JoinType.CROSS_JOIN, abJoin, scanC,
-                new org.apache.doris.nereids.rules.exploration.join.JoinReorderContext());
+                new JoinReorderContext());
 
         Map<TableNameInfo, IvmStreamRef> streams = new HashMap<>();
         addStream(streams, scanA, 10, 20);
@@ -459,7 +463,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         Plan abJoin = crossJoin(scanA, scanB);
         LogicalJoin<Plan, LogicalOlapScan> abcJoin = new LogicalJoin<>(
                 JoinType.CROSS_JOIN, abJoin, scanC,
-                new org.apache.doris.nereids.rules.exploration.join.JoinReorderContext());
+                new JoinReorderContext());
 
         Map<TableNameInfo, IvmStreamRef> streams = new HashMap<>();
         addStream(streams, scanA, 10, 20);
