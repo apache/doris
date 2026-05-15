@@ -146,6 +146,7 @@ TEST(HashFunctionTest, murmur_hash_3_128_test) {
                  pack_murmur_hash3_128_for_test(5998619086395760910ULL, 12364428806279881649ULL)}};
 
         static_cast<void>(check_function<DataTypeInt128, true>(func_name, input_types, data_set));
+        check_function_all_arg_comb<DataTypeInt128, true>(func_name, input_types, data_set);
     };
 
     {
@@ -156,6 +157,18 @@ TEST(HashFunctionTest, murmur_hash_3_128_test) {
                             {{std::string("hello"), Null()}, Null()}};
 
         static_cast<void>(check_function<DataTypeInt128, true>(func_name, input_types, data_set));
+        check_function_all_arg_comb<DataTypeInt128, true>(func_name, input_types, data_set);
+    };
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_VARCHAR};
+
+        DataSet data_set = {{{std::string("hello"), std::string("world"), std::string("!")},
+                             murmur_hash3_128_for_test({"hello", "world", "!"})},
+                            {{std::string("hello"), std::string("world"), Null()}, Null()}};
+
+        check_function_all_arg_comb<DataTypeInt128, true>(func_name, input_types, data_set);
     };
 }
 
