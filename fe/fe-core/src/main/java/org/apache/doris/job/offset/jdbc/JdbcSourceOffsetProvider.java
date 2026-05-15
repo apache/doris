@@ -485,23 +485,23 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 if (MapUtils.isNotEmpty(chunkHighWatermarkMap) && MapUtils.isNotEmpty(snapshotSplits)) {
                     List<SnapshotSplit> lastSnapshotSplits =
                             recalculateRemainingSplits(chunkHighWatermarkMap, snapshotSplits);
+                    resumeCdcSplitProgressFromSplits();
                     if (this.remainingSplits.isEmpty()) {
                         if (!lastSnapshotSplits.isEmpty()) {
                             currentOffset = new JdbcOffset();
                             currentOffset.setSplits(lastSnapshotSplits);
-                        } else if (!isSnapshotOnlyMode()) {
+                        } else if (!isSnapshotOnlyMode() && noMoreSplits()) {
                             // initial mode: rebuild binlog split for snapshot-to-binlog transition
                             currentOffset = new JdbcOffset();
                             BinlogSplit binlogSplit = new BinlogSplit();
                             binlogSplit.setFinishedSplits(finishedSplits);
                             currentOffset.setSplits(Collections.singletonList(binlogSplit));
-                        } else {
-                            // snapshot-only completed: leave currentOffset as null,
-                            // hasReachedEnd() detects completion via finishedSplits
+                        } else if (isSnapshotOnlyMode()) {
                             log.info("Replaying offset provider for job {}: snapshot-only mode completed,"
                                     + " finishedSplits={}, skip currentOffset restoration",
                                     getJobId(), finishedSplits.size());
                         }
+                        // else: splitter mid-flight, keep currentOffset as snapshotSplit.
                     }
                 }
             }
@@ -516,11 +516,10 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             log.info("Replaying offset provider for job {}, offsetProviderPersist is empty", getJobId());
             Map<String, List<SnapshotSplit>> snapshotSplits = StreamingJobUtils.restoreSplitsToJob(job.getJobId());
             recalculateRemainingSplits(new HashMap<>(), snapshotSplits);
+            resumeCdcSplitProgressFromSplits();
         } else {
             log.info("No need to replay offset provider for job {}", getJobId());
         }
-
-        resumeCdcSplitProgressFromSplits();
     }
 
     /** Rebuild cdcSplitProgress after restart so advanceSplits resumes mid-table instead of skipping it. */

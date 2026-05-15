@@ -330,6 +330,7 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
                                 ? remapChunkHighWatermarkMap(snapshotSplits)
                                 : new HashMap<>();
                 recalculateRemainingSplits(effective, snapshotSplits);
+                resumeCdcSplitProgressFromSplits();
                 log.info("Replaying TVF offset provider for job {}: no current offset,"
                         + " restored {} remaining splits from meta (chw size={})",
                         job.getJobId(), remainingSplits.size(),
@@ -338,7 +339,6 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
                 log.info("Replaying TVF offset provider for job {}: no committed txn,"
                         + " no snapshot splits in meta", job.getJobId());
             }
-            // Fall through: cdcSplitProgress cursor must be rebuilt or advanceSplits truncates.
         } else if (currentOffset.snapshotSplit()) {
             log.info("Replaying TVF offset provider for job {}: restoring snapshot state from txn replay",
                     job.getJobId());
@@ -351,10 +351,12 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
                         remapChunkHighWatermarkMap(snapshotSplits);
                 List<SnapshotSplit> lastSnapshotSplits =
                         recalculateRemainingSplits(effectiveMap, snapshotSplits);
+                // Rebuild first so noMoreSplits() can read splitter state from last.splitEnd.
+                resumeCdcSplitProgressFromSplits();
                 if (remainingSplits.isEmpty()) {
                     if (!lastSnapshotSplits.isEmpty()) {
                         currentOffset = new JdbcOffset(lastSnapshotSplits);
-                    } else if (!isSnapshotOnlyMode()) {
+                    } else if (!isSnapshotOnlyMode() && noMoreSplits()) {
                         BinlogSplit binlogSplit = new BinlogSplit();
                         binlogSplit.setFinishedSplits(finishedSplits);
                         currentOffset = new JdbcOffset(Collections.singletonList(binlogSplit));
@@ -365,7 +367,6 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
             log.info("Replaying TVF offset provider for job {}: binlog offset already set, nothing to do",
                     job.getJobId());
         }
-        resumeCdcSplitProgressFromSplits();
     }
 
     /**
