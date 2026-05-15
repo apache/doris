@@ -102,9 +102,23 @@ public class JsonLiteralTest {
     }
 
     @Test
-    public void testLoneLowSurrogateInObject() {
+    public void testLoneHighSurrogateInObjectKey() {
+        // lone surrogate in object field name must also be rejected
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
-                () -> new JsonLiteral("{\"k\":\"\\uDC00\"}"));
+                () -> new JsonLiteral("{\"\\uD800\":\"value\"}"));
+        Assertions.assertTrue(ex.getMessage().contains("lone high surrogate"));
+    }
+
+    @Test
+    public void testLoneLowSurrogateInObjectKey() {
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> new JsonLiteral("{\"\\uDC00\":\"value\"}"));
         Assertions.assertTrue(ex.getMessage().contains("lone low surrogate"));
+    }
+
+    @Test
+    public void testValidSurrogatePairInObjectKey() {
+        // valid surrogate pair in key must be accepted
+        Assertions.assertDoesNotThrow(() -> new JsonLiteral("{\"\\uD83D\\uDE00\":\"ok\"}"));
     }
 }
