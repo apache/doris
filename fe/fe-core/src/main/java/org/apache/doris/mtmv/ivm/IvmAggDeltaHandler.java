@@ -58,7 +58,6 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
-import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -77,11 +76,11 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Unified delta rewrite strategy for IVM.
+ * Aggregate delta rewrite handler for IVM.
  *
- * <p>Non-aggregate plans use the inherited linear and outer-join visitors and are
- * wrapped with the regular sink project. Aggregate plans return a terminal apply
- * plan from {@link #visitLogicalAggregate(LogicalAggregate, IvmRefreshContext)}.
+ * <p>Non-aggregate nodes are handled by the linear and outer-join handlers. Aggregate
+ * nodes return a terminal apply plan from {@link #rewriteAggregate(LogicalAggregate,
+ * IvmDeltaRewriteVisitor, IvmRefreshContext)}.
  *
  * <p>Handles single-table aggregate MVs with count/sum/avg/min/max.
  * Min/max use an assert_true guard: if a deleted row matches the current extreme,
@@ -99,26 +98,21 @@ import java.util.Optional;
  * </ol>
  *
  * <h3>Visitor integration</h3>
- * <p>Inherits from {@link IvmOuterJoinDeltaStrategy} and overrides:
+ * <p>The visitor calls this handler for:
  * <ul>
- *   <li>{@code visitLogicalProject}: skips the normalize top-project when its child is an aggregate,
+ *   <li>{@code rewriteTopProject}: skips the normalize top-project when its child is an aggregate,
  *       since the aggregate visitor produces a complete replacement plan.</li>
- *   <li>{@code visitLogicalAggregate}: main entry point that builds delta + apply + insert.</li>
+ *   <li>{@code rewriteAggregate}: main entry point that builds delta + apply.</li>
  * </ul>
- *
- * @see IvmOuterJoinDeltaStrategy
  */
-public class IvmAggDeltaStrategy extends IvmOuterJoinDeltaStrategy {
-
-    public static final IvmAggDeltaStrategy INSTANCE = new IvmAggDeltaStrategy();
+class IvmAggDeltaHandler {
 
     /** Transient semantic key for MIN of deleted values (not stored in MV). */
     private static final String DELMIN = "DELMIN";
     /** Transient semantic key for MAX of deleted values (not stored in MV). */
     private static final String DELMAX = "DELMAX";
 
-    private IvmAggDeltaStrategy() {
-    }
+    private final IvmDeltaRewriteHelper helper = IvmDeltaRewriteHelper.INSTANCE;
 
     /**
      * Intermediate result from {@link #buildDeltaSubPlan}.
@@ -147,52 +141,12 @@ public class IvmAggDeltaStrategy extends IvmOuterJoinDeltaStrategy {
         }
     }
 
-    public List<Command> rewrite(Plan normalizedPlan, IvmRefreshContext ctx) {
-        RewriteResult result = rewritePlan(normalizedPlan, ctx);
-        Plan finalPlan = result.isTerminal ? result.plan : buildSinkProject(result, ctx);
-        Command insertCommand = buildInsertCommandWithDeleteSign(finalPlan, ctx);
-        return ImmutableList.of(insertCommand);
-    }
-
     /**
-     * Handles projects in the agg plan tree.
-     *
-     * <p>There are four roles a project can play in the agg normalized plan:
-     * <ol>
-     *   <li><b>Directly above Agg</b>: The normalize-added project that maps user-facing
-     *       and IVM hidden columns. Skip it and dispatch directly to the aggregate visitor,
-     *       which builds a complete apply plan (including DELETE_SIGN).</li>
-     *   <li><b>Above the agg path</b> (e.g., an extra top-level project): The child subtree
-     *       eventually reaches the aggregate visitor and returns a terminal apply plan
-     *       ({@code isTerminal == true}). We must return that result as-is — wrapping it
-     *       in this project's original projections would drop the DELETE_SIGN column.</li>
-     *   <li><b>Below the Agg, snapshot side</b> (e.g., in a join subtree, snapshot child):
-     *       {@code dmlFactorSlot == null} but NOT terminal. Preserve the normalize-added
-     *       project (which carries row_id and other hidden columns) by wrapping like the
-     *       parent class does.</li>
-     *   <li><b>Below the Agg, delta side</b>: The child has a non-null dmlFactorSlot.
-     *       Propagate it through the project using the parent's helper.</li>
-     * </ol>
+     * Skips the normalize-added project directly above the root aggregate.
      */
-    @Override
-    public RewriteResult visitLogicalProject(LogicalProject<? extends Plan> project, IvmRefreshContext context) {
-        if (project.child() instanceof LogicalAggregate) {
-            return project.child().accept(this, context);
-        }
-        RewriteResult childResult = project.child().accept(this, context);
-        if (childResult.isTerminal) {
-            // Terminal apply plan from the agg visitor — return as-is.
-            return childResult;
-        }
-        if (childResult.dmlFactorSlot == null) {
-            // Snapshot-side project (below agg, e.g. in a join subtree):
-            // preserve normalize-added hidden columns such as row_id.
-            LogicalProject<?> newProject = project.withProjectsAndChild(
-                    project.getProjects(), childResult.plan);
-            return new RewriteResult(newProject, null);
-        }
-        // Below the agg: propagate dml_factor through this project.
-        return propagateDmlFactorThroughProject(project, childResult);
+    IvmDeltaRewriteResult rewriteTopProject(LogicalProject<? extends Plan> project,
+            IvmDeltaRewriteVisitor visitor, IvmRefreshContext context) {
+        return project.child().accept(visitor, context);
     }
 
     /**
@@ -203,10 +157,10 @@ public class IvmAggDeltaStrategy extends IvmOuterJoinDeltaStrategy {
      * 2. Walks the aggregate's child subtree to inject dml_factor (via super's visitor).
      * 3. Builds the delta sub-plan (signed aggregate).
      * 4. Builds the apply plan (LEFT JOIN + state merge + visible derivation).
-     * 5. Returns RewriteResult with null dmlFactorSlot (apply plan is terminal).
+     * 5. Returns IvmDeltaRewriteResult with null dmlFactorSlot (apply plan is terminal).
      */
-    @Override
-    public RewriteResult visitLogicalAggregate(LogicalAggregate<? extends Plan> agg, IvmRefreshContext context) {
+    IvmDeltaRewriteResult rewriteAggregate(LogicalAggregate<? extends Plan> agg,
+            IvmDeltaRewriteVisitor visitor, IvmRefreshContext context) {
         IvmNormalizeResult normalizeResult = context.getNormalizeResult();
         if (normalizeResult == null) {
             throw new AnalysisException("IVM agg delta rewrite requires normalize result");
@@ -217,11 +171,11 @@ public class IvmAggDeltaStrategy extends IvmOuterJoinDeltaStrategy {
         }
 
         // Walk agg child to inject dml_factor
-        RewriteResult childResult = agg.child().accept(this, context);
+        IvmDeltaRewriteResult childResult = agg.child().accept(visitor, context);
 
         DeltaPlanParts delta = buildDeltaSubPlan(agg, childResult, aggMeta);
         LogicalProject<?> applyProject = buildApplyPlan(delta, aggMeta, context);
-        return new RewriteResult(applyProject, null, true);
+        return new IvmDeltaRewriteResult(applyProject, null, true);
     }
 
     /**
@@ -253,7 +207,7 @@ public class IvmAggDeltaStrategy extends IvmOuterJoinDeltaStrategy {
      * 2. Apply COALESCE to NULL-susceptible outputs (SUM may return NULL for all-NULL groups).
      */
     private DeltaPlanParts buildDeltaSubPlan(LogicalAggregate<?> normalizedAgg,
-            RewriteResult childResult, IvmAggMeta aggMeta) {
+            IvmDeltaRewriteResult childResult, IvmAggMeta aggMeta) {
         Plan newAggChild = childResult.plan;
         Slot dmlFactorSlot = childResult.dmlFactorSlot;
 
@@ -389,7 +343,7 @@ public class IvmAggDeltaStrategy extends IvmOuterJoinDeltaStrategy {
         LogicalOlapScan rawMvScan = buildMvScan(ctx.getMtmv(), ctx);
         LogicalPlan mvPlan = BindRelation.checkAndAddDeleteSignFilter(
                 rawMvScan, ctx.getConnectContext(), ctx.getMtmv());
-        Slot mvRowId = findSlotByName(rawMvScan.getOutput(), Column.IVM_ROW_ID_COL);
+        Slot mvRowId = helper.findSlotByName(rawMvScan.getOutput(), Column.IVM_ROW_ID_COL);
         // MV (large) on left as probe side, delta (small) on right as build side.
         LogicalJoin<Plan, Plan> join = new LogicalJoin<>(JoinType.RIGHT_OUTER_JOIN,
                 ImmutableList.of(new EqualTo(mvRowId, delta.rowIdSlot)),
@@ -580,7 +534,7 @@ public class IvmAggDeltaStrategy extends IvmOuterJoinDeltaStrategy {
 
     /** Reads old MV hidden state with NULL-safe default: COALESCE(mv_slot, 0). */
     private Expression coalesceMvSlot(LogicalOlapScan rawMvScan, String slotName) {
-        Slot slot = findSlotByName(rawMvScan.getOutput(), slotName);
+        Slot slot = helper.findSlotByName(rawMvScan.getOutput(), slotName);
         return new Coalesce(slot, zeroOf(slot.getDataType()));
     }
 
@@ -642,8 +596,9 @@ public class IvmAggDeltaStrategy extends IvmOuterJoinDeltaStrategy {
     private NamedExpression aliasIfNeeded(Expression expr, String name) {
         if (expr instanceof NamedExpression && name.equals(((NamedExpression) expr).getName())) {
             return (NamedExpression) expr;
+        } else {
+            return new Alias(expr, name);
         }
-        return new Alias(expr, name);
     }
 
     /**
@@ -762,7 +717,7 @@ public class IvmAggDeltaStrategy extends IvmOuterJoinDeltaStrategy {
                 ? "IVM: deleted row may be current MIN value, fallback to COMPLETE"
                 : "IVM: deleted row may be current MAX value, fallback to COMPLETE";
 
-        Slot oldExtreme = findSlotByName(rawMvScan.getOutput(),
+        Slot oldExtreme = helper.findSlotByName(rawMvScan.getOutput(),
                 target.getVisibleSlot().getName());
         Expression deltaInsert = delta.semanticSlots.get(hiddenKey(target, stateType));
         Expression deltaDel = delta.semanticSlots.get(hiddenKey(target, delKey));

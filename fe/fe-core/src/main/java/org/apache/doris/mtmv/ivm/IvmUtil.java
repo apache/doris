@@ -62,7 +62,7 @@ public class IvmUtil {
      * NULL propagation in the hash function, and {@code cast(isnull(key) AS VARCHAR)} to distinguish
      * groups that differ only in which positions are NULL (e.g. (NULL,'x') vs ('x',NULL)).
      *
-     * <p>Used by both normalize (IvmNormalizeMtmv) and delta rewrite (IvmAggDeltaStrategy)
+     * <p>Used by both normalize (IvmNormalizeMtmv) and delta rewrite (IvmAggDeltaHandler)
      * to ensure row-id derivation is identical.
      */
     public static Expression buildRowIdHash(List<? extends Expression> keyExprs) {

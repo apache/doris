@@ -153,7 +153,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testUnifiedStrategyKeepsAggTerminalApplyPlan() {
+    void testDeltaRewriterKeepsAggTerminalApplyPlan() {
         LogicalOlapScan scan = buildScan();
         Map<TableNameInfo, IvmStreamRef> streams = makeStreams(scan);
         PlanBundle bundle = normalizeAggPlan(buildGroupedAgg(scan));
@@ -170,7 +170,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testUnifiedStrategyBuildsSinkProjectForNonAggPlan() {
+    void testDeltaRewriterBuildsSinkProjectForNonAggPlan() {
         MTMV mtmv = mockMtmv();
         LogicalOlapScan scan = buildScan();
         Map<TableNameInfo, IvmStreamRef> streams = makeStreams(scan);

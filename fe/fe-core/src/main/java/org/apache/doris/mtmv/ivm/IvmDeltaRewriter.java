@@ -65,7 +65,7 @@ public class IvmDeltaRewriter {
 
         List<Command> allCommands = new ArrayList<>();
         for (Plan deltaPlan : deltaPlans) {
-            allCommands.addAll(IvmAggDeltaStrategy.INSTANCE.rewrite(deltaPlan, ctx));
+            allCommands.addAll(IvmDeltaCommandBuilder.INSTANCE.rewrite(deltaPlan, ctx));
         }
         return allCommands;
     }

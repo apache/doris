@@ -21,8 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
-import org.apache.doris.nereids.trees.copier.DeepCopierContext;
-import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -31,21 +29,18 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -62,15 +57,15 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Delta rewrite strategy for the restricted LEFT/RIGHT OUTER JOIN topology.
+ * Delta rewrite handler for the restricted LEFT/RIGHT OUTER JOIN topology.
  *
- * <p>The strategy emits the regular joined delta for the preserved-side change:
+ * <p>The handler emits the regular joined delta for the preserved-side change:
  * <ul>
  *   <li>preserved-side delta: {@code delta_preserved OUTER JOIN nullable_snapshot}</li>
  *   <li>nullable-side delta: joined rows plus padded-null state migration</li>
  * </ul>
  */
-public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
+class IvmOuterJoinDeltaHandler {
 
     private static final String NULLABLE_INSERT_DELTA_ALIAS = "__DORIS_IVM_NULLABLE_INSERT_DELTA__";
     private static final String NULLABLE_DELETE_DELTA_ALIAS = "__DORIS_IVM_NULLABLE_DELETE_DELTA__";
@@ -82,24 +77,25 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
     private static final String NULLABLE_PRE_SNAPSHOT_ALIAS = "__DORIS_IVM_NULLABLE_PRE_SNAPSHOT__";
     private static final String NULLABLE_POST_SNAPSHOT_ALIAS = "__DORIS_IVM_NULLABLE_POST_SNAPSHOT__";
 
+    private final IvmDeltaRewriteHelper helper = IvmDeltaRewriteHelper.INSTANCE;
+
     /**
      * Dispatch a normalized LEFT/RIGHT OUTER JOIN by checking which side carries the base-table delta.
      */
-    @Override
-    public RewriteResult visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
-            IvmRefreshContext context) {
-        if (!isSupportedOuterJoin(join.getJoinType())) {
-            return super.visitLogicalJoin(join, context);
+    IvmDeltaRewriteResult rewrite(LogicalJoin<? extends Plan, ? extends Plan> join,
+            IvmDeltaRewriteVisitor visitor, IvmRefreshContext context) {
+        if (!supports(join.getJoinType())) {
+            throw new AnalysisException("IVM outer join handler received unsupported join type: " + join.getJoinType());
         }
 
-        RewriteResult leftResult = join.left().accept(this, context);
-        RewriteResult rightResult = join.right().accept(this, context);
+        IvmDeltaRewriteResult leftResult = join.left().accept(visitor, context);
+        IvmDeltaRewriteResult rightResult = join.right().accept(visitor, context);
         if (leftResult.dmlFactorSlot != null && rightResult.dmlFactorSlot != null) {
             throw new AnalysisException(
                     "IVM: both sides of outer join have dml_factor; expected at most one delta side");
         }
         if (leftResult.dmlFactorSlot == null && rightResult.dmlFactorSlot == null) {
-            return new RewriteResult(join.withChildren(leftResult.plan, rightResult.plan), null);
+            return new IvmDeltaRewriteResult(join.withChildren(leftResult.plan, rightResult.plan), null);
         }
         OuterJoinSideHelper sideHelper = new OuterJoinSideHelper(join, leftResult, rightResult);
         if (sideHelper.isDeltaOnPreservedSide()) {
@@ -112,18 +108,18 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
     /**
      * Delta from the preserved side does not need pad-null repair; the original outer join shape is enough.
      */
-    private RewriteResult rewritePreservedSideDelta(LogicalJoin<? extends Plan, ? extends Plan> join,
-            RewriteResult leftResult, RewriteResult rightResult, IvmRefreshContext context) {
+    private IvmDeltaRewriteResult rewritePreservedSideDelta(LogicalJoin<? extends Plan, ? extends Plan> join,
+            IvmDeltaRewriteResult leftResult, IvmDeltaRewriteResult rightResult, IvmRefreshContext context) {
         LogicalJoin<Plan, Plan> newJoin = (LogicalJoin<Plan, Plan>) join.withChildren(
                 leftResult.plan, rightResult.plan);
-        return addNonDetGuardForJoinDelta(newJoin, leftResult, rightResult, context);
+        return helper.addNonDetGuardForJoinDelta(new JoinAdapter(newJoin), leftResult, rightResult, context);
     }
 
     /**
      * Delta from the nullable side may change both joined rows and padded-null rows.
      */
-    private RewriteResult rewriteNullableSideDelta(LogicalJoin<? extends Plan, ? extends Plan> join,
-            RewriteResult leftResult, RewriteResult rightResult, OuterJoinSideHelper sideHelper,
+    private IvmDeltaRewriteResult rewriteNullableSideDelta(LogicalJoin<? extends Plan, ? extends Plan> join,
+            IvmDeltaRewriteResult leftResult, IvmDeltaRewriteResult rightResult, OuterJoinSideHelper sideHelper,
             IvmRefreshContext context) {
         EquiJoinKeys equiJoinKeys = extractEquiJoinKeys(join);
         if (equiJoinKeys != null) {
@@ -134,8 +130,9 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
         }
     }
 
-    private RewriteResult rewriteNullableSideDeltaWithRepairBranches(LogicalJoin<? extends Plan, ? extends Plan> join,
-            RewriteResult leftResult, RewriteResult rightResult, OuterJoinSideHelper sideHelper,
+    private IvmDeltaRewriteResult rewriteNullableSideDeltaWithRepairBranches(
+            LogicalJoin<? extends Plan, ? extends Plan> join, IvmDeltaRewriteResult leftResult,
+            IvmDeltaRewriteResult rightResult, OuterJoinSideHelper sideHelper,
             IvmRefreshContext context) {
         // Nullable-side delta for:
         //   preserved_snapshot OUTER JOIN nullable_delta
@@ -160,14 +157,15 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
         //      multiplying them by matched delta rows. The anti join then keeps only rows
         //      that have no matching nullable-side row after this delta. For those rows, the new MV
         //      needs one NULL-padded row, so we emit that row with dml_factor = +1.
-        RewriteResult joinedResult = rewriteNullableSideBareJoinDelta(join, leftResult, rightResult, sideHelper);
+        IvmDeltaRewriteResult joinedResult = rewriteNullableSideBareJoinDelta(
+                join, leftResult, rightResult, sideHelper);
 
-        Pair<Plan, Map<Slot, Slot>> insertedNullableDelta = remapOutputs(aliasPlan(
-                freshPlan(sideHelper.nullableResult.plan), NULLABLE_INSERT_DELTA_ALIAS));
+        Pair<Plan, Map<Slot, Slot>> insertedNullableDelta = helper.remapOutputs(helper.aliasPlan(
+                helper.freshPlan(sideHelper.nullableResult.plan), NULLABLE_INSERT_DELTA_ALIAS));
         Slot insertedNullableDmlFactor = findSlotByName(insertedNullableDelta.first.getOutput(),
                 Column.IVM_DML_FACTOR_COL);
-        Pair<Plan, Map<Slot, Slot>> deletedNullableDelta = remapOutputs(aliasPlan(
-                freshPlan(sideHelper.nullableResult.plan), NULLABLE_DELETE_DELTA_ALIAS));
+        Pair<Plan, Map<Slot, Slot>> deletedNullableDelta = helper.remapOutputs(helper.aliasPlan(
+                helper.freshPlan(sideHelper.nullableResult.plan), NULLABLE_DELETE_DELTA_ALIAS));
         Slot deletedNullableDmlFactor = findSlotByName(deletedNullableDelta.first.getOutput(),
                 Column.IVM_DML_FACTOR_COL);
         Plan nullableInserts = new LogicalFilter<>(ImmutableSet.of(
@@ -181,28 +179,29 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
         // the delta arm and prunes other snapshot arms. Pad-null repair must compare against the
         // full nullable-side relation, so preserve all branches and only replace the one delta scan
         // with its pre/post snapshot.
-        Pair<Plan, Map<Slot, Slot>> nullablePreSnapshot = remapOutputs(aliasPlan(
-                freshPlan(copyDeltaScanAsSnapshot(sideHelper.nullableChild(), false, context)),
+        Pair<Plan, Map<Slot, Slot>> nullablePreSnapshot = helper.remapOutputs(helper.aliasPlan(
+                helper.freshPlan(copyDeltaScanAsSnapshot(sideHelper.nullableChild(), false, context)),
                 NULLABLE_PRE_SNAPSHOT_ALIAS));
-        Pair<Plan, Map<Slot, Slot>> nullablePostSnapshot = remapOutputs(aliasPlan(
-                freshPlan(copyDeltaScanAsSnapshot(sideHelper.nullableChild(), true, context)),
+        Pair<Plan, Map<Slot, Slot>> nullablePostSnapshot = helper.remapOutputs(helper.aliasPlan(
+                helper.freshPlan(copyDeltaScanAsSnapshot(sideHelper.nullableChild(), true, context)),
                 NULLABLE_POST_SNAPSHOT_ALIAS));
-        Plan joinedProject = remapOutputs(joinedResult.plan).first;
+        Plan joinedProject = helper.remapOutputs(joinedResult.plan).first;
         LogicalProject<Plan> preNullProject = buildPaddedNullRepairProject(join,
-                remapOutputs(freshPlan(sideHelper.preservedResult.plan)), insertedNullableDelta.second,
+                helper.remapOutputs(helper.freshPlan(sideHelper.preservedResult.plan)), insertedNullableDelta.second,
                 nullableInserts, nullablePreSnapshot, new TinyIntLiteral((byte) -1), sideHelper);
         LogicalProject<Plan> postNullProject = buildPaddedNullRepairProject(join,
-                remapOutputs(freshPlan(sideHelper.preservedResult.plan)), deletedNullableDelta.second,
+                helper.remapOutputs(helper.freshPlan(sideHelper.preservedResult.plan)), deletedNullableDelta.second,
                 nullableDeletes, nullablePostSnapshot, new TinyIntLiteral((byte) 1), sideHelper);
 
-        LogicalUnion union = buildUnionAll(ImmutableList.of(joinedProject, preNullProject, postNullProject));
-        LogicalProject<Plan> outputProject = projectUnionOutputs(union, joinedResult.plan.getOutput());
+        LogicalUnion union = helper.buildUnionAll(ImmutableList.of(joinedProject, preNullProject, postNullProject));
+        LogicalProject<Plan> outputProject = helper.projectUnionOutputs(union, joinedResult.plan.getOutput());
         Slot dmlFactor = findSlotByName(outputProject.getOutput(), Column.IVM_DML_FACTOR_COL);
-        return new RewriteResult(outputProject, dmlFactor);
+        return new IvmDeltaRewriteResult(outputProject, dmlFactor);
     }
 
-    private RewriteResult rewriteNullableSideDeltaWithNullableEvents(LogicalJoin<? extends Plan, ? extends Plan> join,
-            RewriteResult leftResult, RewriteResult rightResult, OuterJoinSideHelper sideHelper,
+    private IvmDeltaRewriteResult rewriteNullableSideDeltaWithNullableEvents(
+            LogicalJoin<? extends Plan, ? extends Plan> join, IvmDeltaRewriteResult leftResult,
+            IvmDeltaRewriteResult rightResult, OuterJoinSideHelper sideHelper,
             EquiJoinKeys equiJoinKeys, IvmRefreshContext context) {
         // Nullable-side delta for equi outer join can be reduced to one probe:
         //   preserved_snapshot INNER JOIN nullable_events
@@ -245,8 +244,10 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
         // the three repair branches. Unique functions such as random()/uuid() are
         // also rejected before this path, because recomputing them in different
         // event branches would produce unstable keys.
-        RewriteResult joinedResult = rewriteNullableSideBareJoinDelta(join, leftResult, rightResult, sideHelper);
-        Pair<Plan, Map<Slot, Slot>> preservedSnapshot = remapOutputs(freshPlan(sideHelper.preservedResult.plan));
+        IvmDeltaRewriteResult joinedResult = rewriteNullableSideBareJoinDelta(
+                join, leftResult, rightResult, sideHelper);
+        Pair<Plan, Map<Slot, Slot>> preservedSnapshot = helper.remapOutputs(
+                helper.freshPlan(sideHelper.preservedResult.plan));
         NullableEventPlan nullableEvents = buildNullableEventPlan(join, sideHelper, equiJoinKeys, context);
 
         ImmutableList.Builder<Expression> hashConjuncts = ImmutableList.builderWithExpectedSize(
@@ -264,7 +265,7 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
                 eventJoin, preservedSnapshot.second, nullableEvents.nullableOutputMapping,
                 nullableEvents.dmlFactorSlot);
         Slot dmlFactor = findSlotByName(outputProject.getOutput(), Column.IVM_DML_FACTOR_COL);
-        return new RewriteResult(outputProject, dmlFactor);
+        return new IvmDeltaRewriteResult(outputProject, dmlFactor);
     }
 
     /**
@@ -273,11 +274,11 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
      *
      * This is shared by both nullable-side strategies. The dml factor comes from the nullable-side delta.
      */
-    private RewriteResult rewriteNullableSideBareJoinDelta(LogicalJoin<? extends Plan, ? extends Plan> join,
-            RewriteResult leftResult, RewriteResult rightResult, OuterJoinSideHelper sideHelper) {
+    private IvmDeltaRewriteResult rewriteNullableSideBareJoinDelta(LogicalJoin<? extends Plan, ? extends Plan> join,
+            IvmDeltaRewriteResult leftResult, IvmDeltaRewriteResult rightResult, OuterJoinSideHelper sideHelper) {
         LogicalJoin<Plan, Plan> innerJoin = join.withTypeChildren(JoinType.INNER_JOIN,
                 leftResult.plan, rightResult.plan, JoinReorderContext.EMPTY);
-        return new RewriteResult(innerJoin, sideHelper.nullableResult.dmlFactorSlot);
+        return new IvmDeltaRewriteResult(innerJoin, sideHelper.nullableResult.dmlFactorSlot);
     }
 
     /**
@@ -357,7 +358,7 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
                 new TinyIntLiteral((byte) -1), context);
         Plan postNullEvent = buildNullableNullEvent(join, sideHelper, equiJoinKeys, true,
                 new TinyIntLiteral((byte) 1), context);
-        LogicalUnion union = buildUnionAll(ImmutableList.of(detailEvent, preNullEvent, postNullEvent));
+        LogicalUnion union = helper.buildUnionAll(ImmutableList.of(detailEvent, preNullEvent, postNullEvent));
 
         List<Slot> unionOutputs = union.getOutput();
         Map<Slot, Slot> nullableOutputMapping = new HashMap<>();
@@ -377,8 +378,8 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
      * probing the preserved-side snapshot.
      */
     private Plan buildNullableDetailEvent(OuterJoinSideHelper sideHelper, EquiJoinKeys equiJoinKeys) {
-        Pair<Plan, Map<Slot, Slot>> nullableDelta = remapOutputs(aliasPlan(
-                freshPlan(sideHelper.nullableResult.plan), NULLABLE_DETAIL_DELTA_ALIAS));
+        Pair<Plan, Map<Slot, Slot>> nullableDelta = helper.remapOutputs(helper.aliasPlan(
+                helper.freshPlan(sideHelper.nullableResult.plan), NULLABLE_DETAIL_DELTA_ALIAS));
         ImmutableList.Builder<NamedExpression> projects = ImmutableList.builder();
         List<Expression> nullableKeyExpressions = sideHelper.nullableKeyExpressions(equiJoinKeys);
         for (int i = 0; i < nullableKeyExpressions.size(); i++) {
@@ -407,8 +408,9 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
         Plan affectedKeys = new LogicalFilter<>(ImmutableSet.of(
                 new GreaterThan(flagSlot, new TinyIntLiteral((byte) 0))), deltaKeys.plan);
         String snapshotAlias = postSnapshot ? NULLABLE_POST_SNAPSHOT_ALIAS : NULLABLE_PRE_SNAPSHOT_ALIAS;
-        Pair<Plan, Map<Slot, Slot>> nullableSnapshot = remapOutputs(aliasPlan(
-                freshPlan(copyDeltaScanAsSnapshot(sideHelper.nullableChild(), postSnapshot, context)), snapshotAlias));
+        Pair<Plan, Map<Slot, Slot>> nullableSnapshot = helper.remapOutputs(helper.aliasPlan(
+                helper.freshPlan(copyDeltaScanAsSnapshot(sideHelper.nullableChild(), postSnapshot, context)),
+                snapshotAlias));
 
         ImmutableList.Builder<Expression> antiConjuncts = ImmutableList.builderWithExpectedSize(
                 sideHelper.nullableKeyExpressions(equiJoinKeys).size());
@@ -438,8 +440,8 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
      */
     private NullableDeltaKeyPlan buildNullableDeltaKeyPlan(OuterJoinSideHelper sideHelper,
             EquiJoinKeys equiJoinKeys) {
-        Pair<Plan, Map<Slot, Slot>> nullableDelta = remapOutputs(aliasPlan(
-                freshPlan(sideHelper.nullableResult.plan), NULLABLE_KEY_DELTA_ALIAS));
+        Pair<Plan, Map<Slot, Slot>> nullableDelta = helper.remapOutputs(helper.aliasPlan(
+                helper.freshPlan(sideHelper.nullableResult.plan), NULLABLE_KEY_DELTA_ALIAS));
         List<Expression> nullableKeyExpressions = sideHelper.nullableKeyExpressions(equiJoinKeys);
         ImmutableList.Builder<Expression> groupBy = ImmutableList.builderWithExpectedSize(
                 nullableKeyExpressions.size());
@@ -505,83 +507,10 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
     }
 
     /**
-     * Add an identity Project so later branches can depend on stable output slots after aliasing or copying.
-     */
-    private Pair<Plan, Map<Slot, Slot>> remapOutputs(Plan plan) {
-        Map<Slot, Slot> identityMapping = new HashMap<>();
-        for (Slot slot : plan.getOutput()) {
-            identityMapping.put(slot, slot);
-        }
-        return remapOutputs(plan, identityMapping);
-    }
-
-    /**
-     * Remap an existing source-to-output mapping through a fresh identity Project.
-     */
-    private Pair<Plan, Map<Slot, Slot>> remapOutputs(Pair<Plan, Map<Slot, Slot>> plan) {
-        return remapOutputs(plan.first, plan.second);
-    }
-
-    /**
-     * Add an identity Project and return a mapping from the original source slots to the new Project outputs.
-     */
-    private Pair<Plan, Map<Slot, Slot>> remapOutputs(Plan plan, Map<Slot, Slot> sourceToPlanOutput) {
-        ImmutableList.Builder<NamedExpression> projects = ImmutableList.builderWithExpectedSize(
-                plan.getOutput().size());
-        Map<Slot, Slot> planOutputToAlias = new HashMap<>();
-        Map<Slot, Slot> outputMapping = new HashMap<>();
-        for (Slot slot : plan.getOutput()) {
-            Alias alias = new Alias(slot, slot.getName());
-            projects.add(alias);
-            planOutputToAlias.put(slot, alias.toSlot());
-        }
-        for (Map.Entry<Slot, Slot> entry : sourceToPlanOutput.entrySet()) {
-            outputMapping.put(entry.getKey(), planOutputToAlias.get(entry.getValue()));
-        }
-        LogicalProject<Plan> project = new LogicalProject<>(projects.build(), (LogicalPlan) plan);
-        return Pair.of(project, outputMapping);
-    }
-
-    /**
-     * Wrap an internal copy with a unique subquery alias and keep its slot mapping valid.
-     */
-    private Pair<Plan, Map<Slot, Slot>> aliasPlan(Pair<Plan, Map<Slot, Slot>> plan, String alias) {
-        // The nullable-side repair plan uses several copies of the same nullable child
-        // (delta/pre/post). Nereids rejects multiple raw scans of the same table name
-        // during binding, so wrap each internal copy with a unique alias. This is only
-        // an internal disambiguation node; user-authored subquery aliases are still
-        // rejected by IVM normalize until that plan shape is supported.
-        Plan aliasNode = new LogicalSubQueryAlias<>(alias, plan.first);
-        return Pair.of(aliasNode, remapOutputMapping(plan.second, plan.first.getOutput(), aliasNode.getOutput()));
-    }
-
-    /**
-     * Build UNION ALL with synthetic output slots so the union does not reuse child ExprIds.
-     */
-    private LogicalUnion buildUnionAll(List<Plan> children) {
-        Plan first = children.get(0);
-        ImmutableList.Builder<NamedExpression> outputs = ImmutableList.builder();
-        for (int i = 0; i < first.getOutput().size(); i++) {
-            Slot slot = first.getOutput().get(i);
-            outputs.add(new SlotReference(slot.getName(), slot.getDataType(), unionOutputNullable(children, i)));
-        }
-        ImmutableList.Builder<List<SlotReference>> childrenOutputs = ImmutableList.builder();
-        for (Plan child : children) {
-            ImmutableList.Builder<SlotReference> childOutput = ImmutableList.builder();
-            for (Slot slot : child.getOutput()) {
-                childOutput.add((SlotReference) slot);
-            }
-            childrenOutputs.add(childOutput.build());
-        }
-        return new LogicalUnion(Qualifier.ALL, outputs.build(), childrenOutputs.build(),
-                ImmutableList.of(), false, children);
-    }
-
-    /**
      * Extract pure equi-join keys from both hash conjuncts and other conjuncts.
      *
      * Return null when there is no hashable equality, or when any residual non-hash condition remains. The null
-     * result makes the nullable-side rewrite fall back to the general repair-branch strategy.
+     * result makes the nullable-side rewrite fall back to the general repair-branch path.
      *
      * This intentionally accepts expression keys, not only slot-to-slot keys. For example,
      *   date_trunc(left.dt) = date_trunc(right.dt)
@@ -679,36 +608,6 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
     }
 
     /**
-     * A UNION output is nullable if any corresponding child output is nullable.
-     */
-    private boolean unionOutputNullable(List<Plan> children, int index) {
-        for (Plan child : children) {
-            if (child.getOutput().get(index).nullable()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Project union outputs back to the target schema and preserve target ExprIds for downstream row-id projection.
-     */
-    private LogicalProject<Plan> projectUnionOutputs(LogicalUnion union, List<Slot> targetOutputs) {
-        if (union.getOutput().size() != targetOutputs.size()) {
-            throw new AnalysisException("IVM outer join rewrite changed union output size from "
-                    + targetOutputs.size() + " to " + union.getOutput().size());
-        }
-        ImmutableList.Builder<NamedExpression> projects = ImmutableList.builderWithExpectedSize(
-                targetOutputs.size());
-        for (int i = 0; i < targetOutputs.size(); i++) {
-            Slot source = union.getOutput().get(i);
-            Slot target = targetOutputs.get(i);
-            projects.add(new Alias(target.getExprId(), source, target.getName()));
-        }
-        return new LogicalProject<>(projects.build(), union);
-    }
-
-    /**
      * Replace the single nullable-side delta scan with its pre- or post-refresh snapshot.
      */
     private Plan copyDeltaScanAsSnapshot(Plan plan, boolean postSnapshot, IvmRefreshContext context) {
@@ -740,66 +639,40 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
         return snapshot;
     }
 
-    /**
-     * Deep copy a plan before reusing it in another branch, and return the copied output mapping.
-     */
-    private Pair<Plan, Map<Slot, Slot>> freshPlan(Plan plan) {
-        DeepCopierContext copierContext = new DeepCopierContext();
-        LogicalPlan freshPlan = LogicalPlanDeepCopier.INSTANCE.deepCopy((LogicalPlan) plan, copierContext);
-        return Pair.of(freshPlan, mapCopiedOutputs(plan.getOutput(), freshPlan.getOutput(), copierContext));
+    private Slot findSlotByName(List<Slot> slots, String name) {
+        return helper.findSlotByName(slots, name);
     }
 
-    /**
-     * Map source outputs to deep-copied outputs using the ExprId replacement map produced by the copier.
-     */
-    private Map<Slot, Slot> mapCopiedOutputs(List<Slot> sourceOutput, List<Slot> targetOutput,
-            DeepCopierContext copierContext) {
-        Map<ExprId, Slot> targetOutputByExprId = new HashMap<>();
-        for (Slot slot : targetOutput) {
-            targetOutputByExprId.put(slot.getExprId(), slot);
-        }
-        Map<Slot, Slot> outputMapping = new HashMap<>();
-        for (Slot sourceSlot : sourceOutput) {
-            ExprId copiedExprId = copierContext.exprIdReplaceMap.get(sourceSlot.getExprId());
-            Slot targetSlot = copiedExprId == null ? null : targetOutputByExprId.get(copiedExprId);
-            if (targetSlot == null) {
-                throw new AnalysisException("IVM outer join rewrite lost copied output slot: " + sourceSlot);
-            }
-            outputMapping.put(sourceSlot, targetSlot);
-        }
-        return outputMapping;
-    }
-
-    /**
-     * Pair two output lists by position after checking their arity.
-     */
-    private Map<Slot, Slot> mapOutputs(List<Slot> sourceOutput, List<Slot> targetOutput) {
-        if (sourceOutput.size() != targetOutput.size()) {
-            throw new AnalysisException("IVM outer join rewrite changed output size from "
-                    + sourceOutput.size() + " to " + targetOutput.size());
-        }
-        Map<Slot, Slot> outputMapping = new HashMap<>();
-        for (int i = 0; i < sourceOutput.size(); i++) {
-            outputMapping.put(sourceOutput.get(i), targetOutput.get(i));
-        }
-        return outputMapping;
-    }
-
-    /**
-     * Rewrite a source-to-old-output mapping to point at a replacement output list.
-     */
-    private Map<Slot, Slot> remapOutputMapping(Map<Slot, Slot> sourceToOldOutput,
-            List<Slot> oldOutput, List<Slot> newOutput) {
-        Map<Slot, Slot> oldToNew = mapOutputs(oldOutput, newOutput);
-        Map<Slot, Slot> sourceToNewOutput = new HashMap<>();
-        for (Map.Entry<Slot, Slot> entry : sourceToOldOutput.entrySet()) {
-            sourceToNewOutput.put(entry.getKey(), oldToNew.get(entry.getValue()));
-        }
-        return sourceToNewOutput;
-    }
-
-    private boolean isSupportedOuterJoin(JoinType joinType) {
+    boolean supports(JoinType joinType) {
         return joinType == JoinType.LEFT_OUTER_JOIN || joinType == JoinType.RIGHT_OUTER_JOIN;
+    }
+
+    private static class JoinAdapter implements IvmDeltaRewriteHelper.JoinPlanView {
+        private final LogicalJoin<Plan, Plan> join;
+
+        private JoinAdapter(LogicalJoin<Plan, Plan> join) {
+            this.join = join;
+        }
+
+        @Override
+        public Plan plan() {
+            return join;
+        }
+
+        @Override
+        public Plan left() {
+            return join.left();
+        }
+
+        @Override
+        public Plan right() {
+            return join.right();
+        }
+
+        @Override
+        public JoinType joinType() {
+            return join.getJoinType();
+        }
     }
 
     /**
@@ -821,11 +694,11 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
     private static class OuterJoinSideHelper {
         private final LogicalJoin<? extends Plan, ? extends Plan> join;
         private final boolean preservedOnLeft;
-        private final RewriteResult preservedResult;
-        private final RewriteResult nullableResult;
+        private final IvmDeltaRewriteResult preservedResult;
+        private final IvmDeltaRewriteResult nullableResult;
 
         private OuterJoinSideHelper(LogicalJoin<? extends Plan, ? extends Plan> join,
-                RewriteResult leftResult, RewriteResult rightResult) {
+                IvmDeltaRewriteResult leftResult, IvmDeltaRewriteResult rightResult) {
             this.join = join;
             this.preservedOnLeft = join.getJoinType() == JoinType.LEFT_OUTER_JOIN;
             this.preservedResult = preservedOnLeft ? leftResult : rightResult;

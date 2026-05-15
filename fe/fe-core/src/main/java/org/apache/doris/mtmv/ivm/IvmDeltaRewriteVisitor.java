@@ -1,0 +1,102 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.mtmv.ivm;
+
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+
+/**
+ * Internal visitor that dispatches each plan node to the linear, outer-join, or aggregate handler.
+ */
+class IvmDeltaRewriteVisitor extends PlanVisitor<IvmDeltaRewriteResult, IvmRefreshContext> {
+    private final IvmDeltaRewriteHelper helper = IvmDeltaRewriteHelper.INSTANCE;
+    private final IvmLinearDeltaHandler linearHandler;
+    private final IvmOuterJoinDeltaHandler outerJoinHandler;
+    private final IvmAggDeltaHandler aggHandler;
+
+    IvmDeltaRewriteVisitor() {
+        this(new IvmLinearDeltaHandler(), new IvmOuterJoinDeltaHandler(), new IvmAggDeltaHandler());
+    }
+
+    IvmDeltaRewriteVisitor(IvmLinearDeltaHandler linearHandler,
+            IvmOuterJoinDeltaHandler outerJoinHandler, IvmAggDeltaHandler aggHandler) {
+        this.linearHandler = linearHandler;
+        this.outerJoinHandler = outerJoinHandler;
+        this.aggHandler = aggHandler;
+    }
+
+    IvmDeltaRewriteResult rewritePlan(Plan normalizedPlan, IvmRefreshContext ctx) {
+        Plan queryPlan = helper.stripResultSink(normalizedPlan);
+        return queryPlan.accept(this, ctx);
+    }
+
+    @Override
+    public IvmDeltaRewriteResult visit(Plan plan, IvmRefreshContext ctx) {
+        throw new AnalysisException(
+                "IVM delta rewrite does not support: " + plan.getClass().getSimpleName());
+    }
+
+    @Override
+    public IvmDeltaRewriteResult visitLogicalOlapScan(LogicalOlapScan scan, IvmRefreshContext ctx) {
+        return linearHandler.rewriteScan(scan);
+    }
+
+    @Override
+    public IvmDeltaRewriteResult visitLogicalProject(LogicalProject<? extends Plan> project,
+            IvmRefreshContext ctx) {
+        if (project.child() instanceof LogicalAggregate) {
+            return aggHandler.rewriteTopProject(project, this, ctx);
+        } else {
+            return linearHandler.rewriteProject(project, this, ctx);
+        }
+    }
+
+    @Override
+    public IvmDeltaRewriteResult visitLogicalFilter(LogicalFilter<? extends Plan> filter,
+            IvmRefreshContext ctx) {
+        return linearHandler.rewriteFilter(filter, this, ctx);
+    }
+
+    @Override
+    public IvmDeltaRewriteResult visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
+            IvmRefreshContext ctx) {
+        if (outerJoinHandler.supports(join.getJoinType())) {
+            return outerJoinHandler.rewrite(join, this, ctx);
+        } else {
+            return linearHandler.rewriteJoin(join, this, ctx);
+        }
+    }
+
+    @Override
+    public IvmDeltaRewriteResult visitLogicalUnion(LogicalUnion union, IvmRefreshContext ctx) {
+        return linearHandler.rewriteUnion(union, this, ctx);
+    }
+
+    @Override
+    public IvmDeltaRewriteResult visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate,
+            IvmRefreshContext ctx) {
+        return aggHandler.rewriteAggregate(aggregate, this, ctx);
+    }
+}

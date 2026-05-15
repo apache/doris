@@ -1007,27 +1007,31 @@ public class CreateMTMVCommandTest extends TestWithFeService {
     }
 
     @Test
-    public void testCreateIncrementalMVRejectsFilterAboveLeftOuterJoin() throws Exception {
+    public void testCreateIncrementalMVAllowsFilterAboveLeftOuterJoin() throws Exception {
         createTable("create table test.ivm_outer_filter_left (k1 int, v1 int)\n"
                 + "unique key(k1)\n"
                 + "distributed by hash(k1) buckets 1\n"
-                + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true');");
+                + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW');");
         createTable("create table test.ivm_outer_filter_right (k1 int, v2 int)\n"
                 + "unique key(k1)\n"
                 + "distributed by hash(k1) buckets 1\n"
-                + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true');");
+                + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW');");
 
-        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
-                () -> getPartitionTableInfo("CREATE MATERIALIZED VIEW ivm_outer_filter_mv\n"
+        CreateMTMVInfo info = getPartitionTableInfo("CREATE MATERIALIZED VIEW ivm_outer_filter_mv\n"
                         + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
                         + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
                         + " PROPERTIES ('replication_num' = '1')\n"
-                        + " AS SELECT l.k1, l.v1, r.v2\n"
-                        + " FROM ivm_outer_filter_left l\n"
-                        + " LEFT OUTER JOIN ivm_outer_filter_right r ON l.k1 = r.k1\n"
-                        + " WHERE l.v1 > 0;"));
-        Assertions.assertTrue(ex.getMessage().contains("top-level operator"),
-                "unexpected message: " + ex.getMessage());
+                        + " AS SELECT ivm_outer_filter_left.k1, ivm_outer_filter_left.v1,"
+                        + " ivm_outer_filter_right.v2\n"
+                        + " FROM ivm_outer_filter_left\n"
+                        + " LEFT OUTER JOIN ivm_outer_filter_right"
+                        + " ON ivm_outer_filter_left.k1 = ivm_outer_filter_right.k1\n"
+                        + " WHERE ivm_outer_filter_left.v1 > 0;");
+        Assertions.assertEquals(RefreshMethod.INCREMENTAL,
+                info.getRefreshInfo().getRefreshMethod());
+        Assertions.assertTrue(info.isEnableIvm());
     }
 
     // TODO: Add CREATE MV coverage for nullable-side UNION ALL after subquery alias is supported by IVM.

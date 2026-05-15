@@ -61,14 +61,14 @@ EXPLAIN LOGICAL PLAN PROCESS REFRESH MATERIALIZED VIEW mv_name INCREMENTAL FOR D
 
 ## DML Factor from binlog_op
 
-The `dml_factor` column (+1 for inserts, −1 for deletes) drives all delta computations. It is derived in `IvmLinearDeltaStrategy.visitLogicalOlapScan()`:
+The `dml_factor` column (+1 for inserts, −1 for deletes) drives all delta computations. It is derived in `IvmLinearDeltaHandler.rewriteScan()`:
 
 - **binlog_op present**: If the base table has a column named `binlog_op` (`Column.BINLOG_OPERATION_COL`), its value follows the delete-sign convention (TinyInt: 0 = insert, 1 = delete). The dml_factor expression is `IF(binlog_op = 0, 1, -1)`.
 - **binlog_op absent (fallback)**: When the column does not exist (e.g., normal tables without binlog), dml_factor falls back to the literal `1` (insert-only assumption).
 
-Since `IvmAggDeltaStrategy` inherits `visitLogicalOlapScan()` without overriding, both simple-scan and aggregate MVs automatically use binlog_op-based dml_factor when available.
+The aggregate handler rewrites its child subtree through `IvmDeltaRewriteVisitor`, so simple-scan and aggregate MVs both use the same binlog_op-based dml_factor logic when available.
 
-See `IvmLinearDeltaStrategy.buildDmlFactorExpr()` for the implementation.
+See `IvmLinearDeltaHandler.buildDmlFactorExpr()` for the implementation.
 
 ## Row ID Generation
 
@@ -120,7 +120,7 @@ PROPERTIES (
   INSERT INTO base_table VALUES (1, 10, 1);
   ```
 
-The IVM delta strategy reads `binlog_op` to derive `dml_factor`:
+The IVM delta rewrite reads `binlog_op` to derive `dml_factor`:
 `IF(binlog_op = 0, 1, -1)`, which controls whether a row contributes positively or negatively
 to aggregated state.
 
