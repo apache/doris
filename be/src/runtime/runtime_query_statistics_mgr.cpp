@@ -115,15 +115,13 @@ static Status _do_report_exec_stats_rpc(const TNetworkAddress& coor_addr,
 }
 
 static void _report_query_profiles_function(
-        std::unordered_map<
-                TUniqueId,
-                std::tuple<
-                        TNetworkAddress,
-                        std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>>>
+        std::unordered_map<TUniqueId,
+                           std::tuple<TNetworkAddress,
+                                      std::unordered_map<int, std::vector<TProfileNodeReport>>>>
                 profile_copy,
         std::unordered_map<std::pair<TUniqueId, int32_t>, std::shared_ptr<TRuntimeProfileTree>>
                 load_channel_profile_copy) {
-    // query_id -> {coordinator_addr, {fragment_id -> std::vectpr<pipeline_profile>}}
+    // query_id -> {coordinator_addr, {fragment_id -> list<profile_node_report>}}
     for (auto& entry : profile_copy) {
         const auto& query_id = entry.first;
         const auto& coor_addr = std::get<0>(entry.second);
@@ -168,46 +166,37 @@ static void _report_query_profiles_function(
 
 TReportExecStatusParams RuntimeQueryStatisticsMgr::create_report_exec_status_params(
         const TUniqueId& query_id,
-        std::unordered_map<int32_t, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
-                fragment_id_to_profile,
+        std::unordered_map<int32_t, std::vector<TProfileNodeReport>>
+                fragment_id_to_profile_node_reports,
         std::vector<std::shared_ptr<TRuntimeProfileTree>> load_channel_profiles, bool is_done) {
-    // This function will clear the data of fragment_id_to_profile and load_channel_profiles.
+    // This function will clear the data of fragment_id_to_profile_node_reports and
+    // load_channel_profiles.
     TQueryProfile profile;
     profile.__set_query_id(query_id);
 
-    std::map<int32_t, std::vector<TDetailedReportParams>> fragment_id_to_profile_req;
+    std::map<int32_t, std::vector<TProfileNodeReport>> fragment_id_to_profile_node_reports_req;
 
-    for (const auto& entry : fragment_id_to_profile) {
+    for (auto& entry : fragment_id_to_profile_node_reports) {
         int32_t fragment_id = entry.first;
-        const std::vector<std::shared_ptr<TRuntimeProfileTree>>& fragment_profile = entry.second;
-        std::vector<TDetailedReportParams> detailed_params;
-        bool is_first = true;
-        for (auto pipeline_profile : fragment_profile) {
-            if (pipeline_profile == nullptr) {
+        std::vector<TProfileNodeReport>& profile_node_reports = entry.second;
+        for (const auto& profile_node_report : profile_node_reports) {
+            if (!profile_node_report.__isset.profile ||
+                !profile_node_report.__isset.profile_node_type) {
                 auto msg = fmt::format("Register fragment profile {} {} failed, profile is null",
                                        print_id(query_id), fragment_id);
                 DCHECK(false) << msg;
                 LOG_ERROR(msg);
                 continue;
             }
-
-            TDetailedReportParams tmp;
-            THRIFT_MOVE_VALUES(tmp, profile, *pipeline_profile);
-            // First profile is fragment level
-            tmp.__set_is_fragment_level(is_first);
-            is_first = false;
-            // tmp.fragment_instance_id is not needed for pipeline x
-            detailed_params.push_back(std::move(tmp));
         }
-
-        fragment_id_to_profile_req[fragment_id] = std::move(detailed_params);
+        fragment_id_to_profile_node_reports_req[fragment_id] = std::move(profile_node_reports);
     }
 
-    if (fragment_id_to_profile_req.empty()) {
+    if (fragment_id_to_profile_node_reports_req.empty()) {
         LOG_WARNING("No fragment profile found for query {}", print_id(query_id));
     }
 
-    profile.__set_fragment_id_to_profile(fragment_id_to_profile_req);
+    profile.__set_fragment_id_to_profile_node_reports(fragment_id_to_profile_node_reports_req);
 
     std::vector<TRuntimeProfileTree> load_channel_profiles_req;
     for (auto load_channel_profile : load_channel_profiles) {
@@ -230,8 +219,7 @@ TReportExecStatusParams RuntimeQueryStatisticsMgr::create_report_exec_status_par
     TReportExecStatusParams req;
     THRIFT_MOVE_VALUES(req, query_profile, profile);
     req.__set_backend_id(ExecEnv::GetInstance()->cluster_info()->backend_id);
-    // invalid query id to avoid API compatibility during upgrade
-    req.__set_query_id(TUniqueId());
+    req.__set_query_id(query_id);
     req.__set_done(is_done);
 
     return req;
@@ -265,10 +253,12 @@ void RuntimeQueryStatisticsMgr::trigger_profile_reporting() {
         _load_channel_profile_map.swap(load_channel_profile_copy);
     }
 
-    // ATTN: Local variables are copied to avoid memory reclamation issues.
-    auto st = _thread_pool->submit_func([profile_copy, load_channel_profile_copy]() {
-        _report_query_profiles_function(profile_copy, load_channel_profile_copy);
-    });
+    auto st = _thread_pool->submit_func(
+            [profile_copy = std::move(profile_copy),
+             load_channel_profile_copy = std::move(load_channel_profile_copy)]() mutable {
+                _report_query_profiles_function(std::move(profile_copy),
+                                                std::move(load_channel_profile_copy));
+            });
 
     if (!st.ok()) {
         LOG_WARNING("Failed to submit profile reporting task, reason: {}", st.to_string());
@@ -290,10 +280,11 @@ void RuntimeQueryStatisticsMgr::stop_report_thread() {
 
 void RuntimeQueryStatisticsMgr::register_fragment_profile(
         const TUniqueId& query_id, const TNetworkAddress& coor_addr, int32_t fragment_id,
-        std::vector<std::shared_ptr<TRuntimeProfileTree>> p_profiles,
+        std::vector<TProfileNodeReport> profile_node_reports,
         std::shared_ptr<TRuntimeProfileTree> load_channel_profile) {
-    for (const auto& p : p_profiles) {
-        if (p == nullptr) {
+    for (const auto& profile_node_report : profile_node_reports) {
+        if (!profile_node_report.__isset.profile ||
+            !profile_node_report.__isset.profile_node_type) {
             auto msg = fmt::format("Register fragment profile {} {} failed, profile is null",
                                    print_id(query_id), fragment_id);
             DCHECK(false) << msg;
@@ -306,20 +297,20 @@ void RuntimeQueryStatisticsMgr::register_fragment_profile(
 
     if (!_profile_map.contains(query_id)) {
         _profile_map[query_id] = std::make_tuple(
-                coor_addr,
-                std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>());
+                coor_addr, std::unordered_map<int, std::vector<TProfileNodeReport>>());
     }
 
-    std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>&
-            fragment_profile_map = std::get<1>(_profile_map[query_id]);
-    fragment_profile_map.insert(std::make_pair(fragment_id, p_profiles));
+    std::unordered_map<int, std::vector<TProfileNodeReport>>& fragment_profile_map =
+            std::get<1>(_profile_map[query_id]);
+    auto profile_node_report_size = profile_node_reports.size();
+    fragment_profile_map.insert(std::make_pair(fragment_id, std::move(profile_node_reports)));
 
     if (load_channel_profile != nullptr) {
         _load_channel_profile_map[std::make_pair(query_id, fragment_id)] = load_channel_profile;
     }
 
     VLOG_CRITICAL << fmt::format("register x profile done {}, fragment {}, profiles {}",
-                                 print_id(query_id), fragment_id, p_profiles.size());
+                                 print_id(query_id), fragment_id, profile_node_report_size);
 }
 
 void RuntimeQueryStatisticsMgr::register_resource_context(

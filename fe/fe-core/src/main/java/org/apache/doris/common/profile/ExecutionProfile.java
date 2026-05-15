@@ -22,8 +22,9 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SafeStringBuilder;
 import org.apache.doris.planner.PlanFragmentId;
-import org.apache.doris.thrift.TDetailedReportParams;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TProfileNodeReport;
+import org.apache.doris.thrift.TProfileNodeType;
 import org.apache.doris.thrift.TQueryProfile;
 import org.apache.doris.thrift.TRuntimeProfileTree;
 import org.apache.doris.thrift.TStatusCode;
@@ -224,40 +225,48 @@ public class ExecutionProfile {
             return new Status(TStatusCode.INVALID_ARGUMENT, "QueryId is not set");
         }
 
-        if (!profile.isSetFragmentIdToProfile()) {
-            LOG.warn("{} FragmentIdToProfile is not set", DebugUtil.printId(profile.getQueryId()));
-            return new Status(TStatusCode.INVALID_ARGUMENT, "FragmentIdToProfile is not set");
+        if (!profile.isSetFragmentIdToProfileNodeReports()) {
+            LOG.warn("{} FragmentIdToProfileNodeReports is not set", DebugUtil.printId(profile.getQueryId()));
+            return new Status(TStatusCode.INVALID_ARGUMENT, "FragmentIdToProfileNodeReports is not set");
         }
 
-        for (Entry<Integer, List<TDetailedReportParams>> entry : profile.getFragmentIdToProfile().entrySet()) {
+        for (Entry<Integer, List<TProfileNodeReport>> entry
+                : profile.getFragmentIdToProfileNodeReports().entrySet()) {
             int fragmentId = entry.getKey();
-            List<TDetailedReportParams> fragmentProfile = entry.getValue();
-            int pipelineIdx = 0;
+            List<TProfileNodeReport> fragmentProfile = entry.getValue();
             List<RuntimeProfile> taskProfile = Lists.newArrayList();
             String suffix = "(host=" + backendHBAddress + ")";
-            for (TDetailedReportParams pipelineProfile : fragmentProfile) {
+            for (TProfileNodeReport profileNodeReport : fragmentProfile) {
                 String name = "";
-                boolean isFragmentLevel = (pipelineProfile.isSetIsFragmentLevel() && pipelineProfile.is_fragment_level);
-                if (isFragmentLevel) {
-                    // Fragment Level profile is also represented by TDetailedReportParams.
+                if (!profileNodeReport.isSetProfileNodeType()) {
+                    LOG.warn("Profile node type is not set, {}", DebugUtil.printId(profile.getQueryId()));
+                    return new Status(TStatusCode.INVALID_ARGUMENT, "Profile node type is not set");
+                }
+                TProfileNodeType profileNodeType = profileNodeReport.getProfileNodeType();
+                if (profileNodeType == TProfileNodeType.FRAGMENT_LEVEL) {
                     name = "FragmentLevelProfile:" + suffix;
+                } else if (profileNodeType == TProfileNodeType.PIPELINE_LEVEL) {
+                    if (!profileNodeReport.isSetPipelineId()) {
+                        LOG.warn("Pipeline id is not set, {}", DebugUtil.printId(profile.getQueryId()));
+                        return new Status(TStatusCode.INVALID_ARGUMENT, "Pipeline id is not set");
+                    }
+                    name = "Pipeline " + profileNodeReport.getPipelineId() + suffix;
                 } else {
-                    name = "Pipeline " + pipelineIdx + suffix;
-                    pipelineIdx++;
+                    LOG.warn("Unsupported profile node type {}, query {}", profileNodeType,
+                            DebugUtil.printId(profile.getQueryId()));
+                    return new Status(TStatusCode.INVALID_ARGUMENT, "Unsupported profile node type");
                 }
 
                 RuntimeProfile profileNode = new RuntimeProfile(name);
-                // The taskProfile is used to save the profile of the pipeline, without
-                // considering the FragmentLevel.
-                if (!isFragmentLevel) {
+                if (profileNodeType == TProfileNodeType.PIPELINE_LEVEL) {
                     taskProfile.add(profileNode);
                 }
-                if (!pipelineProfile.isSetProfile()) {
+                if (!profileNodeReport.isSetProfile()) {
                     LOG.warn("Profile is not set, {}", DebugUtil.printId(profile.getQueryId()));
                     return new Status(TStatusCode.INVALID_ARGUMENT, "Profile is not set");
                 }
 
-                profileNode.update(pipelineProfile.profile);
+                profileNode.update(profileNodeReport.profile);
                 profileNode.setIsDone(isDone);
                 fragmentProfiles.get(fragmentId).addChild(profileNode, true);
             }
@@ -265,7 +274,7 @@ public class ExecutionProfile {
         }
 
         LOG.info("Profile update finished query: {} fragments: {} isDone: {}",
-                DebugUtil.printId(getQueryId()), profile.getFragmentIdToProfile().size(), isDone);
+                DebugUtil.printId(getQueryId()), profile.getFragmentIdToProfileNodeReports().size(), isDone);
 
         if (profile.isSetLoadChannelProfiles()) {
             for (TRuntimeProfileTree loadChannelProfile : profile.getLoadChannelProfiles()) {

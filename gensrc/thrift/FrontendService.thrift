@@ -185,6 +185,17 @@ struct TDetailedReportParams {
   4: optional bool is_fragment_level
 }
 
+enum TProfileNodeType {
+  FRAGMENT_LEVEL = 1,
+  PIPELINE_LEVEL = 2
+}
+
+struct TProfileNodeReport {
+  1: optional RuntimeProfile.TRuntimeProfileTree profile
+  2: optional TProfileNodeType profile_node_type
+  3: optional i32 pipeline_id
+}
+
 
 struct TQueryStatistics {
     // A thrift structure identical to the PQueryStatistics structure.
@@ -230,6 +241,8 @@ struct TQueryProfile {
     4: optional list<RuntimeProfile.TRuntimeProfileTree> instance_profiles
 
     5: optional list<RuntimeProfile.TRuntimeProfileTree> load_channel_profiles
+
+    6: optional map<i32, list<TProfileNodeReport>> fragment_id_to_profile_node_reports
 }
 
 struct TFragmentInstanceReport {

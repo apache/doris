@@ -18,6 +18,7 @@
 #pragma once
 
 #include <brpc/closure_guard.h>
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
 
@@ -61,7 +62,7 @@ public:
 
     void print_profile(const std::string& extra_info);
 
-    std::vector<std::shared_ptr<TRuntimeProfileTree>> collect_realtime_profile() const;
+    std::vector<TProfileNodeReport> collect_realtime_profile() const;
     std::shared_ptr<TRuntimeProfileTree> collect_realtime_load_channel_profile() const;
 
     bool is_timeout(timespec now) const;
