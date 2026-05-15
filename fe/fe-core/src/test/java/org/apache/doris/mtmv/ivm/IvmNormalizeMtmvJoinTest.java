@@ -108,6 +108,10 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
     }
 
     private LogicalUnion buildUnionAll(Plan... children) {
+        return buildUnion(Qualifier.ALL, children);
+    }
+
+    private LogicalUnion buildUnion(Qualifier qualifier, Plan... children) {
         List<Slot> firstOutput = children[0].getOutput();
         ImmutableList.Builder<NamedExpression> outputs = ImmutableList.builder();
         for (Slot slot : firstOutput) {
@@ -122,7 +126,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
             }
             childrenOutputs.add(childMapping.build());
         }
-        return new LogicalUnion(Qualifier.ALL, outputs.build(), childrenOutputs.build(),
+        return new LogicalUnion(qualifier, outputs.build(), childrenOutputs.build(),
                 ImmutableList.of(), false, ImmutableList.copyOf(children));
     }
 
@@ -304,6 +308,33 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         LogicalOlapScan scanB = buildMowScan(2, "b");
         LogicalOlapScan scanC = buildMowScan(3, "c");
         LogicalUnion union = buildUnionAll(scanB, scanC);
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(), scanA, union, JoinReorderContext.EMPTY);
+
+        assertIvmException(IvmFailureReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED,
+                () -> normalizeJoinPlan(join));
+    }
+
+    @Test
+    void testNormalizeLeftOuterJoinWithNullableSideUnionDistinctThrowsPlanPattern() {
+        LogicalOlapScan scanA = buildMowScan(1, "a");
+        LogicalOlapScan scanB = buildMowScan(2, "b");
+        LogicalOlapScan scanC = buildMowScan(3, "c");
+        LogicalUnion union = buildUnion(Qualifier.DISTINCT, scanB, scanC);
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(), scanA, union, JoinReorderContext.EMPTY);
+
+        assertIvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                () -> normalizeJoinPlan(join));
+    }
+
+    @Test
+    void testNormalizeLeftOuterJoinWithNullableSideUnionAllProjectScanThrows() {
+        LogicalOlapScan scanA = buildMowScan(1, "a");
+        LogicalOlapScan scanB = buildMowScan(2, "b");
+        LogicalOlapScan scanC = buildMowScan(3, "c");
+        LogicalProject<?> projectB = new LogicalProject<>(ImmutableList.copyOf(scanB.getOutput()), scanB);
+        LogicalUnion union = buildUnionAll(projectB, scanC);
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
                 ImmutableList.of(), scanA, union, JoinReorderContext.EMPTY);
 
