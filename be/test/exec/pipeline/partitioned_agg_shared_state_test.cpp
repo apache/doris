@@ -130,7 +130,9 @@ TEST_F(PartitionedAggSharedStateTest, CloseCalledMultipleTimes) {
     for (int round = 0; round < 5; ++round) {
         state._spill_partitions.emplace_back(nullptr);
         state.close();
-        ASSERT_TRUE(state._spill_partitions.empty());
+
+        // repeatly calling close should not cause issues but also should not do anything after the first call.
+        ASSERT_EQ(state._spill_partitions.empty(), round == 0) << "After round " << round;
     }
 }
 
