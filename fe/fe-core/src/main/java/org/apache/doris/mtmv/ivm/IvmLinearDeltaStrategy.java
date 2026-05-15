@@ -53,18 +53,14 @@ import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Delta rewrite strategy for MVs whose delta propagates linearly through the plan,
+ * Delta rewrite visitor for MVs whose delta propagates linearly through the plan,
  * i.e. the output delta is a direct combination of input deltas without needing to
  * look up base-table rows or replay aggregate state. Currently covers
- * Scan / Project / Filter / Inner Join / Union All. Aggregate MVs are handled by
- * {@link IvmAggDeltaStrategy}; outer joins (which require null-padding lookups) are
- * intended to live in their own strategy.
+ * Scan / Project / Filter / Inner Join / Union All.
  *
  * <p>Extends {@link PlanVisitor} with return type {@link RewriteResult} that carries both
  * the rewritten plan and the propagated dml_factor Slot. The visitor injects
@@ -75,12 +71,9 @@ import java.util.Optional;
  * Projects, Filters, Inner Joins and Union All. Unsupported node types cause an
  * immediate {@link AnalysisException}.
  *
- * <p>Each instance is single-use: create a fresh instance per rewrite invocation.
- *
  * @see IvmAggDeltaStrategy
  */
-public class IvmLinearDeltaStrategy extends PlanVisitor<IvmLinearDeltaStrategy.RewriteResult, Void>
-        implements IvmDeltaStrategy {
+public class IvmLinearDeltaStrategy extends PlanVisitor<IvmLinearDeltaStrategy.RewriteResult, IvmRefreshContext> {
 
     /** Result of a visitor rewrite step: the rewritten plan plus the dml_factor Slot. */
     protected static class RewriteResult {
@@ -103,31 +96,17 @@ public class IvmLinearDeltaStrategy extends PlanVisitor<IvmLinearDeltaStrategy.R
     private static final String NON_DET_ROW_ID_MSG_PREFIX =
             "IVM fallback: delete on non-deterministic row_id in ";
 
-    protected final IvmRefreshContext ctx;
-
-    public IvmLinearDeltaStrategy(IvmRefreshContext ctx) {
-        this.ctx = Objects.requireNonNull(ctx, "ctx can not be null");
-    }
-
-    @Override
-    public List<Command> rewrite(Plan normalizedPlan) {
-        RewriteResult result = rewritePlan(normalizedPlan);
-        Plan finalPlan = buildSinkProject(result);
-        Command insertCommand = buildInsertCommandWithDeleteSign(finalPlan);
-        return Collections.singletonList(insertCommand);
-    }
-
     /** Strips ResultSink and walks the plan tree via the visitor. */
-    protected RewriteResult rewritePlan(Plan normalizedPlan) {
+    protected RewriteResult rewritePlan(Plan normalizedPlan, IvmRefreshContext ctx) {
         Plan queryPlan = stripResultSink(normalizedPlan);
-        return queryPlan.accept(this, null);
+        return queryPlan.accept(this, ctx);
     }
 
     // ---- Visitor methods ----
 
     /** Unsupported node types throw immediately. */
     @Override
-    public RewriteResult visit(Plan plan, Void ctx) {
+    public RewriteResult visit(Plan plan, IvmRefreshContext ctx) {
         throw new AnalysisException(
                 "IVM delta rewrite does not support: " + plan.getClass().getSimpleName());
     }
@@ -140,7 +119,7 @@ public class IvmLinearDeltaStrategy extends PlanVisitor<IvmLinearDeltaStrategy.R
      * Otherwise, falls back to the literal {@code dml_factor = 1} (insert-only assumption).
      */
     @Override
-    public RewriteResult visitLogicalOlapScan(LogicalOlapScan scan, Void ctx) {
+    public RewriteResult visitLogicalOlapScan(LogicalOlapScan scan, IvmRefreshContext ctx) {
         if (!scan.isDelta()) {
             // Snapshot scan: no dml_factor injection; return the scan unchanged.
             return new RewriteResult(scan, null);
@@ -176,7 +155,7 @@ public class IvmLinearDeltaStrategy extends PlanVisitor<IvmLinearDeltaStrategy.R
 
     /** Propagates dml_factor slot by appending it to the project output, unless already present. */
     @Override
-    public RewriteResult visitLogicalProject(LogicalProject<? extends Plan> project, Void ctx) {
+    public RewriteResult visitLogicalProject(LogicalProject<? extends Plan> project, IvmRefreshContext ctx) {
         RewriteResult childResult = project.child().accept(this, ctx);
         // Preserve normalize-added hidden columns (for example row_id on snapshot-side projects)
         // even when there is no dml_factor to propagate.
@@ -212,7 +191,7 @@ public class IvmLinearDeltaStrategy extends PlanVisitor<IvmLinearDeltaStrategy.R
 
     /** Filter: recurse into child, propagate dml_factor unchanged. */
     @Override
-    public RewriteResult visitLogicalFilter(LogicalFilter<? extends Plan> filter, Void ctx) {
+    public RewriteResult visitLogicalFilter(LogicalFilter<? extends Plan> filter, IvmRefreshContext ctx) {
         RewriteResult childResult = filter.child().accept(this, ctx);
         Plan newFilter = filter.withChildren(ImmutableList.of(childResult.plan));
         return new RewriteResult(newFilter, childResult.dmlFactorSlot);
@@ -228,7 +207,7 @@ public class IvmLinearDeltaStrategy extends PlanVisitor<IvmLinearDeltaStrategy.R
      * trigger a runtime fallback to full refresh.
      */
     @Override
-    public RewriteResult visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Void ctx) {
+    public RewriteResult visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, IvmRefreshContext ctx) {
         JoinType joinType = join.getJoinType();
         if (joinType != JoinType.INNER_JOIN && joinType != JoinType.CROSS_JOIN) {
             throw new AnalysisException(
@@ -254,11 +233,11 @@ public class IvmLinearDeltaStrategy extends PlanVisitor<IvmLinearDeltaStrategy.R
             return new RewriteResult(newJoin, null);
         }
 
-        return addNonDetGuardForJoinDelta(newJoin, leftResult, rightResult);
+        return addNonDetGuardForJoinDelta(newJoin, leftResult, rightResult, ctx);
     }
 
     protected RewriteResult addNonDetGuardForJoinDelta(LogicalJoin<Plan, Plan> join,
-            RewriteResult leftResult, RewriteResult rightResult) {
+            RewriteResult leftResult, RewriteResult rightResult, IvmRefreshContext ctx) {
         // IMPORTANT: We ONLY guard the SNAPSHOT side, NOT the delta side.
         //
         // Proof by induction that the delta side's row_id is always deterministic when
@@ -277,7 +256,7 @@ public class IvmLinearDeltaStrategy extends PlanVisitor<IvmLinearDeltaStrategy.R
         Slot dmlFactorSlot = deltaOnLeft ? leftResult.dmlFactorSlot : rightResult.dmlFactorSlot;
         Plan snapshotSidePlan = deltaOnLeft ? join.right() : join.left();
 
-        if (needNonDetGuard(snapshotSidePlan)) {
+        if (needNonDetGuard(snapshotSidePlan, ctx)) {
             return wrapDmlFactorWithNonDetGuard(new RewriteResult(join, dmlFactorSlot), join.getJoinType());
         }
         return new RewriteResult(join, dmlFactorSlot);
@@ -304,7 +283,7 @@ public class IvmLinearDeltaStrategy extends PlanVisitor<IvmLinearDeltaStrategy.R
      * MOW tables always have deterministic row_id.  Therefore no assert_true guard is needed.
      */
     @Override
-    public RewriteResult visitLogicalUnion(LogicalUnion union, Void ctx) {
+    public RewriteResult visitLogicalUnion(LogicalUnion union, IvmRefreshContext ctx) {
         List<RewriteResult> childResults = new ArrayList<>();
         for (Plan child : union.children()) {
             childResults.add(child.accept(this, ctx));
@@ -356,8 +335,8 @@ public class IvmLinearDeltaStrategy extends PlanVisitor<IvmLinearDeltaStrategy.R
      * Checks if the snapshot side's row_id slot is non-deterministic.
      * Returns true (conservatively add guard) when normalizeResult or row_id slot is unavailable.
      */
-    protected boolean needNonDetGuard(Plan snapshotSidePlan) {
-        IvmNormalizeResult normalizeResult = this.ctx.getNormalizeResult();
+    protected boolean needNonDetGuard(Plan snapshotSidePlan, IvmRefreshContext ctx) {
+        IvmNormalizeResult normalizeResult = ctx.getNormalizeResult();
         if (normalizeResult == null) {
             return true;
         }
@@ -410,7 +389,7 @@ public class IvmLinearDeltaStrategy extends PlanVisitor<IvmLinearDeltaStrategy.R
      * 1. Passes through columns matching mtmv.getInsertedColumnNames() in order
      * 2. Maps dml_factor to __DORIS_DELETE_SIGN__: CASE WHEN dml_factor < 0 THEN 1 ELSE 0 END
      */
-    protected Plan buildSinkProject(RewriteResult result) {
+    protected Plan buildSinkProject(RewriteResult result, IvmRefreshContext ctx) {
         List<Slot> output = result.plan.getOutput();
         List<String> insertedColumns = ctx.getMtmv().getInsertedColumnNames();
         ImmutableList.Builder<NamedExpression> sinkOutputs = ImmutableList.builderWithExpectedSize(
@@ -441,7 +420,7 @@ public class IvmLinearDeltaStrategy extends PlanVisitor<IvmLinearDeltaStrategy.R
         return plan;
     }
 
-    protected Command buildInsertCommandWithDeleteSign(Plan queryPlan) {
+    protected Command buildInsertCommandWithDeleteSign(Plan queryPlan, IvmRefreshContext ctx) {
         MTMV mtmv = ctx.getMtmv();
         List<String> sinkColumns = new ArrayList<>(mtmv.getInsertedColumnNames());
         sinkColumns.add(Column.DELETE_SIGN);

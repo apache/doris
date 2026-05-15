@@ -72,9 +72,4 @@ public class IvmNormalizeResult {
     public void setAggMeta(IvmAggMeta aggMeta) {
         this.aggMeta = aggMeta;
     }
-
-    /** Returns true if this MV uses aggregate IVM. */
-    public boolean isAggMv() {
-        return aggMeta != null;
-    }
 }
