@@ -21,9 +21,10 @@ import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
+import org.apache.doris.nereids.types.DataType;
 
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
+import java.time.ZonedDateTime;
 
 /**
  * default value of a column.
@@ -114,30 +115,29 @@ public class DefaultValue {
      * get string result of a default value expression.
      */
     public String getRawValue() {
+        return getRawValue(null);
+    }
+
+    /**
+     * get string result of a default value expression.
+     */
+    public String getRawValue(DataType dataType) {
         if (isCurrentTimeStamp()) {
-            return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId()).toString().replace('T', ' ');
+            return formatCurrentTimeStamp(0, dataType != null && dataType.isTimeStampTzType());
         } else if (isCurrentTimeStampWithPrecision()) {
-            long precision = getCurrentTimeStampPrecision();
-            String format = "yyyy-MM-dd HH:mm:ss";
-            if (precision == 0) {
-                return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId()).toString().replace('T', ' ');
-            } else if (precision == 1) {
-                format = "yyyy-MM-dd HH:mm:ss.S";
-            } else if (precision == 2) {
-                format = "yyyy-MM-dd HH:mm:ss.SS";
-            } else if (precision == 3) {
-                format = "yyyy-MM-dd HH:mm:ss.SSS";
-            } else if (precision == 4) {
-                format = "yyyy-MM-dd HH:mm:ss.SSSS";
-            } else if (precision == 5) {
-                format = "yyyy-MM-dd HH:mm:ss.SSSSS";
-            } else if (precision == 6) {
-                format = "yyyy-MM-dd HH:mm:ss.SSSSSS";
-            }
-            return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId())
-                    .format(DateTimeFormatter.ofPattern(format));
+            return formatCurrentTimeStamp(getCurrentTimeStampPrecision(),
+                    dataType != null && dataType.isTimeStampTzType());
         }
         return value;
+    }
+
+    private String formatCurrentTimeStamp(long precision, boolean withTimeZone) {
+        ZonedDateTime currentDateTime = ZonedDateTime.now(TimeUtils.getTimeZone().toZoneId());
+        int scale = Math.toIntExact(precision);
+        if (withTimeZone) {
+            return TimestampTzLiteral.formatDateTime(currentDateTime, scale);
+        }
+        return TimestampTzLiteral.formatDateTime(currentDateTime.toLocalDateTime(), scale);
     }
 
     /**

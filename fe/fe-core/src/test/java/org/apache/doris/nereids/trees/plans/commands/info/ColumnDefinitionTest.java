@@ -17,8 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.nereids.types.TimeStampTzType;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.Optional;
 
 public class ColumnDefinitionTest {
 
@@ -32,5 +37,18 @@ public class ColumnDefinitionTest {
         String otherColName2 = "col2";
         boolean expected2 = false;
         Assertions.assertEquals(expected2, columnDefinition.nameEquals(otherColName2, false));
+    }
+
+    @Test
+    public void testTranslateToCatalogStyleForSchemaChangeWithTimeStampTzCurrentTimestamp() {
+        ColumnDefinition columnDefinition = new ColumnDefinition("ts", TimeStampTzType.of(6), false,
+                null, true, Optional.of(DefaultValue.currentTimeStampDefaultValueWithPrecision(6L)), "");
+
+        Column column = columnDefinition.translateToCatalogStyleForSchemaChange();
+
+        Assertions.assertEquals("CURRENT_TIMESTAMP(6)", column.getDefaultValue());
+        Assertions.assertNotNull(column.getRealDefaultValue());
+        Assertions.assertTrue(column.getRealDefaultValue().matches(
+                "\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{6}[+-]\\d{2}:\\d{2}"));
     }
 }

@@ -30,6 +30,7 @@ import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.qe.ConnectContext;
 
 import java.time.LocalDateTime;
+import java.time.ZonedDateTime;
 import java.util.Objects;
 
 /**
@@ -452,6 +453,14 @@ public class TimestampTzLiteral extends DateTimeLiteral {
                         dateTime.getMonthValue(), dateTime.getDayOfMonth(), dateTime.getHour(),
                         dateTime.getMinute(), dateTime.getSecond(),
                         (dateTime.getNano() / 1000) / value * value);
+    }
+
+    public static String formatDateTime(LocalDateTime dateTime, int precision) {
+        return ((TimestampTzLiteral) fromJavaDateType(dateTime, precision)).getStringValue();
+    }
+
+    public static String formatDateTime(ZonedDateTime dateTime, int precision) {
+        return formatDateTime(dateTime.toLocalDateTime(), precision) + dateTime.getOffset();
     }
 
     @Override
