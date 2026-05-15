@@ -27,11 +27,13 @@
 #include <bvar/passive_status.h>
 #include <bvar/reducer.h>
 #include <bvar/status.h>
+#include <bvar/window.h>
 #include <cpp/sync_point.h>
 #include <gmock/gmock-actions.h>
 
 #include <atomic>
 #include <cstdint>
+#include <ctime>
 #include <initializer_list>
 #include <map>
 #include <memory>
@@ -147,6 +149,8 @@ template <typename T>
 struct is_valid_bvar_type<bvar::Status<T>> : std::true_type {};
 template <>
 struct is_valid_bvar_type<bvar::LatencyRecorder> : std::true_type {};
+template <typename R, time_t window_size>
+struct is_valid_bvar_type<bvar::WindowEx<R, window_size>> : std::true_type {};
 template <typename T>
 struct is_bvar_status : std::false_type {};
 template <typename T>
@@ -160,7 +164,7 @@ public:
             : counter_(metric_name, std::list<std::string>(dim_names)) {
         static_assert(is_valid_bvar_type<BvarType>::value,
                       "BvarType must be one of the supported bvar types (Adder, IntRecorder, "
-                      "LatencyRecorder, Maxer, Status)");
+                      "LatencyRecorder, Maxer, Status, WindowEx)");
     }
 
     template <typename ValType>
@@ -536,6 +540,8 @@ private:
 using mBvarIntAdder = mBvarWrapper<bvar::Adder<int>>;
 using mBvarInt64Adder = mBvarWrapper<bvar::Adder<int64_t>>;
 using mBvarDoubleAdder = mBvarWrapper<bvar::Adder<double>>;
+template <typename T, time_t window_size = 60>
+using mBvarWindowAdder = mBvarWrapper<bvar::WindowEx<bvar::Adder<T>, window_size>>;
 using mBvarIntRecorder = mBvarWrapper<bvar::IntRecorder>;
 using mBvarLatencyRecorder = mBvarWrapper<bvar::LatencyRecorder>;
 using mBvarIntMaxer = mBvarWrapper<bvar::Maxer<int>>;
@@ -646,24 +652,22 @@ extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_restore_job_earlest_ts
 
 // recycler's mbvars
 extern bvar::Status<int64_t> g_bvar_recycler_task_max_concurrency;
-extern mBvarIntAdder g_bvar_recycler_instance_recycle_task_status;
-extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycle_duration;
-extern mBvarStatus<int64_t> g_bvar_recycler_instance_next_ts;
-extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_start_ts;
-extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_end_ts;
-extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_last_success_ts;
+extern mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_recycle_duration;
+extern mBvarWindowAdder<int64_t> g_bvar_recycler_instance_recycle_last_success_ts;
 
-extern mBvarIntAdder g_bvar_recycler_vault_recycle_task_status;
-extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycled_num;
-extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_to_recycle_num;
-extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycled_bytes;
-extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_to_recycle_bytes;
-extern mBvarStatus<double> g_bvar_recycler_instance_last_round_recycle_elpased_ts;
-extern mBvarInt64Adder g_bvar_recycler_instance_recycle_total_num_since_started;
-extern mBvarInt64Adder g_bvar_recycler_instance_recycle_total_bytes_since_started;
-extern mBvarIntAdder g_bvar_recycler_instance_recycle_round;
-extern mBvarStatus<double> g_bvar_recycler_instance_recycle_time_per_resource;
-extern mBvarStatus<double> g_bvar_recycler_instance_recycle_bytes_per_ms;
+extern mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_recycled_num;
+extern mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_to_recycle_num;
+extern mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_recycled_bytes;
+extern mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_to_recycle_bytes;
+extern mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_recycled_kv_num;
+extern mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_to_recycle_kv_num;
+extern mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_recycled_kv_bytes;
+extern mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_to_recycle_kv_bytes;
+extern mBvarWindowAdder<double> g_bvar_recycler_instance_last_round_recycle_elpased_ts;
+extern mBvarWindowAdder<int64_t> g_bvar_recycler_instance_work_pool_in_flight;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_state;
+extern mBvarWindowAdder<double> g_bvar_recycler_instance_recycle_time_per_resource;
+extern mBvarWindowAdder<double> g_bvar_recycler_instance_recycle_bytes_per_ms;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_recycled_kv_num;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_recycled_kv_bytes;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_recycle_cost_ms;

@@ -269,6 +269,7 @@ ObjectStorageResponse S3ObjClient::delete_objects(const std::string& bucket,
         }
 
         Aws::S3::Model::Delete del;
+        auto object_count = objects.size();
         del.WithObjects(std::move(objects)).SetQuiet(true);
         delete_request.SetDelete(std::move(del));
         auto delete_outcome = s3_put_rate_limit([&]() {
@@ -276,6 +277,7 @@ ObjectStorageResponse S3ObjClient::delete_objects(const std::string& bucket,
             return s3_client_->DeleteObjects(delete_request);
         });
         if (!delete_outcome.IsSuccess()) {
+            s3_bvar::s3_delete_objects_failed_object_count << object_count;
             LOG_WARNING("failed to delete objects")
                     .tag("endpoint", endpoint_)
                     .tag("bucket", bucket)
@@ -286,6 +288,10 @@ ObjectStorageResponse S3ObjClient::delete_objects(const std::string& bucket,
                     .tag("request_id", delete_outcome.GetError().GetRequestId());
             return -1;
         }
+
+        const auto failed_object_count = delete_outcome.GetResult().GetErrors().size();
+        s3_bvar::s3_delete_objects_failed_object_count << failed_object_count;
+        s3_bvar::s3_delete_objects_success_object_count << object_count - failed_object_count;
 
         return 0;
     };

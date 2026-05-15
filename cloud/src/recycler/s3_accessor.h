@@ -19,6 +19,7 @@
 
 #include <aws/core/Aws.h>
 #include <bvar/latency_recorder.h>
+#include <bvar/reducer.h>
 
 #include <array>
 #include <cstdint>
@@ -46,6 +47,10 @@ extern bvar::LatencyRecorder s3_get_latency;
 extern bvar::LatencyRecorder s3_put_latency;
 extern bvar::LatencyRecorder s3_delete_object_latency;
 extern bvar::LatencyRecorder s3_delete_objects_latency;
+extern bvar::Adder<int64_t> s3_delete_objects_success_object_count;
+extern bvar::Adder<int64_t> s3_delete_objects_failed_object_count;
+extern bvar::Window<bvar::Adder<int64_t>> s3_delete_objects_success_object_count_window;
+extern bvar::Window<bvar::Adder<int64_t>> s3_delete_objects_failed_object_count_window;
 extern bvar::LatencyRecorder s3_head_latency;
 extern bvar::LatencyRecorder s3_multi_part_upload_latency;
 extern bvar::LatencyRecorder s3_list_latency;

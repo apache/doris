@@ -136,37 +136,44 @@ BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_tmp_rowset_earlest_ts("recycl
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_expired_txn_label_earlest_ts("recycler", "recycle_expired_txn_label_earlest_ts");
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_restore_job_earlest_ts("recycler", "recycle_restore_job_earlest_ts");
 bvar::Status<int64_t> g_bvar_recycler_task_max_concurrency("recycler_task_max_concurrency_num",0);
-// current status of recycle task (submitted, completed, error)
-mBvarIntAdder g_bvar_recycler_instance_recycle_task_status("recycler_instance_recycle_task_status", { "status"});
 // recycler's mbvars
 // cost time of the last whole recycle process
-mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycle_duration("recycler_instance_last_round_recycle_duration",{"instance_id"});
-mBvarStatus<int64_t> g_bvar_recycler_instance_next_ts("recycler_instance_next_ts",{"instance_id"});
-// start and end timestamps of the recycle process
-mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_start_ts("recycler_instance_recycle_start_ts",{"instance_id"});
-mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_end_ts("recycler_instance_recycle_end_ts",{"instance_id"});
-mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_last_success_ts("recycler_instance_recycle_last_success_ts",{"instance_id"});
+mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_recycle_duration(
+        "recycler_instance_last_round_recycle_duration", {"instance_id"});
+mBvarWindowAdder<int64_t> g_bvar_recycler_instance_recycle_last_success_ts(
+        "recycler_instance_recycle_last_success_ts", {"instance_id"});
 
 // recycler's mbvars
-// instance_id: unique identifier for the instance
-// resource_id: unique identifier for the repository
-// status: status of the recycle task (submitted, completed, error)
-mBvarIntAdder g_bvar_recycler_vault_recycle_task_status("recycler_vault_recycle_task_status", {"instance_id", "resource_id", "status"});
 // current concurrency of vault delete task
-mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycled_num("recycler_instance_last_round_recycled_num", {"instance_id", "resource_type"});
-mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_to_recycle_num("recycler_instance_last_round_to_recycle_num", {"instance_id", "resource_type"});
-mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycled_bytes("recycler_instance_last_round_recycled_bytes", {"instance_id", "resource_type"});
-mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_to_recycle_bytes("recycler_instance_last_round_to_recycle_bytes", {"instance_id", "resource_type"});
-mBvarStatus<double> g_bvar_recycler_instance_last_round_recycle_elpased_ts("recycler_instance_last_round_recycle_elpased_ts", {"instance_id", "resource_type"});
+mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_recycled_num(
+        "recycler_instance_last_round_recycled_num", {"instance_id", "resource_type"});
+mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_to_recycle_num(
+        "recycler_instance_last_round_to_recycle_num", {"instance_id", "resource_type"});
+mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_recycled_bytes(
+        "recycler_instance_last_round_recycled_bytes", {"instance_id", "resource_type"});
+mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_to_recycle_bytes(
+        "recycler_instance_last_round_to_recycle_bytes", {"instance_id", "resource_type"});
+mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_recycled_kv_num(
+        "recycler_instance_last_round_recycled_kv_num", {"instance_id", "resource_type"});
+mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_to_recycle_kv_num(
+        "recycler_instance_last_round_to_recycle_kv_num", {"instance_id", "resource_type"});
+mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_recycled_kv_bytes(
+        "recycler_instance_last_round_recycled_kv_bytes", {"instance_id", "resource_type"});
+mBvarWindowAdder<int64_t> g_bvar_recycler_instance_last_round_to_recycle_kv_bytes(
+        "recycler_instance_last_round_to_recycle_kv_bytes", {"instance_id", "resource_type"});
+mBvarWindowAdder<double> g_bvar_recycler_instance_last_round_recycle_elpased_ts(
+        "recycler_instance_last_round_recycle_elpased_ts", {"instance_id", "resource_type"});
 // total recycled num and bytes of resources since recycler started
-mBvarInt64Adder g_bvar_recycler_instance_recycle_total_num_since_started("recycler_instance_recycle_total_num_since_started", {"instance_id", "resource_type"});
-mBvarInt64Adder g_bvar_recycler_instance_recycle_total_bytes_since_started("recycler_instance_recycle_total_bytes_since_started", {"instance_id", "resource_type"});
-mBvarIntAdder g_bvar_recycler_instance_recycle_round("recycler_instance_recycle_round", {"instance_id", "resource_type"});
 // represents the ms required per resource to be recycled
 // value of -1 means no resource recycled
-mBvarStatus<double> g_bvar_recycler_instance_recycle_time_per_resource("recycler_instance_recycle_time_per_resource", {"instance_id", "resource_type"});
+mBvarWindowAdder<double> g_bvar_recycler_instance_recycle_time_per_resource(
+        "recycler_instance_recycle_time_per_resource", {"instance_id", "resource_type"});
 // represents the bytes of resources that can be recycled per ms
-mBvarStatus<double> g_bvar_recycler_instance_recycle_bytes_per_ms("recycler_instance_recycle_bytes_per_ms", {"instance_id", "resource_type"});
+mBvarWindowAdder<double> g_bvar_recycler_instance_recycle_bytes_per_ms(
+        "recycler_instance_recycle_bytes_per_ms", {"instance_id", "resource_type"});
+mBvarWindowAdder<int64_t> g_bvar_recycler_instance_work_pool_in_flight(
+        "recycler_instance_work_pool_in_flight", {"instance_id", "work_pool"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_state("recycler_instance_state", {"instance_id"});
 BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_recycled_kv_num("recycler",
                                                                        "packed_file_recycled_kv_num");
 BvarStatusWithTag<int64_t> g_bvar_recycler_packed_file_recycled_kv_bytes(
