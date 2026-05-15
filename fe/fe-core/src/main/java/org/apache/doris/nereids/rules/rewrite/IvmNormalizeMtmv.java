@@ -130,12 +130,12 @@ import java.util.stream.Collectors;
  * <p>IVM row-id invariant: every row that really exists in a normalized child plan must have
  * a non-null {@code __DORIS_IVM_ROW_ID_COL__}. Outer join null-padding is the only place where
  * a child row-id slot may become NULL, and that NULL means the corresponding side has no
- * matching row. This lets left outer join compose the MV row-id as
- * {@code hash(left_row_id, right_row_id)} and use {@code right_row_id = NULL} for padded rows
- * without confusing them with real right rows.
+ * matching row. This lets outer join compose the MV row-id as
+ * {@code hash(left_row_id, right_row_id)} and use the nullable-side row-id as NULL for padded rows
+ * without confusing them with real rows.
  *
  * <h3>Supported plan nodes</h3>
- * OlapScan, filter, project, aggregate, inner/cross join, left outer join chain whose
+ * OlapScan, filter, project, aggregate, inner/cross join, left/right outer join chain whose
  * nullable side does not contain another outer join, UNION ALL, result sink, logical olap table sink.
  */
 public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.NormalizeContext>
@@ -230,11 +230,11 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
     }
 
     /**
-     * Handles inner join / cross join / left outer join normalization.
+     * Handles inner join / cross join / left/right outer join normalization.
      *
      * <ol>
-     *   <li>Validates join type is INNER_JOIN, CROSS_JOIN, or LEFT_OUTER_JOIN</li>
-     *   <li>Rejects LEFT_OUTER_JOIN below another LEFT_OUTER_JOIN nullable side</li>
+     *   <li>Validates join type is INNER_JOIN, CROSS_JOIN, LEFT_OUTER_JOIN, or RIGHT_OUTER_JOIN</li>
+     *   <li>Rejects an outer join below another outer join nullable side</li>
      *   <li>Normalizes both children (first non-sink = false)</li>
      *   <li>Composes a single row_id = hash(left_row_id, right_row_id)</li>
      *   <li>Wraps with Project that replaces child row_id slots with the composed one</li>
@@ -250,10 +250,10 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, NormalizeContext context) {
         JoinType joinType = join.getJoinType();
         if (joinType != JoinType.INNER_JOIN && joinType != JoinType.CROSS_JOIN
-                && joinType != JoinType.LEFT_OUTER_JOIN) {
+                && !isSupportedOuterJoin(joinType)) {
             throw new IvmException(IvmFailureReason.OUTER_JOIN_RETRACTION_UNSUPPORTED,
                     "IVM does not support join type: " + joinType
-                            + ". Only INNER_JOIN, CROSS_JOIN and LEFT_OUTER_JOIN are supported.");
+                            + ". Only INNER_JOIN, CROSS_JOIN, LEFT_OUTER_JOIN and RIGHT_OUTER_JOIN are supported.");
         }
         if (join.isMarkJoin()) {
             throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
@@ -262,17 +262,16 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
         if (joinType.isOuterJoin()) {
             if (context.isOuterJoinNullableSide) {
                 throw new IvmException(IvmFailureReason.OUTER_JOIN_RETRACTION_UNSUPPORTED,
-                        "IVM LEFT OUTER JOIN nullable side must not contain another outer join");
+                        "IVM OUTER JOIN nullable side must not contain another outer join");
             }
-            // TODO: tighten nullable-side snapshot validation to an explicit allowlist:
-            // OlapScan, Project, Filter, Inner/Cross Join, and excluded-only UNION ALL.
-            checkNullableSideSnapshotSupported(join.right());
         }
 
         NormalizeContext childContext = context.afterNonSink();
-        NormalizeContext rightChildContext = joinType == JoinType.LEFT_OUTER_JOIN
+        NormalizeContext leftChildContext = isNullableOnLeft(joinType)
                 ? childContext.enterOuterJoinNullableSide() : childContext;
-        Plan newLeft = join.left().accept(this, childContext);
+        NormalizeContext rightChildContext = isNullableOnRight(joinType)
+                ? childContext.enterOuterJoinNullableSide() : childContext;
+        Plan newLeft = join.left().accept(this, leftChildContext);
         Plan newRight = join.right().accept(this, rightChildContext);
         LogicalJoin<Plan, Plan> newJoin = (LogicalJoin<Plan, Plan>) join.withChildren(newLeft, newRight);
 
@@ -283,17 +282,17 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
         // Look up each child's row_id determinism from the accumulated map
         boolean leftDet = normalizeResult.isDeterministic(leftRowIdSlot);
         boolean rightDet = normalizeResult.isDeterministic(rightRowIdSlot);
-        if (joinType == JoinType.LEFT_OUTER_JOIN && !leftDet) {
+        if (joinType.isOuterJoin() && !(isPreservedOnLeft(joinType) ? leftDet : rightDet)) {
             // Nullable-side deltas may emit +1/-1 pad-null repair rows keyed by
-            // hash(left_row_id, NULL). A non-deterministic preserved-side row_id cannot
-            // be reproduced across refreshes, so LEFT OUTER JOIN IVM cannot maintain it.
+            // hash(preserved_row_id, NULL). A non-deterministic preserved-side row_id cannot
+            // be reproduced across refreshes, so OUTER JOIN IVM cannot maintain it.
             throw new IvmException(IvmFailureReason.NON_DETERMINISTIC_ROW_ID,
-                    "IVM LEFT OUTER JOIN requires deterministic row_id on preserved side");
+                    "IVM OUTER JOIN requires deterministic row_id on preserved side");
         }
 
         // Compose join row_id = hash(left_row_id, right_row_id).
-        // Valid child row_ids are non-null by the normalize invariant above. For LEFT OUTER JOIN,
-        // a NULL right row_id can only come from join null-padding and means no matching right row.
+        // Valid child row_ids are non-null by the normalize invariant above. For OUTER JOIN,
+        // a NULL nullable-side row_id can only come from join null-padding and means no matching row.
         Expression joinRowIdExpr = IvmUtil.buildRowIdHash(ImmutableList.of(leftRowIdSlot, rightRowIdSlot));
         Alias joinRowIdAlias = new Alias(joinRowIdExpr, Column.IVM_ROW_ID_COL);
 
@@ -329,6 +328,11 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
      */
     @Override
     public Plan visitLogicalUnion(LogicalUnion union, NormalizeContext context) {
+        if (context.isOuterJoinNullableSide && union.getQualifier() == Qualifier.ALL
+                && containsNonExcludedOlapScan(union)) {
+            throw new IvmException(IvmFailureReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED,
+                    "IVM OUTER JOIN does not support UNION ALL with OlapScan on nullable side");
+        }
         if (union.getQualifier() != Qualifier.ALL) {
             throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                     "IVM does not support UNION DISTINCT. Only UNION ALL is supported.");
@@ -487,39 +491,38 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
         return new LogicalProject<>(projectOutputs.build(), newAgg);
     }
 
-    private void checkNullableSideSnapshotSupported(Plan nullableSide) {
-        // Outer-join pad-null repair needs the nullable side's full pre/post snapshot.
-        // For UNION ALL, the linear delta strategy prunes non-delta arms and keeps only
-        // the changed arm. If such a UNION ALL contains a trigger-table OlapScan, O1 cannot
-        // reconstruct the full nullable-side snapshot from the rewritten delta plan reliably.
-        // Excluded trigger tables are ignored because their changes do not produce delta arms.
-        if (containsUnionAllWithOlapScan(nullableSide)) {
-            throw new IvmException(IvmFailureReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED,
-                    "IVM OUTER JOIN does not support UNION ALL with OlapScan on nullable side");
-        }
+    private boolean isSupportedOuterJoin(JoinType joinType) {
+        return joinType == JoinType.LEFT_OUTER_JOIN || joinType == JoinType.RIGHT_OUTER_JOIN;
     }
 
-    private boolean containsUnionAllWithOlapScan(Plan plan) {
-        if (!plan.containsType(LogicalUnion.class)) {
-            return false;
-        }
-        return plan.<LogicalUnion>collectFirst(node -> {
-            if (!(node instanceof LogicalUnion)) {
+    private boolean isPreservedOnLeft(JoinType joinType) {
+        checkSupportedOuterJoin(joinType);
+        return joinType == JoinType.LEFT_OUTER_JOIN;
+    }
+
+    private boolean isNullableOnLeft(JoinType joinType) {
+        return joinType == JoinType.RIGHT_OUTER_JOIN;
+    }
+
+    private boolean isNullableOnRight(JoinType joinType) {
+        return joinType == JoinType.LEFT_OUTER_JOIN;
+    }
+
+    private boolean containsNonExcludedOlapScan(Plan plan) {
+        return plan.<LogicalOlapScan>collectFirst(child -> {
+            if (!(child instanceof LogicalOlapScan)) {
                 return false;
             }
-            LogicalUnion union = (LogicalUnion) node;
-            if (!union.containsType(LogicalOlapScan.class)) {
-                return false;
-            }
-            return union.getQualifier() == Qualifier.ALL
-                    && union.<LogicalOlapScan>collectFirst(child -> {
-                        if (!(child instanceof LogicalOlapScan)) {
-                            return false;
-                        }
-                        LogicalOlapScan scan = (LogicalOlapScan) child;
-                        return !isExcludedTriggerTable(scan);
-                    }).isPresent();
+            LogicalOlapScan scan = (LogicalOlapScan) child;
+            return !isExcludedTriggerTable(scan);
         }).isPresent();
+    }
+
+    private void checkSupportedOuterJoin(JoinType joinType) {
+        if (!isSupportedOuterJoin(joinType)) {
+            throw new IvmException(IvmFailureReason.OUTER_JOIN_RETRACTION_UNSUPPORTED,
+                    "IVM does not support join type as outer join: " + joinType);
+        }
     }
 
     /**

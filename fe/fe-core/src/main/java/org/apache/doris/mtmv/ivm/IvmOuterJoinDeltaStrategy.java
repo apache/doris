@@ -62,36 +62,36 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Delta rewrite strategy for the restricted LEFT OUTER JOIN topology.
+ * Delta rewrite strategy for the restricted LEFT/RIGHT OUTER JOIN topology.
  *
  * <p>The strategy emits the regular joined delta for the preserved-side change:
  * <ul>
- *   <li>left-side delta: {@code delta_left LEFT JOIN right_snapshot}</li>
- *   <li>right-side delta: joined rows plus padded-null state migration</li>
+ *   <li>preserved-side delta: {@code delta_preserved OUTER JOIN nullable_snapshot}</li>
+ *   <li>nullable-side delta: joined rows plus padded-null state migration</li>
  * </ul>
  */
 public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
 
-    private static final String RIGHT_INSERT_DELTA_ALIAS = "__DORIS_IVM_RIGHT_INSERT_DELTA__";
-    private static final String RIGHT_DELETE_DELTA_ALIAS = "__DORIS_IVM_RIGHT_DELETE_DELTA__";
-    private static final String RIGHT_DETAIL_DELTA_ALIAS = "__DORIS_IVM_RIGHT_DETAIL_DELTA__";
-    private static final String RIGHT_EVENT_KEY_PREFIX = "__DORIS_IVM_RIGHT_EVENT_KEY_";
-    private static final String RIGHT_KEY_DELTA_ALIAS = "__DORIS_IVM_RIGHT_KEY_DELTA__";
-    private static final String RIGHT_KEY_POSITIVE_ALIAS = "__DORIS_IVM_RIGHT_KEY_POSITIVE__";
-    private static final String RIGHT_KEY_NEGATIVE_ALIAS = "__DORIS_IVM_RIGHT_KEY_NEGATIVE__";
-    private static final String RIGHT_PRE_SNAPSHOT_ALIAS = "__DORIS_IVM_RIGHT_PRE_SNAPSHOT__";
-    private static final String RIGHT_POST_SNAPSHOT_ALIAS = "__DORIS_IVM_RIGHT_POST_SNAPSHOT__";
+    private static final String NULLABLE_INSERT_DELTA_ALIAS = "__DORIS_IVM_NULLABLE_INSERT_DELTA__";
+    private static final String NULLABLE_DELETE_DELTA_ALIAS = "__DORIS_IVM_NULLABLE_DELETE_DELTA__";
+    private static final String NULLABLE_DETAIL_DELTA_ALIAS = "__DORIS_IVM_NULLABLE_DETAIL_DELTA__";
+    private static final String NULLABLE_EVENT_KEY_PREFIX = "__DORIS_IVM_NULLABLE_EVENT_KEY_";
+    private static final String NULLABLE_KEY_DELTA_ALIAS = "__DORIS_IVM_NULLABLE_KEY_DELTA__";
+    private static final String NULLABLE_KEY_POSITIVE_ALIAS = "__DORIS_IVM_NULLABLE_KEY_POSITIVE__";
+    private static final String NULLABLE_KEY_NEGATIVE_ALIAS = "__DORIS_IVM_NULLABLE_KEY_NEGATIVE__";
+    private static final String NULLABLE_PRE_SNAPSHOT_ALIAS = "__DORIS_IVM_NULLABLE_PRE_SNAPSHOT__";
+    private static final String NULLABLE_POST_SNAPSHOT_ALIAS = "__DORIS_IVM_NULLABLE_POST_SNAPSHOT__";
 
     public IvmOuterJoinDeltaStrategy(IvmRefreshContext ctx) {
         super(ctx);
     }
 
     /**
-     * Dispatch a normalized LEFT OUTER JOIN by checking which side carries the base-table delta.
+     * Dispatch a normalized LEFT/RIGHT OUTER JOIN by checking which side carries the base-table delta.
      */
     @Override
     public RewriteResult visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Void context) {
-        if (join.getJoinType() != JoinType.LEFT_OUTER_JOIN) {
+        if (!isSupportedOuterJoin(join.getJoinType())) {
             return super.visitLogicalJoin(join, context);
         }
 
@@ -99,20 +99,21 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
         RewriteResult rightResult = join.right().accept(this, context);
         if (leftResult.dmlFactorSlot != null && rightResult.dmlFactorSlot != null) {
             throw new AnalysisException(
-                    "IVM: both sides of left outer join have dml_factor; expected at most one delta side");
+                    "IVM: both sides of outer join have dml_factor; expected at most one delta side");
         }
         if (leftResult.dmlFactorSlot == null && rightResult.dmlFactorSlot == null) {
             return new RewriteResult(join.withChildren(leftResult.plan, rightResult.plan), null);
         }
-        if (leftResult.dmlFactorSlot != null) {
+        OuterJoinSideHelper sideHelper = new OuterJoinSideHelper(join, leftResult, rightResult);
+        if (sideHelper.isDeltaOnPreservedSide()) {
             return rewritePreservedSideDelta(join, leftResult, rightResult);
         } else {
-            return rewriteNullableSideDelta(join, leftResult, rightResult);
+            return rewriteNullableSideDelta(join, leftResult, rightResult, sideHelper);
         }
     }
 
     /**
-     * Delta from the preserved side does not need pad-null repair; the original left outer join shape is enough.
+     * Delta from the preserved side does not need pad-null repair; the original outer join shape is enough.
      */
     private RewriteResult rewritePreservedSideDelta(LogicalJoin<? extends Plan, ? extends Plan> join,
             RewriteResult leftResult, RewriteResult rightResult) {
@@ -125,68 +126,72 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
      * Delta from the nullable side may change both joined rows and padded-null rows.
      */
     private RewriteResult rewriteNullableSideDelta(LogicalJoin<? extends Plan, ? extends Plan> join,
-            RewriteResult leftResult, RewriteResult rightResult) {
+            RewriteResult leftResult, RewriteResult rightResult, OuterJoinSideHelper sideHelper) {
         EquiJoinKeys equiJoinKeys = extractEquiJoinKeys(join);
         if (equiJoinKeys != null) {
-            return rewriteNullableSideDeltaWithRightEvents(join, leftResult, rightResult, equiJoinKeys);
+            return rewriteNullableSideDeltaWithNullableEvents(join, leftResult, rightResult, sideHelper, equiJoinKeys);
         } else {
-            return rewriteNullableSideDeltaWithRepairBranches(join, leftResult, rightResult);
+            return rewriteNullableSideDeltaWithRepairBranches(join, leftResult, rightResult, sideHelper);
         }
     }
 
     private RewriteResult rewriteNullableSideDeltaWithRepairBranches(LogicalJoin<? extends Plan, ? extends Plan> join,
-            RewriteResult leftResult, RewriteResult rightResult) {
+            RewriteResult leftResult, RewriteResult rightResult, OuterJoinSideHelper sideHelper) {
         // Nullable-side delta for:
-        //   left_snapshot LEFT JOIN right_delta
+        //   preserved_snapshot OUTER JOIN nullable_delta
         //
         // It has three parts:
         //   1. Bare joined rows:
-        //        left_snapshot INNER JOIN right_delta
+        //        preserved_snapshot INNER JOIN nullable_delta
         //
-        //   2. Remove old pad-null rows when right inserts create the first match:
-        //        left_snapshot LEFT SEMI JOIN right_insert_delta
-        //          LEFT ANTI JOIN right_pre_snapshot
+        //   2. Remove old pad-null rows when nullable-side inserts create the first match:
+        //        preserved_snapshot LEFT SEMI JOIN nullable_insert_delta
+        //          LEFT ANTI JOIN nullable_pre_snapshot
         //      The semi join keeps preserved-side rows affected by this delta without
         //      multiplying them by matched delta rows. The anti join then keeps only rows
-        //      that had no matching right row before this delta. For those rows, the old MV
-        //      contained one row with right columns padded to NULL, so we emit that
+        //      that had no matching nullable-side row before this delta. For those rows, the old MV
+        //      contained one row with nullable-side columns padded to NULL, so we emit that
         //      NULL-padded row with dml_factor = -1.
         //
-        //   3. Add new pad-null rows when right deletes remove the last match:
-        //        left_snapshot LEFT SEMI JOIN right_delete_delta
-        //          LEFT ANTI JOIN right_post_snapshot
+        //   3. Add new pad-null rows when nullable-side deletes remove the last match:
+        //        preserved_snapshot LEFT SEMI JOIN nullable_delete_delta
+        //          LEFT ANTI JOIN nullable_post_snapshot
         //      The semi join keeps preserved-side rows affected by this delta without
         //      multiplying them by matched delta rows. The anti join then keeps only rows
-        //      that have no matching right row after this delta. For those rows, the new MV
+        //      that have no matching nullable-side row after this delta. For those rows, the new MV
         //      needs one NULL-padded row, so we emit that row with dml_factor = +1.
-        RewriteResult joinedResult = rewriteNullableSideBareJoinDelta(join, leftResult, rightResult);
+        RewriteResult joinedResult = rewriteNullableSideBareJoinDelta(join, leftResult, rightResult, sideHelper);
 
-        Pair<Plan, Map<Slot, Slot>> insertedRightDelta = remapOutputs(aliasPlan(freshPlan(rightResult.plan),
-                RIGHT_INSERT_DELTA_ALIAS));
-        Slot insertedRightDmlFactor = findSlotByName(insertedRightDelta.first.getOutput(), Column.IVM_DML_FACTOR_COL);
-        Pair<Plan, Map<Slot, Slot>> deletedRightDelta = remapOutputs(aliasPlan(freshPlan(rightResult.plan),
-                RIGHT_DELETE_DELTA_ALIAS));
-        Slot deletedRightDmlFactor = findSlotByName(deletedRightDelta.first.getOutput(), Column.IVM_DML_FACTOR_COL);
-        Plan rightInserts = new LogicalFilter<>(ImmutableSet.of(
-                new GreaterThan(insertedRightDmlFactor, new TinyIntLiteral((byte) 0))), insertedRightDelta.first);
-        Plan rightDeletes = new LogicalFilter<>(ImmutableSet.of(
-                new LessThan(deletedRightDmlFactor, new TinyIntLiteral((byte) 0))), deletedRightDelta.first);
-        // Build right_pre/right_post from the original nullable-side plan, not from rightResult.plan.
-        // rightResult.plan may already be linearly rewritten; for example UNION ALL keeps only
+        Pair<Plan, Map<Slot, Slot>> insertedNullableDelta = remapOutputs(aliasPlan(
+                freshPlan(sideHelper.nullableResult.plan), NULLABLE_INSERT_DELTA_ALIAS));
+        Slot insertedNullableDmlFactor = findSlotByName(insertedNullableDelta.first.getOutput(),
+                Column.IVM_DML_FACTOR_COL);
+        Pair<Plan, Map<Slot, Slot>> deletedNullableDelta = remapOutputs(aliasPlan(
+                freshPlan(sideHelper.nullableResult.plan), NULLABLE_DELETE_DELTA_ALIAS));
+        Slot deletedNullableDmlFactor = findSlotByName(deletedNullableDelta.first.getOutput(),
+                Column.IVM_DML_FACTOR_COL);
+        Plan nullableInserts = new LogicalFilter<>(ImmutableSet.of(
+                new GreaterThan(insertedNullableDmlFactor, new TinyIntLiteral((byte) 0))),
+                insertedNullableDelta.first);
+        Plan nullableDeletes = new LogicalFilter<>(ImmutableSet.of(
+                new LessThan(deletedNullableDmlFactor, new TinyIntLiteral((byte) 0))),
+                deletedNullableDelta.first);
+        // Build nullable pre/post from the original nullable-side plan, not from nullableResult.plan.
+        // nullableResult.plan may already be linearly rewritten; for example UNION ALL keeps only
         // the delta arm and prunes other snapshot arms. Pad-null repair must compare against the
         // full nullable-side relation, so preserve all branches and only replace the one delta scan
         // with its pre/post snapshot.
-        Pair<Plan, Map<Slot, Slot>> rightPreSnapshot = remapOutputs(aliasPlan(
-                freshPlan(copyDeltaScanAsSnapshot(join.right(), false)), RIGHT_PRE_SNAPSHOT_ALIAS));
-        Pair<Plan, Map<Slot, Slot>> rightPostSnapshot = remapOutputs(aliasPlan(
-                freshPlan(copyDeltaScanAsSnapshot(join.right(), true)), RIGHT_POST_SNAPSHOT_ALIAS));
+        Pair<Plan, Map<Slot, Slot>> nullablePreSnapshot = remapOutputs(aliasPlan(
+                freshPlan(copyDeltaScanAsSnapshot(sideHelper.nullableChild(), false)), NULLABLE_PRE_SNAPSHOT_ALIAS));
+        Pair<Plan, Map<Slot, Slot>> nullablePostSnapshot = remapOutputs(aliasPlan(
+                freshPlan(copyDeltaScanAsSnapshot(sideHelper.nullableChild(), true)), NULLABLE_POST_SNAPSHOT_ALIAS));
         Plan joinedProject = remapOutputs(joinedResult.plan).first;
         LogicalProject<Plan> preNullProject = buildPaddedNullRepairProject(join,
-                remapOutputs(freshPlan(leftResult.plan)), insertedRightDelta.second,
-                rightInserts, rightPreSnapshot, new TinyIntLiteral((byte) -1));
+                remapOutputs(freshPlan(sideHelper.preservedResult.plan)), insertedNullableDelta.second,
+                nullableInserts, nullablePreSnapshot, new TinyIntLiteral((byte) -1), sideHelper);
         LogicalProject<Plan> postNullProject = buildPaddedNullRepairProject(join,
-                remapOutputs(freshPlan(leftResult.plan)), deletedRightDelta.second,
-                rightDeletes, rightPostSnapshot, new TinyIntLiteral((byte) 1));
+                remapOutputs(freshPlan(sideHelper.preservedResult.plan)), deletedNullableDelta.second,
+                nullableDeletes, nullablePostSnapshot, new TinyIntLiteral((byte) 1), sideHelper);
 
         LogicalUnion union = buildUnionAll(ImmutableList.of(joinedProject, preNullProject, postNullProject));
         LogicalProject<Plan> outputProject = projectUnionOutputs(union, joinedResult.plan.getOutput());
@@ -194,138 +199,143 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
         return new RewriteResult(outputProject, dmlFactor);
     }
 
-    private RewriteResult rewriteNullableSideDeltaWithRightEvents(LogicalJoin<? extends Plan, ? extends Plan> join,
-            RewriteResult leftResult, RewriteResult rightResult, EquiJoinKeys equiJoinKeys) {
-        // Nullable-side delta for equi left outer join can be reduced to one probe:
-        //   left_snapshot INNER JOIN right_events
+    private RewriteResult rewriteNullableSideDeltaWithNullableEvents(LogicalJoin<? extends Plan, ? extends Plan> join,
+            RewriteResult leftResult, RewriteResult rightResult, OuterJoinSideHelper sideHelper,
+            EquiJoinKeys equiJoinKeys) {
+        // Nullable-side delta for equi outer join can be reduced to one probe:
+        //   preserved_snapshot INNER JOIN nullable_events
         //
-        // The important point is that right_events is not just "right_delta with
+        // The important point is that nullable_events is not just "nullable_delta with
         // another name". It encodes every MV row change caused by the nullable side
         // into rows that can be joined by key with the preserved-side snapshot.
-        // After that encoding, left_snapshot does not need to know whether an event
-        // is a real right row change or a padded-NULL repair; it only probes once by
+        // After that encoding, preserved_snapshot does not need to know whether an event
+        // is a real nullable-side row change or a padded-NULL repair; it only probes once by
         // the event key and projects the event payload.
         //
-        // right_events has three parts:
-        //   1. Detail right delta rows:
-        //        right_delta
-        //      These rows keep the original right-side outputs and right delta dml_factor,
+        // nullable_events has three parts:
+        //   1. Detail nullable-side delta rows:
+        //        nullable_delta
+        //      These rows keep the original nullable-side outputs and nullable-side delta dml_factor,
         //      so the final join emits normal joined row changes.
         //
-        //   2. Remove old pad-null rows when right inserts create the first match:
-        //        affected right_insert_delta keys LEFT ANTI JOIN right_pre_snapshot
-        //      For those keys, the old MV contained one row with right columns padded
-        //      to NULL. The event carries the join keys, pads right outputs to NULL,
+        //   2. Remove old pad-null rows when nullable-side inserts create the first match:
+        //        affected nullable_insert_delta keys LEFT ANTI JOIN nullable_pre_snapshot
+        //      For those keys, the old MV contained one row with nullable-side columns padded
+        //      to NULL. The event carries the join keys, pads nullable-side outputs to NULL,
         //      and uses dml_factor = -1.
         //
-        //   3. Add new pad-null rows when right deletes remove the last match:
-        //        affected right_delete_delta keys LEFT ANTI JOIN right_post_snapshot
+        //   3. Add new pad-null rows when nullable-side deletes remove the last match:
+        //        affected nullable_delete_delta keys LEFT ANTI JOIN nullable_post_snapshot
         //      For those keys, the new MV needs one NULL-padded row. The event carries
-        //      the join keys, pads right outputs to NULL, and uses dml_factor = +1.
+        //      the join keys, pads nullable-side outputs to NULL, and uses dml_factor = +1.
         //
-        // By merging the bare join and pad-null repair rows into right_events, the
+        // By merging the bare join and pad-null repair rows into nullable_events, the
         // preserved-side snapshot is scanned/probed once instead of three times.
         //
         // This requires pure deterministic equi keys. Expressions like
         //   f(left_slots) = g(right_slots)
-        // are supported, because the right event relation can materialize
-        // g(right_slots) as event_key and the final probe can evaluate
-        // f(left_snapshot_slots) = event_key. Conditions such as
+        // are supported, because the nullable event relation can materialize
+        // the nullable-side key as event_key and the final probe can evaluate
+        // the preserved-side key against event_key. Conditions such as
         //   left.k = right.k AND left.v > right.v
-        // are not supported here, because the right side alone cannot decide which
-        // left rows are affected by the non-hash predicate. Such joins fall back to
+        // are not supported here, because the nullable side alone cannot decide which
+        // preserved-side rows are affected by the non-hash predicate. Such joins fall back to
         // the three repair branches. Unique functions such as random()/uuid() are
         // also rejected before this path, because recomputing them in different
         // event branches would produce unstable keys.
-        RewriteResult joinedResult = rewriteNullableSideBareJoinDelta(join, leftResult, rightResult);
-        Pair<Plan, Map<Slot, Slot>> leftSnapshot = remapOutputs(freshPlan(leftResult.plan));
-        RightEventPlan rightEvents = buildRightEventPlan(join, rightResult, equiJoinKeys);
+        RewriteResult joinedResult = rewriteNullableSideBareJoinDelta(join, leftResult, rightResult, sideHelper);
+        Pair<Plan, Map<Slot, Slot>> preservedSnapshot = remapOutputs(freshPlan(sideHelper.preservedResult.plan));
+        NullableEventPlan nullableEvents = buildNullableEventPlan(join, sideHelper, equiJoinKeys);
 
         ImmutableList.Builder<Expression> hashConjuncts = ImmutableList.builderWithExpectedSize(
-                equiJoinKeys.leftExpressions.size());
-        for (int i = 0; i < equiJoinKeys.leftExpressions.size(); i++) {
+                sideHelper.preservedKeyExpressions(equiJoinKeys).size());
+        for (int i = 0; i < sideHelper.preservedKeyExpressions(equiJoinKeys).size(); i++) {
             hashConjuncts.add(new EqualTo(
-                    ExpressionUtils.replace(equiJoinKeys.leftExpressions.get(i), leftSnapshot.second),
-                    rightEvents.eventKeySlots.get(i)));
+                    ExpressionUtils.replace(sideHelper.preservedKeyExpressions(equiJoinKeys).get(i),
+                            preservedSnapshot.second),
+                    nullableEvents.eventKeySlots.get(i)));
         }
         LogicalJoin<Plan, Plan> eventJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                 hashConjuncts.build(), ImmutableList.of(), join.getDistributeHint(),
-                leftSnapshot.first, rightEvents.plan, JoinReorderContext.EMPTY);
+                preservedSnapshot.first, nullableEvents.plan, JoinReorderContext.EMPTY);
         LogicalProject<Plan> outputProject = projectEventJoinOutputs(joinedResult.plan.getOutput(),
-                eventJoin, leftSnapshot.second, rightEvents.rightOutputMapping, rightEvents.dmlFactorSlot);
+                eventJoin, preservedSnapshot.second, nullableEvents.nullableOutputMapping,
+                nullableEvents.dmlFactorSlot);
         Slot dmlFactor = findSlotByName(outputProject.getOutput(), Column.IVM_DML_FACTOR_COL);
         return new RewriteResult(outputProject, dmlFactor);
     }
 
     /**
      * Build the ordinary joined-row change:
-     *   left_snapshot INNER JOIN right_delta
+     *   preserved_snapshot INNER JOIN nullable_delta
      *
      * This is shared by both nullable-side strategies. The dml factor comes from the nullable-side delta.
      */
     private RewriteResult rewriteNullableSideBareJoinDelta(LogicalJoin<? extends Plan, ? extends Plan> join,
-            RewriteResult leftResult, RewriteResult rightResult) {
+            RewriteResult leftResult, RewriteResult rightResult, OuterJoinSideHelper sideHelper) {
         LogicalJoin<Plan, Plan> innerJoin = join.withTypeChildren(JoinType.INNER_JOIN,
                 leftResult.plan, rightResult.plan, JoinReorderContext.EMPTY);
-        return new RewriteResult(innerJoin, rightResult.dmlFactorSlot);
+        return new RewriteResult(innerJoin, sideHelper.nullableResult.dmlFactorSlot);
     }
 
     /**
      * Build one pad-null repair branch:
-     *   left_snapshot LEFT SEMI JOIN right_delta
-     *     LEFT ANTI JOIN right_snapshot
+     *   preserved_snapshot LEFT SEMI JOIN nullable_delta
+     *     LEFT ANTI JOIN nullable_snapshot
      *
      * The semi join finds preserved-side rows affected by the nullable-side delta. The anti join keeps only rows
      * whose match existence changed across the snapshot boundary.
      */
     private LogicalProject<Plan> buildPaddedNullRepairProject(LogicalJoin<? extends Plan, ? extends Plan> join,
-            Pair<Plan, Map<Slot, Slot>> leftSnapshot, Map<Slot, Slot> rightDeltaMapping, Plan rightDelta,
-            Pair<Plan, Map<Slot, Slot>> rightSnapshot, Expression dmlFactor) {
+            Pair<Plan, Map<Slot, Slot>> preservedSnapshot, Map<Slot, Slot> nullableDeltaMapping, Plan nullableDelta,
+            Pair<Plan, Map<Slot, Slot>> nullableSnapshot, Expression dmlFactor, OuterJoinSideHelper sideHelper) {
         Map<Slot, Slot> candidateMapping = ImmutableMap.<Slot, Slot>builder()
-                .putAll(leftSnapshot.second)
-                .putAll(rightDeltaMapping)
+                .putAll(preservedSnapshot.second)
+                .putAll(nullableDeltaMapping)
                 .buildKeepingLast();
         LogicalJoin<Plan, Plan> candidateJoin = new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN,
                 ExpressionUtils.replace(join.getHashJoinConjuncts(), candidateMapping),
                 ExpressionUtils.replace(join.getOtherJoinConjuncts(), candidateMapping), join.getDistributeHint(),
-                leftSnapshot.first, rightDelta, JoinReorderContext.EMPTY);
+                preservedSnapshot.first, nullableDelta, JoinReorderContext.EMPTY);
         Map<Slot, Slot> antiJoinMapping = ImmutableMap.<Slot, Slot>builder()
-                .putAll(leftSnapshot.second)
-                .putAll(rightSnapshot.second)
+                .putAll(preservedSnapshot.second)
+                .putAll(nullableSnapshot.second)
                 .buildKeepingLast();
         LogicalJoin<Plan, Plan> antiJoin = new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN,
                 ExpressionUtils.replace(join.getHashJoinConjuncts(), antiJoinMapping),
                 ExpressionUtils.replace(join.getOtherJoinConjuncts(), antiJoinMapping), join.getDistributeHint(),
-                candidateJoin, rightSnapshot.first, JoinReorderContext.EMPTY);
-        return projectPaddedNullOutputs(join, antiJoin, dmlFactor, leftSnapshot.second);
+                candidateJoin, nullableSnapshot.first, JoinReorderContext.EMPTY);
+        return projectPaddedNullOutputs(join, antiJoin, dmlFactor, preservedSnapshot.second, sideHelper);
     }
 
     /**
-     * Project a repair branch back to the original left outer join output schema, padding nullable-side columns
+     * Project a repair branch back to the original outer join output schema, padding nullable-side columns
      * with NULL and setting the repair dml factor.
      */
     private LogicalProject<Plan> projectPaddedNullOutputs(LogicalJoin<? extends Plan, ? extends Plan> join,
-            Plan source, Expression dmlFactor, Map<Slot, Slot> leftOutputMapping) {
+            Plan source, Expression dmlFactor, Map<Slot, Slot> preservedOutputMapping,
+            OuterJoinSideHelper sideHelper) {
         ImmutableList.Builder<NamedExpression> projects = ImmutableList.builder();
-        Map<Slot, Expression> leftSourceSlots = new HashMap<>();
+        Map<Slot, Expression> preservedSourceSlots = new HashMap<>();
         for (Slot slot : source.getOutput()) {
-            leftSourceSlots.put(slot, slot);
+            preservedSourceSlots.put(slot, slot);
         }
-        Slot leftRowId = IvmUtil.findRowIdSlot(join.left().getOutput(), "left child of left outer join");
-        Slot rightRowId = IvmUtil.findRowIdSlot(join.right().getOutput(), "right child of left outer join");
+        Slot leftRowId = IvmUtil.findRowIdSlot(join.left().getOutput(), "left child of outer join");
+        Slot rightRowId = IvmUtil.findRowIdSlot(join.right().getOutput(), "right child of outer join");
         for (Slot slot : join.getOutput()) {
-            if (slot.equals(leftRowId)) {
-                projects.add(new Alias(resolveLeftOutput(slot, leftOutputMapping, leftSourceSlots), slot.getName()));
-            } else if (slot.equals(rightRowId)) {
-                // The nullable side has no matching row, so the parent normalize Project computes
-                // hash(leftRowId, NULL) as the final MV row id for this padded-null repair row.
+            if (slot.equals(leftRowId) && sideHelper.isNullableSlot(slot)) {
                 projects.add(new Alias(new NullLiteral(slot.getDataType()), slot.getName()));
-            } else if (join.left().getOutputSet().contains(slot)) {
-                projects.add(new Alias(resolveLeftOutput(slot, leftOutputMapping, leftSourceSlots), slot.getName()));
-            } else if (join.right().getOutputSet().contains(slot)) {
+            } else if (slot.equals(rightRowId) && sideHelper.isNullableSlot(slot)) {
+                // The nullable side has no matching row, so the parent normalize Project computes
+                // hash(leftRowId, NULL) for LEFT JOIN and hash(NULL, rightRowId) for RIGHT JOIN.
+                projects.add(new Alias(new NullLiteral(slot.getDataType()), slot.getName()));
+            } else if (sideHelper.isPreservedSlot(slot)) {
+                projects.add(new Alias(resolvePreservedOutput(slot, preservedOutputMapping,
+                        preservedSourceSlots), slot.getName()));
+            } else if (sideHelper.isNullableSlot(slot)) {
                 projects.add(new Alias(new NullLiteral(slot.getDataType()), slot.getName()));
             } else {
-                throw new AnalysisException("IVM left outer join rewrite found unknown output slot: " + slot);
+                throw new AnalysisException("IVM outer join rewrite found unknown output slot: " + slot);
             }
         }
         projects.add(new Alias(dmlFactor, Column.IVM_DML_FACTOR_COL));
@@ -336,80 +346,83 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
      * Build the nullable-side event relation consumed by the optimized one-probe rewrite.
      *
      * Output layout:
-     *   right join keys, right-side value slots, dml_factor
+     *   nullable join keys, nullable-side value slots, dml_factor
      */
-    private RightEventPlan buildRightEventPlan(LogicalJoin<? extends Plan, ? extends Plan> join,
-            RewriteResult rightResult, EquiJoinKeys equiJoinKeys) {
-        Plan detailEvent = buildRightDetailEvent(rightResult, equiJoinKeys);
-        Plan preNullEvent = buildRightNullEvent(join, rightResult, equiJoinKeys, false,
+    private NullableEventPlan buildNullableEventPlan(LogicalJoin<? extends Plan, ? extends Plan> join,
+            OuterJoinSideHelper sideHelper, EquiJoinKeys equiJoinKeys) {
+        Plan detailEvent = buildNullableDetailEvent(sideHelper, equiJoinKeys);
+        Plan preNullEvent = buildNullableNullEvent(join, sideHelper, equiJoinKeys, false,
                 new TinyIntLiteral((byte) -1));
-        Plan postNullEvent = buildRightNullEvent(join, rightResult, equiJoinKeys, true,
+        Plan postNullEvent = buildNullableNullEvent(join, sideHelper, equiJoinKeys, true,
                 new TinyIntLiteral((byte) 1));
         LogicalUnion union = buildUnionAll(ImmutableList.of(detailEvent, preNullEvent, postNullEvent));
 
         List<Slot> unionOutputs = union.getOutput();
-        Map<Slot, Slot> rightOutputMapping = new HashMap<>();
-        int rightOutputStart = equiJoinKeys.rightExpressions.size();
-        int rightOutputIndex = 0;
-        for (Slot slot : rightValueSlots(rightResult)) {
-            rightOutputMapping.put(slot, unionOutputs.get(rightOutputStart + rightOutputIndex));
-            rightOutputIndex++;
+        Map<Slot, Slot> nullableOutputMapping = new HashMap<>();
+        int nullableOutputStart = sideHelper.nullableKeyExpressions(equiJoinKeys).size();
+        int nullableOutputIndex = 0;
+        for (Slot slot : nullableValueSlots(sideHelper)) {
+            nullableOutputMapping.put(slot, unionOutputs.get(nullableOutputStart + nullableOutputIndex));
+            nullableOutputIndex++;
         }
-        List<Slot> eventKeySlots = unionOutputs.subList(0, equiJoinKeys.rightExpressions.size());
+        List<Slot> eventKeySlots = unionOutputs.subList(0, sideHelper.nullableKeyExpressions(equiJoinKeys).size());
         Slot dmlFactorSlot = unionOutputs.get(unionOutputs.size() - 1);
-        return new RightEventPlan(union, rightOutputMapping, eventKeySlots, dmlFactorSlot);
+        return new NullableEventPlan(union, nullableOutputMapping, eventKeySlots, dmlFactorSlot);
     }
 
     /**
      * Build detail events from raw nullable-side delta rows. These events produce normal joined-row changes after
      * probing the preserved-side snapshot.
      */
-    private Plan buildRightDetailEvent(RewriteResult rightResult, EquiJoinKeys equiJoinKeys) {
-        Pair<Plan, Map<Slot, Slot>> rightDelta = remapOutputs(aliasPlan(freshPlan(rightResult.plan),
-                RIGHT_DETAIL_DELTA_ALIAS));
+    private Plan buildNullableDetailEvent(OuterJoinSideHelper sideHelper, EquiJoinKeys equiJoinKeys) {
+        Pair<Plan, Map<Slot, Slot>> nullableDelta = remapOutputs(aliasPlan(
+                freshPlan(sideHelper.nullableResult.plan), NULLABLE_DETAIL_DELTA_ALIAS));
         ImmutableList.Builder<NamedExpression> projects = ImmutableList.builder();
-        for (int i = 0; i < equiJoinKeys.rightExpressions.size(); i++) {
-            projects.add(new Alias(ExpressionUtils.replace(equiJoinKeys.rightExpressions.get(i), rightDelta.second),
+        List<Expression> nullableKeyExpressions = sideHelper.nullableKeyExpressions(equiJoinKeys);
+        for (int i = 0; i < nullableKeyExpressions.size(); i++) {
+            projects.add(new Alias(ExpressionUtils.replace(nullableKeyExpressions.get(i), nullableDelta.second),
                     eventKeyName(i)));
         }
-        for (Slot slot : rightValueSlots(rightResult)) {
-            projects.add(new Alias(rightDelta.second.get(slot), slot.getName()));
+        for (Slot slot : nullableValueSlots(sideHelper)) {
+            projects.add(new Alias(nullableDelta.second.get(slot), slot.getName()));
         }
-        projects.add(new Alias(rightDelta.second.get(rightResult.dmlFactorSlot), Column.IVM_DML_FACTOR_COL));
-        return new LogicalProject<>(projects.build(), (LogicalPlan) rightDelta.first);
+        projects.add(new Alias(nullableDelta.second.get(sideHelper.nullableResult.dmlFactorSlot),
+                Column.IVM_DML_FACTOR_COL));
+        return new LogicalProject<>(projects.build(), (LogicalPlan) nullableDelta.first);
     }
 
     /**
      * Build one pad-null event branch for affected nullable-side keys.
      *
-     * preSnapshot branch: right inserts with no pre-existing right match emit dml_factor = -1.
-     * postSnapshot branch: right deletes with no remaining right match emit dml_factor = +1.
+     * preSnapshot branch: nullable-side inserts with no pre-existing nullable match emit dml_factor = -1.
+     * postSnapshot branch: nullable-side deletes with no remaining nullable match emit dml_factor = +1.
      */
-    private Plan buildRightNullEvent(LogicalJoin<? extends Plan, ? extends Plan> join, RewriteResult rightResult,
-            EquiJoinKeys equiJoinKeys, boolean postSnapshot, Expression dmlFactor) {
-        RightDeltaKeyPlan deltaKeys = buildRightDeltaKeyPlan(rightResult, equiJoinKeys);
+    private Plan buildNullableNullEvent(LogicalJoin<? extends Plan, ? extends Plan> join,
+            OuterJoinSideHelper sideHelper, EquiJoinKeys equiJoinKeys, boolean postSnapshot, Expression dmlFactor) {
+        NullableDeltaKeyPlan deltaKeys = buildNullableDeltaKeyPlan(sideHelper, equiJoinKeys);
         Slot flagSlot = postSnapshot ? deltaKeys.negativeSlot : deltaKeys.positiveSlot;
         Plan affectedKeys = new LogicalFilter<>(ImmutableSet.of(
                 new GreaterThan(flagSlot, new TinyIntLiteral((byte) 0))), deltaKeys.plan);
-        String snapshotAlias = postSnapshot ? RIGHT_POST_SNAPSHOT_ALIAS : RIGHT_PRE_SNAPSHOT_ALIAS;
-        Pair<Plan, Map<Slot, Slot>> rightSnapshot = remapOutputs(aliasPlan(
-                freshPlan(copyDeltaScanAsSnapshot(join.right(), postSnapshot)), snapshotAlias));
+        String snapshotAlias = postSnapshot ? NULLABLE_POST_SNAPSHOT_ALIAS : NULLABLE_PRE_SNAPSHOT_ALIAS;
+        Pair<Plan, Map<Slot, Slot>> nullableSnapshot = remapOutputs(aliasPlan(
+                freshPlan(copyDeltaScanAsSnapshot(sideHelper.nullableChild(), postSnapshot)), snapshotAlias));
 
         ImmutableList.Builder<Expression> antiConjuncts = ImmutableList.builderWithExpectedSize(
-                equiJoinKeys.rightExpressions.size());
-        for (int i = 0; i < equiJoinKeys.rightExpressions.size(); i++) {
+                sideHelper.nullableKeyExpressions(equiJoinKeys).size());
+        List<Expression> nullableKeyExpressions = sideHelper.nullableKeyExpressions(equiJoinKeys);
+        for (int i = 0; i < nullableKeyExpressions.size(); i++) {
             antiConjuncts.add(new EqualTo(deltaKeys.keySlots.get(i),
-                    ExpressionUtils.replace(equiJoinKeys.rightExpressions.get(i), rightSnapshot.second)));
+                    ExpressionUtils.replace(nullableKeyExpressions.get(i), nullableSnapshot.second)));
         }
         LogicalJoin<Plan, Plan> antiJoin = new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN,
                 antiConjuncts.build(), ImmutableList.of(), join.getDistributeHint(),
-                affectedKeys, rightSnapshot.first, JoinReorderContext.EMPTY);
+                affectedKeys, nullableSnapshot.first, JoinReorderContext.EMPTY);
 
         ImmutableList.Builder<NamedExpression> projects = ImmutableList.builder();
         for (int i = 0; i < deltaKeys.keySlots.size(); i++) {
             projects.add(new Alias(deltaKeys.keySlots.get(i), eventKeyName(i)));
         }
-        for (Slot slot : rightValueSlots(rightResult)) {
+        for (Slot slot : nullableValueSlots(sideHelper)) {
             projects.add(new Alias(new NullLiteral(slot.getDataType()), slot.getName()));
         }
         projects.add(new Alias(dmlFactor, Column.IVM_DML_FACTOR_COL));
@@ -420,27 +433,30 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
      * Aggregate nullable-side delta rows by join key and mark whether each key has positive and/or negative delta
      * rows. Pad-null event branches use these flags to avoid multiplying one key by all matching delta rows.
      */
-    private RightDeltaKeyPlan buildRightDeltaKeyPlan(RewriteResult rightResult, EquiJoinKeys equiJoinKeys) {
-        Pair<Plan, Map<Slot, Slot>> rightDelta = remapOutputs(aliasPlan(freshPlan(rightResult.plan),
-                RIGHT_KEY_DELTA_ALIAS));
+    private NullableDeltaKeyPlan buildNullableDeltaKeyPlan(OuterJoinSideHelper sideHelper,
+            EquiJoinKeys equiJoinKeys) {
+        Pair<Plan, Map<Slot, Slot>> nullableDelta = remapOutputs(aliasPlan(
+                freshPlan(sideHelper.nullableResult.plan), NULLABLE_KEY_DELTA_ALIAS));
+        List<Expression> nullableKeyExpressions = sideHelper.nullableKeyExpressions(equiJoinKeys);
         ImmutableList.Builder<Expression> groupBy = ImmutableList.builderWithExpectedSize(
-                equiJoinKeys.rightExpressions.size());
+                nullableKeyExpressions.size());
         ImmutableList.Builder<NamedExpression> outputs = ImmutableList.builder();
-        for (int i = 0; i < equiJoinKeys.rightExpressions.size(); i++) {
-            Expression key = ExpressionUtils.replace(equiJoinKeys.rightExpressions.get(i), rightDelta.second);
+        for (int i = 0; i < nullableKeyExpressions.size(); i++) {
+            Expression key = ExpressionUtils.replace(nullableKeyExpressions.get(i), nullableDelta.second);
             groupBy.add(key);
             outputs.add(new Alias(key, eventKeyName(i)));
         }
-        Slot dmlFactor = rightDelta.second.get(rightResult.dmlFactorSlot);
+        Slot dmlFactor = nullableDelta.second.get(sideHelper.nullableResult.dmlFactorSlot);
         outputs.add(new Alias(new Max(new If(new GreaterThan(dmlFactor, new TinyIntLiteral((byte) 0)),
-                new TinyIntLiteral((byte) 1), new TinyIntLiteral((byte) 0))), RIGHT_KEY_POSITIVE_ALIAS));
+                new TinyIntLiteral((byte) 1), new TinyIntLiteral((byte) 0))), NULLABLE_KEY_POSITIVE_ALIAS));
         outputs.add(new Alias(new Max(new If(new LessThan(dmlFactor, new TinyIntLiteral((byte) 0)),
-                new TinyIntLiteral((byte) 1), new TinyIntLiteral((byte) 0))), RIGHT_KEY_NEGATIVE_ALIAS));
+                new TinyIntLiteral((byte) 1), new TinyIntLiteral((byte) 0))), NULLABLE_KEY_NEGATIVE_ALIAS));
 
-        LogicalAggregate<Plan> aggregate = new LogicalAggregate<>(groupBy.build(), outputs.build(), rightDelta.first);
+        LogicalAggregate<Plan> aggregate = new LogicalAggregate<>(groupBy.build(), outputs.build(),
+                nullableDelta.first);
         List<Slot> output = aggregate.getOutput();
-        return new RightDeltaKeyPlan(aggregate,
-                output.subList(0, equiJoinKeys.rightExpressions.size()),
+        return new NullableDeltaKeyPlan(aggregate,
+                output.subList(0, nullableKeyExpressions.size()),
                 output.get(output.size() - 2), output.get(output.size() - 1));
     }
 
@@ -448,7 +464,7 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
      * Project the one-probe event join back to the same schema as the bare join result.
      */
     private LogicalProject<Plan> projectEventJoinOutputs(List<Slot> targetOutputs, Plan source,
-            Map<Slot, Slot> leftOutputMapping, Map<Slot, Slot> rightOutputMapping, Slot dmlFactorSlot) {
+            Map<Slot, Slot> preservedOutputMapping, Map<Slot, Slot> nullableOutputMapping, Slot dmlFactorSlot) {
         ImmutableList.Builder<NamedExpression> projects = ImmutableList.builderWithExpectedSize(
                 targetOutputs.size());
         for (Slot target : targetOutputs) {
@@ -456,13 +472,13 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
             if (Column.IVM_DML_FACTOR_COL.equals(target.getName())) {
                 expr = dmlFactorSlot;
             } else {
-                expr = leftOutputMapping.get(target);
+                expr = preservedOutputMapping.get(target);
                 if (expr == null) {
-                    expr = rightOutputMapping.get(target);
+                    expr = nullableOutputMapping.get(target);
                 }
             }
             if (expr == null) {
-                throw new AnalysisException("IVM left outer join event rewrite lost output slot: " + target);
+                throw new AnalysisException("IVM outer join event rewrite lost output slot: " + target);
             }
             projects.add(new Alias(target.getExprId(), expr, target.getName()));
         }
@@ -473,14 +489,14 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
      * Resolve a preserved-side output slot through the current remap. Some slots may already be present in the
      * source plan output after join rewrites, so use source slots as a second lookup table.
      */
-    private Expression resolveLeftOutput(Slot slot, Map<Slot, Slot> leftOutputMapping,
-            Map<Slot, Expression> leftSourceSlots) {
-        Expression expr = leftOutputMapping.get(slot);
+    private Expression resolvePreservedOutput(Slot slot, Map<Slot, Slot> preservedOutputMapping,
+            Map<Slot, Expression> preservedSourceSlots) {
+        Expression expr = preservedOutputMapping.get(slot);
         if (expr == null) {
-            expr = leftSourceSlots.get(slot);
+            expr = preservedSourceSlots.get(slot);
         }
         if (expr == null) {
-            throw new AnalysisException("IVM left outer join rewrite lost left output slot: " + slot);
+            throw new AnalysisException("IVM outer join rewrite lost preserved output slot: " + slot);
         }
         return expr;
     }
@@ -527,7 +543,7 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
      * Wrap an internal copy with a unique subquery alias and keep its slot mapping valid.
      */
     private Pair<Plan, Map<Slot, Slot>> aliasPlan(Pair<Plan, Map<Slot, Slot>> plan, String alias) {
-        // The nullable-side repair plan uses several copies of the same right child
+        // The nullable-side repair plan uses several copies of the same nullable child
         // (delta/pre/post). Nereids rejects multiple raw scans of the same table name
         // during binding, so wrap each internal copy with a unique alias. This is only
         // an internal disambiguation node; user-authored subquery aliases are still
@@ -568,8 +584,8 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
      *   date_trunc(left.dt) = date_trunc(right.dt)
      * can be rewritten as long as each side of the equality is bound to exactly one join side.
      *
-     * Unique functions are filtered out here. The right-event rewrite evaluates right key expressions while
-     * building the event relation and evaluates left key expressions again while probing it. For random(), uuid(),
+     * Unique functions are filtered out here. The event rewrite evaluates nullable key expressions while
+     * building the event relation and evaluates preserved key expressions again while probing it. For random(), uuid(),
      * random_bytes(), etc., those two evaluations are not stable enough to serve as an event key.
      */
     private EquiJoinKeys extractEquiJoinKeys(LogicalJoin<? extends Plan, ? extends Plan> join) {
@@ -640,11 +656,11 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
     }
 
     /**
-     * Return nullable-side output slots carried by right events, excluding the synthetic dml factor.
+     * Return nullable-side output slots carried by nullable-side events, excluding the synthetic dml factor.
      */
-    private List<Slot> rightValueSlots(RewriteResult rightResult) {
+    private List<Slot> nullableValueSlots(OuterJoinSideHelper sideHelper) {
         ImmutableList.Builder<Slot> slots = ImmutableList.builder();
-        for (Slot slot : rightResult.plan.getOutput()) {
+        for (Slot slot : sideHelper.nullableResult.plan.getOutput()) {
             if (!Column.IVM_DML_FACTOR_COL.equals(slot.getName())) {
                 slots.add(slot);
             }
@@ -656,7 +672,7 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
      * Generate stable internal names for event join keys.
      */
     private String eventKeyName(int index) {
-        return RIGHT_EVENT_KEY_PREFIX + index;
+        return NULLABLE_EVENT_KEY_PREFIX + index;
     }
 
     /**
@@ -676,7 +692,7 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
      */
     private LogicalProject<Plan> projectUnionOutputs(LogicalUnion union, List<Slot> targetOutputs) {
         if (union.getOutput().size() != targetOutputs.size()) {
-            throw new AnalysisException("IVM left outer join rewrite changed union output size from "
+            throw new AnalysisException("IVM outer join rewrite changed union output size from "
                     + targetOutputs.size() + " to " + union.getOutput().size());
         }
         ImmutableList.Builder<NamedExpression> projects = ImmutableList.builderWithExpectedSize(
@@ -744,7 +760,7 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
             ExprId copiedExprId = copierContext.exprIdReplaceMap.get(sourceSlot.getExprId());
             Slot targetSlot = copiedExprId == null ? null : targetOutputByExprId.get(copiedExprId);
             if (targetSlot == null) {
-                throw new AnalysisException("IVM left outer join rewrite lost copied output slot: " + sourceSlot);
+                throw new AnalysisException("IVM outer join rewrite lost copied output slot: " + sourceSlot);
             }
             outputMapping.put(sourceSlot, targetSlot);
         }
@@ -756,7 +772,7 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
      */
     private Map<Slot, Slot> mapOutputs(List<Slot> sourceOutput, List<Slot> targetOutput) {
         if (sourceOutput.size() != targetOutput.size()) {
-            throw new AnalysisException("IVM left outer join rewrite changed output size from "
+            throw new AnalysisException("IVM outer join rewrite changed output size from "
                     + sourceOutput.size() + " to " + targetOutput.size());
         }
         Map<Slot, Slot> outputMapping = new HashMap<>();
@@ -779,6 +795,10 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
         return sourceToNewOutput;
     }
 
+    private boolean isSupportedOuterJoin(JoinType joinType) {
+        return joinType == JoinType.LEFT_OUTER_JOIN || joinType == JoinType.RIGHT_OUTER_JOIN;
+    }
+
     /**
      * Equi-join key expressions split by preserved side and nullable side.
      */
@@ -793,18 +813,60 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
     }
 
     /**
+     * Helper that maps physical left/right children to logical preserved/nullable sides.
+     */
+    private static class OuterJoinSideHelper {
+        private final LogicalJoin<? extends Plan, ? extends Plan> join;
+        private final boolean preservedOnLeft;
+        private final RewriteResult preservedResult;
+        private final RewriteResult nullableResult;
+
+        private OuterJoinSideHelper(LogicalJoin<? extends Plan, ? extends Plan> join,
+                RewriteResult leftResult, RewriteResult rightResult) {
+            this.join = join;
+            this.preservedOnLeft = join.getJoinType() == JoinType.LEFT_OUTER_JOIN;
+            this.preservedResult = preservedOnLeft ? leftResult : rightResult;
+            this.nullableResult = preservedOnLeft ? rightResult : leftResult;
+        }
+
+        private boolean isDeltaOnPreservedSide() {
+            return preservedResult.dmlFactorSlot != null;
+        }
+
+        private Plan nullableChild() {
+            return preservedOnLeft ? join.right() : join.left();
+        }
+
+        private boolean isPreservedSlot(Slot slot) {
+            return (preservedOnLeft ? join.left() : join.right()).getOutputSet().contains(slot);
+        }
+
+        private boolean isNullableSlot(Slot slot) {
+            return (preservedOnLeft ? join.right() : join.left()).getOutputSet().contains(slot);
+        }
+
+        private List<Expression> preservedKeyExpressions(EquiJoinKeys equiJoinKeys) {
+            return preservedOnLeft ? equiJoinKeys.leftExpressions : equiJoinKeys.rightExpressions;
+        }
+
+        private List<Expression> nullableKeyExpressions(EquiJoinKeys equiJoinKeys) {
+            return preservedOnLeft ? equiJoinKeys.rightExpressions : equiJoinKeys.leftExpressions;
+        }
+    }
+
+    /**
      * Nullable-side event relation plus the slots needed by the final event join projection.
      */
-    private static class RightEventPlan {
+    private static class NullableEventPlan {
         private final Plan plan;
-        private final Map<Slot, Slot> rightOutputMapping;
+        private final Map<Slot, Slot> nullableOutputMapping;
         private final List<Slot> eventKeySlots;
         private final Slot dmlFactorSlot;
 
-        private RightEventPlan(Plan plan, Map<Slot, Slot> rightOutputMapping,
+        private NullableEventPlan(Plan plan, Map<Slot, Slot> nullableOutputMapping,
                 List<Slot> eventKeySlots, Slot dmlFactorSlot) {
             this.plan = plan;
-            this.rightOutputMapping = rightOutputMapping;
+            this.nullableOutputMapping = nullableOutputMapping;
             this.eventKeySlots = eventKeySlots;
             this.dmlFactorSlot = dmlFactorSlot;
         }
@@ -813,13 +875,13 @@ public class IvmOuterJoinDeltaStrategy extends IvmLinearDeltaStrategy {
     /**
      * Aggregated nullable-side delta keys and flags indicating positive/negative delta existence.
      */
-    private static class RightDeltaKeyPlan {
+    private static class NullableDeltaKeyPlan {
         private final Plan plan;
         private final List<Slot> keySlots;
         private final Slot positiveSlot;
         private final Slot negativeSlot;
 
-        private RightDeltaKeyPlan(Plan plan, List<Slot> keySlots, Slot positiveSlot, Slot negativeSlot) {
+        private NullableDeltaKeyPlan(Plan plan, List<Slot> keySlots, Slot positiveSlot, Slot negativeSlot) {
             this.plan = plan;
             this.keySlots = keySlots;
             this.positiveSlot = positiveSlot;

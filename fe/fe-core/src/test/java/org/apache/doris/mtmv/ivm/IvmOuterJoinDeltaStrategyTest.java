@@ -129,10 +129,37 @@ class IvmOuterJoinDeltaStrategyTest extends IvmDeltaTestBase {
         LogicalProject<?> postNullProject = (LogicalProject<?>) union.child(2);
         assertRightNullEvent(preNullProject, (byte) -1);
         assertRightNullEvent(postNullProject, (byte) 1);
-        assertContainsSubQueryAlias(preNullProject, "__DORIS_IVM_RIGHT_KEY_DELTA__");
-        assertContainsSubQueryAlias(preNullProject, "__DORIS_IVM_RIGHT_PRE_SNAPSHOT__");
-        assertContainsSubQueryAlias(postNullProject, "__DORIS_IVM_RIGHT_KEY_DELTA__");
-        assertContainsSubQueryAlias(postNullProject, "__DORIS_IVM_RIGHT_POST_SNAPSHOT__");
+        assertContainsSubQueryAlias(preNullProject, "__DORIS_IVM_NULLABLE_KEY_DELTA__");
+        assertContainsSubQueryAlias(preNullProject, "__DORIS_IVM_NULLABLE_PRE_SNAPSHOT__");
+        assertContainsSubQueryAlias(postNullProject, "__DORIS_IVM_NULLABLE_KEY_DELTA__");
+        assertContainsSubQueryAlias(postNullProject, "__DORIS_IVM_NULLABLE_POST_SNAPSHOT__");
+        assertNoDuplicateScanRelationIds(result.plan);
+    }
+
+    @Test
+    void testRightOuterJoinNullableSideDeltaBuildsNullableEvents() {
+        LogicalOlapScan leftDelta = (LogicalOlapScan) buildScanForTable(1, "t1").withIsDelta(true);
+        LogicalOlapScan rightSnapshot = buildScanForTable(2, "t2");
+        NormalizedOuterJoinPlan bundle = normalizedRightOuterJoin(rowIdProject(leftDelta),
+                rowIdProject(rightSnapshot));
+
+        IvmStreamRef leftStream = stream(10, 20);
+        TestableIvmOuterJoinDeltaStrategy strategy = new TestableIvmOuterJoinDeltaStrategy(
+                context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(leftDelta), leftStream)));
+
+        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(bundle.topProject);
+
+        LogicalProject<?> topProject = (LogicalProject<?>) result.plan;
+        LogicalProject<?> joinOutputProject = (LogicalProject<?>) topProject.child();
+        Assertions.assertInstanceOf(LogicalJoin.class, joinOutputProject.child());
+        LogicalJoin<?, ?> eventJoin = (LogicalJoin<?, ?>) joinOutputProject.child();
+        Assertions.assertEquals(JoinType.INNER_JOIN, eventJoin.getJoinType());
+        Assertions.assertInstanceOf(LogicalUnion.class, eventJoin.right());
+        LogicalUnion union = (LogicalUnion) eventJoin.right();
+        Assertions.assertEquals(3, union.children().size());
+        assertUnionChildrenAlign(union);
+        assertRightNullEvent((LogicalProject<?>) union.child(1), (byte) -1);
+        assertRightNullEvent((LogicalProject<?>) union.child(2), (byte) 1);
         assertNoDuplicateScanRelationIds(result.plan);
     }
 
@@ -178,6 +205,27 @@ class IvmOuterJoinDeltaStrategyTest extends IvmDeltaTestBase {
         LogicalProject<?> postNullProject = (LogicalProject<?>) union.child(2);
         assertPaddedRightRowId(preNullProject, bundle.leftOutputSize, (byte) -1);
         assertPaddedRightRowId(postNullProject, bundle.leftOutputSize, (byte) 1);
+    }
+
+    @Test
+    void testRightOuterJoinNullableSideDeltaWithNonHashOtherConjunctPadsLeftSide() {
+        LogicalOlapScan leftDelta = (LogicalOlapScan) buildScanForTable(1, "t1").withIsDelta(true);
+        LogicalOlapScan rightSnapshot = buildScanForTable(2, "t2");
+        NormalizedOuterJoinPlan bundle = normalizedRightOuterJoinWithNonHashOtherConjunct(
+                rowIdProject(leftDelta), rowIdProject(rightSnapshot));
+
+        IvmStreamRef leftStream = stream(10, 20);
+        TestableIvmOuterJoinDeltaStrategy strategy = new TestableIvmOuterJoinDeltaStrategy(
+                context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(leftDelta), leftStream)));
+
+        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(bundle.topProject);
+
+        LogicalProject<?> joinOutputProject = (LogicalProject<?>) ((LogicalProject<?>) result.plan).child();
+        Assertions.assertInstanceOf(LogicalUnion.class, joinOutputProject.child());
+        LogicalUnion union = (LogicalUnion) joinOutputProject.child();
+        Assertions.assertEquals(3, union.children().size());
+        assertPaddedLeftRowId((LogicalProject<?>) union.child(1), bundle.leftOutputSize, (byte) -1);
+        assertPaddedLeftRowId((LogicalProject<?>) union.child(2), bundle.leftOutputSize, (byte) 1);
     }
 
     @Test
@@ -331,6 +379,23 @@ class IvmOuterJoinDeltaStrategyTest extends IvmDeltaTestBase {
         Assertions.assertEquals(expectedDmlFactor, ((TinyIntLiteral) dmlFactor).getValue());
     }
 
+    private void assertPaddedLeftRowId(LogicalProject<?> project, int rightRowIdIndex, byte expectedDmlFactor) {
+        Assertions.assertInstanceOf(Alias.class, project.getProjects().get(0));
+        Alias leftRowIdAlias = (Alias) project.getProjects().get(0);
+        Assertions.assertInstanceOf(NullLiteral.class, leftRowIdAlias.child());
+
+        Assertions.assertInstanceOf(Alias.class, project.getProjects().get(rightRowIdIndex));
+        Alias rightRowIdAlias = (Alias) project.getProjects().get(rightRowIdIndex);
+        Assertions.assertFalse(rightRowIdAlias.child() instanceof NullLiteral);
+
+        NamedExpression lastProject = project.getProjects().get(project.getProjects().size() - 1);
+        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, lastProject.getName());
+        Assertions.assertInstanceOf(Alias.class, lastProject);
+        Expression dmlFactor = ((Alias) lastProject).child();
+        Assertions.assertInstanceOf(TinyIntLiteral.class, dmlFactor);
+        Assertions.assertEquals(expectedDmlFactor, ((TinyIntLiteral) dmlFactor).getValue());
+    }
+
     private void assertRightNullEvent(LogicalProject<?> project, byte expectedDmlFactor) {
         int eventKeyCount = 1;
         for (int i = eventKeyCount; i < project.getProjects().size() - 1; i++) {
@@ -412,6 +477,13 @@ class IvmOuterJoinDeltaStrategyTest extends IvmDeltaTestBase {
         return new NormalizedOuterJoinPlan(topProject, left.getOutput().size(), normalizeResult);
     }
 
+    private NormalizedOuterJoinPlan normalizedRightOuterJoin(Plan left, Plan right) {
+        LogicalJoin<?, ?> join = rightOuterJoin(left, right);
+        LogicalProject<Plan> topProject = normalizedJoinProject(join);
+        IvmNormalizeResult normalizeResult = deterministicNormalizeResult(topProject);
+        return new NormalizedOuterJoinPlan(topProject, left.getOutput().size(), normalizeResult);
+    }
+
     private NormalizedOuterJoinPlan normalizedOuterJoinWithOnlyOtherHashConjunct(Plan left, Plan right) {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
                 ImmutableList.of(),
@@ -424,6 +496,16 @@ class IvmOuterJoinDeltaStrategyTest extends IvmDeltaTestBase {
 
     private NormalizedOuterJoinPlan normalizedOuterJoinWithNonHashOtherConjunct(Plan left, Plan right) {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(new EqualTo(firstUserSlot(left), firstUserSlot(right))),
+                ImmutableList.of(new GreaterThan(firstUserSlot(left), firstUserSlot(right))),
+                left, right, JoinReorderContext.EMPTY);
+        LogicalProject<Plan> topProject = normalizedJoinProject(join);
+        IvmNormalizeResult normalizeResult = deterministicNormalizeResult(topProject);
+        return new NormalizedOuterJoinPlan(topProject, left.getOutput().size(), normalizeResult);
+    }
+
+    private NormalizedOuterJoinPlan normalizedRightOuterJoinWithNonHashOtherConjunct(Plan left, Plan right) {
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.RIGHT_OUTER_JOIN,
                 ImmutableList.of(new EqualTo(firstUserSlot(left), firstUserSlot(right))),
                 ImmutableList.of(new GreaterThan(firstUserSlot(left), firstUserSlot(right))),
                 left, right, JoinReorderContext.EMPTY);
@@ -471,6 +553,12 @@ class IvmOuterJoinDeltaStrategyTest extends IvmDeltaTestBase {
 
     private LogicalJoin<?, ?> leftOuterJoin(Plan left, Plan right) {
         return new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(new EqualTo(firstUserSlot(left), firstUserSlot(right))),
+                left, right, JoinReorderContext.EMPTY);
+    }
+
+    private LogicalJoin<?, ?> rightOuterJoin(Plan left, Plan right) {
+        return new LogicalJoin<>(JoinType.RIGHT_OUTER_JOIN,
                 ImmutableList.of(new EqualTo(firstUserSlot(left), firstUserSlot(right))),
                 left, right, JoinReorderContext.EMPTY);
     }
