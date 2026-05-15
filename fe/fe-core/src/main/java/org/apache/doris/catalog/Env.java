@@ -272,6 +272,7 @@ import org.apache.doris.statistics.StatisticsCleaner;
 import org.apache.doris.statistics.StatisticsJobAppender;
 import org.apache.doris.statistics.StatisticsMetricCollector;
 import org.apache.doris.statistics.query.QueryStats;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.HeartbeatMgr;
 import org.apache.doris.system.SystemInfoService;
@@ -1825,6 +1826,18 @@ public class Env {
                     Config.rpc_port);
             editLog.logMasterInfo(masterInfo);
             LOG.info("logMasterInfo:{}", masterInfo);
+
+            if (Boolean.getBoolean(FeConstants.DROP_BACKENDS_KEY)) {
+                LOG.info("drop_backends is set, dropping all backends...");
+                for (Backend be : Env.getCurrentSystemInfo().getAllClusterBackendsNoException().values()) {
+                    try {
+                        Env.getCurrentSystemInfo().dropBackend(be.getHost(), be.getHeartbeatPort());
+                    } catch (Exception e) {
+                        LOG.warn("failed to drop backend {}", be.getId(), e);
+                    }
+                }
+                LOG.info("finished dropping all backends");
+            }
 
             // for master, the 'isReady' is set behind.
             // but we are sure that all metadata is replayed if we get here.
