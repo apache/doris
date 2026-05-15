@@ -138,6 +138,7 @@ public class PushDownLimit implements RewriteRuleFactory {
                         join.left(),
                         limit.withChildren(join.right())
                 );
+            case FULL_OUTER_JOIN:
             case CROSS_JOIN:
                 return join.withChildren(
                         limit.withChildren(join.left()),

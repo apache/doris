@@ -184,6 +184,28 @@ class PushDownLimitTest extends TestWithFeService implements MemoPatternMatchSup
     }
 
     @Test
+    void testPushLimitThroughFullOuterJoin() {
+        test(JoinType.FULL_OUTER_JOIN, true,
+                logicalLimit(
+                        logicalProject(
+                                logicalJoin(
+                                        logicalLimit(logicalOlapScan().when(s -> s.getTable().getName().equals("score"))),
+                                        logicalLimit(logicalOlapScan().when(s -> s.getTable().getName().equals("student")))
+                                ).when(j -> j.getJoinType() == JoinType.FULL_OUTER_JOIN)
+                        )
+                )
+        );
+        test(JoinType.FULL_OUTER_JOIN, false,
+                logicalLimit(
+                        logicalJoin(
+                                logicalLimit(logicalOlapScan().when(s -> s.getTable().getName().equals("score"))),
+                                logicalLimit(logicalOlapScan().when(s -> s.getTable().getName().equals("student")))
+                        ).when(j -> j.getJoinType() == JoinType.FULL_OUTER_JOIN)
+                )
+        );
+    }
+
+    @Test
     void testPushLimitThroughInnerJoin() {
         test(JoinType.INNER_JOIN, true,
                 logicalLimit(
