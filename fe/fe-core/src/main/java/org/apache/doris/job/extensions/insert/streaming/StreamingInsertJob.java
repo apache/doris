@@ -303,19 +303,33 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         try {
             this.jobProperties = new StreamingJobProperties(properties);
             jobProperties.validate();
-            this.sampleWindowMs = jobProperties.getMaxIntervalSecond() * 10 * 1000;
             resolveCloudCluster();
             // build time definition
             JobExecutionConfiguration execConfig = getJobConfig();
             TimerDefinition timerDefinition = new TimerDefinition();
-            timerDefinition.setInterval(jobProperties.getMaxIntervalSecond());
             timerDefinition.setIntervalUnit(IntervalUnit.SECOND);
             timerDefinition.setStartTimeMs(execConfig.getTimerDefinition().getStartTimeMs());
             execConfig.setTimerDefinition(timerDefinition);
+            recomputeDerivedFields();
         } catch (AnalysisException ae) {
             log.warn("parse streaming insert job failed, props: {}", properties, ae);
             throw new RuntimeException(ae.getMessage());
         }
+    }
+
+    private void recomputeDerivedFields() {
+        if (jobProperties == null) {
+            return;
+        }
+        long maxIntervalSec = jobProperties.getMaxIntervalSecond();
+        this.sampleWindowMs = maxIntervalSec * 10 * 1000;
+        JobExecutionConfiguration execConfig = getJobConfig();
+        if (execConfig != null && execConfig.getTimerDefinition() != null) {
+            execConfig.getTimerDefinition().setInterval(maxIntervalSec);
+        }
+        this.sampleStartTime = System.currentTimeMillis();
+        this.sampleWindowScannedRows = 0L;
+        this.sampleWindowFilteredRows = 0L;
     }
 
     private void resolveCloudCluster() throws AnalysisException {
@@ -902,6 +916,24 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         super.onReplayCreate();
     }
 
+    public String getLag() {
+        return offsetProvider != null ? offsetProvider.getLag() : "";
+    }
+
+    // Numeric lag for metrics. Returns -1 when lag is not applicable (S3, snapshot phase)
+    // or unparseable, so dashboards can filter N/A jobs via lag >= 0.
+    public long getLagSeconds() {
+        String lagStr = getLag();
+        if (lagStr == null || lagStr.isEmpty()) {
+            return -1L;
+        }
+        try {
+            return Long.parseLong(lagStr);
+        } catch (NumberFormatException e) {
+            return -1L;
+        }
+    }
+
     /**
      * Because the offset statistics of the streamingInsertJob are all stored in txn,
      * only some fields are replayed here.
@@ -969,6 +1001,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
         this.properties.putAll(inputProperties);
         this.jobProperties = new StreamingJobProperties(this.properties);
+        recomputeDerivedFields();
     }
 
     private void resetCloudProgress(Offset offset) throws JobException {
@@ -1348,6 +1381,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (jobProperties == null && properties != null) {
             jobProperties = new StreamingJobProperties(properties);
         }
+        recomputeDerivedFields();
 
         if (null == getSucceedTaskCount()) {
             setSucceedTaskCount(new AtomicLong(0));

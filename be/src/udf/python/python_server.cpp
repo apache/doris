@@ -26,11 +26,14 @@
 
 #include <boost/asio.hpp>
 #include <boost/process.hpp>
+#include <chrono>
 #include <fstream>
 #include <future>
+#include <thread>
 
 #include "arrow/flight/client.h"
 #include "common/config.h"
+#include "common/status.h"
 #include "udf/python/python_udaf_client.h"
 #include "udf/python/python_udf_client.h"
 #include "udf/python/python_udtf_client.h"
@@ -127,7 +130,25 @@ PythonServerManager::_ensure_pool_initialized(const PythonVersion& version) {
 
     int success_count = 0;
     int failure_count = 0;
+    const auto init_start_time = std::chrono::steady_clock::now();
+#ifdef BE_TEST
+    constexpr auto progress_log_interval = std::chrono::milliseconds(50);
+#else
+    constexpr auto progress_log_interval = std::chrono::seconds(20);
+#endif
     for (int i = 0; i < max_pool_size; i++) {
+        // Print init log every 20s until the current slot is ready.
+        while (futures[i].wait_for(progress_log_interval) != std::future_status::ready) {
+            const auto now = std::chrono::steady_clock::now();
+            const auto total_elapsed_ms =
+                    std::chrono::duration_cast<std::chrono::milliseconds>(now - init_start_time)
+                            .count();
+            LOG(INFO) << "Python process pool initialization progress for version "
+                      << version.to_string() << ": waiting_slot=" << (i + 1) << "/" << max_pool_size
+                      << ", success=" << success_count << ", failed=" << failure_count
+                      << ", elapsed_ms=" << total_elapsed_ms;
+        }
+
         Status s = futures[i].get();
         if (s.ok() && temp_processes[i]) {
             versioned_pool->processes.emplace_back(std::move(temp_processes[i]));
@@ -145,9 +166,13 @@ PythonServerManager::_ensure_pool_initialized(const PythonVersion& version) {
                 max_pool_size));
     }
 
+    const auto total_elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                          std::chrono::steady_clock::now() - init_start_time)
+                                          .count();
     LOG(INFO) << "Python process pool initialized for version " << version.to_string()
               << ": created " << success_count << " processes"
-              << (failure_count > 0 ? fmt::format(" ({} failed)", failure_count) : "");
+              << (failure_count > 0 ? fmt::format(" ({} failed)", failure_count) : "")
+              << ", elapsed_ms=" << total_elapsed_ms;
 
     versioned_pool->initialized = true;
     _start_health_check_thread();
@@ -413,7 +438,20 @@ Status PythonServerManager::clear_module_cache(const std::string& location) {
     }
 
     std::string body = fmt::format(R"({{"location": "{}"}})", location);
+    return _broadcast_action_to_processes("clear_module_cache", body,
+                                          fmt::format("location={}", location));
+}
 
+void PythonServerManager::clear_udaf_state_cache(int64_t function_id) {
+    std::string body = fmt::format(R"({{"function_id": {}}})", function_id);
+    WARN_IF_ERROR(_broadcast_action_to_processes("clear_udaf_state_cache", body,
+                                                 fmt::format("function_id={}", function_id)),
+                  "failed to clear Python UDAF state cache");
+}
+
+Status PythonServerManager::_broadcast_action_to_processes(const std::string& action_type,
+                                                           const std::string& body,
+                                                           const std::string& log_name) {
     int success_count = 0;
     int fail_count = 0;
     bool has_active_process = false;
@@ -441,7 +479,7 @@ Status PythonServerManager::clear_module_cache(const std::string& location) {
                 auto client = std::move(*client_result);
 
                 arrow::flight::Action action;
-                action.type = "clear_module_cache";
+                action.type = action_type;
                 action.body = arrow::Buffer::FromString(body);
 
                 auto result_stream = client->DoAction(action);
@@ -467,13 +505,12 @@ Status PythonServerManager::clear_module_cache(const std::string& location) {
         return Status::OK();
     }
 
-    LOG(INFO) << "clear_module_cache completed for location=" << location
-              << ", success=" << success_count << ", failed=" << fail_count;
+    LOG(INFO) << action_type << " completed for " << log_name << ", success=" << success_count
+              << ", failed=" << fail_count;
 
     if (fail_count > 0) {
-        return Status::InternalError(
-                "clear_module_cache failed for location={}, success={}, failed={}", location,
-                success_count, fail_count);
+        return Status::InternalError("{} failed for {}, success={}, failed={}", action_type,
+                                     log_name, success_count, fail_count);
     }
 
     return Status::OK();

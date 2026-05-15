@@ -274,14 +274,14 @@ private:
             auto type = std::make_shared<DataTypeString>();
             MutableColumnPtr result_column = type->create_column();
             const ColumnString& docs =
-                    *check_and_get_column<ColumnString>(remove_nullable(src.get_root()).get());
+                    *assert_cast<const ColumnString*>(remove_nullable(src.get_root()).get());
             simdjson::ondemand::parser parser;
             std::vector<JsonPath> parsed_paths;
             if (field_name.empty() || field_name[0] != '$') {
                 field_name = "$." + field_name;
             }
             JsonFunctions::parse_json_paths(field_name, &parsed_paths);
-            ColumnString* col_str = assert_cast<ColumnString*>(result_column.get());
+            ColumnString* col_str = static_cast<ColumnString*>(result_column.get());
             for (size_t i = 0; i < docs.size(); ++i) {
                 if (!extract_from_document(parser, docs.get_data_at(i), parsed_paths, col_str)) {
                     VLOG_DEBUG << "failed to parse " << docs.get_data_at(i) << ", field "

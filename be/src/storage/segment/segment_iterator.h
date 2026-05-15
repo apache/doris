@@ -225,6 +225,7 @@ private:
                                uint32_t nrows_read_limit);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
+    Status _apply_read_limit_to_selected_rows(Block* block, uint16_t& selected_size);
     void _collect_runtime_filter_predicate();
     Status _output_non_pred_columns(Block* block);
     [[nodiscard]] Status _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
@@ -320,7 +321,7 @@ private:
 
     bool _has_delete_predicate(ColumnId cid);
 
-    bool _can_opt_topn_reads();
+    bool _can_opt_limit_reads();
 
     void _initialize_predicate_results();
     bool _check_all_conditions_passed_inverted_index_for_column(ColumnId cid,
@@ -439,6 +440,10 @@ private:
     // used for compaction, record selectd rowids of current batch
     uint16_t _selected_size;
     std::vector<uint16_t> _sel_rowid_idx;
+
+    // Rows already produced by this iterator. Used together with
+    // _opts.read_limit to compute the remaining per-batch budget.
+    size_t _rows_returned = 0;
 
     std::unique_ptr<ObjectPool> _pool;
 

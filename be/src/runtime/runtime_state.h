@@ -243,16 +243,10 @@ public:
         return _query_options.__isset.enable_insert_strict && _query_options.enable_insert_strict;
     }
 
-    bool enable_common_expr_pushdown() const {
-        return _query_options.__isset.enable_common_expr_pushdown &&
-               _query_options.enable_common_expr_pushdown;
+    bool enable_segment_limit_pushdown() const {
+        return !_query_options.__isset.enable_segment_limit_pushdown ||
+               _query_options.enable_segment_limit_pushdown;
     }
-
-    bool enable_common_expr_pushdown_for_inverted_index() const {
-        return enable_common_expr_pushdown() &&
-               _query_options.__isset.enable_common_expr_pushdown_for_inverted_index &&
-               _query_options.enable_common_expr_pushdown_for_inverted_index;
-    };
 
     bool mysql_row_binary_format() const {
         return _query_options.__isset.mysql_row_binary_format &&

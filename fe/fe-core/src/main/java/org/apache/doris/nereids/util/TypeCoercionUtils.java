@@ -20,6 +20,7 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
@@ -476,10 +477,27 @@ public class TypeCoercionUtils {
         }
     }
 
+    /**
+     * Wrap {@code expression} in a cast to {@code targetType} when the source type can
+     * already be resolved (Literal, or any expression whose {@code getDataType()} does
+     * not throw {@link UnboundException}). For Literals, defers to
+     * {@link #castIfNotSameType}; for other resolvable expressions, validates the cast
+     * via {@link #checkCanCastTo} before constructing it. Used by INSERT VALUES so that
+     * illegal casts (e.g. {@code variant<config_A>} → {@code variant<config_B>}) are
+     * rejected at parse time instead of slipping past analysis and crashing BE.
+     * Truly unbound expressions are wrapped without validation; the normal analysis
+     * pipeline's CheckCast pass will validate them after binding.
+     */
     public static Expression castUnbound(Expression expression, DataType targetType) {
         if (expression instanceof Literal) {
             return TypeCoercionUtils.castIfNotSameType(expression, targetType);
         } else {
+            try {
+                checkCanCastTo(expression.getDataType(), targetType);
+            } catch (UnboundException e) {
+                // Source type not yet known (UnboundFunction, UnboundSlot, ...);
+                // CheckCast in the normal analysis pipeline validates after binding.
+            }
             return TypeCoercionUtils.unSafeCast(expression, targetType);
         }
     }
@@ -638,15 +656,26 @@ public class TypeCoercionUtils {
                     && DateTimeChecker.isValidDateTime(value)) {
                 ret = DateTimeLiteral.parseDateTimeLiteral(value, true).orElse(null);
             } else if (dataType.isTimeStampTzType() && DateTimeChecker.isValidDateTime(value)) {
-                DateTimeV2Literal dtV2Lit = (DateTimeV2Literal) DateTimeLiteral
-                                .parseDateTimeLiteral(value, true).orElse(null);
-                if (dtV2Lit != null) {
-                    dtV2Lit = (DateTimeV2Literal) (DateTimeExtractAndTransform.convertTz(
-                            dtV2Lit,
-                            new StringLiteral(ConnectContext.get().getSessionVariable().timeZone),
-                            new StringLiteral("UTC")));
-                    ret = new TimestampTzLiteral(dtV2Lit.getYear(), dtV2Lit.getMonth(), dtV2Lit.getDay(),
-                            dtV2Lit.getHour(), dtV2Lit.getMinute(), dtV2Lit.getSecond(), dtV2Lit.getMicroSecond());
+                if (DateTimeChecker.hasTimeZone(value)) {
+                    // Signature search can pass TIMESTAMPTZ(*) here. TimestampTzLiteral rounds by scale,
+                    // so derive a concrete scale from the literal before preserving its explicit offset.
+                    TimeStampTzType timeStampTzType = (TimeStampTzType) dataType;
+                    if (timeStampTzType.getScale() < 0) {
+                        timeStampTzType = TimeStampTzType.forTypeFromString(value);
+                    }
+                    ret = new TimestampTzLiteral(timeStampTzType, value);
+                } else {
+                    DateTimeV2Literal dtV2Lit = (DateTimeV2Literal) DateTimeLiteral
+                                    .parseDateTimeLiteral(value, true).orElse(null);
+                    if (dtV2Lit != null) {
+                        dtV2Lit = (DateTimeV2Literal) (DateTimeExtractAndTransform.convertTz(
+                                dtV2Lit,
+                                new StringLiteral(ConnectContext.get().getSessionVariable().timeZone),
+                                new StringLiteral("UTC")));
+                        ret = new TimestampTzLiteral(dtV2Lit.getYear(), dtV2Lit.getMonth(), dtV2Lit.getDay(),
+                                dtV2Lit.getHour(), dtV2Lit.getMinute(), dtV2Lit.getSecond(),
+                                dtV2Lit.getMicroSecond());
+                    }
                 }
             } else if ((dataType.isDateV2Type() || dataType.isDateType()) && DateTimeChecker.isValidDateTime(value)) {
                 Result<DateLiteral, AnalysisException> parseResult = DateV2Literal.parseDateLiteral(value, true);

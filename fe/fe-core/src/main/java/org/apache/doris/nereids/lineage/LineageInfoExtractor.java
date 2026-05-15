@@ -38,7 +38,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
@@ -350,21 +349,6 @@ public class LineageInfoExtractor {
             Set<Expression> shuttled = shuttleExpressions(sortExprs, exprIdExpressionMap);
             addIndirectLineage(IndirectLineageType.SORT, shuttled, lineageInfo);
             return super.visitLogicalTopN(topN, lineageInfo);
-        }
-
-        /**
-         * Collect SORT indirect lineage from defer-materialize TopN.
-         *
-         * <p>Using the example SQL above, there is no defer-materialize TopN.
-         */
-        @Override
-        public Void visitLogicalDeferMaterializeTopN(LogicalDeferMaterializeTopN<? extends Plan> topN,
-                                                     LineageInfo lineageInfo) {
-            List<Expression> sortExprs = new ArrayList<>();
-            topN.getOrderKeys().forEach(orderKey -> sortExprs.add(orderKey.getExpr()));
-            Set<Expression> shuttled = shuttleExpressions(sortExprs, exprIdExpressionMap);
-            addIndirectLineage(IndirectLineageType.SORT, shuttled, lineageInfo);
-            return super.visitLogicalDeferMaterializeTopN(topN, lineageInfo);
         }
 
         /**

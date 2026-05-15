@@ -61,7 +61,7 @@ Status DataTypeTimeStampTzSerDe::from_string_batch(const ColumnString& col_str,
                                                    ColumnNullable& col_res,
                                                    const FormatOptions& options) const {
     auto& col_data = assert_cast<ColumnTimeStampTz&>(col_res.get_nested_column());
-    auto& col_nullmap = assert_cast<ColumnBool&>(col_res.get_null_map_column());
+    auto& col_nullmap = col_res.get_null_map_column();
     size_t row = col_str.size();
     col_res.resize(row);
 

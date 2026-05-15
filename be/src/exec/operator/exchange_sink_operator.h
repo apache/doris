@@ -22,9 +22,9 @@
 #include <algorithm>
 #include <atomic>
 #include <memory>
-#include <mutex>
 
 #include "common/status.h"
+#include "common/thread_safety_annotations.h"
 #include "exec/exchange/exchange_writer.h"
 #include "exec/exchange/vdata_stream_sender.h"
 #include "exec/operator/exchange_sink_buffer.h"
@@ -180,8 +180,8 @@ private:
     int _last_local_channel_idx = -1;
 
     std::atomic_int _working_channels_count = 0;
-    std::set<InstanceLoId> _finished_channels;
-    std::mutex _finished_channels_mutex;
+    std::set<InstanceLoId> _finished_channels GUARDED_BY(_finished_channels_mutex);
+    AnnotatedMutex _finished_channels_mutex;
 };
 
 class ExchangeSinkOperatorX MOCK_REMOVE(final) : public DataSinkOperatorX<ExchangeSinkLocalState> {

@@ -30,7 +30,6 @@
 
 namespace doris {
 
-class TypeInfo;
 enum class FieldType;
 
 namespace segment_v2 {

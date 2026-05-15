@@ -41,7 +41,6 @@ import org.apache.flink.cdc.connectors.base.source.meta.split.StreamSplit;
 import org.apache.flink.cdc.connectors.base.source.reader.external.FetchTask;
 import org.apache.flink.cdc.connectors.base.source.reader.external.IncrementalSourceScanFetcher;
 import org.apache.flink.cdc.connectors.base.source.reader.external.IncrementalSourceStreamFetcher;
-import org.apache.flink.cdc.connectors.base.source.utils.JdbcChunkUtils;
 import org.apache.flink.cdc.connectors.postgres.source.PostgresDialect;
 import org.apache.flink.cdc.connectors.postgres.source.config.PostgresSourceConfig;
 import org.apache.flink.cdc.connectors.postgres.source.config.PostgresSourceConfigFactory;
@@ -371,26 +370,22 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     }
 
     @Override
-    protected Class<?> resolveSplitKeyClass(
-            JdbcSourceConfig sourceConfig, TableId tableId, JobBaseConfig config) {
-        try {
-            TableChanges.TableChange tableChange = getTableSchemas(config).get(tableId);
-            Column splitColumn =
-                    JdbcChunkUtils.getSplitColumn(
-                            tableChange.getTable(), sourceConfig.getChunkKeyColumn());
-            String probeSql =
-                    "SELECT "
-                            + PostgresQueryUtils.quote(splitColumn.name())
-                            + " FROM "
-                            + PostgresQueryUtils.quote(tableId)
-                            + " WHERE 1=0";
-            try (JdbcConnection jdbc = getDialect(sourceConfig).openJdbcConnection(sourceConfig);
-                    Statement st = jdbc.connection().createStatement();
-                    ResultSet rs = st.executeQuery(probeSql)) {
-                return Class.forName(rs.getMetaData().getColumnClassName(1));
-            }
+    protected Class<?> probeSplitKeyClass(
+            TableId tableId, Column splitColumn, JobBaseConfig jobConfig) {
+        PostgresSourceConfig sourceConfig = getSourceConfig(jobConfig);
+        String sql =
+                String.format(
+                        "SELECT %s FROM %s WHERE 1=0",
+                        PostgresQueryUtils.quote(splitColumn.name()),
+                        PostgresQueryUtils.quote(tableId));
+        try (JdbcConnection jdbc =
+                        new PostgresDialect(sourceConfig).openJdbcConnection(sourceConfig);
+                Statement st = jdbc.connection().createStatement();
+                ResultSet rs = st.executeQuery(sql)) {
+            return Class.forName(rs.getMetaData().getColumnClassName(1));
         } catch (Exception e) {
-            throw new RuntimeException("Failed to resolve split key class for " + tableId, e);
+            throw new RuntimeException(
+                    "Probe split key class failed for " + tableId + "." + splitColumn.name(), e);
         }
     }
 

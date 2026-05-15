@@ -34,6 +34,7 @@ import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.cdc.common.utils.Preconditions;
 import org.apache.flink.cdc.connectors.base.config.JdbcSourceConfig;
 import org.apache.flink.cdc.connectors.base.dialect.JdbcDataSourceDialect;
+import org.apache.flink.cdc.connectors.base.source.utils.JdbcChunkUtils;
 import org.apache.flink.cdc.connectors.base.options.StartupOptions;
 import org.apache.flink.cdc.connectors.base.source.assigner.splitter.ChunkSplitter;
 import org.apache.flink.cdc.connectors.base.source.assigner.state.ChunkSplitterState;
@@ -200,19 +201,15 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
         if (pkValues == null || pkValues.length == 0) {
             return ChunkSplitterState.NO_SPLITTING_TABLE_STATE;
         }
-        Class<?> targetClass = resolveSplitKeyClass(sourceConfig, tableId, ftsReq);
+        TableChanges.TableChange tableChange = getTableSchemas(ftsReq).get(tableId);
+        Column splitColumn =
+                JdbcChunkUtils.getSplitColumn(
+                        tableChange.getTable(), sourceConfig.getChunkKeyColumn());
+        Class<?> targetClass = resolveSplitKeyClass(tableId, splitColumn, ftsReq);
         Object castStart = objectMapper.convertValue(pkValues[0], targetClass);
         int splitId = ftsReq.getNextSplitId() == null ? 0 : ftsReq.getNextSplitId();
         return new ChunkSplitterState(tableId, ChunkBound.middleOf(castStart), splitId);
     }
-
-    /**
-     * Returns the JDBC driver's natural Java class for the split key column, matching what {@code
-     * rs.getObject()} returns inside flink-cdc's queryNextChunkMax/queryMin. Dialect-specific
-     * (quote / connection / split column lookup) — implemented per concrete reader.
-     */
-    protected abstract Class<?> resolveSplitKeyClass(
-            JdbcSourceConfig sourceConfig, TableId tableId, JobBaseConfig config);
 
     /**
      * flink-cdc SnapshotSplit -> Doris SnapshotSplit (drops splitKeyType, keeps key field names).
@@ -659,8 +656,6 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
             createSnapshotSplit(Map<String, Object> offset, JobBaseConfig jobConfig) {
         SnapshotSplit snapshotSplit = objectMapper.convertValue(offset, SnapshotSplit.class);
         TableId tableId = TableId.parse(snapshotSplit.getTableId(), false);
-        Object[] splitStart = snapshotSplit.getSplitStart();
-        Object[] splitEnd = snapshotSplit.getSplitEnd();
         List<String> splitKeys = snapshotSplit.getSplitKey();
         Map<TableId, TableChanges.TableChange> tableSchemas = getTableSchemas(jobConfig);
         TableChanges.TableChange tableChange = tableSchemas.get(tableId);
@@ -668,7 +663,18 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
                 tableChange, "Can not find table " + tableId + " in job " + jobConfig.getJobId());
         // only support one split key
         String splitKey = splitKeys.get(0);
-        io.debezium.relational.Column splitColumn = tableChange.getTable().columnWithName(splitKey);
+        Column splitColumn = tableChange.getTable().columnWithName(splitKey);
+        Preconditions.checkNotNull(
+                splitColumn,
+                "Split key column "
+                        + splitKey
+                        + " not found in table "
+                        + tableId
+                        + " for job "
+                        + jobConfig.getJobId());
+        Class<?> keyClass = resolveSplitKeyClass(tableId, splitColumn, jobConfig);
+        Object[] splitStart = convertBounds(snapshotSplit.getSplitStart(), keyClass, objectMapper);
+        Object[] splitEnd = convertBounds(snapshotSplit.getSplitEnd(), keyClass, objectMapper);
         RowType splitType = getSplitType(splitColumn);
         org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit split =
                 new org.apache.flink.cdc.connectors.base.source.meta.split.SnapshotSplit(
@@ -705,6 +711,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
                             .sorted(Comparator.comparing(AbstractSourceSplit::getSplitId))
                             .toList();
 
+            Map<TableId, TableChanges.TableChange> tableSchemas = getTableSchemas(config);
             for (SnapshotSplit split : assignedSplitLists) {
                 // find the min offset
                 Map<String, String> offsetMap = split.getHighWatermark();
@@ -715,12 +722,29 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
                 if (maxOffsetFinishSplits == null || sourceOffset.isAfter(maxOffsetFinishSplits)) {
                     maxOffsetFinishSplits = sourceOffset;
                 }
+                TableId tid = TableId.parse(split.getTableId());
+                TableChanges.TableChange tableChange = tableSchemas.get(tid);
+                Preconditions.checkNotNull(
+                        tableChange, "Can not find table " + tid + " in job " + config.getJobId());
+                String splitKey = split.getSplitKey().get(0);
+                Column splitColumn = tableChange.getTable().columnWithName(splitKey);
+                Preconditions.checkNotNull(
+                        splitColumn,
+                        "Split key column "
+                                + splitKey
+                                + " not found in table "
+                                + tid
+                                + " for job "
+                                + config.getJobId());
+                Class<?> keyClass = resolveSplitKeyClass(tid, splitColumn, config);
+                Object[] start = convertBounds(split.getSplitStart(), keyClass, objectMapper);
+                Object[] end = convertBounds(split.getSplitEnd(), keyClass, objectMapper);
                 finishedSnapshotSplitInfos.add(
                         new FinishedSnapshotSplitInfo(
-                                TableId.parse(split.getTableId()),
+                                tid,
                                 split.getSplitId(),
-                                split.getSplitStart(),
-                                split.getSplitEnd(),
+                                start,
+                                end,
                                 sourceOffset,
                                 getOffsetFactory()));
             }

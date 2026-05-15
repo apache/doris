@@ -2594,7 +2594,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             if (request.is_success) {
                 if (request.isSetGroupId()) {
-                    taskGroupSuccessImpl(request.getDb(), request.getTbl(), request.getGroupId());
+                    taskGroupSuccessImpl(request.getDb(), request.getTbl(),
+                            request.getGroupId(), request.isForceDropPartition());
                 } else if (request.isSetTaskId()) {
                     taskSuccessImpl(request.getTaskId());
                 }
@@ -2619,7 +2620,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    private void taskGroupSuccessImpl(String dbName, String tblName, long groupId) throws Exception {
+    private void taskGroupSuccessImpl(String dbName, String tblName,
+            long groupId, boolean forceDropPartition) throws Exception {
         DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
         if (db == null) {
             throw new DdlException("Database not found: " + dbName);
@@ -2631,7 +2633,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (tbl == null) {
             throw new DdlException("Table not found: " + tblName);
         }
-        Env.getCurrentEnv().getInsertOverwriteManager().taskGroupSuccess(groupId, (OlapTable) tbl);
+        Env.getCurrentEnv().getInsertOverwriteManager().taskGroupSuccess(groupId, (OlapTable) tbl, forceDropPartition);
     }
 
     private void taskSuccessImpl(long taskId) throws Exception {

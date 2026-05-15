@@ -236,7 +236,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                 // partitions and return. for transactional, the replacement will really occur when insert successed,
                 // i.e. `insertInto` finished. then we call taskGroupSuccess to make replacement.
                 insertIntoAutoDetect(ctx, executor, taskId);
-                insertOverwriteManager.taskGroupSuccess(taskId, (OlapTable) targetTable);
+                insertOverwriteManager.taskGroupSuccess(taskId, (OlapTable) targetTable, isForceDropPartition());
             } else {
                 // it's overwrite table(as all partitions) or specific partition(s)
                 List<String> tempPartitionNames = InsertOverwriteUtil.generateTempPartitionNames(partitionNames);
@@ -489,7 +489,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
     }
 
     public boolean isForceDropPartition() {
-        return false;
+        return true;
     }
 
     @Override
