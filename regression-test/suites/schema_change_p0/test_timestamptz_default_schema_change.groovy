@@ -16,14 +16,17 @@
 // under the License.
 
 suite("test_timestamptz_default_schema_change", "p0") {
-    def tableName = "test_timestamptz_default_schema_change"
-    def getTableStatusSql = """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+    def getTableStatusSql = """
+        SHOW ALTER TABLE COLUMN
+        WHERE IndexName='test_timestamptz_default_schema_change'
+        ORDER BY createtime DESC LIMIT 1
+    """
 
-    sql "DROP TABLE IF EXISTS ${tableName} FORCE"
+    sql "DROP TABLE IF EXISTS test_timestamptz_default_schema_change FORCE"
     sql "SET time_zone = '+08:00'"
 
     sql """
-        CREATE TABLE IF NOT EXISTS ${tableName} (
+        CREATE TABLE IF NOT EXISTS test_timestamptz_default_schema_change (
             id INT NOT NULL
         )
         DUPLICATE KEY(id)
@@ -34,10 +37,10 @@ suite("test_timestamptz_default_schema_change", "p0") {
         )
     """
 
-    sql """ INSERT INTO ${tableName} VALUES (1), (2), (3) """
+    sql """ INSERT INTO test_timestamptz_default_schema_change VALUES (1), (2), (3) """
 
     sql """
-        ALTER TABLE ${tableName}
+        ALTER TABLE test_timestamptz_default_schema_change
         ADD COLUMN ts TIMESTAMPTZ(6) DEFAULT CURRENT_TIMESTAMP(6)
     """
 
@@ -50,7 +53,7 @@ suite("test_timestamptz_default_schema_change", "p0") {
 
     def rows = sql """
         SELECT id, CAST(ts AS STRING) AS ts_str
-        FROM ${tableName}
+        FROM test_timestamptz_default_schema_change
         ORDER BY id
     """
 
@@ -60,6 +63,4 @@ suite("test_timestamptz_default_schema_change", "p0") {
         assertTrue(row[1].toString() ==~ /\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}[+-]\d{2}:\d{2}/,
                 "Unexpected TIMESTAMPTZ value: ${row[1]}")
     }
-
-    sql "DROP TABLE IF EXISTS ${tableName} FORCE"
 }
