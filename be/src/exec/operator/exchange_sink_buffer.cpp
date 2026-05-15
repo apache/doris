@@ -51,7 +51,7 @@
 
 namespace doris {
 
-namespace {
+namespace exchange_sink_buffer::detail {
 
 void add_borrowed_broadcast_block(PTransmitDataParams& request, PBlock& source) {
     auto* block = request.add_blocks();
@@ -102,7 +102,7 @@ std::shared_ptr<PTransmitDataParams> make_http_request_without_column_values(
     return dst;
 }
 
-} // namespace
+} // namespace exchange_sink_buffer::detail
 
 Status BroadcastPBlockHolder::prepare_serialized_block(bool send_multi_blocks,
                                                        size_t num_receivers) {
@@ -617,7 +617,9 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
                 // shared block because different RPC callback threads can send the same holder
                 // concurrently. Copy only the small request/block metadata and borrow the
                 // column_values string as read-only attachment data.
-                auto http_request = make_http_request_without_column_values(*brpc_request);
+                auto http_request =
+                        exchange_sink_buffer::detail::make_http_request_without_column_values(
+                                *brpc_request);
                 auto send_remote_block_closure = AutoReleaseClosure<
                         PTransmitDataParams,
                         ExchangeSendCallback<PTransmitDataResult>>::create_unique(http_request,
