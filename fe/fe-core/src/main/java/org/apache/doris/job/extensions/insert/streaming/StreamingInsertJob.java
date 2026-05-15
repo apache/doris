@@ -1518,6 +1518,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     public void replayOffsetProviderIfNeed() throws JobException {
         if (offsetProvider != null) {
+            // when fe restart, offsetProvider.jobId/sourceProperties may be null
+            offsetProvider.ensureInitialized(getJobId(), getProviderProps());
             offsetProvider.replayIfNeed(this);
         }
     }
