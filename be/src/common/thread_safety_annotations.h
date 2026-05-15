@@ -153,7 +153,7 @@ public:
 #endif
         _mu.lock_shared();
     }
-    ~SharedLockGuard() RELEASE() {
+    ~SharedLockGuard() RELEASE_SHARED() {
         _mu.unlock_shared();
 #ifdef BE_TEST
         doris::mock_random_sleep();
