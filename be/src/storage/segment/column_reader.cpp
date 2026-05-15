@@ -396,9 +396,11 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
 }
 
 Status ColumnReader::new_index_iterator(const std::shared_ptr<IndexFileReader>& index_file_reader,
-                                        const TabletIndex* index_meta,
+                                        const TabletIndex* index_meta, const std::string& rowset_id,
+                                        uint32_t segment_id, size_t rows_of_segment,
                                         std::unique_ptr<IndexIterator>* iterator) {
-    RETURN_IF_ERROR(_load_index(index_file_reader, index_meta));
+    RETURN_IF_ERROR(
+            _load_index(index_file_reader, index_meta, rowset_id, segment_id, rows_of_segment));
     {
         std::shared_lock<std::shared_mutex> rlock(_load_index_lock);
         auto iter = _index_readers.find(index_meta->index_id());
@@ -615,7 +617,8 @@ Status ColumnReader::_load_zone_map_index(bool use_page_cache, bool kept_in_memo
 }
 
 Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_file_reader,
-                                 const TabletIndex* index_meta) {
+                                 const TabletIndex* index_meta, const std::string& rowset_id,
+                                 uint32_t segment_id, size_t rows_of_segment) {
     std::unique_lock<std::shared_mutex> wlock(_load_index_lock);
 
     if (index_meta == nullptr) {
@@ -639,8 +642,8 @@ Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_f
     }
 
     if (index_meta->index_type() == IndexType::ANN) {
-        _index_readers[index_meta->index_id()] =
-                std::make_shared<AnnIndexReader>(index_meta, index_file_reader);
+        _index_readers[index_meta->index_id()] = std::make_shared<AnnIndexReader>(
+                index_meta, index_file_reader, rowset_id, segment_id, rows_of_segment);
         return Status::OK();
     }
 
@@ -1078,9 +1081,9 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
         return Status::OK();
     }
     // resolve ColumnMap and nullable wrapper
-    const auto* column_map = check_and_get_column<ColumnMap>(
+    const auto& column_map = assert_cast<const ColumnMap&>(
             dst->is_nullable() ? static_cast<ColumnNullable&>(*dst).get_nested_column() : *dst);
-    auto offsets_ptr = column_map->get_offsets_column().assume_mutable();
+    auto offsets_ptr = column_map.get_offsets_column().assume_mutable();
     auto& offsets = static_cast<ColumnArray::ColumnOffsets&>(*offsets_ptr);
     size_t base = offsets.get_data().empty() ? 0 : offsets.get_data().back();
 
@@ -1164,8 +1167,8 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
     }
 
     // 6. read key/value elements for non-empty sizes
-    auto keys_ptr = column_map->get_keys().assume_mutable();
-    auto vals_ptr = column_map->get_values().assume_mutable();
+    auto keys_ptr = column_map.get_keys().assume_mutable();
+    auto vals_ptr = column_map.get_values().assume_mutable();
 
     size_t this_run = sizes[0];
     auto start_idx = starts_data[0];
@@ -1770,11 +1773,11 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, boo
         return Status::OK();
     }
 
-    const auto* column_array = check_and_get_column<ColumnArray>(
+    const auto& column_array = assert_cast<const ColumnArray&>(
             dst->is_nullable() ? static_cast<ColumnNullable&>(*dst).get_nested_column() : *dst);
 
     bool offsets_has_null = false;
-    auto column_offsets_ptr = column_array->get_offsets_column().assume_mutable();
+    auto column_offsets_ptr = column_array.get_offsets_column().assume_mutable();
     ssize_t start = column_offsets_ptr->size();
     RETURN_IF_ERROR(_offset_iterator->next_batch(n, column_offsets_ptr, &offsets_has_null));
     if (*n == 0) {
@@ -1784,7 +1787,7 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, boo
     RETURN_IF_ERROR(_offset_iterator->_calculate_offsets(start, column_offsets));
     size_t num_items =
             column_offsets.get_data().back() - column_offsets.get_data()[start - 1]; // -1 is valid
-    auto column_items_ptr = column_array->get_data().assume_mutable();
+    auto column_items_ptr = column_array.get_data().assume_mutable();
     if (num_items > 0) {
         if (read_offset_only()) {
             // OFFSET_ONLY mode: skip reading actual item data, fill with defaults

@@ -424,10 +424,10 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
      */
     public void cancelTaskById(String jobName, Long taskId) throws JobException {
         for (T job : jobMap.values()) {
-            if (job.getJobConfig().getExecuteType().equals(JobExecuteType.STREAMING)) {
-                throw new JobException("streaming job not support cancel task by id");
-            }
             if (job.getJobName().equals(jobName)) {
+                if (job.getJobConfig().getExecuteType().equals(JobExecuteType.STREAMING)) {
+                    throw new JobException("streaming job not support cancel task by id");
+                }
                 job.cancelTaskById(taskId);
                 job.logUpdateOperation();
                 return;

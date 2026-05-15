@@ -985,9 +985,13 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                 static_cast<int64_t>(load_costs_ms));
     }
 
+    bool enable_ann_index_result_cache =
+            !_opts.runtime_state ||
+            !_opts.runtime_state->query_options().__isset.enable_ann_index_result_cache ||
+            _opts.runtime_state->query_options().enable_ann_index_result_cache;
     RETURN_IF_ERROR(_ann_topn_runtime->evaluate_vector_ann_search(
-            ann_index_iterator_casted, &_row_bitmap, rows_of_segment, result_column, result_row_ids,
-            ann_index_stats));
+            ann_index_iterator_casted, &_row_bitmap, rows_of_segment, enable_ann_index_result_cache,
+            result_column, result_row_ids, ann_index_stats));
 
     VLOG_DEBUG << fmt::format("Ann topn filtered {} - {} = {} rows", pre_size,
                               _row_bitmap.cardinality(), pre_size - _row_bitmap.cardinality());
@@ -1006,6 +1010,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     _opts.stats->ann_index_topn_engine_convert_ns += ann_index_stats.engine_convert_ns.value();
     _opts.stats->ann_index_topn_engine_prepare_ns += ann_index_stats.engine_prepare_ns.value();
     _opts.stats->ann_index_topn_search_cnt += 1;
+    _opts.stats->ann_index_cache_hits += ann_index_stats.topn_cache_hits.value();
     const size_t dst_col_idx = _ann_topn_runtime->get_dest_column_idx();
     ColumnIterator* column_iter = _column_iterators[_schema->column_id(dst_col_idx)].get();
     DCHECK(column_iter != nullptr);
@@ -1210,6 +1215,11 @@ bool SegmentIterator::_check_apply_by_inverted_index(std::shared_ptr<ColumnPredi
 
 // TODO: optimization when all expr can not evaluate by inverted/ann index,
 Status SegmentIterator::_apply_index_expr() {
+    bool enable_ann_index_result_cache =
+            !_opts.runtime_state ||
+            !_opts.runtime_state->query_options().__isset.enable_ann_index_result_cache ||
+            _opts.runtime_state->query_options().enable_ann_index_result_cache;
+
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
         if (Status st = expr_ctx->evaluate_inverted_index(num_rows()); !st.ok()) {
             if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
@@ -1249,7 +1259,8 @@ Status SegmentIterator::_apply_index_expr() {
         size_t origin_rows = _row_bitmap.cardinality();
         RETURN_IF_ERROR(expr_ctx->evaluate_ann_range_search(
                 _index_iterators, _schema->column_ids(), _column_iterators,
-                _common_expr_to_slotref_map, _row_bitmap, ann_index_stats));
+                _common_expr_to_slotref_map, _row_bitmap, ann_index_stats,
+                enable_ann_index_result_cache));
         _opts.stats->rows_ann_index_range_filtered += (origin_rows - _row_bitmap.cardinality());
         _opts.stats->ann_index_load_ns += ann_index_stats.load_index_costs_ns.value();
         _opts.stats->ann_index_range_search_ns += ann_index_stats.search_costs_ns.value();
@@ -1263,6 +1274,7 @@ Status SegmentIterator::_apply_index_expr() {
         _opts.stats->ann_range_engine_convert_ns += ann_index_stats.engine_convert_ns.value();
         _opts.stats->ann_range_pre_process_ns += ann_index_stats.engine_prepare_ns.value();
         _opts.stats->ann_fall_back_brute_force_cnt += ann_index_stats.fall_back_brute_force_cnt;
+        _opts.stats->ann_index_range_cache_hits += ann_index_stats.range_cache_hits.value();
     }
 
     for (auto it = _common_expr_ctxs_push_down.begin(); it != _common_expr_ctxs_push_down.end();) {
@@ -2884,11 +2896,8 @@ void SegmentIterator::_fill_column_nothing() {
     for (const auto pair : _vir_cid_to_idx_in_block) {
         auto cid = pair.first;
         auto pos = pair.second;
-        const auto* nothing_col =
-                check_and_get_column<ColumnNothing>(_current_return_columns[cid].get());
-        DCHECK(nothing_col != nullptr)
-                << fmt::format("ColumnNothing expected, but got {}, cid: {}, pos: {}",
-                               _current_return_columns[cid]->get_name(), cid, pos);
+        [[maybe_unused]] const auto* nothing_col =
+                assert_cast<const ColumnNothing*>(_current_return_columns[cid].get());
         _current_return_columns[cid] = _opts.vir_col_idx_to_type[pos]->create_column();
     }
 }
@@ -3418,8 +3427,9 @@ void SegmentIterator::_prepare_score_column_materialization() {
     const size_t dst_col_idx = _score_runtime->get_dest_column_idx();
     auto* column_iter = _column_iterators[_schema->column_id(dst_col_idx)].get();
     auto* virtual_column_iter = dynamic_cast<VirtualColumnIterator*>(column_iter);
-    virtual_column_iter->prepare_materialization(std::move(result_column),
-                                                 std::move(result_row_ids));
+    virtual_column_iter->prepare_materialization(
+            std::move(result_column),
+            std::shared_ptr<std::vector<uint64_t>>(std::move(result_row_ids)));
 }
 
 } // namespace segment_v2

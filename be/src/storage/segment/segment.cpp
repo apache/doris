@@ -807,7 +807,10 @@ Status Segment::new_index_iterator(const TabletColumn& tablet_column, const Tabl
         // to avoid data race during parallel method calls
         RETURN_IF_ERROR(_index_file_reader_open.call([&] { return _open_index_file_reader(); }));
         // after DorisCallOnce.call, _index_file_reader is guaranteed to be not nullptr
-        RETURN_IF_ERROR(reader->new_index_iterator(_index_file_reader, index_meta, iter));
+        const std::string rowset_id =
+                index_meta->index_type() == IndexType::ANN ? _rowset_id.to_string() : "";
+        RETURN_IF_ERROR(reader->new_index_iterator(_index_file_reader, index_meta, rowset_id,
+                                                   _segment_id, _num_rows, iter));
         return Status::OK();
     }
     return Status::OK();

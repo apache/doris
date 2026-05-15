@@ -358,7 +358,7 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
         variant->create_root(arg.type, arg.column->assume_mutable());
         ColumnPtr nullable = ColumnNullable::create(
                 variant->get_ptr(),
-                check_and_get_column<ColumnNullable>(arg.column.get())->get_null_map_column_ptr());
+                assert_cast<const ColumnNullable*>(arg.column.get())->get_null_map_column_ptr());
         *result = type->is_nullable() ? nullable : variant->get_ptr();
         return Status::OK();
     }

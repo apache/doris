@@ -36,7 +36,7 @@ public interface SequenceFunction extends FunctionTrait {
         }
         if (!getArgumentType(1).isDateLikeType()) {
             throw new AnalysisException("The timestamp params of " + functionName
-                    + " function must be DATE or DATETIME, but it is " + getArgumentType(1));
+                    + " function must be DATE, DATETIME or TIMESTAMPTZ, but it is " + getArgumentType(1));
         }
         String pattern = ((StringLikeLiteral) firstArg).getStringValue();
         if (!FunctionCallExpr.parsePattern(pattern)) {

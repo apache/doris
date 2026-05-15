@@ -1038,7 +1038,7 @@ Status VExpr::evaluate_ann_range_search(
         const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
         const std::vector<ColumnId>& idx_to_cid,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-        roaring::Roaring& row_bitmap, AnnIndexStats& ann_index_stats) {
+        roaring::Roaring& row_bitmap, AnnIndexStats& ann_index_stats, bool enable_result_cache) {
     return Status::OK();
 }
 

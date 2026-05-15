@@ -115,6 +115,7 @@ import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.stats.SimpleAggCacheMgr;
 import org.apache.doris.nereids.trees.plans.commands.CreateStreamCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionLikeOp;
@@ -2011,6 +2012,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 olapTable.updateVisibleVersionAndTime(version, versionTime);
             }
         }
+        if (partition != null && !isTempPartition) {
+            SimpleAggCacheMgr.internalInstance().invalidateTable(olapTable.getId());
+        }
 
         // Here, we only wait for the EventProcessor to finish processing the event,
         // but regardless of the success or failure of the result,
@@ -2042,14 +2046,17 @@ public class InternalCatalog implements CatalogIf<Database> {
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
+            Partition partition = null;
             if (info.isTempPartition()) {
                 olapTable.dropTempPartition(info.getPartitionName(), true);
             } else {
-                Partition partition = olapTable.dropPartition(info.getDbId(), info.getPartitionName(),
-                        info.isForceDrop());
+                partition = olapTable.dropPartition(info.getDbId(), info.getPartitionName(), info.isForceDrop());
                 if (!info.isForceDrop() && partition != null && info.getRecycleTime() != 0) {
                     Env.getCurrentRecycleBin().setRecycleTimeByIdForReplay(partition.getId(), info.getRecycleTime());
                 }
+            }
+            if (partition != null && !info.isTempPartition()) {
+                SimpleAggCacheMgr.internalInstance().invalidateTable(olapTable.getId());
             }
             olapTable.updateVisibleVersionAndTime(info.getVersion(), info.getVersionTime());
             // Replay set new partition loaded flag to true for auto analyze.
