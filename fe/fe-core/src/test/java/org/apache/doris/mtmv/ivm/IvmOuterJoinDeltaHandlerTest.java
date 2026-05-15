@@ -52,11 +52,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-class IvmOuterJoinDeltaStrategyTest extends IvmDeltaTestBase {
+class IvmOuterJoinDeltaHandlerTest extends IvmDeltaTestBase {
 
-    private static final class TestableIvmOuterJoinDeltaStrategy extends IvmOuterJoinDeltaStrategy {
-        private RewriteResult exposeRewritePlan(Plan plan, IvmRefreshContext ctx) {
-            return rewritePlan(plan, ctx);
+    private static final class TestableIvmOuterJoinDeltaHandler {
+        private final IvmDeltaRewriteVisitor visitor;
+
+        private TestableIvmOuterJoinDeltaHandler() {
+            visitor = new IvmDeltaRewriteVisitor();
+        }
+
+        private IvmDeltaRewriteResult exposeRewritePlan(Plan plan, IvmRefreshContext ctx) {
+            return visitor.rewritePlan(plan, ctx);
         }
     }
 
@@ -79,10 +85,10 @@ class IvmOuterJoinDeltaStrategyTest extends IvmDeltaTestBase {
         LogicalOlapScan rightSnapshot = buildScanForTable(2, "t2");
         NormalizedOuterJoinPlan bundle = normalizedOuterJoin(rowIdProject(leftDelta), rowIdProject(rightSnapshot));
 
-        TestableIvmOuterJoinDeltaStrategy strategy = new TestableIvmOuterJoinDeltaStrategy();
+        TestableIvmOuterJoinDeltaHandler handler = new TestableIvmOuterJoinDeltaHandler();
         IvmRefreshContext ctx = context(bundle, ImmutableMap.<TableNameInfo, IvmStreamRef>of());
 
-        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(bundle.topProject, ctx);
+        IvmDeltaRewriteResult result = handler.exposeRewritePlan(bundle.topProject, ctx);
 
         Assertions.assertNotNull(result.dmlFactorSlot);
         Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
@@ -100,11 +106,11 @@ class IvmOuterJoinDeltaStrategyTest extends IvmDeltaTestBase {
         NormalizedOuterJoinPlan bundle = normalizedOuterJoin(rowIdProject(leftSnapshot), rowIdProject(rightDelta));
 
         IvmStreamRef rightStream = stream(10, 20);
-        TestableIvmOuterJoinDeltaStrategy strategy = new TestableIvmOuterJoinDeltaStrategy();
+        TestableIvmOuterJoinDeltaHandler handler = new TestableIvmOuterJoinDeltaHandler();
         IvmRefreshContext ctx = context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(rightDelta),
                 rightStream));
 
-        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(bundle.topProject, ctx);
+        IvmDeltaRewriteResult result = handler.exposeRewritePlan(bundle.topProject, ctx);
 
         Assertions.assertNotNull(result.dmlFactorSlot);
         Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, result.dmlFactorSlot.getName());
@@ -141,11 +147,11 @@ class IvmOuterJoinDeltaStrategyTest extends IvmDeltaTestBase {
                 rowIdProject(rightSnapshot));
 
         IvmStreamRef leftStream = stream(10, 20);
-        TestableIvmOuterJoinDeltaStrategy strategy = new TestableIvmOuterJoinDeltaStrategy();
+        TestableIvmOuterJoinDeltaHandler handler = new TestableIvmOuterJoinDeltaHandler();
         IvmRefreshContext ctx = context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(leftDelta),
                 leftStream));
 
-        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(bundle.topProject, ctx);
+        IvmDeltaRewriteResult result = handler.exposeRewritePlan(bundle.topProject, ctx);
 
         LogicalProject<?> topProject = (LogicalProject<?>) result.plan;
         LogicalProject<?> joinOutputProject = (LogicalProject<?>) topProject.child();
@@ -169,11 +175,11 @@ class IvmOuterJoinDeltaStrategyTest extends IvmDeltaTestBase {
                 rowIdProject(leftSnapshot), rowIdProject(rightDelta));
 
         IvmStreamRef rightStream = stream(10, 20);
-        TestableIvmOuterJoinDeltaStrategy strategy = new TestableIvmOuterJoinDeltaStrategy();
+        TestableIvmOuterJoinDeltaHandler handler = new TestableIvmOuterJoinDeltaHandler();
         IvmRefreshContext ctx = context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(rightDelta),
                 rightStream));
 
-        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(bundle.topProject, ctx);
+        IvmDeltaRewriteResult result = handler.exposeRewritePlan(bundle.topProject, ctx);
 
         LogicalProject<?> joinOutputProject = (LogicalProject<?>) ((LogicalProject<?>) result.plan).child();
         Assertions.assertInstanceOf(LogicalJoin.class, joinOutputProject.child());
@@ -191,11 +197,11 @@ class IvmOuterJoinDeltaStrategyTest extends IvmDeltaTestBase {
                 rowIdProject(leftSnapshot), rowIdProject(rightDelta));
 
         IvmStreamRef rightStream = stream(10, 20);
-        TestableIvmOuterJoinDeltaStrategy strategy = new TestableIvmOuterJoinDeltaStrategy();
+        TestableIvmOuterJoinDeltaHandler handler = new TestableIvmOuterJoinDeltaHandler();
         IvmRefreshContext ctx = context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(rightDelta),
                 rightStream));
 
-        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(bundle.topProject, ctx);
+        IvmDeltaRewriteResult result = handler.exposeRewritePlan(bundle.topProject, ctx);
 
         LogicalProject<?> joinOutputProject = (LogicalProject<?>) ((LogicalProject<?>) result.plan).child();
         Assertions.assertInstanceOf(LogicalUnion.class, joinOutputProject.child());
@@ -215,11 +221,11 @@ class IvmOuterJoinDeltaStrategyTest extends IvmDeltaTestBase {
                 rowIdProject(leftDelta), rowIdProject(rightSnapshot));
 
         IvmStreamRef leftStream = stream(10, 20);
-        TestableIvmOuterJoinDeltaStrategy strategy = new TestableIvmOuterJoinDeltaStrategy();
+        TestableIvmOuterJoinDeltaHandler handler = new TestableIvmOuterJoinDeltaHandler();
         IvmRefreshContext ctx = context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(leftDelta),
                 leftStream));
 
-        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(bundle.topProject, ctx);
+        IvmDeltaRewriteResult result = handler.exposeRewritePlan(bundle.topProject, ctx);
 
         LogicalProject<?> joinOutputProject = (LogicalProject<?>) ((LogicalProject<?>) result.plan).child();
         Assertions.assertInstanceOf(LogicalUnion.class, joinOutputProject.child());
@@ -237,11 +243,11 @@ class IvmOuterJoinDeltaStrategyTest extends IvmDeltaTestBase {
                 rowIdProject(leftSnapshot), rowIdProject(rightDelta));
 
         IvmStreamRef rightStream = stream(10, 20);
-        TestableIvmOuterJoinDeltaStrategy strategy = new TestableIvmOuterJoinDeltaStrategy();
+        TestableIvmOuterJoinDeltaHandler handler = new TestableIvmOuterJoinDeltaHandler();
         IvmRefreshContext ctx = context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(rightDelta),
                 rightStream));
 
-        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(bundle.topProject, ctx);
+        IvmDeltaRewriteResult result = handler.exposeRewritePlan(bundle.topProject, ctx);
 
         LogicalProject<?> joinOutputProject = (LogicalProject<?>) ((LogicalProject<?>) result.plan).child();
         Assertions.assertInstanceOf(LogicalUnion.class, joinOutputProject.child());
@@ -258,7 +264,7 @@ class IvmOuterJoinDeltaStrategyTest extends IvmDeltaTestBase {
         IvmRefreshContext ctx = context(bundle, ImmutableMap.of(
                 IvmRefreshContext.toTableNameInfo(rightDelta), rightStream));
 
-        List<Command> commands = IvmAggDeltaStrategy.INSTANCE.rewrite(bundle.topProject, ctx);
+        List<Command> commands = IvmDeltaCommandBuilder.INSTANCE.rewrite(bundle.topProject, ctx);
 
         Assertions.assertEquals(1, commands.size());
         UnboundTableSink<?> sink = getSink((InsertIntoTableCommand) commands.get(0));
@@ -276,11 +282,11 @@ class IvmOuterJoinDeltaStrategyTest extends IvmDeltaTestBase {
         NormalizedOuterJoinPlan bundle = normalizedOuterJoin(rowIdProject(leftSnapshot), nullableSide);
 
         IvmStreamRef rightStream = stream(10, 20);
-        TestableIvmOuterJoinDeltaStrategy strategy = new TestableIvmOuterJoinDeltaStrategy();
+        TestableIvmOuterJoinDeltaHandler handler = new TestableIvmOuterJoinDeltaHandler();
         IvmRefreshContext ctx = context(bundle, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(rightDelta),
                 rightStream));
 
-        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(bundle.topProject, ctx);
+        IvmDeltaRewriteResult result = handler.exposeRewritePlan(bundle.topProject, ctx);
         LogicalUnion union = nullableSideRightEventUnion(result.plan);
 
         assertSnapshotBranch(union.child(1), 10);
@@ -295,10 +301,10 @@ class IvmOuterJoinDeltaStrategyTest extends IvmDeltaTestBase {
         NormalizedOuterJoinPlan firstJoin = normalizedOuterJoin(rowIdProject(leftDelta), rowIdProject(middleSnapshot));
         NormalizedOuterJoinPlan topJoin = normalizedOuterJoin(firstJoin.topProject, rowIdProject(rightSnapshot));
 
-        TestableIvmOuterJoinDeltaStrategy strategy = new TestableIvmOuterJoinDeltaStrategy();
+        TestableIvmOuterJoinDeltaHandler handler = new TestableIvmOuterJoinDeltaHandler();
         IvmRefreshContext ctx = context(topJoin, ImmutableMap.<TableNameInfo, IvmStreamRef>of());
 
-        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(topJoin.topProject, ctx);
+        IvmDeltaRewriteResult result = handler.exposeRewritePlan(topJoin.topProject, ctx);
 
         Assertions.assertNotNull(result.dmlFactorSlot);
         Assertions.assertEquals(2, result.plan.collectToList(node ->
@@ -317,11 +323,11 @@ class IvmOuterJoinDeltaStrategyTest extends IvmDeltaTestBase {
         NormalizedOuterJoinPlan topJoin = normalizedOuterJoin(firstJoin.topProject, rowIdProject(rightDelta));
 
         IvmStreamRef rightStream = stream(10, 20);
-        TestableIvmOuterJoinDeltaStrategy strategy = new TestableIvmOuterJoinDeltaStrategy();
+        TestableIvmOuterJoinDeltaHandler handler = new TestableIvmOuterJoinDeltaHandler();
         IvmRefreshContext ctx = context(topJoin, ImmutableMap.of(IvmRefreshContext.toTableNameInfo(rightDelta),
                 rightStream));
 
-        IvmLinearDeltaStrategy.RewriteResult result = strategy.exposeRewritePlan(topJoin.topProject, ctx);
+        IvmDeltaRewriteResult result = handler.exposeRewritePlan(topJoin.topProject, ctx);
 
         Assertions.assertNotNull(result.dmlFactorSlot);
         Assertions.assertEquals(1, result.plan.collectToList(node ->
