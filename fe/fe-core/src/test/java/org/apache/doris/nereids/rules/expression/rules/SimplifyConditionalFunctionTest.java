@@ -57,6 +57,9 @@ public class SimplifyConditionalFunctionTest extends ExpressionRewriteTestHelper
         // coalesce(nullable_slot, slot) -> coalesce(nullable_slot, slot)
         assertRewrite(new Coalesce(slot, nonNullableSlot), new Coalesce(slot, nonNullableSlot));
 
+        // coalesce(nullable_slot, null, null) -> nullable_slot
+        assertRewrite(new Coalesce(slot, NullLiteral.INSTANCE, NullLiteral.INSTANCE), slot);
+
         // coalesce(null, null) -> null
         assertRewrite(new Coalesce(NullLiteral.INSTANCE, NullLiteral.INSTANCE), NullLiteral.INSTANCE);
 
@@ -71,6 +74,27 @@ public class SimplifyConditionalFunctionTest extends ExpressionRewriteTestHelper
 
         // coalesce(null, nullable_slot, literal) -> coalesce(nullable_slot, slot, literal)
         assertRewrite(new Coalesce(slot, nonNullableSlot), new Coalesce(slot, nonNullableSlot));
+
+        // coalesce(null, null, ..., null, nullable_slot, null) -> nullable_slot
+        // Trailing NullLiterals should also be removed
+        assertRewrite(new Coalesce(NullLiteral.INSTANCE, NullLiteral.INSTANCE, NullLiteral.INSTANCE,
+                NullLiteral.INSTANCE, NullLiteral.INSTANCE, slot, NullLiteral.INSTANCE), slot);
+
+        // coalesce(nullable_slot, null, null, null) -> nullable_slot
+        // Trailing NullLiterals removed even when first arg is nullable
+        assertRewrite(new Coalesce(slot, NullLiteral.INSTANCE, NullLiteral.INSTANCE, NullLiteral.INSTANCE), slot);
+
+        SlotReference slot2 = new SlotReference("c", StringType.INSTANCE, true);
+
+        // coalesce(nullable_slot, null, nullable_slot2, null) -> coalesce(nullable_slot, nullable_slot2)
+        // Interleaved NullLiterals removed
+        assertRewrite(new Coalesce(slot, NullLiteral.INSTANCE, slot2, NullLiteral.INSTANCE),
+                new Coalesce(slot, slot2));
+
+        // coalesce(nullable_slot, null, non_nullable_slot, nullable_slot2) -> coalesce(nullable_slot, non_nullable_slot)
+        // Truncate after first non-nullable + remove interleaved NullLiterals
+        assertRewrite(new Coalesce(slot, NullLiteral.INSTANCE, nonNullableSlot, slot2),
+                new Coalesce(slot, nonNullableSlot));
 
         SlotReference datetimeSlot = new SlotReference("dt", DateTimeV2Type.of(0), false);
         // coalesce(null_datetime(0), non-nullable_slot_datetime(6))
@@ -98,6 +122,9 @@ public class SimplifyConditionalFunctionTest extends ExpressionRewriteTestHelper
 
         // nvl(nullable_slot, nullable_slot) -> nvl(nullable_slot, nullable_slot)
         assertRewrite(new Nvl(slot, nonNullableSlot), new Nvl(slot, nonNullableSlot));
+
+        // nvl(nullable_slot, null) -> nullable_slot
+        assertRewrite(new Nvl(slot, NullLiteral.INSTANCE), slot);
 
         // nvl(non-nullable_slot, null) -> non-nullable_slot
         assertRewrite(new Nvl(nonNullableSlot, NullLiteral.INSTANCE), nonNullableSlot);
@@ -133,13 +160,20 @@ public class SimplifyConditionalFunctionTest extends ExpressionRewriteTestHelper
         // nullif(non-nullable_slot, null) -> non-nullable_slot
         assertRewrite(new NullIf(nonNullableSlot, NullLiteral.INSTANCE), new Nullable(nonNullableSlot));
 
+        SlotReference datetimeSlot = new SlotReference("dt", DateTimeV2Type.of(0), false);
+        // nullif(datetime_slot, null_datetime(6)) -> nullable(cast(datetime_slot to dt(6)))
+        assertRewrite(
+                new NullIf(datetimeSlot, new NullLiteral(DateTimeV2Type.of(6))),
+                new Nullable(new Cast(datetimeSlot, DateTimeV2Type.of(6)))
+        );
+
         // nullif(null_datetime(0), null_datetime(6)) -> null_datetime(6)
         assertRewrite(
                 new NullIf(
                         new NullLiteral(DateTimeV2Type.of(0)),
                         new NullLiteral(DateTimeV2Type.of(6))
                 ),
-                new Cast(new Nullable(new NullLiteral(DateTimeV2Type.of(0))), DateTimeV2Type.of(6))
+                new NullLiteral(DateTimeV2Type.of(6))
         );
     }
 

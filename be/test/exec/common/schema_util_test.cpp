@@ -61,6 +61,21 @@ void construct_column(ColumnPB* column_pb, TabletIndexPB* tablet_index, int64_t 
     tablet_index->add_col_unique_id(col_unique_id);
 }
 
+void append_inverted_index_for_path(TabletSchemaSPtr schema, int64_t index_id,
+                                    const std::string& index_name, int32_t col_unique_id,
+                                    const std::string& suffix_path) {
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(index_id);
+    index_pb.set_index_name(index_name);
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(col_unique_id);
+
+    TabletIndex index;
+    index.init_from_pb(index_pb);
+    index.set_escaped_escaped_index_suffix_path(suffix_path);
+    schema->append_index(std::move(index));
+}
+
 void construct_subcolumn(TabletSchemaSPtr schema, const FieldType& type, int32_t col_unique_id,
                          std::string_view path, std::vector<TabletColumn>* subcolumns) {
     TabletColumn subcol;
@@ -1178,6 +1193,50 @@ TEST_F(SchemaUtilTest, TestGetCompactionSchema) {
     EXPECT_EQ(variant_col.get_sub_columns().size(), 0);
 }
 
+TEST_F(SchemaUtilTest,
+       get_extended_compaction_schema_nested_group_ignores_existing_extracted_subcolumns) {
+    TabletColumn variant;
+    variant.set_unique_id(1);
+    variant.set_name("v1");
+    variant.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    variant.set_is_nullable(true);
+    variant.set_variant_enable_nested_group(true);
+    variant.set_variant_max_subcolumns_count(0);
+
+    TabletColumn typed_subcolumn;
+    typed_subcolumn.set_unique_id(-1);
+    typed_subcolumn.set_name("v1.owner");
+    typed_subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    typed_subcolumn.set_is_nullable(true);
+    typed_subcolumn.set_parent_unique_id(1);
+    typed_subcolumn.set_path_info(PathInData("v1.owner", true));
+
+    TabletSchemaSPtr target_schema = std::make_shared<TabletSchema>();
+    target_schema->append_column(variant);
+    target_schema->append_column(typed_subcolumn);
+    append_inverted_index_for_path(target_schema, 30000, "v1_owner_idx", 1, "v1.owner");
+
+    auto source_indexes = target_schema->inverted_indexs(typed_subcolumn);
+    ASSERT_EQ(source_indexes.size(), 1);
+    EXPECT_EQ(source_indexes[0]->index_name(), "v1_owner_idx");
+
+    std::vector<RowsetSharedPtr> rowsets;
+    auto status = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
+            rowsets, target_schema);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    // get_extended_compaction_schema rebuilds from the base columns. Real compaction targets do
+    // not carry pre-existing extracted columns, so NG compaction must rely on rowset metadata for
+    // regular paths and on get_compaction_typed_columns() for typed paths.
+    EXPECT_EQ(target_schema->num_columns(), 1);
+    const PathInData typed_path("v1.owner", true);
+    EXPECT_EQ(target_schema->field_index(typed_path), -1);
+
+    const auto* path_set_info = target_schema->try_path_set_info(1);
+    ASSERT_NE(path_set_info, nullptr);
+    EXPECT_FALSE(path_set_info->typed_path_set.contains("owner"));
+}
+
 TEST_F(SchemaUtilTest, TestGetSortedSubcolumns) {
     // Create test subcolumns
     ColumnVariant::Subcolumns subcolumns;
@@ -1553,6 +1612,8 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
     path_to_data_types[PathInData("a")] = {std::make_shared<DataTypeInt32>(),
                                            std::make_shared<DataTypeInt64>()};  // -> BIGINT
     path_to_data_types[PathInData("b")] = {std::make_shared<DataTypeString>()}; // -> STRING
+    path_to_data_types[PathInData("typed", true)] = {std::make_shared<DataTypeString>()};
+    path_to_data_types[PathInData("shared")] = {std::make_shared<DataTypeInt32>()};
 
     TabletSchemaSPtr output_schema = std::make_shared<TabletSchema>();
     TabletSchema::PathsSetInfo paths_set_info;
@@ -1560,22 +1621,36 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
     variant_util::VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
             paths_set_info, parent_column, target, path_to_data_types, output_schema);
 
-    EXPECT_EQ(output_schema->num_columns(), 2);
-    bool found_a = false, found_b = false;
+    EXPECT_EQ(output_schema->num_columns(), 3);
+    bool found_a = false, found_b = false, found_typed = false, found_shared = false;
     for (const auto& col : output_schema->columns()) {
         if (col->name() == "v1.a") {
             found_a = true;
             EXPECT_EQ(col->type(), FieldType::OLAP_FIELD_TYPE_BIGINT);
             EXPECT_EQ(col->parent_unique_id(), 1);
             EXPECT_EQ(col->path_info_ptr()->get_path(), "v1.a");
+            EXPECT_FALSE(col->path_info_ptr()->get_is_typed());
         } else if (col->name() == "v1.b") {
             found_b = true;
             EXPECT_EQ(col->type(), FieldType::OLAP_FIELD_TYPE_STRING);
             EXPECT_EQ(col->parent_unique_id(), 1);
             EXPECT_EQ(col->path_info_ptr()->get_path(), "v1.b");
+            EXPECT_FALSE(col->path_info_ptr()->get_is_typed());
+        } else if (col->name() == "v1.typed") {
+            found_typed = true;
+            EXPECT_EQ(col->type(), FieldType::OLAP_FIELD_TYPE_STRING);
+            EXPECT_EQ(col->parent_unique_id(), 1);
+            EXPECT_EQ(col->path_info_ptr()->get_path(), "v1.typed");
+            EXPECT_TRUE(col->path_info_ptr()->get_is_typed());
+        } else if (col->name() == "v1.shared" && !col->path_info_ptr()->get_is_typed()) {
+            found_shared = true;
+            EXPECT_EQ(col->type(), FieldType::OLAP_FIELD_TYPE_INT);
+            EXPECT_EQ(col->parent_unique_id(), 1);
+            EXPECT_EQ(col->path_info_ptr()->get_path(), "v1.shared");
         }
     }
-    EXPECT_TRUE(found_a && found_b);
+    EXPECT_TRUE(found_a && found_b && found_shared);
+    EXPECT_FALSE(found_typed);
 
     ASSERT_TRUE(paths_set_info.subcolumn_indexes.find("a") !=
                 paths_set_info.subcolumn_indexes.end());
@@ -1583,6 +1658,14 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
                 paths_set_info.subcolumn_indexes.end());
     EXPECT_EQ(paths_set_info.subcolumn_indexes["a"].size(), 1);
     EXPECT_EQ(paths_set_info.subcolumn_indexes["b"].size(), 1);
+    EXPECT_FALSE(paths_set_info.subcolumn_indexes.contains("typed"));
+    ASSERT_TRUE(paths_set_info.subcolumn_indexes.contains("shared"));
+    EXPECT_EQ(paths_set_info.subcolumn_indexes.at("shared").size(), 1);
+    EXPECT_FALSE(paths_set_info.typed_path_set.contains("typed"));
+    EXPECT_TRUE(paths_set_info.sub_path_set.contains("a"));
+    EXPECT_TRUE(paths_set_info.sub_path_set.contains("b"));
+    EXPECT_TRUE(paths_set_info.sub_path_set.contains("shared"));
+    EXPECT_FALSE(paths_set_info.sub_path_set.contains("typed"));
 }
 
 // Test has_different_structure_in_same_path function indirectly through check_variant_has_no_ambiguous_paths

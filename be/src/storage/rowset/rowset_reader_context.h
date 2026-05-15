@@ -73,6 +73,9 @@ struct RowsetReaderContext {
     bool use_page_cache = false;
     int sequence_id_idx = -1;
     int batch_size = 1024;
+    // Effective adaptive batch size byte budget. 0 means disabled internally.
+    size_t preferred_block_size_bytes = 8388608UL;
+
     bool is_unique = false;
     //record row num merged in generic iterator
     uint64_t* merged_rows = nullptr;

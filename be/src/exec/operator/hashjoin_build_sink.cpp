@@ -119,7 +119,14 @@ Status HashJoinBuildSinkLocalState::terminate(RuntimeState* state) {
     if (_terminated) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(_runtime_filter_producer_helper->skip_process(state));
+    // Defensive null-guard: other paths in this file already gate on
+    // `_runtime_filter_producer_helper` because cancel / early wake-up may
+    // run terminate before the helper is attached. The terminate path used
+    // to be the only one missing the guard, which would NPE inside
+    // skip_process() and surface as a generic crash deep in the allocator.
+    if (_runtime_filter_producer_helper) {
+        RETURN_IF_ERROR(_runtime_filter_producer_helper->skip_process(state));
+    }
     return JoinBuildSinkLocalState::terminate(state);
 }
 
@@ -359,14 +366,12 @@ Status HashJoinBuildSinkLocalState::build_asof_index(Block& block) {
     // Compute build ASOF column by executing build-side expression directly on build block.
     // Expression is prepared against build child's row_desc, matching the build block layout.
     DORIS_CHECK(p._asof_build_side_expr);
-    int result_col_idx = -1;
+    ColumnPtr asof_build_col;
     {
         SCOPED_TIMER(_asof_index_expr_timer);
-        RETURN_IF_ERROR(p._asof_build_side_expr->execute(&block, &result_col_idx));
+        RETURN_IF_ERROR(p._asof_build_side_expr->execute(&block, asof_build_col));
     }
-    DORIS_CHECK(result_col_idx >= 0 && result_col_idx < static_cast<int>(block.columns()));
-    auto asof_build_col =
-            block.get_by_position(result_col_idx).column->convert_to_full_column_if_const();
+    asof_build_col = asof_build_col->convert_to_full_column_if_const();
 
     // Handle nullable: extract nested column for value access, keep nullable for null checks
     const ColumnNullable* nullable_col = nullptr;
@@ -590,22 +595,19 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
     RETURN_IF_ERROR(_hash_table_init(state, raw_ptrs));
 
     Status st = std::visit(
-            Overload {[&](std::monostate& arg, auto join_op,
-                          auto short_circuit_for_null_in_build_side,
-                          auto with_other_conjuncts) -> Status {
+            Overload {[&](std::monostate& arg, auto join_op) -> Status {
                           throw Exception(Status::FatalError("FATAL: uninited hash table"));
                       },
-                      [&](auto&& arg, auto&& join_op, auto short_circuit_for_null_in_build_side,
-                          auto with_other_conjuncts) -> Status {
+                      [&](auto&& arg, auto&& join_op) -> Status {
                           using HashTableCtxType = std::decay_t<decltype(arg)>;
                           using JoinOpType = std::decay_t<decltype(join_op)>;
                           ProcessHashTableBuild<HashTableCtxType> hash_table_build_process(
                                   rows, raw_ptrs, this, state->batch_size(), state);
-                          auto st = hash_table_build_process.template run<
-                                  JoinOpType::value, short_circuit_for_null_in_build_side,
-                                  with_other_conjuncts>(
+                          auto st = hash_table_build_process.template run<JoinOpType::value>(
                                   arg, null_map_val ? &null_map_val->get_data() : nullptr,
-                                  &_shared_state->_has_null_in_build_side);
+                                  &_shared_state->_has_null_in_build_side,
+                                  p._short_circuit_for_null_in_build_side,
+                                  p._have_other_join_conjunct);
                           COUNTER_SET(_memory_used_counter,
                                       _build_blocks_memory_usage->value() +
                                               (int64_t)(arg.hash_table->get_byte_size() +
@@ -613,9 +615,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
                           return st;
                       }},
             _shared_state->hash_table_variant_vector.front()->method_variant,
-            _shared_state->join_op_variants,
-            make_bool_variant(p._short_circuit_for_null_in_build_side),
-            make_bool_variant((p._have_other_join_conjunct)));
+            _shared_state->join_op_variants);
     return st;
 }
 

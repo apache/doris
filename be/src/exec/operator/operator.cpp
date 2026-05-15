@@ -352,16 +352,12 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
             VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_output_row_descriptor);
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
-        const size_t origin_columns_count = input_block.columns();
         DCHECK_EQ(mutable_columns.size(), local_state->_projections.size()) << debug_string();
         for (int i = 0; i < mutable_columns.size(); ++i) {
-            auto result_column_id = -1;
             ColumnPtr column_ptr;
             RETURN_IF_ERROR(local_state->_projections[i]->execute(&input_block, column_ptr));
             column_ptr = column_ptr->convert_to_full_column_if_const();
-            if (result_column_id >= origin_columns_count) {
-                bytes_usage += column_ptr->allocated_bytes();
-            }
+            bytes_usage += column_ptr->allocated_bytes();
             insert_column_datas(mutable_columns[i], column_ptr, rows);
         }
         DCHECK(mutable_block.rows() == rows);
@@ -389,10 +385,7 @@ Status OperatorXBase::get_block_after_projects(RuntimeState* state, Block* block
     auto* local_state = state->get_local_state(operator_id());
     Defer defer([&]() {
         if (status.ok()) {
-            if (auto rows = block->rows()) {
-                COUNTER_UPDATE(local_state->_rows_returned_counter, rows);
-                COUNTER_UPDATE(local_state->_blocks_returned_counter, 1);
-            }
+            local_state->update_output_block_counters(*block);
         }
     });
     if (_output_row_descriptor) {
@@ -427,6 +420,7 @@ void PipelineXLocalStateBase::reached_limit(Block* block, bool* eos) {
 
     if (auto rows = block->rows()) {
         _num_rows_returned += rows;
+        _state->get_query_ctx()->resource_ctx()->io_context()->update_process_rows(rows);
     }
 }
 
@@ -509,7 +503,11 @@ PipelineXSinkLocalStateBase::PipelineXSinkLocalStateBase(DataSinkOperatorXBase* 
         : _parent(parent), _state(state) {}
 
 PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXBase* parent)
-        : _num_rows_returned(0), _rows_returned_counter(nullptr), _parent(parent), _state(state) {}
+        : _num_rows_returned(0),
+          _rows_returned_counter(nullptr),
+          _parent(parent),
+          _state(state),
+          _budget(state->batch_size(), state->preferred_block_size_bytes()) {}
 
 template <typename SharedStateArg>
 Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalStateInfo& info) {
@@ -563,6 +561,12 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
     _open_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "OpenTime", 2);
     _close_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "CloseTime", 2);
     _exec_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "ExecTime", 1);
+    _output_block_bytes_counter =
+            ADD_COUNTER_WITH_LEVEL(_common_profile, "OutputBlockBytes", TUnit::BYTES, 1);
+    _max_output_block_bytes_counter =
+            ADD_COUNTER_WITH_LEVEL(_common_profile, "MaxOutputBlockBytes", TUnit::BYTES, 1);
+    _min_output_block_bytes_counter =
+            ADD_COUNTER_WITH_LEVEL(_common_profile, "MinOutputBlockBytes", TUnit::BYTES, 1);
     _memory_used_counter =
             _common_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
     _common_profile->add_info_string("IsColocate",

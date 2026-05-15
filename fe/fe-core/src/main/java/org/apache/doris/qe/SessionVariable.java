@@ -162,6 +162,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final int MIN_EXEC_MEM_LIMIT = 2097152;
     public static final String BATCH_SIZE = "batch_size";
     public static final String BROKER_LOAD_BATCH_SIZE = "broker_load_batch_size";
+    public static final String PREFERRED_BLOCK_SIZE_BYTES = "preferred_block_size_bytes";
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
     public static final String ENABLE_DISTINCT_STREAMING_AGGREGATION = "enable_distinct_streaming_aggregation";
     public static final String ENABLE_STREAMING_AGG_HASH_JOIN_FORCE_PASSTHROUGH =
@@ -679,6 +680,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DUMP_HEAP_PROFILE_WHEN_MEM_LIMIT_EXCEEDED = "dump_heap_profile_when_mem_limit_exceeded";
 
     public static final String ENABLE_FUZZY_BLOCKABLE_TASK = "enable_fuzzy_blockable_task";
+
+    public static final String ENABLE_USE_HYBRID_SORT = "enable_use_hybrid_sort";
 
     public static final String GENERATE_STATS_FACTOR = "generate_stats_factor";
 
@@ -1272,7 +1275,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = HAVE_QUERY_CACHE, flag = VariableMgr.READ_ONLY)
     public boolean haveQueryCache = false;
 
-    // 4096 minus 16 + 16 bytes padding that in padding pod array
+    // 8192 minus 16 + 16 bytes padding that in padding pod array.
+    // This remains the row cap for output blocks even when adaptive byte budgeting is enabled.
     @VariableMgr.VarAttr(name = BATCH_SIZE, fuzzy = true, checker = "checkBatchSize", needForward = true)
     public int batchSize = 8160;
 
@@ -1280,7 +1284,18 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = BROKER_LOAD_BATCH_SIZE, fuzzy = true, checker = "checkBatchSize")
     public int brokerLoadBatchSize = 16352;
 
+    // Target output block size in bytes for adaptive batch size.
+    // Valid range: [1MB, 512MB]. Default 8MB.
+    @VariableMgr.VarAttr(name = PREFERRED_BLOCK_SIZE_BYTES, needForward = true,
+            checker = "checkPreferredBlockSizeBytes",
+            description = {"目标输出 Block 字节数上限，自适应 batch size 功能使用。"
+                    + "范围 [1MB, 512MB]，默认 8MB",
+                "Target output block size in bytes for adaptive batch size. "
+                    + "Range [1MB, 512MB]. Default 8MB."})
+    public long preferredBlockSizeBytes = 8388608L; // 8MB
+
     @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS, fuzzy = true)
+
     public boolean disableStreamPreaggregations = false;
 
     @VariableMgr.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGGREGATION, fuzzy = true)
@@ -3208,6 +3223,15 @@ public class SessionVariable implements Serializable, Writable {
             name = ENABLE_FUZZY_BLOCKABLE_TASK, fuzzy = true)
     public boolean enableFuzzyBlockableTask = false;
 
+    @VariableMgr.VarAttr(
+            name = ENABLE_USE_HYBRID_SORT,
+            description = {"是否启用混合排序，动态选择 PdqSort 和 TimSort 以适应数据模式。默认为 true。",
+                    "Enable hybrid sorting: dynamically selects between PdqSort and TimSort "
+                            + "based on runtime profiling to choose the most efficient algorithm "
+                            + "for the data pattern. The default value is true."},
+            needForward = true, fuzzy = true)
+    public boolean enableUseHybridSort = true;
+
     @VariableMgr.VarAttr(name = USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS, needForward = true, description = {
             "在 CTAS 中，如果 CHAR / VARCHAR 列不来自于源表，是否是将这一列的长度设置为 MAX，即 65533。默认为 true。",
             "In CTAS (Create Table As Select), if CHAR/VARCHAR columns do not originate from the source table,"
@@ -3664,6 +3688,9 @@ public class SessionVariable implements Serializable, Writable {
             this.enableSpill = randomInt % 4 != 0;
             this.enableForceSpill = randomInt % 3 == 0;
             this.enableReserveMemory = randomInt % 5 != 0;
+
+            randomInt = random.nextInt(99);
+            this.enableUseHybridSort = randomInt % 3 != 0;
         }
 
         setFuzzyForCatalog(random);
@@ -5255,6 +5282,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableShareHashTableForBroadcastJoin(enableShareHashTableForBroadcastJoin);
 
         tResult.setBatchSize(batchSize);
+        tResult.setPreferredBlockSizeBytes(preferredBlockSizeBytes);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
         tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
         tResult.setEnableStreamingAggHashJoinForcePassthrough(enableStreamingAggHashJoinForcePassthrough);
@@ -5378,6 +5406,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSpillSortMergeMemLimitBytes(spillSortMergeMemLimitBytes);
 
         tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);
+        tResult.setEnableUseHybridSort(enableUseHybridSort);
         tResult.setLowMemoryModeBufferLimit(lowMemoryModeBufferLimit);
 
         tResult.setEnableSharedExchangeSinkBuffer(enableSharedExchangeSinkBuffer);
@@ -5926,6 +5955,20 @@ public class SessionVariable implements Serializable, Writable {
         Long batchSizeValue = Long.valueOf(batchSize);
         if (batchSizeValue < 1 || batchSizeValue > 65535) {
             throw new InvalidParameterException("batch_size should be between 1 and 65535)");
+        }
+    }
+
+
+    private static final long PREFERRED_BLOCK_SIZE_BYTES_MIN = 1048576L;      // 1MB
+    private static final long PREFERRED_BLOCK_SIZE_BYTES_MAX = 536870912L;    // 512MB
+
+    public void checkPreferredBlockSizeBytes(String value) {
+        long v = Long.parseLong(value);
+        if (v < PREFERRED_BLOCK_SIZE_BYTES_MIN || v > PREFERRED_BLOCK_SIZE_BYTES_MAX) {
+            throw new InvalidParameterException(
+                    "preferred_block_size_bytes should be between 1MB ("
+                    + PREFERRED_BLOCK_SIZE_BYTES_MIN + ") and 512MB ("
+                    + PREFERRED_BLOCK_SIZE_BYTES_MAX + "), got " + v);
         }
     }
 

@@ -250,15 +250,13 @@ uint32_t ProcessHashTableProbe<JoinOpType>::
     DORIS_CHECK(asof_probe_expr);
 
     auto& probe_block = _parent->_probe_block;
-    int probe_col_idx = -1;
+    ColumnPtr probe_col_ptr;
     {
         SCOPED_TIMER(_asof_probe_expr_timer);
-        auto st = asof_probe_expr->execute(&probe_block, &probe_col_idx);
+        auto st = asof_probe_expr->execute(&probe_block, probe_col_ptr);
         DORIS_CHECK(st.ok());
     }
-    DORIS_CHECK(probe_col_idx >= 0 && probe_col_idx < static_cast<int>(probe_block.columns()));
-    auto probe_col_ptr =
-            probe_block.get_by_position(probe_col_idx).column->convert_to_full_column_if_const();
+    probe_col_ptr = probe_col_ptr->convert_to_full_column_if_const();
 
     // Remove nullable wrapper for comparison - keep original for null check
     ColumnPtr probe_col_for_compare = probe_col_ptr;

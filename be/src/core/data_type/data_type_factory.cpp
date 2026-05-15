@@ -457,7 +457,6 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
         nested = std::make_shared<DataTypeString>(len, primitive_type);
         break;
     case TYPE_BINARY:
-    case TYPE_LAMBDA_FUNCTION:
         nested = std::make_shared<DataTypeString>(len, TYPE_STRING);
         break;
     case TYPE_JSONB:

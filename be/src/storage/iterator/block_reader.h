@@ -23,6 +23,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/column/column.h"
@@ -53,6 +54,11 @@ public:
         return _vcollect_iter.update_profile(profile);
     }
 
+    // Returns the configured preferred output block byte budget; 0 when adaptive is disabled.
+    size_t preferred_block_size_bytes() const override {
+        return config::enable_adaptive_batch_size ? _reader_context.preferred_block_size_bytes : 0;
+    }
+
 private:
     // Directly read row from rowset and pass to upper caller. No need to do aggregation.
     // This is usually used for DUPLICATE KEY tables
@@ -73,6 +79,10 @@ private:
     Status _init_agg_state(const ReaderParams& read_params);
 
     Status _insert_data_normal(MutableColumns& columns);
+
+    // Check if the accumulated output columns have reached the preferred byte budget,
+    // used to limit the output block size for adaptive batch sizing.
+    bool _reached_byte_budget(const MutableColumns& columns) const;
 
     void _append_agg_data(MutableColumns& columns);
 

@@ -101,7 +101,7 @@ under the License.
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>license-maven-plugin</artifactId>
-                <version>2.0.0</version>
+                <version>2.1.0</version>
                 <executions>
                     <execution>
                         <id>add-third-party</id>
@@ -215,6 +215,7 @@ under the License.
         </extensions>
     </build>
     <modules>
+        <module>fe-foundation</module>
         <module>fe-common</module>
         <module>fe-core</module>
         <module>hive-udf</module>
@@ -750,6 +751,11 @@ under the License.
                 <scope>test</scope>
             </dependency>
 
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>fe-foundation</artifactId>
+                <version>${project.version}</version>
+            </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
                 <artifactId>fe-common</artifactId>

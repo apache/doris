@@ -18,6 +18,7 @@
 package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 
 import com.google.common.base.Strings;
@@ -39,7 +40,8 @@ public class ExtraBasepathAction extends RestBaseController {
     @RequestMapping(path = "/api/basepath", method = RequestMethod.GET)
     public ResponseEntity execute(HttpServletRequest request, HttpServletResponse response) {
         if (Config.enable_all_http_auth) {
-            executeCheckPassword(request, response);
+            ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+            checkAdminAuth(authInfo.userIdentity);
         }
 
         BasepathResponse resp = new BasepathResponse();

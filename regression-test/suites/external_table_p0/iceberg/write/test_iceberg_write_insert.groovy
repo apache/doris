@@ -866,4 +866,9 @@ suite("test_iceberg_write_insert", "p0,external,iceberg,external_docker,external
         } finally {
         }
     }
+
+    // external table insert should not register a load job in LoadManager
+    sql """ SWITCH internal """
+    def showLoadResult = sql """ SHOW LOAD """
+    assertEquals(0, showLoadResult.size())
 }

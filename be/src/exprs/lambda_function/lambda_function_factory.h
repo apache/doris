@@ -28,6 +28,7 @@ class LambdaFunctionFactory;
 
 void register_function_array_map(LambdaFunctionFactory& factory);
 void register_function_array_filter(LambdaFunctionFactory& factory);
+void register_function_array_sort(LambdaFunctionFactory& factory);
 
 class LambdaFunctionFactory {
     using Creator = std::function<LambdaFunctionPtr()>;
@@ -62,6 +63,7 @@ public:
         std::call_once(oc, []() {
             register_function_array_map(instance);
             register_function_array_filter(instance);
+            register_function_array_sort(instance);
         });
         return instance;
     }

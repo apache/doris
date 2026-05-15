@@ -823,11 +823,12 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         std::unique_ptr<RuntimeProfile> profile =
                 std::make_unique<RuntimeProfile>("FetchTableSchema");
         std::unique_ptr<GenericReader> reader(nullptr);
-        io::IOContext io_ctx;
-        io::FileCacheStatistics file_cache_statis;
-        io_ctx.file_cache_stats = &file_cache_statis;
-        io::FileReaderStats file_reader_stats;
-        io_ctx.file_reader_stats = &file_reader_stats;
+        auto io_ctx = std::make_shared<io::IOContext>();
+        auto file_cache_statis = std::make_shared<io::FileCacheStatistics>();
+        auto file_reader_stats = std::make_shared<io::FileReaderStats>();
+        io_ctx->file_cache_stats = file_cache_statis.get();
+        io_ctx->file_reader_stats = file_reader_stats.get();
+        constexpr size_t fetch_schema_batch_size = 4064;
         // file_slots is no use, but the lifetime should be longer than reader
         std::vector<SlotDescriptor*> file_slots;
         switch (params.format_type) {
@@ -840,29 +841,31 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         case TFileFormatType::FORMAT_CSV_LZOP:
         case TFileFormatType::FORMAT_CSV_DEFLATE: {
             reader = CsvReader::create_unique(nullptr, profile.get(), nullptr, params, range,
-                                              file_slots, &io_ctx);
+                                              file_slots, fetch_schema_batch_size, io_ctx.get(),
+                                              io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_TEXT: {
             reader = TextReader::create_unique(nullptr, profile.get(), nullptr, params, range,
-                                               file_slots, &io_ctx);
+                                               file_slots, fetch_schema_batch_size, io_ctx.get());
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {
-            reader = ParquetReader::create_unique(params, range, &io_ctx, nullptr);
+            reader = ParquetReader::create_unique(params, range, io_ctx, nullptr);
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
-            reader = OrcReader::create_unique(params, range, "", &io_ctx);
+            reader = OrcReader::create_unique(params, range, fetch_schema_batch_size, "", io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_NATIVE: {
-            reader = NativeReader::create_unique(profile.get(), params, range, &io_ctx, nullptr);
+            reader = NativeReader::create_unique(profile.get(), params, range, io_ctx.get(),
+                                                 nullptr);
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
-            reader =
-                    NewJsonReader::create_unique(profile.get(), params, range, file_slots, &io_ctx);
+            reader = NewJsonReader::create_unique(profile.get(), params, range, file_slots,
+                                                  fetch_schema_batch_size, io_ctx.get(), io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_AVRO: {
@@ -955,6 +958,9 @@ Status PInternalService::_tablet_fetch_data(const PTabletKeyLookupRequest* reque
                                             PTabletKeyLookupResponse* response) {
     PointQueryExecutor executor;
     RETURN_IF_ERROR(executor.init(request, response));
+    if (response->has_need_resend_query_context() && response->need_resend_query_context()) {
+        return Status::OK();
+    }
     RETURN_IF_ERROR(executor.lookup_up());
     executor.print_profile();
     return Status::OK();

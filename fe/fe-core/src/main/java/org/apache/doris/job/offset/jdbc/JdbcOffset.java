@@ -32,6 +32,7 @@ import lombok.Setter;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,7 +49,20 @@ public class JdbcOffset implements Offset {
 
     @Override
     public String toSerializedJson() {
-        return null;
+        if (splits == null || splits.isEmpty()) {
+            return null;
+        }
+        // Serialize to the same flat format that deserializeOffset() expects:
+        // [{"split_id":"binlog-split","file":"xxx","pos":"yyy"}]
+        Preconditions.checkState(splits.size() == 1 && splits.get(0) instanceof BinlogSplit,
+                "toSerializedJson only supports single BinlogSplit");
+        BinlogSplit binlog = (BinlogSplit) splits.get(0);
+        Map<String, String> map = new HashMap<>();
+        map.put(JdbcSourceOffsetProvider.SPLIT_ID, binlog.getSplitId());
+        if (binlog.getStartingOffset() != null) {
+            map.putAll(binlog.getStartingOffset());
+        }
+        return new Gson().toJson(Collections.singletonList(map));
     }
 
     @Override
@@ -58,7 +72,7 @@ public class JdbcOffset implements Offset {
 
     @Override
     public boolean isValidOffset() {
-        return false;
+        return splits != null && !splits.isEmpty();
     }
 
     @Override

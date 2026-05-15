@@ -111,6 +111,8 @@ public:
     OlapReaderStatistics* stats = nullptr;
     bool use_page_cache = false;
     uint32_t block_row_max = 4096 - 32; // see https://github.com/apache/doris/pull/11816
+    // Effective adaptive batch size byte budget.
+    size_t preferred_block_size_bytes = 8388608UL;
 
     TabletSchemaSPtr tablet_schema = nullptr;
     bool enable_unique_key_merge_on_write = false;

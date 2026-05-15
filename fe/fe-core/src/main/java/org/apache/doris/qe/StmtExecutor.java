@@ -44,7 +44,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.QueryTimeoutException;
 import org.apache.doris.common.Status;
@@ -63,6 +62,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileScanNode;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
+import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.mysql.MysqlChannel;
@@ -402,6 +402,16 @@ public class StmtExecutor {
         } else {
             return masterOpExecutor.getOutputPacket();
         }
+    }
+
+    /**
+     * Whether this executor has actually forwarded to master and created a {@link MasterOpExecutor}.
+     *
+     * <p>Do not confuse with {@link #isForwardToMaster()} which is a decision (may be re-evaluated)
+     * based on current statement shape / redirect status.
+     */
+    public boolean hasForwardedToMaster() {
+        return masterOpExecutor != null;
     }
 
     public ShowResultSet getProxyShowResultSet() {
@@ -1940,6 +1950,10 @@ public class StmtExecutor {
         if (originStmt.originStmt != null) {
             context.setSqlHash(DigestUtils.md5Hex(originStmt.originStmt));
         }
+        // Mark state up front so audit log records this as an internal query even if parse/plan fails.
+        context.getState().setNereids(true);
+        context.getState().setIsQuery(true);
+        context.getState().setInternal(true);
         try {
             List<ResultRow> resultRows = new ArrayList<>();
             try {
@@ -1947,9 +1961,6 @@ public class StmtExecutor {
                 Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
                         "Nereids only process LogicalPlanAdapter,"
                                 + " but parsedStmt is " + parsedStmt.getClass().getName());
-                context.getState().setNereids(true);
-                context.getState().setIsQuery(true);
-                context.getState().setInternal(true);
                 planner = new NereidsPlanner(statementContext);
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
             } catch (Exception e) {
@@ -2005,6 +2016,16 @@ public class StmtExecutor {
             } catch (Exception e) {
                 throw new RuntimeException("Failed to fetch internal SQL result. " + Util.getRootCauseMessage(e), e);
             }
+        } catch (Exception e) {
+            // Surface failure into ConnectContext state so AuditLogHelper records ERR instead of OK.
+            if (context.getState().getStateType() != MysqlStateType.ERR) {
+                String msg = e.getMessage();
+                if (Strings.isNullOrEmpty(msg)) {
+                    msg = Util.getRootCauseMessage(e);
+                }
+                context.getState().setError(ErrorCode.ERR_INTERNAL_ERROR, msg);
+            }
+            throw e;
         } finally {
             if (coord != null) {
                 coord.close();

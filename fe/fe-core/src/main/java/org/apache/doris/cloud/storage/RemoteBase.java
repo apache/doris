@@ -43,6 +43,7 @@ public abstract class RemoteBase {
     @Getter
     public static class ObjectInfo {
         private final Cloud.ObjectStoreInfoPB.Provider provider;
+        private final Cloud.CredProviderTypePB credProviderType;
         private final String ak;
         private final String sk;
         private final String bucket;
@@ -60,33 +61,43 @@ public abstract class RemoteBase {
         // Used to get sts token
         public ObjectInfo(Cloud.ObjectStoreInfoPB.Provider provider, String ak, String sk,
                           String endpoint, String region, String roleName, String arn, String externalId) {
-            this(provider, ak, sk, null, endpoint, region, null, roleName, arn, externalId, null);
+            this(provider, null, ak, sk, null, endpoint, region, null, roleName, arn, externalId, null);
         }
 
         // Used by UT
         public ObjectInfo(Cloud.ObjectStoreInfoPB.Provider provider,
                           String ak, String sk, String bucket, String endpoint, String region, String prefix) {
-            this(provider, ak, sk, bucket, endpoint, region, prefix, null, null, null, null);
+            this(provider, null, ak, sk, bucket, endpoint, region, prefix, null, null, null, null);
         }
 
         // Used by upload for internal stage
         public ObjectInfo(Cloud.ObjectStoreInfoPB objectStoreInfoPB) {
-            this(objectStoreInfoPB.getProvider(), objectStoreInfoPB.getAk(), objectStoreInfoPB.getSk(),
-                    objectStoreInfoPB.getBucket(), objectStoreInfoPB.getEndpoint(), objectStoreInfoPB.getRegion(),
-                    objectStoreInfoPB.getPrefix());
+            this(objectStoreInfoPB.getProvider(), getCredProviderType(objectStoreInfoPB),
+                    objectStoreInfoPB.getAk(), objectStoreInfoPB.getSk(), objectStoreInfoPB.getBucket(),
+                    objectStoreInfoPB.getEndpoint(), objectStoreInfoPB.getRegion(),
+                    objectStoreInfoPB.getPrefix(), null, objectStoreInfoPB.getRoleArn(),
+                    objectStoreInfoPB.getExternalId(), null);
         }
 
         private ObjectInfo(Cloud.ObjectStoreInfoPB objectStoreInfoPB, String roleName, String arn,
                 String externalId, String token) {
-            this(objectStoreInfoPB.getProvider(), objectStoreInfoPB.getAk(), objectStoreInfoPB.getSk(),
-                    objectStoreInfoPB.getBucket(), objectStoreInfoPB.getEndpoint(), objectStoreInfoPB.getRegion(),
+            this(objectStoreInfoPB.getProvider(), getCredProviderType(objectStoreInfoPB),
+                    objectStoreInfoPB.getAk(), objectStoreInfoPB.getSk(), objectStoreInfoPB.getBucket(),
+                    objectStoreInfoPB.getEndpoint(), objectStoreInfoPB.getRegion(),
                     objectStoreInfoPB.getPrefix(), roleName, arn, externalId, token);
         }
 
-        private ObjectInfo(Cloud.ObjectStoreInfoPB.Provider provider, String ak, String sk, String bucket,
-                String endpoint, String region, String prefix, String roleName, String arn, String externalId,
-                String token) {
+        private static Cloud.CredProviderTypePB getCredProviderType(ObjectStoreInfoPB objectStoreInfoPB) {
+            return objectStoreInfoPB.hasCredProviderType()
+                    ? objectStoreInfoPB.getCredProviderType()
+                    : Cloud.CredProviderTypePB.INSTANCE_PROFILE;
+        }
+
+        private ObjectInfo(Cloud.ObjectStoreInfoPB.Provider provider, Cloud.CredProviderTypePB credProviderType,
+                String ak, String sk, String bucket, String endpoint, String region, String prefix,
+                String roleName, String arn, String externalId, String token) {
             this.provider = provider;
+            this.credProviderType = credProviderType;
             this.ak = ak;
             this.sk = sk;
             this.bucket = bucket;
@@ -103,6 +114,7 @@ public abstract class RemoteBase {
         public String toString() {
             return "Obj{"
                 + "provider=" + provider
+                + ", credProviderType=" + credProviderType
                 + ", ak='" + ak + '\''
                 + ", sk='******" + '\''
                 + ", bucket='" + bucket + '\''
@@ -230,9 +242,10 @@ public abstract class RemoteBase {
             remote = RemoteBase.newInstance(new ObjectInfo(infoPB, stagePB.getRoleName(), stagePB.getArn(),
                     encodedExternalId, null));
             Triple<String, String, String> stsToken = remote.getStsToken();
-            ObjectInfo objInfo = new ObjectInfo(infoPB.getProvider(), stsToken.getLeft(), stsToken.getMiddle(),
-                    infoPB.getBucket(), infoPB.getEndpoint(), infoPB.getRegion(), infoPB.getPrefix(),
-                    stagePB.getRoleName(), stagePB.getArn(), encodedExternalId, stsToken.getRight());
+            ObjectInfo objInfo = new ObjectInfo(infoPB.getProvider(), null, stsToken.getLeft(),
+                    stsToken.getMiddle(), infoPB.getBucket(), infoPB.getEndpoint(), infoPB.getRegion(),
+                    infoPB.getPrefix(), stagePB.getRoleName(), stagePB.getArn(), encodedExternalId,
+                    stsToken.getRight());
             LOG.info("Parse object storage info, before={}, after={}", new ObjectInfo(infoPB), objInfo);
             return objInfo;
         } catch (Throwable e) {

@@ -48,17 +48,14 @@ public:
     using BasePtr = HybridSetBase*;
     template <PrimitiveType type, size_t N>
     static BasePtr get_function(bool null_aware) {
-        if constexpr (N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE) {
-            using Set = std::conditional_t<
-                    is_string_type(type), StringSet<>,
-                    HybridSet<type,
-                              FixedContainer<typename PrimitiveTypeTraits<type>::CppType, N>>>;
-            return new Set(null_aware);
+        if constexpr (is_string_type(type)) {
+            return new StringSet<>(null_aware);
+        } else if constexpr (N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE) {
+            using CppType = typename PrimitiveTypeTraits<type>::CppType;
+            return new HybridSet<type, FixedContainer<CppType, N>>(null_aware);
         } else {
-            using Set = std::conditional_t<
-                    is_string_type(type), StringSet<>,
-                    HybridSet<type, DynamicContainer<typename PrimitiveTypeTraits<type>::CppType>>>;
-            return new Set(null_aware);
+            using CppType = typename PrimitiveTypeTraits<type>::CppType;
+            return new HybridSet<type, DynamicContainer<CppType>>(null_aware);
         }
     }
 };
@@ -191,35 +188,12 @@ inline auto create_set(PrimitiveType type, size_t size, bool null_aware) {
     }
 }
 
-template <size_t N = 0>
 inline HybridSetBase* create_string_value_set(bool null_aware) {
-    if constexpr (N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE) {
-        return new StringValueSet<FixedContainer<StringRef, N>>(null_aware);
-    } else {
-        return new StringValueSet(null_aware);
-    }
+    return new StringValueSet(null_aware);
 }
 
 inline HybridSetBase* create_string_value_set(size_t size, bool null_aware) {
-    if (size == 1) {
-        return create_string_value_set<1>(null_aware);
-    } else if (size == 2) {
-        return create_string_value_set<2>(null_aware);
-    } else if (size == 3) {
-        return create_string_value_set<3>(null_aware);
-    } else if (size == 4) {
-        return create_string_value_set<4>(null_aware);
-    } else if (size == 5) {
-        return create_string_value_set<5>(null_aware);
-    } else if (size == 6) {
-        return create_string_value_set<6>(null_aware);
-    } else if (size == 7) {
-        return create_string_value_set<7>(null_aware);
-    } else if (size == FIXED_CONTAINER_MAX_SIZE) {
-        return create_string_value_set<FIXED_CONTAINER_MAX_SIZE>(null_aware);
-    } else {
-        return create_string_value_set(null_aware);
-    }
+    return create_string_value_set(null_aware);
 }
 
 inline auto create_bloom_filter(PrimitiveType type, bool null_aware) {

@@ -212,8 +212,9 @@ struct ProcessHashTableBuild {
               _batch_size(batch_size),
               _state(state) {}
 
-    template <int JoinOpType, bool short_circuit_for_null, bool with_other_conjuncts>
-    Status run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map, bool* has_null_key) {
+    template <int JoinOpType>
+    Status run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map, bool* has_null_key,
+               bool short_circuit_for_null, bool with_other_conjuncts) {
         if (null_map) {
             // first row is mocked and is null
             if (simd::contain_one(null_map->data() + 1, _rows - 1)) {

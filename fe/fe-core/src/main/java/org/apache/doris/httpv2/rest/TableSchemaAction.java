@@ -113,7 +113,7 @@ public class TableSchemaAction extends RestBaseController {
         try {
             String fullDbName = getFullDbName(dbName);
             // check privilege for select, otherwise return 401 HTTP status
-            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), catalogName, fullDbName, tblName,
+            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), catalogName, dbName, tblName,
                     PrivPredicate.SELECT);
             TableIf table;
             try {
@@ -202,11 +202,12 @@ public class TableSchemaAction extends RestBaseController {
      */
     @RequestMapping(path = "/api/enable_light_schema_change/{" + DB_KEY
             + "}/{" + TABLE_KEY + "}", method = {RequestMethod.GET})
-    public Object columnChangeCanSync(
+     public Object columnChangeCanSync(
             @PathVariable(value = DB_KEY) String dbName,
             @PathVariable(value = TABLE_KEY) String tableName,
             HttpServletRequest request, HttpServletResponse response, @RequestBody String body) {
-        executeCheckPassword(request, response);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
         String fullDbName = getFullDbName(dbName);
         OlapTable table;
         try {
@@ -252,16 +253,16 @@ public class TableSchemaAction extends RestBaseController {
             @PathVariable(value = DB_KEY) final String dbName,
             @PathVariable(value = TABLE_KEY) final String tblName,
             HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request, response);
-        GsonSchemaResponse gsonSchemaResponse = new GsonSchemaResponse();
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
         if (StringUtils.isBlank(catalogName)) {
             catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
         }
+        String fullDbName = getFullDbName(dbName);
+        checkTblAuth(authInfo.userIdentity, catalogName, fullDbName, tblName,
+                PrivPredicate.SELECT);
+        GsonSchemaResponse gsonSchemaResponse = new GsonSchemaResponse();
 
         try {
-            String fullDbName = getFullDbName(dbName);
-            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), catalogName, fullDbName, tblName,
-                    PrivPredicate.SELECT);
             TableIf table;
             try {
                 CatalogIf catalog = StringUtils.isNotBlank(catalogName) ? Env.getCurrentEnv().getCatalogMgr()

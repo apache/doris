@@ -105,15 +105,25 @@ public class ClientController {
     @RequestMapping(path = "/api/fetchEndOffset", method = RequestMethod.POST)
     public Object fetchEndOffset(@RequestBody JobBaseConfig jobConfig) {
         LOG.info("Fetching end offset for job {}", jobConfig.getJobId());
-        SourceReader reader = Env.getCurrentEnv().getReader(jobConfig);
-        return RestResponse.success(reader.getEndOffset(jobConfig));
+        try {
+            SourceReader reader = Env.getCurrentEnv().getReader(jobConfig);
+            return RestResponse.success(reader.getEndOffset(jobConfig));
+        } catch (Exception ex) {
+            LOG.error("Failed to fetch end offset, jobId={}", jobConfig.getJobId(), ex);
+            return RestResponse.internalError(ExceptionUtils.getRootCauseMessage(ex));
+        }
     }
 
     /** compare datasource Binlog Offset */
     @RequestMapping(path = "/api/compareOffset", method = RequestMethod.POST)
     public Object compareOffset(@RequestBody CompareOffsetRequest compareOffsetRequest) {
-        SourceReader reader = Env.getCurrentEnv().getReader(compareOffsetRequest);
-        return RestResponse.success(reader.compareOffset(compareOffsetRequest));
+        try {
+            SourceReader reader = Env.getCurrentEnv().getReader(compareOffsetRequest);
+            return RestResponse.success(reader.compareOffset(compareOffsetRequest));
+        } catch (Exception ex) {
+            LOG.error("Failed to compare offset, jobId={}", compareOffsetRequest.getJobId(), ex);
+            return RestResponse.internalError(ExceptionUtils.getRootCauseMessage(ex));
+        }
     }
 
     /** Close job */

@@ -27,34 +27,42 @@ template <PrimitiveType TYPE, PredicateType PT>
 static std::shared_ptr<ColumnPredicate> create_in_list_predicate_impl(
         const uint32_t cid, const std::string col_name, const std::shared_ptr<HybridSetBase>& set,
         bool is_opposite, size_t char_length = 0) {
-    auto set_size = set->size();
-    if (set_size == 1) {
-        return InListPredicateBase<TYPE, PT, 1>::create_shared(cid, col_name, set, is_opposite,
-                                                               char_length);
-    } else if (set_size == 2) {
-        return InListPredicateBase<TYPE, PT, 2>::create_shared(cid, col_name, set, is_opposite,
-                                                               char_length);
-    } else if (set_size == 3) {
-        return InListPredicateBase<TYPE, PT, 3>::create_shared(cid, col_name, set, is_opposite,
-                                                               char_length);
-    } else if (set_size == 4) {
-        return InListPredicateBase<TYPE, PT, 4>::create_shared(cid, col_name, set, is_opposite,
-                                                               char_length);
-    } else if (set_size == 5) {
-        return InListPredicateBase<TYPE, PT, 5>::create_shared(cid, col_name, set, is_opposite,
-                                                               char_length);
-    } else if (set_size == 6) {
-        return InListPredicateBase<TYPE, PT, 6>::create_shared(cid, col_name, set, is_opposite,
-                                                               char_length);
-    } else if (set_size == 7) {
-        return InListPredicateBase<TYPE, PT, 7>::create_shared(cid, col_name, set, is_opposite,
-                                                               char_length);
-    } else if (set_size == FIXED_CONTAINER_MAX_SIZE) {
-        return InListPredicateBase<TYPE, PT, 8>::create_shared(cid, col_name, set, is_opposite,
-                                                               char_length);
-    } else {
+    // Only string types construct their own HybridSetType in the constructor (to convert
+    // from DynamicContainer to FixedContainer<std::string, N>), so N dispatch is only needed
+    // for them. All other types directly share the caller's hybrid_set.
+    if constexpr (!is_string_type(TYPE)) {
         return InListPredicateBase<TYPE, PT, FIXED_CONTAINER_MAX_SIZE + 1>::create_shared(
                 cid, col_name, set, is_opposite, char_length);
+    } else {
+        auto set_size = set->size();
+        if (set_size == 1) {
+            return InListPredicateBase<TYPE, PT, 1>::create_shared(cid, col_name, set, is_opposite,
+                                                                   char_length);
+        } else if (set_size == 2) {
+            return InListPredicateBase<TYPE, PT, 2>::create_shared(cid, col_name, set, is_opposite,
+                                                                   char_length);
+        } else if (set_size == 3) {
+            return InListPredicateBase<TYPE, PT, 3>::create_shared(cid, col_name, set, is_opposite,
+                                                                   char_length);
+        } else if (set_size == 4) {
+            return InListPredicateBase<TYPE, PT, 4>::create_shared(cid, col_name, set, is_opposite,
+                                                                   char_length);
+        } else if (set_size == 5) {
+            return InListPredicateBase<TYPE, PT, 5>::create_shared(cid, col_name, set, is_opposite,
+                                                                   char_length);
+        } else if (set_size == 6) {
+            return InListPredicateBase<TYPE, PT, 6>::create_shared(cid, col_name, set, is_opposite,
+                                                                   char_length);
+        } else if (set_size == 7) {
+            return InListPredicateBase<TYPE, PT, 7>::create_shared(cid, col_name, set, is_opposite,
+                                                                   char_length);
+        } else if (set_size == FIXED_CONTAINER_MAX_SIZE) {
+            return InListPredicateBase<TYPE, PT, 8>::create_shared(cid, col_name, set, is_opposite,
+                                                                   char_length);
+        } else {
+            return InListPredicateBase<TYPE, PT, FIXED_CONTAINER_MAX_SIZE + 1>::create_shared(
+                    cid, col_name, set, is_opposite, char_length);
+        }
     }
 }
 

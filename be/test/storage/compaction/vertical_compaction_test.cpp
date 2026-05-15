@@ -30,6 +30,7 @@
 
 #include <iostream>
 #include <memory>
+#include <set>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -47,6 +48,7 @@
 #include "io/io_common.h"
 #include "json2pb/json_to_pb.h"
 #include "runtime/exec_env.h"
+#include "storage/compaction/compaction.h"
 #include "storage/delete/delete_handler.h"
 #include "storage/field.h"
 #include "storage/iterator/vertical_merge_iterator.h"
@@ -63,10 +65,12 @@
 #include "storage/rowset/rowset_writer.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/schema.h"
+#include "storage/segment/segment.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/txn/txn_manager.h"
 #include "storage/utils.h"
 #include "util/uid_util.h"
 
@@ -154,6 +158,67 @@ protected:
         return tablet_schema;
     }
 
+    TabletSchemaSPtr create_mow_cluster_key_schema(bool has_sequence_col = false) {
+        TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+        TabletSchemaPB tablet_schema_pb;
+        tablet_schema_pb.set_keys_type(UNIQUE_KEYS);
+        tablet_schema_pb.set_num_short_key_columns(1);
+        tablet_schema_pb.set_num_rows_per_row_block(1024);
+        tablet_schema_pb.set_compress_kind(COMPRESS_NONE);
+        tablet_schema_pb.set_next_column_unique_id(has_sequence_col ? 5 : 4);
+        tablet_schema_pb.add_cluster_key_uids(2);
+        if (has_sequence_col) {
+            tablet_schema_pb.set_sequence_col_idx(2);
+            tablet_schema_pb.add_cluster_key_uids(3);
+        }
+
+        ColumnPB* column_1 = tablet_schema_pb.add_column();
+        column_1->set_unique_id(1);
+        column_1->set_name("c1");
+        column_1->set_type("INT");
+        column_1->set_is_key(true);
+        column_1->set_length(4);
+        column_1->set_index_length(4);
+        column_1->set_is_nullable(false);
+        column_1->set_is_bf_column(false);
+
+        ColumnPB* column_2 = tablet_schema_pb.add_column();
+        column_2->set_unique_id(2);
+        column_2->set_name("c2");
+        column_2->set_type("INT");
+        column_2->set_length(4);
+        column_2->set_index_length(4);
+        column_2->set_is_key(false);
+        column_2->set_is_nullable(false);
+        column_2->set_is_bf_column(false);
+
+        if (has_sequence_col) {
+            ColumnPB* column_3 = tablet_schema_pb.add_column();
+            column_3->set_unique_id(3);
+            column_3->set_name("c3");
+            column_3->set_type("INT");
+            column_3->set_length(4);
+            column_3->set_index_length(4);
+            column_3->set_is_key(false);
+            column_3->set_is_nullable(false);
+            column_3->set_is_bf_column(false);
+            column_3->set_aggregation("NONE");
+        }
+
+        ColumnPB* delete_sign_column = tablet_schema_pb.add_column();
+        delete_sign_column->set_unique_id(has_sequence_col ? 4 : 3);
+        delete_sign_column->set_name(DELETE_SIGN);
+        delete_sign_column->set_type("TINYINT");
+        delete_sign_column->set_length(1);
+        delete_sign_column->set_index_length(1);
+        delete_sign_column->set_is_key(false);
+        delete_sign_column->set_is_nullable(false);
+        delete_sign_column->set_is_bf_column(false);
+
+        tablet_schema->init_from_pb(tablet_schema_pb);
+        return tablet_schema;
+    }
+
     TabletSchemaSPtr create_agg_schema() {
         TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
         TabletSchemaPB tablet_schema_pb;
@@ -205,6 +270,9 @@ protected:
         rowset_writer_context.version = version;
         rowset_writer_context.segments_overlap = overlap;
         rowset_writer_context.max_rows_per_segment = max_rows_per_segment;
+        rowset_writer_context.enable_unique_key_merge_on_write =
+                tablet_schema->keys_type() == UNIQUE_KEYS &&
+                !tablet_schema->cluster_key_uids().empty();
         inc_id++;
         return rowset_writer_context;
     }
@@ -252,6 +320,54 @@ protected:
                     uint8_t num = 0;
                     columns[2]->insert_data((const char*)&num, sizeof(num));
                 }
+                num_rows++;
+            }
+            auto s = rowset_writer->add_block(&block);
+            EXPECT_TRUE(s.ok());
+            s = rowset_writer->flush();
+            EXPECT_TRUE(s.ok());
+        }
+
+        RowsetSharedPtr rowset;
+        EXPECT_EQ(Status::OK(), rowset_writer->build(rowset));
+        EXPECT_EQ(rowset_data.size(), rowset->rowset_meta()->num_segments());
+        EXPECT_EQ(num_rows, rowset->rowset_meta()->num_rows());
+        return rowset;
+    }
+
+    RowsetSharedPtr create_rowset_with_sequence(
+            TabletSchemaSPtr tablet_schema, const SegmentsOverlapPB& overlap,
+            std::vector<std::vector<std::tuple<int64_t, int64_t, int64_t>>> rowset_data,
+            int64_t version) {
+        if (overlap == NONOVERLAPPING) {
+            for (auto i = 1; i < rowset_data.size(); i++) {
+                auto& last_seg_data = rowset_data[i - 1];
+                auto& cur_seg_data = rowset_data[i];
+                int64_t last_seg_max = std::get<0>(last_seg_data[last_seg_data.size() - 1]);
+                int64_t cur_seg_min = std::get<0>(cur_seg_data[0]);
+                EXPECT_LT(last_seg_max, cur_seg_min);
+            }
+        }
+        auto writer_context = create_rowset_writer_context(tablet_schema, overlap, UINT32_MAX,
+                                                           {version, version});
+
+        auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
+        EXPECT_TRUE(res.has_value()) << res.error();
+        auto rowset_writer = std::move(res).value();
+
+        uint32_t num_rows = 0;
+        for (int i = 0; i < rowset_data.size(); ++i) {
+            Block block = tablet_schema->create_block();
+            auto columns = block.mutate_columns();
+            for (int rid = 0; rid < rowset_data[i].size(); ++rid) {
+                int32_t c1 = std::get<0>(rowset_data[i][rid]);
+                int32_t c2 = std::get<1>(rowset_data[i][rid]);
+                int32_t c3 = std::get<2>(rowset_data[i][rid]);
+                columns[0]->insert_data((const char*)&c1, sizeof(c1));
+                columns[1]->insert_data((const char*)&c2, sizeof(c2));
+                columns[2]->insert_data((const char*)&c3, sizeof(c3));
+                uint8_t num = 0;
+                columns[3]->insert_data((const char*)&num, sizeof(num));
                 num_rows++;
             }
             auto s = rowset_writer->add_block(&block);
@@ -321,6 +437,12 @@ protected:
         } else if (tablet_schema.keys_type() == AGG_KEYS) {
             t_tablet_schema.__set_keys_type(TKeysType::AGG_KEYS);
         }
+        for (auto uid : tablet_schema.cluster_key_uids()) {
+            t_tablet_schema.cluster_key_uids.push_back(uid);
+        }
+        if (tablet_schema.has_sequence_col()) {
+            t_tablet_schema.__set_sequence_col_idx(tablet_schema.sequence_col_idx());
+        }
         t_tablet_schema.__set_storage_type(TStorageType::COLUMN);
         t_tablet_schema.__set_columns(cols);
         TabletMetaSharedPtr tablet_meta(
@@ -371,10 +493,54 @@ protected:
         }
     }
 
+    void commit_txn_with_delete_bitmap(TabletSharedPtr tablet, const RowsetSharedPtr& rowset,
+                                       int64_t txn_id, DeleteBitmapPtr delete_bitmap,
+                                       const RowsetIdUnorderedSet& rowset_ids) {
+        PUniqueId load_id;
+        load_id.set_hi(txn_id);
+        load_id.set_lo(txn_id);
+        auto status = engine_ref->txn_manager()->prepare_txn(tablet->partition_id(), *tablet,
+                                                             txn_id, load_id);
+        ASSERT_TRUE(status.ok()) << status;
+        status = engine_ref->txn_manager()->commit_txn(tablet->partition_id(), *tablet, txn_id,
+                                                       load_id, rowset, {}, false);
+        ASSERT_TRUE(status.ok()) << status;
+        engine_ref->txn_manager()->set_txn_related_delete_bitmap(
+                tablet->partition_id(), txn_id, tablet->tablet_id(), tablet->tablet_uid(), true,
+                delete_bitmap, rowset_ids, nullptr);
+    }
+
 private:
     const std::string kTestDir = "/ut_dir/vertical_compaction_test";
     std::string absolute_dir;
     DataDir* _data_dir = nullptr;
+};
+
+class TestCompactionMixin : public CompactionMixin {
+public:
+    TestCompactionMixin(StorageEngine& engine, TabletSharedPtr tablet)
+            : CompactionMixin(engine, std::move(tablet), "TestCompactionMixin") {}
+
+    Status prepare_compact() override { return Status::OK(); }
+
+    Status modify_rowsets_for_test(std::vector<RowsetSharedPtr> input_rowsets,
+                                   RowsetSharedPtr output_rowset,
+                                   std::unique_ptr<RowIdConversion> rowid_conversion) {
+        _input_rowsets = std::move(input_rowsets);
+        _output_rowset = std::move(output_rowset);
+        _rowid_conversion = std::move(rowid_conversion);
+        _stats.rowid_conversion = _rowid_conversion.get();
+        auto st = modify_rowsets();
+        if (st.ok()) {
+            _state = CompactionState::SUCCESS;
+        }
+        return st;
+    }
+
+private:
+    std::string_view compaction_name() const override { return "test compaction"; }
+
+    ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
 };
 
 TEST_F(VerticalCompactionTest, TestRowSourcesBuffer) {
@@ -742,6 +908,165 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMerge) {
             dst_id++;
         }
     }
+}
+
+TEST_F(VerticalCompactionTest, ClusterKeyMowCompactionNeedsOutputRowsetInternalDedup) {
+    TabletSchemaSPtr tablet_schema = create_mow_cluster_key_schema();
+    TabletSharedPtr tablet = create_tablet(*tablet_schema, true);
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    input_rowsets.push_back(create_rowset(tablet_schema, NONOVERLAPPING, {{{1, 30}}}, 2));
+    input_rowsets.push_back(create_rowset(tablet_schema, NONOVERLAPPING, {{{2, 10}, {1, 20}}}, 3));
+
+    std::vector<RowsetReaderSharedPtr> input_rs_readers;
+    for (auto& rowset : input_rowsets) {
+        RowsetReaderSharedPtr rs_reader;
+        ASSERT_TRUE(rowset->create_reader(&rs_reader).ok());
+        input_rs_readers.push_back(std::move(rs_reader));
+    }
+
+    auto writer_context = create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 1024, {2, 3});
+    auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto output_rs_writer = std::move(res).value();
+
+    Merger::Statistics stats;
+    RowIdConversion rowid_conversion;
+    stats.rowid_conversion = &rowid_conversion;
+    auto st = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_CUMULATIVE_COMPACTION,
+                                             *tablet_schema, input_rs_readers,
+                                             output_rs_writer.get(), 1024, 1, &stats);
+    ASSERT_TRUE(st.ok()) << st;
+
+    RowsetSharedPtr output_rowset;
+    ASSERT_EQ(Status::OK(), output_rs_writer->build(output_rowset));
+    ASSERT_NE(output_rowset, nullptr);
+    ASSERT_EQ(1, output_rowset->num_segments());
+    ASSERT_EQ(3, output_rowset->num_rows());
+    ASSERT_EQ(0, stats.merged_rows);
+
+    RowsetReaderContext reader_context;
+    reader_context.tablet_schema = tablet_schema;
+    reader_context.need_ordered_result = false;
+    std::vector<uint32_t> return_columns = {0, 1};
+    reader_context.return_columns = &return_columns;
+    RowsetReaderSharedPtr output_rs_reader;
+    create_and_init_rowset_reader(output_rowset.get(), reader_context, &output_rs_reader);
+
+    std::vector<std::tuple<int64_t, int64_t>> output_data;
+    do {
+        Block output_block = tablet_schema->create_block();
+        st = output_rs_reader->next_batch(&output_block);
+        auto columns = output_block.get_columns_with_type_and_name();
+        ASSERT_GE(columns.size(), 2);
+        for (auto i = 0; i < output_block.rows(); i++) {
+            output_data.emplace_back(columns[0].column->get_int(i), columns[1].column->get_int(i));
+        }
+    } while (st.ok());
+    ASSERT_TRUE(st.is<END_OF_FILE>()) << st;
+
+    ASSERT_EQ(3, output_data.size());
+    EXPECT_EQ(output_data[0], std::make_tuple(int64_t {2}, int64_t {10}));
+    EXPECT_EQ(output_data[1], std::make_tuple(int64_t {1}, int64_t {20}));
+    EXPECT_EQ(output_data[2], std::make_tuple(int64_t {1}, int64_t {30}));
+
+    DeleteBitmap input_delete_bitmap(tablet->tablet_id());
+    DeleteBitmap output_delete_bitmap(tablet->tablet_id());
+    tablet->calc_compaction_output_rowset_delete_bitmap(input_rowsets, rowid_conversion, 0,
+                                                        UINT64_MAX, nullptr, nullptr,
+                                                        input_delete_bitmap, &output_delete_bitmap);
+    st = tablet->calc_compaction_output_rowset_internal_delete_bitmap(
+            input_rowsets, output_rowset, rowid_conversion, &output_delete_bitmap);
+    ASSERT_TRUE(st.ok()) << st;
+
+    std::set<int64_t> visible_keys;
+    auto deleted_rows = output_delete_bitmap.get_agg({output_rowset->rowset_id(), 0, UINT64_MAX});
+    for (uint32_t row_id = 0; row_id < output_data.size(); ++row_id) {
+        if (deleted_rows->contains(row_id)) {
+            continue;
+        }
+        ASSERT_TRUE(visible_keys.insert(std::get<0>(output_data[row_id])).second)
+                << "unique key should not be duplicated after cluster-key MOW compaction";
+    }
+}
+
+TEST_F(VerticalCompactionTest,
+       ClusterKeyMowCompactionWithSequenceKeepsTxnInternalDedupDeleteBitmap) {
+    TabletSchemaSPtr tablet_schema = create_mow_cluster_key_schema(true);
+    TabletSharedPtr tablet = create_tablet(*tablet_schema, true);
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    input_rowsets.push_back(
+            create_rowset_with_sequence(tablet_schema, NONOVERLAPPING, {{{1, 30, 30}}}, 2));
+    input_rowsets.push_back(create_rowset_with_sequence(tablet_schema, NONOVERLAPPING,
+                                                        {{{2, 10, 10}, {1, 20, 20}}}, 3));
+    for (auto& rowset : input_rowsets) {
+        ASSERT_TRUE(tablet->add_rowset(rowset).ok());
+    }
+
+    auto writer_context = create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 1024, {2, 3});
+    auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto output_rs_writer = std::move(res).value();
+
+    Block block = tablet_schema->create_block();
+    auto columns = block.mutate_columns();
+    std::vector<std::tuple<int32_t, int32_t, int32_t>> output_rows = {
+            {2, 10, 10}, {1, 20, 20}, {1, 30, 30}};
+    for (auto& [c1, c2, c3] : output_rows) {
+        columns[0]->insert_data((const char*)&c1, sizeof(c1));
+        columns[1]->insert_data((const char*)&c2, sizeof(c2));
+        columns[2]->insert_data((const char*)&c3, sizeof(c3));
+        uint8_t delete_sign = 0;
+        columns[3]->insert_data((const char*)&delete_sign, sizeof(delete_sign));
+    }
+    auto st = output_rs_writer->add_block(&block);
+    ASSERT_TRUE(st.ok()) << st;
+    st = output_rs_writer->flush();
+    ASSERT_TRUE(st.ok()) << st;
+
+    RowsetSharedPtr output_rowset;
+    ASSERT_EQ(Status::OK(), output_rs_writer->build(output_rowset));
+    ASSERT_NE(output_rowset, nullptr);
+    ASSERT_EQ(3, output_rowset->num_rows());
+
+    auto rowid_conversion = std::make_unique<RowIdConversion>();
+    ASSERT_TRUE(rowid_conversion->init_segment_map(input_rowsets[0]->rowset_id(), {1}).ok());
+    ASSERT_TRUE(rowid_conversion->init_segment_map(input_rowsets[1]->rowset_id(), {2}).ok());
+    rowid_conversion->set_dst_rowset_id(output_rowset->rowset_id());
+    rowid_conversion->add({RowLocation(input_rowsets[1]->rowset_id(), 0, 0),
+                           RowLocation(input_rowsets[1]->rowset_id(), 0, 1),
+                           RowLocation(input_rowsets[0]->rowset_id(), 0, 0)},
+                          {3});
+
+    auto committed_rowset =
+            create_rowset_with_sequence(tablet_schema, NONOVERLAPPING, {{{3, 40, 40}}}, 4);
+    RowsetIdUnorderedSet txn_rowset_ids;
+    for (auto& rowset : input_rowsets) {
+        txn_rowset_ids.insert(rowset->rowset_id());
+    }
+    txn_rowset_ids.insert(committed_rowset->rowset_id());
+    auto txn_delete_bitmap = std::make_shared<DeleteBitmap>(tablet->tablet_id());
+    constexpr int64_t txn_id = 10001;
+    commit_txn_with_delete_bitmap(tablet, committed_rowset, txn_id, txn_delete_bitmap,
+                                  txn_rowset_ids);
+
+    TestCompactionMixin compaction(*engine_ref, tablet);
+    st = compaction.modify_rowsets_for_test(input_rowsets, output_rowset,
+                                            std::move(rowid_conversion));
+    ASSERT_TRUE(st.ok()) << st;
+
+    CommitTabletTxnInfoVec commit_tablet_txn_info_vec {};
+    engine_ref->txn_manager()->get_all_commit_tablet_txn_info_by_tablet(
+            *tablet, &commit_tablet_txn_info_vec);
+    ASSERT_EQ(1, commit_tablet_txn_info_vec.size());
+
+    auto deleted_rows = commit_tablet_txn_info_vec[0].delete_bitmap->get_agg(
+            {output_rowset->rowset_id(), 0, UINT64_MAX});
+    ASSERT_TRUE(deleted_rows->contains(1))
+            << "committed txn delete bitmap must keep the output rowset internal dedup row";
+    ASSERT_FALSE(deleted_rows->contains(2))
+            << "the higher sequence row should stay visible after compaction";
 }
 
 TEST_F(VerticalCompactionTest, TestDupKeyVerticalMergeWithDelete) {
@@ -1190,6 +1515,264 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMergeWithNullableSparseColum
 
     // Restore original threshold
     config::sparse_column_compaction_threshold_percent = original_threshold;
+}
+
+// Test that first-time compaction (no historical sampling) uses footer raw_data_bytes
+// to estimate batch_size instead of hardcoded 992.
+// This test verifies the footer-based estimation path is triggered and compaction succeeds.
+TEST_F(VerticalCompactionTest, TestFirstCompactionUsesFooterEstimation) {
+    // Use small data to ensure compaction completes quickly
+    auto num_input_rowset = 2;
+    auto num_segments = 1;
+    auto rows_per_segment = 1024;
+    SegmentsOverlapPB overlap = NONOVERLAPPING;
+    std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
+    generate_input_data(num_input_rowset, num_segments, rows_per_segment, overlap, input_data);
+
+    TabletSchemaSPtr tablet_schema = create_schema();
+
+    // Create input rowsets
+    std::vector<RowsetSharedPtr> input_rowsets;
+    for (auto i = 0; i < num_input_rowset; i++) {
+        RowsetSharedPtr rowset = create_rowset(tablet_schema, overlap, input_data[i], i);
+        input_rowsets.push_back(rowset);
+    }
+
+    // Create input rowset readers
+    std::vector<RowsetReaderSharedPtr> input_rs_readers;
+    for (auto& rowset : input_rowsets) {
+        RowsetReaderSharedPtr rs_reader;
+        ASSERT_TRUE(rowset->create_reader(&rs_reader).ok());
+        input_rs_readers.push_back(std::move(rs_reader));
+    }
+
+    // Create output rowset writer
+    auto writer_context = create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456,
+                                                       {0, input_rowsets.back()->end_version()});
+    auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto output_rs_writer = std::move(res).value();
+
+    // Create tablet - fresh tablet has no historical sampling data,
+    // so estimate_batch_size will hit the else branch and use footer raw_data_bytes.
+    TabletSharedPtr tablet = create_tablet(*tablet_schema, false);
+    Merger::Statistics stats;
+    RowIdConversion rowid_conversion;
+    stats.rowid_conversion = &rowid_conversion;
+
+    // Verify sample_infos are empty (no historical data)
+    auto& sample_infos = tablet->get_sample_infos(ReaderType::READER_BASE_COMPACTION);
+    EXPECT_TRUE(sample_infos.empty());
+
+    // Run vertical merge - this should use footer raw_data_bytes for batch size estimation
+    // since there is no historical sampling data.
+    // The log should contain "estimate batch size from footer" instead of the old hardcoded path.
+    auto s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
+                                            *tablet_schema, input_rs_readers,
+                                            output_rs_writer.get(), 100000, num_segments, &stats);
+    ASSERT_TRUE(s.ok()) << s;
+
+    RowsetSharedPtr out_rowset;
+    ASSERT_EQ(Status::OK(), output_rs_writer->build(out_rowset));
+    EXPECT_EQ(out_rowset->rowset_meta()->num_rows(),
+              num_input_rowset * num_segments * rows_per_segment);
+
+    // After first compaction, sample_infos should be populated with historical data
+    // for subsequent compactions to use.
+    auto& updated_infos = tablet->get_sample_infos(ReaderType::READER_BASE_COMPACTION);
+    EXPECT_FALSE(updated_infos.empty());
+}
+
+// Test that raw_data_bytes in segment footer accurately reflects the original data size
+// for different column types, which is the foundation of footer-based batch size estimation.
+TEST_F(VerticalCompactionTest, TestFooterRawDataBytesAccuracy) {
+    // Create a schema with INT key + VARCHAR value to test both fixed and variable-length types
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    TabletSchemaPB tablet_schema_pb;
+    tablet_schema_pb.set_keys_type(DUP_KEYS);
+    tablet_schema_pb.set_num_short_key_columns(1);
+    tablet_schema_pb.set_num_rows_per_row_block(1024);
+    tablet_schema_pb.set_compress_kind(COMPRESS_NONE);
+    tablet_schema_pb.set_next_column_unique_id(3);
+
+    ColumnPB* col_int = tablet_schema_pb.add_column();
+    col_int->set_unique_id(1);
+    col_int->set_name("c_int");
+    col_int->set_type("INT");
+    col_int->set_is_key(true);
+    col_int->set_length(4);
+    col_int->set_index_length(4);
+    col_int->set_is_nullable(false);
+    col_int->set_is_bf_column(false);
+
+    ColumnPB* col_varchar = tablet_schema_pb.add_column();
+    col_varchar->set_unique_id(2);
+    col_varchar->set_name("c_varchar");
+    col_varchar->set_type("VARCHAR");
+    col_varchar->set_is_key(false);
+    col_varchar->set_length(128);
+    col_varchar->set_index_length(20);
+    col_varchar->set_is_nullable(false);
+    col_varchar->set_is_bf_column(false);
+
+    tablet_schema->init_from_pb(tablet_schema_pb);
+
+    // Write 1000 rows: INT values + VARCHAR strings of exactly 20 bytes each
+    constexpr int kNumRows = 1000;
+    constexpr int kStringLen = 20;
+    std::string fixed_string(kStringLen, 'x');
+
+    auto writer_context =
+            create_rowset_writer_context(tablet_schema, NONOVERLAPPING, UINT32_MAX, {0, 0});
+    auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto rowset_writer = std::move(res).value();
+
+    Block block = tablet_schema->create_block();
+    auto columns = block.mutate_columns();
+    for (int i = 0; i < kNumRows; i++) {
+        int32_t int_val = i;
+        columns[0]->insert_data(reinterpret_cast<const char*>(&int_val), sizeof(int_val));
+        columns[1]->insert_data(fixed_string.data(), fixed_string.size());
+    }
+    ASSERT_TRUE(rowset_writer->add_block(&block).ok());
+    ASSERT_TRUE(rowset_writer->flush().ok());
+
+    RowsetSharedPtr rowset;
+    ASSERT_EQ(Status::OK(), rowset_writer->build(rowset));
+    ASSERT_EQ(1, rowset->rowset_meta()->num_segments());
+    ASSERT_EQ(kNumRows, rowset->rowset_meta()->num_rows());
+
+    // Load segments and read footer's raw_data_bytes
+    auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
+    ASSERT_NE(beta_rowset, nullptr);
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    ASSERT_TRUE(beta_rowset->load_segments(&segments).ok());
+    ASSERT_EQ(1, segments.size());
+    ASSERT_EQ(kNumRows, segments[0]->num_rows());
+
+    // Collect raw_data_bytes per column from footer
+    std::unordered_map<int32_t, uint64_t> raw_bytes_by_uid;
+    auto st = segments[0]->traverse_column_meta_pbs([&](const segment_v2::ColumnMetaPB& meta) {
+        if (meta.unique_id() >= 0 && meta.has_raw_data_bytes()) {
+            raw_bytes_by_uid[meta.unique_id()] = meta.raw_data_bytes();
+        }
+    });
+    ASSERT_TRUE(st.ok()) << st;
+
+    // Verify INT column (uid=1): raw_data_bytes should be exactly kNumRows * sizeof(int32_t).
+    // PageBuilder::get_raw_data_size() accumulates raw data bytes added via add(),
+    // for fixed-width types this is exactly N * sizeof(T).
+    ASSERT_TRUE(raw_bytes_by_uid.count(1) > 0) << "INT column raw_data_bytes not found in footer";
+    EXPECT_EQ(raw_bytes_by_uid[1], kNumRows * sizeof(int32_t))
+            << "INT column: expected " << kNumRows * sizeof(int32_t)
+            << " total raw_data_bytes, got " << raw_bytes_by_uid[1];
+
+    // Verify VARCHAR column (uid=2): raw_data_bytes should be exactly kNumRows * kStringLen.
+    // BinaryPlainPageBuilder/BinaryDictPageBuilder only accumulate src->size (the raw string
+    // payload), not offsets, varint length prefixes, or dictionary overhead.
+    ASSERT_TRUE(raw_bytes_by_uid.count(2) > 0)
+            << "VARCHAR column raw_data_bytes not found in footer";
+    EXPECT_EQ(raw_bytes_by_uid[2], kNumRows * kStringLen)
+            << "VARCHAR column: expected " << kNumRows * kStringLen << " total raw_data_bytes, got "
+            << raw_bytes_by_uid[2];
+}
+
+// Verify that raw_data_bytes only counts non-null payload for nullable
+// fixed-width columns. This is the premise that motivates the type_size
+// lower bound in merger.cpp's footer-based per-row estimation: without it,
+// a sparse nullable column would produce a per-row estimate far below the
+// reader's actual memory footprint (which still allocates the full nested
+// slot for null rows via ColumnNullable::insert_many_defaults).
+TEST_F(VerticalCompactionTest, TestFooterRawDataBytesNullableSparse) {
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    TabletSchemaPB tablet_schema_pb;
+    tablet_schema_pb.set_keys_type(DUP_KEYS);
+    tablet_schema_pb.set_num_short_key_columns(1);
+    tablet_schema_pb.set_num_rows_per_row_block(1024);
+    tablet_schema_pb.set_compress_kind(COMPRESS_NONE);
+    tablet_schema_pb.set_next_column_unique_id(3);
+
+    ColumnPB* col_key = tablet_schema_pb.add_column();
+    col_key->set_unique_id(1);
+    col_key->set_name("c_key");
+    col_key->set_type("INT");
+    col_key->set_is_key(true);
+    col_key->set_length(4);
+    col_key->set_index_length(4);
+    col_key->set_is_nullable(false);
+    col_key->set_is_bf_column(false);
+
+    ColumnPB* col_val = tablet_schema_pb.add_column();
+    col_val->set_unique_id(2);
+    col_val->set_name("c_val");
+    col_val->set_type("INT");
+    col_val->set_is_key(false);
+    col_val->set_length(4);
+    col_val->set_index_length(4);
+    col_val->set_is_nullable(true);
+    col_val->set_is_bf_column(false);
+
+    tablet_schema->init_from_pb(tablet_schema_pb);
+
+    constexpr int kNumRows = 1000;
+    constexpr int kNonNullCount = 100; // 10% non-null, 90% null
+
+    auto writer_context =
+            create_rowset_writer_context(tablet_schema, NONOVERLAPPING, UINT32_MAX, {0, 0});
+    auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto rowset_writer = std::move(res).value();
+
+    Block block = tablet_schema->create_block();
+    auto columns = block.mutate_columns();
+    for (int i = 0; i < kNumRows; i++) {
+        int32_t key_val = i;
+        columns[0]->insert_data(reinterpret_cast<const char*>(&key_val), sizeof(key_val));
+        if (i < kNonNullCount) {
+            int32_t val = i;
+            columns[1]->insert_data(reinterpret_cast<const char*>(&val), sizeof(val));
+        } else {
+            columns[1]->insert_default(); // ColumnNullable default is null
+        }
+    }
+    ASSERT_TRUE(rowset_writer->add_block(&block).ok());
+    ASSERT_TRUE(rowset_writer->flush().ok());
+
+    RowsetSharedPtr rowset;
+    ASSERT_EQ(Status::OK(), rowset_writer->build(rowset));
+    ASSERT_EQ(1, rowset->rowset_meta()->num_segments());
+
+    auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
+    ASSERT_NE(beta_rowset, nullptr);
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    ASSERT_TRUE(beta_rowset->load_segments(&segments).ok());
+    ASSERT_EQ(1, segments.size());
+
+    std::unordered_map<int32_t, uint64_t> raw_bytes_by_uid;
+    auto st = segments[0]->traverse_column_meta_pbs([&](const segment_v2::ColumnMetaPB& meta) {
+        if (meta.unique_id() >= 0 && meta.has_raw_data_bytes()) {
+            raw_bytes_by_uid[meta.unique_id()] = meta.raw_data_bytes();
+        }
+    });
+    ASSERT_TRUE(st.ok()) << st;
+
+    // Key column (non-null INT): full coverage, raw == kNumRows * 4.
+    ASSERT_TRUE(raw_bytes_by_uid.count(1) > 0);
+    EXPECT_EQ(raw_bytes_by_uid[1], kNumRows * sizeof(int32_t));
+
+    // Value column (nullable INT, 90% null): raw_data_bytes only reflects
+    // the non-null payload because ScalarColumnWriter::append_nulls() does
+    // not advance the page builder. So raw == kNonNullCount * 4.
+    //
+    // If merger.cpp used `raw / total_rows` directly the per-row estimate
+    // would be ~0.4 bytes (+1 for null map = 1.4), but the reader actually
+    // allocates 4 bytes for every nested slot (regardless of null-ness)
+    // plus 1 byte of null map = 5 bytes/row. The fixed-width type_size
+    // lower bound is what closes that ~3.5x gap.
+    ASSERT_TRUE(raw_bytes_by_uid.count(2) > 0);
+    EXPECT_EQ(raw_bytes_by_uid[2], kNonNullCount * sizeof(int32_t));
+    EXPECT_LT(raw_bytes_by_uid[2], kNumRows * sizeof(int32_t));
 }
 
 } // namespace doris

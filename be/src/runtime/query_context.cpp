@@ -555,4 +555,16 @@ Status QueryContext::reset_global_rf(const google::protobuf::RepeatedField<int32
     return Status::OK();
 }
 
+void QueryContext::add_total_task_num(int delta) {
+    if (auto* qtc = dynamic_cast<QueryTaskController*>(_resource_ctx->task_controller())) {
+        qtc->add_total_task_num(delta);
+    }
+}
+
+void QueryContext::inc_finished_task_num() {
+    if (auto* qtc = dynamic_cast<QueryTaskController*>(_resource_ctx->task_controller())) {
+        qtc->inc_finished_task_num();
+    }
+}
+
 } // namespace doris

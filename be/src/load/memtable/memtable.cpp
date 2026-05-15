@@ -81,6 +81,7 @@ MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schem
     _init_columns_offset_by_slot_descs(slot_descs, tuple_desc);
     // TODO: Support ZOrderComparator in the future
     _row_in_blocks = std::make_unique<DorisVector<std::shared_ptr<RowInBlock>>>();
+    _load_mem_limit = MemInfo::mem_limit() * config::load_process_max_memory_limit_percent / 100;
 }
 
 void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
@@ -649,7 +650,7 @@ void MemTable::shrink_memtable_by_agg() {
 
 bool MemTable::need_flush() const {
     DBUG_EXECUTE_IF("MemTable.need_flush", { return true; });
-    auto max_size = config::write_buffer_size;
+    auto max_size = _adaptive_write_buffer_size();
     if (_partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
         auto update_columns_size = _num_columns;
         auto min_buffer_size = config::min_write_buffer_size_for_partial_update;
@@ -662,6 +663,28 @@ bool MemTable::need_flush() const {
         return true;
     }
     return false;
+}
+
+int64_t MemTable::_adaptive_write_buffer_size() const {
+    if (!config::enable_adaptive_write_buffer_size) [[unlikely]] {
+        return config::write_buffer_size;
+    }
+    auto* memtable_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
+    int64_t memtable_mem =
+            (memtable_limiter != nullptr && memtable_limiter->mem_tracker() != nullptr)
+                    ? memtable_limiter->mem_tracker()->consumption()
+                    : 0;
+    int64_t factor = 4;
+    // Memory usage intervals:
+    // (80 %, 100 %] → 1× buffer
+    // (50 %, 80 %]  → 2× buffer
+    // [0 %, 50 %]   → 4× buffer
+    if (memtable_mem > (_load_mem_limit * 4) / 5) { // > 80 %
+        factor = 1;
+    } else if (memtable_mem > _load_mem_limit / 2) { // > 50 %
+        factor = 2;
+    }
+    return config::write_buffer_size * factor;
 }
 
 bool MemTable::need_agg() const {

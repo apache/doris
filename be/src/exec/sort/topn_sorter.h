@@ -33,7 +33,6 @@ class RuntimeProfile;
 class RuntimeState;
 
 class Block;
-class VSortExecExprs;
 } // namespace doris
 
 namespace doris {
@@ -42,8 +41,8 @@ class TopNSorter final : public Sorter {
     ENABLE_FACTORY_CREATOR(TopNSorter);
 
 public:
-    TopNSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset, ObjectPool* pool,
-               std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first,
+    TopNSorter(const VExprContextSPtrs& ordering_expr_ctxs, int64_t limit, int64_t offset,
+               ObjectPool* pool, std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first,
                const RowDescriptor& row_desc, RuntimeState* state, RuntimeProfile* profile);
 
     ~TopNSorter() override = default;

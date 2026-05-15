@@ -225,12 +225,11 @@ suite("test_auto_partition_behavior") {
             "replication_num" = "1"
         );
     """
-    test{
-        sql """insert into `long_value` values ("jwklefjklwehrnkjlwbfjkwhefkjhwjkefhkjwehfkjwehfkjwehfkjbvkwebconqkcqnocdmowqmosqmojwnqknrviuwbnclkmwkj");"""
-        def exception_str = isGroupCommitMode() ? "s length is over limit of 50." : "Partition name's length is over limit of 50."
-        exception exception_str
-    }
 
+    sql """insert into `long_value` values ("jwklefjklwehrnkjlwbfjkwhefkjhwjkefhkjwehfkjwehfkjwehfkjbvkwebconqkcqnocdmowqmosqmojwnqknrviuwbnclkmwkj");"""
+    def maxPartitionNameRes = sql "show partitions from long_value"
+    def maxPartitionName = maxPartitionNameRes[0][1]
+    assertTrue(maxPartitionName.length() <= 62, "actual length:" + maxPartitionName.length())
 
 
 

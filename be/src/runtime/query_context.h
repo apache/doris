@@ -47,6 +47,7 @@ namespace doris {
 
 class PipelineFragmentContext;
 class PipelineTask;
+class QueryTaskController;
 class Dependency;
 class RecCTEScanLocalState;
 
@@ -203,6 +204,10 @@ public:
 
     TUniqueId query_id() const { return _query_id; }
 
+    // Expose task-level query progress counters for runtime statistics reporting.
+    void add_total_task_num(int delta);
+    void inc_finished_task_num();
+
     ScannerScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
 
     ScannerScheduler* get_remote_scan_scheduler() { return _remote_scan_task_scheduler; }
@@ -311,6 +316,7 @@ public:
     Status reset_global_rf(const google::protobuf::RepeatedField<int32_t>& filter_ids);
 
 private:
+    // Task-level progress counters for current query.
     friend class QueryTaskController;
 
     int _timeout_second;

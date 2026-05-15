@@ -51,6 +51,13 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
     // broker
     String broker_name = "hdfs"
 
+    def brokers = sql """SHOW BROKER;"""
+    logger.info("SHOW BROKER result: ${brokers}")
+    def broker_exists = brokers.any { it[0] == broker_name }
+    if (!broker_exists) {
+        logger.warn("broker '${broker_name}' does not exist, skip outfile-with-broker part in test_outfile_empty_data")
+    }
+
     def export_table_name = "outfile_empty_data_test"
 
     def create_table = {table_name, column_define ->
@@ -134,10 +141,10 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
         // test outfile empty data to hdfs directly
         def outfile_to_hdfs_directly_url = outfile_to_HDFS_directly()
         // test outfile empty data to hdfs with broker
-        def outfile_to_hdfs_with_broker_url= outfile_to_HDFS_with_broker()
+        def outfile_to_hdfs_with_broker_url = broker_exists ? outfile_to_HDFS_with_broker() : null
         // test outfile empty data to s3 directly
         def outfile_to_s3_directly_url = outfile_to_S3_directly()
-        qt_select_base1 """ SELECT * FROM ${export_table_name} ORDER BY user_id; """ 
+        qt_select_base1 """ SELECT * FROM ${export_table_name} ORDER BY user_id; """
 
         qt_select_tvf1 """ select * from HDFS(
                     "uri" = "${outfile_to_hdfs_directly_url}0.csv",
@@ -145,11 +152,13 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
                     "format" = "${format}");
                     """
 
-        qt_select_tvf2 """ select * from HDFS(
-                    "uri" = "${outfile_to_hdfs_with_broker_url}0.csv",
-                    "hadoop.username" = "${hdfsUserName}",
-                    "format" = "${format}");
-                    """
+        if (broker_exists) {
+            qt_select_tvf2 """ select * from HDFS(
+                        "uri" = "${outfile_to_hdfs_with_broker_url}0.csv",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "${format}");
+                        """
+        }
         
         qt_select_tvf3 """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_to_s3_directly_url.substring(5 + bucket.length(), outfile_to_s3_directly_url.length())}0.csv",

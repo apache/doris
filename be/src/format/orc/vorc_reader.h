@@ -147,9 +147,18 @@ public:
               io::IOContext* io_ctx, FileMetaCache* meta_cache = nullptr,
               bool enable_lazy_mat = true);
 
-    OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+    OrcReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
+              const TFileRangeDesc& range, size_t batch_size, const std::string& ctz,
+              std::shared_ptr<io::IOContext> io_ctx_holder, FileMetaCache* meta_cache = nullptr,
+              bool enable_lazy_mat = true);
+
+    OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range, size_t batch_size,
               const std::string& ctz, io::IOContext* io_ctx, FileMetaCache* meta_cache = nullptr,
               bool enable_lazy_mat = true);
+
+    OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range, size_t batch_size,
+              const std::string& ctz, std::shared_ptr<io::IOContext> io_ctx_holder,
+              FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true);
 
     ~OrcReader() override;
     //If you want to read the file by index instead of column name, set hive_use_column_names to false.
@@ -171,6 +180,8 @@ public:
             const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) override;
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+
+    void set_batch_size(size_t batch_size) override;
 
     int64_t size() const;
 
@@ -226,6 +237,8 @@ public:
     static const orc::Type& remove_acid(const orc::Type& type);
 
     bool count_read_rows() override { return true; }
+
+    size_t get_batch_size() const override { return _batch_size; }
 
 protected:
     void _collect_profile_before_close() override;
@@ -667,6 +680,7 @@ private:
     io::FileDescription _file_description;
     size_t _batch_size;
     int64_t _range_start_offset;
+
     int64_t _range_size;
     std::string _ctz;
 
@@ -707,6 +721,7 @@ private:
     std::shared_ptr<io::FileSystem> _file_system;
 
     io::IOContext* _io_ctx = nullptr;
+    std::shared_ptr<io::IOContext> _io_ctx_holder;
     bool _enable_lazy_mat = true;
     bool _enable_filter_by_min_max = true;
 

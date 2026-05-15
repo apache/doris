@@ -985,7 +985,7 @@ public class MaterializedViewHandler extends AlterHandler {
         } finally {
             olapTable.writeUnlock();
         }
-        Env.getCurrentInternalCatalog().eraseDroppedIndex(olapTable.getId(), deleteIndexList);
+        Env.getCurrentInternalCatalog().eraseDroppedIndex(db.getId(), olapTable.getId(), deleteIndexList);
     }
 
     public void processDropMaterializedView(DropMaterializedViewCommand dropMaterializedViewCommand, Database db,
@@ -1014,7 +1014,7 @@ public class MaterializedViewHandler extends AlterHandler {
         } finally {
             olapTable.writeUnlock();
         }
-        Env.getCurrentInternalCatalog().eraseDroppedIndex(olapTable.getId(), deleteIndexList);
+        Env.getCurrentInternalCatalog().eraseDroppedIndex(db.getId(), olapTable.getId(), deleteIndexList);
     }
 
     /**
@@ -1105,7 +1105,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
         List<Long> deleteIndexList = new ArrayList<Long>();
         deleteIndexList.add(rollupIndexId);
-        Env.getCurrentInternalCatalog().eraseDroppedIndex(olapTable.getId(), deleteIndexList);
+        Env.getCurrentInternalCatalog().eraseDroppedIndex(db.getId(), olapTable.getId(), deleteIndexList);
         LOG.info("replay drop rollup {}", dropInfo.getIndexId());
     }
 
@@ -1336,7 +1336,7 @@ public class MaterializedViewHandler extends AlterHandler {
             }
 
             // find from new alter jobs first
-            if (command.getAlterJobIdList() != null) {
+            if (command.getAlterJobIdList() != null && !command.getAlterJobIdList().isEmpty()) {
                 for (Long jobId : command.getAlterJobIdList()) {
                     AlterJobV2 alterJobV2 = getUnfinishedAlterJobV2ByJobId(jobId);
                     if (alterJobV2 == null) {

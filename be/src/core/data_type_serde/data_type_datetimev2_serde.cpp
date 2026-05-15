@@ -32,7 +32,6 @@
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "exprs/function/cast/cast_to_string.h"
-#include "util/io_helper.h"
 
 enum {
     DIVISOR_FOR_SECOND = 1,
@@ -135,7 +134,9 @@ Status DataTypeDateTimeV2SerDe::from_string(StringRef& str, IColumn& column,
 //   "2023-10-15 14:30:00.123000"  => scale 6, microsecond = 123000
 //   "2023-10-15 14:30:00.123"     => scale 3, microsecond = 123000
 //
-// On parse failure, falls back to MIN_DATETIME_V2.
+// On parse failure, falls back to MIN_DATETIME_V2, the packed lower-bound
+// DateTimeV2 value. This is MIN_DATE_V2 shifted into the DateTimeV2 date part,
+// not VecDateTimeValue::FIRST_DAY, which belongs to the V1 representation.
 Status DataTypeDateTimeV2SerDe::from_olap_string(const std::string& str, Field& field,
                                                  const FormatOptions& options) const {
     CastParameters params {.status = Status::OK(), .is_strict = false};
@@ -143,6 +144,10 @@ Status DataTypeDateTimeV2SerDe::from_olap_string(const std::string& str, Field& 
     DateV2Value<DateTimeV2ValueType> res;
     std::string date_format = "%Y-%m-%d %H:%i:%s.%f";
 
+    // In paths like partial update, we may fill default values into zonemap, while the default values for date-related
+    // types are filled with the default value 0 of the number base, corresponding to the date 0000-00-00, which is not always valid.
+    // so for the parse path of zonemap strings, we swallow the failure and return a default value. the value itself does not matter,
+    // after compaction it will be replaced.
     if (!res.from_date_format_str(date_format.data(), date_format.size(), str.data(), str.size())) {
         res = DateV2Value<DateTimeV2ValueType>(MIN_DATETIME_V2);
     }
@@ -346,7 +351,9 @@ Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_json(IColumn& column, 
         slice.trim_quote();
     }
     DateV2Value<DateTimeV2ValueType> val;
-    if (StringRef str(slice.data, slice.size); !read_datetime_v2_text_impl(val, str, _scale)) {
+    StringRef str(slice.data, slice.size);
+    CastParameters params;
+    if (!CastToDatetimeV2::from_string_non_strict_mode(str, val, nullptr, _scale, params)) {
         return Status::InvalidArgument("parse date fail, string: '{}'", str.to_string());
     }
     column_data.insert_value(val);

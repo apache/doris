@@ -214,7 +214,13 @@ Status FSFileCacheStorage::finalize(const FileCacheKey& key, const size_t size) 
         std::lock_guard lock(_mtx);
         auto file_writer_map_key = std::make_pair(key.hash, key.offset);
         auto iter = _key_to_writer.find(file_writer_map_key);
-        DCHECK(iter != _key_to_writer.end());
+        if (iter == _key_to_writer.end()) {
+            return Status::InternalError(
+                    "file cache finalize missing writer, hash={}, offset={}, type={}, "
+                    "expiration={}",
+                    key.hash.to_string(), key.offset, cache_type_to_string(key.meta.type),
+                    key.meta.expiration_time);
+        }
         file_writer = std::move(iter->second);
         _key_to_writer.erase(iter);
     }
@@ -690,6 +696,11 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_fs(BlockFileCache* mgr
             context.expiration_time = expiration_time;
             for (; offset_it != std::filesystem::directory_iterator(); ++offset_it) {
                 size_t size = offset_it->file_size(ec);
+                if (ec) [[unlikely]] {
+                    LOG(WARNING) << "skip cache file, file_size failed, file="
+                                 << offset_it->path().native() << " err=" << ec.message();
+                    continue;
+                }
                 size_t offset = 0;
                 bool is_tmp = false;
                 FileCacheType cache_type = FileCacheType::NORMAL;

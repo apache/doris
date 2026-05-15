@@ -37,10 +37,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.math.BigInteger;
-import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.ZonedDateTime;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 import java.time.temporal.TemporalQueries;
@@ -154,23 +152,14 @@ public class DateTimeLiteral extends DateLiteral {
 
         ZoneId zoneId = temporal.query(TemporalQueries.zone());
         if (zoneId != null) {
-            // get correct DST of that time.
-            Instant thatTime = ZonedDateTime
-                    .of((int) year, (int) month, (int) day, (int) hour, (int) minute, (int) second, 0, zoneId)
-                    .toInstant();
-
-            int offset = DateUtils.getTimeZone().getRules().getOffset(thatTime).getTotalSeconds()
-                    - zoneId.getRules().getOffset(thatTime).getTotalSeconds();
-            if (offset != 0) {
-                DateTimeLiteral tempLiteral = new DateTimeLiteral(year, month, day, hour, minute, second);
-                DateTimeLiteral result = (DateTimeLiteral) tempLiteral.plusSeconds(offset);
-                second = result.second;
-                minute = result.minute;
-                hour = result.hour;
-                day = result.day;
-                month = result.month;
-                year = result.year;
-            }
+            LocalDateTime localDateTime = convertTimeZone(year, month, day, hour, minute, second,
+                    zoneId, DateUtils.getTimeZone());
+            year = localDateTime.getYear();
+            month = localDateTime.getMonthValue();
+            day = localDateTime.getDayOfMonth();
+            hour = localDateTime.getHour();
+            minute = localDateTime.getMinute();
+            second = localDateTime.getSecond();
         }
 
         long microSecond = DateUtils.getOrDefault(temporal, ChronoField.NANO_OF_SECOND) / 100L;
@@ -237,28 +226,15 @@ public class DateTimeLiteral extends DateLiteral {
 
         ZoneId zoneId = temporal.query(TemporalQueries.zone());
         if (zoneId != null) {
-            // get correct DST of that time.
-            Instant thatTime = ZonedDateTime
-                    .of((int) year, (int) month, (int) day, (int) hour, (int) minute, (int) second, 0, zoneId)
-                    .toInstant();
-
-            int offset = 0;
-            if (this.dataType instanceof TimeStampTzType) {
-                offset = ZoneId.of("UTC").getRules().getOffset(thatTime).getTotalSeconds()
-                        - zoneId.getRules().getOffset(thatTime).getTotalSeconds();
-            } else {
-                offset = DateUtils.getTimeZone().getRules().getOffset(thatTime).getTotalSeconds()
-                        - zoneId.getRules().getOffset(thatTime).getTotalSeconds();
-            }
-            if (offset != 0) {
-                DateTimeLiteral result = (DateTimeLiteral) this.plusSeconds(offset);
-                this.second = result.second;
-                this.minute = result.minute;
-                this.hour = result.hour;
-                this.day = result.day;
-                this.month = result.month;
-                this.year = result.year;
-            }
+            ZoneId targetZone = this.dataType instanceof TimeStampTzType ? ZoneId.of("UTC") : DateUtils.getTimeZone();
+            LocalDateTime localDateTime = convertTimeZone(year, month, day, hour, minute, second,
+                    zoneId, targetZone);
+            this.year = localDateTime.getYear();
+            this.month = localDateTime.getMonthValue();
+            this.day = localDateTime.getDayOfMonth();
+            this.hour = localDateTime.getHour();
+            this.minute = localDateTime.getMinute();
+            this.second = localDateTime.getSecond();
         }
 
         microSecond = DateUtils.getOrDefault(temporal, ChronoField.NANO_OF_SECOND) / 100L;
@@ -291,6 +267,14 @@ public class DateTimeLiteral extends DateLiteral {
         if (checkRange(year, month, day) || checkDate(year, month, day)) {
             throw new AnalysisException("datetime literal [" + s + "] is out of range");
         }
+    }
+
+    private static LocalDateTime convertTimeZone(long year, long month, long day, long hour, long minute,
+            long second, ZoneId fromZone, ZoneId toZone) {
+        return LocalDateTime.of((int) year, (int) month, (int) day, (int) hour, (int) minute, (int) second)
+                .atZone(fromZone)
+                .withZoneSameInstant(toZone)
+                .toLocalDateTime();
     }
 
     public boolean checkRange() {

@@ -38,7 +38,7 @@ class Schema;
 
 namespace doris {
 
-constexpr size_t MAX_ARROW_UTF8 = (1ULL << 21); // 2G
+constexpr size_t MAX_ARROW_UTF8 = (1ULL << 31); // 2G
 
 class RowDescriptor;
 

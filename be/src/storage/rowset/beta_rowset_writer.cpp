@@ -23,11 +23,13 @@
 #include <fmt/format.h>
 #include <stdio.h>
 
+#include <chrono>
 #include <ctime> // time
 #include <filesystem>
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -97,7 +99,10 @@ void build_rowset_meta_with_spec_field(RowsetMeta& rowset_meta,
             spec_rowset_meta.is_segments_key_bounds_truncated());
     std::vector<KeyBoundsPB> segments_key_bounds;
     spec_rowset_meta.get_segments_key_bounds(&segments_key_bounds);
-    rowset_meta.set_segments_key_bounds(segments_key_bounds);
+    // Preserve source layout: if source was aggregated (size 1), re-aggregating
+    // the single entry is a no-op that also keeps the flag consistent.
+    rowset_meta.set_segments_key_bounds(segments_key_bounds,
+                                        spec_rowset_meta.is_segments_key_bounds_aggregated());
     std::vector<uint32_t> num_segment_rows;
     spec_rowset_meta.get_num_segment_rows(&num_segment_rows);
     rowset_meta.set_num_segment_rows(num_segment_rows);
@@ -138,6 +143,16 @@ Status SegmentFileCollection::close() {
     }
 
     for (auto&& [_, writer] : _file_writers) {
+        DBUG_EXECUTE_IF("SegmentFileCollection.close.wait_dat_closed", {
+            auto before_state = writer->state();
+            for (int i = 0; i < 3000 && writer->state() != io::FileWriter::State::CLOSED; ++i) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+            LOG(INFO) << "SegmentFileCollection.close.wait_dat_closed path="
+                      << writer->path().native()
+                      << " before_state=" << static_cast<int>(before_state)
+                      << " after_state=" << static_cast<int>(writer->state());
+        });
         if (writer->state() != io::FileWriter::State::CLOSED) {
             RETURN_IF_ERROR(writer->close());
         }
@@ -345,72 +360,74 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     // Submit the entire delete bitmap calculation process to thread pool for async execution
     // This avoids blocking memtable flush thread while waiting for file upload to complete
     // The process includes: file_writer->close(), _build_tmp, load_segments, and calc_delete_bitmap
-    return _calc_delete_bitmap_token->submit_func(
-            [this, segment_id, specified_rowsets = std::move(specified_rowsets)]() -> Status {
-                Status st = Status::OK();
-                // Step 1: Close file_writer (must be done before load_segments)
-                auto* file_writer = _seg_files.get(segment_id);
-                if (file_writer && file_writer->state() != io::FileWriter::State::CLOSED) {
-                    MonotonicStopWatch close_timer;
-                    close_timer.start();
-                    st = file_writer->close();
-                    close_timer.stop();
+    return _calc_delete_bitmap_token->submit_func([this, segment_id,
+                                                   specified_rowsets = std::move(
+                                                           specified_rowsets)]() -> Status {
+        Status st = Status::OK();
+        // Step 1: Close file_writer (must be done before load_segments)
+        auto* file_writer = _seg_files.get(segment_id);
+        if (file_writer && file_writer->state() != io::FileWriter::State::CLOSED) {
+            MonotonicStopWatch close_timer;
+            close_timer.start();
+            st = file_writer->close();
+            close_timer.stop();
 
-                    auto close_time_ms = close_timer.elapsed_time_milliseconds();
-                    if (close_time_ms > 1000) {
-                        LOG(INFO) << "file_writer->close() took " << close_time_ms
-                                  << "ms for segment_id=" << segment_id
-                                  << ", tablet_id=" << _context.tablet_id
-                                  << ", rowset_id=" << _context.rowset_id;
-                    }
-                    if (!st.ok()) {
-                        return st;
-                    }
-                }
+            auto close_time_ms = close_timer.elapsed_time_milliseconds();
+            if (close_time_ms > 1000) {
+                LOG(INFO) << "file_writer->close() took " << close_time_ms
+                          << "ms for segment_id=" << segment_id
+                          << ", tablet_id=" << _context.tablet_id
+                          << ", rowset_id=" << _context.rowset_id;
+            }
+            if (!st.ok()) {
+                return st;
+            }
+        }
 
-                OlapStopWatch watch;
-                // Step 2: Build tmp rowset (needs file_writer to be closed)
-                RowsetSharedPtr rowset_ptr;
-                st = _build_tmp(rowset_ptr);
-                if (!st.ok()) {
-                    return st;
-                }
+        OlapStopWatch watch;
+        // Step 2: Build tmp rowset (needs file_writer to be closed)
+        RowsetSharedPtr rowset_ptr;
+        st = _build_tmp(rowset_ptr);
+        if (!st.ok()) {
+            return st;
+        }
 
-                // Step 3: Load segments (needs file_writer to be closed and rowset to be built)
-                auto* beta_rowset = reinterpret_cast<BetaRowset*>(rowset_ptr.get());
-                std::vector<segment_v2::SegmentSharedPtr> segments;
-                st = beta_rowset->load_segments(segment_id, segment_id + 1, &segments);
-                if (!st.ok()) {
-                    return st;
-                }
+        DBUG_EXECUTE_IF("BaseBetaRowsetWriter::_generate_delete_bitmap.block_before_load_segments",
+                        DBUG_RUN_CALLBACK(segment_id));
 
-                // Step 4: Calculate delete bitmap
-                st = BaseTablet::calc_delete_bitmap(
-                        _context.tablet, rowset_ptr, segments, specified_rowsets,
-                        _context.mow_context->delete_bitmap, _context.mow_context->max_version,
-                        nullptr, nullptr, nullptr);
-                if (!st.ok()) {
-                    return st;
-                }
+        // Step 3: Load segments (needs file_writer to be closed and rowset to be built)
+        auto* beta_rowset = reinterpret_cast<BetaRowset*>(rowset_ptr.get());
+        std::vector<segment_v2::SegmentSharedPtr> segments;
+        st = beta_rowset->load_segments(segment_id, segment_id + 1, &segments);
+        if (!st.ok()) {
+            return st;
+        }
 
-                size_t total_rows =
-                        std::accumulate(segments.begin(), segments.end(), 0,
-                                        [](size_t sum, const segment_v2::SegmentSharedPtr& s) {
-                                            return sum += s->num_rows();
-                                        });
-                LOG(INFO) << "[Memtable Flush] construct delete bitmap tablet: "
-                          << _context.tablet->tablet_id()
-                          << ", rowset_ids: " << _context.mow_context->rowset_ids->size()
-                          << ", cur max_version: " << _context.mow_context->max_version
-                          << ", transaction_id: " << _context.mow_context->txn_id
-                          << ", delete_bitmap_count: "
-                          << _context.mow_context->delete_bitmap->get_delete_bitmap_count()
-                          << ", delete_bitmap_cardinality: "
-                          << _context.mow_context->delete_bitmap->cardinality()
-                          << ", cost: " << watch.get_elapse_time_us()
-                          << "(us), total rows: " << total_rows;
-                return Status::OK();
-            });
+        // Step 4: Calculate delete bitmap
+        st = BaseTablet::calc_delete_bitmap(_context.tablet, rowset_ptr, segments,
+                                            specified_rowsets, _context.mow_context->delete_bitmap,
+                                            _context.mow_context->max_version, nullptr, nullptr,
+                                            nullptr);
+        if (!st.ok()) {
+            return st;
+        }
+
+        size_t total_rows = std::accumulate(segments.begin(), segments.end(), 0,
+                                            [](size_t sum, const segment_v2::SegmentSharedPtr& s) {
+                                                return sum += s->num_rows();
+                                            });
+        LOG(INFO) << "[Memtable Flush] construct delete bitmap tablet: "
+                  << _context.tablet->tablet_id()
+                  << ", rowset_ids: " << _context.mow_context->rowset_ids->size()
+                  << ", cur max_version: " << _context.mow_context->max_version
+                  << ", transaction_id: " << _context.mow_context->txn_id
+                  << ", delete_bitmap_count: "
+                  << _context.mow_context->delete_bitmap->get_delete_bitmap_count()
+                  << ", delete_bitmap_cardinality: "
+                  << _context.mow_context->delete_bitmap->cardinality()
+                  << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
+        return Status::OK();
+    });
 }
 
 Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
@@ -702,7 +719,12 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
     } else {
         status = _check_segment_number_limit(_num_segcompacted);
     }
+
     if (status.ok() && (_num_segment - _segcompacted_point) >= config::segcompaction_batch_size) {
+        if (_calc_delete_bitmap_token != nullptr) {
+            status = _calc_delete_bitmap_token->wait();
+        }
+
         SegCompactionCandidatesSharedPtr segments;
         status = _find_longest_consecutive_small_segment(segments);
         if (LIKELY(status.ok()) && (!segments->empty())) {
@@ -1019,7 +1041,9 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
                                      _total_index_size);
     rowset_meta->set_data_disk_size(total_data_size + _total_data_size);
     rowset_meta->set_index_disk_size(total_index_size + _total_index_size);
-    rowset_meta->set_segments_key_bounds(segments_encoded_key_bounds);
+    bool aggregate_key_bounds = config::enable_aggregate_non_mow_key_bounds &&
+                                !_context.enable_unique_key_merge_on_write;
+    rowset_meta->set_segments_key_bounds(segments_encoded_key_bounds, aggregate_key_bounds);
     // TODO write zonemap to meta
     rowset_meta->set_empty((num_rows_written + _num_rows_written) == 0);
     rowset_meta->set_creation_time(time(nullptr));

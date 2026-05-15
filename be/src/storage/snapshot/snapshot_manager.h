@@ -132,7 +132,7 @@ private:
 
     Status _rename_rowset_id(const RowsetMetaPB& rs_meta_pb, const std::string& new_tablet_path,
                              TabletSchemaSPtr tablet_schema, const RowsetId& next_id,
-                             RowsetMetaPB* new_rs_meta_pb);
+                             RowsetMetaPB* new_rs_meta_pb, bool enable_unique_key_merge_on_write);
 
     Status _rename_index_ids(TabletSchemaPB& schema_pb,
                              const TabletSchemaSPtr& tablet_schema) const;

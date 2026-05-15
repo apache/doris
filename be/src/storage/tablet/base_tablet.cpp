@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <iterator>
+#include <queue>
 #include <random>
 #include <shared_mutex>
 
@@ -72,6 +73,103 @@ bvar::PerSecond<bvar::Adder<uint64_t>> g_tablet_pk_not_found_per_second(
 bvar::LatencyRecorder g_tablet_update_delete_bitmap_latency("doris_pk", "update_delete_bitmap");
 
 static bvar::Adder<size_t> g_total_tablet_num("doris_total_tablet_num");
+
+struct CompactionOutputRowSource {
+    Version version;
+    RowLocation src;
+    bool valid = false;
+};
+
+struct CompactionOutputPkEntry {
+    std::string unique_key;
+    std::string encoded_seq_value;
+    RowLocation dst;
+    CompactionOutputRowSource source;
+};
+
+struct CompactionOutputPkScanner {
+    uint32_t segment_id = 0;
+    int64_t remaining = 0;
+    uint32_t next_ordinal = 0;
+    std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
+    DataTypePtr index_type;
+    CompactionOutputPkEntry current;
+};
+
+bool is_newer_compaction_output_row(const CompactionOutputPkEntry& lhs,
+                                    const CompactionOutputPkEntry& rhs) {
+    if (lhs.encoded_seq_value != rhs.encoded_seq_value) {
+        return lhs.encoded_seq_value > rhs.encoded_seq_value;
+    }
+    if (lhs.source.version.second != rhs.source.version.second) {
+        return lhs.source.version.second > rhs.source.version.second;
+    }
+    if (lhs.source.version.first != rhs.source.version.first) {
+        return lhs.source.version.first > rhs.source.version.first;
+    }
+    if (lhs.source.src.segment_id != rhs.source.src.segment_id) {
+        return lhs.source.src.segment_id > rhs.source.src.segment_id;
+    }
+    return lhs.source.src.row_id > rhs.source.src.row_id;
+}
+
+Status parse_compaction_output_pk_entry(
+        const Slice& encoded_key, const RowsetId& output_rowset_id, uint32_t output_segment_id,
+        size_t seq_col_length,
+        const std::vector<std::vector<CompactionOutputRowSource>>& output_row_sources,
+        CompactionOutputPkEntry* entry) {
+    size_t rowid_length = PrimaryKeyIndexReader::ROW_ID_LENGTH;
+    if (UNLIKELY(encoded_key.get_size() < seq_col_length + rowid_length)) {
+        return Status::InternalError("invalid cluster-key MOW primary key size: {}",
+                                     encoded_key.get_size());
+    }
+    auto unique_key_length = encoded_key.get_size() - seq_col_length - rowid_length;
+    entry->unique_key.assign(encoded_key.get_data(), unique_key_length);
+    entry->encoded_seq_value.assign(encoded_key.get_data() + unique_key_length, seq_col_length);
+
+    Slice rowid_slice(encoded_key.get_data() + unique_key_length + seq_col_length + 1,
+                      rowid_length - 1);
+    const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>();
+    const auto* rowid_coder = get_key_coder(type_info->type());
+    uint32_t row_id = 0;
+    RETURN_IF_ERROR(rowid_coder->decode_ascending(&rowid_slice, rowid_length,
+                                                  reinterpret_cast<uint8_t*>(&row_id)));
+
+    entry->dst = RowLocation(output_rowset_id, output_segment_id, row_id);
+    if (UNLIKELY(output_segment_id >= output_row_sources.size() ||
+                 row_id >= output_row_sources[output_segment_id].size())) {
+        return Status::InternalError(
+                "invalid rowid in cluster-key MOW primary key, segment_id={}, row_id={}",
+                output_segment_id, row_id);
+    }
+    entry->source = output_row_sources[output_segment_id][row_id];
+    if (UNLIKELY(!entry->source.valid)) {
+        return Status::InternalError(
+                "missing rowid conversion source for output rowset={}, segment_id={}, row_id={}",
+                output_rowset_id.to_string(), output_segment_id, row_id);
+    }
+    return Status::OK();
+}
+
+Status load_next_compaction_output_pk_entry(
+        const RowsetId& output_rowset_id, size_t seq_col_length,
+        const std::vector<std::vector<CompactionOutputRowSource>>& output_row_sources,
+        CompactionOutputPkScanner* scanner) {
+    if (scanner->remaining <= 0) {
+        return Status::OK();
+    }
+
+    auto index_column = scanner->index_type->create_column();
+    size_t num_read = 1;
+    RETURN_IF_ERROR(scanner->iter->seek_to_ordinal(scanner->next_ordinal++));
+    RETURN_IF_ERROR(scanner->iter->next_batch(&num_read, index_column));
+    DCHECK_EQ(1, num_read);
+    --scanner->remaining;
+
+    Slice encoded_key(index_column->get_data_at(0).data, index_column->get_data_at(0).size);
+    return parse_compaction_output_pk_entry(encoded_key, output_rowset_id, scanner->segment_id,
+                                            seq_col_length, output_row_sources, &scanner->current);
+}
 
 Status _get_segment_column_iterator(const BetaRowsetSharedPtr& rowset, uint32_t segid,
                                     const TabletColumn& target_column,
@@ -464,7 +562,18 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
         std::vector<KeyBoundsPB> segments_key_bounds;
         rs->rowset_meta()->get_segments_key_bounds(&segments_key_bounds);
         int num_segments = cast_set<int>(rs->num_segments());
-        DCHECK_EQ(segments_key_bounds.size(), num_segments);
+        // MOW lookup requires per-segment bounds. Aggregation must be disabled
+        // for MOW writers, but enforce at runtime too — indexing segments_key_bounds[j]
+        // below would be out-of-bounds otherwise.
+        if (UNLIKELY(rs->rowset_meta()->is_segments_key_bounds_aggregated() ||
+                     static_cast<int>(segments_key_bounds.size()) != num_segments)) {
+            return Status::InternalError(
+                    "MOW lookup got rowset with inconsistent segments_key_bounds, rowset_id={}, "
+                    "aggregated={}, bounds_size={}, num_segments={}",
+                    rs->rowset_id().to_string(),
+                    rs->rowset_meta()->is_segments_key_bounds_aggregated(),
+                    segments_key_bounds.size(), num_segments);
+        }
         std::vector<uint32_t> picked_segments;
         for (int j = num_segments - 1; j >= 0; j--) {
             if (_key_is_not_in_segment(key_without_seq, segments_key_bounds[j],
@@ -1632,6 +1741,124 @@ void BaseTablet::calc_compaction_output_rowset_delete_bitmap(
             }
         }
     }
+}
+
+Status BaseTablet::calc_compaction_output_rowset_internal_delete_bitmap(
+        const std::vector<RowsetSharedPtr>& input_rowsets, RowsetSharedPtr output_rowset,
+        const RowIdConversion& rowid_conversion, DeleteBitmap* output_rowset_delete_bitmap) {
+    DCHECK(!tablet_schema()->cluster_key_uids().empty());
+    DCHECK(output_rowset != nullptr);
+
+    std::vector<segment_v2::SegmentSharedPtr> output_segments;
+    RETURN_IF_ERROR(
+            std::dynamic_pointer_cast<BetaRowset>(output_rowset)->load_segments(&output_segments));
+
+    std::vector<std::vector<CompactionOutputRowSource>> output_row_sources(output_segments.size());
+    for (size_t segment_id = 0; segment_id < output_segments.size(); ++segment_id) {
+        output_row_sources[segment_id].resize(output_segments[segment_id]->num_rows());
+    }
+
+    std::map<RowsetId, Version> input_rowset_versions;
+    for (const auto& rowset : input_rowsets) {
+        input_rowset_versions.emplace(rowset->rowset_id(), rowset->version());
+    }
+
+    const auto& rowid_conversion_map = rowid_conversion.get_rowid_conversion_map();
+    for (uint32_t source_segment_index = 0; source_segment_index < rowid_conversion_map.size();
+         ++source_segment_index) {
+        auto source_segment = rowid_conversion.get_segment_by_id(source_segment_index);
+        auto version_iter = input_rowset_versions.find(source_segment.first);
+        if (UNLIKELY(version_iter == input_rowset_versions.end())) {
+            return Status::InternalError("missing input rowset version for rowset_id={}",
+                                         source_segment.first.to_string());
+        }
+        const auto& source_rowid_map = rowid_conversion_map[source_segment_index];
+        for (uint32_t source_rowid = 0; source_rowid < source_rowid_map.size(); ++source_rowid) {
+            const auto& [dst_segment_id, dst_rowid] = source_rowid_map[source_rowid];
+            if (dst_segment_id == UINT32_MAX && dst_rowid == UINT32_MAX) {
+                continue;
+            }
+            if (UNLIKELY(dst_segment_id >= output_row_sources.size() ||
+                         dst_rowid >= output_row_sources[dst_segment_id].size())) {
+                return Status::InternalError(
+                        "invalid rowid conversion destination, rowset_id={}, segment_id={}, "
+                        "row_id={}",
+                        output_rowset->rowset_id().to_string(), dst_segment_id, dst_rowid);
+            }
+            output_row_sources[dst_segment_id][dst_rowid] = {
+                    .version = version_iter->second,
+                    .src = RowLocation(source_segment.first, source_segment.second, source_rowid),
+                    .valid = true};
+        }
+    }
+
+    size_t seq_col_length = 0;
+    if (tablet_schema()->has_sequence_col()) {
+        seq_col_length = tablet_schema()->column(tablet_schema()->sequence_col_idx()).length() + 1;
+    }
+
+    struct ScannerComparator {
+        bool operator()(const CompactionOutputPkScanner* lhs,
+                        const CompactionOutputPkScanner* rhs) const {
+            return lhs->current.unique_key > rhs->current.unique_key;
+        }
+    };
+    std::priority_queue<CompactionOutputPkScanner*, std::vector<CompactionOutputPkScanner*>,
+                        ScannerComparator>
+            scanners_heap;
+    std::vector<std::unique_ptr<CompactionOutputPkScanner>> scanners;
+    scanners.reserve(output_segments.size());
+
+    for (uint32_t segment_id = 0; segment_id < output_segments.size(); ++segment_id) {
+        auto& segment = output_segments[segment_id];
+        RETURN_IF_ERROR(segment->load_pk_index_and_bf(nullptr));
+        const auto* pk_index = segment->get_primary_key_index();
+        DCHECK(pk_index != nullptr);
+        if (pk_index->num_rows() == 0) {
+            continue;
+        }
+
+        auto scanner = std::make_unique<CompactionOutputPkScanner>();
+        scanner->segment_id = segment_id;
+        scanner->remaining = pk_index->num_rows();
+        scanner->index_type =
+                DataTypeFactory::instance().create_data_type(pk_index->type_info()->type(), 1, 0);
+        RETURN_IF_ERROR(pk_index->new_iterator(&scanner->iter, nullptr));
+        RETURN_IF_ERROR(load_next_compaction_output_pk_entry(
+                output_rowset->rowset_id(), seq_col_length, output_row_sources, scanner.get()));
+        scanners_heap.push(scanner.get());
+        scanners.push_back(std::move(scanner));
+    }
+
+    bool has_current_key = false;
+    CompactionOutputPkEntry current_visible_entry;
+    const auto delete_version = output_rowset->version().second;
+    while (!scanners_heap.empty()) {
+        auto* scanner = scanners_heap.top();
+        scanners_heap.pop();
+        auto entry = scanner->current;
+
+        if (!has_current_key || current_visible_entry.unique_key != entry.unique_key) {
+            current_visible_entry = std::move(entry);
+            has_current_key = true;
+        } else if (is_newer_compaction_output_row(entry, current_visible_entry)) {
+            output_rowset_delete_bitmap->add({current_visible_entry.dst.rowset_id,
+                                              current_visible_entry.dst.segment_id, delete_version},
+                                             current_visible_entry.dst.row_id);
+            current_visible_entry = std::move(entry);
+        } else {
+            output_rowset_delete_bitmap->add(
+                    {entry.dst.rowset_id, entry.dst.segment_id, delete_version}, entry.dst.row_id);
+        }
+
+        if (scanner->remaining > 0) {
+            RETURN_IF_ERROR(load_next_compaction_output_pk_entry(
+                    output_rowset->rowset_id(), seq_col_length, output_row_sources, scanner));
+            scanners_heap.push(scanner);
+        }
+    }
+
+    return Status::OK();
 }
 
 Status BaseTablet::check_rowid_conversion(

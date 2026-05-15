@@ -21,6 +21,7 @@
 
 #include "core/field.h"
 #include "exec/operator/operator.h"
+#include "exprs/vexpr_fwd.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -43,7 +44,7 @@ private:
     friend class SortSinkOperatorX;
 
     // Expressions and parameters used for build _sort_description
-    VSortExecExprs _vsort_exec_exprs;
+    VExprContextSPtrs _ordering_expr_ctxs;
 
     RuntimeProfile::Counter* _sort_blocks_memory_usage = nullptr;
 
@@ -113,7 +114,7 @@ private:
     ObjectPool* _pool = nullptr;
 
     // Expressions and parameters used for build _sort_description
-    VSortExecExprs _vsort_exec_exprs;
+    VExprContextSPtrs _ordering_expr_ctxs;
     std::vector<bool> _is_asc_order;
     std::vector<bool> _nulls_first;
 

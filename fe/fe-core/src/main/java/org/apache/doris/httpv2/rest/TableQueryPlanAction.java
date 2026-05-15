@@ -137,7 +137,7 @@ public class TableQueryPlanAction extends RestBaseController {
 
             String fullDbName = getFullDbName(dbName);
             // check privilege for select, otherwise return HTTP 401
-            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SELECT);
+            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), dbName, tblName, PrivPredicate.SELECT);
             Table table;
             try {
                 Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);

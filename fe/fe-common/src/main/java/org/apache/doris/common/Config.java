@@ -1028,6 +1028,27 @@ public class Config extends ConfigBase {
     public static int max_point_query_retry_time = 2;
 
     /**
+     * If set to true, FE may omit heavy reusable parameters (desc_tbl/output_expr/query_options)
+     * in point lookup requests (PTabletKeyLookupRequest) when executing prepared statements.
+     * BE will first try to find reusable context from LookupConnectionCache by uuid; if missing,
+     * BE asks FE to resend a full request with these parameters via
+     * response.need_resend_query_context.
+     *
+     * This can greatly reduce FE outbound network throughput when cache hit rate is high.
+     */
+    @ConfField(mutable = true, description = {
+            "是否启用 point query 轻量请求。开启后，FE 在 PreparedStatement 执行阶段会优先省略"
+                    + " desc_tbl/output_expr/query_options，BE 若未命中可复用缓存则会要求 FE 补发完整请求。"
+                    + "当 BE 侧缓存命中率较高时，可以显著降低 FE 的出网带宽。",
+            "Whether to enable lightweight point-query requests. When enabled, FE will omit"
+                    + " desc_tbl/output_expr/query_options on the first PreparedStatement execute"
+                    + " request, and BE will ask FE to resend the full request if reusable cache"
+                    + " is missing. This can significantly reduce FE outbound bandwidth when the"
+                    + " BE-side reusable cache hit rate is high."
+    })
+    public static boolean enable_lightweight_lookup_request = false;
+
+    /**
      * The tryLock timeout configuration of catalog lock.
      * Normally it does not need to change, unless you need to test something.
      */
@@ -1295,6 +1316,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_task_timeout_multiplier = 10;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int streaming_cdc_light_rpc_timeout_sec = 90;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int streaming_cdc_heavy_rpc_timeout_sec = 600;
 
     /**
      * the max timeout of get kafka meta.
@@ -2051,6 +2078,12 @@ public class Config extends ConfigBase {
                     + "old records will be discarded."})
     public static int max_streaming_task_show_count = 100;
 
+    @ConfField(masterOnly = true, mutable = true, description = {
+            "Max auto resume retry count for streaming jobs. "
+                    + "After exceeding, the failure reason is rewritten to CANNOT_RESUME_ERR "
+                    + "and the job requires manual intervention."})
+    public static int streaming_job_max_auto_resume_count = 10;
+
     /* job test config */
     /**
      * If set to true, we will allow the interval unit to be set to second, when creating a recurring job.
@@ -2404,17 +2437,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(masterOnly = true)
     public static boolean enable_hms_events_incremental_sync = false;
-
-    /**
-     * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
-     * otherwise it will throw an AnalysisException.
-     */
-    @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL, description = {
-            "当前默认设置为 false，开启后支持使用新优化器的 load 语句导入数据，失败后会降级旧的 load 语句。",
-            "Now default set to true, After this function is enabled, the load statement of "
-                    + "the new optimizer can be used to import data. If this function fails, "
-                    + "the old load statement will be degraded."})
-    public static boolean enable_nereids_load = false;
 
     /**
      * the plan cache num which can be reused for the next query
@@ -3431,19 +3453,44 @@ public class Config extends ConfigBase {
             options = {"without_warmup", "async_warmup", "sync_warmup", "peer_read_async_warmup"})
     public static String cloud_warm_up_for_rebalance_type = "async_warmup";
 
-    @ConfField(mutable = true, masterOnly = true, description = {"云上 tablet 均衡时，"
-            + "同一个 host 内预热批次的最大 tablet 个数，默认 10", "The max number of tablets per host "
-            + "when batching warm-up requests during cloud tablet rebalancing, default 10"})
+    @ConfField(mutable = true, masterOnly = true, description = {"存算分离模式下tablet均衡时，"
+            + "同一个host内预热批次的最大tablet个数，默认10", "The max number of tablets per host "
+            + "when batching warm-up requests during tablet rebalancing in "
+            + "compute-storage separation mode, default 10"})
     public static int cloud_warm_up_batch_size = 10;
 
-    @ConfField(mutable = true, masterOnly = true, description = {"云上 tablet 均衡时，"
-            + "预热批次最长等待时间，单位毫秒，默认 50ms", "Maximum wait time in milliseconds before a "
+    @ConfField(mutable = true, masterOnly = true, description = {"存算分离模式下tablet均衡时，"
+            + "预热批次最长等待时间，单位毫秒，默认50ms", "Maximum wait time in milliseconds before a "
             + "pending warm-up batch is flushed, default 50ms"})
     public static int cloud_warm_up_batch_flush_interval_ms = 50;
 
-    @ConfField(mutable = true, masterOnly = true, description = {"云上 tablet 均衡预热 rpc 异步线程池大小，默认 4",
-        "Thread pool size for asynchronous warm-up RPC dispatch during cloud tablet rebalancing, default 4"})
+    @ConfField(mutable = true, masterOnly = true, description = {"存算分离模式下tablet均衡预热rpc异步线程池大小，默认4",
+        "Thread pool size for asynchronous warm-up RPC dispatch during tablet "
+            + "rebalancing in compute-storage separation mode, default 4"})
     public static int cloud_warm_up_rpc_async_pool_size = 4;
+
+    @ConfField(masterOnly = true, description = {"存算分离模式下tablet均衡时，是否开启活跃tablet优先调度策略，默认打开"
+            + "When tablets are being balanced in compute-storage separation mode, "
+            + "is the active tablet priority scheduling strategy enabled?  (Default: Enabled)"})
+    public static boolean enable_cloud_active_tablet_priority_scheduling = false;
+
+    @ConfField(masterOnly = true, description = {"是否启用活跃tablet滑动窗口访问统计功能，默认打开",
+            "Whether to enable active tablet sliding window access statistics feature, default true"})
+    public static boolean enable_active_tablet_sliding_window_access_stats = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {"活跃tablet滑动窗口访问统计的时间窗口大小（秒），默认3600秒（1小时）",
+            "Time window size in seconds for active tablet sliding window access statistics, "
+                + "default 3600 seconds (1 hour)"})
+    public static long active_tablet_sliding_window_time_window_second = 3600L;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "活跃 tablet 优先调度开启时：partition 级调度将优先处理 TopN 的活跃 partition，"
+                    + "再处理其余活跃 partition、非活跃 partition，最后处理 internal db。默认 10000，<=0 表示不做 TopN 分段。",
+            "When active tablet priority scheduling is enabled: partition-level scheduling processes TopN active "
+                    + "partitions first, then other active partitions,"
+                    + "then inactive partitions, and internal db at last. "
+                    + "Default 10000. <=0 disables TopN segmentation."})
+    public static int cloud_active_partition_scheduling_topn = 10000;
 
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";

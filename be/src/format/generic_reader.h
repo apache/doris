@@ -46,6 +46,10 @@ public:
 
     virtual Status get_next_block(Block* block, size_t* read_rows, bool* eof) = 0;
 
+    // Override this in readers that can adjust batch size between consecutive reads.
+    virtual void set_batch_size(size_t batch_size) {}
+    virtual size_t get_batch_size() const { return 0; }
+
     // Type is always nullable to process illegal values.
     virtual Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                                std::unordered_set<std::string>* missing_cols) {
@@ -100,6 +104,7 @@ protected:
 
     /// Whether the underlying FileReader has filled the partition&missing columns
     bool _fill_all_columns = false;
+
     TPushAggOp::type _push_down_agg_type {};
 
     // For TopN queries, rows will be read according to row ids produced by TopN result.

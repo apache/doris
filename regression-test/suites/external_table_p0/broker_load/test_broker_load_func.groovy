@@ -29,6 +29,13 @@ suite("test_broker_load_func", "p0,external,hive,external_docker,external_docker
             def test_load_label="label_test_broker_load_func_${uuid}"
             String table_name="simple"
 
+            def brokers = sql """SHOW BROKER;"""
+            logger.info("SHOW BROKER result: ${brokers}")
+            if (!brokers.any { it[0] == broker_name }) {
+                logger.warn("broker '${broker_name}' does not exist, skip test_broker_load_func")
+                return
+            }
+
             sql """drop database if exists ${database_name}; """
             sql """create database if not exists ${database_name};"""
             sql """use ${database_name}; """
@@ -71,6 +78,7 @@ suite("test_broker_load_func", "p0,external,hive,external_docker,external_docker
                         sleep(1000) // wait 1 second every time
                         max_try_milli_secs -= 1000
                         if(max_try_milli_secs <= 0) {
+                            logger.warn("broker load '${checklabel}' did not finish in time, show load result: ${result}")
                             assertEquals(1, 2)
                         }
                     }

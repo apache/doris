@@ -602,6 +602,8 @@ Status PipelineFragmentContext::_build_pipeline_tasks(ThreadPool* thread_pool) {
     }
     _pipeline_parent_map.clear();
     _op_id_to_shared_state.clear();
+    // Record task cardinality once when this fragment context finishes task initialization.
+    _query_ctx->add_total_task_num(_total_tasks.load(std::memory_order_relaxed));
 
     return Status::OK();
 }
@@ -1074,8 +1076,11 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
             return Status::InternalError("Missing data buffer sink.");
         }
 
-        _sink = std::make_shared<ResultSinkOperatorX>(next_sink_operator_id(), row_desc,
-                                                      output_exprs, thrift_sink.result_sink);
+        auto& pipeline = _pipelines[cur_pipeline_id];
+        int child_node_id = pipeline->operators().back()->node_id();
+        _sink = std::make_shared<ResultSinkOperatorX>(next_sink_operator_id(), child_node_id + 1,
+                                                      row_desc, output_exprs,
+                                                      thrift_sink.result_sink);
         break;
     }
     case TDataSinkType::DICTIONARY_SINK: {
@@ -1089,23 +1094,23 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
     }
     case TDataSinkType::GROUP_COMMIT_OLAP_TABLE_SINK:
     case TDataSinkType::OLAP_TABLE_SINK: {
+        auto& pipeline = _pipelines[cur_pipeline_id];
+        int child_node_id = pipeline->operators().back()->node_id();
         if (state->query_options().enable_memtable_on_sink_node &&
             !_has_inverted_index_v1_or_partial_update(thrift_sink.olap_table_sink) &&
             !config::is_cloud_mode()) {
-            _sink = std::make_shared<OlapTableSinkV2OperatorX>(pool, next_sink_operator_id(),
-                                                               row_desc, output_exprs);
+            _sink = std::make_shared<OlapTableSinkV2OperatorX>(
+                    pool, next_sink_operator_id(), child_node_id + 1, row_desc, output_exprs);
         } else {
-            _sink = std::make_shared<OlapTableSinkOperatorX>(pool, next_sink_operator_id(),
-                                                             row_desc, output_exprs);
+            _sink = std::make_shared<OlapTableSinkOperatorX>(
+                    pool, next_sink_operator_id(), child_node_id + 1, row_desc, output_exprs);
         }
         break;
     }
     case TDataSinkType::GROUP_COMMIT_BLOCK_SINK: {
         DCHECK(thrift_sink.__isset.olap_table_sink);
-#ifndef NDEBUG
         DCHECK(state->get_query_ctx() != nullptr);
         state->get_query_ctx()->query_mem_tracker()->is_group_commit_load = true;
-#endif
         _sink = std::make_shared<GroupCommitBlockSinkOperatorX>(next_sink_operator_id(), row_desc,
                                                                 output_exprs);
         break;
@@ -1312,10 +1317,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         break;
     }
     case TPlanNodeType::GROUP_COMMIT_SCAN_NODE: {
-#ifndef NDEBUG
         DCHECK(_query_ctx != nullptr);
         _query_ctx->query_mem_tracker()->is_group_commit_load = true;
-#endif
         op = std::make_shared<GroupCommitOperatorX>(pool, tnode, next_operator_id(), descs,
                                                     _num_instances);
         RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
@@ -1933,6 +1936,8 @@ void PipelineFragmentContext::decrement_running_task(PipelineId pipeline_id) {
     {
         std::lock_guard<std::mutex> l(_task_mutex);
         ++_closed_tasks;
+        // Update query-level finished task progress in real time.
+        _query_ctx->inc_finished_task_num();
         if (_closed_tasks >= _total_tasks) {
             need_remove = _close_fragment_instance();
         }

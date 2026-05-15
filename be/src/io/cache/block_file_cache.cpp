@@ -496,17 +496,23 @@ Status BlockFileCache::initialize_unlocked(std::lock_guard<std::mutex>& cache_lo
 
 void BlockFileCache::update_block_lru(FileBlockSPtr block,
                                       std::lock_guard<std::mutex>& cache_lock) {
-    FileBlockCell* cell = block->cell;
-    if (cell) {
-        if (cell->queue_iterator) {
-            auto& queue = get_queue(block->cache_type());
-            queue.move_to_end(*cell->queue_iterator, cache_lock);
-            _lru_recorder->record_queue_event(block->cache_type(), CacheLRULogType::MOVETOBACK,
-                                              block->_key.hash, block->_key.offset,
-                                              block->_block_range.size());
-        }
-        cell->update_atime();
+    if (!block) {
+        return;
     }
+
+    FileBlockCell* cell = get_cell(block->get_hash_value(), block->offset(), cache_lock);
+    if (!cell || cell->file_block.get() != block.get()) {
+        return;
+    }
+
+    if (cell->queue_iterator) {
+        auto& queue = get_queue(block->cache_type());
+        queue.move_to_end(*cell->queue_iterator, cache_lock);
+        _lru_recorder->record_queue_event(block->cache_type(), CacheLRULogType::MOVETOBACK,
+                                          block->_key.hash, block->_key.offset,
+                                          block->_block_range.size());
+    }
+    cell->update_atime();
 }
 
 void BlockFileCache::use_cell(const FileBlockCell& cell, FileBlocks* result, bool move_iter_flag,
@@ -892,9 +898,10 @@ FileBlockCell* BlockFileCache::add_cell(const UInt128Wrapper& hash, const CacheC
                << " tablet_id=" << context.tablet_id;
 
     if (size > 1024 * 1024 * 1024) {
-        LOG(WARNING) << "File block size is too large for a block. size=" << size
+        LOG(WARNING) << "File block size is too large for a block, reject. size=" << size
                      << " hash=" << hash.to_string() << " offset=" << offset
                      << " stack:" << get_stack_trace();
+        return nullptr;
     }
 
     auto& offsets = _files[hash];

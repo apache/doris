@@ -151,6 +151,11 @@ public:
     void convert_local_to_utc(const cctz::time_zone& local_time_zone,
                               const DateV2Value<DateTimeV2ValueType>& dt);
 
+    int utc_offset(const cctz::time_zone& local_time_zone) const;
+
+    void convert_local_to_utc(const cctz::time_zone& local_time_zone,
+                              const DateV2Value<DateTimeV2ValueType>& dt, int preferred_offset);
+
     TimestampTzValue& operator++() {
         ++_utc_dt;
         return *this;

@@ -59,7 +59,7 @@ public class TableRowCountAction extends RestBaseController {
         try {
             String fullDbName = getFullDbName(dbName);
             // check privilege for select, otherwise return HTTP 401
-            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SELECT);
+            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), dbName, tblName, PrivPredicate.SELECT);
             OlapTable olapTable;
             try {
                 Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);

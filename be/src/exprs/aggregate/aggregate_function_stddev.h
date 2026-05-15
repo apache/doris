@@ -176,7 +176,7 @@ struct StddevSampName {
 };
 
 template <typename Data>
-class AggregateFunctionSampVariance
+class AggregateFunctionSampVariance final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionSampVariance<Data>>,
           UnaryExpression,
           NullableAggregateFunction {

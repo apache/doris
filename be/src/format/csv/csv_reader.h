@@ -172,13 +172,17 @@ class CsvReader : public GenericReader {
 public:
     CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
               const TFileScanRangeParams& params, const TFileRangeDesc& range,
-              const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx);
+              const std::vector<SlotDescriptor*>& file_slot_descs, size_t batch_size,
+              io::IOContext* io_ctx, std::shared_ptr<io::IOContext> io_ctx_holder = nullptr);
     ~CsvReader() override = default;
 
     Status init_reader(bool is_load);
+
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
     Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
+
+    void set_batch_size(size_t batch_size) override;
 
     Status init_schema_reader() override;
     // get schema of csv file from first one line or first two lines.
@@ -278,6 +282,8 @@ private:
 
     io::IOContext* _io_ctx = nullptr;
     std::shared_ptr<io::IOContext> _io_ctx_holder;
+    // Adaptive batch size set by FileScanner. 0 means not set (use _state->batch_size()).
+    size_t _batch_size;
     // Stored to adjust column_sep_positions when BOM is removed in enclose mode
     std::shared_ptr<EncloseCsvLineReaderCtx> _enclose_reader_ctx;
     // save source text which have been splitted.

@@ -48,6 +48,7 @@ export TP_JAR_DIR="${TP_INSTALL_DIR}/lib/jar"
 
 # source of all dependencies, default unuse it
 # export REPOSITORY_URL=
+DORIS_THIRDPARTY_REPOSITORY_URL="${DORIS_THIRDPARTY_REPOSITORY_URL:-https://doris-thirdparty-repo.bj.bcebos.com/thirdparty}"
 
 #####################################################
 # Download url, filename and unpaced filename
@@ -414,6 +415,13 @@ PDQSORT_NAME="pdqsort.h"
 PDQSORT_FILE="pdqsort.h"
 PDQSORT_MD5SUM="af28f79d5d7d7a5486f54d9f1244c2b5"
 
+#timsort
+TIMSORT_DOWNLOAD="https://raw.githubusercontent.com/timsort/cpp-TimSort/3.x.y/include/gfx/timsort.hpp"
+TIMSORT_NAME="timsort.hpp"
+TIMSORT_FILE="timsort.hpp"
+TIMSORT_MD5SUM="000db489fb9c39a1cfb64a034f16b04d"
+
+
 # benchmark
 BENCHMARK_DOWNLOAD="https://github.com/google/benchmark/archive/refs/tags/v1.8.0.tar.gz"
 BENCHMARK_NAME=benchmark-v1.8.0.tar.gz
@@ -548,7 +556,8 @@ JINDOFS_SOURCE=jindofs-6.10.4-libs-0.1
 JINDOFS_MD5SUM="bd30b4c5fe97c4367eeb3bb228b317d9"
 
 # juicefs
-JUICEFS_DOWNLOAD="https://repo1.maven.org/maven2/io/juicefs/juicefs-hadoop/1.3.1/juicefs-hadoop-1.3.1.jar"
+JUICEFS_DOWNLOAD="${DORIS_THIRDPARTY_REPOSITORY_URL%/}/juicefs-hadoop-1.3.1.jar"
+JUICEFS_FALLBACK_DOWNLOAD="https://repo1.maven.org/maven2/io/juicefs/juicefs-hadoop/1.3.1/juicefs-hadoop-1.3.1.jar"
 JUICEFS_NAME=juicefs-hadoop-1.3.1.jar
 JUICEFS_SOURCE=
 JUICEFS_MD5SUM="f374dfbfbdc4b83417cfea78a6728c54"
@@ -624,6 +633,7 @@ export TP_ARCHIVES=(
     'HDFS3'
     'LIBDIVIDE'
     'PDQSORT'
+    'TIMSORT'
     'BENCHMARK'
     'XSIMD'
     'SIMDJSON'

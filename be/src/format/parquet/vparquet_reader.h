@@ -104,9 +104,18 @@ public:
                   io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache = nullptr,
                   bool enable_lazy_mat = true);
 
+    ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                  const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
+                  std::shared_ptr<io::IOContext> io_ctx_holder, RuntimeState* state,
+                  FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true);
+
     ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
                   io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache = nullptr,
                   bool enable_lazy_mat = true);
+
+    ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                  std::shared_ptr<io::IOContext> io_ctx_holder, RuntimeState* state,
+                  FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true);
 
     ~ParquetReader() override;
 #ifdef BE_TEST
@@ -130,6 +139,8 @@ public:
             const std::set<uint64_t>& filter_column_ids = {});
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+
+    void set_batch_size(size_t batch_size) override;
 
     Status close() override;
 
@@ -336,6 +347,7 @@ private:
     ParquetProfile _parquet_profile;
     bool _closed = false;
     io::IOContext* _io_ctx = nullptr;
+    std::shared_ptr<io::IOContext> _io_ctx_holder;
     RuntimeState* _state = nullptr;
     bool _enable_lazy_mat = true;
     bool _enable_filter_by_min_max = true;
@@ -346,6 +358,7 @@ private:
     const VExprContextSPtrs* _not_single_slot_filter_conjuncts = nullptr;
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts = nullptr;
     std::unordered_map<tparquet::Type::type, bool> _ignored_stats;
+    size_t get_batch_size() const override { return _batch_size; }
 
     std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
                                                                                            -1};
@@ -353,6 +366,7 @@ private:
 
 protected:
     bool _filter_groups = true;
+
     RowGroupReader::IcebergRowIdParams _iceberg_rowid_params;
 
     std::set<uint64_t> _column_ids;

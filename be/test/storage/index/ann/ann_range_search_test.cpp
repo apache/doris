@@ -251,12 +251,12 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch2) {
                                          doris::segment_v2::AnnIndexStats* stats) {
                 size_t num_results = 10;
                 result->roaring = std::make_shared<roaring::Roaring>();
-                result->row_ids = std::make_unique<std::vector<uint64_t>>();
+                result->row_ids = std::make_shared<std::vector<uint64_t>>();
                 for (size_t i = 0; i < num_results; ++i) {
                     result->roaring->add(i * 10);
                     result->row_ids->push_back(i * 10);
                 }
-                result->distance = std::make_unique<float[]>(10);
+                result->distance = std::shared_ptr<float[]>(new float[10]);
                 return Status::OK();
             }));
 
@@ -431,44 +431,6 @@ TEST_F(VectorSearchTest, TestAnnIndexIteratorSuccessCases) {
     EXPECT_TRUE(status.ok());
 }
 
-TEST_F(VectorSearchTest, TestAnnIndexReaderUpdateResult) {
-    // Test AnnIndexReader::update_result method
-    std::map<std::string, std::string> properties;
-    properties["index_type"] = "hnsw";
-    properties["metric_type"] = "l2_distance";
-    auto pair = vector_search_utils::create_tmp_ann_index_reader(properties);
-    auto reader = pair.second;
-
-    // Create mock IndexSearchResult
-    doris::segment_v2::IndexSearchResult search_result;
-    search_result.roaring = std::make_shared<roaring::Roaring>();
-    search_result.roaring->add(1);
-    search_result.roaring->add(5);
-    search_result.roaring->add(10);
-
-    // Create distance array
-    size_t num_results = 3;
-    search_result.distances = std::make_unique<float[]>(num_results);
-    search_result.distances[0] = 1.5f;
-    search_result.distances[1] = 2.3f;
-    search_result.distances[2] = 4.1f;
-
-    // Call update_result
-    std::vector<float> distance_vector;
-    roaring::Roaring result_roaring;
-    reader->update_result(search_result, distance_vector, result_roaring);
-
-    // Verify results
-    EXPECT_EQ(distance_vector.size(), 3);
-    EXPECT_FLOAT_EQ(distance_vector[0], 1.5f);
-    EXPECT_FLOAT_EQ(distance_vector[1], 2.3f);
-    EXPECT_FLOAT_EQ(distance_vector[2], 4.1f);
-    EXPECT_EQ(result_roaring.cardinality(), 3);
-    EXPECT_TRUE(result_roaring.contains(1));
-    EXPECT_TRUE(result_roaring.contains(5));
-    EXPECT_TRUE(result_roaring.contains(10));
-}
-
 TEST_F(VectorSearchTest, TestAnnIndexReaderNewIterator) {
     // Test AnnIndexReader::new_iterator method
     std::map<std::string, std::string> properties;
@@ -633,49 +595,6 @@ TEST_F(VectorSearchTest, TestAnnIndexReaderConstructor) {
     auto ip_reader = ip_pair.second;
 
     EXPECT_EQ(ip_reader->get_metric_type(), doris::segment_v2::AnnIndexMetric::IP);
-}
-
-TEST_F(VectorSearchTest, TestAnnIndexReader_UpdateResult) {
-    // Test AnnIndexReader::update_result method
-    std::map<std::string, std::string> properties;
-    properties["index_type"] = "hnsw";
-    properties["metric_type"] = "l2_distance";
-    auto pair = vector_search_utils::create_tmp_ann_index_reader(properties);
-    auto reader = pair.second;
-
-    // Create a search result to test update_result
-    doris::segment_v2::IndexSearchResult search_result;
-
-    // Set up test data
-    size_t num_results = 3;
-    auto roaring = std::make_shared<roaring::Roaring>();
-    roaring->add(10);
-    roaring->add(20);
-    roaring->add(30);
-
-    auto distances = std::make_unique<float[]>(num_results);
-    distances[0] = 1.5f;
-    distances[1] = 2.3f;
-    distances[2] = 3.1f;
-
-    search_result.roaring = roaring;
-    search_result.distances = std::move(distances);
-
-    // Test update_result method
-    std::vector<float> distance_vec;
-    roaring::Roaring result_roaring;
-
-    reader->update_result(search_result, distance_vec, result_roaring);
-
-    // Verify results
-    EXPECT_EQ(distance_vec.size(), num_results);
-    EXPECT_FLOAT_EQ(distance_vec[0], 1.5f);
-    EXPECT_FLOAT_EQ(distance_vec[1], 2.3f);
-    EXPECT_FLOAT_EQ(distance_vec[2], 3.1f);
-    EXPECT_EQ(result_roaring.cardinality(), num_results);
-    EXPECT_TRUE(result_roaring.contains(10));
-    EXPECT_TRUE(result_roaring.contains(20));
-    EXPECT_TRUE(result_roaring.contains(30));
 }
 
 TEST_F(VectorSearchTest, TestAnnIndexReader_NewIterator) {

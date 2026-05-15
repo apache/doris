@@ -83,7 +83,7 @@ private:
         range.path = "./be/test/exec/test_data/orc_scanner/orders.orc";
         range.start_offset = 0;
         range.size = 1293;
-        auto reader = OrcReader::create_unique(params, range, "", nullptr, &cache, true);
+        auto reader = OrcReader::create_unique(params, range, 4096, "", nullptr, &cache, true);
         auto status = reader->init_reader(&column_names, &col_name_to_block_idx, {}, false,
                                           tuple_desc, &row_desc, nullptr, nullptr);
         EXPECT_TRUE(status.ok());

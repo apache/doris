@@ -2280,7 +2280,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             for (Token filePath : ddc.filePaths) {
                 multiFilePaths.add(filePath.getText().substring(1, filePath.getText().length() - 1));
             }
-            List<String> filePaths = ddc.filePath == null ? null : multiFilePaths;
+            List<String> filePaths = multiFilePaths.isEmpty() ? null : multiFilePaths;
             List<Expression> colMappings;
             if (ddc.columnMapping == null) {
                 colMappings = null;

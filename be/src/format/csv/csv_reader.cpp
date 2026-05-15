@@ -26,6 +26,7 @@
 #include <cstddef>
 #include <map>
 #include <memory>
+#include <numeric>
 #include <ostream>
 #include <regex>
 #include <utility>
@@ -171,7 +172,8 @@ void PlainCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* 
 
 CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                     const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx)
+                     const std::vector<SlotDescriptor*>& file_slot_descs, size_t batch_size,
+                     io::IOContext* io_ctx, std::shared_ptr<io::IOContext> io_ctx_holder)
         : _profile(profile),
           _params(params),
           _file_reader(nullptr),
@@ -183,7 +185,12 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
           _file_slot_descs(file_slot_descs),
           _line_reader_eof(false),
           _skip_lines(0),
-          _io_ctx(io_ctx) {
+          _io_ctx(io_ctx),
+          _io_ctx_holder(std::move(io_ctx_holder)),
+          _batch_size(std::max(batch_size, 1UL)) {
+    if (_io_ctx == nullptr && _io_ctx_holder) {
+        _io_ctx = _io_ctx_holder.get();
+    }
     _file_format_type = _params.format_type;
     _is_proto_format = _file_format_type == TFileFormatType::FORMAT_PROTO;
     if (_range.__isset.compress_type) {
@@ -302,13 +309,22 @@ Status CsvReader::init_reader(bool is_load) {
     return Status::OK();
 }
 
+void CsvReader::set_batch_size(size_t batch_size) {
+    // 0 means "not set" / "use default" for the row-based readers; we must
+    // never let _batch_size be 0 because _do_get_next_block uses it as the
+    // upper bound of a `while (rows < _batch_size)` loop and a 0 would make
+    // the reader return empty blocks and incorrectly signal EOF.
+    _batch_size = std::max(batch_size, 1UL);
+}
+
 Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_line_reader_eof) {
         *eof = true;
         return Status::OK();
     }
 
-    const int batch_size = std::max(_state->batch_size(), (int)_MIN_BATCH_SIZE);
+    const size_t batch_size = _batch_size;
+    const auto max_block_bytes = _state->preferred_block_size_bytes();
     size_t rows = 0;
 
     bool success = false;
@@ -350,7 +366,8 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         block->set_columns(std::move(mutate_columns));
     } else {
         auto columns = block->mutate_columns();
-        while (rows < batch_size && !_line_reader_eof) {
+
+        while (rows < batch_size && !_line_reader_eof && (block->bytes() < max_block_bytes)) {
             const uint8_t* ptr = nullptr;
             size_t size = 0;
             RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
@@ -553,10 +570,19 @@ Status CsvReader::_create_file_reader(bool need_schema) {
         _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
         io::FileReaderOptions reader_options =
                 FileFactory::get_reader_options(_state, _file_description);
-        auto file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
-                _profile, _system_properties, _file_description, reader_options,
-                io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
-                io::PrefetchRange(_range.start_offset, _range.start_offset + _range.size)));
+        io::FileReaderSPtr file_reader;
+        if (_io_ctx_holder) {
+            file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
+                    _profile, _system_properties, _file_description, reader_options,
+                    io::DelegateReader::AccessMode::SEQUENTIAL,
+                    std::static_pointer_cast<const io::IOContext>(_io_ctx_holder),
+                    io::PrefetchRange(_range.start_offset, _range.start_offset + _range.size)));
+        } else {
+            file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
+                    _profile, _system_properties, _file_description, reader_options,
+                    io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
+                    io::PrefetchRange(_range.start_offset, _range.start_offset + _range.size)));
+        }
         _file_reader = _io_ctx ? std::make_shared<io::TracingFileReader>(std::move(file_reader),
                                                                          _io_ctx->file_reader_stats)
                                : file_reader;

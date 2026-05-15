@@ -268,7 +268,7 @@ struct RegrInterceptFunc : AggregateFunctionRegrData<T, true, 2, 2> {
 };
 
 template <typename RegrFunc, bool y_nullable, bool x_nullable>
-class AggregateFunctionRegrSimple
+class AggregateFunctionRegrSimple final
         : public IAggregateFunctionDataHelper<
                   RegrFunc, AggregateFunctionRegrSimple<RegrFunc, y_nullable, x_nullable>> {
 public:
