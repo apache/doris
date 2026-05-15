@@ -658,6 +658,9 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             return true;
         }
         synchronized (splitsLock) {
+            if (currentOffset != null && !currentOffset.snapshotSplit()) {
+                return true;
+            }
             return cdcSplitProgress.getCurrentSplittingTable() == null
                     && computeCdcRemainingTables().isEmpty();
         }

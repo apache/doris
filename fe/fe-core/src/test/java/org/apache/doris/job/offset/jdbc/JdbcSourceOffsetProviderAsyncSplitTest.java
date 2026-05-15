@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.offset.jdbc;
 
+import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.util.StreamingJobUtils;
@@ -130,6 +131,27 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
         Assert.assertNotNull(provider.committedSplitProgress);
         Assert.assertNotNull(provider.cdcSplitProgress);
         Assert.assertNull(provider.cdcSplitProgress.getCurrentSplittingTable());
+        Assert.assertFalse(provider.noMoreSplits());
+    }
+
+    @Test
+    public void testNoMoreSplitsTrueAfterBinlogTransition() throws JobException {
+        // Mirrors restart-via-binlogOffsetPersist replay path: currentOffset=BinlogSplit
+        // with finishedSplits/remainingSplits empty. Without the BinlogSplit fast-path
+        // computeCdcRemainingTables would see every syncTable as untouched and let the
+        // scheduler re-cut snapshot chunks after snapshot phase is over.
+        provider.initOnCreate(Arrays.asList("db.tbl_a", "db.tbl_b"));
+        provider.setCurrentOffset(new JdbcOffset(Collections.singletonList(new BinlogSplit())));
+        Assert.assertTrue(provider.noMoreSplits());
+    }
+
+    @Test
+    public void testNoMoreSplitsStillFalseDuringSnapshot() throws JobException {
+        // Safety regression: currentOffset=snapshotSplit + untouched table -> fast-path
+        // must NOT fire (otherwise advanceSplits would never be called).
+        provider.initOnCreate(Arrays.asList("db.tbl_a"));
+        provider.setCurrentOffset(new JdbcOffset(
+                Collections.singletonList(split("db.tbl_a", 0, null, 100L))));
         Assert.assertFalse(provider.noMoreSplits());
     }
 
