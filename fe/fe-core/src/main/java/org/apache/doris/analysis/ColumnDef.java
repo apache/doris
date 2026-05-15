@@ -145,6 +145,9 @@ public class ColumnDef {
 
         private String formatCurrentTimeStamp(long precision, boolean withTimeZone) {
             ZonedDateTime currentDateTime = ZonedDateTime.now(TimeUtils.getTimeZone().toZoneId());
+            if (!withTimeZone && precision == 0) {
+                return currentDateTime.toLocalDateTime().toString().replace('T', ' ');
+            }
             int scale = Math.toIntExact(precision);
             if (withTimeZone) {
                 return TimestampTzLiteral.formatDateTime(currentDateTime, scale);
