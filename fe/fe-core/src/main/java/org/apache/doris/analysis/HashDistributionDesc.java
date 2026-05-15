@@ -114,19 +114,7 @@ public class HashDistributionDesc extends DistributionDesc {
             boolean find = false;
             for (Column column : columns) {
                 if (column.getName().equalsIgnoreCase(colName)) {
-                    if (column.getType().isArrayType()) {
-                        throw new DdlException("Array Type should not be used in distribution column["
-                                + column.getName() + "].");
-                    } else if (column.getType().isMapType()) {
-                        throw new DdlException("Map Type should not be used in distribution column["
-                                + column.getName() + "].");
-                    } else if (column.getType().isStructType()) {
-                        throw new DdlException("Struct Type should not be used in distribution column["
-                                + column.getName() + "].");
-                    } else if (column.getType().isFloatingPointType()) {
-                        throw new DdlException("Floating point type should not be used in distribution column["
-                                + column.getName() + "].");
-                    }
+                    HashDistributionInfo.checkDistributionColumnType(column.getName(), column.getType());
 
                     // distribution info and base columns persist seperately inside OlapTable, so we need deep copy
                     // to avoid modify table columns also modify columns inside distribution info.
