@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -93,6 +94,36 @@ class TimestampTzLiteralTest {
         Assertions.assertEquals(30, literal.minute);
         Assertions.assertEquals(0, literal.second);
         Assertions.assertEquals(0, literal.microSecond);
+    }
+
+    @Test
+    void testFromSessionTimeZoneWithoutExplicitOffset() {
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("America/New_York");
+        context.setThreadLocalInfo();
+        try {
+            TimestampTzLiteral literal = TimestampTzLiteral.fromSessionTimeZone(
+                    TimeStampTzType.of(6), "2024-01-15 12:00:00");
+
+            Assertions.assertEquals(2024, literal.year);
+            Assertions.assertEquals(1, literal.month);
+            Assertions.assertEquals(15, literal.day);
+            Assertions.assertEquals(17, literal.hour);
+            Assertions.assertEquals(0, literal.minute);
+            Assertions.assertEquals(0, literal.second);
+            Assertions.assertEquals(0, literal.microSecond);
+            Assertions.assertEquals(6, literal.getDataType().getScale());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    void testGetStringValueKeepsUtcSuffix() {
+        TimestampTzLiteral literal = new TimestampTzLiteral(TimeStampTzType.of(6),
+                "2024-01-15 12:00:00 +00:00");
+
+        Assertions.assertEquals("2024-01-15 12:00:00.000000+00:00", literal.getStringValue());
     }
 
     @Test
