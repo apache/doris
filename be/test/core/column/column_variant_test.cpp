@@ -3488,7 +3488,6 @@ TEST_F(ColumnVariantTest, test_variant_deserialize_from_sparse_column) {
     //        EXPECT_EQ(subcolumn.get_dimensions(), 1);
     //        EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_INT);
     //    }
-}
     //    column_map.clear();
     //    offsets.clear();
     //    key.clear();
