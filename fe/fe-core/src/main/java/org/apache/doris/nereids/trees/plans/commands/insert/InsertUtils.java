@@ -682,24 +682,21 @@ public class InsertUtils {
         Plan query = unboundLogicalSink.child();
         if (table instanceof OlapTable && !(query instanceof InlineTable)) {
             OlapTable olapTable = (OlapTable) table;
+            List<Column> generatedColumns = olapTable.getFullSchema().stream()
+                    .filter(col -> col.getGeneratedColumnInfo() != null)
+                    .collect(ImmutableList.toImmutableList());
+            if (generatedColumns.isEmpty()) {
+                return;
+            }
             Set<String> insertNames = Sets.newHashSet();
             if (unboundLogicalSink.getColNames() != null) {
                 insertNames.addAll(unboundLogicalSink.getColNames());
             }
             if (insertNames.isEmpty()) {
-                List<Column> implicitTargetColumns = olapTable.getBaseSchema(true);
-                int outputColumnSize = Math.min(query.getOutput().size(), implicitTargetColumns.size());
-                for (int i = 0; i < outputColumnSize; i++) {
-                    Column col = implicitTargetColumns.get(i);
-                    if (col.getGeneratedColumnInfo() != null) {
-                        throw new AnalysisException("The value specified for generated column '"
-                                + col.getName()
-                                + "' in table '" + table.getName() + "' is not allowed.");
-                    }
-                }
+                return;
             } else {
-                for (Column col : olapTable.getFullSchema()) {
-                    if (col.getGeneratedColumnInfo() != null && insertNames.contains(col.getName())) {
+                for (Column col : generatedColumns) {
+                    if (insertNames.contains(col.getName())) {
                         throw new AnalysisException("The value specified for generated column '"
                                 + col.getName()
                                 + "' in table '" + table.getName() + "' is not allowed.");

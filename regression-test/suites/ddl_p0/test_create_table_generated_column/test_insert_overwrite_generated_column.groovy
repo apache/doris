@@ -25,7 +25,13 @@ suite("test_insert_overwrite_generated_column") {
         UNIQUE KEY(`a`, `b`, `c`)
         DISTRIBUTED BY HASH(`a`) BUCKETS 10 properties("replication_num"="1");
         insert into gen_col_insert_overwrite_src values(1,2,3,5),(3,23,5,1);
-        
+
+        drop table if exists gen_col_insert_overwrite_src_three_cols;
+        CREATE TABLE gen_col_insert_overwrite_src_three_cols(a int, b int, c int) ENGINE=OLAP
+        UNIQUE KEY(`a`, `b`, `c`)
+        DISTRIBUTED BY HASH(`a`) BUCKETS 10 properties("replication_num"="1");
+        insert into gen_col_insert_overwrite_src_three_cols values(1,2,3),(3,23,5);
+
         drop table if exists gen_col_insert_overwrite;
         CREATE TABLE gen_col_insert_overwrite(a int, b int, c int AS(a+b), d int AS (c+1))
         ENGINE=OLAP
@@ -107,6 +113,10 @@ suite("test_insert_overwrite_generated_column") {
     }
     test {
         sql "insert into gen_col_insert_overwrite_par select * from gen_col_insert_overwrite_src"
+        exception "The value specified for generated column 'c3' in table 'gen_col_insert_overwrite_par' is not allowed."
+    }
+    test {
+        sql "insert into gen_col_insert_overwrite_par select * from gen_col_insert_overwrite_src_three_cols"
         exception "The value specified for generated column 'c3' in table 'gen_col_insert_overwrite_par' is not allowed."
     }
     test {

@@ -79,6 +79,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalConnectorTableSink;
@@ -94,6 +95,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
 import org.apache.doris.nereids.types.DataType;
@@ -229,6 +231,7 @@ public class BindSink implements AnalysisRuleFactory {
             bindColumns = ImmutableList.copyOf(bindColumns.subList(0,
                     implicitInsertBindingResult.inputColumnSize));
         }
+        checkGeneratedColumnForInsertIntoSelect(table, sink, child, bindColumns);
 
         LogicalOlapTableSink<?> boundSink = new LogicalOlapTableSink<>(
                 database,
@@ -331,6 +334,24 @@ public class BindSink implements AnalysisRuleFactory {
         LegacyExprTranslator exprTranslator = new LegacyExprTranslator(table, targetTableSlots);
         return boundSink.withChildAndUpdateOutput(fullOutputProject, exprTranslator.createPartitionExprList(),
                 exprTranslator.createSyncMvWhereClause(), targetTableSlots);
+    }
+
+    private void checkGeneratedColumnForInsertIntoSelect(
+            OlapTable table, UnboundTableSink<?> sink, LogicalPlan child, List<Column> bindColumns) {
+        if (sink.getDMLCommandType() != DMLCommandType.INSERT
+                || child instanceof InlineTable
+                || child instanceof LogicalUnion) {
+            return;
+        }
+        int outputColumnSize = Math.min(child.getOutput().size(), bindColumns.size());
+        for (int i = 0; i < outputColumnSize; i++) {
+            Column col = bindColumns.get(i);
+            if (col.getGeneratedColumnInfo() != null && !(child.getOutput().get(i) instanceof DefaultValueSlot)) {
+                throw new AnalysisException("The value specified for generated column '"
+                        + col.getName()
+                        + "' in table '" + table.getName() + "' is not allowed.");
+            }
+        }
     }
 
     private LogicalProject<?> getOutputProjectByCoercion(List<Column> tableSchema, LogicalPlan child,
