@@ -91,8 +91,6 @@ public:
         return block->columns() - 1;
     }
 
-    static bool is_acting_on_a_slot(const VExpr& expr);
-
     VExpr(const TExprNode& node);
     VExpr(const VExpr& vexpr);
     VExpr(DataTypePtr type, bool is_slotref);
@@ -347,7 +345,8 @@ public:
             const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
             const std::vector<ColumnId>& idx_to_cid,
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-            roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats);
+            roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
+            bool enable_result_cache);
 
     // Prepare the runtime for ANN range search.
     // AnnRangeSearchRuntime is used to store the runtime information of ann range search.

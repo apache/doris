@@ -53,11 +53,11 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const IColumn& column, uint16_t
                                                  uint16_t size) const {
     uint16_t new_size = 0;
     if (column.is_nullable()) {
-        auto* nullable_col = check_and_get_column<ColumnNullable>(column);
+        auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
         auto& null_map_data = nullable_col->get_null_map_column().get_data();
         auto& nested_col = nullable_col->get_nested_column();
         if (nested_col.is_column_dictionary()) {
-            auto* nested_col_ptr = check_and_get_column<ColumnDictI32>(nested_col);
+            auto* nested_col_ptr = assert_cast<const ColumnDictI32*>(&nested_col);
             auto& data_array = nested_col_ptr->get_data();
             const auto& dict_res = _find_code_from_dictionary_column(*nested_col_ptr);
             if (!nullable_col->has_null()) {
@@ -80,7 +80,7 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const IColumn& column, uint16_t
                 }
             }
         } else {
-            auto* str_col = check_and_get_column<PredicateColumnType<T>>(nested_col);
+            auto* str_col = assert_cast<const PredicateColumnType<T>*>(&nested_col);
             if (!nullable_col->has_null()) {
                 ColumnUInt8::Container res(size, 0);
                 for (uint16_t i = 0; i != size; i++) {
@@ -111,7 +111,7 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const IColumn& column, uint16_t
         }
     } else {
         if (column.is_column_dictionary()) {
-            auto* nested_col_ptr = check_and_get_column<ColumnDictI32>(column);
+            auto* nested_col_ptr = assert_cast<const ColumnDictI32*>(&column);
             const auto& dict_res = _find_code_from_dictionary_column(*nested_col_ptr);
             auto& data_array = nested_col_ptr->get_data();
             for (uint16_t i = 0; i != size; i++) {
@@ -121,8 +121,7 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const IColumn& column, uint16_t
                 new_size += _opposite ^ flag;
             }
         } else {
-            const PredicateColumnType<T>* str_col =
-                    check_and_get_column<PredicateColumnType<T>>(column);
+            const auto* str_col = assert_cast<const PredicateColumnType<T>*>(&column);
 
             ColumnUInt8::Container res(size, 0);
             for (uint16_t i = 0; i != size; i++) {

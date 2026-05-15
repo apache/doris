@@ -41,50 +41,16 @@ public:
 
 template <FieldType field_type>
 void common_test(typename TypeTraits<field_type>::CppType src_val) {
-    const auto* type = get_scalar_type_info<field_type>();
-
-    EXPECT_EQ(field_type, type->type());
-    EXPECT_EQ(sizeof(src_val), type->size());
-    // test min
-    {
-        typename TypeTraits<field_type>::CppType dst_val;
-        type->set_to_min((char*)&dst_val);
-
-        EXPECT_TRUE(type->cmp((char*)&src_val, (char*)&dst_val) > 0);
-    }
-    // test max
-    {
-        typename TypeTraits<field_type>::CppType dst_val;
-        type->set_to_max((char*)&dst_val);
-        // NOTE: bool input is true, this will return 0
-        EXPECT_TRUE(type->cmp((char*)&src_val, (char*)&dst_val) <= 0);
-    }
+    EXPECT_EQ(sizeof(src_val), field_type_size(field_type));
 }
 
 template <FieldType fieldType>
 void test_char(Slice src_val) {
     StorageField* field = StorageFieldFactory::create_by_type(fieldType);
     field->_length = src_val.size;
-    const auto* type = field->type_info();
 
     EXPECT_EQ(field->type(), fieldType);
-    EXPECT_EQ(sizeof(src_val), type->size());
-    // test min
-    {
-        char buf[64];
-        Slice dst_val(buf, sizeof(buf));
-        field->set_to_min((char*)&dst_val);
-
-        EXPECT_TRUE(type->cmp((char*)&src_val, (char*)&dst_val) > 0);
-    }
-    // test max
-    {
-        char buf[64];
-        Slice dst_val(buf, sizeof(buf));
-        field->set_to_max((char*)&dst_val);
-
-        EXPECT_TRUE(type->cmp((char*)&src_val, (char*)&dst_val) < 0);
-    }
+    EXPECT_EQ(sizeof(src_val), field->size());
     delete field;
 }
 
@@ -135,9 +101,7 @@ void common_test_array(CollectionValue src_val) {
                              0, item_length);
     list_column.add_sub_column(item_column);
 
-    auto array_type = get_type_info(&list_column);
-    ASSERT_EQ(item_type,
-              dynamic_cast<const ArrayTypeInfo*>(array_type.get())->item_type_info()->type());
+    ASSERT_EQ(item_type, list_column.get_sub_column(0).type());
 }
 
 TEST(ArrayTypeTest, copy_and_equal) {

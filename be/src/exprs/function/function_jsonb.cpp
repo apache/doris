@@ -501,7 +501,7 @@ public:
         auto&& [jsonb_data_column, json_data_const] =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
         if (jsonb_data_column->is_nullable()) {
-            const auto* nullable = check_and_get_column<ColumnNullable>(jsonb_data_column.get());
+            const auto* nullable = assert_cast<const ColumnNullable*>(jsonb_data_column.get());
             col_from_string =
                     assert_cast<const ColumnString*>(nullable->get_nested_column_ptr().get());
             data_null_map = &nullable->get_null_map_data();
@@ -519,8 +519,7 @@ public:
             std::tie(jsonb_path_column, path_const) =
                     unpack_if_const(block.get_by_position(arguments[1]).column);
             if (jsonb_path_column->is_nullable()) {
-                const auto* nullable =
-                        check_and_get_column<ColumnNullable>(jsonb_path_column.get());
+                const auto* nullable = assert_cast<const ColumnNullable*>(jsonb_path_column.get());
                 jsonb_path_column = nullable->get_nested_column_ptr();
                 path_null_map = &nullable->get_null_map_data();
             }

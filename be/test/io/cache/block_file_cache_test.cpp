@@ -8038,6 +8038,23 @@ TEST_F(BlockFileCacheTest, finalize_partial_block) {
     }
 }
 
+TEST_F(BlockFileCacheTest, fs_file_cache_storage_finalize_missing_writer_returns_error) {
+    FSFileCacheStorage storage;
+    FileCacheKey key;
+    key.hash = io::BlockFileCache::hash("finalize-missing-writer");
+    key.offset = 4096;
+    key.meta.type = io::FileCacheType::NORMAL;
+    key.meta.expiration_time = 0;
+    key.meta.tablet_id = 0;
+
+    auto st = storage.finalize(key, 4096);
+
+    EXPECT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>()) << st;
+    EXPECT_TRUE(st.to_string().find("file cache finalize missing writer") != std::string::npos)
+            << st;
+    EXPECT_TRUE(st.to_string().find("offset=4096") != std::string::npos) << st;
+}
+
 TEST_F(BlockFileCacheTest, set_downloaded_empty_block_branch) {
     FileCacheKey key;
     key.hash = io::BlockFileCache::hash("set_downloaded_empty_block_branch");

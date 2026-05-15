@@ -174,7 +174,7 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeEvaluateTopN) {
     // rows_of_segment is mocked as 10 to align with mocked iterator outputs
     size_t rows_of_segment = 10;
     st = predicate->evaluate_vector_ann_search(_ann_index_iterator.get(), &roaring, rows_of_segment,
-                                               _result_column, row_ids, ann_index_stats);
+                                               false, _result_column, row_ids, ann_index_stats);
     ColumnFloat32* result_column_float = assert_cast<ColumnFloat32*>(_result_column.get());
     for (size_t i = 0; i < query_vector->size(); ++i) {
         EXPECT_EQ(result_column_float->get_data()[i], (*query_vector)[i]);
