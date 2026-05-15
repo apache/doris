@@ -523,6 +523,13 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
             }
         }
 
+        // The tablet-based parallelism strategy only applies when the fragment has no exchange nodes
+        // (e.g. pure colocate scan). When exchange nodes are present (e.g. bucket shuffle join),
+        // fall back to the base class behavior to avoid over-parallelizing the join fragment.
+        if (!exchangeToChildJob.isEmpty()) {
+            return super.degreeOfParallelism(maxParallel, useLocalShuffleToAddParallel);
+        }
+
         long tabletNum = 0;
         for (ScanNode scanNode : scanNodes) {
             if (scanNode instanceof OlapScanNode) {
