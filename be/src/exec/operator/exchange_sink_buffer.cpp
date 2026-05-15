@@ -49,7 +49,7 @@
 
 namespace doris {
 
-namespace {
+namespace exchange_sink_buffer::detail {
 
 void copy_block_metadata_without_column_values(const PBlock& src, PBlock* dst) {
     for (int i = 0; i < src.column_metas_size(); ++i) {
@@ -90,7 +90,7 @@ std::shared_ptr<PTransmitDataParams> make_http_request_without_column_values(
     return dst;
 }
 
-} // namespace
+} // namespace exchange_sink_buffer::detail
 
 BroadcastPBlockHolder::~BroadcastPBlockHolder() {
     // lock the parent queue, if the queue could lock success, then return the block
@@ -555,7 +555,9 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
                 // shared block because different RPC callback threads can send the same holder
                 // concurrently. Copy only the small request/block metadata and borrow the
                 // column_values string as read-only attachment data.
-                auto http_request = make_http_request_without_column_values(*brpc_request);
+                auto http_request =
+                        exchange_sink_buffer::detail::make_http_request_without_column_values(
+                                *brpc_request);
                 auto send_remote_block_closure = AutoReleaseClosure<
                         PTransmitDataParams,
                         ExchangeSendCallback<PTransmitDataResult>>::create_unique(http_request,
