@@ -44,7 +44,6 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.net.URI;
 import java.net.URISyntaxException;
 
 public class RestBaseController extends BaseController {
@@ -73,10 +72,13 @@ public class RestBaseController extends BaseController {
         return authInfo;
     }
 
-    public RedirectView redirectTo(HttpServletRequest request, TNetworkAddress addr) {
-        URI urlObj = null;
+    protected String buildRedirectUrl(HttpServletRequest request, TNetworkAddress addr) {
+        return buildRedirectUrl(request, addr, request.getRequestURI(), request.getQueryString());
+    }
+
+    protected String buildRedirectUrl(HttpServletRequest request, TNetworkAddress addr, String requestPath,
+            String queryString) {
         URI resultUriObj = null;
-        String urlStr = request.getRequestURI();
         String userInfo = null;
         if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
             ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
@@ -84,18 +86,29 @@ public class RestBaseController extends BaseController {
                     + ":" + authInfo.password;
         }
         try {
-            urlObj = new URI(urlStr);
             resultUriObj = new URI("http", userInfo, addr.getHostname(),
-                    addr.getPort(), urlObj.getPath(), "", null);
+                    addr.getPort(), requestPath, null, null);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
         String redirectUrl = resultUriObj.toASCIIString();
-        if (!Strings.isNullOrEmpty(request.getQueryString())) {
-            redirectUrl += request.getQueryString();
+        if (!Strings.isNullOrEmpty(queryString)) {
+            redirectUrl += "?" + queryString;
         }
         LOG.info("Redirect url: {}", "http://" + addr.getHostname() + ":"
-                    + addr.getPort() + urlObj.getPath());
+                + addr.getPort() + requestPath);
+        return redirectUrl;
+    }
+
+    protected void writeTemporaryRedirect(HttpServletResponse response, String redirectUrl) throws IOException {
+        response.setContentType("text/html;charset=utf-8");
+        response.setStatus(HttpStatus.TEMPORARY_REDIRECT.value());
+        response.setHeader("Location", redirectUrl);
+        response.flushBuffer();
+    }
+
+    public RedirectView redirectTo(HttpServletRequest request, TNetworkAddress addr) {
+        String redirectUrl = buildRedirectUrl(request, addr);
         RedirectView redirectView = new RedirectView(redirectUrl);
         redirectView.setContentType("text/html;charset=utf-8");
         redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);

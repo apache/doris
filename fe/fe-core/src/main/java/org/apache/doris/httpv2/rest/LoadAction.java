@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cloud.qe.ComputeGroupException;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -38,6 +37,7 @@ import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.entity.RestBaseResult;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.httpv2.rest.manager.HttpUtils;
+import org.apache.doris.httpv2.util.StreamLoadRedirectDrainUtil;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.StreamLoadHandler;
 import org.apache.doris.load.loadv2.IngestionLoadJob;
@@ -77,7 +77,6 @@ import org.springframework.web.servlet.view.RedirectView;
 
 import java.io.IOException;
 import java.net.InetAddress;
-import java.net.URI;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -210,8 +209,7 @@ public class LoadAction extends RestBaseController {
             LOG.info("redirect load action to destination={}, label: {}",
                     redirectAddr.toString(), label);
 
-            RedirectView redirectView = redirectTo(request, redirectAddr);
-            return redirectView;
+            return createRedirectResponse(request, response, redirectAddr, true, null, null, label);
         } catch (Exception e) {
             return new RestBaseResult(e.getMessage());
         }
@@ -334,11 +332,10 @@ public class LoadAction extends RestBaseController {
                         redirectAddr.toString(), isStreamLoad, dbName, tableName, label);
             }
 
-            RedirectView redirectView = redirectTo(request, redirectAddr);
-            return redirectView;
+            return createRedirectResponse(request, response, redirectAddr, isStreamLoad, dbName, tableName, label);
         } catch (StreamLoadForwardException e) {
             // Special handling for stream load forwarding
-            return e.getRedirectView();
+            return createRedirectResponse(request, response, e.getRedirectView(), isStreamLoad, db, table, label);
         } catch (Exception e) {
             LOG.warn("load failed, stream: {}, db: {}, tbl: {}, label: {}, err: {}",
                     isStreamLoad, db, table, label, e.getMessage());
@@ -672,24 +669,7 @@ public class LoadAction extends RestBaseController {
                             + "stream: {}, db: {}, tbl: {}, label: {}",
                     redirectAddr.toString(), isStreamLoad, dbName, tableName, label);
 
-            URI urlObj = null;
-            URI resultUriObj = null;
-            String urlStr = request.getRequestURI();
-            String userInfo = null;
-
-            try {
-                urlObj = new URI(urlStr);
-                resultUriObj = new URI("http", userInfo, redirectAddr.getHostname(),
-                        redirectAddr.getPort(), urlObj.getPath(), "", null);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
-            String redirectUrl = resultUriObj.toASCIIString();
-            if (!Strings.isNullOrEmpty(request.getQueryString())) {
-                redirectUrl += request.getQueryString();
-            }
-            LOG.info("Redirect url: {}", "http://" + redirectAddr.getHostname() + ":"
-                    + redirectAddr.getPort() + urlObj.getPath());
+            String redirectUrl = buildRedirectUrl(request, redirectAddr);
             RedirectView redirectView = new RedirectView(redirectUrl);
             redirectView.setContentType("text/html;charset=utf-8");
             redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
@@ -712,6 +692,47 @@ public class LoadAction extends RestBaseController {
             headers.append(headerName).append(":").append(headerValue).append(", ");
         }
         return headers.toString();
+    }
+
+    private Object createRedirectResponse(HttpServletRequest request, HttpServletResponse response,
+            TNetworkAddress redirectAddr, boolean isStreamLoad, String dbName, String tableName, String label)
+            throws IOException {
+        String redirectUrl = buildRedirectUrl(request, redirectAddr);
+        if (!shouldUseBoundedDrainForStreamLoad(isStreamLoad)) {
+            return redirectTo(request, redirectAddr);
+        }
+        writeTemporaryRedirect(response, redirectUrl);
+        drainStreamLoadRequestBodyAfterRedirect(request, redirectAddr.toString(), dbName, tableName, label);
+        return null;
+    }
+
+    private Object createRedirectResponse(HttpServletRequest request, HttpServletResponse response,
+            RedirectView redirectView, boolean isStreamLoad, String dbName, String tableName, String label)
+            throws IOException {
+        if (!shouldUseBoundedDrainForStreamLoad(isStreamLoad)) {
+            return redirectView;
+        }
+        writeTemporaryRedirect(response, redirectView.getUrl());
+        drainStreamLoadRequestBodyAfterRedirect(request, redirectView.getUrl(), dbName, tableName, label);
+        return null;
+    }
+
+    private boolean shouldUseBoundedDrainForStreamLoad(boolean isStreamLoad) {
+        return isStreamLoad && Config.stream_load_redirect_bounded_drain_max_bytes > 0;
+    }
+
+    private void drainStreamLoadRequestBodyAfterRedirect(HttpServletRequest request, String redirectTarget,
+            String dbName, String tableName, String label) {
+        long drainLimit = Config.stream_load_redirect_bounded_drain_max_bytes;
+        LOG.info("write stream load redirect and start bounded drain, target: {}, db: {}, tbl: {}, label: {},"
+                        + " max_drain_bytes: {}",
+                redirectTarget, dbName, tableName, label, drainLimit);
+        StreamLoadRedirectDrainUtil.DrainResult drainResult =
+                StreamLoadRedirectDrainUtil.drainRequestBodyAfterRedirect(request, drainLimit);
+        LOG.info("finish bounded drain after stream load redirect, target: {}, db: {}, tbl: {}, label: {},"
+                        + " drained_bytes: {}, elapsed_ms: {}, exit_reason: {}",
+                redirectTarget, dbName, tableName, label, drainResult.getDrainedBytes(),
+                drainResult.getElapsedMillis(), drainResult.getExitReason());
     }
 
     private Backend selectBackendForGroupCommit(String clusterName, HttpServletRequest req, long tableId)
@@ -959,35 +980,13 @@ public class LoadAction extends RestBaseController {
      */
     private RedirectView redirectToStreamLoadForward(HttpServletRequest request, TNetworkAddress addr,
             String forwardTarget) {
-        URI urlObj = null;
-        URI resultUriObj = null;
-        String urlStr = request.getRequestURI();
-        String userInfo = null;
-        String modifiedPath = null;
-
-        if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
-            ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
-            userInfo = ClusterNamespace.getNameFromFullName(authInfo.fullUserName)
-                    + ":" + authInfo.password;
-        }
-        try {
-            urlObj = new URI(urlStr);
-            // Replace _stream_load with _stream_load_forward in the path
-            modifiedPath = urlObj.getPath().replace("/_stream_load", "/_stream_load_forward");
-            resultUriObj = new URI("http", userInfo, addr.getHostname(),
-                    addr.getPort(), modifiedPath, "", null);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-        String redirectUrl = resultUriObj.toASCIIString();
-
-        // Add forward_to parameter (note: toASCIIString() already includes '?' due to empty query)
+        String modifiedPath = request.getRequestURI().replace("/_stream_load", "/_stream_load_forward");
         String queryString = request.getQueryString();
+        String redirectQuery = "forward_to=" + forwardTarget;
         if (!Strings.isNullOrEmpty(queryString)) {
-            redirectUrl += queryString + "&forward_to=" + forwardTarget;
-        } else {
-            redirectUrl += "forward_to=" + forwardTarget;
+            redirectQuery = queryString + "&" + redirectQuery;
         }
+        String redirectUrl = buildRedirectUrl(request, addr, modifiedPath, redirectQuery);
 
         LOG.info("Redirect stream load forward url: {}, forward_to: {}",
                 "http://" + addr.getHostname() + ":" + addr.getPort() + modifiedPath, forwardTarget);
