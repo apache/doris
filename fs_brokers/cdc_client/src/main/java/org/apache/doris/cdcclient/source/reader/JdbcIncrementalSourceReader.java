@@ -206,9 +206,9 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
                 JdbcChunkUtils.getSplitColumn(
                         tableChange.getTable(), sourceConfig.getChunkKeyColumn());
         Class<?> targetClass = resolveSplitKeyClass(tableId, splitColumn, ftsReq);
-        Object castStart = objectMapper.convertValue(pkValues[0], targetClass);
+        Object[] castStart = convertBounds(pkValues, targetClass, objectMapper);
         int splitId = ftsReq.getNextSplitId() == null ? 0 : ftsReq.getNextSplitId();
-        return new ChunkSplitterState(tableId, ChunkBound.middleOf(castStart), splitId);
+        return new ChunkSplitterState(tableId, ChunkBound.middleOf(castStart[0]), splitId);
     }
 
     /**

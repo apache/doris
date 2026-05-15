@@ -264,10 +264,10 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
             throw new RuntimeException("Failed to resolve split column for " + tableId, e);
         }
         Class<?> targetClass = resolveSplitKeyClass(tableId, splitColumn, ftsReq);
-        Object castStart = objectMapper.convertValue(pkValues[0], targetClass);
+        Object[] castStart = convertBounds(pkValues, targetClass, objectMapper);
         int splitId = ftsReq.getNextSplitId() == null ? 0 : ftsReq.getNextSplitId();
         return new ChunkSplitterState(
-                tableId, ChunkSplitterState.ChunkBound.middleOf(castStart), splitId);
+                tableId, ChunkSplitterState.ChunkBound.middleOf(castStart[0]), splitId);
     }
 
     /**
