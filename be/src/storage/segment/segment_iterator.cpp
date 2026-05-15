@@ -68,6 +68,7 @@
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
+#include "runtime/descriptors.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
@@ -107,11 +108,113 @@
 #include "storage/utils.h"
 #include "util/concurrency_stats.h"
 #include "util/defer_op.h"
+#include "util/json/path_in_data.h"
 #include "util/simd/bits.h"
 
 namespace doris {
 using namespace ErrorCode;
 namespace segment_v2 {
+namespace {
+
+Status tablet_column_id_by_slot(const TabletSchemaSPtr& tablet_schema, const SlotDescriptor* slot,
+                                ColumnId* cid) {
+    int32_t field_index = -1;
+    if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
+        field_index = tablet_schema->field_index(
+                PathInData(tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
+                           slot->column_paths()));
+    } else {
+        field_index = slot->col_unique_id() >= 0 ? tablet_schema->field_index(slot->col_unique_id())
+                                                 : tablet_schema->field_index(slot->col_name());
+    }
+    if (field_index < 0) {
+        return Status::InternalError(
+                "field name is invalid. field={}, field_name_to_index={}, col_unique_id={}",
+                slot->col_name(), tablet_schema->get_all_field_names(), slot->col_unique_id());
+    }
+    *cid = field_index;
+    return Status::OK();
+}
+
+Status rebind_storage_expr_to_reader_schema(
+        const StorageReadOptions& opts, const VExprSPtr& expr,
+        const std::unordered_map<ColumnId, size_t>& cid_to_pos) {
+    DORIS_CHECK(expr != nullptr);
+
+    if (expr->is_slot_ref()) {
+        auto slot_ref = std::static_pointer_cast<VSlotRef>(expr);
+        auto* slot = opts.runtime_state->desc_tbl().get_slot_descriptor(slot_ref->slot_id());
+        if (slot == nullptr) {
+            return Status::InternalError("slot {} is not found in descriptor table",
+                                         slot_ref->slot_id());
+        }
+
+        ColumnId cid = 0;
+        RETURN_IF_ERROR(tablet_column_id_by_slot(opts.tablet_schema, slot, &cid));
+        auto pos_it = cid_to_pos.find(cid);
+        if (pos_it == cid_to_pos.end()) {
+            return Status::InternalError("slot {} column {} with cid {} is not in reader schema",
+                                         slot_ref->slot_id(), slot->col_name(), cid);
+        }
+        slot_ref->set_column_id(cast_set<int>(pos_it->second));
+    } else if (expr->is_virtual_slot_ref()) {
+        auto virtual_slot_ref = std::static_pointer_cast<VirtualSlotRef>(expr);
+        auto* slot =
+                opts.runtime_state->desc_tbl().get_slot_descriptor(virtual_slot_ref->slot_id());
+        if (slot == nullptr) {
+            return Status::InternalError("slot {} is not found in descriptor table",
+                                         virtual_slot_ref->slot_id());
+        }
+
+        ColumnId cid = 0;
+        RETURN_IF_ERROR(tablet_column_id_by_slot(opts.tablet_schema, slot, &cid));
+        auto pos_it = cid_to_pos.find(cid);
+        if (pos_it == cid_to_pos.end()) {
+            return Status::InternalError(
+                    "virtual slot {} column {} with cid {} is not in reader schema",
+                    virtual_slot_ref->slot_id(), slot->col_name(), cid);
+        }
+        virtual_slot_ref->set_column_id(cast_set<int>(pos_it->second));
+        RETURN_IF_ERROR(rebind_storage_expr_to_reader_schema(
+                opts, virtual_slot_ref->get_virtual_column_expr(), cid_to_pos));
+    }
+
+    for (const auto& child : expr->children()) {
+        RETURN_IF_ERROR(rebind_storage_expr_to_reader_schema(opts, child, cid_to_pos));
+    }
+    return Status::OK();
+}
+
+Status rebind_storage_exprs_to_reader_schema(const StorageReadOptions& opts, const Schema& schema,
+                                             const VExprContextSPtrs& common_exprs,
+                                             std::map<ColumnId, VExprContextSPtr>& virtual_exprs,
+                                             std::vector<VExprSPtr>* remaining_conjunct_roots) {
+    if (common_exprs.empty() && virtual_exprs.empty()) {
+        return Status::OK();
+    }
+    DORIS_CHECK(opts.runtime_state != nullptr);
+
+    // Storage exprs are prepared with the scan tuple layout, but SegmentIterator executes them on
+    // the reader schema block, whose column order may be expanded for merge/aggregation readers.
+    std::unordered_map<ColumnId, size_t> cid_to_pos;
+    for (size_t pos = 0; pos < schema.num_column_ids(); ++pos) {
+        cid_to_pos.emplace(schema.column_id(cast_set<int>(pos)), pos);
+    }
+
+    if (!common_exprs.empty()) {
+        remaining_conjunct_roots->clear();
+    }
+    for (const auto& ctx : common_exprs) {
+        RETURN_IF_ERROR(rebind_storage_expr_to_reader_schema(opts, ctx->root(), cid_to_pos));
+        remaining_conjunct_roots->emplace_back(ctx->root());
+    }
+    for (const auto& [_, ctx] : virtual_exprs) {
+        RETURN_IF_ERROR(rebind_storage_expr_to_reader_schema(opts, ctx->root(), cid_to_pos));
+    }
+    return Status::OK();
+}
+
+} // namespace
 
 SegmentIterator::~SegmentIterator() = default;
 
@@ -3189,6 +3292,9 @@ Status SegmentIterator::_construct_compound_expr_context() {
         context->set_index_context(inverted_index_context);
         expr_ctx = context;
     }
+    RETURN_IF_ERROR(rebind_storage_exprs_to_reader_schema(
+            _opts, *_schema, _common_expr_ctxs_push_down, _virtual_column_exprs,
+            &_remaining_conjunct_roots));
     return Status::OK();
 }
 
