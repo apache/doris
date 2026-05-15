@@ -17,6 +17,7 @@
 
 package org.apache.doris.filesystem.s3;
 
+import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
 
@@ -126,6 +127,47 @@ class S3FileSystemPropertiesTest {
     }
 
     @Test
+    void of_acceptsEndpointOnlyS3CompatibleConfiguration() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.endpoint", "https://minio.local");
+        raw.put("s3.access_key", "ak");
+        raw.put("s3.secret_key", "sk");
+
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+
+        Assertions.assertEquals("https://minio.local", properties.getEndpoint());
+        Assertions.assertEquals("us-east-1", properties.getRegion());
+        Assertions.assertEquals("https://minio.local", properties.toFileSystemKv().get("AWS_ENDPOINT"));
+        Assertions.assertEquals("us-east-1", properties.toFileSystemKv().get("AWS_REGION"));
+    }
+
+    @Test
+    void of_acceptsRegionOnlyS3Configuration() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.region", "us-west-2");
+        raw.put("s3.access_key", "ak");
+        raw.put("s3.secret_key", "sk");
+
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+
+        Assertions.assertEquals("us-west-2", properties.getRegion());
+        Assertions.assertEquals("https://s3.us-west-2.amazonaws.com", properties.getEndpoint());
+    }
+
+    @Test
+    void of_derivesRegionFromAwsEndpoint() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.endpoint", "https://s3.us-west-2.amazonaws.com");
+        raw.put("s3.access_key", "ak");
+        raw.put("s3.secret_key", "sk");
+
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+
+        Assertions.assertEquals("us-west-2", properties.getRegion());
+        Assertions.assertEquals("us-west-2", properties.toFileSystemKv().get("AWS_REGION"));
+    }
+
+    @Test
     void toBackendProperties_returnsLegacyAwsBackendMapForAdapters() {
         Map<String, String> raw = new HashMap<>();
         raw.put("s3.endpoint", "https://minio.local");
@@ -140,6 +182,7 @@ class S3FileSystemPropertiesTest {
                 .toBackendProperties()
                 .orElseThrow();
 
+        Assertions.assertEquals(BackendStorageKind.S3_COMPATIBLE, backend.backendKind());
         Assertions.assertEquals("https://minio.local", backend.toMap().get("AWS_ENDPOINT"));
         Assertions.assertEquals("us-west-2", backend.toMap().get("AWS_REGION"));
         Assertions.assertEquals("ak", backend.toMap().get("AWS_ACCESS_KEY"));

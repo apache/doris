@@ -26,6 +26,7 @@ import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.auth.credentials.ContainerCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.SystemPropertyCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider;
@@ -111,6 +112,7 @@ public final class S3CredentialsProviderFactory {
                 if (isContainerCredentialsConfigured()) {
                     providers.add(ContainerCredentialsProvider.class.getName());
                 }
+                providers.add(ProfileCredentialsProvider.class.getName());
                 if (includeAnonymousInDefault) {
                     providers.add(AnonymousCredentialsProvider.class.getName());
                 }
@@ -178,6 +180,7 @@ public final class S3CredentialsProviderFactory {
         }
         providers.add(EnvironmentVariableCredentialsProvider.create());
         providers.add(SystemPropertyCredentialsProvider.create());
+        providers.add(ProfileCredentialsProvider.create());
         if (includeAnonymous) {
             providers.add(AnonymousCredentialsProvider.create());
         }

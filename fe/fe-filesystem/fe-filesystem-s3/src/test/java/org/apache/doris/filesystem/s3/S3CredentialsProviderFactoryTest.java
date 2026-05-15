@@ -20,10 +20,14 @@ package org.apache.doris.filesystem.s3;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProviderChain;
 import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 
+import java.lang.reflect.Field;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 class S3CredentialsProviderFactoryTest {
@@ -66,5 +70,34 @@ class S3CredentialsProviderFactoryTest {
         AwsCredentialsProvider provider = S3CredentialsProviderFactory.createStsSourceProvider(properties);
 
         Assertions.assertInstanceOf(EnvironmentVariableCredentialsProvider.class, provider);
+    }
+
+    @Test
+    void createDefaultProviderChainIncludesProfileCredentialsProvider() {
+        AwsCredentialsProvider provider = S3CredentialsProviderFactory.create(
+                S3CredentialsProviderType.DEFAULT, true);
+
+        Assertions.assertInstanceOf(AwsCredentialsProviderChain.class, provider);
+        Assertions.assertTrue(providerClasses((AwsCredentialsProviderChain) provider)
+                .contains(ProfileCredentialsProvider.class));
+    }
+
+    @Test
+    void hadoopClassNameDefaultIncludesProfileCredentialsProvider() {
+        String className = S3CredentialsProviderFactory.hadoopClassName(
+                S3CredentialsProviderType.DEFAULT, true);
+
+        Assertions.assertTrue(className.contains(ProfileCredentialsProvider.class.getName()));
+    }
+
+    private static List<Class<?>> providerClasses(AwsCredentialsProviderChain provider) {
+        try {
+            Field field = AwsCredentialsProviderChain.class.getDeclaredField("credentialsProviders");
+            field.setAccessible(true);
+            List<?> providers = (List<?>) field.get(provider);
+            return providers.stream().map(Object::getClass).collect(java.util.stream.Collectors.toList());
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError(e);
+        }
     }
 }

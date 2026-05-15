@@ -67,6 +67,7 @@ public final class S3FileSystemProperties
     public static final String DEFAULT_REQUEST_TIMEOUT_MS = "3000";
     public static final String DEFAULT_CONNECTION_TIMEOUT_MS = "1000";
     public static final String DEFAULT_CREDENTIALS_PROVIDER_TYPE = "DEFAULT";
+    public static final String DEFAULT_REGION = "us-east-1";
 
     private static final Pattern[] ENDPOINT_PATTERNS = new Pattern[] {
             Pattern.compile(
@@ -206,11 +207,6 @@ public final class S3FileSystemProperties
                         "Unsupported s3.credentials_provider_type: " + credentialsProviderType)
                 .check(() -> StringUtils.isBlank(endpoint) && StringUtils.isBlank(region),
                         "Either s3.endpoint or s3.region must be set")
-                .check(() -> StringUtils.isBlank(region),
-                        "Region is not set. If you are using a standard endpoint, the region "
-                                + "will be detected automatically. Otherwise, please specify it explicitly.")
-                .check(() -> StringUtils.isBlank(endpoint),
-                        "Endpoint is not set. Please specify it explicitly.")
                 .validate("Invalid S3 filesystem properties");
     }
 
@@ -275,7 +271,7 @@ public final class S3FileSystemProperties
 
     @Override
     public BackendStorageKind backendKind() {
-        return BackendStorageKind.OBJECT_STORAGE;
+        return BackendStorageKind.S3_COMPATIBLE;
     }
 
     @Override
@@ -356,15 +352,19 @@ public final class S3FileSystemProperties
     }
 
     private void normalizeForLegacyS3Compatibility() {
-        if (StringUtils.isBlank(region) && StringUtils.isNotBlank(endpoint)) {
-            region = extractRegion(endpoint).orElse(region);
-        }
-        if (endpoint.contains("glue") && StringUtils.isNotBlank(region)) {
-            endpoint = "https://s3." + region + ".amazonaws.com";
-        }
         if (StringUtils.isBlank(endpoint) && StringUtils.isNotBlank(region)) {
-            endpoint = "https://s3." + region + ".amazonaws.com";
+            endpoint = buildS3Endpoint(region);
         }
+        if (StringUtils.isBlank(region) && StringUtils.isNotBlank(endpoint)) {
+            region = extractRegion(endpoint).orElse(DEFAULT_REGION);
+        }
+        if (StringUtils.containsIgnoreCase(endpoint, "glue") && StringUtils.isNotBlank(region)) {
+            endpoint = buildS3Endpoint(region);
+        }
+    }
+
+    private static String buildS3Endpoint(String region) {
+        return "https://s3." + region + ".amazonaws.com";
     }
 
     private static Optional<String> extractRegion(String endpoint) {
