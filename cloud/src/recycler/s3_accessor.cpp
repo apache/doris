@@ -58,6 +58,29 @@
 #include "recycler/sync_executor.h"
 
 namespace doris::cloud {
+namespace s3_bvar {
+bvar::LatencyRecorder s3_get_latency("s3_get");
+bvar::LatencyRecorder s3_put_latency("s3_put");
+bvar::LatencyRecorder s3_delete_object_latency("s3_delete_object");
+bvar::LatencyRecorder s3_delete_objects_latency("s3_delete_objects");
+bvar::Adder<int64_t> s3_delete_objects_success_object_count;
+bvar::Adder<int64_t> s3_delete_objects_failed_object_count;
+bvar::Window<bvar::Adder<int64_t>> s3_delete_objects_success_object_count_window(
+        "s3_delete_objects_success_object_count_1m", &s3_delete_objects_success_object_count, 10);
+bvar::Window<bvar::Adder<int64_t>> s3_delete_objects_failed_object_count_window(
+        "s3_delete_objects_failed_object_count_1m", &s3_delete_objects_failed_object_count, 10);
+bvar::LatencyRecorder s3_head_latency("s3_head");
+bvar::LatencyRecorder s3_multi_part_upload_latency("s3_multi_part_upload");
+bvar::LatencyRecorder s3_list_latency("s3_list");
+bvar::LatencyRecorder s3_list_object_versions_latency("s3_list_object_versions");
+bvar::LatencyRecorder s3_get_bucket_version_latency("s3_get_bucket_version");
+bvar::LatencyRecorder s3_copy_object_latency("s3_copy_object");
+}; // namespace s3_bvar
+
+bvar::Adder<int64_t> get_rate_limit_ns("get_rate_limit_ns");
+bvar::Adder<int64_t> get_rate_limit_exceed_req_num("get_rate_limit_exceed_req_num");
+bvar::Adder<int64_t> put_rate_limit_ns("put_rate_limit_ns");
+bvar::Adder<int64_t> put_rate_limit_exceed_req_num("put_rate_limit_exceed_req_num");
 
 AccessorRateLimiter::AccessorRateLimiter()
         : _rate_limiters({std::make_unique<S3RateLimiterHolder>(
