@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.IntLiteral;
@@ -31,16 +32,10 @@ import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
-import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -147,14 +142,8 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             } else if (type.isDatetimeV2()) {
                 return new DateTimeV2Literal(value);
             } else if (type.isTimeStampTz()) {
-                DateTimeV2Literal literal = new DateTimeV2Literal(value);
-                DateTimeV2Literal dtV2Lit = (DateTimeV2Literal) (DateTimeExtractAndTransform.convertTz(
-                        literal,
-                        new StringLiteral(ConnectContext.get().getSessionVariable().timeZone),
-                        new StringLiteral("UTC")));
-                return new TimestampTzLiteral((TimeStampTzType) DataType.fromCatalogType(type),
-                        dtV2Lit.getYear(), dtV2Lit.getMonth(), dtV2Lit.getDay(),
-                        dtV2Lit.getHour(), dtV2Lit.getMinute(), dtV2Lit.getSecond(), dtV2Lit.getMicroSecond());
+                return Literal.fromLegacyLiteral(DateLiteralUtils.createDateLiteral(
+                        normalizeTimestampTzOffset(value), type), type);
 
             }
         } catch (Exception e) {
@@ -162,6 +151,10 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         }
         throw new AnalysisException("date convert to datetime failed, "
                 + "value is [" + value + "], type is [" + type + "].");
+    }
+
+    private static String normalizeTimestampTzOffset(String value) {
+        return value.replaceFirst("\\s+([+-]\\d{2}:\\d{2})$", "$1");
     }
 
     public static PartitionKey createListPartitionKeyWithTypes(List<PartitionValue> values, List<Type> types,
