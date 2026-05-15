@@ -19,7 +19,6 @@
 
 #include <stdint.h>
 
-#include <cstring>
 #include <string>
 #include <vector>
 
@@ -39,10 +38,9 @@ namespace {
 
 __int128_t pack_murmur_hash3_128_for_test(uint64_t h1, uint64_t h2) {
     static_assert(sizeof(__int128_t) == sizeof(uint64_t) * 2);
-    uint64_t parts[2] = {h1, h2};
-    __int128_t value;
-    std::memcpy(&value, parts, sizeof(value));
-    return value;
+    const auto value =
+            (static_cast<unsigned __int128>(h2) << 64) | static_cast<unsigned __int128>(h1);
+    return static_cast<__int128_t>(value);
 }
 
 __int128_t murmur_hash3_128_for_test(const std::vector<std::string>& values) {

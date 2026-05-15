@@ -20,8 +20,6 @@
 
 #include "exprs/function/function_hash.h"
 
-#include <cstring>
-
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -159,6 +157,8 @@ struct MurmurHash3128Impl {
                           IColumn& col_to) {
         auto& to_column = assert_cast<ColumnVector<TYPE_LARGEINT>&>(col_to);
         if constexpr (first) {
+            // The first argument initializes one 128-bit hash state per row. Later arguments reuse
+            // the same result column and update the saved state in place.
             to_column.insert_many_defaults(input_rows_count);
         }
         auto& col_to_data = to_column.get_data();
@@ -168,15 +168,25 @@ struct MurmurHash3128Impl {
             size_t size = offsets.size();
             ColumnString::Offset current_offset = 0;
             for (size_t i = 0; i < size; ++i) {
-                update_hash(col_to_data[i], reinterpret_cast<const char*>(&data[current_offset]),
-                            offsets[i] - current_offset);
+                if constexpr (first) {
+                    init_hash(col_to_data[i], reinterpret_cast<const char*>(&data[current_offset]),
+                              offsets[i] - current_offset);
+                } else {
+                    update_hash(col_to_data[i],
+                                reinterpret_cast<const char*>(&data[current_offset]),
+                                offsets[i] - current_offset);
+                }
                 current_offset = offsets[i];
             }
         } else if (const ColumnConst* col_from_const =
                            check_and_get_column_const_string_or_fixedstring(column)) {
             auto value = col_from_const->get_value<TYPE_STRING>();
             for (size_t i = 0; i < input_rows_count; ++i) {
-                update_hash(col_to_data[i], value.data(), value.size());
+                if constexpr (first) {
+                    init_hash(col_to_data[i], value.data(), value.size());
+                } else {
+                    update_hash(col_to_data[i], value.data(), value.size());
+                }
             }
         } else {
             DCHECK(false);
@@ -189,23 +199,33 @@ struct MurmurHash3128Impl {
 private:
     static __int128_t pack_hash(uint64_t h1, uint64_t h2) {
         static_assert(sizeof(__int128_t) == sizeof(uint64_t) * 2);
-        uint64_t parts[2] = {h1, h2};
-        __int128_t value;
-        std::memcpy(&value, parts, sizeof(value));
-        return value;
+        // Store the two MurmurHash3 x64 128-bit lanes in a single LARGEINT value. Keep h1 in the
+        // low 64 bits and h2 in the high 64 bits to match murmur_hash3_x64_128's out[0]/out[1].
+        const auto value =
+                (static_cast<unsigned __int128>(h2) << 64) | static_cast<unsigned __int128>(h1);
+        return static_cast<__int128_t>(value);
     }
 
     static void unpack_hash(__int128_t value, uint64_t& h1, uint64_t& h2) {
         static_assert(sizeof(__int128_t) == sizeof(uint64_t) * 2);
-        uint64_t parts[2];
-        std::memcpy(parts, &value, sizeof(value));
-        h1 = parts[0];
-        h2 = parts[1];
+        const auto unsigned_value = static_cast<unsigned __int128>(value);
+        h1 = static_cast<uint64_t>(unsigned_value);
+        h2 = static_cast<uint64_t>(unsigned_value >> 64);
+    }
+
+    static void init_hash(__int128_t& value, const void* data, size_t size) {
+        uint64_t hash[2] = {0, 0};
+        // The first SQL argument starts from seed 0, so it can use the existing 128-bit primitive
+        // directly. Later arguments must use update_hash() to continue from the saved (h1, h2).
+        murmur_hash3_x64_128(data, static_cast<int>(size), 0, hash);
+        value = pack_hash(hash[0], hash[1]);
     }
 
     static void update_hash(__int128_t& value, const void* data, size_t size) {
         uint64_t h1 = 0;
         uint64_t h2 = 0;
+        // Variadic hash functions feed each argument with the previous argument's hash state.
+        // For 128-bit MurmurHash3 that state is the pair (h1, h2), packed in the LARGEINT column.
         unpack_hash(value, h1, h2);
         murmur_hash3_x64_process(data, static_cast<int>(size), h1, h2);
         value = pack_hash(h1, h2);
