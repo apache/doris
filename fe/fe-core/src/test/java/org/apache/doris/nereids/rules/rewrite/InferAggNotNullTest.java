@@ -19,7 +19,9 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
@@ -47,6 +49,62 @@ class InferAggNotNullTest implements MemoPatternMatchSupported {
                         logicalAggregate(
                                 logicalFilter().when(filter -> filter.getConjuncts().stream()
                                         .allMatch(e -> ((Not) e).isGeneratedIsNotNull()))
+                        )
+                );
+    }
+
+    @Test
+    void testInferMultipleAggregateSameInput() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .aggGroupUsingIndex(ImmutableList.of(),
+                        ImmutableList.of(
+                                new Alias(new Avg(scan1.getOutput().get(1)), "avg_k"),
+                                new Alias(new Sum(scan1.getOutput().get(1)), "sum_k")))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new InferAggNotNull())
+                .matches(
+                        logicalAggregate(
+                                logicalFilter().when(filter -> filter.getConjuncts().size() == 1
+                                        && filter.getConjuncts().stream()
+                                        .allMatch(e -> ((Not) e).isGeneratedIsNotNull()))
+                        )
+                );
+    }
+
+    @Test
+    void testNotInferMultipleAggregateDifferentInputs() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .aggGroupUsingIndex(ImmutableList.of(),
+                        ImmutableList.of(
+                                new Alias(new Avg(scan1.getOutput().get(1)), "avg_k1"),
+                                new Alias(new Sum(scan1.getOutput().get(2)), "sum_k2")))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new InferAggNotNull())
+                .matches(
+                        logicalAggregate(
+                                logicalOlapScan()
+                        )
+                );
+    }
+
+    @Test
+    void testNotInferMultipleAggregateWithCountStar() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .aggGroupUsingIndex(ImmutableList.of(),
+                        ImmutableList.of(
+                                new Alias(new Avg(scan1.getOutput().get(1)), "avg_k"),
+                                new Alias(new Count(), "count_star")))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new InferAggNotNull())
+                .matches(
+                        logicalAggregate(
+                                logicalOlapScan()
                         )
                 );
     }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -35,31 +36,28 @@ import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableSet;
 
+import java.util.ArrayDeque;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * InferNotNull from Agg count(distinct);
  */
 public class InferAggNotNull extends OneRewriteRuleFactory {
+    private static final int MAX_INFER_NOT_NULL_EXPR_WIDTH = 256;
+    private static final int MAX_INFER_NOT_NULL_EXPR_DEPTH = 64;
+    private static final int MAX_INFER_NOT_NULL_INPUT_SLOTS = 32;
+
     @Override
     public Rule build() {
         return logicalAggregate()
                 .when(agg -> agg.getGroupByExpressions().size() == 0)
-                .when(agg -> agg.getAggregateFunctions().size() == 1)
-                .when(agg -> {
-                    Set<AggregateFunction> funcs = agg.getAggregateFunctions();
-                    return funcs.stream().allMatch(f -> f instanceof Count)
-                            || funcs.stream().allMatch(f -> f instanceof Avg)
-                            || funcs.stream().allMatch(f -> f instanceof Sum)
-                            || funcs.stream().allMatch(f -> f instanceof Max)
-                            || funcs.stream().allMatch(f -> f instanceof Min);
-                }).thenApply(ctx -> {
+                .thenApply(ctx -> {
                     LogicalAggregate<Plan> agg = ctx.root;
-                    Set<Expression> exprs = agg.getAggregateFunctions().stream().flatMap(f -> f.children().stream())
-                            .collect(Collectors.toSet());
-                    Set<Expression> isNotNulls = ExpressionUtils.inferNotNull(exprs, ctx.cascadesContext);
+                    Set<AggregateFunction> aggregateFunctions = collectAggregateFunctions(agg);
+                    Set<Expression> isNotNulls = inferCommonNotNulls(aggregateFunctions, ctx.cascadesContext);
                     Set<Expression> predicates = Collections.emptySet();
                     if ((agg.child() instanceof Filter)) {
                         predicates = ((Filter) agg.child()).getConjuncts();
@@ -79,5 +77,91 @@ public class InferAggNotNull extends OneRewriteRuleFactory {
                     }
                     return agg.withChildren(PlanUtils.filter(needGenerateNotNulls, agg.child()).get());
                 }).toRule(RuleType.INFER_AGG_NOT_NULL);
+    }
+
+    private Set<AggregateFunction> collectAggregateFunctions(LogicalAggregate<Plan> agg) {
+        ImmutableSet.Builder<AggregateFunction> aggregateFunctions = ImmutableSet.builder();
+        for (Expression outputExpression : agg.getOutputExpressions()) {
+            collectAggregateFunctions(outputExpression, aggregateFunctions);
+        }
+        return aggregateFunctions.build();
+    }
+
+    private void collectAggregateFunctions(
+            Expression expression, ImmutableSet.Builder<AggregateFunction> aggregateFunctions) {
+        ArrayDeque<Expression> expressions = new ArrayDeque<>();
+        expressions.push(expression);
+        while (!expressions.isEmpty()) {
+            Expression current = expressions.pop();
+            if (current instanceof AggregateFunction) {
+                aggregateFunctions.add((AggregateFunction) current);
+                continue;
+            }
+            for (Expression child : current.children()) {
+                expressions.push(child);
+            }
+        }
+    }
+
+    private Set<Expression> inferCommonNotNulls(
+            Set<AggregateFunction> aggregateFunctions, CascadesContext cascadesContext) {
+        if (aggregateFunctions.isEmpty()) {
+            return Collections.emptySet();
+        }
+        for (AggregateFunction aggregateFunction : aggregateFunctions) {
+            if (!canInferFunctionNotNull(aggregateFunction)) {
+                return Collections.emptySet();
+            }
+        }
+        Set<Expression> commonNotNulls = null;
+        for (AggregateFunction aggregateFunction : aggregateFunctions) {
+            Set<Expression> functionNotNulls = inferFunctionNotNulls(aggregateFunction, cascadesContext);
+            if (functionNotNulls.isEmpty()) {
+                return Collections.emptySet();
+            }
+            if (commonNotNulls == null) {
+                commonNotNulls = new HashSet<>(functionNotNulls);
+            } else {
+                commonNotNulls.retainAll(functionNotNulls);
+                if (commonNotNulls.isEmpty()) {
+                    return Collections.emptySet();
+                }
+            }
+        }
+        return commonNotNulls == null ? Collections.emptySet() : commonNotNulls;
+    }
+
+    private Set<Expression> inferFunctionNotNulls(
+            AggregateFunction aggregateFunction, CascadesContext cascadesContext) {
+        return ExpressionUtils.inferNotNull(ImmutableSet.copyOf(aggregateFunction.children()), cascadesContext);
+    }
+
+    private boolean canInferFunctionNotNull(AggregateFunction aggregateFunction) {
+        return isSupportedAggregateFunction(aggregateFunction)
+                && !aggregateFunction.children().isEmpty()
+                && isCheapEnoughToInferNotNull(aggregateFunction.children());
+    }
+
+    private boolean isSupportedAggregateFunction(AggregateFunction aggregateFunction) {
+        return aggregateFunction instanceof Count
+                || aggregateFunction instanceof Avg
+                || aggregateFunction instanceof Sum
+                || aggregateFunction instanceof Max
+                || aggregateFunction instanceof Min;
+    }
+
+    private boolean isCheapEnoughToInferNotNull(List<Expression> expressions) {
+        Set<Expression> inputSlots = new HashSet<>();
+        for (Expression expression : expressions) {
+            if (expression.getWidth() > MAX_INFER_NOT_NULL_EXPR_WIDTH
+                    || expression.getDepth() > MAX_INFER_NOT_NULL_EXPR_DEPTH) {
+                return false;
+            }
+            inputSlots.addAll(expression.getInputSlots());
+            if (inputSlots.size() > MAX_INFER_NOT_NULL_INPUT_SLOTS) {
+                return false;
+            }
+        }
+        return true;
     }
 }
