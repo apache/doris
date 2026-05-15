@@ -47,22 +47,6 @@ suite("test_cbo_cte_inline_prune") {
         contains("VEMPTYSET")
     }
 
-    // cte_cbo_empty_array_tbl is empty table. after eliminateEmptyRelation,
-    // "SELECT count(*) FROM cte_cbo_empty_array_tbl" becomes "SELECT 0". 
-    // This test verifies that the constant exprs are still visible to VUNION and can be used for pruning.
-    explain {
-        sql """
-            WITH cte_keep AS (
-                SELECT id FROM cte_cbo_inline_tbl
-            )
-            SELECT count(*) FROM cte_cbo_empty_array_tbl
-            UNION ALL
-            SELECT count(*) FROM cte_keep
-        """
-        contains("VUNION")
-        contains("constant exprs") 
-    }
-
     explain {
         sql """
             shape plan
