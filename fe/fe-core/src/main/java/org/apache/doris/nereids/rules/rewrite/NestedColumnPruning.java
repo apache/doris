@@ -463,6 +463,19 @@ public class NestedColumnPruning implements CustomRewriter {
         return OffsetPathRewrite.rewriteWithSupplementalPaths(supplementalPaths);
     }
 
+    /**
+     * Remove OFFSET-only paths from {@code targetAccessPaths} when data paths in
+     * {@code coveringAccessPaths} already read the same array/map/string container or a child
+     * under it.
+     *
+     * <p>Examples:
+     * <ul>
+     *   <li>{@code [arr.OFFSET, arr.*.field]} becomes {@code [arr.*.field]} because the array
+     *       child read must keep BE on the normal data iterator path.</li>
+     *   <li>{@code [map.*.OFFSET, map.VALUES]} becomes {@code [map.KEYS, map.VALUES]} because
+     *       {@code map['k']} still needs full keys for lookup, while values cover the offset.</li>
+     * </ul>
+     */
     private static void stripCoveredOffsetSuffixPaths(
             Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths,
             Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> coveringAccessPaths) {
@@ -505,6 +518,19 @@ public class NestedColumnPruning implements CustomRewriter {
         targetPaths.addAll(pathsToAdd);
     }
 
+    /**
+     * Remove array NULL-only paths from {@code targetAccessPaths} when another path already reads
+     * the same array container or data under it. This mirrors OFFSET coverage because an array
+     * element/data read must not be combined with an array NULL_MAP_ONLY read for the same prefix.
+     *
+     * <p>Examples:
+     * <ul>
+     *   <li>{@code [map.VALUES.NULL, map.VALUES.*.field]} becomes
+     *       {@code [map.VALUES.*.field]}.</li>
+     *   <li>{@code [map.*.NULL, map.VALUES.*.field]} becomes
+     *       {@code [map.KEYS, map.VALUES.*.field]} so map lookup keys are still available.</li>
+     * </ul>
+     */
     private static void stripCoveredArrayNullSuffixPaths(
             Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths,
             Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> coveringAccessPaths) {
@@ -553,6 +579,18 @@ public class NestedColumnPruning implements CustomRewriter {
         targetPaths.addAll(pathsToAdd);
     }
 
+    /**
+     * Remove exact metadata-only NULL/OFFSET paths when the same field is read in full.
+     * This rule is type-agnostic: once {@code s} itself is accessed, {@code s.NULL} and
+     * {@code s.OFFSET} are redundant and unsafe to keep with the full data path.
+     *
+     * <p>Examples:
+     * <ul>
+     *   <li>{@code [str_col, str_col.NULL]} becomes {@code [str_col]}.</li>
+     *   <li>{@code [arr, arr.OFFSET]} becomes {@code [arr]}.</li>
+     *   <li>{@code [map.*, map.*.OFFSET]} becomes {@code [map.*]}.</li>
+     * </ul>
+     */
     private static void stripExactCoveredDataSkippingSuffixPaths(
             Slot slot, Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> targetAccessPaths,
             Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> coveringAccessPaths) {
@@ -738,7 +776,14 @@ public class NestedColumnPruning implements CustomRewriter {
      * Strip NULL-suffix paths that are redundant because a non-NULL path reads child
      * data below the same prefix or reads an OFFSET path over the same prefix.
      *
-     * A parent NULL path must also be removed when any child path is required under the
+     * <p>Examples:
+     * <ul>
+     *   <li>{@code [struct_col.NULL, struct_col.city]} becomes {@code [struct_col.city]}.</li>
+     *   <li>{@code [str_col.NULL, str_col.OFFSET]} becomes {@code [str_col.OFFSET]} because
+     *       the offset read can provide nullness for variable-length columns.</li>
+     * </ul>
+     *
+     * <p>A parent NULL path must also be removed when any child path is required under the
      * same prefix, e.g. [struct_col, NULL] with [struct_col, city]. This looks like the
      * parent null map may still be useful for predicates, but it cannot be kept in
      * allAccessPaths with the current BE iterator contract: Struct/Array/Map iterators
@@ -799,6 +844,20 @@ public class NestedColumnPruning implements CustomRewriter {
         }
     }
 
+    /**
+     * Keep predicate access paths as a subset of final all access paths after NULL/OFFSET cleanup.
+     * Predicate paths are built from filter expressions first, but later all-path rewrites may drop
+     * metadata-only paths. Any predicate path not present in all paths must be removed before sending
+     * access info to BE.
+     *
+     * <p>Examples:
+     * <ul>
+     *   <li>All paths {@code [s.city]}, predicate paths {@code [s.NULL]} becomes no predicate
+     *       paths after parent NULL removal.</li>
+     *   <li>All paths {@code [s.city.NULL, s.zip]}, predicate paths
+     *       {@code [s.NULL, s.city.NULL]} becomes {@code [s.city.NULL]}.</li>
+     * </ul>
+     */
     private static void retainPredicatePathsInAllAccessPaths(
             Slot slot,
             Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> predicateAccessPaths,
