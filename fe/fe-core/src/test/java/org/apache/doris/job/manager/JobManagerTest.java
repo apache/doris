@@ -31,6 +31,7 @@ import com.google.common.collect.Sets;
 import mockit.Expectations;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.util.HashSet;
