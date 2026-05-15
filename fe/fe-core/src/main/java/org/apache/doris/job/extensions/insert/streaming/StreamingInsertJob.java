@@ -885,6 +885,24 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         super.onReplayCreate();
     }
 
+    public String getLag() {
+        return offsetProvider != null ? offsetProvider.getLag() : "";
+    }
+
+    // Numeric lag for metrics. Returns -1 when lag is not applicable (S3, snapshot phase)
+    // or unparseable, so dashboards can filter N/A jobs via lag >= 0.
+    public long getLagSeconds() {
+        String lagStr = getLag();
+        if (lagStr == null || lagStr.isEmpty()) {
+            return -1L;
+        }
+        try {
+            return Long.parseLong(lagStr);
+        } catch (NumberFormatException e) {
+            return -1L;
+        }
+    }
+
     /**
      * Because the offset statistics of the streamingInsertJob are all stored in txn,
      * only some fields are replayed here.
