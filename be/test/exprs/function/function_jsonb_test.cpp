@@ -186,6 +186,24 @@ TEST(FunctionJsonbTEST, JsonbParseErrorToValueTest) {
     ASSERT_EQ(st.code(), ErrorCode::INVALID_ARGUMENT) << st.to_string();
 }
 
+TEST(FunctionJsonbTEST, JsonValidStrictTest) {
+    std::string func_name = "json_valid";
+    InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_VARCHAR}};
+
+    DataSet data_set = {
+            {{Null()}, Null()},
+            {{STRING("not")}, INT(0)},
+            {{STRING("not json")}, INT(0)},
+            {{STRING("null junk")}, INT(0)},
+            {{STRING(R"({"a":1} junk)")}, INT(0)},
+            {{STRING("null")}, INT(1)},
+            {{STRING("true")}, INT(1)},
+            {{STRING(R"({"a":1})")}, INT(1)},
+    };
+
+    static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
+}
+
 TEST(FunctionJsonbTEST, JsonbExtractTest) {
     std::string func_name = "jsonb_extract";
     InputTypeSet input_types = {PrimitiveType::TYPE_JSONB, PrimitiveType::TYPE_VARCHAR};

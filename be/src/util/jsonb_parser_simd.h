@@ -93,6 +93,29 @@ struct JsonbParser {
             simdjson::padded_string json_str {pch, len};
             simdjson::ondemand::document doc = simdjson_parser.iterate(json_str);
 
+            auto is_json_whitespace = [](char c) {
+                return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+            };
+            const char* json_begin = json_str.data();
+            const char* json_end = json_str.data() + len;
+            while (json_begin < json_end && is_json_whitespace(*json_begin)) {
+                ++json_begin;
+            }
+            while (json_end > json_begin && is_json_whitespace(*(json_end - 1))) {
+                --json_end;
+            }
+
+            std::string_view raw_json;
+            simdjson::error_code raw_res = doc.raw_json().get(raw_json);
+            if (raw_res != simdjson::SUCCESS) {
+                return Status::InvalidArgument(fmt::format("simdjson raw_json failed: {}",
+                                                           simdjson::error_message(raw_res)));
+            }
+            if (raw_json.data() != json_begin || raw_json.data() + raw_json.size() != json_end) {
+                return Status::InvalidArgument("simdjson parse exception: trailing content");
+            }
+            doc.rewind();
+
             // simdjson process top level primitive types specially
             // so some repeated code here
             switch (doc.type()) {
@@ -102,6 +125,12 @@ struct JsonbParser {
                 break;
             }
             case simdjson::ondemand::json_type::null: {
+                bool is_null = false;
+                simdjson::error_code res = doc.is_null().get(is_null);
+                if (res != simdjson::SUCCESS || !is_null) {
+                    return Status::InvalidArgument(fmt::format("simdjson get null failed: {}",
+                                                               simdjson::error_message(res)));
+                }
                 if (writer.writeNull() == 0) {
                     return Status::InvalidArgument("writeNull failed");
                 }
@@ -129,6 +158,9 @@ struct JsonbParser {
                         write_number(num, doc.get_number_type(), doc.raw_json_token(), writer));
                 break;
             }
+            }
+            if (!doc.at_end()) {
+                return Status::InvalidArgument("simdjson parse exception: trailing content");
             }
         } catch (simdjson::simdjson_error& e) {
             return Status::InvalidArgument(fmt::format("simdjson parse exception: {}", e.what()));

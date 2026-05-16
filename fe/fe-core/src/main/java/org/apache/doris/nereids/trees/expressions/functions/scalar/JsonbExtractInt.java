@@ -80,6 +80,8 @@ public class JsonbExtractInt extends ScalarFunction
     @Override
     public Expression rewriteWhenAnalyze() {
         JsonbExtract jsonExtract = new JsonbExtract(children.get(0), children.get(1));
+        // Keep the historical JSON typed-extract behavior: extract JSONB first and then use the
+        // normal cast rules, so convertible mismatched JSON values are allowed by design.
         return new Cast(jsonExtract, IntegerType.INSTANCE, false);
     }
 }
