@@ -219,7 +219,10 @@ TReportExecStatusParams RuntimeQueryStatisticsMgr::create_report_exec_status_par
     TReportExecStatusParams req;
     THRIFT_MOVE_VALUES(req, query_profile, profile);
     req.__set_backend_id(ExecEnv::GetInstance()->cluster_info()->backend_id);
-    req.__set_query_id(query_id);
+    // This RPC is profile-only: the real query id is carried in query_profile.query_id.
+    // Keep the top-level query id invalid so old FEs do not route this status-less
+    // report into updateFragmentExecStatus(), which expects params.status.
+    req.__set_query_id(TUniqueId());
     req.__set_done(is_done);
 
     return req;
