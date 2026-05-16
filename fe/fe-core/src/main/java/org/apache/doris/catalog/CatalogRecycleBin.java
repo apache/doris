@@ -34,6 +34,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -56,6 +57,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.LongSupplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -66,6 +68,14 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     private static final long minEraseLatency = 10 * 60 * 1000;  // 10 min
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+
+    // Injectable clock source, defaults to system clock, add transient to avoid deserialization failure
+    private transient LongSupplier clock = System::currentTimeMillis;
+
+    @VisibleForTesting
+    public void setClock(LongSupplier clock) {
+        this.clock = clock;
+    }
 
     private void readLock() {
         lock.readLock().lock();
@@ -189,7 +199,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 // The 'force drop' database should be recycle immediately.
                 recycleTime = 0;
             } else if (!isReplay || replayRecycleTime == 0) {
-                recycleTime = System.currentTimeMillis();
+                recycleTime = clock.getAsLong();
             } else {
                 recycleTime = replayRecycleTime;
             }
@@ -218,7 +228,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 // The 'force drop' table should be recycle immediately.
                 recycleTime = 0;
             } else if (!isReplay || replayRecycleTime == 0) {
-                recycleTime = System.currentTimeMillis();
+                recycleTime = clock.getAsLong();
             } else {
                 recycleTime = replayRecycleTime;
             }
@@ -247,7 +257,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             // recycle partition
             RecyclePartitionInfo partitionInfo = new RecyclePartitionInfo(dbId, tableId, partition,
                     range, listPartitionItem, dataProperty, replicaAlloc, isInMemory, isMutable);
-            idToRecycleTime.put(partition.getId(), System.currentTimeMillis());
+            idToRecycleTime.put(partition.getId(), clock.getAsLong());
             idToPartition.put(partition.getId(), partitionInfo);
             dbTblIdPartitionNameToIds.computeIfAbsent(Pair.of(dbId, tableId), k -> new ConcurrentHashMap<>())
                     .computeIfAbsent(partition.getName(), k -> ConcurrentHashMap.newKeySet()).add(partition.getId());
@@ -291,7 +301,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 && latency > Config.catalog_trash_expire_second * 1000L;
     }
 
-    private void eraseDatabase(long currentTimeMs, int keepNum) {
+    protected void eraseDatabase(long currentTimeMs, int keepNum) {
         int eraseNum = 0;
         StopWatch watch = StopWatch.createStarted();
         try {
@@ -316,6 +326,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                     if (dbInfo == null) {
                         continue;
                     }
+                    eraseTablesForDatabase(dbInfo);
                     Database db = dbInfo.getDb();
                     idToRecycleTime.remove(dbId);
 
@@ -405,6 +416,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             }
 
             Table table = tableInfo.getTable();
+            erasePartitionsForTable(table.getId());
             if (table.isManagedTable()) {
                 Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false);
             }
@@ -442,7 +454,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
     }
 
-    private void eraseTable(long currentTimeMs, int keepNum) {
+    protected void eraseTable(long currentTimeMs, int keepNum) {
         int eraseNum = 0;
         StopWatch watch = StopWatch.createStarted();
         try {
@@ -467,6 +479,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                     if (tableInfo == null) {
                         continue;
                     }
+                    erasePartitionsForTable(tableId);
                     Table table = tableInfo.getTable();
                     if (table.isManagedTable()) {
                         Env.getCurrentEnv().onEraseOlapTable(tableInfo.dbId, (OlapTable) table, false);
@@ -525,6 +538,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 if (tableInfo == null || !isExpireMinLatency(tableId, currentTimeMs)) {
                     continue;
                 }
+                erasePartitionsForTable(tableId);
                 Table table = tableInfo.getTable();
                 if (table.isManagedTable()) {
                     Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false);
@@ -574,7 +588,124 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
     }
 
-    private void erasePartition(long currentTimeMs, int keepNum) {
+    /**
+     * Erase all partitions belonging to the given table.
+     * This handles partitions that were not expired when erasePartition() collected
+     * its expired IDs, but became expired later due to time advancement during processing.
+     *
+     * <p>This method acquires its own locks with fine granularity:
+     * <ul>
+     *   <li>Read lock to collect partition IDs</li>
+     *   <li>Write lock for each individual partition cleanup</li>
+     * </ul>
+     *
+     * @param tableId the table ID whose partitions need to be erased
+     */
+    private void erasePartitionsForTable(long tableId) {
+        // 1. Collect orphan partition IDs under read lock (fast, non-blocking)
+        List<Long> partitionIds = new ArrayList<>();
+        readLock();
+        try {
+            for (Map.Entry<Long, RecyclePartitionInfo> entry : idToPartition.entrySet()) {
+                if (entry.getValue().getTableId() == tableId) {
+                    partitionIds.add(entry.getKey());
+                }
+            }
+        } finally {
+            readUnlock();
+        }
+
+        // 2. Clean each orphan partition with individual write lock (fine granularity)
+        for (Long partitionId : partitionIds) {
+            writeLock();
+            try {
+                RecyclePartitionInfo pInfo = idToPartition.remove(partitionId);
+                if (pInfo == null) {
+                    continue;
+                }
+                Partition partition = pInfo.getPartition();
+                Env.getCurrentEnv().onErasePartition(partition);
+                idToRecycleTime.remove(partitionId);
+
+                dbTblIdPartitionNameToIds.computeIfPresent(
+                        Pair.of(pInfo.getDbId(), pInfo.getTableId()), (pair, partitionMap) -> {
+                            partitionMap.computeIfPresent(partition.getName(), (name, idSet) -> {
+                                idSet.remove(partitionId);
+                                return idSet.isEmpty() ? null : idSet;
+                            });
+                            return partitionMap.isEmpty() ? null : partitionMap;
+                        });
+
+                Env.getCurrentEnv().getEditLog().logErasePartition(partitionId);
+                LOG.info("erase orphan partition[{}] when erasing table[{}]", partitionId, tableId);
+            } finally {
+                writeUnlock();
+            }
+        }
+    }
+
+    /**
+     * Erase all tables belonging to the given database.
+     * This handles tables that were not expired when eraseTable() collected
+     * its expired IDs, but became expired later due to time advancement during processing.
+     *
+     * <p>This method acquires its own locks with fine granularity:
+     * <ul>
+     *   <li>Read lock to collect table IDs</li>
+     *   <li>For each table, erase its partitions then erase the table itself</li>
+     * </ul>
+     *
+     * @param dbInfo the RecycleDatabaseInfo containing the database and its table metadata
+     */
+    private void eraseTablesForDatabase(RecycleDatabaseInfo dbInfo) {
+        long dbId = dbInfo.getDb().getId();
+
+        // 1. Collect orphan table IDs under read lock
+        List<Long> tableIds = new ArrayList<>();
+        readLock();
+        try {
+            for (Map.Entry<Long, RecycleTableInfo> entry : idToTable.entrySet()) {
+                RecycleTableInfo tableInfo = entry.getValue();
+                if (tableInfo.getDbId() == dbId) {
+                    tableIds.add(entry.getKey());
+                }
+            }
+        } finally {
+            readUnlock();
+        }
+
+        // 2. Clean each orphan table with individual write lock
+        for (Long tableId : tableIds) {
+            // Clean up orphan partitions of this table BEFORE cleaning the table itself
+            erasePartitionsForTable(tableId);
+
+            // Clean the table itself
+            writeLock();
+            try {
+                RecycleTableInfo tableInfo = idToTable.remove(tableId);
+                if (tableInfo == null) {
+                    continue;
+                }
+                Table table = tableInfo.getTable();
+                if (table.isManagedTable()) {
+                    Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false);
+                }
+                idToRecycleTime.remove(tableId);
+
+                dbIdTableNameToIds.computeIfPresent(Pair.of(dbId, table.getName()), (k, v) -> {
+                    v.remove(tableId);
+                    return v.isEmpty() ? null : v;
+                });
+
+                Env.getCurrentEnv().getEditLog().logEraseTable(tableId);
+                LOG.info("erase orphan table[{}] when erasing db[{}]", tableId, dbId);
+            } finally {
+                writeUnlock();
+            }
+        }
+    }
+
+    protected void erasePartition(long currentTimeMs, int keepNum) {
         int eraseNum = 0;
         StopWatch watch = StopWatch.createStarted();
         try {
@@ -1393,13 +1524,14 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
     @Override
     protected void runAfterCatalogReady() {
-        long currentTimeMs = System.currentTimeMillis();
         // should follow the partition/table/db order
         // in case of partition(table) is still in recycle bin but table(db) is missing
+        // Each erase method gets its own currentTimeMs to avoid using a stale timestamp,
+        // since previous erase operations may take significant time.
         int keepNum = Config.max_same_name_catalog_trash_num;
-        erasePartition(currentTimeMs, keepNum);
-        eraseTable(currentTimeMs, keepNum);
-        eraseDatabase(currentTimeMs, keepNum);
+        erasePartition(clock.getAsLong(), keepNum);
+        eraseTable(clock.getAsLong(), keepNum);
+        eraseDatabase(clock.getAsLong(), keepNum);
     }
 
     public List<List<String>> getInfo() {

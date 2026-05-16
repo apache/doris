@@ -28,6 +28,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
@@ -43,12 +44,15 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
@@ -56,6 +60,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.LongSupplier;
 import java.util.stream.Collectors;
 
 public class CatalogRecycleBinTest {
@@ -93,7 +98,7 @@ public class CatalogRecycleBinTest {
                 CatalogTestUtil.testIndexId1,
                 CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testStartVersion
-            );
+        );
 
         Set<String> tableNames = Sets.newHashSet(CatalogTestUtil.testTable1);
         Set<Long> tableIds = Sets.newHashSet(CatalogTestUtil.testTableId1);
@@ -189,7 +194,8 @@ public class CatalogRecycleBinTest {
                 URI.create("file:///tmp/recycled_py_udf.py"),
                 "evaluate",
                 null,
-                null);
+                null
+        );
         function.setRuntimeVersion("3.8");
         function.setFunctionCode("def evaluate(x):\n    return x + 1\n");
         function.setNullableMode(NullableMode.ALWAYS_NULLABLE);
@@ -225,7 +231,7 @@ public class CatalogRecycleBinTest {
                 CatalogTestUtil.testIndexId1,
                 CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testStartVersion
-            );
+        );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
         Assert.assertTrue(table.isPresent());
@@ -250,7 +256,7 @@ public class CatalogRecycleBinTest {
                 CatalogTestUtil.testIndexId1,
                 CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testStartVersion
-            );
+        );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
         Assert.assertTrue(table.isPresent());
@@ -282,7 +288,7 @@ public class CatalogRecycleBinTest {
                 CatalogTestUtil.testIndexId1,
                 CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testStartVersion
-            );
+        );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
         Assert.assertTrue(table.isPresent());
@@ -302,7 +308,7 @@ public class CatalogRecycleBinTest {
                 new ReplicaAllocation((short) 3),
                 false,
                 false
-            );
+        );
         Assert.assertTrue(result);
         Assert.assertTrue(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1, CatalogTestUtil.testPartitionId1));
 
@@ -317,7 +323,7 @@ public class CatalogRecycleBinTest {
                 new ReplicaAllocation((short) 3),
                 false,
                 false
-            );
+        );
         // test recycling same partition again should fail
         Assert.assertFalse(result);
     }
@@ -370,7 +376,7 @@ public class CatalogRecycleBinTest {
                 new ReplicaAllocation((short) 3),
                 false,
                 false
-            );
+        );
         Assert.assertTrue(result);
         Assert.assertTrue(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1, recyclePartitionNum));
 
@@ -416,7 +422,7 @@ public class CatalogRecycleBinTest {
                 CatalogTestUtil.testIndexId1,
                 CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testStartVersion
-            );
+        );
 
         Set<String> tableNames = db.getTableNames();
         Set<Long> tableIds = Sets.newHashSet(db.getTableIds());
@@ -447,7 +453,7 @@ public class CatalogRecycleBinTest {
                 CatalogTestUtil.testIndexId1,
                 CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testStartVersion
-            );
+        );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
         Assert.assertTrue(table.isPresent());
@@ -471,7 +477,7 @@ public class CatalogRecycleBinTest {
                 CatalogTestUtil.testIndexId1,
                 CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testStartVersion
-            );
+        );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
         Assert.assertTrue(table.isPresent());
@@ -509,7 +515,7 @@ public class CatalogRecycleBinTest {
                 CatalogTestUtil.testIndexId1,
                 CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testStartVersion
-            );
+        );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
         Assert.assertTrue(table.isPresent());
@@ -555,7 +561,7 @@ public class CatalogRecycleBinTest {
                 CatalogTestUtil.testIndexId1,
                 CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testStartVersion
-            );
+        );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
         Assert.assertTrue(table.isPresent());
@@ -604,7 +610,7 @@ public class CatalogRecycleBinTest {
                 CatalogTestUtil.testIndexId1,
                 CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testStartVersion
-            );
+        );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
         Assert.assertTrue(table.isPresent());
@@ -629,7 +635,7 @@ public class CatalogRecycleBinTest {
                 CatalogTestUtil.testIndexId1,
                 CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testStartVersion
-            );
+        );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
         Assert.assertTrue(table.isPresent());
@@ -668,7 +674,7 @@ public class CatalogRecycleBinTest {
                 CatalogTestUtil.testIndexId1,
                 CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testStartVersion
-            );
+        );
 
         Set<String> tableNames = Sets.newHashSet(db.getTableNames());
         Set<Long> tableIds = Sets.newHashSet(db.getTableIds());
@@ -720,7 +726,7 @@ public class CatalogRecycleBinTest {
                 CatalogTestUtil.testIndexId1,
                 CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testStartVersion
-            );
+        );
 
         Set<String> tableNames = Sets.newHashSet(db.getTableNames());
         Set<Long> tableIds = Sets.newHashSet(db.getTableIds());
@@ -769,7 +775,7 @@ public class CatalogRecycleBinTest {
                 CatalogTestUtil.testIndexId1,
                 CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testStartVersion
-            );
+        );
 
         Set<String> tableNames = Sets.newHashSet(db.getTableNames());
         Set<Long> tableIds = Sets.newHashSet(db.getTableIds());
@@ -821,7 +827,7 @@ public class CatalogRecycleBinTest {
                 CatalogTestUtil.testIndexId1,
                 CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testStartVersion
-            );
+        );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
         Assert.assertTrue(table.isPresent());
@@ -843,7 +849,7 @@ public class CatalogRecycleBinTest {
                 CatalogTestUtil.testIndexId1,
                 CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testStartVersion
-            );
+        );
 
         Optional<Table> table = db.getTable(CatalogTestUtil.testTableId1);
         Assert.assertTrue(table.isPresent());
@@ -1057,5 +1063,931 @@ public class CatalogRecycleBinTest {
             Assert.assertTrue(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1,
                     CatalogTestUtil.testTableId1, 9000));
         }
+    }
+
+    private static class ControllableClock implements LongSupplier {
+        private long currentTime;
+        private final long initialTime;
+
+        public ControllableClock(long initialTime) {
+            this.currentTime = initialTime;
+            this.initialTime = initialTime;
+        }
+
+        @Override
+        public long getAsLong() {
+            return currentTime;
+        }
+
+        public void advance(long millis) {
+            this.currentTime += millis;
+        }
+
+        public void backoff(long millis) {
+            this.currentTime -= millis;
+        }
+
+        public void reset() {
+            this.currentTime = this.initialTime;
+        }
+    }
+
+    /**
+     * Test old code bug: Partition timeout causes table/db cleanup delay.
+     * Partition: expired (recycled long ago)
+     * Table/Db: NOT expired at startTime, but become expired after erasePartition takes time
+     * Old code uses stale startTime, so table/db are NOT cleaned.
+     */
+    @Test
+    public void testOldCodePartitionTimeoutCausesTableDbDelay() {
+        long origExpireSecond = Config.catalog_trash_expire_second;
+        boolean origIgnoreMinErase = Config.catalog_trash_ignore_min_erase_latency;
+        try {
+            Config.catalog_trash_expire_second = 1;
+            Config.catalog_trash_ignore_min_erase_latency = true;
+
+            final long baseId = System.nanoTime();
+            final long testDbId = baseId + 1;
+            final long testTableId = baseId + 2;
+            final long testPartitionId = baseId + 3;
+            final long testIndexId = baseId + 4;
+            final long testTabletId = baseId + 5;
+
+            long startTime = System.currentTimeMillis();
+            long expireMs = Config.catalog_trash_expire_second * 1000L;  // 1000ms
+            long slowOperationMs = expireMs + 100;  // 1100ms
+
+            ControllableClock clock = new ControllableClock(startTime);
+
+            class BuggyRecycleBin extends CatalogRecycleBin {
+                BuggyRecycleBin() {
+                    setClock(clock);
+                }
+
+                @Override
+                public void runAfterCatalogReady() {
+                    long sharedTime = clock.getAsLong();
+                    int keepNum = Config.max_same_name_catalog_trash_num;
+                    erasePartition(sharedTime, keepNum);
+                    eraseTable(sharedTime, keepNum);
+                    eraseDatabase(sharedTime, keepNum);
+                }
+
+                @Override
+                protected void erasePartition(long currentTimeMs, int keepNum) {
+                    clock.advance(slowOperationMs);
+                    super.erasePartition(currentTimeMs, keepNum);
+                }
+            }
+
+            BuggyRecycleBin recycleBin = new BuggyRecycleBin();
+
+            Database db = createSimpleTestDatabase(
+                    testDbId, testTableId, testPartitionId,
+                    testIndexId, testTabletId,
+                    CatalogTestUtil.testStartVersion);
+
+            OlapTable table = (OlapTable) db.getTable(testTableId).get();
+            Partition partition = table.getPartition(testPartitionId);
+
+            Set<String> tableNames = Sets.newHashSet();
+            Set<Long> tableIds = Sets.newHashSet();
+            for (Table tbl : db.getTables()) {
+                tableNames.add(tbl.getName());
+                tableIds.add(tbl.getId());
+            }
+
+            // Partition: recycleTime = startTime - 1100 (expired at startTime)
+            clock.backoff(expireMs + 100);
+            recycleBin.recyclePartition(testDbId, testTableId, table.getName(), partition, null, null,
+                new DataProperty(TStorageMedium.HDD), new ReplicaAllocation((short) 3), false, false);
+            clock.reset();
+
+            // Table: recycleTime = startTime - 200 (NOT expired at startTime)
+            clock.backoff(200);
+            for (Table tbl : db.getTables()) {
+                db.unregisterTable(tbl.getId());
+                recycleBin.recycleTable(testDbId, tbl, false, false, 0);
+            }
+            clock.reset();
+
+            // Db: recycleTime = startTime - 100 (NOT expired at startTime)
+            clock.backoff(100);
+            recycleBin.recycleDatabase(db, tableNames, tableIds, false, false, 0);
+            clock.reset();
+
+            // Run cleanup
+            // Timeline:
+            // 1. erasePartition starts: sharedTime = startTime
+            //    Partition: expired (latency = 1100 > 1000) -> cleaned
+            //    During erasePartition, clock advances to startTime+1100
+            // 2. eraseTable uses sharedTime = startTime (stale!)
+            //    Table recycleTime = startTime-200, latency = 200 < 1000 -> NOT expired (bug!)
+            // 3. eraseDatabase similarly NOT cleaned
+            recycleBin.runAfterCatalogReady();
+
+            // Verify bug: only partition cleaned, table and db remain
+            Assert.assertNull(recycleBin.getRecycleTimeById(testPartitionId));
+            Assert.assertNotNull(recycleBin.getRecycleTimeById(testTableId));
+            Assert.assertNotNull(recycleBin.getRecycleTimeById(testDbId));
+
+        } finally {
+            Config.catalog_trash_expire_second = origExpireSecond;
+            Config.catalog_trash_ignore_min_erase_latency = origIgnoreMinErase;
+        }
+    }
+
+    /**
+     * Test old code bug: Partition and table timeout cause db cleanup delay.
+     * Partition/Table: expired at startTime
+     * Db: NOT expired at startTime, but become expired after erasePartition+eraseTable take time
+     * Old code uses stale startTime, so db is NOT cleaned.
+     */
+    @Test
+    public void testOldCodePartitionAndTableTimeoutCauseDbDelay() {
+        long origExpireSecond = Config.catalog_trash_expire_second;
+        boolean origIgnoreMinErase = Config.catalog_trash_ignore_min_erase_latency;
+        try {
+            Config.catalog_trash_expire_second = 1;
+            Config.catalog_trash_ignore_min_erase_latency = true;
+
+            final long baseId = System.nanoTime();
+            final long testDbId = baseId + 1;
+            final long testTableId = baseId + 2;
+            final long testPartitionId = baseId + 3;
+            final long testIndexId = baseId + 4;
+            final long testTabletId = baseId + 5;
+
+            long startTime = System.currentTimeMillis();
+            long expireMs = Config.catalog_trash_expire_second * 1000L;  // 1000ms
+            long slowOperationMs = expireMs + 100;  // 1100ms
+
+            ControllableClock clock = new ControllableClock(startTime);
+
+            class BuggyRecycleBin extends CatalogRecycleBin {
+                BuggyRecycleBin() {
+                    setClock(clock);
+                }
+
+                @Override
+                public void runAfterCatalogReady() {
+                    long sharedTime = clock.getAsLong();
+                    int keepNum = Config.max_same_name_catalog_trash_num;
+                    erasePartition(sharedTime, keepNum);
+                    eraseTable(sharedTime, keepNum);
+                    eraseDatabase(sharedTime, keepNum);
+                }
+
+                @Override
+                protected void erasePartition(long currentTimeMs, int keepNum) {
+                    clock.advance(slowOperationMs / 2);
+                    super.erasePartition(currentTimeMs, keepNum);
+                }
+
+                @Override
+                protected void eraseTable(long currentTimeMs, int keepNum) {
+                    clock.advance(slowOperationMs / 2);
+                    super.eraseTable(currentTimeMs, keepNum);
+                }
+            }
+
+            BuggyRecycleBin recycleBin = new BuggyRecycleBin();
+
+            Database db = createSimpleTestDatabase(
+                    testDbId, testTableId, testPartitionId,
+                    testIndexId, testTabletId,
+                    CatalogTestUtil.testStartVersion);
+
+            OlapTable table = (OlapTable) db.getTable(testTableId).get();
+            Partition partition = table.getPartition(testPartitionId);
+
+            Set<String> tableNames = Sets.newHashSet();
+            Set<Long> tableIds = Sets.newHashSet();
+            for (Table tbl : db.getTables()) {
+                tableNames.add(tbl.getName());
+                tableIds.add(tbl.getId());
+            }
+
+            // Partition: recycleTime = startTime - 1100 (expired at startTime)
+            clock.backoff(expireMs + 100);
+            recycleBin.recyclePartition(testDbId, testTableId, table.getName(), partition, null, null,
+                new DataProperty(TStorageMedium.HDD), new ReplicaAllocation((short) 3), false, false);
+            clock.reset();
+
+            // Table: recycleTime = startTime - 1050 (expired at startTime)
+            clock.backoff(expireMs + 50);
+            for (Table tbl : db.getTables()) {
+                db.unregisterTable(tbl.getId());
+                recycleBin.recycleTable(testDbId, tbl, false, false, 0);
+            }
+            clock.reset();
+
+            // Db: recycleTime = startTime - 200 (NOT expired at startTime)
+            clock.backoff(200);
+            recycleBin.recycleDatabase(db, tableNames, tableIds, false, false, 0);
+            clock.reset();
+
+            // Run cleanup
+            // Timeline:
+            // 1. erasePartition: sharedTime=startTime, clock advances to startTime+550
+            // 2. eraseTable: sharedTime=startTime (stale!), clock advances to startTime+1100
+            // 3. eraseDatabase: sharedTime=startTime (stale!)
+            //    Db recycleTime=startTime-200, latency=200<1000 -> NOT cleaned (bug!)
+            recycleBin.runAfterCatalogReady();
+
+            // Verify bug: partition and table cleaned, db remains
+            Assert.assertNull(recycleBin.getRecycleTimeById(testPartitionId));
+            Assert.assertNull(recycleBin.getRecycleTimeById(testTableId));
+            Assert.assertNotNull(recycleBin.getRecycleTimeById(testDbId));
+
+        } finally {
+            Config.catalog_trash_expire_second = origExpireSecond;
+            Config.catalog_trash_ignore_min_erase_latency = origIgnoreMinErase;
+        }
+    }
+
+    /**
+     * Test new code fix: All objects (partition, table, db) are expired.
+     * Even with erasePartition taking long time, new code correctly cleans all expired objects.
+     * Expected: All objects are cleaned up (null).
+     */
+    @Test
+    public void testNewCodePartitionTimeoutTableDbWork() {
+        long origExpireSecond = Config.catalog_trash_expire_second;
+        boolean origIgnoreMinErase = Config.catalog_trash_ignore_min_erase_latency;
+        try {
+            Config.catalog_trash_expire_second = 1;
+            Config.catalog_trash_ignore_min_erase_latency = true;
+
+            final long baseId = System.nanoTime();
+            final long testDbId = baseId + 1;
+            final long testTableId = baseId + 2;
+            final long testPartitionId = baseId + 3;
+            final long testIndexId = baseId + 4;
+            final long testTabletId = baseId + 5;
+
+            long currentTimeMillis = System.currentTimeMillis();
+            long expireMs = Config.catalog_trash_expire_second * 1000L;
+            long offset = expireMs + 100;
+            long advanceOffset = expireMs + 100;
+
+            ControllableClock clock = new ControllableClock(currentTimeMillis);
+
+            // Fixed: independent timestamps, partition advances to simulate processing delay
+            class FixedRecycleBin extends CatalogRecycleBin {
+                FixedRecycleBin() {
+                    setClock(clock);
+                }
+
+                @Override
+                protected void erasePartition(long currentTimeMs, int keepNum) {
+                    clock.advance(advanceOffset);
+                    super.erasePartition(currentTimeMs, keepNum);
+                }
+            }
+
+            FixedRecycleBin recycleBin = new FixedRecycleBin();
+
+            Database db = createSimpleTestDatabase(
+                    testDbId, testTableId, testPartitionId,
+                    testIndexId, testTabletId,
+                    CatalogTestUtil.testStartVersion);
+
+            OlapTable table = (OlapTable) db.getTable(testTableId).get();
+            Partition partition = table.getPartition(testPartitionId);
+
+            Set<String> tableNames = Sets.newHashSet();
+            Set<Long> tableIds = Sets.newHashSet();
+            for (Table tbl : db.getTables()) {
+                tableNames.add(tbl.getName());
+                tableIds.add(tbl.getId());
+            }
+
+            // Partition dropped first: recycleTime = currentTimeMillis - offset
+            clock.backoff(offset);
+            recycleBin.recyclePartition(testDbId, testTableId, table.getName(), partition, null, null,
+                new DataProperty(TStorageMedium.HDD), new ReplicaAllocation((short) 3), false, false);
+
+            // Table and db dropped later: recycleTime = currentTimeMillis
+            clock.advance(offset);
+            for (Table tbl : db.getTables()) {
+                db.unregisterTable(tbl.getId());
+                recycleBin.recycleTable(testDbId, tbl, false, false, 0);
+            }
+            recycleBin.recycleDatabase(db, tableNames, tableIds, false, false, 0);
+
+            // erasePartition gets currentTimeMillis, then advances clock
+            // eraseTable gets currentTimeMillis + advanceOffset
+            // eraseDatabase gets currentTimeMillis + advanceOffset
+            recycleBin.runAfterCatalogReady();
+
+            Assert.assertNull(recycleBin.getRecycleTimeById(testPartitionId));
+            Assert.assertNull(recycleBin.getRecycleTimeById(testTableId));
+            Assert.assertNull(recycleBin.getRecycleTimeById(testDbId));
+
+        } finally {
+            Config.catalog_trash_expire_second = origExpireSecond;
+            Config.catalog_trash_ignore_min_erase_latency = origIgnoreMinErase;
+        }
+    }
+
+    /**
+     * Test new code fix: All objects (partition, table, db) are expired.
+     * Even with erasePartition and eraseTable taking long time, new code correctly cleans all expired objects.
+     * Expected: All objects are cleaned up (null).
+     */
+    @Test
+    public void testNewCodePartitionAndTableTimeoutDbWork() {
+        long origExpireSecond = Config.catalog_trash_expire_second;
+        boolean origIgnoreMinErase = Config.catalog_trash_ignore_min_erase_latency;
+        try {
+            Config.catalog_trash_expire_second = 1;
+            Config.catalog_trash_ignore_min_erase_latency = true;
+
+            final long baseId = System.nanoTime();
+            final long testDbId = baseId + 1;
+            final long testTableId = baseId + 2;
+            final long testPartitionId = baseId + 3;
+            final long testIndexId = baseId + 4;
+            final long testTabletId = baseId + 5;
+
+            long currentTimeMillis = System.currentTimeMillis();
+            long expireMs = Config.catalog_trash_expire_second * 1000L;
+            long offset = expireMs + 100;
+            long advanceOffset = expireMs + 100;
+
+            ControllableClock clock = new ControllableClock(currentTimeMillis);
+
+            // Fixed: independent timestamps, both partition and table advance
+            class FixedRecycleBin extends CatalogRecycleBin {
+                FixedRecycleBin() {
+                    setClock(clock);
+                }
+
+                @Override
+                protected void erasePartition(long currentTimeMs, int keepNum) {
+                    clock.advance(advanceOffset / 2);
+                    super.erasePartition(currentTimeMs, keepNum);
+                }
+
+                @Override
+                protected void eraseTable(long currentTimeMs, int keepNum) {
+                    clock.advance(advanceOffset / 2);
+                    super.eraseTable(currentTimeMs, keepNum);
+                }
+            }
+
+            FixedRecycleBin recycleBin = new FixedRecycleBin();
+
+            Database db = createSimpleTestDatabase(
+                    testDbId, testTableId, testPartitionId,
+                    testIndexId, testTabletId,
+                    CatalogTestUtil.testStartVersion);
+
+            OlapTable table = (OlapTable) db.getTable(testTableId).get();
+            Partition partition = table.getPartition(testPartitionId);
+
+            Set<String> tableNames = Sets.newHashSet();
+            Set<Long> tableIds = Sets.newHashSet();
+            for (Table tbl : db.getTables()) {
+                tableNames.add(tbl.getName());
+                tableIds.add(tbl.getId());
+            }
+
+            // Partition and table dropped first: recycleTime = currentTimeMillis - offset
+            clock.backoff(offset);
+            recycleBin.recyclePartition(testDbId, testTableId, table.getName(), partition, null, null,
+                new DataProperty(TStorageMedium.HDD), new ReplicaAllocation((short) 3), false, false);
+            for (Table tbl : db.getTables()) {
+                db.unregisterTable(tbl.getId());
+                recycleBin.recycleTable(testDbId, tbl, false, false, 0);
+            }
+
+            // Db dropped later: recycleTime = currentTimeMillis
+            clock.advance(offset);
+            recycleBin.recycleDatabase(db, tableNames, tableIds, false, false, 0);
+
+            recycleBin.runAfterCatalogReady();
+
+            Assert.assertNull(recycleBin.getRecycleTimeById(testPartitionId));
+            Assert.assertNull(recycleBin.getRecycleTimeById(testTableId));
+            Assert.assertNull(recycleBin.getRecycleTimeById(testDbId));
+
+        } finally {
+            Config.catalog_trash_expire_second = origExpireSecond;
+            Config.catalog_trash_ignore_min_erase_latency = origIgnoreMinErase;
+        }
+    }
+
+    /**
+     * Test orphan partition cleanup in eraseTable.
+     *
+     * Scenario:
+     * - Partition is NOT expired when erasePartition collects expired IDs (latency = 200ms < 1000ms)
+     * - Table is recycled after Partition (T_partition = startTime - 200, T_table = startTime - 100)
+     * - erasePartition takes 1500ms (time advances after super call)
+     * - When eraseTable runs, Table IS expired (latency = 1600ms > 1000ms)
+     * - Partition is NOT in erasePartition's expiredIds, so it would be orphaned
+     * - eraseTable should detect and clean the orphan Partition before cleaning Table
+     *
+     * Expected: Partition cleaned (as orphan), Table cleaned, Database cleaned
+     */
+    @Test
+    public void testOrphanPartitionCleanup() {
+        long origExpireSecond = Config.catalog_trash_expire_second;
+        boolean origIgnoreMinErase = Config.catalog_trash_ignore_min_erase_latency;
+        try {
+            Config.catalog_trash_expire_second = 1;
+            Config.catalog_trash_ignore_min_erase_latency = true;
+
+            final long baseId = System.nanoTime();
+            final long testDbId = baseId + 1;
+            final long testTableId = baseId + 2;
+            final long testPartitionId = baseId + 3;
+            final long testIndexId = baseId + 4;
+            final long testTabletId = baseId + 5;
+
+            long startTime = System.currentTimeMillis();
+            long expireMs = Config.catalog_trash_expire_second * 1000L;
+            long slowOperationMs = expireMs + 500;
+
+            ControllableClock clock = new ControllableClock(startTime);
+
+            class FixedRecycleBin extends CatalogRecycleBin {
+                FixedRecycleBin() {
+                    setClock(clock);
+                }
+
+                @Override
+                protected void erasePartition(long currentTimeMs, int keepNum) {
+                    super.erasePartition(currentTimeMs, keepNum);
+                    clock.advance(slowOperationMs);
+                }
+            }
+
+            FixedRecycleBin recycleBin = new FixedRecycleBin();
+
+            Database db = createSimpleTestDatabase(
+                    testDbId, testTableId, testPartitionId,
+                    testIndexId, testTabletId,
+                    CatalogTestUtil.testStartVersion);
+
+            OlapTable table = (OlapTable) db.getTable(testTableId).get();
+            Partition partition = table.getPartition(testPartitionId);
+
+            Set<String> tableNames = Sets.newHashSet();
+            Set<Long> tableIds = Sets.newHashSet();
+            for (Table tbl : db.getTables()) {
+                tableNames.add(tbl.getName());
+                tableIds.add(tbl.getId());
+            }
+
+            // Partition: recycleTime = startTime - 200 (NOT expired at startTime: 200 < 1000)
+            clock.backoff(200);
+            recycleBin.recyclePartition(testDbId, testTableId, table.getName(), partition, null, null,
+                new DataProperty(TStorageMedium.HDD), new ReplicaAllocation((short) 3), false, false);
+            clock.reset();
+
+            // Table: recycleTime = startTime - 100 (NOT expired at startTime: 100 < 1000)
+            clock.backoff(100);
+            for (Table tbl : db.getTables()) {
+                db.unregisterTable(tbl.getId());
+                recycleBin.recycleTable(testDbId, tbl, false, false, 0);
+            }
+            clock.reset();
+
+            // Database: recycleTime = startTime (NOT expired at startTime)
+            recycleBin.recycleDatabase(db, tableNames, tableIds, false, false, 0);
+            clock.reset();
+
+            recycleBin.runAfterCatalogReady();
+
+            Assert.assertNull(recycleBin.getRecycleTimeById(testPartitionId));
+            Assert.assertNull(recycleBin.getRecycleTimeById(testTableId));
+            Assert.assertNull(recycleBin.getRecycleTimeById(testDbId));
+
+            Assert.assertFalse(recycleBin.isRecyclePartition(testDbId, testTableId, testPartitionId));
+
+        } finally {
+            Config.catalog_trash_expire_second = origExpireSecond;
+            Config.catalog_trash_ignore_min_erase_latency = origIgnoreMinErase;
+        }
+    }
+
+    /**
+     * Test that eraseAllTables cleans orphan partitions before erasing tables.
+     *
+     * Scenario:
+     * - A database has a table and a partition
+     * - The partition is NOT expired (still in idToPartition)
+     * - eraseAllTables is called to erase the table
+     * - Without fix: partition becomes orphan (still in idToPartition)
+     * - With fix: partition is cleaned by cleanOrphanPartitions
+     *
+     * Expected: Both table and partition are cleaned
+     */
+    @Test
+    public void testEraseAllTablesCleansOrphanPartitions() throws Exception {
+        long origExpireSecond = Config.catalog_trash_expire_second;
+        boolean origIgnoreMinErase = Config.catalog_trash_ignore_min_erase_latency;
+        try {
+            Config.catalog_trash_expire_second = 1;
+            Config.catalog_trash_ignore_min_erase_latency = true;
+
+            final long baseId = System.nanoTime();
+            final long testDbId = baseId + 1;
+            final long testTableId = baseId + 2;
+            final long testPartitionId = baseId + 3;
+            final long testIndexId = baseId + 4;
+            final long testTabletId = baseId + 5;
+
+            long startTime = System.currentTimeMillis();
+
+            CatalogRecycleBin recycleBin = new CatalogRecycleBin();
+
+            Database db = createSimpleTestDatabase(
+                    testDbId, testTableId, testPartitionId,
+                    testIndexId, testTabletId,
+                    CatalogTestUtil.testStartVersion);
+
+            OlapTable table = (OlapTable) db.getTable(testTableId).get();
+            Partition partition = table.getPartition(testPartitionId);
+
+            Set<String> tableNames = Sets.newHashSet();
+            Set<Long> tableIds = Sets.newHashSet();
+            for (Table tbl : db.getTables()) {
+                tableNames.add(tbl.getName());
+                tableIds.add(tbl.getId());
+            }
+
+            // Manually put partition into idToPartition (simulating it's in recycle bin)
+            // Use reflection to access private field
+            Field idToPartitionField = CatalogRecycleBin.class.getDeclaredField("idToPartition");
+            idToPartitionField.setAccessible(true);
+            ConcurrentHashMap<Long, CatalogRecycleBin.RecyclePartitionInfo> idToPartition =
+                    (ConcurrentHashMap<Long, CatalogRecycleBin.RecyclePartitionInfo>) idToPartitionField.get(recycleBin);
+
+            Field idToRecycleTimeField = CatalogRecycleBin.class.getDeclaredField("idToRecycleTime");
+            idToRecycleTimeField.setAccessible(true);
+            ConcurrentHashMap<Long, Long> idToRecycleTime =
+                    (ConcurrentHashMap<Long, Long>) idToRecycleTimeField.get(recycleBin);
+
+            // Partition: recycleTime = startTime - 200 (NOT expired)
+            idToRecycleTime.put(testPartitionId, startTime - 200);
+            CatalogRecycleBin.RecyclePartitionInfo pInfo = new CatalogRecycleBin().new RecyclePartitionInfo(
+                    testDbId, testTableId, partition, null, null,
+                    new DataProperty(TStorageMedium.HDD), new ReplicaAllocation((short) 3),
+                    false, false);
+            idToPartition.put(testPartitionId, pInfo);
+
+            // Put table into idToTable
+            Field idToTableField = CatalogRecycleBin.class.getDeclaredField("idToTable");
+            idToTableField.setAccessible(true);
+            ConcurrentHashMap<Long, CatalogRecycleBin.RecycleTableInfo> idToTable =
+                    (ConcurrentHashMap<Long, CatalogRecycleBin.RecycleTableInfo>) idToTableField.get(recycleBin);
+
+            idToRecycleTime.put(testTableId, startTime - 100);
+            CatalogRecycleBin.RecycleTableInfo tInfo =
+                    new CatalogRecycleBin().new RecycleTableInfo(testDbId, table);
+            idToTable.put(testTableId, tInfo);
+
+            // Create RecycleDatabaseInfo
+            CatalogRecycleBin.RecycleDatabaseInfo dbInfo =
+                    new CatalogRecycleBin().new RecycleDatabaseInfo(db, tableNames, tableIds);
+
+            // Call eraseAllTables via reflection
+            Method eraseAllTablesMethod = CatalogRecycleBin.class.getDeclaredMethod("eraseAllTables",
+                    CatalogRecycleBin.RecycleDatabaseInfo.class);
+            eraseAllTablesMethod.setAccessible(true);
+            eraseAllTablesMethod.invoke(recycleBin, dbInfo);
+
+            // Verify: Table AND Partition are both cleaned
+            // Partition should be cleaned as orphan
+            Assert.assertNull(idToRecycleTime.get(testPartitionId));
+            Assert.assertFalse(idToPartition.containsKey(testPartitionId));
+            Assert.assertFalse(idToTable.containsKey(testTableId));
+            Assert.assertNull(idToRecycleTime.get(testTableId));
+
+        } finally {
+            Config.catalog_trash_expire_second = origExpireSecond;
+            Config.catalog_trash_ignore_min_erase_latency = origIgnoreMinErase;
+        }
+    }
+
+    /**
+     * Test that eraseTableWithSameName cleans orphan partitions before erasing table.
+     *
+     * Scenario:
+     * - Drop partition p from table t (p enters recycle bin)
+     * - Drop table t multiple times to trigger same-name cleanup
+     * - Directly call eraseTableWithSameName to verify orphan partition cleanup
+     *
+     * Expected: p is cleaned before t is erased
+     */
+    @Test
+    public void testEraseTableWithSameNameCleansOrphanPartitions() throws Exception {
+        long origExpireSecond = Config.catalog_trash_expire_second;
+        boolean origIgnoreMinErase = Config.catalog_trash_ignore_min_erase_latency;
+        int origMaxSameName = Config.max_same_name_catalog_trash_num;
+        try {
+            Config.catalog_trash_expire_second = 1;
+            Config.catalog_trash_ignore_min_erase_latency = true;
+            Config.max_same_name_catalog_trash_num = 1;
+
+            final long baseId = System.nanoTime();
+            final long testDbId = baseId + 1;
+            final long testTableId1 = baseId + 2;
+            final long testTableId2 = baseId + 3;
+            final long testPartitionId = baseId + 4;
+            final long testIndexId = baseId + 5;
+            final long testTabletId = baseId + 6;
+
+            long startTime = System.currentTimeMillis();
+
+            CatalogRecycleBin recycleBin = new CatalogRecycleBin();
+
+            // Create database with two tables (same name)
+            String dbName = "test_db";
+            String tableName = "test_table";
+
+            Database db = new Database(testDbId, dbName);
+
+            // Create table 1 with partition
+            OlapTable table1 = createSimpleOlapTable(testTableId1, tableName, testPartitionId,
+                    testIndexId, testTabletId, CatalogTestUtil.testStartVersion);
+            db.registerTable(table1);
+
+            // Create table 2 with partition (same name, different id)
+            OlapTable table2 = createSimpleOlapTable(testTableId2, tableName, testPartitionId + 100,
+                    testIndexId + 100, testTabletId + 100, CatalogTestUtil.testStartVersion);
+            db.registerTable(table2);
+
+            // Directly put partition into idToPartition (simulate it's in recycle bin)
+            Field idToPartitionField = CatalogRecycleBin.class.getDeclaredField("idToPartition");
+            idToPartitionField.setAccessible(true);
+            ConcurrentHashMap<Long, CatalogRecycleBin.RecyclePartitionInfo> idToPartition =
+                    (ConcurrentHashMap<Long, CatalogRecycleBin.RecyclePartitionInfo>) idToPartitionField.get(recycleBin);
+
+            Field idToRecycleTimeField = CatalogRecycleBin.class.getDeclaredField("idToRecycleTime");
+            idToRecycleTimeField.setAccessible(true);
+            ConcurrentHashMap<Long, Long> idToRecycleTime =
+                    (ConcurrentHashMap<Long, Long>) idToRecycleTimeField.get(recycleBin);
+
+            // Partition: recycleTime = startTime - 200 (NOT expired, so erasePartition won't clean it)
+            // But in direct test, we bypass erasePartition, so this doesn't matter
+            idToRecycleTime.put(testPartitionId, startTime - 200);
+            CatalogRecycleBin.RecyclePartitionInfo pInfo = new CatalogRecycleBin().new RecyclePartitionInfo(
+                    testDbId, testTableId1, table1.getPartition(testPartitionId), null, null,
+                    new DataProperty(TStorageMedium.HDD), new ReplicaAllocation((short) 3),
+                    false, false);
+            idToPartition.put(testPartitionId, pInfo);
+
+            // Put tables into idToTable
+            Field idToTableField = CatalogRecycleBin.class.getDeclaredField("idToTable");
+            idToTableField.setAccessible(true);
+            ConcurrentHashMap<Long, CatalogRecycleBin.RecycleTableInfo> idToTable =
+                    (ConcurrentHashMap<Long, CatalogRecycleBin.RecycleTableInfo>) idToTableField.get(recycleBin);
+
+            idToRecycleTime.put(testTableId1, startTime - 100);
+            CatalogRecycleBin.RecycleTableInfo tInfo1 =
+                    new CatalogRecycleBin().new RecycleTableInfo(testDbId, table1);
+            idToTable.put(testTableId1, tInfo1);
+
+            idToRecycleTime.put(testTableId2, startTime - 50);
+            CatalogRecycleBin.RecycleTableInfo tInfo2 =
+                    new CatalogRecycleBin().new RecycleTableInfo(testDbId, table2);
+            idToTable.put(testTableId2, tInfo2);
+
+            // Build dbIdTableNameToIds cache for same-name cleanup
+            Field dbIdTableNameToIdsField = CatalogRecycleBin.class.getDeclaredField("dbIdTableNameToIds");
+            dbIdTableNameToIdsField.setAccessible(true);
+            Map<Pair<Long, String>, Set<Long>> dbIdTableNameToIds =
+                    (Map<Pair<Long, String>, Set<Long>>) dbIdTableNameToIdsField.get(recycleBin);
+            Set<Long> tableIdSet = Sets.newHashSet(testTableId1, testTableId2);
+            dbIdTableNameToIds.put(Pair.of(testDbId, tableName), tableIdSet);
+
+            // Directly call eraseTableWithSameName via reflection
+            Method eraseTableWithSameNameMethod = CatalogRecycleBin.class.getDeclaredMethod(
+                    "eraseTableWithSameName",
+                    long.class, String.class, long.class, int.class, List.class);
+            eraseTableWithSameNameMethod.setAccessible(true);
+
+            List<Long> tableIdList = Lists.newArrayList(testTableId1, testTableId2);
+            // Sort by recycle time desc: testTableId2 (startTime-50) is newer, testTableId1 (startTime-100) is older
+            // maxSameNameTrashNum=1, so testTableId1 will be erased
+            eraseTableWithSameNameMethod.invoke(recycleBin,
+                    testDbId, tableName, startTime, 1, tableIdList);
+
+            // Verify: Partition of erased table is cleaned, the other table's partition remains
+            // testTableId1 is the older one, should be erased
+            Assert.assertFalse(recycleBin.isRecyclePartition(testDbId, testTableId1, testPartitionId));
+            // testTableId2 is kept, its partition should still exist
+            Assert.assertTrue(recycleBin.isRecyclePartition(testDbId, testTableId2, testPartitionId + 100));
+
+            // Verify testTableId1 is erased, testTableId2 is kept
+            Assert.assertFalse(recycleBin.isRecycleTable(testDbId, testTableId1));
+            Assert.assertTrue(recycleBin.isRecycleTable(testDbId, testTableId2));
+
+        } finally {
+            Config.catalog_trash_expire_second = origExpireSecond;
+            Config.catalog_trash_ignore_min_erase_latency = origIgnoreMinErase;
+            Config.max_same_name_catalog_trash_num = origMaxSameName;
+        }
+    }
+
+    @Test
+    public void testDropTableThenDropDatabaseOrphanTable() throws Exception {
+        CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
+        recycleBin.clearAll();
+
+        long origExpireSecond = Config.catalog_trash_expire_second;
+        boolean origIgnoreMinErase = Config.catalog_trash_ignore_min_erase_latency;
+        try {
+            Config.catalog_trash_expire_second = 1;
+            Config.catalog_trash_ignore_min_erase_latency = true;
+
+            final long baseId = System.nanoTime();
+            long dbId = baseId + 1;
+            long tableId1 = baseId + 2;
+            long tableId2 = baseId + 3;
+            long partitionId1 = baseId + 4;
+            long partitionId2 = baseId + 5;
+            long indexId1 = baseId + 6;
+            long indexId2 = baseId + 7;
+            long tabletId1 = baseId + 8;
+            long tabletId2 = baseId + 9;
+            String tableName2 = "test_table2";
+
+            Database db = createSimpleTestDatabase(
+                    dbId, tableId1, partitionId1, indexId1, tabletId1, 1L);
+
+            OlapTable table2 = createSimpleOlapTable(
+                    tableId2, tableName2, partitionId2, indexId2, tabletId2, 1L);
+            db.registerTable(table2);
+
+            Assert.assertEquals(2, db.getTables().size());
+
+            // Step 1: Drop table1 first
+            OlapTable table1 = (OlapTable) db.getTable(tableId1).get();
+            db.unregisterTable(tableId1);
+            recycleBin.recycleTable(dbId, table1, false, false, 0);
+            Assert.assertTrue(recycleBin.isRecycleTable(dbId, tableId1));
+            Assert.assertEquals(1, db.getTables().size());
+
+            // Step 2: Drop table2 to make database empty
+            db.unregisterTable(tableId2);
+            recycleBin.recycleTable(dbId, table2, false, false, 0);
+            Assert.assertTrue(recycleBin.isRecycleTable(dbId, tableId2));
+            Assert.assertEquals(0, db.getTables().size());
+
+            // Step 3: Drop database (now empty)
+            Set<String> tableNames = Sets.newHashSet(db.getTableNames()); // empty
+            Set<Long> tableIds = Sets.newHashSet(db.getTableIds()); // empty
+
+            Assert.assertTrue(tableNames.isEmpty());
+            Assert.assertTrue(tableIds.isEmpty());
+
+            long oldTime = System.currentTimeMillis() - 5000L;
+            recycleBin.recycleDatabase(db, tableNames, tableIds, false, false, oldTime);
+
+            // Manually set recycle times to expired
+            Field idToRecycleTimeField = CatalogRecycleBin.class.getDeclaredField("idToRecycleTime");
+            idToRecycleTimeField.setAccessible(true);
+            ConcurrentHashMap<Long, Long> idToRecycleTime =
+                    (ConcurrentHashMap<Long, Long>) idToRecycleTimeField.get(recycleBin);
+            idToRecycleTime.put(dbId, oldTime);
+            idToRecycleTime.put(tableId1, oldTime);
+            idToRecycleTime.put(tableId2, oldTime);
+
+            Assert.assertTrue(recycleBin.isRecycleDatabase(dbId));
+
+            // Step 4: Run cleanup
+            recycleBin.runAfterCatalogReady();
+
+            // Step 5: Verify using reflection to check idToTable and idToRecycleTime
+            Field idToTableField = CatalogRecycleBin.class.getDeclaredField("idToTable");
+            idToTableField.setAccessible(true);
+            ConcurrentHashMap<Long, CatalogRecycleBin.RecycleTableInfo> idToTable =
+                    (ConcurrentHashMap<Long, CatalogRecycleBin.RecycleTableInfo>) idToTableField.get(recycleBin);
+
+            Field idToDatabaseField = CatalogRecycleBin.class.getDeclaredField("idToDatabase");
+            idToDatabaseField.setAccessible(true);
+            ConcurrentHashMap<Long, CatalogRecycleBin.RecycleDatabaseInfo> idToDatabase =
+                    (ConcurrentHashMap<Long, CatalogRecycleBin.RecycleDatabaseInfo>) idToDatabaseField.get(recycleBin);
+
+            // Verify database has been cleaned
+            Assert.assertFalse(idToDatabase.containsKey(dbId));
+
+            // Verify table1 and table2 have been cleaned
+            Assert.assertFalse(idToTable.containsKey(tableId1));
+            Assert.assertFalse(idToTable.containsKey(tableId2));
+
+            // Verify recycle times have been cleaned
+            Assert.assertNull(recycleBin.getRecycleTimeById(dbId));
+            Assert.assertNull(recycleBin.getRecycleTimeById(tableId1));
+            Assert.assertNull(recycleBin.getRecycleTimeById(tableId2));
+
+        } finally {
+            Config.catalog_trash_expire_second = origExpireSecond;
+            Config.catalog_trash_ignore_min_erase_latency = origIgnoreMinErase;
+            recycleBin.clearAll();
+        }
+    }
+
+    private Database createSimpleTestDatabase(long dbId, long tableId, long partitionId,
+                                              long indexId, long tabletId, long startVersion) {
+        List<Column> columns = new ArrayList<>();
+        Column k1 = new Column("k1", PrimitiveType.INT);
+        k1.setIsKey(true);
+        columns.add(k1);
+        Column k2 = new Column("k2", PrimitiveType.INT);
+        k2.setIsKey(true);
+        columns.add(k2);
+        Column v = new Column("v", ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.SUM, "0", "");
+        columns.add(v);
+
+        List<Column> keysColumn = new ArrayList<>();
+        keysColumn.add(new Column("k1", PrimitiveType.INT));
+        keysColumn.add(new Column("k2", PrimitiveType.INT));
+        HashDistributionInfo distributionInfo = new HashDistributionInfo(10, keysColumn);
+
+        Tablet tablet = new LocalTablet(tabletId);
+        for (int i = 0; i < 3; i++) {
+            long replicaId = tabletId * 100 + i;
+            Replica replica = new LocalReplica(replicaId, 100 + i, startVersion, 0, 0L, 0L, 0L,
+                    Replica.ReplicaState.NORMAL, -1, 0);
+            tablet.addReplica(replica, true);
+        }
+
+        MaterializedIndex index = new MaterializedIndex(indexId, IndexState.NORMAL);
+        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, 0, TStorageMedium.HDD);
+        index.addTablet(tablet, tabletMeta);
+
+        Partition partition = new Partition(partitionId, "p_" + partitionId, index, distributionInfo);
+        partition.updateVisibleVersion(startVersion);
+        partition.setNextVersion(startVersion + 1);
+
+        PartitionInfo partitionInfo = new SinglePartitionInfo();
+        partitionInfo.setDataProperty(partitionId, new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
+        partitionInfo.setReplicaAllocation(partitionId, new ReplicaAllocation((short) 3));
+
+        OlapTable table = new OlapTable(tableId, "t_" + tableId, columns, KeysType.AGG_KEYS,
+                partitionInfo, distributionInfo);
+        table.addPartition(partition);
+        table.setIndexMeta(indexId, "idx_" + indexId, columns, 0, 0, (short) 1,
+                TStorageType.COLUMN, KeysType.AGG_KEYS);
+        table.setBaseIndexId(indexId);
+
+        Database db = new Database(dbId, "db_" + dbId);
+        db.registerTable(table);
+
+        return db;
+    }
+
+    private OlapTable createSimpleOlapTable(long tableId, String tableName, long partitionId,
+                                            long indexId, long tabletId, long startVersion) {
+        List<Column> columns = new ArrayList<>();
+        Column k1 = new Column("k1", PrimitiveType.INT);
+        k1.setIsKey(true);
+        columns.add(k1);
+        Column k2 = new Column("k2", PrimitiveType.INT);
+        k2.setIsKey(true);
+        columns.add(k2);
+        Column v = new Column("v", ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.SUM, "0", "");
+        columns.add(v);
+
+        List<Column> keysColumn = new ArrayList<>();
+        keysColumn.add(new Column("k1", PrimitiveType.INT));
+        keysColumn.add(new Column("k2", PrimitiveType.INT));
+        HashDistributionInfo distributionInfo = new HashDistributionInfo(10, keysColumn);
+
+        Tablet tablet = new LocalTablet(tabletId);
+        for (int i = 0; i < 3; i++) {
+            long replicaId = tabletId * 100 + i;
+            Replica replica = new LocalReplica(replicaId, 100 + i, startVersion, 0, 0L, 0L, 0L,
+                    Replica.ReplicaState.NORMAL, -1, 0);
+            tablet.addReplica(replica, true);
+        }
+
+        MaterializedIndex index = new MaterializedIndex(indexId, IndexState.NORMAL);
+        TabletMeta tabletMeta = new TabletMeta(tableId, tableId, partitionId, indexId, 0, TStorageMedium.HDD);
+        index.addTablet(tablet, tabletMeta);
+
+        Partition partition = new Partition(partitionId, "p_" + partitionId, index, distributionInfo);
+        partition.updateVisibleVersion(startVersion);
+        partition.setNextVersion(startVersion + 1);
+
+        PartitionInfo partitionInfo = new SinglePartitionInfo();
+        partitionInfo.setDataProperty(partitionId, new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
+        partitionInfo.setReplicaAllocation(partitionId, new ReplicaAllocation((short) 3));
+
+        OlapTable table = new OlapTable(tableId, tableName, columns, KeysType.AGG_KEYS,
+                partitionInfo, distributionInfo);
+        table.addPartition(partition);
+        table.setIndexMeta(indexId, "idx_" + indexId, columns, 0, 0, (short) 1,
+                TStorageType.COLUMN, KeysType.AGG_KEYS);
+        table.setBaseIndexId(indexId);
+
+        return table;
     }
 }
