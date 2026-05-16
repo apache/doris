@@ -450,6 +450,20 @@ public:
                     return create_all_null_result();
                 }
 
+                if (path_const[0]) {
+                    auto const_null_map = ColumnUInt8::create(1, 0);
+                    auto const_res = Impl::ColumnType::create();
+                    RETURN_IF_ERROR(Impl::scalar_vector(
+                            context, jsonb_data_column->get_data_at(0), rdata, roffsets,
+                            path_null_maps[0], const_res->get_data(), const_null_map->get_data()));
+                    DCHECK_EQ(const_res->size(), 1);
+                    auto nullable_column =
+                            ColumnNullable::create(std::move(const_res), std::move(const_null_map));
+                    block.get_by_position(result).column =
+                            ColumnConst::create(std::move(nullable_column), input_rows_count);
+                    return Status::OK();
+                }
+
                 RETURN_IF_ERROR(Impl::scalar_vector(context, jsonb_data_column->get_data_at(0),
                                                     rdata, roffsets, path_null_maps[0],
                                                     res->get_data(), null_map->get_data()));

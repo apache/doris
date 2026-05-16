@@ -6172,6 +6172,12 @@ false
 -- !select --
 \N
 
+-- !select_object_tail --
+0
+
+-- !select_array_tail --
+0
+
 -- !select --
 1	\N	\N
 2	null	\N
