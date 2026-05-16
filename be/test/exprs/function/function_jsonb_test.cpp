@@ -258,6 +258,24 @@ TEST(FunctionJsonbTEST, JsonbKeysRejectSuperWildcardPath) {
     expect_invalid_json_keys_super_wildcard_path(non_const_path_status);
 }
 
+TEST(FunctionJsonbTEST, JsonValidStrictTest) {
+    std::string func_name = "json_valid";
+    InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_VARCHAR}};
+
+    DataSet data_set = {
+            {{Null()}, Null()},
+            {{STRING("not")}, INT(0)},
+            {{STRING("not json")}, INT(0)},
+            {{STRING("null junk")}, INT(0)},
+            {{STRING(R"({"a":1} junk)")}, INT(0)},
+            {{STRING("null")}, INT(1)},
+            {{STRING("true")}, INT(1)},
+            {{STRING(R"({"a":1})")}, INT(1)},
+    };
+
+    static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
+}
+
 TEST(FunctionJsonbTEST, JsonbExtractTest) {
     std::string func_name = "jsonb_extract";
     InputTypeSet input_types = {PrimitiveType::TYPE_JSONB, PrimitiveType::TYPE_VARCHAR};
