@@ -165,7 +165,7 @@ private:
     Status _simdjson_write_data_to_column(simdjson::ondemand::value& value,
                                           const DataTypePtr& type_desc, IColumn* column_ptr,
                                           const std::string& column_name, DataTypeSerDeSPtr serde,
-                                          bool* valid);
+                                          bool* valid, bool is_flexible_variant_column = false);
 
     Status _simdjson_write_columns_by_jsonpath(simdjson::ondemand::object* value,
                                                const std::vector<SlotDescriptor*>& slot_descs,
@@ -190,9 +190,10 @@ private:
     // flexible partial update can not be used when user specify jsonpaths, so we just fill the skip bitmap
     // in `_simdjson_handle_simple_json` and `_vhandle_simple_json` (which will be used when jsonpaths is not specified)
     bool _should_process_skip_bitmap_col() const { return skip_bitmap_col_idx != -1; }
-    void _append_empty_skip_bitmap_value(Block& block, size_t cur_row_count);
+    bool _is_flexible_variant_column(const SlotDescriptor& slot_desc) const;
+    void _append_empty_skip_bitmap_value(Block& block, size_t cur_row_count) const;
     void _set_skip_bitmap_mark(SlotDescriptor* slot_desc, IColumn* column_ptr, Block& block,
-                               size_t cur_row_count, bool* valid);
+                               size_t cur_row_count, bool* valid) const;
     RuntimeState* _state = nullptr;
     RuntimeProfile* _profile = nullptr;
     ScannerCounter* _counter = nullptr;

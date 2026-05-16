@@ -17,7 +17,6 @@
 
 #include "exec/common/variant_util.h"
 
-#include <assert.h>
 #include <fmt/format.h>
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
@@ -34,10 +33,12 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <list>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -76,6 +77,7 @@
 #include "core/field.h"
 #include "core/typeid_cast.h"
 #include "core/types.h"
+#include "core/value/bitmap_value.h"
 #include "exec/common/field_visitors.h"
 #include "exec/common/sip_hash.h"
 #include "exprs/function/function.h"
@@ -101,6 +103,7 @@
 #include "util/json/json_parser.h"
 #include "util/json/path_in_data.h"
 #include "util/json/simd_json_parser.h"
+#include "util/jsonb_utils.h"
 
 namespace doris::variant_util {
 
@@ -841,7 +844,9 @@ TabletColumn create_doc_value_column(const TabletColumn& variant, int bucket_ind
 }
 
 uint32_t variant_binary_shard_of(const StringRef& path, uint32_t bucket_num) {
-    if (bucket_num <= 1) return 0;
+    if (bucket_num <= 1) {
+        return 0;
+    }
     SipHash hash;
     hash.update(path.data, path.size);
     uint64_t h = hash.get64();
@@ -2141,6 +2146,659 @@ phmap::flat_hash_map<std::string_view, ColumnVariant::Subcolumn> materialize_doc
     return subcolumns;
 }
 
+constexpr uint64_t VARIANT_PATCH_PATH_MARKER_MASK = 1ULL << 63;
+constexpr uint64_t VARIANT_PATCH_PATH_MARKER_CLASS_SHIFT = 62;
+constexpr uint64_t VARIANT_PATCH_PATH_MARKER_UID_BITS = 31;
+constexpr uint64_t VARIANT_PATCH_PATH_MARKER_INDEX_BITS = 11;
+constexpr uint64_t VARIANT_PATCH_PATH_MARKER_POS_BITS = 12;
+constexpr uint64_t VARIANT_PATCH_PATH_MARKER_BYTE_BITS = 8;
+constexpr uint64_t VARIANT_PATCH_PATH_MARKER_POS_SHIFT = VARIANT_PATCH_PATH_MARKER_BYTE_BITS;
+constexpr uint64_t VARIANT_PATCH_PATH_MARKER_INDEX_SHIFT =
+        VARIANT_PATCH_PATH_MARKER_POS_SHIFT + VARIANT_PATCH_PATH_MARKER_POS_BITS;
+constexpr uint64_t VARIANT_PATCH_PATH_MARKER_UID_SHIFT =
+        VARIANT_PATCH_PATH_MARKER_INDEX_SHIFT + VARIANT_PATCH_PATH_MARKER_INDEX_BITS;
+static_assert(VARIANT_PATCH_PATH_MARKER_UID_SHIFT + VARIANT_PATCH_PATH_MARKER_UID_BITS ==
+              VARIANT_PATCH_PATH_MARKER_CLASS_SHIFT);
+constexpr uint64_t VARIANT_PATCH_PATH_MARKER_UID_MASK =
+        (1ULL << VARIANT_PATCH_PATH_MARKER_UID_BITS) - 1;
+constexpr uint64_t VARIANT_PATCH_PATH_MARKER_INDEX_MASK =
+        (1ULL << VARIANT_PATCH_PATH_MARKER_INDEX_BITS) - 1;
+constexpr uint64_t VARIANT_PATCH_PATH_MARKER_POS_MASK =
+        (1ULL << VARIANT_PATCH_PATH_MARKER_POS_BITS) - 1;
+constexpr uint64_t VARIANT_PATCH_PATH_MARKER_BYTE_MASK =
+        (1ULL << VARIANT_PATCH_PATH_MARKER_BYTE_BITS) - 1;
+constexpr uint64_t VARIANT_PATCH_PATH_MARKER_MAX_COUNT = 1ULL
+                                                         << VARIANT_PATCH_PATH_MARKER_INDEX_BITS;
+// Flexible VARIANT partial update keeps exact patch paths in skip bitmap markers.
+// The byte position field is the feature-level encoded-path limit.
+constexpr uint64_t VARIANT_PATCH_PATH_MARKER_MAX_BYTES = 1ULL << VARIANT_PATCH_PATH_MARKER_POS_BITS;
+constexpr uint64_t VARIANT_PATCH_PATH_MAX_COUNT = 256;
+constexpr uint64_t VARIANT_PATCH_PATH_MAX_TOTAL_BYTES = 64 * 1024;
+
+// The hidden skip bitmap stores top-level column unique ids, so VARIANT patch metadata uses
+// values outside the int32 uid range. Each path is represented by exact, column-scoped byte
+// markers with the high marker bit set; this keeps publish-conflict merge deterministic.
+bool is_variant_patch_path_marker(uint64_t value) {
+    return (value & VARIANT_PATCH_PATH_MARKER_MASK) != 0;
+}
+
+namespace {
+
+struct VariantPatchPathEncoding {
+    std::optional<uint64_t> length;
+    std::vector<std::optional<uint8_t>> bytes;
+};
+
+using VariantPatchPathMap = std::map<std::string, PathInData>;
+
+void append_fixed_u32(uint32_t value, std::string* dst) {
+    dst->push_back(static_cast<char>(value & 0xFF));
+    dst->push_back(static_cast<char>((value >> 8) & 0xFF));
+    dst->push_back(static_cast<char>((value >> 16) & 0xFF));
+    dst->push_back(static_cast<char>((value >> 24) & 0xFF));
+}
+
+bool read_fixed_u32(std::string_view src, size_t* offset, uint32_t* value) {
+    if (*offset + sizeof(uint32_t) > src.size()) {
+        return false;
+    }
+    const auto* data = reinterpret_cast<const uint8_t*>(src.data() + *offset);
+    *value = static_cast<uint32_t>(data[0]) | (static_cast<uint32_t>(data[1]) << 8) |
+             (static_cast<uint32_t>(data[2]) << 16) | (static_cast<uint32_t>(data[3]) << 24);
+    *offset += sizeof(uint32_t);
+    return true;
+}
+
+std::string encode_variant_patch_path_key(const PathInData& path) {
+    const auto& parts = path.get_parts();
+    DCHECK(!parts.empty());
+    std::string encoded;
+    append_fixed_u32(static_cast<uint32_t>(parts.size()), &encoded);
+    for (const auto& part : parts) {
+        append_fixed_u32(static_cast<uint32_t>(part.key.size()), &encoded);
+        encoded.append(part.key.data(), part.key.size());
+        encoded.push_back(static_cast<char>(part.is_nested ? 1 : 0));
+        encoded.push_back(static_cast<char>(part.anonymous_array_level));
+    }
+    return encoded;
+}
+
+Status decode_variant_patch_path_key(std::string_view encoded, PathInData* path) {
+    size_t offset = 0;
+    uint32_t part_count = 0;
+    if (!read_fixed_u32(encoded, &offset, &part_count) || part_count == 0) {
+        return Status::InternalError("Invalid VARIANT patch path marker part count");
+    }
+
+    PathInData::Parts parts;
+    parts.reserve(part_count);
+    for (uint32_t i = 0; i < part_count; ++i) {
+        uint32_t key_size = 0;
+        if (!read_fixed_u32(encoded, &offset, &key_size) ||
+            offset + key_size + 2 > encoded.size()) {
+            return Status::InternalError("Invalid VARIANT patch path marker part payload");
+        }
+        PathInData::Part part;
+        part.key = std::string_view(encoded.data() + offset, key_size);
+        offset += key_size;
+        part.is_nested = encoded[offset++] != 0;
+        part.anonymous_array_level = static_cast<UInt8>(encoded[offset++]);
+        parts.emplace_back(part);
+    }
+    if (offset != encoded.size()) {
+        return Status::InternalError("Trailing bytes in VARIANT patch path marker");
+    }
+
+    *path = PathInData(parts);
+    return Status::OK();
+}
+
+uint64_t variant_patch_path_max_bytes() {
+    return VARIANT_PATCH_PATH_MARKER_MAX_BYTES;
+}
+
+uint64_t normalized_variant_col_unique_id(int32_t variant_col_unique_id) {
+    CHECK_GE(variant_col_unique_id, 0);
+    CHECK_LE(static_cast<uint64_t>(variant_col_unique_id), VARIANT_PATCH_PATH_MARKER_UID_MASK);
+    return static_cast<uint64_t>(variant_col_unique_id);
+}
+
+uint64_t variant_patch_path_marker_uid(uint64_t marker) {
+    return (marker >> VARIANT_PATCH_PATH_MARKER_UID_SHIFT) & VARIANT_PATCH_PATH_MARKER_UID_MASK;
+}
+
+bool is_variant_patch_path_marker_for_column(uint64_t marker, int32_t variant_col_unique_id) {
+    return is_variant_patch_path_marker(marker) &&
+           variant_patch_path_marker_uid(marker) ==
+                   normalized_variant_col_unique_id(variant_col_unique_id);
+}
+
+uint64_t variant_patch_path_marker_index(uint64_t marker) {
+    return (marker >> VARIANT_PATCH_PATH_MARKER_INDEX_SHIFT) & VARIANT_PATCH_PATH_MARKER_INDEX_MASK;
+}
+
+bool variant_patch_path_marker_is_byte(uint64_t marker) {
+    return ((marker >> VARIANT_PATCH_PATH_MARKER_CLASS_SHIFT) & 1ULL) != 0;
+}
+
+uint64_t variant_patch_path_length_marker(int32_t variant_col_unique_id, uint64_t path_index,
+                                          uint64_t length) {
+    DCHECK_LT(path_index, VARIANT_PATCH_PATH_MARKER_MAX_COUNT);
+    DCHECK_LE(length, VARIANT_PATCH_PATH_MARKER_MAX_BYTES);
+    return VARIANT_PATCH_PATH_MARKER_MASK |
+           (normalized_variant_col_unique_id(variant_col_unique_id)
+            << VARIANT_PATCH_PATH_MARKER_UID_SHIFT) |
+           (path_index << VARIANT_PATCH_PATH_MARKER_INDEX_SHIFT) | length;
+}
+
+uint64_t variant_patch_path_byte_marker(int32_t variant_col_unique_id, uint64_t path_index,
+                                        uint64_t byte_pos, uint8_t byte) {
+    DCHECK_LT(path_index, VARIANT_PATCH_PATH_MARKER_MAX_COUNT);
+    DCHECK_LT(byte_pos, VARIANT_PATCH_PATH_MARKER_MAX_BYTES);
+    return VARIANT_PATCH_PATH_MARKER_MASK | (1ULL << VARIANT_PATCH_PATH_MARKER_CLASS_SHIFT) |
+           (normalized_variant_col_unique_id(variant_col_unique_id)
+            << VARIANT_PATCH_PATH_MARKER_UID_SHIFT) |
+           (path_index << VARIANT_PATCH_PATH_MARKER_INDEX_SHIFT) |
+           (byte_pos << VARIANT_PATCH_PATH_MARKER_POS_SHIFT) | byte;
+}
+
+void remove_variant_patch_path_markers_for_column(int32_t variant_col_unique_id,
+                                                  BitmapValue* bitmap) {
+    std::vector<uint64_t> markers_to_remove;
+    for (uint64_t marker : *bitmap) {
+        if (is_variant_patch_path_marker_for_column(marker, variant_col_unique_id)) {
+            markers_to_remove.push_back(marker);
+        }
+    }
+    for (uint64_t marker : markers_to_remove) {
+        bitmap->remove(marker);
+    }
+}
+
+void remove_all_variant_patch_path_markers(BitmapValue* bitmap) {
+    std::vector<uint64_t> markers_to_remove;
+    for (uint64_t marker : *bitmap) {
+        if (is_variant_patch_path_marker(marker)) {
+            markers_to_remove.push_back(marker);
+        }
+    }
+    for (uint64_t marker : markers_to_remove) {
+        bitmap->remove(marker);
+    }
+}
+
+Status decode_variant_patch_paths(const BitmapValue& bitmap, int32_t variant_col_unique_id,
+                                  VariantPatchPathMap* paths) {
+    paths->clear();
+    std::map<uint64_t, VariantPatchPathEncoding> encoded_paths;
+    for (uint64_t marker : bitmap) {
+        if (!is_variant_patch_path_marker_for_column(marker, variant_col_unique_id)) {
+            continue;
+        }
+        auto& encoded_path = encoded_paths[variant_patch_path_marker_index(marker)];
+        if (!variant_patch_path_marker_is_byte(marker)) {
+            const uint64_t length = marker & ((1ULL << VARIANT_PATCH_PATH_MARKER_INDEX_SHIFT) - 1);
+            if (length > VARIANT_PATCH_PATH_MARKER_MAX_BYTES) {
+                return Status::InternalError(
+                        "Invalid VARIANT patch path marker length {} for column {}", length,
+                        variant_col_unique_id);
+            }
+            if (encoded_path.length.has_value() && *encoded_path.length != length) {
+                return Status::InternalError(
+                        "Conflicting VARIANT patch path marker length for column {}",
+                        variant_col_unique_id);
+            }
+            encoded_path.length = length;
+            continue;
+        }
+
+        const uint64_t byte_pos = (marker >> VARIANT_PATCH_PATH_MARKER_POS_SHIFT) &
+                                  VARIANT_PATCH_PATH_MARKER_POS_MASK;
+        const uint8_t byte = marker & VARIANT_PATCH_PATH_MARKER_BYTE_MASK;
+        if (encoded_path.bytes.size() <= byte_pos) {
+            encoded_path.bytes.resize(byte_pos + 1);
+        }
+        if (encoded_path.bytes[byte_pos].has_value() && *encoded_path.bytes[byte_pos] != byte) {
+            return Status::InternalError("Conflicting VARIANT patch path marker byte for column {}",
+                                         variant_col_unique_id);
+        }
+        encoded_path.bytes[byte_pos] = byte;
+    }
+
+    for (const auto& [_, encoded_path] : encoded_paths) {
+        if (!encoded_path.length.has_value()) {
+            if (!encoded_path.bytes.empty()) {
+                return Status::InternalError(
+                        "VARIANT patch path marker byte without length for column {}",
+                        variant_col_unique_id);
+            }
+            continue;
+        }
+        if (encoded_path.bytes.size() > *encoded_path.length) {
+            return Status::InternalError(
+                    "VARIANT patch path marker byte exceeds length for column {}",
+                    variant_col_unique_id);
+        }
+        std::string encoded_path_key;
+        encoded_path_key.reserve(*encoded_path.length);
+        for (uint64_t i = 0; i < *encoded_path.length; ++i) {
+            if (i >= encoded_path.bytes.size() || !encoded_path.bytes[i].has_value()) {
+                return Status::InternalError("Incomplete VARIANT patch path marker for column {}",
+                                             variant_col_unique_id);
+            }
+            encoded_path_key.push_back(static_cast<char>(*encoded_path.bytes[i]));
+        }
+        PathInData path;
+        RETURN_IF_ERROR(decode_variant_patch_path_key(encoded_path_key, &path));
+        paths->insert_or_assign(std::move(encoded_path_key), std::move(path));
+    }
+    return Status::OK();
+}
+
+Status encode_variant_patch_paths(int32_t variant_col_unique_id, const VariantPatchPathMap& paths,
+                                  BitmapValue* bitmap) {
+    if (paths.size() > VARIANT_PATCH_PATH_MAX_COUNT) {
+        return Status::NotSupported(
+                "VARIANT flexible partial update supports at most {} patch paths per row",
+                VARIANT_PATCH_PATH_MAX_COUNT);
+    }
+    const uint64_t max_encoded_bytes = variant_patch_path_max_bytes();
+    for (const auto& [encoded_path_key, _] : paths) {
+        if (encoded_path_key.size() > max_encoded_bytes) {
+            return Status::NotSupported(
+                    "VARIANT flexible partial update encoded patch path exceeds {} bytes, actual "
+                    "{} bytes",
+                    max_encoded_bytes, encoded_path_key.size());
+        }
+    }
+
+    BitmapValue encoded_bitmap = *bitmap;
+    remove_variant_patch_path_markers_for_column(variant_col_unique_id, &encoded_bitmap);
+
+    uint64_t path_index = 0;
+    for (const auto& [encoded_path_key, _] : paths) {
+        encoded_bitmap.add(variant_patch_path_length_marker(variant_col_unique_id, path_index,
+                                                            encoded_path_key.size()));
+        for (uint64_t byte_pos = 0; byte_pos < encoded_path_key.size(); ++byte_pos) {
+            encoded_bitmap.add(variant_patch_path_byte_marker(
+                    variant_col_unique_id, path_index, byte_pos,
+                    static_cast<uint8_t>(static_cast<unsigned char>(encoded_path_key[byte_pos]))));
+        }
+        ++path_index;
+    }
+    uint64_t row_total_encoded_bytes = 0;
+    for (uint64_t marker : encoded_bitmap) {
+        if (is_variant_patch_path_marker(marker) && !variant_patch_path_marker_is_byte(marker)) {
+            row_total_encoded_bytes +=
+                    marker & ((1ULL << VARIANT_PATCH_PATH_MARKER_INDEX_SHIFT) - 1);
+            if (row_total_encoded_bytes > VARIANT_PATCH_PATH_MAX_TOTAL_BYTES) {
+                return Status::NotSupported(
+                        "VARIANT flexible partial update encoded patch paths exceed {} bytes per "
+                        "row",
+                        VARIANT_PATCH_PATH_MAX_TOTAL_BYTES);
+            }
+        }
+    }
+    *bitmap = std::move(encoded_bitmap);
+    return Status::OK();
+}
+
+void collect_variant_patch_marker_column_uids(const BitmapValue& bitmap,
+                                              std::set<int32_t>* variant_col_unique_ids) {
+    for (uint64_t marker : bitmap) {
+        if (is_variant_patch_path_marker(marker)) {
+            variant_col_unique_ids->insert(
+                    static_cast<int32_t>(variant_patch_path_marker_uid(marker)));
+        }
+    }
+}
+
+Status variant_object_patch_required_status() {
+    return Status::NotSupported(
+            "VARIANT flexible partial update only supports JSON object patch values");
+}
+
+Status variant_object_base_required_status() {
+    return Status::NotSupported(
+            "VARIANT flexible partial update only supports patching JSON object old values");
+}
+
+Status variant_doc_mode_not_supported_status() {
+    return Status::NotSupported(
+            "VARIANT flexible partial update does not support doc mode in this version");
+}
+
+const ColumnVariant& get_variant_nested_column(const IColumn& column) {
+    if (column.is_nullable()) {
+        return assert_cast<const ColumnVariant&>(
+                assert_cast<const ColumnNullable&>(column).get_nested_column());
+    }
+    return assert_cast<const ColumnVariant&>(column);
+}
+
+ColumnVariant& get_variant_nested_column(IColumn& column) {
+    if (column.is_nullable()) {
+        return assert_cast<ColumnVariant&>(
+                assert_cast<ColumnNullable&>(column).get_nested_column());
+    }
+    return assert_cast<ColumnVariant&>(column);
+}
+
+bool is_path_prefix_of(const PathInData& prefix, const PathInData& path) {
+    const auto& prefix_parts = prefix.get_parts();
+    const auto& path_parts = path.get_parts();
+    if (prefix_parts.size() > path_parts.size()) {
+        return false;
+    }
+    return std::equal(prefix_parts.begin(), prefix_parts.end(), path_parts.begin());
+}
+
+bool paths_conflict(const PathInData& left, const PathInData& right) {
+    return is_path_prefix_of(left, right) || is_path_prefix_of(right, left);
+}
+
+bool path_or_prefix_is_variant_patch_path(const PathInData& path,
+                                          const VariantPatchPathMap& patch_paths) {
+    PathInData::Parts prefix_parts;
+    prefix_parts.reserve(path.get_parts().size());
+    for (const auto& part : path.get_parts()) {
+        prefix_parts.push_back(part);
+        if (patch_paths.contains(encode_variant_patch_path_key(PathInData(prefix_parts)))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool path_conflicts_with_any_patch_path(const PathInData& path, const VariantMap& patch_object) {
+    return std::ranges::any_of(patch_object, [&](const auto& patch_item) {
+        return paths_conflict(patch_item.first, path);
+    });
+}
+
+bool starts_with_json_object(std::string_view text) {
+    auto it = std::ranges::find_if_not(text, [](unsigned char ch) { return std::isspace(ch); });
+    return it != text.end() && *it == '{';
+}
+
+bool root_jsonb_field_to_json_text(const Field& field, std::string* json_text) {
+    switch (field.get_type()) {
+    case PrimitiveType::TYPE_JSONB: {
+        const auto& jsonb = field.get<PrimitiveType::TYPE_JSONB>();
+        *json_text = JsonbToJson::jsonb_to_json_string(jsonb.get_value(), jsonb.get_size());
+        return true;
+    }
+    default:
+        return false;
+    }
+}
+
+bool collect_json_object_text_map(std::string_view json_text, bool reject_json_null_value,
+                                  VariantMap* object) {
+    if (!starts_with_json_object(json_text)) {
+        return false;
+    }
+
+    auto parsed = ColumnVariant::create(0, false);
+    ParseConfig config;
+    config.parse_to = ParseConfig::ParseTo::OnlySubcolumns;
+    config.reject_json_null_value = reject_json_null_value;
+    config.record_empty_object_path = true;
+    StringRef json_ref {json_text.data(), json_text.size()};
+    parse_json_to_variant(*parsed, json_ref, nullptr, config);
+    parsed->finalize();
+
+    Field parsed_field;
+    parsed->get(0, parsed_field);
+    if (parsed_field.get_type() != PrimitiveType::TYPE_VARIANT) {
+        return false;
+    }
+    const auto& parsed_object = parsed_field.get<PrimitiveType::TYPE_VARIANT>();
+    if (parsed_object.contains(PathInData())) {
+        return false;
+    }
+    for (const auto& [path, value] : parsed_object) {
+        if (!path.empty()) {
+            object->insert_or_assign(path, value);
+        }
+    }
+    return true;
+}
+
+void collect_materialized_variant_map(const ColumnVariant& variant, size_t row, VariantMap* object,
+                                      FieldWithDataType* root_field) {
+    Field field;
+    variant.get(row, field);
+    if (field.get_type() == PrimitiveType::TYPE_VARIANT) {
+        for (const auto& [path, value] : field.get<PrimitiveType::TYPE_VARIANT>()) {
+            if (path.get_path() == DOC_VALUE_COLUMN_PATH) {
+                continue;
+            }
+            if (path.empty()) {
+                *root_field = value;
+                continue;
+            }
+            object->insert_or_assign(path, value);
+        }
+    }
+
+    DCHECK(!variant.has_doc_value_column(row));
+}
+
+Status collect_variant_patch_map(const ColumnVariant& variant, size_t row, bool* is_object_patch,
+                                 VariantMap* object) {
+    object->clear();
+    FieldWithDataType root_field;
+    collect_materialized_variant_map(variant, row, object, &root_field);
+    if (root_field.field.get_type() == PrimitiveType::TYPE_NULL) {
+        *is_object_patch = true;
+        return Status::OK();
+    }
+
+    std::string json_text;
+    if (!root_jsonb_field_to_json_text(root_field.field, &json_text)) {
+        *is_object_patch = false;
+        return Status::OK();
+    }
+    object->clear();
+    *is_object_patch = collect_json_object_text_map(json_text, true, object);
+    return Status::OK();
+}
+
+Status collect_variant_base_map(const ColumnVariant& variant, size_t row, VariantMap* object) {
+    object->clear();
+    FieldWithDataType root_field;
+    collect_materialized_variant_map(variant, row, object, &root_field);
+    if (root_field.field.get_type() == PrimitiveType::TYPE_NULL) {
+        return Status::OK();
+    }
+
+    std::string json_text;
+    if (!root_jsonb_field_to_json_text(root_field.field, &json_text)) {
+        return variant_object_base_required_status();
+    }
+    object->clear();
+    if (!collect_json_object_text_map(json_text, false, object)) {
+        return variant_object_base_required_status();
+    }
+    return Status::OK();
+}
+
+Status insert_variant_field(IColumn& dst_column, const Field& field) {
+    DCHECK(!get_variant_nested_column(dst_column).enable_doc_mode());
+    dst_column.insert(field);
+    return Status::OK();
+}
+
+Status check_variant_object_patch_supported(const IColumn& column) {
+    if (get_variant_nested_column(column).enable_doc_mode()) {
+        return variant_doc_mode_not_supported_status();
+    }
+    return Status::OK();
+}
+
+Status merge_variant_object_patch(const IColumn& old_column, size_t old_row,
+                                  VariantMap&& patch_object, IColumn& dst_column) {
+    VariantMap merged_object;
+    if (!old_column.is_null_at(old_row)) {
+        RETURN_IF_ERROR(collect_variant_base_map(get_variant_nested_column(old_column), old_row,
+                                                 &merged_object));
+    }
+    for (const auto& [patch_path, _] : patch_object) {
+        for (auto it = merged_object.begin(); it != merged_object.end();) {
+            if (paths_conflict(patch_path, it->first)) {
+                it = merged_object.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+    for (auto& [patch_path, patch_value] : patch_object) {
+        merged_object.insert_or_assign(patch_path, std::move(patch_value));
+    }
+
+    Field merged_field = Field::create_field<TYPE_VARIANT>(std::move(merged_object));
+    return insert_variant_field(dst_column, merged_field);
+}
+
+Status insert_variant_object_patch(VariantMap&& patch_object, IColumn& dst_column) {
+    Field patch_field = Field::create_field<TYPE_VARIANT>(std::move(patch_object));
+    return insert_variant_field(dst_column, patch_field);
+}
+
+} // namespace
+
+Status mark_variant_patch_paths(const IColumn& patch_column, size_t patch_row,
+                                int32_t variant_col_unique_id, BitmapValue* patch_path_markers) {
+    RETURN_IF_CATCH_EXCEPTION({
+        if (patch_column.is_null_at(patch_row)) {
+            return variant_object_patch_required_status();
+        }
+        RETURN_IF_ERROR(check_variant_object_patch_supported(patch_column));
+
+        bool is_object_patch = false;
+        VariantMap patch_object;
+        RETURN_IF_ERROR(collect_variant_patch_map(get_variant_nested_column(patch_column),
+                                                  patch_row, &is_object_patch, &patch_object));
+        if (!is_object_patch) {
+            return variant_object_patch_required_status();
+        }
+
+        VariantPatchPathMap patch_paths;
+        RETURN_IF_ERROR(decode_variant_patch_paths(*patch_path_markers, variant_col_unique_id,
+                                                   &patch_paths));
+        for (const auto& [path, _] : patch_object) {
+            patch_paths.insert_or_assign(encode_variant_patch_path_key(path), path);
+        }
+        return encode_variant_patch_paths(variant_col_unique_id, patch_paths, patch_path_markers);
+    });
+    return Status::OK();
+}
+
+Status merge_variant_patch_path_markers(const BitmapValue& left, const BitmapValue& right,
+                                        BitmapValue* merged) {
+    RETURN_IF_CATCH_EXCEPTION({
+        *merged = left;
+        *merged &= right;
+        remove_all_variant_patch_path_markers(merged);
+
+        std::set<int32_t> variant_col_unique_ids;
+        collect_variant_patch_marker_column_uids(left, &variant_col_unique_ids);
+        collect_variant_patch_marker_column_uids(right, &variant_col_unique_ids);
+        for (int32_t variant_col_unique_id : variant_col_unique_ids) {
+            VariantPatchPathMap patch_paths;
+            RETURN_IF_ERROR(decode_variant_patch_paths(left, variant_col_unique_id, &patch_paths));
+            VariantPatchPathMap right_patch_paths;
+            RETURN_IF_ERROR(
+                    decode_variant_patch_paths(right, variant_col_unique_id, &right_patch_paths));
+            patch_paths.insert(right_patch_paths.begin(), right_patch_paths.end());
+            RETURN_IF_ERROR(encode_variant_patch_paths(variant_col_unique_id, patch_paths, merged));
+        }
+        return Status::OK();
+    });
+    return Status::OK();
+}
+
+Status merge_variant_patch(const IColumn& old_column, size_t old_row, const IColumn& patch_column,
+                           size_t patch_row, IColumn& dst_column) {
+    RETURN_IF_CATCH_EXCEPTION({
+        if (patch_column.is_null_at(patch_row)) {
+            return variant_object_patch_required_status();
+        }
+        RETURN_IF_ERROR(check_variant_object_patch_supported(old_column));
+        RETURN_IF_ERROR(check_variant_object_patch_supported(patch_column));
+        RETURN_IF_ERROR(check_variant_object_patch_supported(dst_column));
+
+        bool is_object_patch = false;
+        VariantMap patch_object;
+        RETURN_IF_ERROR(collect_variant_patch_map(get_variant_nested_column(patch_column),
+                                                  patch_row, &is_object_patch, &patch_object));
+        if (!is_object_patch) {
+            return variant_object_patch_required_status();
+        }
+
+        RETURN_IF_ERROR(merge_variant_object_patch(old_column, old_row, std::move(patch_object),
+                                                   dst_column));
+        return Status::OK();
+    });
+    return Status::OK();
+}
+
+Status merge_variant_patch_by_path_markers(const IColumn& old_column, size_t old_row,
+                                           const IColumn& patch_column, size_t patch_row,
+                                           int32_t variant_col_unique_id,
+                                           const BitmapValue& patch_path_markers,
+                                           bool old_row_deleted, IColumn& dst_column) {
+    RETURN_IF_CATCH_EXCEPTION({
+        if (patch_column.is_null_at(patch_row)) {
+            return variant_object_patch_required_status();
+        }
+        RETURN_IF_ERROR(check_variant_object_patch_supported(old_column));
+        RETURN_IF_ERROR(check_variant_object_patch_supported(patch_column));
+        RETURN_IF_ERROR(check_variant_object_patch_supported(dst_column));
+
+        VariantMap patch_object;
+        RETURN_IF_ERROR(collect_variant_base_map(get_variant_nested_column(patch_column), patch_row,
+                                                 &patch_object));
+        VariantPatchPathMap patch_paths;
+        RETURN_IF_ERROR(decode_variant_patch_paths(patch_path_markers, variant_col_unique_id,
+                                                   &patch_paths));
+        for (auto it = patch_object.begin(); it != patch_object.end();) {
+            if (patch_paths.contains(encode_variant_patch_path_key(it->first))) {
+                ++it;
+            } else {
+                it = patch_object.erase(it);
+            }
+        }
+        if (old_row_deleted) {
+            RETURN_IF_ERROR(insert_variant_object_patch(std::move(patch_object), dst_column));
+            return Status::OK();
+        }
+
+        VariantMap merged_object;
+        if (!old_column.is_null_at(old_row)) {
+            RETURN_IF_ERROR(collect_variant_base_map(get_variant_nested_column(old_column), old_row,
+                                                     &merged_object));
+        }
+        for (auto it = merged_object.begin(); it != merged_object.end();) {
+            if (path_or_prefix_is_variant_patch_path(it->first, patch_paths) ||
+                path_conflicts_with_any_patch_path(it->first, patch_object)) {
+                it = merged_object.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        for (auto& [patch_path, patch_value] : patch_object) {
+            merged_object.insert_or_assign(patch_path, std::move(patch_value));
+        }
+
+        Field merged_field = Field::create_field<TYPE_VARIANT>(std::move(merged_object));
+        RETURN_IF_ERROR(insert_variant_field(dst_column, merged_field));
+        return Status::OK();
+    });
+    return Status::OK();
+}
+
 Status _parse_and_materialize_variant_columns(Block& block,
                                               const std::vector<uint32_t>& variant_pos,
                                               const std::vector<ParseConfig>& configs) {
@@ -2216,7 +2874,8 @@ Status parse_and_materialize_variant_columns(Block& block, const std::vector<uin
 }
 
 Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& tablet_schema,
-                                             const std::vector<uint32_t>& column_pos) {
+                                             const std::vector<uint32_t>& column_pos,
+                                             bool reject_json_null_value) {
     std::vector<uint32_t> variant_column_pos;
     std::vector<uint32_t> variant_schema_pos;
     variant_column_pos.reserve(column_pos.size());
@@ -2240,6 +2899,8 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
         configs[i].deprecated_enable_flatten_nested =
                 tablet_schema.deprecated_variant_flatten_nested();
         configs[i].check_duplicate_json_path = config::variant_enable_duplicate_json_path_check;
+        configs[i].reject_json_null_value = reject_json_null_value;
+        configs[i].record_empty_object_path = reject_json_null_value;
         const auto& column = tablet_schema.column(variant_schema_pos[i]);
         if (!column.is_variant_type()) {
             return Status::InternalError("column is not variant type, column name: {}",

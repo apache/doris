@@ -102,6 +102,8 @@ void writeValueAsJsonb(const Element& element, JsonbWriter& writer) {
 struct ParseConfig {
     bool deprecated_enable_flatten_nested = false;
     bool check_duplicate_json_path = false;
+    bool reject_json_null_value = false;
+    bool record_empty_object_path = false;
     enum class ParseTo {
         OnlySubcolumns = 0,
         OnlyDocValueColumn = 1,
@@ -131,6 +133,8 @@ private:
         phmap::flat_hash_set<std::string> visited_path_names;
         bool deprecated_enable_flatten_nested = false;
         bool check_duplicate_json_path = false;
+        bool reject_json_null_value = false;
+        bool record_empty_object_path = false;
         bool has_nested_in_flatten = false;
         bool is_top_array = false;
     };
@@ -145,6 +149,7 @@ private:
         bool has_nested_in_flatten = false;
         bool is_top_array = false;
         bool check_duplicate_json_path = false;
+        bool reject_json_null_value = false;
     };
     void traverse(const Element& element, ParseContext& ctx);
     void traverseObject(const JSONObject& object, ParseContext& ctx);
@@ -165,9 +170,11 @@ private:
 
     bool has_nested = false;
     void check_has_nested_object(const Element& element);
-    void traverseAsJsonb(const Element& element, JsonbWriter& writer);
-    void traverseObjectAsJsonb(const JSONObject& object, JsonbWriter& writer);
-    void traverseArrayAsJsonb(const JSONArray& array, JsonbWriter& writer);
+    void traverseAsJsonb(const Element& element, JsonbWriter& writer, bool reject_json_null_value);
+    void traverseObjectAsJsonb(const JSONObject& object, JsonbWriter& writer,
+                               bool reject_json_null_value);
+    void traverseArrayAsJsonb(const JSONArray& array, JsonbWriter& writer,
+                              bool reject_json_null_value);
 
     ParserImpl parser;
 };

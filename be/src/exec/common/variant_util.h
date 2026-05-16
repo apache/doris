@@ -259,7 +259,23 @@ void parse_json_to_variant(IColumn& column, const StringRef& jsons, JsonParser* 
 // Parse variant columns by picking variant positions from `column_pos` and generating ParseConfig
 // based on tablet schema settings (flatten nested / doc snapshot mode).
 Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& tablet_schema,
-                                             const std::vector<uint32_t>& column_pos);
+                                             const std::vector<uint32_t>& column_pos,
+                                             bool reject_json_null_value = false);
+
+// Merge one VARIANT object patch row into an old VARIANT row and append the result to dst_column.
+// Flexible VARIANT partial update only supports JSON object patches in this version.
+Status merge_variant_patch(const IColumn& old_column, size_t old_row, const IColumn& patch_column,
+                           size_t patch_row, IColumn& dst_column);
+bool is_variant_patch_path_marker(uint64_t value);
+Status mark_variant_patch_paths(const IColumn& patch_column, size_t patch_row,
+                                int32_t variant_col_unique_id, BitmapValue* patch_path_markers);
+Status merge_variant_patch_path_markers(const BitmapValue& left, const BitmapValue& right,
+                                        BitmapValue* merged);
+Status merge_variant_patch_by_path_markers(const IColumn& old_column, size_t old_row,
+                                           const IColumn& patch_column, size_t patch_row,
+                                           int32_t variant_col_unique_id,
+                                           const BitmapValue& patch_path_markers,
+                                           bool old_row_deleted, IColumn& dst_column);
 
 // Parse doc snapshot column (paths/values/offsets stored in ColumnVariant) into per-path subcolumns.
 // NOTE: Returned map keys are `std::string_view` pointing into the underlying doc snapshot paths

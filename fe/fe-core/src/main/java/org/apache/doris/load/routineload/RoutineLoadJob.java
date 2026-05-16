@@ -61,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadComma
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonPreProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -114,7 +115,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  */
 public abstract class RoutineLoadJob
         extends AbstractTxnStateChangeCallback
-        implements Writable, LoadTaskInfo, GsonPostProcessable {
+        implements Writable, LoadTaskInfo, GsonPostProcessable, GsonPreProcessable {
     private static final Logger LOG = LogManager.getLogger(RoutineLoadJob.class);
 
     public static final long DEFAULT_MAX_ERROR_NUM = 0;
@@ -182,12 +183,24 @@ public abstract class RoutineLoadJob
     // this code is used to verify be task request
     protected long authCode;
     //    protected RoutineLoadDesc routineLoadDesc; // optional
+    @SerializedName(value = "pni", alternate = {"partitionNamesInfo"})
     protected PartitionNamesInfo partitionNamesInfo; // optional
+    @SerializedName(value = "columnDescs", alternate = {"cd"})
     protected ImportColumnDescs columnDescs; // optional
+    @SerializedName(value = "pf", alternate = {"precedingFilter"})
     protected Expr precedingFilter; // optional
+    @SerializedName(value = "filter", alternate = {"whereExpr"})
     protected Expr whereExpr; // optional
     protected Separator columnSeparator; // optional
     protected Separator lineDelimiter;
+    @SerializedName("cs")
+    private String serializedColumnSeparator;
+    @SerializedName("ocs")
+    private String serializedOriColumnSeparator;
+    @SerializedName("ld")
+    private String serializedLineDelimiter;
+    @SerializedName("old")
+    private String serializedOriLineDelimiter;
     @SerializedName("dtcn")
     protected int desireTaskConcurrentNum; // optional
     @SerializedName("st")
@@ -230,6 +243,7 @@ public abstract class RoutineLoadJob
     protected TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
     protected TUniqueKeyUpdateMode uniqueKeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
 
+    @SerializedName(value = "scn", alternate = {"sequenceCol"})
     protected String sequenceCol;
 
     protected boolean memtableOnSinkNode = false;
@@ -271,6 +285,11 @@ public abstract class RoutineLoadJob
 
     protected ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
     protected LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND; // default is all data is load no delete
+    @SerializedName("mts")
+    protected boolean mergeTypeSpecified = false;
+    @SerializedName("mt")
+    private LoadTask.MergeType serializedMergeType;
+    @SerializedName(value = "dc", alternate = {"deleteCondition"})
     protected Expr deleteCondition;
     // TODO(ml): error sample
 
@@ -438,11 +457,7 @@ public abstract class RoutineLoadJob
 
     protected void setRoutineLoadDesc(RoutineLoadDesc routineLoadDesc) {
         if (routineLoadDesc != null) {
-            if (routineLoadDesc.getColumnsInfo() != null) {
-                columnDescs = new ImportColumnDescs();
-                columnDescs.descs.addAll(routineLoadDesc.getColumnsInfo());
-
-            }
+            setColumnDescsFromRoutineLoadDesc(routineLoadDesc);
             if (routineLoadDesc.getPrecedingFilter() != null) {
                 precedingFilter = routineLoadDesc.getPrecedingFilter();
             }
@@ -461,10 +476,22 @@ public abstract class RoutineLoadJob
             if (routineLoadDesc.getDeleteCondition() != null) {
                 deleteCondition = routineLoadDesc.getDeleteCondition();
             }
-            mergeType = routineLoadDesc.getMergeType();
+            if (routineLoadDesc.getMergeType() != null) {
+                mergeType = routineLoadDesc.getMergeType();
+            }
+            if (routineLoadDesc.isMergeTypeSpecified()) {
+                mergeTypeSpecified = true;
+            }
             if (routineLoadDesc.hasSequenceCol()) {
                 sequenceCol = routineLoadDesc.getSequenceColName();
             }
+        }
+    }
+
+    protected void setColumnDescsFromRoutineLoadDesc(RoutineLoadDesc routineLoadDesc) {
+        if (routineLoadDesc != null && routineLoadDesc.getColumnsInfo() != null) {
+            columnDescs = new ImportColumnDescs();
+            columnDescs.descs.addAll(routineLoadDesc.getColumnsInfo());
         }
     }
 
@@ -1947,7 +1974,16 @@ public abstract class RoutineLoadJob
     }
 
     @Override
+    public void gsonPreProcess() throws IOException {
+        syncSerializedSeparatorFields(columnSeparator, true);
+        syncSerializedSeparatorFields(lineDelimiter, false);
+        serializedMergeType = mergeType;
+    }
+
+    @Override
     public void gsonPostProcess() throws IOException {
+        restoreSerializedSeparators();
+        RoutineLoadDesc persistedRoutineLoadDesc = currentRoutineLoadDesc();
         if (tableId == 0) {
             isMultiTable = true;
         }
@@ -2010,7 +2046,7 @@ public abstract class RoutineLoadJob
                         // fall through; let validate() surface the real error
                     }
                 }
-                createRoutineLoadInfo.validate(ctx);
+                createRoutineLoadInfo.validateForReplay(ctx);
                 setRoutineLoadDesc(createRoutineLoadInfo.getRoutineLoadDesc());
             } finally {
                 ctx.cleanup();
@@ -2019,9 +2055,44 @@ public abstract class RoutineLoadJob
             this.state = JobState.CANCELLED;
             LOG.warn("error happens when parsing create routine load stmt: " + origStmt.originStmt, e);
         }
+        setRoutineLoadDesc(persistedRoutineLoadDesc);
         if (userIdentity != null) {
             userIdentity.setIsAnalyzed();
         }
+    }
+
+    private RoutineLoadDesc currentRoutineLoadDesc() {
+        return new RoutineLoadDesc(
+                columnSeparator, lineDelimiter,
+                columnDescs == null ? null : new ArrayList<>(columnDescs.descs), precedingFilter,
+                whereExpr, partitionNamesInfo, deleteCondition,
+                serializedMergeType, mergeTypeSpecified, sequenceCol);
+    }
+
+    private void syncSerializedSeparatorFields(Separator separator, boolean isColumnSeparator) {
+        if (isColumnSeparator) {
+            serializedColumnSeparator = separator == null ? null : separator.getSeparator();
+            serializedOriColumnSeparator = separator == null ? null : separator.getOriSeparator();
+        } else {
+            serializedLineDelimiter = separator == null ? null : separator.getSeparator();
+            serializedOriLineDelimiter = separator == null ? null : separator.getOriSeparator();
+        }
+    }
+
+    private void restoreSerializedSeparators() {
+        if (serializedColumnSeparator != null || serializedOriColumnSeparator != null) {
+            columnSeparator = buildSeparator(serializedColumnSeparator, serializedOriColumnSeparator);
+        }
+        if (serializedLineDelimiter != null || serializedOriLineDelimiter != null) {
+            lineDelimiter = buildSeparator(serializedLineDelimiter, serializedOriLineDelimiter);
+        }
+    }
+
+    private static Separator buildSeparator(String separator, String oriSeparator) {
+        if (separator == null && oriSeparator == null) {
+            return null;
+        }
+        return new Separator(separator, oriSeparator);
     }
 
     public abstract void modifyProperties(AlterRoutineLoadCommand command) throws UserException;
@@ -2066,10 +2137,6 @@ public abstract class RoutineLoadJob
         if (jobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE)) {
             String modeStr = jobProperties.remove(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE);
             TUniqueKeyUpdateMode newMode = CreateRoutineLoadInfo.parseAndValidateUniqueKeyUpdateMode(modeStr);
-            // Validate flexible partial update constraints when changing to UPDATE_FLEXIBLE_COLUMNS
-            if (newMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
-                validateFlexiblePartialUpdateForAlter();
-            }
             this.uniqueKeyUpdateMode = newMode;
             this.isPartialUpdate = (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
             this.jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, uniqueKeyUpdateMode.name());
@@ -2092,7 +2159,17 @@ public abstract class RoutineLoadJob
     /**
      * Validate flexible partial update constraints when altering routine load job.
      */
-    private void validateFlexiblePartialUpdateForAlter() throws UserException {
+    protected void validateFlexiblePartialUpdateForAlter(
+            Map<String, String> newJobProperties, RoutineLoadDesc newRoutineLoadDesc) throws UserException {
+        TUniqueKeyUpdateMode newMode = uniqueKeyUpdateMode;
+        if (newJobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE)) {
+            newMode = CreateRoutineLoadInfo.parseAndValidateUniqueKeyUpdateMode(
+                    newJobProperties.get(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE));
+        }
+        if (newMode != TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
+            return;
+        }
+
         // Multi-table load does not support flexible partial update
         if (isMultiTable) {
             throw new DdlException("Flexible partial update is not supported in multi-table load");
@@ -2112,29 +2189,57 @@ public abstract class RoutineLoadJob
         }
         OlapTable olapTable = (OlapTable) table;
 
-        // Validate table-level constraints (MoW, skip_bitmap, light_schema_change, variant columns)
+        // Validate table-level constraints (MoW, skip_bitmap, light_schema_change)
         olapTable.validateForFlexiblePartialUpdate();
+
+        Map<String, String> mergedJobProperties = Maps.newHashMap(this.jobProperties);
+        mergedJobProperties.putAll(newJobProperties);
 
         // Routine load specific validations
         // Must use JSON format
-        String format = this.jobProperties.getOrDefault(FileFormatProperties.PROP_FORMAT, "csv");
+        String format = mergedJobProperties.getOrDefault(FileFormatProperties.PROP_FORMAT, "csv");
         if (!"json".equalsIgnoreCase(format)) {
             throw new DdlException("Flexible partial update only supports JSON format, but current job uses: "
                     + format);
         }
         // Cannot use fuzzy_parse
-        if (Boolean.parseBoolean(this.jobProperties.getOrDefault(
+        if (Boolean.parseBoolean(mergedJobProperties.getOrDefault(
                 JsonFileFormatProperties.PROP_FUZZY_PARSE, "false"))) {
             throw new DdlException("Flexible partial update does not support fuzzy_parse");
         }
         // Cannot use jsonpaths
-        String jsonPaths = getJsonPaths();
+        String jsonPaths = mergedJobProperties.get(JsonFileFormatProperties.PROP_JSON_PATHS);
         if (jsonPaths != null && !jsonPaths.isEmpty()) {
             throw new DdlException("Flexible partial update does not support jsonpaths");
         }
         // Cannot specify COLUMNS mapping
-        if (columnDescs != null && !columnDescs.descs.isEmpty()) {
+        if ((columnDescs != null && !columnDescs.descs.isEmpty())
+                || (newRoutineLoadDesc != null && newRoutineLoadDesc.getColumnsInfo() != null
+                && !newRoutineLoadDesc.getColumnsInfo().isEmpty())) {
             throw new DdlException("Flexible partial update does not support COLUMNS specification");
+        }
+        validateRoutineLoadDescForFlexiblePartialUpdate(newRoutineLoadDesc);
+    }
+
+    private void validateRoutineLoadDescForFlexiblePartialUpdate(RoutineLoadDesc newRoutineLoadDesc)
+            throws DdlException {
+        boolean newDescHasExplicitMergeType = newRoutineLoadDesc != null
+                && (newRoutineLoadDesc.isMergeTypeSpecified()
+                        || newRoutineLoadDesc.getMergeType() != LoadTask.MergeType.APPEND);
+        if (mergeTypeSpecified || mergeType != LoadTask.MergeType.APPEND || newDescHasExplicitMergeType) {
+            throw new DdlException("Don't support flexible partial update when 'merge_type' is specified");
+        }
+        if (whereExpr != null || (newRoutineLoadDesc != null && newRoutineLoadDesc.getFilter() != null)) {
+            throw new DdlException("Don't support flexible partial update when 'where' is specified");
+        }
+        if (deleteCondition != null
+                || (newRoutineLoadDesc != null && newRoutineLoadDesc.getDeleteCondition() != null)) {
+            throw new DdlException("Don't support flexible partial update when 'delete' is specified");
+        }
+        if (!Strings.isNullOrEmpty(sequenceCol)
+                || (newRoutineLoadDesc != null && newRoutineLoadDesc.hasSequenceCol())) {
+            throw new DdlException("Don't support flexible partial update when "
+                    + "'function_column.sequence_col' is specified");
         }
     }
 }

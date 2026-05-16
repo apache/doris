@@ -17,20 +17,40 @@
 
 package org.apache.doris.load.routineload;
 
+import org.apache.doris.analysis.ImportColumnDesc;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.load.RoutineLoadDesc;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kinesis.KinesisConfiguration;
 import org.apache.doris.load.routineload.kinesis.KinesisDataSourceProperties;
 import org.apache.doris.load.routineload.kinesis.KinesisProgress;
 import org.apache.doris.load.routineload.kinesis.KinesisRoutineLoadJob;
 import org.apache.doris.load.routineload.kinesis.KinesisTaskInfo;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
+import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
+import org.apache.doris.persist.EditLog;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -227,6 +247,111 @@ public class KinesisRoutineLoadJobTest {
         KinesisProgress progress = Deencapsulation.getField(routineLoadJob, "progress");
         Assert.assertEquals("101", progress.getSequenceNumberByShard("shard-1"));
         Assert.assertEquals("202", progress.getSequenceNumberByShard("shard-2"));
+    }
+
+    @Test
+    public void testModifyPropertiesShouldApplyAndPersistRoutineLoadDesc() throws Exception {
+        KinesisRoutineLoadJob routineLoadJob =
+                new KinesisRoutineLoadJob(1L, "kinesis_routine_load_job", 1L,
+                        1L, "ap-southeast-1", "stream-1", UserIdentity.ADMIN);
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
+
+        RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(new Separator("|", "|"), null,
+                Lists.newArrayList(new ImportColumnDesc("id", null)), null, null, null, null,
+                LoadTask.MergeType.APPEND, "seq");
+        AlterRoutineLoadCommand command = new AlterRoutineLoadCommand(
+                new LabelNameInfo("db", "job"), Maps.newHashMap(), Maps.newHashMap());
+        Deencapsulation.setField(command, "routineLoadDesc", routineLoadDesc);
+
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+
+            routineLoadJob.modifyProperties(command);
+        }
+
+        Assert.assertEquals(1, routineLoadJob.getColumnExprDescs().descs.size());
+        Assert.assertEquals("|", routineLoadJob.getColumnSeparator().getSeparator());
+        Assert.assertEquals("seq", routineLoadJob.getSequenceCol());
+        Mockito.verify(editLog).logAlterRoutineLoadJob(Mockito.argThat(log ->
+                log.getRoutineLoadDesc() != null
+                        && "|".equals(log.getRoutineLoadDesc().getColumnSeparator().getSeparator())
+                        && "seq".equals(log.getRoutineLoadDesc().getSequenceColName())));
+    }
+
+    @Test
+    public void testModifyPropertiesShouldValidateFlexibleAlterAgainstRoutineLoadDesc() throws Exception {
+        KinesisRoutineLoadJob routineLoadJob =
+                new KinesisRoutineLoadJob(1L, "kinesis_routine_load_job", 1L,
+                        1L, "ap-southeast-1", "stream-1", UserIdentity.ADMIN);
+        Deencapsulation.setField(routineLoadJob, "dbId", 1L);
+        Deencapsulation.setField(routineLoadJob, "tableId", 2L);
+        Deencapsulation.setField(routineLoadJob, "isMultiTable", false);
+        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
+        Deencapsulation.setField(routineLoadJob, "uniqueKeyUpdateMode", TUniqueKeyUpdateMode.UPSERT);
+
+        Map<String, String> currentJobProperties = Maps.newHashMap();
+        currentJobProperties.put(FileFormatProperties.PROP_FORMAT, "json");
+        Deencapsulation.setField(routineLoadJob, "jobProperties", currentJobProperties);
+
+        RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(null, null,
+                Lists.newArrayList(new ImportColumnDesc("id", null)), null, null, null, null,
+                LoadTask.MergeType.APPEND, null);
+        AlterRoutineLoadCommand command = new AlterRoutineLoadCommand(
+                new LabelNameInfo("db", "job"), Maps.newHashMap(), Maps.newHashMap());
+        Deencapsulation.setField(command, "routineLoadDesc", routineLoadDesc);
+        Map<String, String> flexibleProperties = Maps.newHashMap();
+        flexibleProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, "UPDATE_FLEXIBLE_COLUMNS");
+        Deencapsulation.setField(command, "analyzedJobProperties", flexibleProperties);
+
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database db = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(catalog.getDbNullable(1L)).thenReturn(db);
+        Mockito.when(db.getTableNullable(2L)).thenReturn(table);
+        Mockito.doCallRealMethod().when(table).validateForFlexiblePartialUpdate();
+        Mockito.doCallRealMethod().when(table).validateForFlexiblePartialUpdate(Mockito.anyBoolean());
+        Mockito.doCallRealMethod().when(table).validateVariantColumnsForFlexiblePartialUpdate();
+        Mockito.doCallRealMethod().when(table).validateVariantColumnsForFlexiblePartialUpdate(
+                Mockito.anyBoolean());
+        Mockito.when(table.getEnableUniqueKeyMergeOnWrite()).thenReturn(true);
+        Mockito.when(table.hasSkipBitmapColumn()).thenReturn(true);
+        Mockito.when(table.getEnableLightSchemaChange()).thenReturn(true);
+        Mockito.when(table.getBaseSchema()).thenReturn(Lists.newArrayList(new Column("k", PrimitiveType.INT)));
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+
+            UserException exception = Assert.assertThrows(UserException.class,
+                    () -> routineLoadJob.modifyProperties(command));
+            Assert.assertTrue(exception.getMessage().contains("COLUMNS specification"));
+        }
+        Mockito.verify(editLog, Mockito.never()).logAlterRoutineLoadJob(Mockito.any());
+    }
+
+    @Test
+    public void testReplayModifyPropertiesShouldRestoreRoutineLoadDesc() {
+        KinesisRoutineLoadJob routineLoadJob =
+                new KinesisRoutineLoadJob(1L, "kinesis_routine_load_job", 1L,
+                        1L, "ap-southeast-1", "stream-1", UserIdentity.ADMIN);
+
+        RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(new Separator("|", "|"), null,
+                Lists.newArrayList(new ImportColumnDesc("id", null)), null, null, null, null,
+                LoadTask.MergeType.APPEND, "seq");
+        AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(
+                1L, Maps.newHashMap(), null, routineLoadDesc);
+        routineLoadJob.replayModifyProperties(log);
+
+        Assert.assertEquals(1, routineLoadJob.getColumnExprDescs().descs.size());
+        Assert.assertEquals("|", routineLoadJob.getColumnSeparator().getSeparator());
+        Assert.assertEquals("seq", routineLoadJob.getSequenceCol());
     }
 
     @Test

@@ -587,6 +587,7 @@ struct TStreamLoadPutRequest {
     58: optional Descriptors.TPartialUpdateNewRowPolicy partial_update_new_key_policy
     59: optional bool empty_field_as_null
     60: optional TCertBasedAuth cert_based_auth
+    61: optional bool merge_type_specified
 
     // For cloud
     1000: optional string cloud_cluster

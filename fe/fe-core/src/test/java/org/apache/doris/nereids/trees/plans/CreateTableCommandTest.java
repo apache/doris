@@ -1115,6 +1115,42 @@ public class CreateTableCommandTest extends TestWithFeService {
     }
 
     @Test
+    public void testCreateTableAllowsUnsupportedFlexibleVariantModes() {
+        String docModeSql = "create table test.tbl_flexible_variant_doc\n"
+                + "(k1 int, v variant<properties(\"variant_enable_doc_mode\" = \"true\")> null)\n"
+                + "unique key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1',"
+                + "'enable_unique_key_merge_on_write' = 'true',"
+                + "'enable_unique_key_skip_bitmap_column' = 'true');";
+        Assertions.assertDoesNotThrow(() -> createTable(docModeSql));
+
+        String flattenNestedSql = "create table test.tbl_flexible_variant_flatten\n"
+                + "(k1 int, v variant null)\n"
+                + "unique key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1',"
+                + "'enable_unique_key_merge_on_write' = 'true',"
+                + "'enable_unique_key_skip_bitmap_column' = 'true',"
+                + "'deprecated_variant_enable_flatten_nested' = 'true');";
+        connectContext.getSessionVariable().setEnableVariantFlattenNested(true);
+        try {
+            Assertions.assertDoesNotThrow(() -> createTable(flattenNestedSql));
+        } finally {
+            connectContext.getSessionVariable().setEnableVariantFlattenNested(false);
+        }
+
+        String validSql = "create table test.tbl_flexible_variant_normal\n"
+                + "(k1 int, v variant null)\n"
+                + "unique key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1',"
+                + "'enable_unique_key_merge_on_write' = 'true',"
+                + "'enable_unique_key_skip_bitmap_column' = 'true');";
+        Assertions.assertDoesNotThrow(() -> createTable(validSql));
+    }
+
+    @Test
     public void testMTMVRejectVarbinary() throws Exception {
         String mv = "CREATE MATERIALIZED VIEW mv_vb\n"
                 + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"

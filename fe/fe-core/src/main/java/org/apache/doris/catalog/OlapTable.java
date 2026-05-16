@@ -3195,14 +3195,25 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
      * Validate that the table supports flexible partial update.
      * Checks the following constraints:
      * 1. Must be MoW unique key table
-     * 2. Must have skip_bitmap column
-     * 3. Must have light_schema_change enabled
-     * 4. Cannot have variant columns
+     * 2. Must not have cluster keys
+     * 3. Must have skip_bitmap column
+     * 4. Must have light_schema_change enabled
      * @throws UserException if any constraint is not satisfied
      */
     public void validateForFlexiblePartialUpdate() throws UserException {
+        validateForFlexiblePartialUpdate(true);
+    }
+
+    /**
+     * Validate that the table supports flexible partial update.
+     */
+    public void validateForFlexiblePartialUpdate(boolean validateBackendCapability) throws UserException {
         if (!getEnableUniqueKeyMergeOnWrite()) {
             throw new UserException("Flexible partial update is only supported in unique table MoW");
+        }
+        if (isUniqKeyMergeOnWriteWithClusterKeys()) {
+            throw new UserException(
+                    "Flexible partial update does not support merge-on-write Unique table with cluster keys");
         }
         if (!hasSkipBitmapColumn()) {
             throw new UserException("Flexible partial update can only support table with skip bitmap hidden column."
@@ -3213,8 +3224,80 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             throw new UserException("Flexible partial update can only support table with light_schema_change enabled."
                     + " But table " + getName() + "'s property light_schema_change is false");
         }
-        if (hasVariantColumns()) {
-            throw new UserException("Flexible partial update can only support table without variant columns.");
+        validateVariantColumnsForFlexiblePartialUpdate(validateBackendCapability);
+    }
+
+    public void validateVariantColumnsForFlexiblePartialUpdate() throws UserException {
+        validateVariantColumnsForFlexiblePartialUpdate(true);
+    }
+
+    /**
+     * Validate VARIANT columns for flexible partial update.
+     */
+    public void validateVariantColumnsForFlexiblePartialUpdate(boolean validateBackendCapability)
+            throws UserException {
+        validateVariantColumnsForFlexiblePartialUpdate(
+                getBaseSchema(), variantEnableFlattenNested(), validateBackendCapability);
+    }
+
+    public static void validateVariantColumnsForFlexiblePartialUpdate(List<Column> columns) throws UserException {
+        validateVariantColumnsForFlexiblePartialUpdate(columns, false);
+    }
+
+    public static void validateVariantColumnsForFlexiblePartialUpdate(
+            List<Column> columns, boolean deprecatedVariantFlattenNested) throws UserException {
+        validateVariantColumnsForFlexiblePartialUpdate(columns, deprecatedVariantFlattenNested, true);
+    }
+
+    /**
+     * Validate VARIANT columns for flexible partial update.
+     */
+    public static void validateVariantColumnsForFlexiblePartialUpdate(
+            List<Column> columns, boolean deprecatedVariantFlattenNested, boolean validateBackendCapability)
+            throws UserException {
+        boolean hasVariantColumn = false;
+        for (Column column : columns) {
+            validateVariantColumnForFlexiblePartialUpdate(column);
+            if (column.getType().isVariantType() && deprecatedVariantFlattenNested) {
+                throw new UserException(
+                        "VARIANT flexible partial update does not support "
+                                + "deprecated_variant_enable_flatten_nested in this version");
+            }
+            hasVariantColumn |= column.getType().isVariantType();
+        }
+        if (hasVariantColumn && validateBackendCapability) {
+            try {
+                validateBackendsSupportVariantFlexiblePartialUpdate(
+                        Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values());
+            } catch (AnalysisException e) {
+                throw new UserException(e.getMessage(), e);
+            }
+        }
+    }
+
+    public static void validateVariantColumnForFlexiblePartialUpdate(Column column) throws UserException {
+        if (column.getType().isVariantType() && column.getVariantEnableDocMode()) {
+            throw new UserException(
+                    "VARIANT flexible partial update does not support doc mode in this version");
+        }
+    }
+
+    @VisibleForTesting
+    static void validateBackendsSupportVariantFlexiblePartialUpdate(Collection<Backend> backends)
+            throws UserException {
+        for (Backend backend : backends) {
+            if (!backend.isAlive()) {
+                throw new UserException("VARIANT flexible partial update requires all backends to be "
+                        + "alive and advertise variant patch skip-bitmap marker support. Backend "
+                        + backend.getId() + " (" + backend.getHost() + ") is not alive");
+            }
+            if (backend.supportsVariantFlexiblePartialUpdate()) {
+                continue;
+            }
+            throw new UserException("VARIANT flexible partial update requires all backends to "
+                    + "advertise variant patch skip-bitmap marker support. Backend "
+                    + backend.getId() + " (" + backend.getHost() + ") is running version "
+                    + backend.getVersion() + " without the required capability");
         }
     }
 

@@ -17,19 +17,25 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.VersionHelper;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.FastByteArrayOutputStream;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageType;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.Assert;
@@ -40,8 +46,11 @@ import org.mockito.Mockito;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -144,6 +153,170 @@ public class OlapTableTest {
                 tableProperty.getProperties().get(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED));
         Assert.assertFalse(
                 tableProperty.getProperties().containsKey(PropertyAnalyzer.LEGACY_PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED));
+    }
+
+    @Test
+    public void testValidateVariantColumnsForFlexiblePartialUpdate() throws UserException {
+        Column normalVariant = new Column("v", Type.VARIANT);
+        OlapTable.validateVariantColumnsForFlexiblePartialUpdate(Lists.newArrayList(
+                new Column("k", PrimitiveType.INT), normalVariant));
+
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.doCallRealMethod().when(table).validateForFlexiblePartialUpdate();
+        Mockito.doCallRealMethod().when(table).validateForFlexiblePartialUpdate(Mockito.anyBoolean());
+        Mockito.doCallRealMethod().when(table).validateVariantColumnsForFlexiblePartialUpdate();
+        Mockito.doCallRealMethod().when(table).validateVariantColumnsForFlexiblePartialUpdate(
+                Mockito.anyBoolean());
+        Mockito.when(table.getEnableUniqueKeyMergeOnWrite()).thenReturn(true);
+        Mockito.when(table.isUniqKeyMergeOnWriteWithClusterKeys()).thenReturn(false);
+        Mockito.when(table.hasSkipBitmapColumn()).thenReturn(true);
+        Mockito.when(table.getEnableLightSchemaChange()).thenReturn(true);
+        Mockito.when(table.getBaseSchema()).thenReturn(Lists.newArrayList(
+                new Column("k", PrimitiveType.INT), normalVariant));
+        Mockito.when(table.variantEnableFlattenNested()).thenReturn(false);
+        table.validateForFlexiblePartialUpdate();
+
+        VariantType docModeVariant = new VariantType(new ArrayList<>(), 0, false, 10000, 0,
+                true, 0L, 64, false);
+        Column docModeColumn = new Column("doc_v", docModeVariant);
+        UserException exception = Assert.assertThrows(UserException.class,
+                () -> OlapTable.validateVariantColumnsForFlexiblePartialUpdate(
+                        Lists.newArrayList(docModeColumn)));
+        Assert.assertTrue(exception.getMessage().contains(
+                "VARIANT flexible partial update does not support doc mode in this version"));
+
+        exception = Assert.assertThrows(UserException.class,
+                () -> OlapTable.validateVariantColumnsForFlexiblePartialUpdate(
+                        Lists.newArrayList(normalVariant), true));
+        Assert.assertTrue(exception.getMessage().contains(
+                "VARIANT flexible partial update does not support deprecated_variant_enable_flatten_nested"));
+
+        Mockito.when(table.variantEnableFlattenNested()).thenReturn(true);
+        exception = Assert.assertThrows(UserException.class, table::validateForFlexiblePartialUpdate);
+        Assert.assertTrue(exception.getMessage().contains(
+                "VARIANT flexible partial update does not support deprecated_variant_enable_flatten_nested"));
+
+        Mockito.when(table.variantEnableFlattenNested()).thenReturn(false);
+        Mockito.when(table.isUniqKeyMergeOnWriteWithClusterKeys()).thenReturn(true);
+        exception = Assert.assertThrows(UserException.class, table::validateForFlexiblePartialUpdate);
+        Assert.assertTrue(exception.getMessage().contains("cluster keys"));
+    }
+
+    @Test
+    public void testValidateVariantFlexiblePartialUpdateRejectsUnsupportedBackendCapability()
+            throws UserException {
+        Backend supportedBackend = Mockito.mock(Backend.class);
+        Mockito.when(supportedBackend.isAlive()).thenReturn(true);
+        Mockito.when(supportedBackend.supportsVariantFlexiblePartialUpdate()).thenReturn(true);
+        OlapTable.validateBackendsSupportVariantFlexiblePartialUpdate(Lists.newArrayList(supportedBackend));
+
+        Backend oldBackend = Mockito.mock(Backend.class);
+        Mockito.when(oldBackend.isAlive()).thenReturn(true);
+        Mockito.when(oldBackend.getId()).thenReturn(2L);
+        Mockito.when(oldBackend.getHost()).thenReturn("127.0.0.2");
+        Mockito.when(oldBackend.getVersion()).thenReturn("old-version");
+        Mockito.when(oldBackend.supportsVariantFlexiblePartialUpdate()).thenReturn(false);
+
+        UserException exception = Assert.assertThrows(UserException.class,
+                () -> OlapTable.validateBackendsSupportVariantFlexiblePartialUpdate(
+                        Lists.newArrayList(supportedBackend, oldBackend)));
+        Assert.assertTrue(exception.getMessage().contains("variant patch skip-bitmap marker support"));
+        Assert.assertTrue(exception.getMessage().contains("old-version"));
+
+        Mockito.when(oldBackend.isAlive()).thenReturn(false);
+        exception = Assert.assertThrows(UserException.class,
+                () -> OlapTable.validateBackendsSupportVariantFlexiblePartialUpdate(
+                        Lists.newArrayList(supportedBackend, oldBackend)));
+        Assert.assertTrue(exception.getMessage().contains("not alive"));
+    }
+
+    @Test
+    public void testValidateVariantFlexiblePartialUpdateUsesCurrentClusterBackends()
+            throws UserException, AnalysisException {
+        Backend supportedBackend = Mockito.mock(Backend.class);
+        Mockito.when(supportedBackend.isAlive()).thenReturn(true);
+        Mockito.when(supportedBackend.supportsVariantFlexiblePartialUpdate()).thenReturn(true);
+
+        SystemInfoService systemInfoService = Mockito.mock(SystemInfoService.class);
+        Mockito.when(systemInfoService.getBackendsByCurrentCluster())
+                .thenReturn(ImmutableMap.of(1L, supportedBackend));
+        Mockito.when(systemInfoService.getAllBackendsByAllCluster())
+                .thenThrow(new AnalysisException("unexpected all-backend validation"));
+
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.doCallRealMethod().when(table).validateForFlexiblePartialUpdate();
+        Mockito.doCallRealMethod().when(table).validateForFlexiblePartialUpdate(Mockito.anyBoolean());
+        Mockito.doCallRealMethod().when(table).validateVariantColumnsForFlexiblePartialUpdate();
+        Mockito.doCallRealMethod().when(table).validateVariantColumnsForFlexiblePartialUpdate(
+                Mockito.anyBoolean());
+        Mockito.when(table.getEnableUniqueKeyMergeOnWrite()).thenReturn(true);
+        Mockito.when(table.isUniqKeyMergeOnWriteWithClusterKeys()).thenReturn(false);
+        Mockito.when(table.hasSkipBitmapColumn()).thenReturn(true);
+        Mockito.when(table.getEnableLightSchemaChange()).thenReturn(true);
+        Mockito.when(table.getBaseSchema()).thenReturn(Lists.newArrayList(
+                new Column("k", PrimitiveType.INT), new Column("v", Type.VARIANT)));
+        Mockito.when(table.variantEnableFlattenNested()).thenReturn(false);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
+            table.validateForFlexiblePartialUpdate();
+        }
+    }
+
+    @Test
+    public void testSchemaChangeHandlerValidatesVariantColumnsForFlexiblePartialUpdate() throws Throwable {
+        Column normalVariant = new Column("v", Type.VARIANT);
+        Column skipBitmap = new Column(Column.SKIP_BITMAP_COL, Type.BITMAP);
+        skipBitmap.setIsVisible(false);
+        LinkedList<Column> baseSchema = Lists.newLinkedList(
+                Lists.newArrayList(new Column("k", PrimitiveType.INT), normalVariant, skipBitmap));
+        Map<Long, LinkedList<Column>> indexSchemaMap = Maps.newHashMap();
+        indexSchemaMap.put(1L, baseSchema);
+
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getBaseIndexId()).thenReturn(1L);
+        Mockito.when(table.hasSkipBitmapColumn()).thenReturn(false);
+        Mockito.when(table.variantEnableFlattenNested()).thenReturn(false);
+
+        Method method = SchemaChangeHandler.class.getDeclaredMethod(
+                "validateVariantColumnsForFlexiblePartialUpdate", OlapTable.class, Map.class);
+        method.setAccessible(true);
+        try {
+            method.invoke(new SchemaChangeHandler(), table, indexSchemaMap);
+        } catch (InvocationTargetException e) {
+            throw e.getCause();
+        }
+
+        Mockito.when(table.variantEnableFlattenNested()).thenReturn(true);
+        InvocationTargetException exception = Assert.assertThrows(InvocationTargetException.class,
+                () -> method.invoke(new SchemaChangeHandler(), table, indexSchemaMap));
+        Assert.assertTrue(exception.getCause().getMessage().contains(
+                "VARIANT flexible partial update does not support deprecated_variant_enable_flatten_nested"));
+
+        Mockito.when(table.hasSkipBitmapColumn()).thenReturn(true);
+        Mockito.when(table.variantEnableFlattenNested()).thenReturn(false);
+        try {
+            method.invoke(new SchemaChangeHandler(), table, indexSchemaMap);
+        } catch (InvocationTargetException e) {
+            throw e.getCause();
+        }
+
+        Mockito.when(table.variantEnableFlattenNested()).thenReturn(true);
+        exception = Assert.assertThrows(InvocationTargetException.class,
+                () -> method.invoke(new SchemaChangeHandler(), table, indexSchemaMap));
+        Assert.assertTrue(exception.getCause().getMessage().contains(
+                "VARIANT flexible partial update does not support deprecated_variant_enable_flatten_nested"));
+
+        VariantType docModeVariant = new VariantType(new ArrayList<>(), 0, false, 10000, 0,
+                true, 0L, 64, false);
+        Map<Long, LinkedList<Column>> docModeSchemaMap = Maps.newHashMap();
+        docModeSchemaMap.put(1L, Lists.newLinkedList(Lists.newArrayList(
+                new Column("k", PrimitiveType.INT), new Column("doc_v", docModeVariant), skipBitmap)));
+        Mockito.when(table.variantEnableFlattenNested()).thenReturn(false);
+        exception = Assert.assertThrows(InvocationTargetException.class,
+                () -> method.invoke(new SchemaChangeHandler(), table, docModeSchemaMap));
+        Assert.assertTrue(exception.getCause().getMessage().contains(
+                "VARIANT flexible partial update does not support doc mode in this version"));
     }
 
     @Test

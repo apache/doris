@@ -145,6 +145,7 @@ Status CloudRowsetBuilder::set_txn_related_info() {
                                                                 _req.txn_expiration);
             return Status::OK();
         }
+        RETURN_IF_ERROR(_check_flexible_partial_update_single_segment());
         if (config::enable_merge_on_write_correctness_check && _rowset->num_rows() != 0) {
             auto st = _tablet->check_delete_bitmap_correctness(
                     _delete_bitmap, _rowset->end_version() - 1, _req.txn_id, *_rowset_ids);

@@ -635,7 +635,8 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     StringCaseMap<TMergeType::type> merge_type_map = {{"APPEND", TMergeType::APPEND},
                                                       {"DELETE", TMergeType::DELETE},
                                                       {"MERGE", TMergeType::MERGE}};
-    if (!http_req->header(HTTP_MERGE_TYPE).empty()) {
+    bool merge_type_specified = !http_req->header(HTTP_MERGE_TYPE).empty();
+    if (merge_type_specified) {
         std::string merge_type_str = http_req->header(HTTP_MERGE_TYPE);
         auto iter = merge_type_map.find(merge_type_str);
         if (iter != merge_type_map.end()) {
@@ -652,6 +653,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         }
     }
     request.__set_merge_type(merge_type);
+    request.__set_merge_type_specified(merge_type_specified);
     if (!http_req->header(HTTP_DELETE_CONDITION).empty()) {
         request.__set_delete_condition(http_req->header(HTTP_DELETE_CONDITION));
     }

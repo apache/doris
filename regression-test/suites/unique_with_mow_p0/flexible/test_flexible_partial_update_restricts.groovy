@@ -16,6 +16,7 @@
 // under the License.
 
 suite('test_flexible_partial_update_restricts') {
+    sql "set default_variant_enable_doc_mode = false"
 
     def tableName = "test_flexible_partial_update_restricts"
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -178,6 +179,24 @@ suite('test_flexible_partial_update_restricts') {
         }
     }
 
+    streamLoad {
+        table "${tableName}"
+        set 'format', 'json'
+        set 'read_json_by_line', 'true'
+        set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+        set 'delete', 'v2 > 5'
+        file "test1.json"
+        time 20000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            def json = parseJson(result)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertTrue(json.Message.contains("Don't support flexible partial update when 'delete' is specified"));
+        }
+    }
+
     if (!isCloudMode()) {
         // in cloud mode, all tables has light schema change on
         tableName = "test_flexible_partial_update_restricts2"
@@ -264,13 +283,32 @@ suite('test_flexible_partial_update_restricts') {
         PROPERTIES(
         "replication_num" = "1",
         "enable_unique_key_merge_on_write" = "true",
+        "light_schema_change" = "true",
         "enable_unique_key_skip_bitmap_column" = "true",
         "store_row_column" = "false"); """
-    
+
+    sql """insert into ${tableName} select number, number, number, number, number, number, null from numbers("number" = "6"); """
     streamLoad {
         table "${tableName}"
         set 'format', 'json'
         set 'read_json_by_line', 'true'
+        set 'strict_mode', 'false'
+        set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+        file "test1.json"
+        time 20000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+        }
+    }
+    streamLoad {
+        table "${tableName}"
+        set 'format', 'json'
+        set 'read_json_by_line', 'true'
+        set 'fuzzy_parse', 'true'
         set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
         file "test1.json"
         time 20000
@@ -280,7 +318,41 @@ suite('test_flexible_partial_update_restricts') {
             }
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
-            assertTrue(json.Message.contains("Flexible partial update can only support table without variant columns."));
+            assertTrue(json.Message.contains("Don't support flexible partial update when 'fuzzy_parse' is enabled"));
+        }
+    }
+    streamLoad {
+        table "${tableName}"
+        set 'format', 'json'
+        set 'read_json_by_line', 'true'
+        set 'columns', 'k,v1,v3,v5'
+        set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+        file "test1.json"
+        time 20000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            def json = parseJson(result)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertTrue(json.Message.contains("Don't support flexible partial update when 'columns' is specified"));
+        }
+    }
+    streamLoad {
+        table "${tableName}"
+        set 'format', 'json'
+        set 'read_json_by_line', 'true'
+        set 'jsonpaths', '["$.k","$.v1","$.v3"]'
+        set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+        file "test1.json"
+        time 20000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            def json = parseJson(result)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertTrue(json.Message.contains("Don't support flexible partial update when 'jsonpaths' is specified"));
         }
     }
 

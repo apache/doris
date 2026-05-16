@@ -97,6 +97,8 @@ public:
     Status init_mow_context(std::shared_ptr<MowContext>& mow_context);
 
 protected:
+    Status _check_flexible_partial_update_single_segment() const;
+
     Status _build_current_tablet_schema(int64_t index_id,
                                         const OlapTableSchemaParam* table_schema_param,
                                         const TabletSchema& ori_tablet_schema);

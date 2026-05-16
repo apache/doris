@@ -48,6 +48,8 @@ std::optional<ParseResult> JSONDataParser<ParserImpl>::parse(const char* begin, 
     // NestedGroup expansion is now handled at storage layer
     context.deprecated_enable_flatten_nested = config.deprecated_enable_flatten_nested;
     context.check_duplicate_json_path = config.check_duplicate_json_path;
+    context.reject_json_null_value = config.reject_json_null_value;
+    context.record_empty_object_path = config.record_empty_object_path;
     context.is_top_array = document.isArray();
     traverse(document, context);
     ParseResult result;
@@ -62,6 +64,11 @@ std::optional<ParseResult> JSONDataParser<ParserImpl>::parse(const char* begin, 
 template <typename ParserImpl>
 void JSONDataParser<ParserImpl>::traverse(const Element& element, ParseContext& ctx) {
     // checkStackSize();
+    if (element.isNull() && ctx.reject_json_null_value) {
+        throw doris::Exception(
+                doris::ErrorCode::INVALID_ARGUMENT,
+                "VARIANT flexible partial update does not support JSON null patch values");
+    }
     if (element.isObject()) {
         traverseObject(element.getObject(), ctx);
     } else if (element.isArray()) {
@@ -73,7 +80,7 @@ void JSONDataParser<ParserImpl>::traverse(const Element& element, ParseContext& 
         if (has_nested && !ctx.deprecated_enable_flatten_nested) {
             // Parse nested arrays to JsonbField
             JsonbWriter writer;
-            traverseArrayAsJsonb(element.getArray(), writer);
+            traverseArrayAsJsonb(element.getArray(), writer, ctx.reject_json_null_value);
             appendValueIfNotDuplicate(
                     ctx, ctx.builder.get_parts(),
                     Field::create_field<TYPE_JSONB>(JsonbField(writer.getOutput()->getBuffer(),
@@ -106,6 +113,16 @@ template <typename ParserImpl>
 void JSONDataParser<ParserImpl>::traverseObject(const JSONObject& object, ParseContext& ctx) {
     ctx.paths.reserve(ctx.paths.size() + object.size());
     ctx.values.reserve(ctx.values.size() + object.size());
+    if (object.size() == 0 && ctx.record_empty_object_path && !ctx.builder.get_parts().empty()) {
+        JsonbWriter writer;
+        writer.writeStartObject();
+        writer.writeEndObject();
+        appendValueIfNotDuplicate(
+                ctx, ctx.builder.get_parts(),
+                Field::create_field<TYPE_JSONB>(JsonbField(writer.getOutput()->getBuffer(),
+                                                           writer.getOutput()->getSize())));
+        return;
+    }
     auto check_key_length = [](const auto& key) {
         const size_t max_key_length = cast_set<size_t>(config::variant_max_json_key_length);
         if (key.size() > max_key_length) {
@@ -142,11 +159,17 @@ void JSONDataParser<ParserImpl>::check_has_nested_object(const Element& element)
 }
 
 template <typename ParserImpl>
-void JSONDataParser<ParserImpl>::traverseAsJsonb(const Element& element, JsonbWriter& writer) {
+void JSONDataParser<ParserImpl>::traverseAsJsonb(const Element& element, JsonbWriter& writer,
+                                                 bool reject_json_null_value) {
+    if (element.isNull() && reject_json_null_value) {
+        throw doris::Exception(
+                doris::ErrorCode::INVALID_ARGUMENT,
+                "VARIANT flexible partial update does not support JSON null patch values");
+    }
     if (element.isObject()) {
-        traverseObjectAsJsonb(element.getObject(), writer);
+        traverseObjectAsJsonb(element.getObject(), writer, reject_json_null_value);
     } else if (element.isArray()) {
-        traverseArrayAsJsonb(element.getArray(), writer);
+        traverseArrayAsJsonb(element.getArray(), writer, reject_json_null_value);
     } else {
         writeValueAsJsonb(element, writer);
     }
@@ -154,7 +177,8 @@ void JSONDataParser<ParserImpl>::traverseAsJsonb(const Element& element, JsonbWr
 
 template <typename ParserImpl>
 void JSONDataParser<ParserImpl>::traverseObjectAsJsonb(const JSONObject& object,
-                                                       JsonbWriter& writer) {
+                                                       JsonbWriter& writer,
+                                                       bool reject_json_null_value) {
     writer.writeStartObject();
     for (auto it = object.begin(); it != object.end(); ++it) {
         const auto& [key, value] = *it;
@@ -166,16 +190,17 @@ void JSONDataParser<ParserImpl>::traverseObjectAsJsonb(const JSONObject& object,
                                 max_key_length));
         }
         writer.writeKey(key.data(), cast_set<uint8_t>(key.size()));
-        traverseAsJsonb(value, writer);
+        traverseAsJsonb(value, writer, reject_json_null_value);
     }
     writer.writeEndObject();
 }
 
 template <typename ParserImpl>
-void JSONDataParser<ParserImpl>::traverseArrayAsJsonb(const JSONArray& array, JsonbWriter& writer) {
+void JSONDataParser<ParserImpl>::traverseArrayAsJsonb(const JSONArray& array, JsonbWriter& writer,
+                                                      bool reject_json_null_value) {
     writer.writeStartArray();
     for (auto it = array.begin(); it != array.end(); ++it) {
-        traverseAsJsonb(*it, writer);
+        traverseAsJsonb(*it, writer, reject_json_null_value);
     }
     writer.writeEndArray();
 }
@@ -201,6 +226,7 @@ void JSONDataParser<ParserImpl>::traverseArray(const JSONArray& array, ParseCont
     array_ctx.has_nested_in_flatten = ctx.has_nested_in_flatten;
     array_ctx.is_top_array = ctx.is_top_array;
     array_ctx.check_duplicate_json_path = ctx.check_duplicate_json_path;
+    array_ctx.reject_json_null_value = ctx.reject_json_null_value;
     array_ctx.total_size = array.size();
     for (auto it = array.begin(); it != array.end(); ++it) {
         traverseArrayElement(*it, array_ctx);
@@ -231,6 +257,7 @@ void JSONDataParser<ParserImpl>::traverseArrayElement(const Element& element,
     element_ctx.has_nested_in_flatten = ctx.has_nested_in_flatten;
     element_ctx.is_top_array = ctx.is_top_array;
     element_ctx.check_duplicate_json_path = ctx.check_duplicate_json_path;
+    element_ctx.reject_json_null_value = ctx.reject_json_null_value;
     traverse(element, element_ctx);
     auto& paths = element_ctx.paths;
     auto& values = element_ctx.values;

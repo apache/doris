@@ -714,6 +714,7 @@ TEST_F(SchemaUtilRowsetTest, some_test_for_subcolumn_writer) {
     _variant_column_data->row_pos = 0;
     const uint8_t* data = (const uint8_t*)_variant_column_data.get();
     EXPECT_TRUE(variant_subcolumn_writer->append_data(&data, 1));
+    EXPECT_EQ(1, variant_subcolumn_writer->get_next_rowid());
     // write null data
     EXPECT_TRUE(variant_subcolumn_writer->write_data().ok());
 }

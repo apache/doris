@@ -148,6 +148,7 @@ public class Backend implements Writable {
     // from config::pipeline_executor_size , default equal cpuCores
     @SerializedName("pipelineExecutorSize")
     private int pipelineExecutorSize = 1;
+    private transient boolean supportsVariantFlexiblePartialUpdate = false;
 
     // Counter of heartbeat failure.
     // Once a heartbeat failed, increase this counter by one.
@@ -911,6 +912,11 @@ public class Backend implements Writable {
                 isChanged = true;
                 this.beMemory = hbResponse.getBeMemory();
             }
+            if (this.supportsVariantFlexiblePartialUpdate
+                    != hbResponse.supportsVariantFlexiblePartialUpdate()) {
+                isChanged = true;
+                this.supportsVariantFlexiblePartialUpdate = hbResponse.supportsVariantFlexiblePartialUpdate();
+            }
 
             this.lastUpdateMs = hbResponse.getHbTime();
             if (!isAlive.get()) {
@@ -960,6 +966,10 @@ public class Backend implements Writable {
                     LOG.warn("{} is dead,", this.toString());
                 }
             }
+            if (!isAlive.get() && supportsVariantFlexiblePartialUpdate) {
+                isChanged = true;
+                supportsVariantFlexiblePartialUpdate = false;
+            }
 
             // still set error msg and missing time even if we may not mark this backend as dead,
             // for debug easily.
@@ -977,6 +987,10 @@ public class Backend implements Writable {
 
     public long getTabletMaxCompactionScore() {
         return tabletMaxCompactionScore;
+    }
+
+    public boolean supportsVariantFlexiblePartialUpdate() {
+        return supportsVariantFlexiblePartialUpdate;
     }
 
     private long getDiskNumByStorageMedium(TStorageMedium storageMedium) {
@@ -1138,4 +1152,3 @@ public class Backend implements Writable {
     }
 
 }
-

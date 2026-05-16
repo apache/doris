@@ -688,10 +688,12 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
                 throw new DdlException("Only supports modification of PAUSED jobs");
             }
 
+            validateFlexiblePartialUpdateForAlter(jobProperties, command.getRoutineLoadDesc());
             modifyPropertiesInternal(jobProperties, dataSourceProperties);
+            setRoutineLoadDesc(command.getRoutineLoadDesc());
 
             AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(this.id,
-                    jobProperties, dataSourceProperties);
+                    jobProperties, dataSourceProperties, command.getRoutineLoadDesc());
             Env.getCurrentEnv().getEditLog().logAlterRoutineLoadJob(log);
         } finally {
             writeUnlock();
@@ -785,6 +787,11 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         try {
             modifyPropertiesInternal(log.getJobProperties(),
                     (KinesisDataSourceProperties) log.getDataSourceProperties());
+            if (log.getRoutineLoadDesc() != null) {
+                setRoutineLoadDesc(log.getRoutineLoadDesc());
+            } else if (log.getColumnDescs() != null) {
+                columnDescs = log.getColumnDescs();
+            }
         } catch (UserException e) {
             LOG.error("failed to replay modify kinesis routine load job: {}", id, e);
         }

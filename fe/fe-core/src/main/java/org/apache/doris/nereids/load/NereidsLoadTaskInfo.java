@@ -53,6 +53,10 @@ public interface NereidsLoadTaskInfo {
 
     LoadTask.MergeType getMergeType();
 
+    default boolean isMergeTypeSpecified() {
+        return false;
+    }
+
     Expression getDeleteCondition();
 
     boolean hasSequenceCol();

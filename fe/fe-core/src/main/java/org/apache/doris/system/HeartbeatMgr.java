@@ -321,6 +321,7 @@ public class HeartbeatMgr extends MasterDaemon {
                     backendInfo.setBrpcPort(4);
                     backendInfo.setArrowFlightSqlPort(8);
                     backendInfo.setVersion("test-1234");
+                    backendInfo.setSupportsVariantFlexiblePartialUpdate(true);
                     result = new THeartbeatResult();
                     result.setStatus(new TStatus(TStatusCode.OK));
                     result.setBackendInfo(backendInfo);
@@ -365,9 +366,13 @@ public class HeartbeatMgr extends MasterDaemon {
                         isShutDown = tBackendInfo.isIsShutdown();
                     }
                     long beMemory = tBackendInfo.isSetBeMem() ? tBackendInfo.getBeMem() : 0;
+                    boolean supportsVariantFlexiblePartialUpdate =
+                            tBackendInfo.isSetSupportsVariantFlexiblePartialUpdate()
+                                    && tBackendInfo.isSupportsVariantFlexiblePartialUpdate();
                     return new BackendHbResponse(backendId, bePort, httpPort, brpcPort,
                             System.currentTimeMillis(), beStartTime, version, nodeRole,
-                            fragmentNum, lastFragmentUpdateTime, isShutDown, arrowFlightSqlPort, beMemory);
+                            fragmentNum, lastFragmentUpdateTime, isShutDown, arrowFlightSqlPort, beMemory,
+                            supportsVariantFlexiblePartialUpdate);
                 } else {
                     return new BackendHbResponse(backendId, backend.getHost(), backend.getLastUpdateMs(),
                             result.getStatus().getErrorMsgs().isEmpty()

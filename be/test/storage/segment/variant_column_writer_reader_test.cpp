@@ -1690,6 +1690,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_compact_writer_and_read_doc
         bucket_data->row_pos = 0;
         const auto* data = reinterpret_cast<const uint8_t*>(bucket_data.get());
         EXPECT_TRUE(doc_compact_writer->append_data(&data, kRows).ok());
+        EXPECT_EQ(kRows, doc_compact_writer->get_next_rowid());
     }
 
     EXPECT_TRUE(root_writer->finish().ok());
@@ -1852,6 +1853,7 @@ TEST_F(VariantColumnWriterReaderTest, test_doc_compact_sparse_write_array_gap) {
     bucket_data->row_pos = 0;
     const auto* data = reinterpret_cast<const uint8_t*>(bucket_data.get());
     EXPECT_TRUE(doc_compact_writer->append_data(&data, kRows).ok());
+    EXPECT_EQ(kRows, doc_compact_writer->get_next_rowid());
 
     EXPECT_TRUE(doc_compact_writer->finish().ok());
     EXPECT_TRUE(doc_compact_writer->write_data().ok());
@@ -2660,6 +2662,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_nullable) {
     const auto* ptr = (const uint8_t*)accessor->get_data();
     st = vw->append_nullable(accessor->get_nullmap(), &ptr, 1000);
     EXPECT_TRUE(st.ok()) << st.msg();
+    EXPECT_EQ(1000, vw->get_next_rowid());
     st = vw->finish();
     EXPECT_TRUE(st.ok()) << st.msg();
     auto size = vw->estimate_buffer_size();

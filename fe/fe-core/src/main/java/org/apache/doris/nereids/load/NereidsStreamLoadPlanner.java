@@ -45,6 +45,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TBrokerFileStatus;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
@@ -150,6 +151,7 @@ public class NereidsStreamLoadPlanner {
         if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
             // Validate table-level constraints for flexible partial update
             destTable.validateForFlexiblePartialUpdate();
+            validateLoadTaskForFlexiblePartialUpdate(taskInfo);
         }
         HashSet<String> partialUpdateInputColumns = new HashSet<>();
         if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
@@ -335,5 +337,36 @@ public class NereidsStreamLoadPlanner {
         params.setTableName(destTable.getName());
         params.setIsMowTable(destTable.getEnableUniqueKeyMergeOnWrite());
         return params;
+    }
+
+    static void validateLoadTaskForFlexiblePartialUpdate(NereidsLoadTaskInfo taskInfo) throws UserException {
+        if (taskInfo.getFormatType() != TFileFormatType.FORMAT_JSON) {
+            throw new UserException("flexible partial update only support json format as input file currently");
+        }
+        if (taskInfo.isFuzzyParse()) {
+            throw new UserException("Don't support flexible partial update when 'fuzzy_parse' is enabled");
+        }
+        if (!taskInfo.getColumnExprDescs().descs.isEmpty()) {
+            throw new UserException("Don't support flexible partial update when 'columns' is specified");
+        }
+        if (taskInfo.getJsonPaths() != null && !taskInfo.getJsonPaths().isEmpty()) {
+            throw new UserException("Don't support flexible partial update when 'jsonpaths' is specified");
+        }
+        if (taskInfo.getHiddenColumns() != null && !taskInfo.getHiddenColumns().isEmpty()) {
+            throw new UserException("Don't support flexible partial update when 'hidden_columns' is specified");
+        }
+        if (taskInfo.hasSequenceCol()) {
+            throw new UserException("Don't support flexible partial update when "
+                    + "'function_column.sequence_col' is specified");
+        }
+        if (taskInfo.isMergeTypeSpecified() || taskInfo.getMergeType() != LoadTask.MergeType.APPEND) {
+            throw new UserException("Don't support flexible partial update when 'merge_type' is specified");
+        }
+        if (taskInfo.getWhereExpr() != null) {
+            throw new UserException("Don't support flexible partial update when 'where' is specified");
+        }
+        if (taskInfo.getDeleteCondition() != null) {
+            throw new UserException("Don't support flexible partial update when 'delete' is specified");
+        }
     }
 }

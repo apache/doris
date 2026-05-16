@@ -2650,6 +2650,11 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("only support light schema change operator when use table with binlog<Row>");
             }
 
+            // Revalidate the final schema while holding the table write lock. Nereids validation
+            // runs before this lock, so a concurrent ALTER can otherwise change whether the
+            // pending VARIANT columns are allowed with flexible partial update.
+            validateVariantColumnsForFlexiblePartialUpdate(olapTable, indexSchemaMap);
+
             if (lightSchemaChange) {
                 long jobId = Env.getCurrentEnv().getNextId();
                 //for schema change add/drop value column optimize, direct modify table meta.
@@ -2673,6 +2678,17 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         } finally {
             olapTable.writeUnlock();
+        }
+    }
+
+    private void validateVariantColumnsForFlexiblePartialUpdate(
+            OlapTable olapTable, Map<Long, LinkedList<Column>> indexSchemaMap) throws UserException {
+        List<Column> baseSchema = indexSchemaMap.get(olapTable.getBaseIndexId());
+        Preconditions.checkNotNull(baseSchema);
+        if (olapTable.hasSkipBitmapColumn()
+                || baseSchema.stream().anyMatch(Column::isSkipBitmapColumn)) {
+            OlapTable.validateVariantColumnsForFlexiblePartialUpdate(
+                    baseSchema, olapTable.variantEnableFlattenNested());
         }
     }
 

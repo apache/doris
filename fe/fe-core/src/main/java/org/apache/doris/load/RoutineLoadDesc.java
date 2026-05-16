@@ -37,6 +37,7 @@ public class RoutineLoadDesc {
     private final Expr filter;
     private final Expr deleteCondition;
     private LoadTask.MergeType mergeType;
+    private final boolean mergeTypeSpecified;
     // nullable
     private final PartitionNamesInfo partitionNamesInfo;
     private final String sequenceColName;
@@ -45,6 +46,14 @@ public class RoutineLoadDesc {
                            Expr precedingFilter, Expr filter,
                            PartitionNamesInfo partitionNamesInfo, Expr deleteCondition, LoadTask.MergeType mergeType,
                            String sequenceColName) {
+        this(columnSeparator, lineDelimiter, columnsInfo, precedingFilter, filter, partitionNamesInfo, deleteCondition,
+                mergeType, false, sequenceColName);
+    }
+
+    public RoutineLoadDesc(Separator columnSeparator, Separator lineDelimiter, List<ImportColumnDesc> columnsInfo,
+                           Expr precedingFilter, Expr filter,
+                           PartitionNamesInfo partitionNamesInfo, Expr deleteCondition, LoadTask.MergeType mergeType,
+                           boolean mergeTypeSpecified, String sequenceColName) {
         this.columnSeparator = columnSeparator;
         this.lineDelimiter = lineDelimiter;
         this.columnsInfo = columnsInfo;
@@ -53,6 +62,7 @@ public class RoutineLoadDesc {
         this.partitionNamesInfo = partitionNamesInfo;
         this.deleteCondition = deleteCondition;
         this.mergeType = mergeType;
+        this.mergeTypeSpecified = mergeTypeSpecified;
         this.sequenceColName = sequenceColName;
     }
 
@@ -78,6 +88,10 @@ public class RoutineLoadDesc {
 
     public LoadTask.MergeType getMergeType() {
         return mergeType;
+    }
+
+    public boolean isMergeTypeSpecified() {
+        return mergeTypeSpecified;
     }
 
     // nullable

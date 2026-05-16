@@ -1625,6 +1625,7 @@ Status VariantSubcolumnWriter::append_data(const uint8_t** ptr, size_t num_rows)
     const auto& src = *reinterpret_cast<const ColumnVariant*>(column->column_data);
     // TODO: if direct write we could avoid copy
     _column->insert_range_from(src, column->row_pos, num_rows);
+    _next_rowid += num_rows;
     return Status::OK();
 }
 
@@ -1752,6 +1753,7 @@ Status VariantDocCompactWriter::append_data(const uint8_t** ptr, size_t num_rows
     auto* dst_ptr = assert_cast<ColumnVariant*>(_column.get());
     // TODO: if direct write we could avoid copy
     dst_ptr->insert_range_from(src, column->row_pos, num_rows);
+    _next_rowid += num_rows;
     return Status::OK();
 }
 

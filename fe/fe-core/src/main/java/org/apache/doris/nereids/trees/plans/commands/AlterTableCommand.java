@@ -137,6 +137,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
     }
 
     private void rewriteAlterOpForOlapTable(ConnectContext ctx, OlapTable table) throws UserException {
+        validateAlterVariantColumnsForFlexiblePartialUpdate(table);
         List<AlterTableOp> alterTableOps = new ArrayList<>();
         for (AlterTableOp alterClause : ops) {
             if (alterClause instanceof EnableFeatureOp) {
@@ -157,10 +158,19 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                         throw new AnalysisException("Update flexible columns feature is only supported"
                                 + " on merge-on-write unique tables.");
                     }
+                    if (table.isUniqKeyMergeOnWriteWithClusterKeys()) {
+                        throw new AnalysisException("Update flexible columns feature does not support"
+                                + " merge-on-write Unique tables with cluster keys.");
+                    }
                     if (table.hasSkipBitmapColumn()) {
                         throw new AnalysisException("table " + table.getName()
                                 + " has enabled update flexible columns feature already.");
                     }
+                    if (!table.getEnableLightSchemaChange()) {
+                        throw new AnalysisException("Update flexible columns feature requires "
+                                + "light_schema_change to be enabled.");
+                    }
+                    table.validateVariantColumnsForFlexiblePartialUpdate();
                 }
                 // analyse sequence column
                 Type sequenceColType = null;
@@ -228,6 +238,33 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
             }
         }
         ops = alterTableOps;
+    }
+
+    private void validateAlterVariantColumnsForFlexiblePartialUpdate(OlapTable table) throws UserException {
+        boolean enableFlexiblePartialUpdate = false;
+        for (AlterTableOp alterClause : ops) {
+            if (alterClause instanceof EnableFeatureOp
+                    && ((EnableFeatureOp) alterClause).getFeature()
+                            == EnableFeatureOp.Features.UPDATE_FLEXIBLE_COLUMNS) {
+                enableFlexiblePartialUpdate = true;
+            }
+        }
+        if (!enableFlexiblePartialUpdate && !table.hasSkipBitmapColumn()) {
+            return;
+        }
+        for (AlterTableOp alterClause : ops) {
+            if (alterClause instanceof AddColumnOp) {
+                OlapTable.validateVariantColumnForFlexiblePartialUpdate(
+                        ((AddColumnOp) alterClause).getColumn());
+            } else if (alterClause instanceof AddColumnsOp) {
+                for (Column column : ((AddColumnsOp) alterClause).getColumns()) {
+                    OlapTable.validateVariantColumnForFlexiblePartialUpdate(column);
+                }
+            } else if (alterClause instanceof ModifyColumnOp) {
+                OlapTable.validateVariantColumnForFlexiblePartialUpdate(
+                        ((ModifyColumnOp) alterClause).getColumn());
+            }
+        }
     }
 
     /**

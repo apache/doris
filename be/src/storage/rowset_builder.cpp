@@ -303,6 +303,19 @@ Status GroupRowsetBuilder::build_rowset() {
     return _txn_rs_builder->build_rowset();
 }
 
+Status BaseRowsetBuilder::_check_flexible_partial_update_single_segment() const {
+    if (_partial_update_info && _partial_update_info->is_flexible_partial_update() &&
+        _rowset->num_segments() > 1) {
+        // in flexible partial update, when there are more one segment in one load,
+        // we need to do alignment process for same keys between segments, we haven't
+        // implemented it yet and just report an error when encounter this situation
+        return Status::NotSupported(
+                "too large input data in flexible partial update, Please "
+                "reduce the amount of data imported in a single load.");
+    }
+    return Status::OK();
+}
+
 Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
     DCHECK(is_data_builder());
     if (!_tablet->enable_unique_key_merge_on_write() || _rowset->num_segments() == 0) {
@@ -310,16 +323,7 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
     }
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_submit_delete_bitmap_timer);
-    if (_partial_update_info && _partial_update_info->is_flexible_partial_update()) {
-        if (_rowset->num_segments() > 1) {
-            // in flexible partial update, when there are more one segment in one load,
-            // we need to do alignment process for same keys between segments, we haven't
-            // implemented it yet and just report an error when encouter this situation
-            return Status::NotSupported(
-                    "too large input data in flexible partial update, Please "
-                    "reduce the amount of data imported in a single load.");
-        }
-    }
+    RETURN_IF_ERROR(_check_flexible_partial_update_single_segment());
 
     auto* beta_rowset = reinterpret_cast<BetaRowset*>(_rowset.get());
     std::vector<segment_v2::SegmentSharedPtr> segments;
