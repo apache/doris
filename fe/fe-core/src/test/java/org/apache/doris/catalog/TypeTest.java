@@ -177,6 +177,46 @@ public class TypeTest {
         Assert.assertFalse(Type.matchExactType(d20s1, d38s1, false));
     }
 
+    // ===================== exceedsMaxNestingDepth =====================
+
+    /**
+     * Builds a MAP<MAP<...<MAP<STRING, STRING>>...>, STRING> with the given number of outer MAP wrappers.
+     * This tests the keyType recursion path of exceedsMaxNestingDepth().
+     */
+    private static Type buildMapKeyNestedType(int depth) {
+        // innermost: MAP<STRING, STRING> counts as depth 1 (from the caller's perspective we start at d=0)
+        Type current = new MapType(Type.STRING, Type.STRING, true, true);
+        for (int i = 1; i < depth; i++) {
+            current = new MapType(current, Type.STRING, true, true);
+        }
+        return current;
+    }
+
+    @Test
+    public void testMapKeyPathNestingWithinLimit() {
+        // MAP < MAP < ... STRING ...>, STRING > with total nesting == MAX_NESTING_DEPTH should be allowed
+        Type t = buildMapKeyNestedType(Type.MAX_NESTING_DEPTH);
+        Assert.assertFalse(t.exceedsMaxNestingDepth());
+    }
+
+    @Test
+    public void testMapKeyPathDeepNestingDetected() {
+        // Nesting depth of MAX_NESTING_DEPTH + 1 via keyType path must be rejected
+        Type t = buildMapKeyNestedType(Type.MAX_NESTING_DEPTH + 1);
+        Assert.assertTrue(t.exceedsMaxNestingDepth());
+    }
+
+    @Test
+    public void testMapValuePathDeepNestingDetected() {
+        // Existing valueType path should still be detected (regression guard).
+        // Need MAX_NESTING_DEPTH + 1 wraps so the innermost reaches d = MAX_NESTING_DEPTH + 1.
+        Type current = Type.STRING;
+        for (int i = 0; i <= Type.MAX_NESTING_DEPTH; i++) {
+            current = new MapType(Type.STRING, current, true, true);
+        }
+        Assert.assertTrue(current.exceedsMaxNestingDepth());
+    }
+
     @Test
     public void testDatetimeV2ScaleMatching() {
         ScalarType dtv2s3 = ScalarType.createDatetimeV2Type(3);
