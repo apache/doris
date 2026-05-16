@@ -207,8 +207,13 @@ public:
     void modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
                          const std::vector<RowsetMetaSharedPtr>& to_delete,
                          bool same_version = false);
+    void modify_row_binlog_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
+                                    const std::vector<RowsetMetaSharedPtr>& to_delete);
     void revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas);
+    void revise_row_binlog_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas);
     void revise_delete_bitmap_unlocked(const DeleteBitmap& delete_bitmap);
+    // Revise delete vector used by binlog<row> rowsets.
+    void revise_binlog_delvec_unlocked(const DeleteBitmap& binlog_delvec);
 
     const RowsetMetaMapContainer& all_stale_rs_metas() const;
     RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
@@ -282,6 +287,7 @@ public:
     const TabletSchemaSPtr& row_binlog_schema() const { return _row_binlog_schema; }
     int32_t row_binlog_schema_hash() const { return _row_binlog_schema_hash; }
     const RowsetMetaMapContainer& all_row_binlog_rs_metas() const;
+    RowsetMetaSharedPtr acquire_row_binlog_rs_meta_by_version(const Version& version) const;
     Status add_row_binlog_rs_meta(const RowsetMetaSharedPtr& rs_meta);
 
     void set_compaction_policy(std::string compaction_policy) {

@@ -33,7 +33,6 @@
 #include <memory>
 #include <mutex>
 #include <ostream>
-#include <set>
 #include <shared_mutex>
 #include <system_error>
 #include <unordered_map>
@@ -50,6 +49,7 @@
 #include "runtime/thread_context.h"
 #include "service/http/http_client.h"
 #include "service/http/utils.h"
+#include "storage/binlog.h"
 #include "storage/data_dir.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
@@ -69,7 +69,6 @@
 #include "util/thrift_rpc_helper.h"
 #include "util/trace.h"
 
-using std::set;
 using std::stringstream;
 
 namespace doris {
@@ -182,6 +181,9 @@ Status EngineCloneTask::_do_clone() {
     Status status = Status::OK();
     std::string src_file_path;
     TBackend src_host;
+    int32_t copy_type = _clone_req.__isset.copy_type ? _clone_req.copy_type : TabletCopyType::DEFAULT;
+    RETURN_IF_ERROR(TabletCopyType::validate(copy_type));
+    bool copy_row_binlog = TabletCopyType::has(copy_type, TTabletCopyType::ROW_BINLOG);
     RETURN_IF_ERROR(
             _engine.tablet_manager()->register_transition_tablet(_clone_req.tablet_id, "clone"));
     Defer defer {[&]() {
@@ -256,7 +258,7 @@ Status EngineCloneTask::_do_clone() {
                                                      &src_host, &src_file_path, missed_versions,
                                                      &allow_incremental_clone));
         RETURN_IF_ERROR(_finish_clone(tablet.get(), local_data_path, specified_version,
-                                      allow_incremental_clone));
+                                      allow_incremental_clone, copy_row_binlog));
     } else {
         LOG(INFO) << "clone tablet not exist, begin clone a new tablet from remote be. "
                   << "signature=" << _signature << ", tablet_id=" << _clone_req.tablet_id
@@ -423,6 +425,11 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
         }
 
         std::string address = get_host_port(src.host, src.http_port);
+        int32_t copy_type =
+                _clone_req.__isset.copy_type ? _clone_req.copy_type : TabletCopyType::DEFAULT;
+        RETURN_IF_ERROR(TabletCopyType::validate(copy_type));
+        bool copy_row_binlog = TabletCopyType::has(copy_type, TTabletCopyType::ROW_BINLOG);
+
         if (config::enable_batch_download && is_support_batch_download(address).ok()) {
             // download files via batch api.
             LOG_INFO("remote BE supports batch download, use batch file download")
@@ -435,6 +442,21 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
                         .tag("remote_dir", remote_dir)
                         .error(status);
                 continue; // Try another BE
+            }
+            if (copy_row_binlog) {
+                std::string row_binlog_remote_dir =
+                        fmt::format("{}{}/", remote_dir, FDRowBinlogSuffix);
+                std::string row_binlog_local_path =
+                        fmt::format("{}/{}", local_data_path, FDRowBinlogSuffix);
+                status = _batch_download_files(&data_dir, address, row_binlog_remote_dir,
+                                               row_binlog_local_path);
+                if (!status.ok()) [[unlikely]] {
+                    LOG_WARNING("failed to download row binlog snapshot from remote BE in batch")
+                            .tag("address", address)
+                            .tag("remote_dir", row_binlog_remote_dir)
+                            .error(status);
+                    continue; // Try another BE
+                }
             }
         } else {
             if (config::enable_batch_download) {
@@ -462,6 +484,26 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
                         .error(status);
                 continue; // Try another BE
             }
+            if (copy_row_binlog) {
+                std::string row_binlog_remote_url_prefix;
+                {
+                    std::stringstream ss;
+                    ss << "http://" << address << HTTP_REQUEST_PREFIX << HTTP_REQUEST_TOKEN_PARAM
+                       << token << HTTP_REQUEST_FILE_PARAM << remote_dir << FDRowBinlogSuffix
+                       << "/";
+                    row_binlog_remote_url_prefix = ss.str();
+                }
+                std::string row_binlog_local_path =
+                        fmt::format("{}/{}", local_data_path, FDRowBinlogSuffix);
+                status = _download_files(&data_dir, row_binlog_remote_url_prefix,
+                                         row_binlog_local_path);
+                if (!status.ok()) [[unlikely]] {
+                    LOG_WARNING("failed to download row binlog snapshot from remote BE")
+                            .tag("url", mask_token(row_binlog_remote_url_prefix))
+                            .error(status);
+                    continue; // Try another BE
+                }
+            }
         }
 
         // No need to try again with another BE
@@ -482,7 +524,10 @@ Status EngineCloneTask::_make_snapshot(const std::string& ip, int port, TTableId
     request.__set_schema_hash(schema_hash);
     request.__set_preferred_snapshot_version(g_Types_constants.TPREFER_SNAPSHOT_REQ_VERSION);
     request.__set_version(_clone_req.version);
-    request.__set_is_copy_binlog(true);
+    int32_t copy_type = _clone_req.__isset.copy_type ? _clone_req.copy_type : TabletCopyType::DEFAULT;
+    RETURN_IF_ERROR(TabletCopyType::validate(copy_type));
+    request.__set_copy_type(copy_type);
+    request.__set_is_copy_binlog(TabletCopyType::has(copy_type, TTabletCopyType::CCR_BINLOG));
     // TODO: missing version composed of singleton delta.
     // if not, this place should be rewrote.
     // we make every TSnapshotRequest sent from be with __isset.missing_version = true
@@ -726,7 +771,7 @@ Status EngineCloneTask::_batch_download_files(DataDir* data_dir, const std::stri
 /// 1. Link all files from CLONE dir to tablet dir if file does not exist in tablet dir
 /// 2. Call _finish_xx_clone() to revise the tablet meta.
 Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_dir, int64_t version,
-                                      bool is_incremental_clone) {
+                                      bool is_incremental_clone, bool copy_row_binlog) {
     Defer remove_clone_dir {[&]() {
         std::error_code ec;
         std::filesystem::remove_all(clone_dir, ec);
@@ -782,19 +827,49 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
         RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(binlog_dir));
     }
 
+    enum class CloneFileType { DATA, ROW_BINLOG, CCR_BINLOG };
+
     // check all files in /clone and /tablet
     std::vector<io::FileInfo> clone_files;
     RETURN_IF_ERROR(io::global_local_filesystem()->list(clone_dir, true, &clone_files, &exists));
-    std::unordered_set<std::string> clone_file_names;
+    std::vector<std::pair<CloneFileType, std::string>> clone_file_names;
     for (auto& file : clone_files) {
-        clone_file_names.insert(file.file_name);
+        CloneFileType file_type = CloneFileType::DATA;
+        if (file.file_name.ends_with(".binlog") || file.file_name.ends_with(".binlog-index")) {
+            file_type = CloneFileType::CCR_BINLOG;
+        }
+        clone_file_names.emplace_back(file_type, file.file_name);
+    }
+    auto row_binlog_clone_dir = fmt::format("{}/{}", clone_dir, FDRowBinlogSuffix);
+    if (copy_row_binlog) {
+        clone_files.clear();
+        RETURN_IF_ERROR(io::global_local_filesystem()->list(row_binlog_clone_dir, true,
+                                                            &clone_files, &exists));
+        if (!exists) {
+            return Status::InternalError("row binlog clone dir not existed. clone_dir={}",
+                                         row_binlog_clone_dir);
+        }
+        for (auto& file : clone_files) {
+            clone_file_names.emplace_back(CloneFileType::ROW_BINLOG, file.file_name);
+        }
     }
 
     std::vector<io::FileInfo> local_files;
     RETURN_IF_ERROR(io::global_local_filesystem()->list(tablet_dir, true, &local_files, &exists));
-    std::unordered_set<std::string> local_file_names;
+    std::unordered_set<std::string> data_local_file_names;
     for (auto& file : local_files) {
-        local_file_names.insert(file.file_name);
+        data_local_file_names.insert(file.file_name);
+    }
+    auto row_binlog_dir = tablet->row_binlog_path();
+    std::unordered_set<std::string> row_binlog_local_file_names;
+    if (copy_row_binlog) {
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(row_binlog_dir));
+        local_files.clear();
+        RETURN_IF_ERROR(io::global_local_filesystem()->list(row_binlog_dir, true,
+                                                            &local_files, &exists));
+        for (auto& file : local_files) {
+            row_binlog_local_file_names.insert(file.file_name);
+        }
     }
 
     Status status;
@@ -811,9 +886,16 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     /// Traverse all downloaded clone files in CLONE dir.
     /// If it does not exist in local tablet dir, link the file to local tablet dir
     /// And save all linked files in linked_success_files.
-    for (const std::string& clone_file : clone_file_names) {
-        if (local_file_names.find(clone_file) != local_file_names.end()) {
+    for (const auto& [clone_file_type, clone_file] : clone_file_names) {
+        if (clone_file_type == CloneFileType::DATA &&
+            data_local_file_names.find(clone_file) != data_local_file_names.end()) {
             VLOG_NOTICE << "find same file when clone, skip it. "
+                        << "tablet=" << tablet->tablet_id() << ", clone_file=" << clone_file;
+            continue;
+        }
+        if (clone_file_type == CloneFileType::ROW_BINLOG &&
+            row_binlog_local_file_names.find(clone_file) != row_binlog_local_file_names.end()) {
+            VLOG_NOTICE << "find same row binlog file when clone, skip it. "
                         << "tablet=" << tablet->tablet_id() << ", clone_file=" << clone_file;
             continue;
         }
@@ -821,7 +903,7 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
         /// if binlog exist in clone dir and md5sum equal, then skip link file
         bool skip_link_file = false;
         std::string to;
-        if (clone_file.ends_with(".binlog") || clone_file.ends_with(".binlog-index")) {
+        if (clone_file_type == CloneFileType::CCR_BINLOG) {
             if (!contain_binlog) {
                 LOG(WARNING) << "clone binlog file, but not contain binlog metas. "
                              << "tablet=" << tablet->tablet_id() << ", clone_file=" << clone_file;
@@ -837,11 +919,15 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
                 return status;
             }
         } else {
-            to = fmt::format("{}/{}", tablet_dir, clone_file);
+            auto& local_dir =
+                    clone_file_type == CloneFileType::ROW_BINLOG ? row_binlog_dir : tablet_dir;
+            to = fmt::format("{}/{}", local_dir, clone_file);
         }
 
         if (!skip_link_file) {
-            auto from = fmt::format("{}/{}", clone_dir, clone_file);
+            auto& clone_file_dir = clone_file_type == CloneFileType::ROW_BINLOG ? row_binlog_clone_dir
+                                                                                : clone_dir;
+            auto from = fmt::format("{}/{}", clone_file_dir, clone_file);
             status = io::global_local_filesystem()->link_file(from, to);
             if (!status.ok()) {
                 return status;
@@ -866,9 +952,9 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     std::lock_guard<std::shared_mutex> wrlock(tablet->get_header_lock());
     SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     if (is_incremental_clone) {
-        status = _finish_incremental_clone(tablet, cloned_tablet_meta, version);
+        status = _finish_incremental_clone(tablet, cloned_tablet_meta, version, copy_row_binlog);
     } else {
-        status = _finish_full_clone(tablet, cloned_tablet_meta);
+        status = _finish_full_clone(tablet, cloned_tablet_meta, copy_row_binlog);
     }
 
     // if full clone success, need to update cumulative layer point
@@ -885,7 +971,7 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
 /// 2. Revise the local tablet meta to add all incremental cloned rowset's meta.
 Status EngineCloneTask::_finish_incremental_clone(Tablet* tablet,
                                                   const TabletMetaSharedPtr& cloned_tablet_meta,
-                                                  int64_t version) {
+                                                  int64_t version, bool copy_row_binlog) {
     LOG(INFO) << "begin to finish incremental clone. tablet=" << tablet->tablet_id()
               << ", visible_version=" << version
               << ", cloned_tablet_replica_id=" << cloned_tablet_meta->replica_id();
@@ -908,19 +994,34 @@ Status EngineCloneTask::_finish_incremental_clone(Tablet* tablet,
         RowsetSharedPtr rs;
         RETURN_IF_ERROR(tablet->create_rowset(rs_meta, &rs));
         rowsets_to_clone.push_back(std::move(rs));
+        if (copy_row_binlog) {
+            rs_meta = cloned_tablet_meta->acquire_row_binlog_rs_meta_by_version(nested_version);
+            if (rs_meta == nullptr) {
+                return Status::InternalError(
+                        "missed version {} row binlog is not found in cloned tablet meta",
+                        nested_version.to_string());
+            }
+            RETURN_IF_ERROR(tablet->create_rowset(rs_meta, &rs));
+            rowsets_to_clone.push_back(std::move(rs));
+        }
+    }
+
+    if (copy_row_binlog && tablet->enable_unique_key_merge_on_write()) {
+        tablet->tablet_meta()->binlog_delvec().merge(cloned_tablet_meta->binlog_delvec());
     }
 
     /// clone_data to tablet
     /// For incremental clone, nothing will be deleted.
     /// So versions_to_delete is empty.
-    return tablet->revise_tablet_meta(rowsets_to_clone, {}, true);
+    return tablet->revise_tablet_meta(rowsets_to_clone, {}, true, copy_row_binlog);
 }
 
 /// This method will do:
 /// 1. Compare the version of local tablet and cloned tablet to decide which version to keep
 /// 2. Revise the local tablet meta
 Status EngineCloneTask::_finish_full_clone(Tablet* tablet,
-                                           const TabletMetaSharedPtr& cloned_tablet_meta) {
+                                           const TabletMetaSharedPtr& cloned_tablet_meta,
+                                           bool copy_row_binlog) {
     Version cloned_max_version = cloned_tablet_meta->max_version();
     LOG(INFO) << "begin to finish full clone. tablet=" << tablet->tablet_id()
               << ", cloned_max_version=" << cloned_max_version;
@@ -958,12 +1059,35 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet,
             DCHECK(rs->is_local());
         }
     }
+    if (copy_row_binlog) {
+        for (auto& [v, rs] : tablet->row_binlog_rowset_map()) {
+            if (v.first <= cloned_max_version.second && v.second > cloned_max_version.second) {
+                return Status::InternalError(
+                        "row binlog version cross src latest. cloned_max_version={}, "
+                        "local_version={}",
+                        cloned_max_version.second, v.to_string());
+            }
+            if (v.second <= cloned_max_version.second) {
+                to_delete.push_back(rs);
+            } else {
+                DCHECK(rs->is_local());
+            }
+        }
+    }
 
-    to_add.reserve(cloned_tablet_meta->all_rs_metas().size());
+    to_add.reserve(cloned_tablet_meta->all_rs_metas().size() +
+                   cloned_tablet_meta->all_row_binlog_rs_metas().size());
     for (const auto& [_, rs_meta] : cloned_tablet_meta->all_rs_metas()) {
         RowsetSharedPtr rs;
         RETURN_IF_ERROR(tablet->create_rowset(rs_meta, &rs));
         to_add.push_back(std::move(rs));
+    }
+    if (copy_row_binlog) {
+        for (const auto& [_, rs_meta] : cloned_tablet_meta->all_row_binlog_rs_metas()) {
+            RowsetSharedPtr rs;
+            RETURN_IF_ERROR(tablet->create_rowset(rs_meta, &rs));
+            to_add.push_back(std::move(rs));
+        }
     }
     {
         std::shared_lock cooldown_conf_rlock(tablet->get_cooldown_conf_lock());
@@ -983,8 +1107,11 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet,
     }
     if (tablet->enable_unique_key_merge_on_write()) {
         tablet->tablet_meta()->delete_bitmap().merge(cloned_tablet_meta->delete_bitmap());
+        if (copy_row_binlog) {
+            tablet->tablet_meta()->binlog_delvec().merge(cloned_tablet_meta->binlog_delvec());
+        }
     }
-    return tablet->revise_tablet_meta(to_add, to_delete, false);
+    return tablet->revise_tablet_meta(to_add, to_delete, false, copy_row_binlog);
     // TODO(plat1ko): write cooldown meta to remote if this replica is cooldown replica
 }
 } // namespace doris

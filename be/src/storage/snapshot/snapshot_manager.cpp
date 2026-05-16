@@ -52,6 +52,7 @@
 #include "storage/rowset/rowset_writer.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/storage_engine.h"
+#include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_manager.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
@@ -201,6 +202,7 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
     // keep this just for safety
     new_tablet_meta_pb.clear_inc_rs_metas();
     new_tablet_meta_pb.clear_stale_rs_metas();
+    new_tablet_meta_pb.clear_row_binlog_rs_metas();
 
     // should modify tablet id and schema hash because in restore process the tablet id is not
     // equal to tablet id in meta
@@ -216,11 +218,14 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
     new_tablet_meta_pb.set_schema_hash(schema_hash);
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     tablet_schema->init_from_pb(new_tablet_meta_pb.schema());
+    TabletSchemaSPtr row_binlog_tablet_schema = std::make_shared<TabletSchema>();
+    row_binlog_tablet_schema->init_from_pb(new_tablet_meta_pb.row_binlog_schema());
 
     std::unordered_map<Version, RowsetMetaPB*, HashOfVersion> rs_version_map;
     std::unordered_map<RowsetId, RowsetId> rowset_id_mapping;
     guards.reserve(cloned_tablet_meta_pb.rs_metas_size() +
-                   cloned_tablet_meta_pb.stale_rs_metas_size());
+                   cloned_tablet_meta_pb.stale_rs_metas_size() +
+                   cloned_tablet_meta_pb.row_binlog_rs_metas_size());
     for (auto&& visible_rowset : cloned_tablet_meta_pb.rs_metas()) {
         RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_rs_metas();
         if (!visible_rowset.has_resource_id()) {
@@ -298,6 +303,35 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
         }
     }
 
+    std::string row_binlog_dir = fmt::format("{}/{}", clone_dir, FDRowBinlogSuffix);
+    for (auto&& row_binlog_rowset : cloned_tablet_meta_pb.row_binlog_rs_metas()) {
+        RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_row_binlog_rs_metas();
+
+        if (!row_binlog_rowset.has_resource_id()) {
+            RowsetId rowset_id = _engine.next_rowset_id();
+            guards.push_back(_engine.pending_local_rowsets().add(rowset_id));
+            RETURN_IF_ERROR_RESULT(_rename_rowset_id(
+                    row_binlog_rowset, row_binlog_dir, row_binlog_tablet_schema, rowset_id,
+                    rowset_meta, new_tablet_meta_pb.enable_unique_key_merge_on_write()));
+            RowsetId src_rs_id;
+            if (row_binlog_rowset.rowset_id() > 0) {
+                src_rs_id.init(row_binlog_rowset.rowset_id());
+            } else {
+                src_rs_id.init(row_binlog_rowset.rowset_id_v2());
+            }
+            rowset_id_mapping[src_rs_id] = rowset_id;
+            rowset_meta->set_source_rowset_id(row_binlog_rowset.rowset_id_v2());
+            rowset_meta->set_source_tablet_id(cloned_tablet_meta_pb.tablet_id());
+        } else {
+            *rowset_meta = row_binlog_rowset;
+        }
+
+        rowset_meta->set_tablet_id(tablet_id);
+        if (partition_id != -1) {
+            rowset_meta->set_partition_id(partition_id);
+        }
+    }
+
     if (new_tablet_meta_pb.schema().index_size() > 0) {
         RETURN_IF_ERROR_RESULT(
                 _rename_index_ids(*new_tablet_meta_pb.mutable_schema(), target_tablet_schema));
@@ -353,6 +387,10 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
     context.newest_write_timestamp = org_rowset_meta->newest_write_timestamp();
     // keep segments_overlap same as origin rowset
     context.segments_overlap = rowset_meta->segments_overlap();
+    context.compaction_level = org_rowset_meta->compaction_level();
+    if (org_rowset_meta->is_row_binlog()) {
+        context.write_binlog_opt().mark_binlog_writer();
+    }
     // propagate MOW flag so that non-MOW key-bounds aggregation is not applied
     // when restoring a MOW tablet's rowset
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write;
@@ -431,6 +469,11 @@ std::string SnapshotManager::_get_header_full_path(const TabletSharedPtr& ref_ta
     return fmt::format("{}/{}.hdr", schema_hash_path, ref_tablet->tablet_id());
 }
 
+std::string SnapshotManager::_get_row_binlog_full_path(
+        const std::string& schema_hash_path) const {
+    return fmt::format("{}/{}", schema_hash_path, FDRowBinlogSuffix);
+}
+
 std::string SnapshotManager::_get_json_header_full_path(const TabletSharedPtr& ref_tablet,
                                                         const std::string& schema_hash_path) const {
     return fmt::format("{}/{}.hdr.json", schema_hash_path, ref_tablet->tablet_id());
@@ -475,10 +518,18 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
     }
 
     bool is_copy_binlog = request.__isset.is_copy_binlog ? request.is_copy_binlog : false;
+    int32_t copy_type = is_copy_binlog ? TabletCopyType::DEFAULT : TTabletCopyType::DATA;
+    if (request.__isset.copy_type) {
+        copy_type = request.copy_type;
+    }
+    RETURN_IF_ERROR(TabletCopyType::validate(copy_type));
+    bool need_row_binlog = TabletCopyType::has(copy_type, TTabletCopyType::ROW_BINLOG);
+    bool need_ccr_binlog = TabletCopyType::has(copy_type, TTabletCopyType::CCR_BINLOG);
 
     // schema_full_path_desc.filepath:
     //      /snapshot_id_path/tablet_id/schema_hash/
     auto schema_full_path = get_schema_hash_full_path(target_tablet, snapshot_id_path);
+    auto row_binlog_full_path = _get_row_binlog_full_path(schema_full_path);
     // header_path:
     //      /schema_full_path/tablet_id.hdr
     auto header_path = _get_header_full_path(target_tablet, schema_full_path);
@@ -496,6 +547,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
     RETURN_IF_ERROR(io::global_local_filesystem()->canonicalize(snapshot_id_path, &snapshot_id));
 
     std::vector<RowsetSharedPtr> consistent_rowsets;
+    std::vector<RowsetSharedPtr> row_binlog_rowsets;
     do {
         TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
         if (new_tablet_meta == nullptr) {
@@ -503,6 +555,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
             break;
         }
         DeleteBitmap delete_bitmap_snapshot(new_tablet_meta->tablet_id());
+        DeleteBitmap binlog_delvec_snapshot(new_tablet_meta->tablet_id());
 
         /// If set missing_version, try to get all missing version.
         /// If some of them not exist in tablet, we will fall back to
@@ -511,6 +564,12 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
             std::shared_lock rdlock(ref_tablet->get_header_lock());
             if (ref_tablet->tablet_state() == TABLET_SHUTDOWN) {
                 return Status::Aborted("tablet has shutdown");
+            }
+            if (need_row_binlog && !ref_tablet->enable_row_binlog()) {
+                res = Status::InternalError(
+                        "tablet {} does not enable row binlog, but ROW_BINLOG copy is requested",
+                        ref_tablet->tablet_id());
+                break;
             }
             bool is_single_rowset_clone =
                     (request.__isset.start_version && request.__isset.end_version);
@@ -529,6 +588,24 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                     res = Status::InternalError(
                             "failed to find version when do compaction snapshot");
                     break;
+                }
+                if (need_row_binlog) {
+                    RowsetSharedPtr row_binlog_rowset =
+                            ref_tablet->get_row_binlog_rowset_by_version(version);
+                    if (row_binlog_rowset != nullptr) {
+                        row_binlog_rowsets.push_back(row_binlog_rowset);
+                    } else {
+                        LOG(WARNING)
+                                << "failed to find row binlog when do compaction snapshot. "
+                                << " tablet=" << request.tablet_id
+                                << " schema_hash=" << request.schema_hash
+                                << " version=" << version;
+                        res = Status::InternalError(
+                                "failed to find row binlog when do compaction snapshot. tablet={}, "
+                                "schema_hash={}, version={}",
+                                request.tablet_id, request.schema_hash, version.to_string());
+                        break;
+                    }
                 }
             }
             // be would definitely set it as true no matter has missed version or not
@@ -554,6 +631,19 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                                 "schema_hash={}, version={}",
                                 request.tablet_id, request.schema_hash, version.to_string());
                         break;
+                    }
+                    if (need_row_binlog) {
+                        RowsetSharedPtr row_binlog_rowset =
+                                ref_tablet->get_row_binlog_rowset_by_version(version);
+                        if (row_binlog_rowset != nullptr) {
+                            row_binlog_rowsets.push_back(row_binlog_rowset);
+                        } else {
+                            res = Status::InternalError(
+                                    "failed to find row binlog when snapshot. tablet={}, "
+                                    "schema_hash={}, version={}",
+                                    request.tablet_id, request.schema_hash, version.to_string());
+                            break;
+                        }
                     }
                 }
             }
@@ -582,6 +672,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 /// not all missing versions are found, fall back to full snapshot.
                 res = Status::OK();         // reset res
                 consistent_rowsets.clear(); // reset vector
+                row_binlog_rowsets.clear();
 
                 // get latest version
                 const RowsetSharedPtr last_version = ref_tablet->get_rowset_with_max_version();
@@ -639,6 +730,20 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                     LOG(WARNING) << "fail to select versions to span. res=" << res;
                     break;
                 }
+                if (need_row_binlog) {
+                    // row binlog does not support cooldown yet.
+                    auto ret = ref_tablet->capture_consistent_rowsets_unlocked(
+                            Version(0, version), CaptureRowsetOps {.capture_row_binlog = true});
+                    if (ret) {
+                        row_binlog_rowsets = std::move(ret->rowsets);
+                    } else {
+                        res = std::move(ret.error());
+                    }
+                    if (!res.ok()) {
+                        LOG(WARNING) << "fail to select row binlogs to span. res=" << res;
+                        break;
+                    }
+                }
                 *allow_incremental_clone = false;
             } else {
                 version = ref_tablet->max_version_unlocked();
@@ -655,6 +760,10 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 ref_tablet->enable_unique_key_merge_on_write()) {
                 delete_bitmap_snapshot =
                         ref_tablet->tablet_meta()->delete_bitmap().snapshot(version);
+                if (need_row_binlog) {
+                    binlog_delvec_snapshot =
+                            ref_tablet->tablet_meta()->binlog_delvec().snapshot(version);
+                }
             }
         }
 
@@ -680,13 +789,47 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
             break;
         }
 
+        std::vector<RowsetMetaSharedPtr> row_binlog_rs_metas;
+        if (need_row_binlog) {
+            res = io::global_local_filesystem()->create_directory(row_binlog_full_path);
+            if (!res.ok()) {
+                break;
+            }
+            for (auto& rs : row_binlog_rowsets) {
+                if (rs->is_local()) {
+                    // local row binlog
+                    res = rs->link_files_to(row_binlog_full_path, rs->rowset_id());
+                    if (!res.ok()) {
+                        break;
+                    }
+                }
+                row_binlog_rs_metas.push_back(rs->rowset_meta());
+                VLOG_NOTICE << "add row binlog rowset meta to clone list. "
+                            << " start version " << rs->rowset_meta()->start_version()
+                            << " end version " << rs->rowset_meta()->end_version() << " empty "
+                            << rs->rowset_meta()->empty();
+            }
+            if (!res.ok()) {
+                LOG(WARNING) << "fail to create row binlog hard link. path=" << snapshot_id_path
+                             << " tablet=" << target_tablet->tablet_id()
+                             << " ref tablet=" << ref_tablet->tablet_id();
+                break;
+            }
+        }
+
         // The inc_rs_metas is deprecated since Doris version 0.13.
         // Clear it for safety reason.
         // Whether it is incremental or full snapshot, rowset information is stored in rs_meta.
         new_tablet_meta->revise_rs_metas(std::move(rs_metas));
+        if (need_row_binlog) {
+            new_tablet_meta->revise_row_binlog_rs_metas(std::move(row_binlog_rs_metas));
+        }
         if (ref_tablet->keys_type() == UNIQUE_KEYS &&
             ref_tablet->enable_unique_key_merge_on_write()) {
             new_tablet_meta->revise_delete_bitmap_unlocked(delete_bitmap_snapshot);
+            if (need_row_binlog) {
+                new_tablet_meta->revise_binlog_delvec_unlocked(binlog_delvec_snapshot);
+            }
         }
 
         if (snapshot_version == g_Types_constants.TSNAPSHOT_REQ_VERSION2) {
@@ -716,7 +859,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
             break;
         }
 
-        if (!is_copy_binlog || !target_tablet->enable_ccr_binlog()) {
+        if (!need_ccr_binlog || !target_tablet->enable_ccr_binlog()) {
             break;
         }
 

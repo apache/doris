@@ -245,6 +245,14 @@ RowsetSharedPtr BaseTablet::get_stale_rowset_by_version(const Version& version) 
     return iter->second;
 }
 
+RowsetSharedPtr BaseTablet::get_row_binlog_rowset_by_version(const Version& version) const {
+    auto iter = _row_binlog_rs_version_map.find(version);
+    if (iter == _row_binlog_rs_version_map.end()) {
+        return nullptr;
+    }
+    return iter->second;
+}
+
 // Already under _meta_lock
 RowsetSharedPtr BaseTablet::get_rowset_with_max_version() const {
     Version max_version = _tablet_meta->max_version();

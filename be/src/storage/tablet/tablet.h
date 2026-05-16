@@ -38,6 +38,7 @@
 #include "common/config.h"
 #include "common/metrics/metrics.h"
 #include "common/status.h"
+#include "gen_cpp/AgentService_types.h"
 #include "storage/binlog.h"
 #include "storage/binlog_config.h"
 #include "storage/data_dir.h"
@@ -140,7 +141,7 @@ public:
     // Used in clone task, to update local meta when finishing a clone job
     Status revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
                               const std::vector<RowsetSharedPtr>& to_delete,
-                              bool is_incremental_clone);
+                              bool is_incremental_clone, bool copy_row_binlog = false);
 
     int64_t cumulative_layer_point() const;
     void set_cumulative_layer_point(int64_t new_point);
@@ -381,9 +382,10 @@ public:
     Status create_rowset(const RowsetMetaSharedPtr& rowset_meta, RowsetSharedPtr* rowset);
 
     // MUST hold EXCLUSIVE `_meta_lock`
-    void add_rowsets(const std::vector<RowsetSharedPtr>& to_add);
+    void add_rowsets(const std::vector<RowsetSharedPtr>& to_add, bool copy_row_binlog = false);
     // MUST hold EXCLUSIVE `_meta_lock`
-    Status delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete, bool move_to_stale);
+    Status delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete, bool move_to_stale,
+                          bool copy_row_binlog = false);
 
     // MUST hold SHARED `_meta_lock`
     const auto& rowset_map() const { return _rs_version_map; }
@@ -792,5 +794,28 @@ inline size_t Tablet::next_unique_id() const {
 inline int64_t Tablet::avg_rs_meta_serialize_size() const {
     return _tablet_meta->avg_rs_meta_serialize_size();
 }
+
+class TabletCopyType {
+public:
+    static constexpr int32_t DEFAULT = TTabletCopyType::DATA | TTabletCopyType::CCR_BINLOG;
+
+    static bool has(int32_t copy_type, TTabletCopyType::type flag) {
+        return (copy_type & static_cast<int32_t>(flag)) != 0;
+    }
+
+    static Status validate(int32_t copy_type) {
+        if (copy_type <= 0 || (copy_type & ~all_types()) != 0) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "invalid copy_type bitmask: {}, valid bits: {}", copy_type, all_types());
+        }
+        return Status::OK();
+    }
+
+private:
+    static constexpr int32_t all_types() {
+        return TTabletCopyType::DATA | TTabletCopyType::ROW_BINLOG |
+               TTabletCopyType::CCR_BINLOG;
+    }
+};
 
 } // namespace doris

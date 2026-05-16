@@ -345,10 +345,10 @@ Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_conte
     }
     _rowset_meta->set_tablet_uid(_context.tablet_uid);
     _rowset_meta->set_tablet_schema(_context.tablet_schema);
+    _rowset_meta->set_compaction_level(_context.compaction_level);
     if (_context.write_binlog_opt().enable) {
         _rowset_meta->mark_row_binlog();
     }
-    _rowset_meta->set_compaction_level(_context.compaction_level);
     _context.segment_collector = std::make_shared<SegmentCollectorT<BaseBetaRowsetWriter>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BaseBetaRowsetWriter>>(this);
     return Status::OK();

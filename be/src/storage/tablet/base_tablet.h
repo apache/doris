@@ -136,6 +136,7 @@ public:
     // The caller must call hold _meta_lock when call this three function.
     RowsetSharedPtr get_rowset_by_version(const Version& version, bool find_is_stale = false) const;
     RowsetSharedPtr get_stale_rowset_by_version(const Version& version) const;
+    RowsetSharedPtr get_row_binlog_rowset_by_version(const Version& version) const;
     RowsetSharedPtr get_rowset_with_max_version() const;
 
     Status get_all_rs_id(int64_t max_version, RowsetIdUnorderedSet* rowset_ids) const;
