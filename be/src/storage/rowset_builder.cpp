@@ -88,9 +88,9 @@ void BaseRowsetBuilder::_init_profile(RuntimeProfile* profile) {
     }
 
     _profile = profile->create_child(
-            fmt::format("RowsetBuilder {} {}", _req.tablet_id,
-                        _req.write_req_type == WriteRequestType::BINLOG_IN_GROUP ? "binlog<row>"
-                                                                                 : "data"),
+            fmt::format(
+                    "RowsetBuilder {} {}", _req.tablet_id,
+                    _req.write_req_type == WriteRequestType::ROW_BINLOG ? "binlog<row>" : "data"),
             true, true);
     _build_rowset_timer = ADD_TIMER(_profile, "BuildRowsetTime");
     _submit_delete_bitmap_timer = ADD_TIMER(_profile, "DeleteBitmapSubmitTime");
@@ -213,13 +213,6 @@ Status RowsetBuilder::init() {
 
     RETURN_IF_ERROR(_init_context_common_fields(context));
 
-    // For group write, the DATA writer needs to mark itself as primary so that
-    // SegmentFlusher can create RowBinlogSegmentWriter and the flush path can
-    // pre-allocate LSNs for row-binlog.
-    if (_req.write_req_type == WriteRequestType::DATA_IN_GROUP) {
-        context.write_binlog_opt().mark_primary_writer();
-    }
-
     std::shared_ptr<MowContext> mow_context;
     if (_tablet->enable_unique_key_merge_on_write()) {
         RETURN_IF_ERROR(init_mow_context(mow_context));
@@ -281,9 +274,8 @@ Status BaseRowsetBuilder::_init_context_common_fields(RowsetWriterContext& conte
     context.tablet_id = _req.tablet_id;
     context.index_id = _req.index_id;
     context.tablet = _tablet;
-    context.enable_segcompaction = !_req.table_schema_param->is_partial_update();
-    if (_req.write_req_type == WriteRequestType::BINLOG_IN_GROUP ||
-        _req.write_req_type == WriteRequestType::DATA_IN_GROUP) {
+    context.enable_segcompaction = true;
+    if (_req.write_req_type == WriteRequestType::ROW_BINLOG || !_attach_rowset_ids.empty()) {
         context.enable_segcompaction = false;
     }
     context.write_type = DataWriteType::TYPE_DIRECT;
@@ -435,7 +427,7 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
         int64_t index_id, const OlapTableSchemaParam* table_schema_param,
         const TabletSchema& ori_tablet_schema) {
     const OlapTableIndexSchema* index_schema = nullptr;
-    if (_req.write_req_type == WriteRequestType::BINLOG_IN_GROUP) {
+    if (_req.write_req_type == WriteRequestType::ROW_BINLOG) {
         const auto* row_binlog_index_schema = table_schema_param->row_binlog_index_schema();
         DCHECK(row_binlog_index_schema != nullptr);
         DCHECK_EQ(row_binlog_index_schema->index_id, index_id);
@@ -503,8 +495,8 @@ GroupRowsetBuilder::GroupRowsetBuilder(StorageEngine& engine, const WriteRequest
                                        RuntimeProfile* profile)
         : BaseRowsetBuilder(group_build_req, profile) {
     DCHECK(group_build_req.write_req_type == WriteRequestType::GROUP &&
-           sub_data_req.write_req_type == WriteRequestType::DATA_IN_GROUP &&
-           sub_row_binlog_req.write_req_type == WriteRequestType::BINLOG_IN_GROUP);
+           sub_data_req.write_req_type == WriteRequestType::DATA &&
+           sub_row_binlog_req.write_req_type == WriteRequestType::ROW_BINLOG);
     _row_binlog_rowset_builder =
             std::make_shared<RowBinlogRowsetBuilder>(engine, sub_row_binlog_req, profile);
     _txn_rs_builder = std::make_shared<RowsetBuilder>(engine, sub_data_req, profile);
@@ -573,8 +565,7 @@ Status RowBinlogRowsetBuilder::init() {
     RETURN_IF_ERROR(_build_current_tablet_schema(
             _req.index_id, _req.table_schema_param.get(),
             *std::dynamic_pointer_cast<Tablet>(_tablet)->row_binlog_tablet_schema()));
-    context.write_binlog_opt().mark_binlog_writer();
-    DCHECK(context.write_binlog_opt().is_binlog_writer());
+    context.write_binlog_opt().enable = true;
 
     _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
     // need to attach PendingRowsetGuard after txn_rs_builder init

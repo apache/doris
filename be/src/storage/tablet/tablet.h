@@ -374,7 +374,7 @@ public:
 
     Result<std::unique_ptr<RowsetWriter>> create_transient_rowset_writer(
             const Rowset& rowset, std::shared_ptr<PartialUpdateInfo> partial_update_info,
-            int64_t txn_expiration = 0, bool build_row_binlog = false) override;
+            int64_t txn_expiration = 0) override;
     Result<std::unique_ptr<RowsetWriter>> create_transient_rowset_writer(
             RowsetWriterContext& context, const RowsetId& rowset_id);
 
@@ -485,11 +485,11 @@ public:
         return config::enable_feature_binlog && _tablet_meta->binlog_config().is_enable();
     }
     bool enable_ccr_binlog() const {
-        return enable_binlog() && _tablet_meta->binlog_config().isCCRBinlogFormat();
+        return enable_binlog() && _tablet_meta->binlog_config().is_ccr_binlog_format();
     }
     bool enable_row_binlog() const {
         return _tablet_meta->binlog_config().is_enable() &&
-               _tablet_meta->binlog_config().isRowBinlogFormat();
+               _tablet_meta->binlog_config().is_row_binlog_format();
     }
 
     int64_t binlog_ttl_ms() const { return _tablet_meta->binlog_config().ttl_seconds(); }

@@ -2043,13 +2043,12 @@ Status Tablet::create_initial_rowset(const int64_t req_version) {
         RETURN_IF_ERROR(RowsetFactory::create_empty_group_rowset_writer(&group_rowset_writer));
 
         RowsetWriterContext data_context;
-        data_context.write_binlog_opt().mark_primary_writer();
         RETURN_IF_ERROR(get_rowset_writer_context(data_context, tablet_schema()));
         auto data_writer = DORIS_TRY(create_rowset_writer(data_context, false));
         group_rowset_writer->set_data_writer(std::move(data_writer));
 
         RowsetWriterContext row_binlog_context;
-        row_binlog_context.write_binlog_opt().mark_binlog_writer();
+        row_binlog_context.write_binlog_opt().enable = true;
         RETURN_IF_ERROR(get_rowset_writer_context(row_binlog_context, row_binlog_tablet_schema()));
         auto row_binlog_writer = DORIS_TRY(create_rowset_writer(row_binlog_context, false));
         group_rowset_writer->set_row_binlog_writer(std::move(row_binlog_writer));
@@ -2077,7 +2076,7 @@ Result<std::unique_ptr<RowsetWriter>> Tablet::create_rowset_writer(RowsetWriterC
 // after writer, merge this transient rowset with original rowset
 Result<std::unique_ptr<RowsetWriter>> Tablet::create_transient_rowset_writer(
         const Rowset& rowset, std::shared_ptr<PartialUpdateInfo> partial_update_info,
-        int64_t txn_expiration, bool build_row_binlog) {
+        int64_t txn_expiration) {
     RowsetWriterContext context;
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
@@ -2104,12 +2103,8 @@ Result<std::unique_ptr<RowsetWriter>> Tablet::create_transient_rowset_writer(
     context.partial_update_info = std::move(partial_update_info);
     context.is_transient_rowset_writer = true;
 
-    if (build_row_binlog) {
-        if (rowset.rowset_meta() != nullptr && rowset.rowset_meta()->is_row_binlog()) {
-            context.write_binlog_opt().mark_binlog_writer();
-        } else {
-            context.write_binlog_opt().mark_primary_writer();
-        }
+    if (rowset.rowset_meta() != nullptr && rowset.rowset_meta()->is_row_binlog()) {
+        context.write_binlog_opt().enable = true;
     }
 
     return create_transient_rowset_writer(context, rowset.rowset_id())
@@ -2154,7 +2149,7 @@ void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
 
     context.encrypt_algorithm = tablet_meta()->encryption_algorithm();
 
-    if (context.write_binlog_opt().is_binlog_writer()) {
+    if (context.write_binlog_opt().enable) {
         context.tablet_schema_hash = row_binlog_schema_hash();
         bool need_before = tablet_meta()->binlog_config().need_historical_value();
         context.write_binlog_opt().set_need_before(need_before);

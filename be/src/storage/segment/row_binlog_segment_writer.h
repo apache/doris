@@ -104,7 +104,7 @@ private:
     const SegmentWriteBinlogOptions& _binlog_opts;
 
     std::vector<IOlapColumnDataAccessor*> _converted_key_columns;
-    std::shared_ptr<const std::vector<int128_t>> _lsn_ids;
+    std::shared_ptr<const std::vector<int64_t>> _lsn_ids;
 };
 
 } // namespace segment_v2

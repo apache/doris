@@ -115,7 +115,6 @@ protected:
         data_context.max_rows_per_segment = 1024;
         data_context.write_type = DataWriteType::TYPE_DIRECT;
         data_context.is_transient_rowset_writer = true;
-        data_context.write_binlog_opt().mark_primary_writer();
         *data_rowset_id = ExecEnv::GetInstance()->storage_engine().next_rowset_id();
         auto data_writer_res =
                 _tablet->create_transient_rowset_writer(data_context, *data_rowset_id);
@@ -131,14 +130,14 @@ protected:
         row_binlog_context.max_rows_per_segment = 1024;
         row_binlog_context.write_type = DataWriteType::TYPE_DIRECT;
         row_binlog_context.is_transient_rowset_writer = true;
-        row_binlog_context.write_binlog_opt().mark_binlog_writer();
+        row_binlog_context.write_binlog_opt().enable = true;
         auto& cfg = row_binlog_context.write_binlog_opt().write_binlog_config();
         cfg.source.tablet_schema = _tablet->tablet_schema();
         cfg.source.is_transient_rowset_writer = true;
         cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
         auto lsn_buffer = AutoIncIDBuffer::create_shared(1, 1, kBinlogLsnAutoIncId);
         lsn_buffer->append_range_for_test(1000, num_rows);
-        std::shared_ptr<std::vector<int128_t>> lsn_ids;
+        std::shared_ptr<std::vector<int64_t>> lsn_ids;
         RETURN_IF_ERROR(allocate_binlog_lsn(lsn_buffer, num_rows, &lsn_ids));
         cfg.insert_seg_lsn(0, lsn_ids);
         auto row_binlog_writer_res = _tablet->create_rowset_writer(row_binlog_context, false);

@@ -481,7 +481,7 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
         string schema_hash_dir = path_util::join_path_segments(
                 tablet_dir, std::to_string(request.tablet_schema.schema_hash));
         bool has_row_binlog = tablet_meta->binlog_config().is_enable() &&
-                              tablet_meta->binlog_config().isRowBinlogFormat();
+                              tablet_meta->binlog_config().is_row_binlog_format();
         string row_binlog_dir = path_util::join_path_segments(schema_hash_dir, "_row_binlog");
 
         // Because the tablet is removed asynchronously, so that the dir may still exist when BE

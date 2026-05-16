@@ -20,6 +20,13 @@ suite("test_row_binlog_multi_segment", "nonConcurrent") {
         return
     }
 
+    def tsoFeatureConfig = sql "SHOW FRONTEND CONFIG like '%experimental_enable_tso_feature%';"
+    def tsoPersistConfig = sql "SHOW FRONTEND CONFIG like '%enable_tso_persist_journal%';"
+    try {
+        sql "ADMIN SET FRONTEND CONFIG ('enable_tso_persist_journal' = 'true')"
+        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = 'true')"
+        sleep(1000)
+
     sql "DROP TABLE IF EXISTS test_mow_multi_segment_with_binlog FORCE"
 
     sql """
@@ -39,7 +46,8 @@ suite("test_row_binlog_multi_segment", "nonConcurrent") {
             "disable_auto_compaction" = "true",
             "binlog.enable" = "true",
             "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "binlog.need_historical_value" = "true",
+            "enable_tso" = "true"
         )
     """
 
@@ -95,8 +103,7 @@ suite("test_row_binlog_multi_segment", "nonConcurrent") {
 
             // inspect sampled-key row binlog after the first overlapping load.
             qt_mow_multi_segment_stage1_binlog_sample """
-                SELECT __DORIS_BINLOG_LSN__ DIV 18446744073709551616 AS version,
-                       __DORIS_BINLOG_OP__ AS op,
+                SELECT __DORIS_BINLOG_OP__ AS op,
                        k1,
                        k2,
                        k3,
@@ -143,8 +150,7 @@ suite("test_row_binlog_multi_segment", "nonConcurrent") {
 
             // inspect sampled-key row binlog after sequence comparison.
             qt_mow_multi_segment_stage2_binlog_sample """
-                SELECT __DORIS_BINLOG_LSN__ DIV 18446744073709551616 AS version,
-                       __DORIS_BINLOG_OP__ AS op,
+                SELECT __DORIS_BINLOG_OP__ AS op,
                        k1,
                        k2,
                        k3,
@@ -200,8 +206,7 @@ suite("test_row_binlog_multi_segment", "nonConcurrent") {
             }
             // inspect sampled-key final event chain ordered by raw lsn.
             qt_mow_multi_segment_stage3_binlog_sample """
-                SELECT __DORIS_BINLOG_LSN__ DIV 18446744073709551616 AS version,
-                       __DORIS_BINLOG_OP__ AS op,
+                SELECT __DORIS_BINLOG_OP__ AS op,
                        k1,
                        k2,
                        k3,
@@ -218,8 +223,7 @@ suite("test_row_binlog_multi_segment", "nonConcurrent") {
 
             // inspect sampled-key final event chain again with skip_delete_bitmap=true.
             qt_mow_multi_segment_stage3_binlog_sample_skip_bitmap """
-                SELECT __DORIS_BINLOG_LSN__ DIV 18446744073709551616 AS version,
-                       __DORIS_BINLOG_OP__ AS op,
+                SELECT __DORIS_BINLOG_OP__ AS op,
                        k1,
                        k2,
                        k3,
@@ -238,5 +242,10 @@ suite("test_row_binlog_multi_segment", "nonConcurrent") {
             GetDebugPoint().clearDebugPointsForAllBEs()
             GetDebugPoint().clearDebugPointsForAllFEs()
         }
+    }
+    } finally {
+        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = 'false')"
+        sql "ADMIN SET FRONTEND CONFIG ('enable_tso_persist_journal' = '${tsoPersistConfig[0][1]}')"
+        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = '${tsoFeatureConfig[0][1]}')"
     }
 }

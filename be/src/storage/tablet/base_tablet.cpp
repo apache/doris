@@ -837,14 +837,14 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             auto seg_id = group_writer->get_allocated_segment_id();
             auto binlog_writer = group_writer->row_binlog_writer();
             auto& binlog_ctx = const_cast<RowsetWriterContext&>(binlog_writer->context());
-            if (binlog_ctx.write_binlog_opt().need_build_binlog()) {
+            if (binlog_ctx.write_binlog_opt().enable) {
                 auto db_id = binlog_writer->rowset_meta()->db_id();
                 auto table_id = binlog_writer->rowset_meta()->table_id();
                 DCHECK_GT(db_id, 0);
                 DCHECK_GT(table_id, 0);
                 auto lsn_buffer = GlobalAutoIncBuffers::GetInstance()->get_auto_inc_buffer(
                         db_id, table_id, kBinlogLsnAutoIncId);
-                std::shared_ptr<std::vector<int128_t>> lsn_ids;
+                std::shared_ptr<std::vector<int64_t>> lsn_ids;
                 RETURN_IF_ERROR(allocate_binlog_lsn(lsn_buffer, ordered_block.rows(), &lsn_ids));
                 binlog_ctx.write_binlog_opt().write_binlog_config().insert_seg_lsn(
                         seg_id, std::move(lsn_ids));
@@ -1483,7 +1483,7 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
         DCHECK(txn_info->partial_update_info != nullptr);
 
         transient_rs_writer = DORIS_TRY(self->create_transient_rowset_writer(
-                *rowset, txn_info->partial_update_info, txn_expiration, build_row_binlog));
+                *rowset, txn_info->partial_update_info, txn_expiration));
         DBUG_EXECUTE_IF("BaseTablet::update_delete_bitmap.after.create_transient_rs_writer",
                         DBUG_BLOCK);
         // Partial update or upsert rewrite might generate new segments when there is conflicts while publish, and mark
@@ -1595,8 +1595,7 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
 
         // Create transient row binlog writer for publish-phase segment appending.
         auto transient_row_binlog_writer = DORIS_TRY(self->create_transient_rowset_writer(
-                *row_binlog_rowset, txn_info->partial_update_info, txn_expiration,
-                build_row_binlog));
+                *row_binlog_rowset, txn_info->partial_update_info, txn_expiration));
 
         // Prepare source MOW context for historical row retrieval in binlog writer.
         auto& data_ctx = const_cast<RowsetWriterContext&>(transient_rs_writer->context());

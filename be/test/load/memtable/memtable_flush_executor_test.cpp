@@ -184,11 +184,10 @@ protected:
         data_ctx.tablet_schema = ctx.tablet->tablet_schema();
         data_ctx.load_id.set_hi(load_id);
         data_ctx.load_id.set_lo(load_id);
-        data_ctx.write_binlog_opt().mark_primary_writer();
         RETURN_IF_ERROR(data_writer->init(data_ctx));
 
         RowsetWriterContext binlog_ctx = data_ctx;
-        binlog_ctx.write_binlog_opt().mark_binlog_writer();
+        binlog_ctx.write_binlog_opt().enable = true;
         RETURN_IF_ERROR(binlog_writer->init(binlog_ctx));
 
         auto writer = std::make_shared<GroupRowsetWriter>();
@@ -467,7 +466,7 @@ TEST_F(MemTableFlushExecutorGroupFlushTest, TestGroupFlushToken) {
                         binlog_writer->last_segment_id());
         ASSERT_NE(seg_lsn, nullptr);
         ASSERT_EQ(ctx.memtable->raw_rows(), seg_lsn->size());
-        EXPECT_EQ(static_cast<int128_t>(1000), (*seg_lsn)[0]);
+        EXPECT_EQ(1000, (*seg_lsn)[0]);
         EXPECT_EQ(2, flush_token->get_stats().flush_finish_count.load());
         EXPECT_EQ(0, flush_token->get_stats().flush_submit_count.load());
 

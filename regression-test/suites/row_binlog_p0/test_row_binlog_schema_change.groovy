@@ -20,6 +20,13 @@ suite("test_row_binlog_schema_change", "nonConcurrent") {
         return
     }
 
+    def tsoFeatureConfig = sql "SHOW FRONTEND CONFIG like '%experimental_enable_tso_feature%';"
+    def tsoPersistConfig = sql "SHOW FRONTEND CONFIG like '%enable_tso_persist_journal%';"
+    try {
+        sql "ADMIN SET FRONTEND CONFIG ('enable_tso_persist_journal' = 'true')"
+        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = 'true')"
+        sleep(1000)
+
     sql "DROP TABLE IF EXISTS test_mow_schema_change_with_binlog FORCE"
 
     sql """
@@ -39,7 +46,8 @@ suite("test_row_binlog_schema_change", "nonConcurrent") {
             "disable_auto_compaction" = "true",
             "binlog.enable" = "true",
             "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "binlog.need_historical_value" = "true",
+            "enable_tso" = "true"
         )
     """
 
@@ -53,8 +61,7 @@ suite("test_row_binlog_schema_change", "nonConcurrent") {
     sql "UPDATE test_mow_schema_change_with_binlog SET v2 = '11', v3 = 111 WHERE k1 = 1 AND k2 = 1 AND k3 = 1"
     sql "sync"
     qt_row_binlog_schema_change_add_column """
-        SELECT __DORIS_BINLOG_LSN__ DIV 18446744073709551616 AS version,
-               __DORIS_BINLOG_OP__ AS op,
+        SELECT __DORIS_BINLOG_OP__ AS op,
                k1,
                k2,
                k3,
@@ -72,8 +79,7 @@ suite("test_row_binlog_schema_change", "nonConcurrent") {
     sql "INSERT INTO test_mow_schema_change_with_binlog(k1, k2, k3, v2, v3) VALUES (3, 3, 3, '30', 300)"
     sql "sync"
     qt_row_binlog_schema_change_drop_column """
-        SELECT __DORIS_BINLOG_LSN__ DIV 18446744073709551616 AS version,
-               __DORIS_BINLOG_OP__ AS op,
+        SELECT __DORIS_BINLOG_OP__ AS op,
                k1,
                k2,
                k3,
@@ -90,8 +96,7 @@ suite("test_row_binlog_schema_change", "nonConcurrent") {
     sql "UPDATE test_mow_schema_change_with_binlog SET v1 = '33' WHERE k1 = 3 AND k2 = 3 AND k3 = 3"
     sql "sync"
     qt_row_binlog_schema_change_add_back_column """
-        SELECT __DORIS_BINLOG_LSN__ DIV 18446744073709551616 AS version,
-               __DORIS_BINLOG_OP__ AS op,
+        SELECT __DORIS_BINLOG_OP__ AS op,
                k1,
                k2,
                k3,
@@ -108,5 +113,10 @@ suite("test_row_binlog_schema_change", "nonConcurrent") {
     test {
         sql "ALTER TABLE test_mow_schema_change_with_binlog MODIFY COLUMN v2 VARCHAR(10)"
         exception "Not allowed to perform current operation on Table With binlog<row>"
+    }
+    } finally {
+        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = 'false')"
+        sql "ADMIN SET FRONTEND CONFIG ('enable_tso_persist_journal' = '${tsoPersistConfig[0][1]}')"
+        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = '${tsoFeatureConfig[0][1]}')"
     }
 }

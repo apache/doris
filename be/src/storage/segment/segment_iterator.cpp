@@ -73,6 +73,7 @@
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "storage/binlog.h"
 #include "storage/compaction/collection_similarity.h"
 #include "storage/field.h"
 #include "storage/id_manager.h"
@@ -2391,7 +2392,7 @@ void SegmentIterator::_replace_version_col_if_needed(const std::vector<ColumnId>
 
 void SegmentIterator::_update_lsn_col_if_needed(const std::vector<ColumnId>& column_ids,
                                                 size_t num_rows) {
-    // | real version(64) | auto-inc row_id(64) |
+    // | commit tso(64) | auto-inc row_id(64) |
     if (_opts.version.first != _opts.version.second) {
         return;
     }
@@ -2406,16 +2407,17 @@ void SegmentIterator::_update_lsn_col_if_needed(const std::vector<ColumnId>& col
         return;
     }
 
+    DCHECK_EQ(_opts.commit_tso.start_tso(), _opts.commit_tso.end_tso());
+    const Int64 commit_tso = _opts.commit_tso.end_tso() == -1 ? 0 : _opts.commit_tso.end_tso();
+
     if (_is_pred_column[lsn_col_idx]) {
         auto* lsn_column = assert_cast<PredicateColumnType<TYPE_LARGEINT>*>(
                 _current_return_columns[lsn_col_idx].get());
         std::vector<Int128> binlog_lsns;
         binlog_lsns.reserve(num_rows);
-        static constexpr Int128 kLow64Mask = (static_cast<Int128>(1) << 64) - 1;
         for (size_t j = 0; j < num_rows; j++) {
             const Int128 row_id = lsn_column->get_data()[j];
-            binlog_lsns.emplace_back((static_cast<Int128>(_opts.version.second) << 64) |
-                                     (row_id & kLow64Mask));
+            binlog_lsns.emplace_back(make_row_binlog_lsn(commit_tso, row_id));
         }
         _current_return_columns[lsn_col_idx]->clear();
         for (const auto& binlog_lsn : binlog_lsns) {
@@ -2430,19 +2432,16 @@ void SegmentIterator::_update_lsn_col_if_needed(const std::vector<ColumnId>& col
     DCHECK(column_desc->type() == FieldType::OLAP_FIELD_TYPE_LARGEINT);
     auto* col_ptr = assert_cast<ColumnInt128*>(column.get());
 
-    static constexpr Int128 kLow64Mask = (static_cast<Int128>(1) << 64) - 1;
     for (size_t j = 0; j < num_rows; j++) {
         const Int128 row_id = lsn_column->get_element(j);
-        const Int128 binlog_lsn =
-                (static_cast<Int128>(_opts.version.second) << 64) | (row_id & kLow64Mask);
-        col_ptr->insert_value(binlog_lsn);
+        col_ptr->insert_value(make_row_binlog_lsn(commit_tso, row_id));
     }
     _current_return_columns[lsn_col_idx] = std::move(column);
 }
 
 void SegmentIterator::_update_tso_col_if_needed(const std::vector<ColumnId>& column_ids,
                                                 size_t num_rows) {
-    // use commit tso to replace timestamp col
+    // use physical time part of commit tso to replace timestamp col
     if (_opts.version.first != _opts.version.second) {
         return;
     }
@@ -2459,13 +2458,14 @@ void SegmentIterator::_update_tso_col_if_needed(const std::vector<ColumnId>& col
 
     DCHECK_EQ(_opts.commit_tso.start_tso(), _opts.commit_tso.end_tso());
     Int64 commit_tso = _opts.commit_tso.end_tso() == -1 ? 0 : _opts.commit_tso.end_tso();
+    Int64 commit_time = extract_tso_physical_time(commit_tso);
 
     if (_is_pred_column[tso_col_idx]) {
         // Nullable predicate column is represented as ColumnNullable(predicate_col)
         if (auto* tso_nullable =
                     typeid_cast<ColumnNullable*>(_current_return_columns[tso_col_idx].get())) {
             _current_return_columns[tso_col_idx]->clear();
-            auto value = commit_tso;
+            auto value = commit_time;
             for (size_t j = 0; j < num_rows; j++) {
                 tso_nullable->get_nested_column_ptr()->insert_data(
                         reinterpret_cast<const char*>(&value), 0);
@@ -2477,7 +2477,7 @@ void SegmentIterator::_update_tso_col_if_needed(const std::vector<ColumnId>& col
         auto* tso_column = assert_cast<PredicateColumnType<TYPE_BIGINT>*>(
                 _current_return_columns[tso_col_idx].get());
         _current_return_columns[tso_col_idx]->clear();
-        auto value = commit_tso;
+        auto value = commit_time;
         for (size_t j = 0; j < num_rows; j++) {
             tso_column->insert_data(reinterpret_cast<const char*>(&value), 0);
         }
@@ -2491,13 +2491,13 @@ void SegmentIterator::_update_tso_col_if_needed(const std::vector<ColumnId>& col
     if (auto* tso_nullable = typeid_cast<ColumnNullable*>(column.get())) {
         auto* col_ptr = assert_cast<ColumnInt64*>(&tso_nullable->get_nested_column());
         for (size_t j = 0; j < num_rows; j++) {
-            col_ptr->insert_value(commit_tso);
+            col_ptr->insert_value(commit_time);
             tso_nullable->get_null_map_data().emplace_back(0);
         }
     } else {
         auto* col_ptr = assert_cast<ColumnInt64*>(column.get());
         for (size_t j = 0; j < num_rows; j++) {
-            col_ptr->insert_value(commit_tso);
+            col_ptr->insert_value(commit_time);
         }
     }
     _current_return_columns[tso_col_idx] = std::move(column);

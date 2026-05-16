@@ -20,6 +20,13 @@ suite("test_row_binlog_publish_conflict", "nonConcurrent") {
         return
     }
 
+    def tsoFeatureConfig = sql "SHOW FRONTEND CONFIG like '%experimental_enable_tso_feature%';"
+    def tsoPersistConfig = sql "SHOW FRONTEND CONFIG like '%enable_tso_persist_journal%';"
+    try {
+        sql "ADMIN SET FRONTEND CONFIG ('enable_tso_persist_journal' = 'true')"
+        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = 'true')"
+        sleep(1000)
+
     def dbName = context.config.getDbNameByFile(context.file)
 
     sql "DROP TABLE IF EXISTS test_mow_publish_conflict_with_binlog FORCE"
@@ -41,7 +48,8 @@ suite("test_row_binlog_publish_conflict", "nonConcurrent") {
             "disable_auto_compaction" = "true",
             "binlog.enable" = "true",
             "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "binlog.need_historical_value" = "true",
+            "enable_tso" = "true"
         )
     """
 
@@ -167,8 +175,7 @@ suite("test_row_binlog_publish_conflict", "nonConcurrent") {
         wait_for_status(txnId2, "VISIBLE", 60)
 
         qt_row_binlog_publish_conflict """
-            SELECT __DORIS_BINLOG_LSN__ DIV 18446744073709551616 AS version,
-                   __DORIS_BINLOG_OP__ AS op,
+            SELECT __DORIS_BINLOG_OP__ AS op,
                    k1,
                    k2,
                    k3,
@@ -183,8 +190,7 @@ suite("test_row_binlog_publish_conflict", "nonConcurrent") {
 
         sql "SET skip_delete_bitmap = true"
         qt_row_binlog_publish_conflict_skip_bitmap """
-            SELECT __DORIS_BINLOG_LSN__ DIV 18446744073709551616 AS version,
-                   __DORIS_BINLOG_OP__ AS op,
+            SELECT __DORIS_BINLOG_OP__ AS op,
                    k1,
                    k2,
                    k3,
@@ -270,8 +276,7 @@ suite("test_row_binlog_publish_conflict", "nonConcurrent") {
         wait_for_status(txnId4, "VISIBLE", 60)
 
         qt_row_binlog_publish_conflict_upsert """
-            SELECT __DORIS_BINLOG_LSN__ DIV 18446744073709551616 AS version,
-                   __DORIS_BINLOG_OP__ AS op,
+            SELECT __DORIS_BINLOG_OP__ AS op,
                    k1,
                    k2,
                    k3,
@@ -286,8 +291,7 @@ suite("test_row_binlog_publish_conflict", "nonConcurrent") {
 
         sql "SET skip_delete_bitmap = true"
         qt_row_binlog_publish_conflict_upsert_skip_bitmap """
-            SELECT __DORIS_BINLOG_LSN__ DIV 18446744073709551616 AS version,
-                   __DORIS_BINLOG_OP__ AS op,
+            SELECT __DORIS_BINLOG_OP__ AS op,
                    k1,
                    k2,
                    k3,
@@ -302,5 +306,10 @@ suite("test_row_binlog_publish_conflict", "nonConcurrent") {
     } finally {
         sql "SET skip_delete_bitmap = false"
         GetDebugPoint().clearDebugPointsForAllBEs()
+    }
+    } finally {
+        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = 'false')"
+        sql "ADMIN SET FRONTEND CONFIG ('enable_tso_persist_journal' = '${tsoPersistConfig[0][1]}')"
+        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = '${tsoFeatureConfig[0][1]}')"
     }
 }

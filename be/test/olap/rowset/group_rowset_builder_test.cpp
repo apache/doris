@@ -128,9 +128,12 @@ TEST_F(GroupRowsetBuilderTest, buildWithRowBinlogMeta) {
     WriteRequest row_binlog_req = data_req;
     row_binlog_req.index_id = row_binlog_index_id;
     row_binlog_req.schema_hash = request.row_binlog_schema.schema_hash;
-    row_binlog_req.write_req_type = WriteRequestType::BINLOG_IN_GROUP;
+    row_binlog_req.write_req_type = WriteRequestType::ROW_BINLOG;
 
-    GroupRowsetBuilder builder(*engine_ref, data_req, row_binlog_req, profile.get());
+    WriteRequest group_req = data_req;
+    group_req.write_req_type = WriteRequestType::GROUP;
+
+    GroupRowsetBuilder builder(*engine_ref, group_req, data_req, row_binlog_req, profile.get());
     ASSERT_TRUE(builder.init().ok());
     ASSERT_TRUE(builder.rowset_writer()->flush().ok());
     ASSERT_TRUE(builder.build_rowset().ok());

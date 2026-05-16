@@ -188,7 +188,7 @@ Status FlushToken::submit(std::shared_ptr<MemTable> mem_table) {
         DCHECK_EQ(segment_id, binlog_segment_id);
         shared_memtable->segment_id = segment_id;
 
-        if (binlog_writer->context().write_binlog_opt().need_build_binlog()) {
+        if (binlog_writer->context().write_binlog_opt().enable) {
             if (_row_binlog_lsn_buffer == nullptr) {
                 std::unique_lock<std::mutex> lock(_mutex);
                 if (_row_binlog_lsn_buffer == nullptr) {
@@ -202,7 +202,7 @@ Status FlushToken::submit(std::shared_ptr<MemTable> mem_table) {
                                     kBinlogLsnAutoIncId);
                 }
             }
-            std::shared_ptr<std::vector<int128_t>> lsn;
+            std::shared_ptr<std::vector<int64_t>> lsn;
             RETURN_IF_ERROR(
                     allocate_binlog_lsn(_row_binlog_lsn_buffer, mem_table->raw_rows(), &lsn));
             DCHECK(lsn != nullptr && !lsn->empty());
@@ -213,10 +213,9 @@ Status FlushToken::submit(std::shared_ptr<MemTable> mem_table) {
         }
 
         tasks.emplace_back(PartOfGroupMemtableFlushTask::create_shared(
-                shared_from_this(), shared_memtable, WriteRequestType::DATA_IN_GROUP,
-                submit_task_time));
+                shared_from_this(), shared_memtable, WriteRequestType::DATA, submit_task_time));
         tasks.emplace_back(PartOfGroupMemtableFlushTask::create_shared(
-                shared_from_this(), shared_memtable, WriteRequestType::BINLOG_IN_GROUP,
+                shared_from_this(), shared_memtable, WriteRequestType::ROW_BINLOG,
                 submit_task_time));
     } else {
         tasks.emplace_back(MemtableFlushTask::create_shared(shared_from_this(), mem_table,
@@ -240,12 +239,12 @@ void FlushToken::_flush_group_memtable(std::shared_ptr<SharedMemtable> shared_me
                                        WriteRequestType write_req_type, int64_t submit_task_time) {
     DCHECK(shared_memtable != nullptr);
     DCHECK(shared_memtable->memtable != nullptr);
-    DCHECK(write_req_type == WriteRequestType::DATA_IN_GROUP ||
-           write_req_type == WriteRequestType::BINLOG_IN_GROUP);
+    DCHECK(write_req_type == WriteRequestType::DATA ||
+           write_req_type == WriteRequestType::ROW_BINLOG);
 
     auto* group_rowset_writer = typeid_cast<GroupRowsetWriter*>(_rowset_writer.get());
     DCHECK(group_rowset_writer != nullptr);
-    auto flush_writer = write_req_type == WriteRequestType::DATA_IN_GROUP
+    auto flush_writer = write_req_type == WriteRequestType::DATA
                                 ? group_rowset_writer->data_writer()
                                 : group_rowset_writer->row_binlog_writer();
     DCHECK(flush_writer != nullptr);

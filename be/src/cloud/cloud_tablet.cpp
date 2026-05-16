@@ -788,7 +788,7 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_rowset_writer(
 // after writer, merge this transient rowset with original rowset
 Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_writer(
         const Rowset& rowset, std::shared_ptr<PartialUpdateInfo> partial_update_info,
-        int64_t txn_expiration, bool build_row_binlog) {
+        int64_t txn_expiration) {
     if (rowset.rowset_meta_state() != RowsetStatePB::BEGIN_PARTIAL_UPDATE &&
         rowset.rowset_meta_state() != RowsetStatePB::COMMITTED) [[unlikely]] {
         auto msg = fmt::format(

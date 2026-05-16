@@ -292,7 +292,7 @@ public:
 
     Result<std::unique_ptr<RowsetWriter>> create_transient_rowset_writer(
             const Rowset& rowset, std::shared_ptr<PartialUpdateInfo> partial_update_info,
-            int64_t txn_expiration = 0, bool build_row_binlog = false) override;
+            int64_t txn_expiration = 0) override;
 
     CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() override;
 

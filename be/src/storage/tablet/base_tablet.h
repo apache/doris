@@ -249,7 +249,7 @@ public:
 
     virtual Result<std::unique_ptr<RowsetWriter>> create_transient_rowset_writer(
             const Rowset& rowset, std::shared_ptr<PartialUpdateInfo> partial_update_info,
-            int64_t txn_expiration = 0, bool build_row_binlog = false) = 0;
+            int64_t txn_expiration = 0) = 0;
 
     static Status update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInfo* txn_info,
                                        int64_t txn_id, int64_t txn_expiration = 0,

@@ -288,10 +288,10 @@ std::unique_ptr<BaseDeltaWriter> TabletsChannel::create_delta_writer(const Write
     group_build_req.write_req_type = WriteRequestType::GROUP;
 
     WriteRequest sub_data_req = request;
-    sub_data_req.write_req_type = WriteRequestType::DATA_IN_GROUP;
+    sub_data_req.write_req_type = WriteRequestType::DATA;
 
     WriteRequest sub_row_binlog_req = request;
-    sub_row_binlog_req.write_req_type = WriteRequestType::BINLOG_IN_GROUP;
+    sub_row_binlog_req.write_req_type = WriteRequestType::ROW_BINLOG;
     sub_row_binlog_req.index_id = row_binlog_index_schema->index_id;
     sub_row_binlog_req.schema_hash = row_binlog_index_schema->schema_hash;
 

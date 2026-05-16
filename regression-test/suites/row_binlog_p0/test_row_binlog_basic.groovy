@@ -15,10 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_row_binlog_basic") {
+suite("test_row_binlog_basic", "nonConcurrent") {
     if (isCloudMode()) {
         return
     }
+
+    def tsoFeatureConfig = sql "SHOW FRONTEND CONFIG like '%experimental_enable_tso_feature%';"
+    def tsoPersistConfig = sql "SHOW FRONTEND CONFIG like '%enable_tso_persist_journal%';"
+    try {
+        sql "ADMIN SET FRONTEND CONFIG ('enable_tso_persist_journal' = 'true')"
+        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = 'true')"
+        sleep(1000)
 
     sql "DROP TABLE IF EXISTS test_dup_with_binlog FORCE"
     sql "DROP TABLE IF EXISTS test_mow_with_binlog FORCE"
@@ -38,7 +45,8 @@ suite("test_row_binlog_basic") {
         PROPERTIES (
             "replication_num" = "1",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "binlog.format" = "ROW",
+            "enable_tso" = "true"
         )
     """
 
@@ -57,7 +65,8 @@ suite("test_row_binlog_basic") {
             "enable_unique_key_merge_on_write" = "true",
             "light_schema_change" = "true",
             "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "binlog.format" = "ROW",
+            "enable_tso" = "true"
         )
     """
 
@@ -77,7 +86,8 @@ suite("test_row_binlog_basic") {
             "light_schema_change" = "true",
             "binlog.enable" = "true",
             "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "binlog.need_historical_value" = "true",
+            "enable_tso" = "true"
         )
     """
 
@@ -97,7 +107,8 @@ suite("test_row_binlog_basic") {
             "light_schema_change" = "true",
             "binlog.enable" = "true",
             "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "binlog.need_historical_value" = "true",
+            "enable_tso" = "true"
         )
     """
 
@@ -122,8 +133,7 @@ suite("test_row_binlog_basic") {
     """
 
     qt_dup_binlog """
-        SELECT __DORIS_BINLOG_LSN__ DIV 18446744073709551616 AS version,
-               __DORIS_BINLOG_OP__ AS op,
+        SELECT __DORIS_BINLOG_OP__ AS op,
                k1,
                k2,
                k3,
@@ -151,8 +161,7 @@ suite("test_row_binlog_basic") {
     """
 
     qt_mow_binlog """
-        SELECT __DORIS_BINLOG_LSN__ DIV 18446744073709551616 AS version,
-               __DORIS_BINLOG_OP__ AS op,
+        SELECT __DORIS_BINLOG_OP__ AS op,
                k1,
                k2,
                k3,
@@ -180,8 +189,7 @@ suite("test_row_binlog_basic") {
     """
 
     qt_mow_before_binlog """
-        SELECT __DORIS_BINLOG_LSN__ DIV 18446744073709551616 AS version,
-               __DORIS_BINLOG_OP__ AS op,
+        SELECT __DORIS_BINLOG_OP__ AS op,
                k1,
                k2,
                k3,
@@ -232,8 +240,7 @@ suite("test_row_binlog_basic") {
     sql "SET skip_delete_bitmap = false"
 
     qt_mow_seq_binlog """
-        SELECT __DORIS_BINLOG_LSN__ DIV 18446744073709551616 AS version,
-               __DORIS_BINLOG_OP__ AS op,
+        SELECT __DORIS_BINLOG_OP__ AS op,
                k1,
                k2,
                k3,
@@ -248,8 +255,7 @@ suite("test_row_binlog_basic") {
     sql "SET skip_delete_bitmap = true"
 
     qt_mow_seq_binlog_skip_delete_bitmap """
-        SELECT __DORIS_BINLOG_LSN__ DIV 18446744073709551616 AS version,
-               __DORIS_BINLOG_OP__ AS op,
+        SELECT __DORIS_BINLOG_OP__ AS op,
                k1,
                k2,
                k3,
@@ -262,4 +268,9 @@ suite("test_row_binlog_basic") {
     """
     
     sql "SET skip_delete_bitmap = false"
+    } finally {
+        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = 'false')"
+        sql "ADMIN SET FRONTEND CONFIG ('enable_tso_persist_journal' = '${tsoPersistConfig[0][1]}')"
+        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = '${tsoFeatureConfig[0][1]}')"
+    }
 }
