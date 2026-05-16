@@ -78,6 +78,13 @@ public:
 
     virtual doris::Status train(Int64 n, const float* x) = 0;
 
+    // Whether the underlying index requires a per-build train() call before add().
+    // HNSW has nothing to learn from data and overrides to false; IVF (k-means) and
+    // PQ/SQ quantizers must be trained once before add() is allowed.
+    // Callers should train at most once per index lifetime; subsequent train() calls
+    // would re-cluster and invalidate vectors added in earlier chunks.
+    virtual bool needs_training() const { return false; }
+
     /** Add n vectors of dimension d vectors to the index.
      *
      * Vectors are implicitly assigned labels ntotal .. ntotal + n - 1

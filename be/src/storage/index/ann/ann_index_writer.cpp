@@ -85,12 +85,23 @@ Status AnnIndexColumnWriter::init() {
     _chunk_rows = compute_chunk_rows(_dimension);
 
     LOG_INFO(
-            "Create a new faiss index, index_type {} dim {} metric_type {} max_degree {}, "
-            "ef_construction {}, quantizer {}, chunk_rows {} chunk_bytes {}",
-            index_type, build_parameter.dim, metric_type, build_parameter.max_degree,
-            build_parameter.ef_construction, quantizer, _chunk_rows,
+            "Create a new faiss index, index_id {} index_type {} dim {} metric_type {} "
+            "max_degree {}, ef_construction {}, quantizer {}, chunk_rows {} chunk_bytes {}",
+            _index_meta->index_id(), index_type, build_parameter.dim, metric_type,
+            build_parameter.max_degree, build_parameter.ef_construction, quantizer, _chunk_rows,
             _chunk_rows * _dimension * sizeof(float));
 
+    return Status::OK();
+}
+
+Status AnnIndexColumnWriter::_train_once_if_needed(Int64 n, const float* vec) {
+    if (_trained) {
+        return Status::OK();
+    }
+    if (_vector_index->needs_training()) {
+        RETURN_IF_ERROR(_vector_index->train(n, vec));
+    }
+    _trained = true;
     return Status::OK();
 }
 
@@ -120,9 +131,7 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
 
     const float* p = reinterpret_cast<const float*>(value_ptr);
 
-    if (_chunk_rows == 0) {
-        _chunk_rows = compute_chunk_rows(dim);
-    }
+    DCHECK(_chunk_rows > 0) << "init() must have computed _chunk_rows";
     const size_t full_elements = _current_chunk_capacity_elements();
     size_t remaining_elements = num_rows * dim;
     size_t src_offset = 0;
@@ -138,7 +147,7 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
         remaining_elements -= elements_to_add;
 
         if (_float_array.size() == full_elements) {
-            RETURN_IF_ERROR(_vector_index->train(_chunk_rows, _float_array.data()));
+            RETURN_IF_ERROR(_train_once_if_needed(_chunk_rows, _float_array.data()));
             RETURN_IF_ERROR(_vector_index->add(_chunk_rows, _float_array.data()));
             _reset_chunk_buffer(false);
             _need_save_index = true;
@@ -167,7 +176,18 @@ int64_t AnnIndexColumnWriter::size() const {
 
 void AnnIndexColumnWriter::_reset_chunk_buffer(bool release_memory) {
     _float_array.clear();
-    if (release_memory || _float_array.capacity() > _current_chunk_capacity_elements() * 2) {
+    if (release_memory) {
+        PODArray<float> empty;
+        _float_array.swap(empty);
+        return;
+    }
+    // Guard against target == 0 (uninitialized dim/chunk_rows), which would make
+    // `target * 2 == 0` and degenerate the threshold check into a per-batch free.
+    const size_t target = _current_chunk_capacity_elements();
+    if (target == 0) {
+        return;
+    }
+    if (_float_array.capacity() > target * 2) {
         PODArray<float> empty;
         _float_array.swap(empty);
     }
@@ -180,14 +200,16 @@ Status AnnIndexColumnWriter::finish() {
     // train/add the remaining data
     if (_float_array.empty()) {
         if (_need_save_index) {
-            auto st = _vector_index->save(_dir.get());
+            // Release the input buffer before save() so the serialization workspace
+            // does not overlap with a stale chunk allocation (up to chunk_bytes).
             _reset_chunk_buffer(true);
-            return st;
+            return _vector_index->save(_dir.get());
         } else {
             // No data was added at all. This can happen if the segment has 0 rows
             // or all rows were filtered out. We need to delete the directory entry
             // to avoid writing an empty/invalid index file.
-            LOG_INFO("No data to train/add for ANN index. Skipping index building.");
+            LOG_INFO("No data to train/add for ANN index {}. Skipping index building.",
+                     _index_meta->index_id());
             _reset_chunk_buffer(true);
             return _index_file_writer->delete_index(_index_meta);
         }
@@ -197,7 +219,7 @@ Status AnnIndexColumnWriter::finish() {
         Int64 num_rows = _float_array.size() / _dimension;
 
         if (num_rows >= min_train_rows) {
-            RETURN_IF_ERROR(_vector_index->train(num_rows, _float_array.data()));
+            RETURN_IF_ERROR(_train_once_if_needed(num_rows, _float_array.data()));
             RETURN_IF_ERROR(_vector_index->add(num_rows, _float_array.data()));
             _reset_chunk_buffer(true);
             return _vector_index->save(_dir.get());
@@ -218,9 +240,8 @@ Status AnnIndexColumnWriter::finish() {
                 // writing an empty/invalid index file which causes "IndexInput read past EOF" error.
                 LOG_INFO(
                         "Remaining data size {} is less than minimum {} rows required for ANN "
-                        "index "
-                        "training. Skipping index building for this segment.",
-                        num_rows, min_train_rows);
+                        "index {} training. Skipping index building for this segment.",
+                        num_rows, min_train_rows, _index_meta->index_id());
                 _reset_chunk_buffer(true);
                 return _index_file_writer->delete_index(_index_meta);
             }

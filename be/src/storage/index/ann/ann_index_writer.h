@@ -78,6 +78,10 @@ public:
 protected:
     void _reset_chunk_buffer(bool release_memory);
     size_t _current_chunk_capacity_elements() const { return _chunk_rows * _dimension; }
+    // Train the underlying index on demand for the first batch; subsequent calls
+    // are no-ops. Keeps IVF k-means from being re-run per chunk (which would
+    // invalidate vectors already added) and skips lock acquisition for HNSW.
+    Status _train_once_if_needed(Int64 n, const float* vec);
 
     // VectorIndex shoule be managed by some cache.
     // VectorIndex should be weak shared by AnnIndexWriter and VectorIndexReader
@@ -90,6 +94,7 @@ protected:
     const TabletIndex* _index_meta;
     std::shared_ptr<DorisFSDirectory> _dir;
     bool _need_save_index = false;
+    bool _trained = false;
     size_t _dimension = 0;
     size_t _chunk_rows = 0;
 };
