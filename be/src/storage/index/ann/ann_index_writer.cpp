@@ -23,6 +23,8 @@
 #include <string>
 
 #include "common/cast_set.h"
+#include "common/config.h"
+#include "storage/index/ann/ann_build_memory_budget.h"
 #include "storage/index/ann/faiss_ann_index.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 
@@ -91,7 +93,46 @@ Status AnnIndexColumnWriter::init() {
             build_parameter.max_degree, build_parameter.ef_construction, quantizer, _chunk_rows,
             _chunk_rows * _dimension * sizeof(float));
 
+    RETURN_IF_ERROR(_acquire_memory_budget(build_parameter));
+
     return Status::OK();
+}
+
+Status AnnIndexColumnWriter::_acquire_memory_budget(const FaissBuildParameter& params) {
+    if (config::ann_index_build_memory_budget_bytes <= 0) {
+        // Admission control disabled.
+        return Status::OK();
+    }
+    // expected_rows is unknown at init() time. Estimator falls back to chunk_rows
+    // so the reservation still covers the input buffer plus structure overhead
+    // for at least one chunk, which is enough to prevent unbounded concurrent
+    // builds from stacking.
+    const int64_t estimated = estimate_ann_build_memory(params, /*expected_rows=*/0, _chunk_rows);
+    const int64_t timeout_ms = config::ann_index_build_memory_wait_timeout_ms;
+    _reservation = AnnBuildMemoryReservation::try_acquire(estimated, timeout_ms);
+    if (_reservation.active() || estimated <= 0) {
+        return Status::OK();
+    }
+    return _apply_oom_action(estimated, timeout_ms);
+}
+
+Status AnnIndexColumnWriter::_apply_oom_action(int64_t estimated_bytes, int64_t waited_ms) {
+    const std::string action = config::ann_index_build_on_oom_action;
+    const int64_t budget = config::ann_index_build_memory_budget_bytes;
+    const int64_t in_use = AnnBuildMemoryBudget::instance().reserved_bytes();
+    if (action == "skip") {
+        LOG_WARNING(
+                "Skipping ANN index {} build due to memory budget: estimated={} bytes, "
+                "in_use={} bytes, budget={} bytes, waited={} ms",
+                _index_meta->index_id(), estimated_bytes, in_use, budget, waited_ms);
+        _skip_due_to_oom = true;
+        return Status::OK();
+    }
+    // "wait" already exhausted its timeout inside try_acquire; treat as failure.
+    return Status::RuntimeError(
+            "ANN index {} build failed due to memory budget (action={}): "
+            "estimated={} bytes, in_use={} bytes, budget={} bytes, waited={} ms",
+            _index_meta->index_id(), action, estimated_bytes, in_use, budget, waited_ms);
 }
 
 Status AnnIndexColumnWriter::_train_once_if_needed(Int64 n, const float* vec) {
@@ -116,6 +157,11 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
                                               size_t num_rows) {
     // TODO: Performance optimization
     if (num_rows == 0) {
+        return Status::OK();
+    }
+    if (_skip_due_to_oom) {
+        // Admission control chose to skip this index build; drop the rows
+        // silently so the surrounding segment write still succeeds.
         return Status::OK();
     }
 
@@ -194,6 +240,10 @@ void AnnIndexColumnWriter::_reset_chunk_buffer(bool release_memory) {
 }
 
 Status AnnIndexColumnWriter::finish() {
+    if (_skip_due_to_oom) {
+        _reset_chunk_buffer(true);
+        return _index_file_writer->delete_index(_index_meta);
+    }
     Int64 min_train_rows = _vector_index->get_min_train_rows();
 
     // Check if we have enough rows to train the index

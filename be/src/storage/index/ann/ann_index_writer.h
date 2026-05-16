@@ -31,7 +31,9 @@
 #include "common/config.h"
 #include "core/pod_array.h"
 #include "runtime/collection_value.h"
+#include "storage/index/ann/ann_build_memory_budget.h"
 #include "storage/index/ann/ann_index.h"
+#include "storage/index/ann/faiss_ann_index.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
@@ -82,6 +84,11 @@ protected:
     // are no-ops. Keeps IVF k-means from being re-run per chunk (which would
     // invalidate vectors already added) and skips lock acquisition for HNSW.
     Status _train_once_if_needed(Int64 n, const float* vec);
+    // Reserve the estimated build-memory peak from AnnBuildMemoryBudget. On
+    // success the reservation is held in _reservation until destruction. On
+    // failure, applies ann_index_build_on_oom_action ("wait"/"skip"/"fail").
+    Status _acquire_memory_budget(const FaissBuildParameter& params);
+    Status _apply_oom_action(int64_t estimated_bytes, int64_t waited_ms);
 
     // VectorIndex shoule be managed by some cache.
     // VectorIndex should be weak shared by AnnIndexWriter and VectorIndexReader
@@ -93,8 +100,13 @@ protected:
     IndexFileWriter* _index_file_writer;
     const TabletIndex* _index_meta;
     std::shared_ptr<DorisFSDirectory> _dir;
+    AnnBuildMemoryReservation _reservation;
     bool _need_save_index = false;
     bool _trained = false;
+    // True after _apply_oom_action chose the "skip" path. Subsequent add_array_values
+    // calls are no-ops and finish() deletes the index entry so the surrounding
+    // segment write still succeeds.
+    bool _skip_due_to_oom = false;
     size_t _dimension = 0;
     size_t _chunk_rows = 0;
 };
