@@ -55,6 +55,7 @@ import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.clone.TabletChecker;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.clone.TabletSchedulerStat;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
@@ -1829,12 +1830,19 @@ public class Env {
 
             if (Boolean.getBoolean(FeConstants.DROP_BACKENDS_KEY)) {
                 LOG.info("drop_backends is set, dropping all backends...");
-                for (Backend be : Env.getCurrentSystemInfo().getAllClusterBackendsNoException().values()) {
-                    try {
-                        Env.getCurrentSystemInfo().dropBackend(be.getHost(), be.getHeartbeatPort());
-                    } catch (Exception e) {
-                        LOG.warn("failed to drop backend {}", be.getId(), e);
+                try {
+                    SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+                    List<Backend> bes = systemInfoService.getAllClusterBackendsNoException().values()
+                            .stream().collect(Collectors.toList());
+                    if (Config.isNotCloudMode()) {
+                        for (Backend be : bes) {
+                            systemInfoService.dropBackend(be.getHost(), be.getHeartbeatPort());
+                        }
+                    } else {
+                        ((CloudSystemInfoService) systemInfoService).updateCloudBackends(Collections.emptyList(), bes);
                     }
+                } catch (Exception e) {
+                    LOG.warn("failed to drop backends", e);
                 }
                 LOG.info("finished dropping all backends");
             }
