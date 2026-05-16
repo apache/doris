@@ -35,12 +35,14 @@ import org.apache.doris.task.CleanTrashTask;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * admin clean trash
@@ -78,6 +80,7 @@ public class AdminCleanTrashCommand extends Command implements NoForward {
             needCleanedBackends.addAll(backendsInfo.values());
         } else {
             Map<String, Long> backendsID = new HashMap<>();
+            Set<Long> addedIds = Sets.newHashSet();
             for (Backend backend : backendsInfo.values()) {
                 backendsID.put(
                         NetUtils.getHostPortInAccessibleFormat(backend.getHost(), backend.getHeartbeatPort()),
@@ -85,7 +88,10 @@ public class AdminCleanTrashCommand extends Command implements NoForward {
             }
             for (String backendQuery : backendsQuery) {
                 if (backendsID.containsKey(backendQuery)) {
-                    needCleanedBackends.add(backendsInfo.get(backendsID.get(backendQuery)));
+                    long backendId = backendsID.get(backendQuery);
+                    if (addedIds.add(backendId)) {
+                        needCleanedBackends.add(backendsInfo.get(backendId));
+                    }
                     backendsID.remove(backendQuery);
                 }
             }
@@ -99,7 +105,12 @@ public class AdminCleanTrashCommand extends Command implements NoForward {
             return;
         }
         AgentBatchTask batchTask = new AgentBatchTask();
+        Set<Long> addedBackendIds = Sets.newHashSet();
         for (Backend backend : backends) {
+            if (!addedBackendIds.add(backend.getId())) {
+                LOG.info("skip duplicate clean trash task for beId {}", backend.getId());
+                continue;
+            }
             CleanTrashTask cleanTrashTask = new CleanTrashTask(backend.getId());
             batchTask.addTask(cleanTrashTask);
             LOG.info("clean trash in be {}, beId {}", backend.getHost(), backend.getId());
