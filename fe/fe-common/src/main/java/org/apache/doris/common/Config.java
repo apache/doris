@@ -2212,6 +2212,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int max_same_name_catalog_trash_num = 3;
 
+    @ConfField(masterOnly = true, description = {
+            "The interval between catalog recycle bin clean tasks. "
+                    + "Default is 30000 milliseconds (30 seconds)."})
+    public static long catalog_recycle_bin_interval_ms = 30 * 1000;
+
     /**
      * NOTE: The storage policy is still under developement.
      */
