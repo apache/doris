@@ -28,7 +28,11 @@
 #include <random>
 #include <thread>
 
+#include "common/exception.h"
+#include "exec/scan/scanner_scheduler.h"
 #include "exec/scan/task_executor/ticker.h"
+#include "exec/scan/task_executor/time_sharing/multilevel_split_queue.h"
+#include "exec/scan/task_executor/time_sharing/prioritized_split_runner.h"
 #include "exec/scan/task_executor/time_sharing/time_sharing_task_handle.h"
 
 namespace doris {
@@ -289,6 +293,28 @@ private:
     ListenableFuture<Void> _completion_future {};
 };
 
+class ThrowingSplitRunner : public SplitRunner {
+public:
+    explicit ThrowingSplitRunner(Status status) : _status(std::move(status)) {}
+
+    Status init() override { return Status::OK(); }
+
+    Result<SharedListenableFuture<Void>> process_for(std::chrono::nanoseconds) override {
+        throw Exception(_status);
+    }
+
+    void close(const Status& status) override {}
+
+    bool is_finished() override { return false; }
+
+    Status finished_status() override { return _status; }
+
+    std::string get_info() const override { return ""; }
+
+private:
+    Status _status;
+};
+
 class TimeSharingTaskExecutorTest : public testing::Test {
 protected:
     void SetUp() override {}
@@ -322,6 +348,29 @@ private:
         }
     }
 };
+
+TEST(ScannerSplitRunnerTest, test_exception_handler_called) {
+    bool handler_called = false;
+    Status caught_status = Status::OK();
+    ScannerSplitRunner runner(
+            "scanner_split_runner",
+            []() {
+                throw Exception(Status::InternalError("scanner split failed"));
+                return false;
+            },
+            [&](const Status& status) {
+                handler_called = true;
+                caught_status = status;
+            });
+
+    auto result = runner.process_for(std::chrono::nanoseconds(1));
+    ASSERT_FALSE(result.has_value());
+    EXPECT_TRUE(handler_called);
+    EXPECT_FALSE(caught_status.ok());
+    EXPECT_NE(std::string::npos, caught_status.to_string().find("scanner split failed"));
+    EXPECT_TRUE(runner.is_finished());
+    EXPECT_FALSE(runner.finished_status().ok());
+}
 
 TEST_F(TimeSharingTaskExecutorTest, test_tasks_complete) {
     auto ticker = std::make_shared<TestingTicker>();
@@ -416,6 +465,24 @@ TEST_F(TimeSharingTaskExecutorTest, test_tasks_complete) {
         throw;
     }
     executor.stop();
+}
+
+TEST(PrioritizedSplitRunnerTest, test_process_exception_returns_error) {
+    auto ticker = std::make_shared<TestingTicker>();
+    auto task_handle = TimeSharingTaskHandle::create_shared(
+            TaskId("test_exception_task"), std::make_shared<MultilevelSplitQueue>(2.0),
+            []() { return 0.0; }, 1, std::chrono::milliseconds(1), std::nullopt);
+    ASSERT_TRUE(task_handle->init().ok());
+    auto split =
+            std::make_shared<ThrowingSplitRunner>(Status::InternalError("split process failed"));
+    PrioritizedSplitRunner prioritized_split(task_handle, 0, split, ticker);
+
+    auto result = prioritized_split.process();
+    ASSERT_FALSE(result.has_value());
+    EXPECT_NE(std::string::npos, result.error().to_string().find("split process failed"));
+    EXPECT_TRUE(prioritized_split.finished_future().is_error());
+    EXPECT_NE(std::string::npos, prioritized_split.finished_future().get_status().to_string().find(
+                                         "split process failed"));
 }
 
 TEST_F(TimeSharingTaskExecutorTest, test_quanta_fairness) {

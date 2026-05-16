@@ -371,7 +371,16 @@ void ScannerScheduler::_make_sure_virtual_col_is_materialized(
 
 Result<SharedListenableFuture<Void>> ScannerSplitRunner::process_for(std::chrono::nanoseconds) {
     _started = true;
-    bool is_completed = _scan_func();
+    bool is_completed = false;
+    Status status = Status::OK();
+    ASSIGN_STATUS_IF_CATCH_EXCEPTION(is_completed = _scan_func(), status);
+    if (!status.ok()) {
+        if (_exception_handler) {
+            _exception_handler(status);
+        }
+        _completion_future.set_error(status);
+        return unexpected(status);
+    }
     if (is_completed) {
         _completion_future.set_value(Void {});
     }
@@ -379,7 +388,7 @@ Result<SharedListenableFuture<Void>> ScannerSplitRunner::process_for(std::chrono
 }
 
 bool ScannerSplitRunner::is_finished() {
-    return _completion_future.is_done();
+    return _completion_future.is_ready();
 }
 
 Status ScannerSplitRunner::finished_status() {
