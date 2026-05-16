@@ -18,7 +18,6 @@
 #pragma once
 
 #include <atomic>
-#include <functional>
 #include <memory>
 
 #include "common/be_mock_util.h"
@@ -62,24 +61,14 @@ struct SimplifiedScanTask {
 
 class ScannerSplitRunner : public SplitRunner {
 public:
-    ScannerSplitRunner(std::string name, std::function<bool()> scan_func,
-                       std::function<void(const Status&)> exception_handler = nullptr)
-            : _name(std::move(name)),
-              _scan_func(std::move(scan_func)),
-              _exception_handler(std::move(exception_handler)),
-              _started(false) {}
+    ScannerSplitRunner(std::string name, std::function<bool()> scan_func)
+            : _name(std::move(name)), _scan_func(std::move(scan_func)), _started(false) {}
 
     Status init() override { return Status::OK(); }
 
     Result<SharedListenableFuture<Void>> process_for(std::chrono::nanoseconds) override;
 
-    void close(const Status& status) override {
-        if (status.ok()) {
-            _completion_future.set_value(Void {});
-        } else {
-            _completion_future.set_error(status);
-        }
-    }
+    void close(const Status& status) override {}
 
     std::string get_info() const override { return ""; }
 
@@ -94,7 +83,6 @@ public:
 private:
     std::string _name;
     std::function<bool()> _scan_func;
-    std::function<void(const Status&)> _exception_handler;
 
     std::atomic<bool> _started;
     SharedListenableFuture<Void> _completion_future;
@@ -306,13 +294,8 @@ public:
         if (!_is_stop) {
             std::shared_ptr<SplitRunner> split_runner;
             if (scan_task.scan_task->is_first_schedule) {
-                auto exception_handler = [ctx = scan_task.scanner_context,
-                                          scanner_ref = scan_task.scan_task](const Status& status) {
-                    scanner_ref->set_status(status);
-                    ctx->push_back_scan_task(scanner_ref);
-                };
-                split_runner = std::make_shared<ScannerSplitRunner>(
-                        "scanner_split_runner", scan_task.scan_func, exception_handler);
+                split_runner = std::make_shared<ScannerSplitRunner>("scanner_split_runner",
+                                                                    scan_task.scan_func);
                 RETURN_IF_ERROR(split_runner->init());
                 auto result = _task_executor->enqueue_splits(
                         scan_task.scanner_context->task_handle(), false, {split_runner});
@@ -358,17 +341,8 @@ public:
                 return result;
             };
 
-            auto exception_handler = [this, task_handle,
-                                      scanner_context = scan_task.scanner_context,
-                                      scanner_task = scan_task.scan_task](const Status& status) {
-                if (scanner_context != nullptr && scanner_task != nullptr) {
-                    scanner_task->set_status(status);
-                    scanner_context->push_back_scan_task(scanner_task);
-                }
-                static_cast<void>(_task_executor->remove_task(task_handle));
-            };
-            auto split_runner = std::make_shared<ScannerSplitRunner>(
-                    "scanner_split_runner", wrapped_scan_func, exception_handler);
+            auto split_runner =
+                    std::make_shared<ScannerSplitRunner>("scanner_split_runner", wrapped_scan_func);
             RETURN_IF_ERROR(split_runner->init());
 
             auto result = _task_executor->enqueue_splits(task_handle, false, {split_runner});

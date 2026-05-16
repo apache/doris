@@ -75,10 +75,12 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
     TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
     auto sumbit_task = [&]() {
         auto work_func = [scanner_ref = scan_task, ctx]() {
-            auto status = [&] {
-                RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
-                return Status::OK();
-            }();
+            Status status = Status::OK();
+            try {
+                _scanner_scan(ctx, scanner_ref);
+            } catch (const Exception& e) {
+                status = e.to_status();
+            }
 
             if (!status.ok()) {
                 scanner_ref->set_status(status);
@@ -371,16 +373,7 @@ void ScannerScheduler::_make_sure_virtual_col_is_materialized(
 
 Result<SharedListenableFuture<Void>> ScannerSplitRunner::process_for(std::chrono::nanoseconds) {
     _started = true;
-    bool is_completed = false;
-    Status status = Status::OK();
-    ASSIGN_STATUS_IF_CATCH_EXCEPTION(is_completed = _scan_func(), status);
-    if (!status.ok()) {
-        if (_exception_handler) {
-            _exception_handler(status);
-        }
-        _completion_future.set_error(status);
-        return unexpected(status);
-    }
+    bool is_completed = _scan_func();
     if (is_completed) {
         _completion_future.set_value(Void {});
     }
@@ -388,7 +381,7 @@ Result<SharedListenableFuture<Void>> ScannerSplitRunner::process_for(std::chrono
 }
 
 bool ScannerSplitRunner::is_finished() {
-    return _completion_future.is_ready();
+    return _completion_future.is_done();
 }
 
 Status ScannerSplitRunner::finished_status() {

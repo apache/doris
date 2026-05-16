@@ -111,10 +111,10 @@ Result<SharedListenableFuture<Void>> PrioritizedSplitRunner::process() {
 
     auto process_start_time = _ticker->read();
     Result<SharedListenableFuture<Void>> blocked = SharedListenableFuture<Void>::create_ready();
-    Status status = Status::OK();
-    ASSIGN_STATUS_IF_CATCH_EXCEPTION(blocked = _split_runner->process_for(SPLIT_RUN_QUANTA),
-                                     status);
-    if (!status.ok()) {
+    try {
+        blocked = _split_runner->process_for(SPLIT_RUN_QUANTA);
+    } catch (const Exception& e) {
+        Status status = e.to_status();
         _finished_future.set_error(status);
         return unexpected(status);
     }

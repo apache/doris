@@ -29,7 +29,6 @@
 #include <thread>
 
 #include "common/exception.h"
-#include "exec/scan/scanner_scheduler.h"
 #include "exec/scan/task_executor/ticker.h"
 #include "exec/scan/task_executor/time_sharing/multilevel_split_queue.h"
 #include "exec/scan/task_executor/time_sharing/prioritized_split_runner.h"
@@ -348,29 +347,6 @@ private:
         }
     }
 };
-
-TEST(ScannerSplitRunnerTest, test_exception_handler_called) {
-    bool handler_called = false;
-    Status caught_status = Status::OK();
-    ScannerSplitRunner runner(
-            "scanner_split_runner",
-            []() {
-                throw Exception(Status::InternalError("scanner split failed"));
-                return false;
-            },
-            [&](const Status& status) {
-                handler_called = true;
-                caught_status = status;
-            });
-
-    auto result = runner.process_for(std::chrono::nanoseconds(1));
-    ASSERT_FALSE(result.has_value());
-    EXPECT_TRUE(handler_called);
-    EXPECT_FALSE(caught_status.ok());
-    EXPECT_NE(std::string::npos, caught_status.to_string().find("scanner split failed"));
-    EXPECT_TRUE(runner.is_finished());
-    EXPECT_FALSE(runner.finished_status().ok());
-}
 
 TEST_F(TimeSharingTaskExecutorTest, test_tasks_complete) {
     auto ticker = std::make_shared<TestingTicker>();
