@@ -20,13 +20,6 @@ suite("test_row_binlog_basic", "nonConcurrent") {
         return
     }
 
-    def tsoFeatureConfig = sql "SHOW FRONTEND CONFIG like '%experimental_enable_tso_feature%';"
-    def tsoPersistConfig = sql "SHOW FRONTEND CONFIG like '%enable_tso_persist_journal%';"
-    try {
-        sql "ADMIN SET FRONTEND CONFIG ('enable_tso_persist_journal' = 'true')"
-        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = 'true')"
-        sleep(1000)
-
     sql "DROP TABLE IF EXISTS test_dup_with_binlog FORCE"
     sql "DROP TABLE IF EXISTS test_mow_with_binlog FORCE"
     sql "DROP TABLE IF EXISTS test_mow_with_before_binlog FORCE"
@@ -268,9 +261,4 @@ suite("test_row_binlog_basic", "nonConcurrent") {
     """
     
     sql "SET skip_delete_bitmap = false"
-    } finally {
-        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = 'false')"
-        sql "ADMIN SET FRONTEND CONFIG ('enable_tso_persist_journal' = '${tsoPersistConfig[0][1]}')"
-        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = '${tsoFeatureConfig[0][1]}')"
-    }
 }

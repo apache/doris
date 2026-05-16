@@ -19,22 +19,14 @@ import org.apache.doris.regression.util.Http
 import groovy.json.JsonSlurper
 
 suite("test_tso_api", "nonConcurrent") {
-    def tsoFeatureConfig = sql "SHOW FRONTEND CONFIG like '%experimental_enable_tso_feature%';"
-    def tsoPersistConfig = sql "SHOW FRONTEND CONFIG like '%enable_tso_persist_journal%';"
-    logger.info("${tsoFeatureConfig}")
-    logger.info("${tsoPersistConfig}")
-    try {
-        sql "ADMIN SET FRONTEND CONFIG ('enable_tso_persist_journal' = 'true')"
-        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = 'true')"
-        sleep(1000)
-        def currentTime = System.currentTimeMillis()
+    def currentTime = System.currentTimeMillis()
         def masterFeHttpAddress = "${getMasterIp()}:${getMasterPort('http')}"
 
         // Test TSO API endpoint
         def url = String.format("http://%s/api/tso", masterFeHttpAddress)
 
         // Test 1: Basic TSO API access
-        def result = Http.GET(url, true)
+        def result = Http.GET(url, true, true, context.config.feHttpUser, context.config.feHttpPassword)
         logger.info("TSO API response: ${result}")
 
         assertTrue(result.code == 0)
@@ -54,9 +46,9 @@ suite("test_tso_api", "nonConcurrent") {
         assertTrue(data.current_tso_logical_counter >= 0)
 
         // Test 2: Multiple TSO API calls should return consistent increasing values
-        def result1 = Http.GET(url, true)
+        def result1 = Http.GET(url, true, true, context.config.feHttpUser, context.config.feHttpPassword)
         Thread.sleep(10) // Small delay to ensure time progression
-        def result2 = Http.GET(url, true)
+        def result2 = Http.GET(url, true, true, context.config.feHttpUser, context.config.feHttpPassword)
 
         assertTrue(result1.code == 0)
         assertTrue(result2.code == 0)
@@ -107,11 +99,5 @@ suite("test_tso_api", "nonConcurrent") {
         // And that the logical counter part matches (lowest 18 bits)
         def extractedLogicalCounter = tsoValue & 0x3FFFFL // 18 bits mask
         assertEquals(logicalCounter, extractedLogicalCounter)
-    } finally {
-        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = 'false')"
-        sql "ADMIN SET FRONTEND CONFIG ('enable_tso_persist_journal' = '${tsoPersistConfig[0][1]}')"
-        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = '${tsoFeatureConfig[0][1]}')"
-    }
-
     logger.info("TSO API test completed successfully")
 }

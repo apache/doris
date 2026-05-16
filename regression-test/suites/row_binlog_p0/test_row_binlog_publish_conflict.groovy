@@ -20,13 +20,6 @@ suite("test_row_binlog_publish_conflict", "nonConcurrent") {
         return
     }
 
-    def tsoFeatureConfig = sql "SHOW FRONTEND CONFIG like '%experimental_enable_tso_feature%';"
-    def tsoPersistConfig = sql "SHOW FRONTEND CONFIG like '%enable_tso_persist_journal%';"
-    try {
-        sql "ADMIN SET FRONTEND CONFIG ('enable_tso_persist_journal' = 'true')"
-        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = 'true')"
-        sleep(1000)
-
     def dbName = context.config.getDbNameByFile(context.file)
 
     sql "DROP TABLE IF EXISTS test_mow_publish_conflict_with_binlog FORCE"
@@ -306,10 +299,5 @@ suite("test_row_binlog_publish_conflict", "nonConcurrent") {
     } finally {
         sql "SET skip_delete_bitmap = false"
         GetDebugPoint().clearDebugPointsForAllBEs()
-    }
-    } finally {
-        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = 'false')"
-        sql "ADMIN SET FRONTEND CONFIG ('enable_tso_persist_journal' = '${tsoPersistConfig[0][1]}')"
-        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = '${tsoFeatureConfig[0][1]}')"
     }
 }

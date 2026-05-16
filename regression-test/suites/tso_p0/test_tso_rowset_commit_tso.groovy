@@ -18,17 +18,9 @@
 import org.apache.doris.regression.util.Http
 
 suite("test_tso_rowset_commit_tso", "nonConcurrent") {
-    def tsoFeatureConfig = sql "SHOW FRONTEND CONFIG like '%experimental_enable_tso_feature%';"
-    def tsoPersistConfig = sql "SHOW FRONTEND CONFIG like '%enable_tso_persist_journal%';"
-    logger.info("${tsoFeatureConfig}")
-    logger.info("${tsoPersistConfig}")
-    try {
-        sql "ADMIN SET FRONTEND CONFIG ('enable_tso_persist_journal' = 'true')"
-        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = 'true')"
-        sleep(1000)
-        def masterFeHttpAddress = "${getMasterIp()}:${getMasterPort('http')}"
+    def masterFeHttpAddress = "${getMasterIp()}:${getMasterPort('http')}"
         def url = String.format("http://%s/api/tso", masterFeHttpAddress)
-        def tsoResp = Http.GET(url, true)
+        def tsoResp = Http.GET(url, true, true, context.config.feHttpUser, context.config.feHttpPassword)
         if (tsoResp.code != 0) {
             logger.info("tso api not available, skip test_tso_rowset_commit_tso")
             return
@@ -73,9 +65,4 @@ suite("test_tso_rowset_commit_tso", "nonConcurrent") {
         assertTrue(commitTso >= ((Number) tsoResp.data.current_tso).longValue())
 
         sql """DROP TABLE IF EXISTS ${tableName}"""
-    } finally {
-        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = 'false')"
-        sql "ADMIN SET FRONTEND CONFIG ('enable_tso_persist_journal' = '${tsoPersistConfig[0][1]}')"
-        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = '${tsoFeatureConfig[0][1]}')"
-    }
 }

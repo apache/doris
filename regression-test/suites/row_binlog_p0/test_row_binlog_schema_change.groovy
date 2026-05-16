@@ -20,13 +20,6 @@ suite("test_row_binlog_schema_change", "nonConcurrent") {
         return
     }
 
-    def tsoFeatureConfig = sql "SHOW FRONTEND CONFIG like '%experimental_enable_tso_feature%';"
-    def tsoPersistConfig = sql "SHOW FRONTEND CONFIG like '%enable_tso_persist_journal%';"
-    try {
-        sql "ADMIN SET FRONTEND CONFIG ('enable_tso_persist_journal' = 'true')"
-        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = 'true')"
-        sleep(1000)
-
     sql "DROP TABLE IF EXISTS test_mow_schema_change_with_binlog FORCE"
 
     sql """
@@ -113,10 +106,5 @@ suite("test_row_binlog_schema_change", "nonConcurrent") {
     test {
         sql "ALTER TABLE test_mow_schema_change_with_binlog MODIFY COLUMN v2 VARCHAR(10)"
         exception "Not allowed to perform current operation on Table With binlog<row>"
-    }
-    } finally {
-        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = 'false')"
-        sql "ADMIN SET FRONTEND CONFIG ('enable_tso_persist_journal' = '${tsoPersistConfig[0][1]}')"
-        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = '${tsoFeatureConfig[0][1]}')"
     }
 }

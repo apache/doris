@@ -20,13 +20,6 @@ suite("test_row_binlog_multi_segment", "nonConcurrent") {
         return
     }
 
-    def tsoFeatureConfig = sql "SHOW FRONTEND CONFIG like '%experimental_enable_tso_feature%';"
-    def tsoPersistConfig = sql "SHOW FRONTEND CONFIG like '%enable_tso_persist_journal%';"
-    try {
-        sql "ADMIN SET FRONTEND CONFIG ('enable_tso_persist_journal' = 'true')"
-        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = 'true')"
-        sleep(1000)
-
     sql "DROP TABLE IF EXISTS test_mow_multi_segment_with_binlog FORCE"
 
     sql """
@@ -242,10 +235,5 @@ suite("test_row_binlog_multi_segment", "nonConcurrent") {
             GetDebugPoint().clearDebugPointsForAllBEs()
             GetDebugPoint().clearDebugPointsForAllFEs()
         }
-    }
-    } finally {
-        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = 'false')"
-        sql "ADMIN SET FRONTEND CONFIG ('enable_tso_persist_journal' = '${tsoPersistConfig[0][1]}')"
-        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = '${tsoFeatureConfig[0][1]}')"
     }
 }
