@@ -21,10 +21,12 @@
 #pragma once
 
 #include <parallel_hashmap/phmap.h>
-#include <stddef.h>
 
+#include <cstddef>
+#include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -40,7 +42,10 @@
 namespace doris {
 
 template <typename Element>
-Field getValueAsField(const Element& element) {
+Field getValueAsField(const Element& element, bool preserve_number_as_string = false) {
+    if (preserve_number_as_string && element.isNumber()) {
+        return Field::create_field<TYPE_STRING>(String(element.getRawNumber()));
+    }
     // bool will convert to type FiledType::UInt64
     if (element.isBool()) {
         return Field::create_field<TYPE_BOOLEAN>(element.getBool());
@@ -53,6 +58,9 @@ Field getValueAsField(const Element& element) {
     if (element.isUInt64()) {
         return Field::create_field<TYPE_LARGEINT>(static_cast<int128_t>(element.getUInt64()));
     }
+    if (element.isBigInteger()) {
+        return Field::create_field<TYPE_DOUBLE>(element.getDouble());
+    }
     if (element.isDouble()) {
         return Field::create_field<TYPE_DOUBLE>(element.getDouble());
     }
@@ -60,9 +68,9 @@ Field getValueAsField(const Element& element) {
         return Field::create_field<TYPE_STRING>(String(element.getString()));
     }
     if (element.isNull()) {
-        return Field();
+        return {};
     }
-    return Field();
+    return {};
 }
 
 template <typename Element>
@@ -80,6 +88,10 @@ void writeValueAsJsonb(const Element& element, JsonbWriter& writer) {
     // use largeint to store unsigned int64
     if (element.isUInt64()) {
         writer.writeInt128(static_cast<int128_t>(element.getUInt64()));
+        return;
+    }
+    if (element.isBigInteger()) {
+        writer.writeDouble(element.getDouble());
         return;
     }
     if (element.isDouble()) {
@@ -107,6 +119,8 @@ struct ParseConfig {
         OnlyDocValueColumn = 1,
     };
     ParseTo parse_to = ParseTo::OnlySubcolumns;
+    phmap::flat_hash_set<std::string> preserve_decimal_number_paths;
+    std::function<bool(std::string_view)> preserve_decimal_number_path_matcher;
 };
 /// Result of parsing of a document.
 /// Contains all paths extracted from document
@@ -133,6 +147,9 @@ private:
         bool check_duplicate_json_path = false;
         bool has_nested_in_flatten = false;
         bool is_top_array = false;
+        const phmap::flat_hash_set<std::string>* preserve_decimal_number_paths = nullptr;
+        const std::function<bool(std::string_view)>* preserve_decimal_number_path_matcher = nullptr;
+        PathInData::Parts path_prefix_for_typed_paths;
     };
     using PathPartsWithArray = std::pair<PathInData::Parts, Array>;
     using PathToArray = phmap::flat_hash_map<UInt128, PathPartsWithArray, UInt128TrivialHash>;
@@ -145,12 +162,16 @@ private:
         bool has_nested_in_flatten = false;
         bool is_top_array = false;
         bool check_duplicate_json_path = false;
+        const phmap::flat_hash_set<std::string>* preserve_decimal_number_paths = nullptr;
+        const std::function<bool(std::string_view)>* preserve_decimal_number_path_matcher = nullptr;
+        PathInData::Parts path_prefix_for_typed_paths;
     };
     void traverse(const Element& element, ParseContext& ctx);
     void traverseObject(const JSONObject& object, ParseContext& ctx);
     void traverseArray(const JSONArray& array, ParseContext& ctx);
     void appendValueIfNotDuplicate(ParseContext& ctx, const PathInData::Parts& path, Field&& value);
     void traverseArrayElement(const Element& element, ParseArrayContext& ctx);
+    bool shouldPreserveNumberAsString(const ParseContext& ctx) const;
     void checkAmbiguousStructure(const ParseArrayContext& ctx,
                                  const std::vector<PathInData::Parts>& paths);
     void handleExistingPath(std::pair<PathInData::Parts, Array>& path_data,

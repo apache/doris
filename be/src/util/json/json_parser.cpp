@@ -31,6 +31,7 @@
 #include "common/cast_set.h"
 // IWYU pragma: keep
 #include "common/status.h"
+#include "util/defer_op.h"
 #include "util/json/path_in_data.h"
 #include "util/json/simd_json_parser.h"
 
@@ -43,12 +44,15 @@ std::optional<ParseResult> JSONDataParser<ParserImpl>::parse(const char* begin, 
     if (!parser.parse(begin, length, document)) {
         return {};
     }
+    Defer release_parser {[&]() { parser.release(); }};
     ParseContext context;
     // deprecated_enable_flatten_nested controls nested path traversal
     // NestedGroup expansion is now handled at storage layer
     context.deprecated_enable_flatten_nested = config.deprecated_enable_flatten_nested;
     context.check_duplicate_json_path = config.check_duplicate_json_path;
     context.is_top_array = document.isArray();
+    context.preserve_decimal_number_paths = &config.preserve_decimal_number_paths;
+    context.preserve_decimal_number_path_matcher = &config.preserve_decimal_number_path_matcher;
     traverse(document, context);
     ParseResult result;
     result.values = std::move(context.values);
@@ -84,8 +88,30 @@ void JSONDataParser<ParserImpl>::traverse(const Element& element, ParseContext& 
         // we should set has_nested_in_flatten to false when traverse array finished for next array otherwise it will be true for next array
         ctx.has_nested_in_flatten = false;
     } else {
-        appendValueIfNotDuplicate(ctx, ctx.builder.get_parts(), getValueAsField(element));
+        const bool preserve_number_as_string = shouldPreserveNumberAsString(ctx);
+        appendValueIfNotDuplicate(ctx, ctx.builder.get_parts(),
+                                  getValueAsField(element, preserve_number_as_string));
     }
+}
+
+template <typename ParserImpl>
+bool JSONDataParser<ParserImpl>::shouldPreserveNumberAsString(const ParseContext& ctx) const {
+    const bool has_exact_paths = ctx.preserve_decimal_number_paths != nullptr &&
+                                 !ctx.preserve_decimal_number_paths->empty();
+    const bool has_path_matcher = ctx.preserve_decimal_number_path_matcher != nullptr &&
+                                  *ctx.preserve_decimal_number_path_matcher;
+    if (!has_exact_paths && !has_path_matcher) {
+        return false;
+    }
+    PathInData::Parts path = ctx.path_prefix_for_typed_paths;
+    const auto& current_parts = ctx.builder.get_parts();
+    path.insert(path.end(), current_parts.begin(), current_parts.end());
+    const auto current_path = PathInData(path).get_path();
+    if (has_exact_paths && ctx.preserve_decimal_number_paths->find(current_path) !=
+                                   ctx.preserve_decimal_number_paths->end()) {
+        return true;
+    }
+    return has_path_matcher && (*ctx.preserve_decimal_number_path_matcher)(current_path);
 }
 
 template <typename ParserImpl>
@@ -201,6 +227,12 @@ void JSONDataParser<ParserImpl>::traverseArray(const JSONArray& array, ParseCont
     array_ctx.has_nested_in_flatten = ctx.has_nested_in_flatten;
     array_ctx.is_top_array = ctx.is_top_array;
     array_ctx.check_duplicate_json_path = ctx.check_duplicate_json_path;
+    array_ctx.preserve_decimal_number_paths = ctx.preserve_decimal_number_paths;
+    array_ctx.preserve_decimal_number_path_matcher = ctx.preserve_decimal_number_path_matcher;
+    array_ctx.path_prefix_for_typed_paths = ctx.path_prefix_for_typed_paths;
+    const auto& current_parts = ctx.builder.get_parts();
+    array_ctx.path_prefix_for_typed_paths.insert(array_ctx.path_prefix_for_typed_paths.end(),
+                                                 current_parts.begin(), current_parts.end());
     array_ctx.total_size = array.size();
     for (auto it = array.begin(); it != array.end(); ++it) {
         traverseArrayElement(*it, array_ctx);
@@ -231,6 +263,9 @@ void JSONDataParser<ParserImpl>::traverseArrayElement(const Element& element,
     element_ctx.has_nested_in_flatten = ctx.has_nested_in_flatten;
     element_ctx.is_top_array = ctx.is_top_array;
     element_ctx.check_duplicate_json_path = ctx.check_duplicate_json_path;
+    element_ctx.preserve_decimal_number_paths = ctx.preserve_decimal_number_paths;
+    element_ctx.preserve_decimal_number_path_matcher = ctx.preserve_decimal_number_path_matcher;
+    element_ctx.path_prefix_for_typed_paths = ctx.path_prefix_for_typed_paths;
     traverse(element, element_ctx);
     auto& paths = element_ctx.paths;
     auto& values = element_ctx.values;
