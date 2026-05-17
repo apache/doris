@@ -56,7 +56,8 @@ suite("test_pythonudf_volatility") {
         "type" = "PYTHON_UDF",
         "symbol" = "evaluate",
         "runtime_version" = "${runtimeVersion}",
-        "volatility" = "immutable"
+        "volatility" = "immutable",
+        "expiration_time" = "30"
     )
 AS \$\$
 def evaluate(x):
@@ -130,6 +131,8 @@ def evaluate(x):
     def replaySql = showCreateResult[0][1].toString()
     assertTrue(replaySql.contains("\"RUNTIME_VERSION\"=\"${runtimeVersion}\""))
     assertTrue(replaySql.contains("\"VOLATILITY\"=\"immutable\""))
+    assertTrue(replaySql.contains("\"EXPIRATION_TIME\"=\"30\""))
+    assertFalse(replaySql.contains("\"FILE\"="))
     assertTrue(replaySql.contains("AS \$\$"))
     assertTrue(replaySql.contains("return x + 1"))
 

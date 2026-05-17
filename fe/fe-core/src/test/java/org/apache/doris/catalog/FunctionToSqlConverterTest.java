@@ -32,11 +32,11 @@ public class FunctionToSqlConverterTest {
     // ======================== ScalarFunction — JAVA_UDF ========================
 
     @Test
-    void testScalarFunction_javaUdf_basicSql() {
+    void testScalarFunction_javaUdf_basicSql() throws AnalysisException {
         FunctionName name = new FunctionName("testDb", "my_add");
         Type[] argTypes = {Type.INT, Type.INT};
         ScalarFunction fn = ScalarFunction.createUdf(BinaryType.JAVA_UDF, name, argTypes,
-                Type.INT, false, null, "com.example.MyAdd", null, null);
+                Type.INT, false, URI.create("file:///tmp/java-udf.jar"), "com.example.MyAdd", null, null);
         fn.setVolatility(FunctionVolatility.VOLATILE);
 
         String sql = FunctionToSqlConverter.toSql(fn, false);
@@ -45,7 +45,7 @@ public class FunctionToSqlConverterTest {
         Assertions.assertTrue(sql.contains("my_add(int, int)"));
         Assertions.assertTrue(sql.contains("RETURNS int"));
         Assertions.assertTrue(sql.contains("\"SYMBOL\"=\"com.example.MyAdd\""));
-        Assertions.assertTrue(sql.contains("\"FILE\"=\"\""));
+        Assertions.assertTrue(sql.contains("\"FILE\"=\"file:///tmp/java-udf.jar\""));
         Assertions.assertTrue(sql.contains("\"TYPE\"=\"JAVA_UDF\""));
         Assertions.assertTrue(sql.contains("\"VOLATILITY\"=\"volatile\""));
         Assertions.assertTrue(sql.contains("\"ALWAYS_NULLABLE\"="));
@@ -113,15 +113,18 @@ public class FunctionToSqlConverterTest {
         ScalarFunction fn = ScalarFunction.createUdf(BinaryType.PYTHON_UDF, name, argTypes,
                 Type.INT, false, null, "evaluate", null, null);
         fn.setRuntimeVersion("3.10.2");
+        fn.setExpirationTime(30);
         fn.setFunctionCode("def evaluate(x):\n    return x + 1");
         fn.setVolatility(FunctionVolatility.IMMUTABLE);
 
         String sql = FunctionToSqlConverter.toSql(fn, false);
 
         Assertions.assertTrue(sql.contains("\"RUNTIME_VERSION\"=\"3.10.2\""));
+        Assertions.assertTrue(sql.contains("\"EXPIRATION_TIME\"=\"30\""));
         Assertions.assertTrue(sql.contains("\"VOLATILITY\"=\"immutable\""));
         Assertions.assertTrue(sql.contains("\"TYPE\"=\"PYTHON_UDF\""));
         Assertions.assertTrue(sql.contains("AS $$\ndef evaluate(x):\n    return x + 1\n$$;"));
+        Assertions.assertFalse(sql.contains("\"FILE\"="));
         Assertions.assertFalse(sql.endsWith(");"));
     }
 
@@ -141,6 +144,7 @@ public class FunctionToSqlConverterTest {
         Assertions.assertTrue(sql.contains("\"VOLATILITY\"=\"stable\""));
         Assertions.assertTrue(sql.endsWith(");"));
         Assertions.assertFalse(sql.contains("AS $$"));
+        Assertions.assertFalse(sql.contains("EXPIRATION_TIME"));
     }
 
     @Test
@@ -180,6 +184,7 @@ public class FunctionToSqlConverterTest {
         Assertions.assertTrue(sql.contains("\"RUNTIME_VERSION\"=\"3.10.2\""));
         Assertions.assertTrue(sql.contains("\"TYPE\"=\"PYTHON_UDF\""));
         Assertions.assertTrue(sql.contains("AS $$\ndef evaluate(x):\n    yield x\n$$;"));
+        Assertions.assertFalse(sql.contains("\"FILE\"="));
         Assertions.assertFalse(sql.contains("VOLATILITY"));
     }
 
@@ -201,15 +206,15 @@ public class FunctionToSqlConverterTest {
     // ======================== ScalarFunction — NATIVE ========================
 
     @Test
-    void testScalarFunction_native_usesObjectFile() {
+    void testScalarFunction_native_usesObjectFile() throws AnalysisException {
         FunctionName name = new FunctionName("testDb", "native_fn");
         Type[] argTypes = {Type.INT};
         ScalarFunction fn = ScalarFunction.createUdf(BinaryType.NATIVE, name, argTypes,
-                Type.INT, false, null, "native_sym", null, null);
+                Type.INT, false, URI.create("file:///tmp/native.so"), "native_sym", null, null);
 
         String sql = FunctionToSqlConverter.toSql(fn, false);
 
-        Assertions.assertTrue(sql.contains("\"OBJECT_FILE\"="));
+        Assertions.assertTrue(sql.contains("\"OBJECT_FILE\"=\"file:///tmp/native.so\""));
         Assertions.assertTrue(sql.contains("\"TYPE\"=\"NATIVE\""));
         // NATIVE uses OBJECT_FILE, not plain FILE — and should not have ALWAYS_NULLABLE
         Assertions.assertFalse(sql.contains("ALWAYS_NULLABLE"));
@@ -246,7 +251,7 @@ public class FunctionToSqlConverterTest {
     // ======================== AggregateFunction — JAVA_UDF ========================
 
     @Test
-    void testAggregateFunction_javaUdf_basicSql() {
+    void testAggregateFunction_javaUdf_basicSql() throws AnalysisException {
         FunctionName name = new FunctionName("testDb", "my_sum");
         Type[] argTypes = {Type.BIGINT};
         AggregateFunction fn = AggregateFunction.AggregateFunctionBuilder.createUdfBuilder()
@@ -256,6 +261,7 @@ public class FunctionToSqlConverterTest {
                 .intermediateType(Type.BIGINT)
                 .hasVarArgs(false)
                 .symbolName("com.example.MySum")
+                .location(URI.create("file:///tmp/java-udaf.jar"))
                 .build();
 
         String sql = FunctionToSqlConverter.toSql(fn, false);
@@ -264,7 +270,7 @@ public class FunctionToSqlConverterTest {
         Assertions.assertTrue(sql.contains("my_sum(bigint)"));
         Assertions.assertTrue(sql.contains("RETURNS bigint"));
         Assertions.assertTrue(sql.contains("\"SYMBOL\"=\"com.example.MySum\""));
-        Assertions.assertTrue(sql.contains("\"FILE\"=\"\""));
+        Assertions.assertTrue(sql.contains("\"FILE\"=\"file:///tmp/java-udaf.jar\""));
         Assertions.assertTrue(sql.contains("\"TYPE\"=\"JAVA_UDF\""));
         Assertions.assertTrue(sql.contains("\"ALWAYS_NULLABLE\"="));
         Assertions.assertFalse(sql.contains("INIT_FN"));
@@ -305,25 +311,28 @@ public class FunctionToSqlConverterTest {
                 .symbolName("SumState")
                 .build();
         fn.setRuntimeVersion("3.10.2");
+        fn.setExpirationTime(45);
         fn.setFunctionCode("class SumState:\n    pass");
 
         String sql = FunctionToSqlConverter.toSql(fn, false);
 
         Assertions.assertTrue(sql.contains("\"RUNTIME_VERSION\"=\"3.10.2\""));
+        Assertions.assertTrue(sql.contains("\"EXPIRATION_TIME\"=\"45\""));
         Assertions.assertTrue(sql.contains("\"TYPE\"=\"PYTHON_UDF\""));
         Assertions.assertTrue(sql.contains("AS $$\nclass SumState:\n    pass\n$$;"));
+        Assertions.assertFalse(sql.contains("\"FILE\"="));
         Assertions.assertFalse(sql.endsWith(");"));
     }
 
     // ======================== AggregateFunction — NATIVE ========================
 
     @Test
-    void testAggregateFunction_native_includesSymbolFunctions() {
+    void testAggregateFunction_native_includesSymbolFunctions() throws AnalysisException {
         FunctionName name = new FunctionName("testDb", "native_agg");
         Type[] argTypes = {Type.BIGINT};
         AggregateFunction fn = new AggregateFunction(
                 name, argTypes, Type.BIGINT, false,
-                Type.BIGINT, null,
+                Type.BIGINT, URI.create("file:///tmp/native-agg.so"),
                 "my_init", "my_update", "my_merge",
                 "my_serialize", "my_finalize",
                 "my_get_value", "my_remove");
@@ -336,7 +345,7 @@ public class FunctionToSqlConverterTest {
         Assertions.assertTrue(sql.contains("\"MERGE_FN\"=\"my_merge\""));
         Assertions.assertTrue(sql.contains("\"SERIALIZE_FN\"=\"my_serialize\""));
         Assertions.assertTrue(sql.contains("\"FINALIZE_FN\"=\"my_finalize\""));
-        Assertions.assertTrue(sql.contains("\"OBJECT_FILE\"="));
+        Assertions.assertTrue(sql.contains("\"OBJECT_FILE\"=\"file:///tmp/native-agg.so\""));
         Assertions.assertTrue(sql.contains("\"TYPE\"=\"NATIVE\""));
         // NATIVE uses OBJECT_FILE, not plain FILE
         Assertions.assertFalse(sql.contains("ALWAYS_NULLABLE"));

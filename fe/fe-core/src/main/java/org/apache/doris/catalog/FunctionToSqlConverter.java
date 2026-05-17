@@ -32,6 +32,7 @@ import java.util.stream.Collectors;
  * Converts {@link Function} and its subclasses to their SQL representations.
  */
 public class FunctionToSqlConverter {
+    private static final long DEFAULT_EXPIRATION_TIME = 360;
 
     /**
      * Converts a {@link Function} (or subclass) to its SQL representation.
@@ -81,11 +82,11 @@ public class FunctionToSqlConverter {
                 sb.append(",\n  \"VOLATILITY\"=").append("\"" + fn.getVolatility().toSql() + "\"");
             }
         } else if (fn.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
-            sb.append(",\n  \"FILE\"=")
-                    .append("\"" + (fn.getLocation() == null ? "" : fn.getLocation().toString()) + "\"");
+            appendFileIfPresent(sb, fn, true);
             boolean isReturnNull = fn.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
             sb.append(",\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\"");
             sb.append(",\n  \"RUNTIME_VERSION\"=").append("\"" + Strings.nullToEmpty(fn.getRuntimeVersion()) + "\"");
+            appendExpirationTimeIfNeeded(sb, fn);
             if (!fn.isUDTFunction()) {
                 sb.append(",\n  \"VOLATILITY\"=").append("\"" + fn.getVolatility().toSql() + "\"");
             }
@@ -108,6 +109,21 @@ public class FunctionToSqlConverter {
             return new ArrayType(fn.getReturnType()).toSql();
         }
         return fn.getReturnType().toSql();
+    }
+
+    private static void appendExpirationTimeIfNeeded(StringBuilder sb, Function fn) {
+        if (fn.getExpirationTime() != DEFAULT_EXPIRATION_TIME) {
+            sb.append(",\n  \"EXPIRATION_TIME\"=").append("\"" + fn.getExpirationTime() + "\"");
+        }
+    }
+
+    private static void appendFileIfPresent(StringBuilder sb, Function fn, boolean hasLeadingComma) {
+        if (fn.getLocation() != null) {
+            if (hasLeadingComma) {
+                sb.append(",");
+            }
+            sb.append("\n  \"FILE\"=").append("\"" + fn.getLocation().toString() + "\"");
+        }
     }
 
     /**
@@ -152,12 +168,17 @@ public class FunctionToSqlConverter {
             boolean isReturnNull = fn.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
             sb.append("\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\",");
         } else if (fn.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
-            sb.append("\n  \"FILE\"=")
-                    .append("\"" + (fn.getLocation() == null ? "" : fn.getLocation().toString()) + "\",");
+            appendFileIfPresent(sb, fn, false);
+            if (fn.getLocation() != null) {
+                sb.append(",");
+            }
             boolean isReturnNull = fn.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
             sb.append("\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\",");
             sb.append("\n  \"RUNTIME_VERSION\"=")
                     .append("\"" + Strings.nullToEmpty(fn.getRuntimeVersion()) + "\",");
+            if (fn.getExpirationTime() != DEFAULT_EXPIRATION_TIME) {
+                sb.append("\n  \"EXPIRATION_TIME\"=").append("\"" + fn.getExpirationTime() + "\",");
+            }
         } else {
             sb.append("\n  \"OBJECT_FILE\"=")
                     .append("\"" + (fn.getLocation() == null ? "" : fn.getLocation().toString()) + "\",");
