@@ -38,11 +38,13 @@ public class LoadActionTest {
     @AfterEach
     public void tearDown() {
         Config.stream_load_redirect_bounded_drain_max_bytes = 0;
+        Config.stream_load_redirect_bounded_drain_max_idle_time_ms = 100;
     }
 
     @Test
     public void testCreateRedirectResponseReturnsRedirectViewWhenBoundedDrainDisabled() throws Exception {
         Config.stream_load_redirect_bounded_drain_max_bytes = 0;
+        Config.stream_load_redirect_bounded_drain_max_idle_time_ms = 100;
         LoadAction loadAction = new LoadAction();
         HttpServletRequest request = mockStreamLoadRequest();
         HttpServletResponse response = Mockito.mock(HttpServletResponse.class);
@@ -59,6 +61,7 @@ public class LoadActionTest {
     @Test
     public void testCreateRedirectResponseWrites307WhenBoundedDrainEnabled() throws Exception {
         Config.stream_load_redirect_bounded_drain_max_bytes = 8;
+        Config.stream_load_redirect_bounded_drain_max_idle_time_ms = 100;
         LoadAction loadAction = new LoadAction();
         HttpServletRequest request = mockStreamLoadRequest();
         HttpServletResponse response = Mockito.mock(HttpServletResponse.class);
@@ -76,6 +79,7 @@ public class LoadActionTest {
     @Test
     public void testCreateRedirectResponseKeepsNonStreamLoadBehavior() throws Exception {
         Config.stream_load_redirect_bounded_drain_max_bytes = 8;
+        Config.stream_load_redirect_bounded_drain_max_idle_time_ms = 100;
         LoadAction loadAction = new LoadAction();
         HttpServletRequest request = mockStreamLoadRequest();
         HttpServletResponse response = Mockito.mock(HttpServletResponse.class);
