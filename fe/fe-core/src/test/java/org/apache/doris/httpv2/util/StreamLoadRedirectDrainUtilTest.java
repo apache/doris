@@ -35,7 +35,18 @@ public class StreamLoadRedirectDrainUtilTest {
                         new QueueAvailableServletInputStream("hello".getBytes(), 5, 0, 0, 0), 16);
 
         Assertions.assertEquals(5, drainResult.getDrainedBytes());
-        Assertions.assertEquals(StreamLoadRedirectDrainUtil.ExitReason.IDLE_TIMEOUT, drainResult.getExitReason());
+        Assertions.assertEquals(StreamLoadRedirectDrainUtil.ExitReason.EOF, drainResult.getExitReason());
+    }
+
+    @Test
+    // Verify delayed body chunks are still drained when they arrive within the bounded idle window.
+    public void testDrainRequestBodyAllowsDelayedArrivalWithinIdleWindow() {
+        StreamLoadRedirectDrainUtil.DrainResult drainResult =
+                StreamLoadRedirectDrainUtil.drainRequestBodyAfterRedirect(
+                        new QueueAvailableServletInputStream("hello".getBytes(), 0, 0, 0, 0, 0, 5), 16);
+
+        Assertions.assertEquals(5, drainResult.getDrainedBytes());
+        Assertions.assertEquals(StreamLoadRedirectDrainUtil.ExitReason.EOF, drainResult.getExitReason());
     }
 
     @Test
@@ -51,8 +62,7 @@ public class StreamLoadRedirectDrainUtilTest {
     @Test
     public void testDrainRequestBodyIdleTimeout() {
         StreamLoadRedirectDrainUtil.DrainResult drainResult =
-                StreamLoadRedirectDrainUtil.drainRequestBodyAfterRedirect(
-                        new QueueAvailableServletInputStream(new byte[0], 0, 0, 0, 0), 8);
+                StreamLoadRedirectDrainUtil.drainRequestBodyAfterRedirect(new NeverReadyServletInputStream(), 8);
 
         Assertions.assertEquals(0, drainResult.getDrainedBytes());
         Assertions.assertEquals(StreamLoadRedirectDrainUtil.ExitReason.IDLE_TIMEOUT, drainResult.getExitReason());
@@ -180,6 +190,33 @@ public class StreamLoadRedirectDrainUtilTest {
         @Override
         public boolean isFinished() {
             return true;
+        }
+
+        @Override
+        public boolean isReady() {
+            return true;
+        }
+
+        @Override
+        public void setReadListener(ReadListener readListener) {
+        }
+    }
+
+    // Keep reporting no readable bytes without reaching EOF to simulate a stalled client.
+    private static class NeverReadyServletInputStream extends ServletInputStream {
+        @Override
+        public int read() {
+            return -1;
+        }
+
+        @Override
+        public int available() {
+            return 0;
+        }
+
+        @Override
+        public boolean isFinished() {
+            return false;
         }
 
         @Override

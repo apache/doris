@@ -30,7 +30,7 @@ public final class StreamLoadRedirectDrainUtil {
 
     private static final int BUFFER_SIZE = 8 * 1024;
     private static final int IDLE_SLEEP_MS = 5;
-    private static final int MAX_IDLE_LOOPS = 3;
+    private static final int MAX_IDLE_TIME_MS = 100;
 
     private StreamLoadRedirectDrainUtil() {
     }
@@ -49,15 +49,20 @@ public final class StreamLoadRedirectDrainUtil {
 
         long startNanos = System.nanoTime();
         long drainedBytes = 0;
-        int idleLoops = 0;
+        long idleStartNanos = -1L;
         byte[] buffer = new byte[(int) Math.min(BUFFER_SIZE, maxBytes)];
 
         try {
             while (drainedBytes < maxBytes) {
+                // Prefer an explicit EOF signal before relying on available() as a readiness hint.
+                if (inputStream.isFinished()) {
+                    return new DrainResult(drainedBytes, elapsedMillis(startNanos), ExitReason.EOF);
+                }
                 int availableBytes = inputStream.available();
                 if (availableBytes <= 0) {
-                    idleLoops++;
-                    if (idleLoops >= MAX_IDLE_LOOPS) {
+                    // Allow a bounded idle window so slow clients can still deliver buffered bytes.
+                    idleStartNanos = idleStartNanos < 0 ? System.nanoTime() : idleStartNanos;
+                    if (elapsedMillis(idleStartNanos) >= MAX_IDLE_TIME_MS) {
                         return new DrainResult(drainedBytes, elapsedMillis(startNanos), ExitReason.IDLE_TIMEOUT);
                     }
                     if (!sleepForIdleWindow()) {
@@ -66,13 +71,21 @@ public final class StreamLoadRedirectDrainUtil {
                     continue;
                 }
 
-                idleLoops = 0;
+                idleStartNanos = -1L;
                 int readLimit = (int) Math.min(Math.min(maxBytes - drainedBytes, buffer.length), availableBytes);
                 int readBytes = inputStream.read(buffer, 0, readLimit);
                 if (readBytes < 0) {
                     return new DrainResult(drainedBytes, elapsedMillis(startNanos), ExitReason.EOF);
                 }
                 if (readBytes == 0) {
+                    // Treat zero-byte reads as transient backpressure instead of busy-spinning.
+                    idleStartNanos = idleStartNanos < 0 ? System.nanoTime() : idleStartNanos;
+                    if (elapsedMillis(idleStartNanos) >= MAX_IDLE_TIME_MS) {
+                        return new DrainResult(drainedBytes, elapsedMillis(startNanos), ExitReason.IDLE_TIMEOUT);
+                    }
+                    if (!sleepForIdleWindow()) {
+                        return new DrainResult(drainedBytes, elapsedMillis(startNanos), ExitReason.ERROR);
+                    }
                     continue;
                 }
                 drainedBytes += readBytes;
