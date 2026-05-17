@@ -17,6 +17,8 @@
 
 package org.apache.doris.httpv2.util;
 
+import org.apache.doris.common.Config;
+
 import com.google.common.base.Preconditions;
 import jakarta.servlet.ServletInputStream;
 import jakarta.servlet.http.HttpServletRequest;
@@ -30,7 +32,6 @@ public final class StreamLoadRedirectDrainUtil {
 
     private static final int BUFFER_SIZE = 8 * 1024;
     private static final int IDLE_SLEEP_MS = 5;
-    private static final int MAX_IDLE_TIME_MS = 100;
 
     private StreamLoadRedirectDrainUtil() {
     }
@@ -62,11 +63,9 @@ public final class StreamLoadRedirectDrainUtil {
                 if (availableBytes <= 0) {
                     // Allow a bounded idle window so slow clients can still deliver buffered bytes.
                     idleStartNanos = idleStartNanos < 0 ? System.nanoTime() : idleStartNanos;
-                    if (elapsedMillis(idleStartNanos) >= MAX_IDLE_TIME_MS) {
-                        return new DrainResult(drainedBytes, elapsedMillis(startNanos), ExitReason.IDLE_TIMEOUT);
-                    }
-                    if (!sleepForIdleWindow()) {
-                        return new DrainResult(drainedBytes, elapsedMillis(startNanos), ExitReason.ERROR);
+                    DrainResult idleWaitResult = waitForMoreDataOrExit(idleStartNanos, drainedBytes, startNanos);
+                    if (idleWaitResult != null) {
+                        return idleWaitResult;
                     }
                     continue;
                 }
@@ -80,11 +79,9 @@ public final class StreamLoadRedirectDrainUtil {
                 if (readBytes == 0) {
                     // Treat zero-byte reads as transient backpressure instead of busy-spinning.
                     idleStartNanos = idleStartNanos < 0 ? System.nanoTime() : idleStartNanos;
-                    if (elapsedMillis(idleStartNanos) >= MAX_IDLE_TIME_MS) {
-                        return new DrainResult(drainedBytes, elapsedMillis(startNanos), ExitReason.IDLE_TIMEOUT);
-                    }
-                    if (!sleepForIdleWindow()) {
-                        return new DrainResult(drainedBytes, elapsedMillis(startNanos), ExitReason.ERROR);
+                    DrainResult idleWaitResult = waitForMoreDataOrExit(idleStartNanos, drainedBytes, startNanos);
+                    if (idleWaitResult != null) {
+                        return idleWaitResult;
                     }
                     continue;
                 }
@@ -97,11 +94,23 @@ public final class StreamLoadRedirectDrainUtil {
         }
     }
 
+    // Convert a bounded idle wait into a terminal drain result when the grace window expires or gets interrupted.
+    private static DrainResult waitForMoreDataOrExit(long idleStartNanos, long drainedBytes, long startNanos) {
+        if (elapsedMillis(idleStartNanos) >= Config.stream_load_redirect_bounded_drain_max_idle_time_ms) {
+            return new DrainResult(drainedBytes, elapsedMillis(startNanos), ExitReason.IDLE_TIMEOUT);
+        }
+        if (!sleepForIdleWindow()) {
+            return new DrainResult(drainedBytes, elapsedMillis(startNanos), ExitReason.INTERRUPTED);
+        }
+        return null;
+    }
+
     private static boolean sleepForIdleWindow() {
         try {
             Thread.sleep(IDLE_SLEEP_MS);
             return true;
         } catch (InterruptedException e) {
+            LOG.warn("stream load redirect drain idle wait is interrupted", e);
             Thread.currentThread().interrupt();
             return false;
         }
@@ -115,6 +124,7 @@ public final class StreamLoadRedirectDrainUtil {
         EOF,
         MAX_BYTES,
         IDLE_TIMEOUT,
+        INTERRUPTED,
         ERROR
     }
 
