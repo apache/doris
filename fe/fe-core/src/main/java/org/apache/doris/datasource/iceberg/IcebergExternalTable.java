@@ -478,24 +478,26 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
             // isVoid/isIdentity: public interface methods; toString(): canonical spec-defined names.
             if (t.isVoid()) {
                 continue;
-            } else if (t.isIdentity()) {
-                fields.add(colName);
+            }
+            String quotedCol = "`" + colName + "`";
+            if (t.isIdentity()) {
+                fields.add(quotedCol);
             } else {
                 String transformStr = t.toString();
                 if (transformStr.startsWith("bucket[")) {
                     int n = Integer.parseInt(transformStr.substring(7, transformStr.length() - 1));
-                    fields.add("BUCKET(" + n + ", " + colName + ")");
+                    fields.add("BUCKET(" + n + ", " + quotedCol + ")");
                 } else if (transformStr.startsWith("truncate[")) {
                     int w = Integer.parseInt(transformStr.substring(9, transformStr.length() - 1));
-                    fields.add("TRUNCATE(" + w + ", " + colName + ")");
+                    fields.add("TRUNCATE(" + w + ", " + quotedCol + ")");
                 } else if ("year".equals(transformStr)) {
-                    fields.add("YEAR(" + colName + ")");
+                    fields.add("YEAR(" + quotedCol + ")");
                 } else if ("month".equals(transformStr)) {
-                    fields.add("MONTH(" + colName + ")");
+                    fields.add("MONTH(" + quotedCol + ")");
                 } else if ("day".equals(transformStr)) {
-                    fields.add("DAY(" + colName + ")");
+                    fields.add("DAY(" + quotedCol + ")");
                 } else if ("hour".equals(transformStr)) {
-                    fields.add("HOUR(" + colName + ")");
+                    fields.add("HOUR(" + quotedCol + ")");
                 } else {
                     LOG.warn("Unsupported Iceberg partition transform '{}' on column '{}', "
                             + "skipped in SHOW CREATE TABLE.", transformStr, colName);

@@ -302,14 +302,14 @@ public class IcebergExternalTableTest {
     public void testGetPartitionSpecSqlIdentity() {
         IcebergExternalTable spy = createSpyTable();
         setupSingleField(mockTransform("identity"), "d_year");
-        Assertions.assertEquals("PARTITION BY LIST (d_year) ()", spy.getPartitionSpecSql());
+        Assertions.assertEquals("PARTITION BY LIST (`d_year`) ()", spy.getPartitionSpecSql());
     }
 
     @Test
     public void testGetPartitionSpecSqlBucket() {
         IcebergExternalTable spy = createSpyTable();
         setupSingleField(mockTransform("bucket[2048]"), "ss_item_sk");
-        Assertions.assertEquals("PARTITION BY LIST (BUCKET(2048, ss_item_sk)) ()",
+        Assertions.assertEquals("PARTITION BY LIST (BUCKET(2048, `ss_item_sk`)) ()",
                 spy.getPartitionSpecSql());
     }
 
@@ -317,7 +317,7 @@ public class IcebergExternalTableTest {
     public void testGetPartitionSpecSqlTruncate() {
         IcebergExternalTable spy = createSpyTable();
         setupSingleField(mockTransform("truncate[10]"), "category");
-        Assertions.assertEquals("PARTITION BY LIST (TRUNCATE(10, category)) ()",
+        Assertions.assertEquals("PARTITION BY LIST (TRUNCATE(10, `category`)) ()",
                 spy.getPartitionSpecSql());
     }
 
@@ -332,16 +332,16 @@ public class IcebergExternalTableTest {
         Mockito.when(schema.findColumnName(ArgumentMatchers.anyInt())).thenReturn("ts");
 
         Mockito.doReturn(mockTransform("year")).when(field).transform();
-        Assertions.assertEquals("PARTITION BY LIST (YEAR(ts)) ()", spy.getPartitionSpecSql());
+        Assertions.assertEquals("PARTITION BY LIST (YEAR(`ts`)) ()", spy.getPartitionSpecSql());
 
         Mockito.doReturn(mockTransform("month")).when(field).transform();
-        Assertions.assertEquals("PARTITION BY LIST (MONTH(ts)) ()", spy.getPartitionSpecSql());
+        Assertions.assertEquals("PARTITION BY LIST (MONTH(`ts`)) ()", spy.getPartitionSpecSql());
 
         Mockito.doReturn(mockTransform("day")).when(field).transform();
-        Assertions.assertEquals("PARTITION BY LIST (DAY(ts)) ()", spy.getPartitionSpecSql());
+        Assertions.assertEquals("PARTITION BY LIST (DAY(`ts`)) ()", spy.getPartitionSpecSql());
 
         Mockito.doReturn(mockTransform("hour")).when(field).transform();
-        Assertions.assertEquals("PARTITION BY LIST (HOUR(ts)) ()", spy.getPartitionSpecSql());
+        Assertions.assertEquals("PARTITION BY LIST (HOUR(`ts`)) ()", spy.getPartitionSpecSql());
     }
 
     @Test
@@ -351,6 +351,8 @@ public class IcebergExternalTableTest {
         Mockito.when(icebergTable.schema()).thenReturn(schema);
         Mockito.when(spec.isUnpartitioned()).thenReturn(false);
         Mockito.when(spec.fields()).thenReturn(Lists.newArrayList(field));
+        Mockito.when(field.sourceId()).thenReturn(1);
+        Mockito.when(schema.findColumnName(1)).thenReturn("ts");
         Mockito.doReturn(mockTransform("void")).when(field).transform();
         Assertions.assertEquals("", spy.getPartitionSpecSql());
     }
@@ -371,8 +373,16 @@ public class IcebergExternalTableTest {
         Mockito.when(schema.findColumnName(2)).thenReturn("item_sk");
         Mockito.doReturn(mockTransform("bucket[128]")).when(field2).transform();
 
-        Assertions.assertEquals("PARTITION BY LIST (sold_date_sk, BUCKET(128, item_sk)) ()",
+        Assertions.assertEquals("PARTITION BY LIST (`sold_date_sk`, BUCKET(128, `item_sk`)) ()",
                 spy.getPartitionSpecSql());
+    }
+
+    @Test
+    public void testGetPartitionSpecSqlReservedWordColumnQuoted() {
+        // Reserved SQL keyword as column name must be backtick-quoted for replayable DDL.
+        IcebergExternalTable spy = createSpyTable();
+        setupSingleField(mockTransform("identity"), "select");
+        Assertions.assertEquals("PARTITION BY LIST (`select`) ()", spy.getPartitionSpecSql());
     }
 
     @Test
