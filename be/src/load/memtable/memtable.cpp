@@ -201,9 +201,10 @@ Status MemTable::insert(const Block* input_block, const DorisVector<uint32_t>& r
     if (_is_first_insertion) {
         _is_first_insertion = false;
         auto clone_block = input_block->clone_without_columns(&_column_offset);
-        _input_mutable_block = MutableBlock::build_mutable_block(&clone_block);
+        _input_mutable_block = MutableBlock::build_mutable_block(std::move(clone_block));
         _vec_row_comparator->set_block(&_input_mutable_block);
-        _output_mutable_block = MutableBlock::build_mutable_block(&clone_block);
+        clone_block = input_block->clone_without_columns(&_column_offset);
+        _output_mutable_block = MutableBlock::build_mutable_block(std::move(clone_block));
         if (_tablet_schema->has_sequence_col()) {
             if (_partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
                 // for unique key fixed partial update, sequence column index in block
@@ -390,9 +391,9 @@ Status MemTable::_sort_by_cluster_keys() {
     _stat.sort_times++;
     // sort all rows
     Block in_block = _output_mutable_block.to_block();
-    MutableBlock mutable_block = MutableBlock::build_mutable_block(&in_block);
     auto clone_block = in_block.clone_without_columns();
-    _output_mutable_block = MutableBlock::build_mutable_block(&clone_block);
+    MutableBlock mutable_block = MutableBlock::build_mutable_block(std::move(in_block));
+    _output_mutable_block = MutableBlock::build_mutable_block(std::move(clone_block));
 
     DorisVector<std::shared_ptr<RowInBlock>> row_in_blocks;
     row_in_blocks.reserve(mutable_block.rows());
@@ -524,7 +525,8 @@ void MemTable::_aggregate() {
     SCOPED_RAW_TIMER(&_stat.agg_ns);
     _stat.agg_times++;
     Block in_block = _input_mutable_block.to_block();
-    MutableBlock mutable_block = MutableBlock::build_mutable_block(&in_block);
+    std::unique_ptr<Block> empty_input_block = in_block.create_same_struct_block(0);
+    MutableBlock mutable_block = MutableBlock::build_mutable_block(std::move(in_block));
     _vec_row_comparator->set_block(&mutable_block);
     DorisVector<std::shared_ptr<RowInBlock>> temp_row_in_blocks;
     temp_row_in_blocks.reserve(_last_sorted_pos);
@@ -581,8 +583,7 @@ void MemTable::_aggregate() {
         // if is not final, we collect the agg results to input_block and then continue to insert
         _input_mutable_block.swap(_output_mutable_block);
         //TODO(weixang):opt here.
-        std::unique_ptr<Block> empty_input_block = in_block.create_same_struct_block(0);
-        _output_mutable_block = MutableBlock::build_mutable_block(empty_input_block.get());
+        _output_mutable_block = MutableBlock::build_mutable_block(std::move(*empty_input_block));
         _output_mutable_block.clear_column_data();
         *_row_in_blocks = temp_row_in_blocks;
         _last_sorted_pos = _row_in_blocks->size();

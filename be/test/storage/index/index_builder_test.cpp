@@ -244,7 +244,7 @@ TEST_F(IndexBuilderTest, DropInvertedIndexTest) {
     // 5. Write data to the rowset
     {
         Block block = _tablet_schema->create_block();
-        auto columns = block.mutate_columns();
+        auto columns = std::move(block).mutate_columns();
 
         // Add data for k1 and k2 columns
         for (int i = 0; i < num_rows; ++i) {
@@ -534,7 +534,7 @@ TEST_F(IndexBuilderTest, BuildInvertedIndexAfterWritingDataTest) {
     // 4. Write data to the rowset
     {
         Block block = _tablet_schema->create_block();
-        auto columns = block.mutate_columns();
+        auto columns = std::move(block).mutate_columns();
 
         // Add data for k1 and k2 columns according to the schema
         for (int i = 0; i < num_rows; ++i) {
@@ -865,7 +865,7 @@ TEST_F(IndexBuilderTest, AddIndexWhenOneExistsTest) {
     // 5. Write data to rowset
     {
         Block block = _tablet_schema->create_block();
-        auto columns = block.mutate_columns();
+        auto columns = std::move(block).mutate_columns();
 
         // Add data for k1 and k2 columns
         for (int i = 0; i < num_rows; ++i) {
@@ -1035,7 +1035,7 @@ TEST_F(IndexBuilderTest, AddIndexWhenOneExistsTestV1) {
     // 8. Write data to rowset
     {
         Block block = v1_schema->create_block();
-        auto columns = block.mutate_columns();
+        auto columns = std::move(block).mutate_columns();
 
         // Add data for k1 and k2 columns
         for (int i = 0; i < num_rows; ++i) {
@@ -1186,7 +1186,7 @@ TEST_F(IndexBuilderTest, MultiSegmentBuildIndexTest) {
     // 4. Write data to the rowset in multiple batches to ensure we get multiple segments
     for (int segment = 0; segment < num_segments; segment++) {
         Block block = _tablet_schema->create_block();
-        auto columns = block.mutate_columns();
+        auto columns = std::move(block).mutate_columns();
 
         // Add data for k1 and k2 columns
         for (int i = 0; i < rows_per_segment; ++i) {
@@ -1338,7 +1338,7 @@ TEST_F(IndexBuilderTest, NonExistentColumnIndexTest) {
     // 4. Write data to the rowset
     {
         Block block = _tablet_schema->create_block();
-        auto columns = block.mutate_columns();
+        auto columns = std::move(block).mutate_columns();
 
         // Add data for k1 and k2 columns
         for (int i = 0; i < num_rows; ++i) {
@@ -1514,7 +1514,7 @@ TEST_F(IndexBuilderTest, RenameColumnIndexTest) {
     // 5. Write data to the rowset
     {
         Block block = _tablet_schema->create_block();
-        auto columns = block.mutate_columns();
+        auto columns = std::move(block).mutate_columns();
 
         // Add data for k1 and k2 columns
         for (int i = 0; i < num_rows; ++i) {
@@ -1670,7 +1670,7 @@ TEST_F(IndexBuilderTest, AddNonExistentColumnIndexWhenOneExistsTest) {
     // 5. Write data to the rowset
     {
         Block block = _tablet_schema->create_block();
-        auto columns = block.mutate_columns();
+        auto columns = std::move(block).mutate_columns();
 
         // Add data for k1 and k2 columns
         for (int i = 0; i < num_rows; ++i) {
@@ -1844,7 +1844,7 @@ TEST_F(IndexBuilderTest, AddNonExistentColumnIndexWhenOneExistsTestV1) {
     // 9. Write data to rowset
     {
         Block block = v1_schema->create_block();
-        auto columns = block.mutate_columns();
+        auto columns = std::move(block).mutate_columns();
 
         // Add data for k1 and k2 columns
         for (int i = 0; i < num_rows; ++i) {
@@ -1996,7 +1996,7 @@ TEST_F(IndexBuilderTest, NonNullIndexDataTest) {
     // 4. Write non-null data to the rowset
     {
         Block block = _tablet_schema->create_block();
-        auto columns = block.mutate_columns();
+        auto columns = std::move(block).mutate_columns();
 
         // Add data for k1 and k2 columns with no null values
         for (int i = 0; i < num_rows; ++i) {
@@ -2122,7 +2122,7 @@ TEST_F(IndexBuilderTest, NonExistentColumnUniqueIdTest) {
     // 4. Write data to the rowset
     {
         Block block = _tablet_schema->create_block();
-        auto columns = block.mutate_columns();
+        auto columns = std::move(block).mutate_columns();
 
         // Add data for k1 and k2 columns
         for (int i = 0; i < num_rows; ++i) {
@@ -2255,7 +2255,7 @@ TEST_F(IndexBuilderTest, DropIndexV1FormatTest) {
     // 9. Write data to the rowset
     {
         Block block = v1_schema->create_block();
-        auto columns = block.mutate_columns();
+        auto columns = std::move(block).mutate_columns();
 
         // Add data for k1 and k2 columns
         for (int i = 0; i < num_rows; ++i) {
@@ -2381,7 +2381,7 @@ TEST_F(IndexBuilderTest, ResourceCleanupTest) {
     // 4. Write data to the rowset
     {
         Block block = _tablet_schema->create_block();
-        auto columns = block.mutate_columns();
+        auto columns = std::move(block).mutate_columns();
 
         // Add data for k1 and k2 columns
         for (int i = 0; i < num_rows; ++i) {
@@ -2538,7 +2538,7 @@ TEST_F(IndexBuilderTest, ArrayTypeIndexTest) {
     // 7. Create data block and write data
     {
         Block block = tablet_schema->create_block();
-        auto columns = block.mutate_columns();
+        auto columns = std::move(block).mutate_columns();
 
         // Prepare columns for k1 and array_col
         for (int i = 0; i < 1000; i++) {
@@ -2646,7 +2646,7 @@ TEST_F(IndexBuilderTest, UniqueKeysTableIndexTest) {
 
     {
         Block block = _tablet_schema->create_block();
-        auto columns = block.mutate_columns();
+        auto columns = std::move(block).mutate_columns();
 
         // Add data for k1 and k2 columns
         for (int i = 0; i < 1000; ++i) {
@@ -2806,7 +2806,7 @@ TEST_F(IndexBuilderTest, HandleSingleRowsetErrorTest) {
 
     {
         Block block = _tablet_schema->create_block();
-        auto columns = block.mutate_columns();
+        auto columns = std::move(block).mutate_columns();
 
         // Add data for k1 and k2 columns
         for (int i = 0; i < 1000; ++i) {
@@ -2928,7 +2928,7 @@ TEST_F(IndexBuilderTest, UpdateInvertedIndexInfoErrorTest) {
     // Write data
     {
         Block block = tablet_schema->create_block();
-        auto columns = block.mutate_columns();
+        auto columns = std::move(block).mutate_columns();
 
         // Add data for k1 and k2 columns
         for (int i = 0; i < 1000; ++i) {
@@ -3045,7 +3045,7 @@ TEST_F(IndexBuilderTest, DropOneIndexNotAffectOtherIndexesOnSameColumnTest) {
     // 5. Write data to the rowset
     {
         Block block = _tablet_schema->create_block();
-        auto columns = block.mutate_columns();
+        auto columns = std::move(block).mutate_columns();
 
         // Add data for k1 and k2 columns
         for (int i = 0; i < num_rows; ++i) {

@@ -123,8 +123,9 @@ public:
     /**
      * Get the column to read data from file with the type from file meta data.
      * If the converter is not consistent, the returned column is `_cached_src_column`.
-     * For performance reasons, the null map of `_cached_src_column` is a reference from
-     * the null map of `dst_column`, so there is no need to convert null map in `convert()`.
+     * For nullable destination columns, `_cached_src_column` is also nullable and owns its
+     * temporary null map. The reader fills this source null map first, then copies only the
+     * newly appended null slice back to the destination column before value conversion.
      *
      * According to the hive standard, if certain values fail to be converted(eg. string `row1` to int value),
      * these values are replaced by nulls.

@@ -107,7 +107,7 @@ protected:
                                   MutableColumns* columns) {
         block->set_columns(std::move(*columns));
         auto st = rowset_writer->add_block(block);
-        *columns = block->mutate_columns();
+        *columns = std::move(*block).mutate_columns();
         return st;
     }
 
@@ -343,7 +343,7 @@ TEST_P(SegCompactionMoWTest, SegCompactionThenRead) {
         // k3 := rid
         for (int i = 0; i < num_segments; ++i) {
             Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
                 uint32_t k2 = i;
@@ -449,7 +449,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         int segid = 0;
         for (int i = 0; i < num_segments; ++i) {
             Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
                 uint32_t k2 = segid;
@@ -477,7 +477,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
             Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
                 uint32_t k2 = segid;
@@ -505,7 +505,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         rows_per_segment = 4096;
         for (int i = 0; i < num_segments; ++i) {
             Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
                 uint32_t k2 = segid;
@@ -533,7 +533,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
             Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
                 uint32_t k2 = segid;
@@ -562,7 +562,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         std::map<uint32_t, uint32_t> unique_keys;
         for (int i = 0; i < num_segments; ++i) {
             Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 // generate some duplicate rows, segment compaction will merge them
                 int rand_i = rand() % (num_segments - 3);
@@ -601,7 +601,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
             Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
                 uint32_t k2 = segid;
@@ -679,7 +679,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
         int segid = 0;
         for (int i = 0; i < num_segments; ++i) {
             Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
                 uint32_t k2 = segid;
@@ -707,7 +707,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
         rows_per_segment = 4096;
         for (int i = 0; i < num_segments; ++i) {
             Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
                 uint32_t k2 = segid;
@@ -735,7 +735,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
             Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
                 uint32_t k2 = segid;
@@ -763,7 +763,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
         rows_per_segment = 4096;
         for (int i = 0; i < num_segments; ++i) {
             Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
                 uint32_t k2 = segid;
@@ -791,7 +791,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
             Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + segid;
                 uint32_t k2 = segid;
@@ -864,7 +864,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionNotTrigger) {
         // k3 := rid
         for (int i = 0; i < num_segments; ++i) {
             Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            auto columns = std::move(block).mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
                 uint32_t k2 = i;

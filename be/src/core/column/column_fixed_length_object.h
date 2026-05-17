@@ -119,6 +119,10 @@ public:
         return {reinterpret_cast<const char*>(&_data[n * _item_size]), _item_size};
     }
 
+    StringRef get_raw_data() const override {
+        return {reinterpret_cast<const char*>(_data.data()), _data.size()};
+    }
+
     void insert(const Field& x) override {
         DCHECK_EQ(x.get<TYPE_STRING>().length(), _item_size);
         insert_data(x.get<TYPE_STRING>().data(), _item_size);

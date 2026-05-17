@@ -45,10 +45,10 @@ void QueryCache::insert(const CacheKey& key, int64_t version, CacheResult& res,
     CacheResult cache_result;
     for (auto& block_data : res) {
         cache_result.emplace_back(Block::create_unique())->swap(block_data->clone_empty());
-        MutableBlock mutable_block(cache_result.back().get());
+        ScopedMutableBlock scoped_mutable_block(cache_result.back().get());
+        auto& mutable_block = scoped_mutable_block.mutable_block();
         auto st = mutable_block.merge(*block_data);
         DORIS_CHECK(st.ok());
-        cache_result.back()->set_columns(std::move(mutable_block.mutable_columns()));
     }
     auto cache_value_ptr =
             std::make_unique<QueryCache::CacheValue>(version, std::move(cache_result), slot_orders);

@@ -638,7 +638,7 @@ public:
             columnTypeAndName.type = types[i];
             block.insert(columnTypeAndName);
         }
-        MutableBlock mb = MutableBlock::build_mutable_block(&block);
+        MutableBlock mb = MutableBlock::build_mutable_block(std::move(block));
         // Rebuild block from load_cols after build_mutable_block stole the column pointers
         for (size_t i = 0; i < load_cols.size(); ++i) {
             block.get_by_position(i).column = load_cols[i]->get_ptr();
@@ -653,7 +653,7 @@ public:
             assert_block.insert(columnTypeAndName);
             empty_block.insert(columnTypeAndName);
         }
-        MutableBlock assert_mb = MutableBlock::build_mutable_block(&empty_block);
+        MutableBlock assert_mb = MutableBlock::build_mutable_block(std::move(empty_block));
         // step3. to insert data from load_cols to assert_cols
         Status st = mb.merge_impl_ignore_overflow(assert_block);
         EXPECT_TRUE(st.ok()) << "Failed to merge block: " << st.to_string();

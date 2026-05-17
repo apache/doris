@@ -895,11 +895,11 @@ TEST(BlockTest, merge_with_shared_columns) {
 
     Block temp_block({test_k1_temp, test_v1_temp, test_v2_temp});
 
-    MutableBlock mutable_block(&src_block);
+    ScopedMutableBlock scoped_mutable_block(&src_block);
+    auto& mutable_block = scoped_mutable_block.mutable_block();
     auto status = mutable_block.merge(temp_block);
     ASSERT_TRUE(status.ok());
-
-    src_block.set_columns(std::move(mutable_block.mutable_columns()));
+    scoped_mutable_block.restore();
 
     for (auto& column : src_block.get_columns()) {
         EXPECT_EQ(1034, column->size());
@@ -1023,7 +1023,7 @@ TEST(BlockTest, merge_impl_ignore_overflow) {
     block.insert(ColumnHelper::create_column_with_name<DataTypeFloat64>({}));
     auto block2 = ColumnHelper::create_block<DataTypeInt32>({});
 
-    auto mutable_block = MutableBlock::build_mutable_block(&block);
+    auto mutable_block = MutableBlock::build_mutable_block(std::move(block));
 
     auto st = mutable_block.merge_ignore_overflow(std::move(block2));
     ASSERT_FALSE(st.ok());
@@ -1274,7 +1274,8 @@ TEST(BlockTest, others) {
     ASSERT_EQ(block.get_by_position(0).type->get_primitive_type(), TYPE_INT);
     ASSERT_EQ(block.columns(), 1);
 
-    MutableBlock mutable_block(&block);
+    ScopedMutableBlock scoped_mutable_block(&block);
+    auto& mutable_block = scoped_mutable_block.mutable_block();
     auto dumped = mutable_block.dump_data();
     ASSERT_GT(dumped.size(), 0) << "Dumped data size: " << dumped.size();
     auto dumped_json = mutable_block.dump_data_json();
@@ -1314,6 +1315,99 @@ TEST(BlockTest, ClearSelectedColumnDataClonesSharedColumn) {
     EXPECT_NE(block.get_by_position(0).column.get(), old_col0.get());
     EXPECT_EQ(block.get_by_position(1).column->size(), 2);
     EXPECT_EQ(block.get_by_position(1).column.get(), old_col1.get());
+}
+
+TEST(BlockTest, ScopedMutableColumnsRestoreOnErrorAndDetachSharedColumn) {
+    auto type = std::make_shared<DataTypeInt32>();
+    auto mutable_col = ColumnInt32::create();
+    mutable_col->insert_value(1);
+    mutable_col->insert_value(2);
+    ColumnPtr old_col = mutable_col->get_ptr();
+
+    Block block;
+    block.insert({std::move(mutable_col), type, "c0"});
+
+    auto status = [&]() -> Status {
+        auto columns_guard = block.mutate_columns_scoped();
+        columns_guard.mutable_columns()[0]->insert(Field::create_field<TYPE_INT>(3));
+        return Status::InternalError("force early return");
+    }();
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(block.rows(), 3);
+    EXPECT_EQ(old_col->size(), 2);
+    EXPECT_NE(block.get_by_position(0).column.get(), old_col.get());
+}
+
+TEST(BlockTest, ScopedMutableColumnsReadSchemaFromLiveBlock) {
+    auto type = std::make_shared<DataTypeInt32>();
+    auto mutable_col = ColumnInt32::create();
+    mutable_col->insert_value(1);
+
+    Block block;
+    block.insert({std::move(mutable_col), type, "c0"});
+
+    auto columns_guard = block.mutate_columns_scoped();
+    EXPECT_EQ(block.get_by_position(0).column.get(), nullptr);
+    EXPECT_EQ(&columns_guard.get_datatype_by_position(0), &block.get_by_position(0).type);
+    EXPECT_EQ(&columns_guard.get_name_by_position(0), &block.get_by_position(0).name);
+    EXPECT_EQ(columns_guard.get_datatype_by_position(0).get(), type.get());
+    EXPECT_EQ(columns_guard.get_name_by_position(0), "c0");
+}
+
+TEST(BlockTest, ScopedMutableColumnRestoreOnErrorDetachSharedAndCreateMissingColumn) {
+    auto type = std::make_shared<DataTypeInt32>();
+    auto mutable_col = ColumnInt32::create();
+    mutable_col->insert_value(1);
+    mutable_col->insert_value(2);
+    ColumnPtr old_col = mutable_col->get_ptr();
+
+    Block block;
+    block.insert({std::move(mutable_col), type, "c0"});
+    block.insert({nullptr, type, "empty"});
+
+    auto status = [&]() -> Status {
+        auto column_guard = block.mutate_column_scoped(0);
+        EXPECT_EQ(block.get_by_position(0).column.get(), nullptr);
+        column_guard.mutable_column()->insert(Field::create_field<TYPE_INT>(3));
+        return Status::InternalError("force early return");
+    }();
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(block.get_by_position(0).column->size(), 3);
+    EXPECT_EQ(old_col->size(), 2);
+    EXPECT_NE(block.get_by_position(0).column.get(), old_col.get());
+
+    {
+        auto column_guard = block.mutate_column_scoped(1);
+        EXPECT_EQ(block.get_by_position(1).column.get(), nullptr);
+        column_guard.mutable_column()->insert(Field::create_field<TYPE_INT>(10));
+    }
+
+    ASSERT_NE(block.get_by_position(1).column.get(), nullptr);
+    EXPECT_EQ(block.get_by_position(1).column->size(), 1);
+}
+
+TEST(BlockTest, ScopedMutableBlockRestoreOnErrorAndDetachSharedColumn) {
+    auto type = std::make_shared<DataTypeInt32>();
+    auto mutable_col = ColumnInt32::create();
+    mutable_col->insert_value(1);
+    mutable_col->insert_value(2);
+    ColumnPtr old_col = mutable_col->get_ptr();
+
+    Block block;
+    block.insert({std::move(mutable_col), type, "c0"});
+
+    auto status = [&]() -> Status {
+        ScopedMutableBlock scoped_block(&block);
+        scoped_block.mutable_columns()[0]->insert(Field::create_field<TYPE_INT>(3));
+        return Status::InternalError("force early return");
+    }();
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(block.rows(), 3);
+    EXPECT_EQ(old_col->size(), 2);
+    EXPECT_NE(block.get_by_position(0).column.get(), old_col.get());
 }
 
 } // namespace doris

@@ -576,7 +576,90 @@ Columns Block::get_columns_and_convert() {
     return columns;
 }
 
-MutableColumns Block::mutate_columns() {
+Block::ScopedMutableColumns::ScopedMutableColumns(Block& block)
+        : _block(&block), _columns(std::move(block).mutate_columns()) {}
+
+Block::ScopedMutableColumns::~ScopedMutableColumns() {
+    restore();
+}
+
+Block::ScopedMutableColumns::ScopedMutableColumns(ScopedMutableColumns&& other) noexcept
+        : _block(std::exchange(other._block, nullptr)), _columns(std::move(other._columns)) {}
+
+Block::ScopedMutableColumns& Block::ScopedMutableColumns::operator=(
+        ScopedMutableColumns&& other) noexcept {
+    if (this != &other) {
+        restore();
+        _block = std::exchange(other._block, nullptr);
+        _columns = std::move(other._columns);
+    }
+    return *this;
+}
+
+const DataTypePtr& Block::ScopedMutableColumns::get_datatype_by_position(size_t position) const {
+    DCHECK(_block != nullptr);
+    return _block->get_by_position(position).type;
+}
+
+const std::string& Block::ScopedMutableColumns::get_name_by_position(size_t position) const {
+    DCHECK(_block != nullptr);
+    return _block->get_by_position(position).name;
+}
+
+void Block::ScopedMutableColumns::restore() {
+    if (_block != nullptr) {
+        _block->set_columns(std::move(_columns));
+        _block = nullptr;
+    }
+}
+
+Block::ScopedMutableColumn::ScopedMutableColumn(Block& block, size_t position)
+        : _block(&block), _position(position) {
+    DCHECK_LT(_position, _block->data.size());
+    auto& column_with_type_and_name = _block->data[_position];
+    DCHECK(column_with_type_and_name.type);
+    _column = column_with_type_and_name.column
+                      ? IColumn::mutate(std::move(column_with_type_and_name.column))
+                      : column_with_type_and_name.type->create_column();
+}
+
+Block::ScopedMutableColumn::~ScopedMutableColumn() {
+    restore();
+}
+
+Block::ScopedMutableColumn::ScopedMutableColumn(ScopedMutableColumn&& other) noexcept
+        : _block(std::exchange(other._block, nullptr)),
+          _position(other._position),
+          _column(std::move(other._column)) {}
+
+Block::ScopedMutableColumn& Block::ScopedMutableColumn::operator=(
+        ScopedMutableColumn&& other) noexcept {
+    if (this != &other) {
+        restore();
+        _block = std::exchange(other._block, nullptr);
+        _position = other._position;
+        _column = std::move(other._column);
+    }
+    return *this;
+}
+
+void Block::ScopedMutableColumn::restore() {
+    if (_block != nullptr) {
+        DCHECK_LT(_position, _block->data.size());
+        _block->data[_position].column = std::move(_column);
+        _block = nullptr;
+    }
+}
+
+Block::ScopedMutableColumns Block::mutate_columns_scoped() & {
+    return ScopedMutableColumns(*this);
+}
+
+Block::ScopedMutableColumn Block::mutate_column_scoped(size_t position) & {
+    return ScopedMutableColumn(*this, position);
+}
+
+MutableColumns Block::mutate_columns() && {
     size_t num_columns = data.size();
     MutableColumns columns(num_columns);
     for (size_t i = 0; i < num_columns; ++i) {

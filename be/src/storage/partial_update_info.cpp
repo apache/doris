@@ -20,6 +20,7 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include <cstdint>
+#include <optional>
 
 #include "common/consts.h"
 #include "common/logging.h"
@@ -338,9 +339,11 @@ Status FixedReadPlan::read_columns_by_plan(
         }
     }
     bool has_row_column = tablet_schema.has_row_store_for_all_columns();
-    MutableColumns mutable_columns;
+    std::optional<Block::ScopedMutableColumns> mutable_columns_guard;
+    MutableColumns* mutable_columns = nullptr;
     if (!has_row_column) {
-        mutable_columns = block.mutate_columns();
+        mutable_columns_guard.emplace(block);
+        mutable_columns = &mutable_columns_guard->mutable_columns();
     }
     uint32_t read_idx = 0;
     for (const auto& [rowset_id, segment_row_mappings] : plan) {
@@ -364,10 +367,11 @@ Status FixedReadPlan::read_columns_by_plan(
                 }
                 continue;
             }
-            for (size_t cid = 0; cid < mutable_columns.size(); ++cid) {
+            for (size_t cid = 0; cid < mutable_columns->size(); ++cid) {
                 TabletColumn tablet_column = tablet_schema.column(cids_to_read[cid]);
-                auto st = doris::BaseTablet::fetch_value_by_rowids(
-                        rowset_iter->second, segment_id, rids, tablet_column, mutable_columns[cid]);
+                auto st = doris::BaseTablet::fetch_value_by_rowids(rowset_iter->second, segment_id,
+                                                                   rids, tablet_column,
+                                                                   (*mutable_columns)[cid]);
                 // set read value to output block
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to fetch value";
@@ -375,9 +379,6 @@ Status FixedReadPlan::read_columns_by_plan(
                 }
             }
         }
-    }
-    if (!has_row_column) {
-        block.set_columns(std::move(mutable_columns));
     }
     return Status::OK();
 }
@@ -388,7 +389,8 @@ Status FixedReadPlan::fill_missing_columns(
         const TabletSchema& tablet_schema, Block& full_block,
         const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
         uint32_t segment_start_pos, const Block* block) const {
-    auto mutable_full_columns = full_block.mutate_columns();
+    auto mutable_full_columns_guard = full_block.mutate_columns_scoped();
+    auto& mutable_full_columns = mutable_full_columns_guard.mutable_columns();
     // create old value columns
     DCHECK(historical_context.partial_update_info != nullptr);
     DCHECK(historical_context.tablet_schema != nullptr);
@@ -420,7 +422,8 @@ Status FixedReadPlan::fill_missing_columns(
     RETURN_IF_ERROR(BaseTablet::generate_default_value_block(tablet_schema, missing_cids,
                                                              partial_update_info.default_values,
                                                              old_value_block, default_value_block));
-    auto mutable_default_value_columns = default_value_block.mutate_columns();
+    auto mutable_default_value_columns_guard = default_value_block.mutate_columns_scoped();
+    auto& mutable_default_value_columns = mutable_default_value_columns_guard.mutable_columns();
 
     // fill all missing value from mutable_old_columns, need to consider default value and null value
     for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
@@ -478,7 +481,6 @@ Status FixedReadPlan::fill_missing_columns(
             }
         }
     }
-    full_block.set_columns(std::move(mutable_full_columns));
     return Status::OK();
 }
 
@@ -499,7 +501,8 @@ Status FlexibleReadPlan::read_columns_by_plan(
         const TabletSchema& tablet_schema,
         const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset, Block& old_value_block,
         std::map<uint32_t, std::map<uint32_t, uint32_t>>* read_index) const {
-    auto mutable_columns = old_value_block.mutate_columns();
+    auto mutable_columns_guard = old_value_block.mutate_columns_scoped();
+    auto& mutable_columns = mutable_columns_guard.mutable_columns();
 
     // cid -> next rid to fill in block
     std::map<uint32_t, uint32_t> next_read_idx;
@@ -530,7 +533,6 @@ Status FlexibleReadPlan::read_columns_by_plan(
         }
     }
     // !!!ATTENTION!!!: columns in block may have different size because every row has different columns to update
-    old_value_block.set_columns(std::move(mutable_columns));
     return Status::OK();
 }
 
@@ -568,7 +570,8 @@ Status FlexibleReadPlan::fill_non_primary_key_columns(
         const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
         uint32_t segment_start_pos, uint32_t block_start_pos, const Block* block,
         std::vector<BitmapValue>* skip_bitmaps) const {
-    auto mutable_full_columns = full_block.mutate_columns();
+    auto mutable_full_columns_guard = full_block.mutate_columns_scoped();
+    auto& mutable_full_columns = mutable_full_columns_guard.mutable_columns();
     DCHECK(historical_context.partial_update_info != nullptr);
 
     // missing_cids are all non sort key columns' cids
@@ -587,7 +590,6 @@ Status FlexibleReadPlan::fill_non_primary_key_columns(
                 old_value_block, mutable_full_columns, use_default_or_null_flag,
                 has_default_or_nullable, segment_start_pos, block_start_pos, block, skip_bitmaps));
     }
-    full_block.set_columns(std::move(mutable_full_columns));
     return Status::OK();
 }
 
@@ -974,7 +976,7 @@ Status BlockAggregator::aggregate_for_sequence_column(
     const auto* delete_signs = BaseTablet::get_delete_sign_column_data(*block, num_rows);
 
     auto filtered_block = _tablet_schema.create_block();
-    MutableBlock output_block = MutableBlock::build_mutable_block(&filtered_block);
+    MutableBlock output_block = MutableBlock::build_mutable_block(std::move(filtered_block));
 
     int same_key_rows {0};
     std::string previous_key {};

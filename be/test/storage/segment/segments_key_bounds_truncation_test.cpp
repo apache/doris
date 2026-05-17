@@ -182,7 +182,7 @@ public:
         int const_value = 999;
         for (const auto& segment_rows : data) {
             Block block = tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            auto columns = std::move(block).mutate_columns();
             for (const auto& row : segment_rows) {
                 columns[0]->insert_data(row.data(), row.size());
                 columns[1]->insert_data(reinterpret_cast<const char*>(&const_value),

@@ -148,7 +148,7 @@ static void fill_varaint_column(auto& variant_column, int size, int uid) {
 }
 
 static void fill_block_with_test_data(Block* block, int size) {
-    auto columns = block->mutate_columns();
+    auto columns = std::move(*block).mutate_columns();
     // insert key
     for (int i = 0; i < size; i++) {
         auto field = Field::create_field<PrimitiveType::TYPE_INT>(i);

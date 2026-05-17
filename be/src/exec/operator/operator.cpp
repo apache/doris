@@ -360,8 +360,9 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
         }
     };
 
-    MutableBlock mutable_block =
-            VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_output_row_descriptor);
+    auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
+            output_block, *_output_row_descriptor);
+    auto& mutable_block = scoped_mutable_block.mutable_block();
     auto& mutable_columns = mutable_block.mutable_columns();
     if (rows != 0) {
         DCHECK_EQ(mutable_columns.size(), local_state->_projections.size()) << debug_string();
@@ -380,8 +381,6 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
         }
         DCHECK(mutable_block.rows() == rows);
     }
-    output_block->set_columns(std::move(mutable_columns));
-
     local_state->_estimate_memory_usage += bytes_usage;
 
     return Status::OK();

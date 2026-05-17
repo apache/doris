@@ -146,9 +146,12 @@ void ShuffleExchanger::close(SourceInfo&& source_info) {
 Status ShuffleExchanger::get_block(RuntimeState* state, Block* block, bool* eos, Profile&& profile,
                                    SourceInfo&& source_info) {
     PartitionedBlock partitioned_block;
-    MutableBlock mutable_block;
-
-    auto get_data = [&]() -> Status {
+    if (_dequeue_data(source_info.local_state, partitioned_block, eos, block,
+                      source_info.channel_id)) {
+        SCOPED_TIMER(profile.copy_data_timer);
+        auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
+                block, partitioned_block.first->_data_block);
+        auto& mutable_block = scoped_mutable_block.mutable_block();
         do {
             const auto* offset_start = partitioned_block.second.row_idxs->data() +
                                        partitioned_block.second.offset_start;
@@ -158,16 +161,6 @@ Status ShuffleExchanger::get_block(RuntimeState* state, Block* block, bool* eos,
         } while (mutable_block.rows() < state->batch_size() && !*eos &&
                  _dequeue_data(source_info.local_state, partitioned_block, eos, block,
                                source_info.channel_id));
-        return Status::OK();
-    };
-
-    if (_dequeue_data(source_info.local_state, partitioned_block, eos, block,
-                      source_info.channel_id)) {
-        SCOPED_TIMER(profile.copy_data_timer);
-        mutable_block = VectorizedUtils::build_mutable_mem_reuse_block(
-                block, partitioned_block.first->_data_block);
-        RETURN_IF_ERROR(get_data());
-        block->set_columns(std::move(mutable_block.mutable_columns()));
     }
     return Status::OK();
 }
@@ -420,13 +413,13 @@ Status BroadcastExchanger::get_block(RuntimeState* state, Block* block, bool* eo
     if (_dequeue_data(source_info.local_state, partitioned_block, eos, block,
                       source_info.channel_id)) {
         SCOPED_TIMER(profile.copy_data_timer);
-        MutableBlock mutable_block = VectorizedUtils::build_mutable_mem_reuse_block(
+        auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
                 block, partitioned_block.first->_data_block);
+        auto& mutable_block = scoped_mutable_block.mutable_block();
         auto block_wrapper = partitioned_block.first;
         RETURN_IF_ERROR(mutable_block.add_rows(&block_wrapper->_data_block,
                                                partitioned_block.second.offset_start,
                                                partitioned_block.second.length));
-        block->set_columns(std::move(mutable_block.mutable_columns()));
     }
 
     return Status::OK();
@@ -542,9 +535,12 @@ Status AdaptivePassthroughExchanger::get_block(RuntimeState* state, Block* block
         return Status::OK();
     }
     PartitionedBlock partitioned_block;
-    MutableBlock mutable_block;
-
-    auto get_data = [&]() -> Status {
+    if (_dequeue_data(source_info.local_state, partitioned_block, eos, block,
+                      source_info.channel_id)) {
+        SCOPED_TIMER(profile.copy_data_timer);
+        auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
+                block, partitioned_block.first->_data_block);
+        auto& mutable_block = scoped_mutable_block.mutable_block();
         do {
             if (partitioned_block.second.row_idxs == nullptr) {
                 // The passthrough path which means the block is not partitioned, we can directly move the block without copying.
@@ -554,6 +550,7 @@ Status AdaptivePassthroughExchanger::get_block(RuntimeState* state, Block* block
                     _tmp_eos[source_info.channel_id] = *eos;
                     *eos = false;
                 } else {
+                    scoped_mutable_block.restore();
                     *block = std::move(partitioned_block.first->_data_block);
                 }
                 break;
@@ -566,18 +563,6 @@ Status AdaptivePassthroughExchanger::get_block(RuntimeState* state, Block* block
         } while (mutable_block.rows() < state->batch_size() && !*eos &&
                  _dequeue_data(source_info.local_state, partitioned_block, eos, block,
                                source_info.channel_id));
-        return Status::OK();
-    };
-
-    if (_dequeue_data(source_info.local_state, partitioned_block, eos, block,
-                      source_info.channel_id)) {
-        SCOPED_TIMER(profile.copy_data_timer);
-        mutable_block = VectorizedUtils::build_mutable_mem_reuse_block(
-                block, partitioned_block.first->_data_block);
-        RETURN_IF_ERROR(get_data());
-        if (mutable_block.rows() > 0) {
-            block->set_columns(std::move(mutable_block.mutable_columns()));
-        }
     }
     return Status::OK();
 }

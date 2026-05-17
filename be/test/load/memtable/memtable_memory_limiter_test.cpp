@@ -154,7 +154,7 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
         block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(), slot_desc->type(),
                                            slot_desc->col_name()));
     }
-    auto columns = block.mutate_columns();
+    auto columns = std::move(block).mutate_columns();
     {
         int8_t k1 = -127;
         columns[0]->insert_data((const char*)&k1, sizeof(k1));

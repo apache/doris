@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "core/assert_cast.h"
+#include "core/column/column_fixed_length_object.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "util/timezone_utils.h"
@@ -170,6 +171,8 @@ TEST(ParquetColumnConvertTest, AlignNullMapUsesNullablePrefixForCachedReadColumn
             ColumnNullable::create(std::move(dst_nested_column), std::move(dst_null_map_column));
 
     auto src_nested_column = ColumnInt64::create();
+    src_nested_column->insert_value(8);
+    src_nested_column->insert_value(9);
     src_nested_column->insert_value(10);
     src_nested_column->insert_value(11);
     src_nested_column->insert_value(12);
@@ -254,10 +257,10 @@ TEST(ParquetColumnConvertTest,
             &field_schema, field_schema.data_type, dst_type, nullptr);
     ASSERT_TRUE(converter->support()) << converter->get_error_msg();
 
-    auto src_nested_column = ColumnUInt8::create();
-    for (auto ch : std::string("aabbcc")) {
-        src_nested_column->insert_value(static_cast<UInt8>(ch));
-    }
+    auto src_nested_column = ColumnFixedLengthObject::create(2);
+    src_nested_column->insert_data("aa", 2);
+    src_nested_column->insert_data("bb", 2);
+    src_nested_column->insert_data("cc", 2);
     auto src_null_map_column = ColumnUInt8::create();
     src_null_map_column->insert_value(0);
     src_null_map_column->insert_value(1);

@@ -25,7 +25,9 @@
 #include <limits>
 
 #include "common/cast_set.h"
+#include "core/column/column_fixed_length_object.h"
 #include "core/column/column_varbinary.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/primitive_type.h"
 #include "core/extended_types.h"
@@ -253,6 +255,25 @@ inline void align_null_map(ColumnPtr& src_column, ColumnPtr& dst_column, size_t 
     }
 }
 
+struct FixedLengthPhysicalData {
+    const uint8_t* data = nullptr;
+    size_t byte_size = 0;
+    size_t rows = 0;
+};
+
+inline FixedLengthPhysicalData get_fixed_length_physical_data(const IColumn& column,
+                                                              size_t type_length) {
+    if (const auto* fixed_length_column = check_and_get_column<ColumnFixedLengthObject>(column)) {
+        DCHECK_EQ(fixed_length_column->item_size(), type_length);
+        return {fixed_length_column->get_data().data(), fixed_length_column->byte_size(),
+                fixed_length_column->size()};
+    }
+
+    const auto& uint8_column = assert_cast<const ColumnUInt8&>(column);
+    DCHECK_EQ(uint8_column.size() % type_length, 0);
+    return {uint8_column.get_data().data(), uint8_column.size(), uint8_column.size() / type_length};
+}
+
 /**
  * Convert parquet physical column to logical column
  * In parquet document(https://github.com/apache/parquet-format/blob/master/LogicalTypes.md),
@@ -272,11 +293,12 @@ inline void align_null_map(ColumnPtr& src_column, ColumnPtr& dst_column, size_t 
  * Ultimate performance optimization:
  * 1. If process of (First => Second) is consistent, eg. from BYTE_ARRAY to string, no additional copies and conversions will be introduced;
  * 2. If process of (Second => Third) is consistent, no additional copies and conversions will be introduced;
- * 3. Null map is share among all processes, no additional copies and conversions will be introduced in null map;
+ * 3. Null maps are owned by each temporary nullable column, and only appended null slices are
+ *    copied between conversion stages;
  * 4. Only create one physical column in physical conversion, and reused in each loop;
  * 5. Only create one logical column in logical conversion, and reused in each loop;
- * 6. FIXED_LENGTH_BYTE_ARRAY is read as ColumnUInt8 instead of ColumnString, so the underlying decoder has no process to decode string
- *    and use memory copy to read the data as a whole, and the conversion has no need to resolve the Offsets in ColumnString.
+ * 6. FIXED_LENGTH_BYTE_ARRAY is read as ColumnFixedLengthObject instead of ColumnString, so
+ *    the decoder can copy fixed-size values as a whole while keeping nullable row counts valid.
  */
 class PhysicalToLogicalConverter {
 protected:
@@ -491,16 +513,16 @@ public:
         ColumnPtr from_col = remove_nullable(src_physical_col);
         IColumn* to_col = get_mutable_inner_column(src_logical_column);
 
-        auto* src_data = assert_cast<const ColumnUInt8*>(from_col.get());
-        size_t length = src_data->size();
-        size_t num_values = length / _type_length;
+        const auto src_data = get_fixed_length_physical_data(*from_col, _type_length);
+        size_t length = src_data.byte_size;
+        size_t num_values = src_data.rows;
         auto& string_col = static_cast<ColumnString&>(*to_col);
         auto& offsets = string_col.get_offsets();
         auto& chars = string_col.get_chars();
 
         size_t origin_size = chars.size();
         chars.resize(origin_size + length);
-        memcpy(chars.data() + origin_size, src_data->get_data().data(), length);
+        memcpy(chars.data() + origin_size, src_data.data, length);
 
         origin_size = offsets.size();
         offsets.resize(origin_size + num_values);
@@ -527,14 +549,13 @@ public:
         ColumnPtr from_col = remove_nullable(src_physical_col);
         IColumn* to_col = get_mutable_inner_column(src_logical_column);
 
-        const auto* src_data = assert_cast<const ColumnUInt8*>(from_col.get());
-        size_t length = src_data->size();
-        size_t num_values = length / _type_length;
+        const auto src_data = get_fixed_length_physical_data(*from_col, _type_length);
+        size_t num_values = src_data.rows;
         auto* to_float_column = assert_cast<ColumnFloat32*>(to_col);
         size_t start_idx = to_float_column->size();
         to_float_column->resize(start_idx + num_values);
         auto& to_float_column_data = to_float_column->get_data();
-        const auto* ptr = src_data->get_data().data();
+        const auto* ptr = src_data.data;
         for (int i = 0; i < num_values; ++i) {
             size_t offset = i * _type_length;
             const auto* data_ptr = ptr + offset;
@@ -604,19 +625,13 @@ public:
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         DCHECK(!is_column_const(*src_physical_col)) << src_physical_col->dump_structure();
         DCHECK(!is_column_const(*src_logical_column)) << src_logical_column->dump_structure();
-        const ColumnUInt8* uint8_col = nullptr;
-        if (is_column_nullable(*src_physical_col)) {
-            const auto& nullable = assert_cast<const ColumnNullable*>(src_physical_col.get());
-            uint8_col = &assert_cast<const ColumnUInt8&>(nullable->get_nested_column());
-        } else {
-            uint8_col = &assert_cast<const ColumnUInt8&>(*src_physical_col);
-        }
+        const ColumnPtr from_col = remove_nullable(src_physical_col);
+        const auto src_data = get_fixed_length_physical_data(*from_col, _type_length);
 
         IColumn* to_col = get_mutable_inner_column(src_logical_column);
         auto* to_varbinary_column = assert_cast<ColumnVarbinary*>(to_col);
-        size_t length = uint8_col->size();
-        size_t num_values = length / _type_length;
-        const auto* ptr = uint8_col->get_data().data();
+        size_t num_values = src_data.rows;
+        const auto* ptr = src_data.data;
 
         for (int i = 0; i < num_values; ++i) {
             auto offset = i * _type_length;
@@ -690,8 +705,9 @@ public:
 
     template <int fixed_type_length, typename ValueCopyType>
     Status _convert_internal(ColumnPtr& src_col, IColumn* dst_col) {
-        size_t rows = src_col->size() / fixed_type_length;
-        auto* buf = static_cast<const ColumnUInt8*>(src_col.get())->get_data().data();
+        const auto src_data = get_fixed_length_physical_data(*src_col, fixed_type_length);
+        size_t rows = src_data.rows;
+        const auto* buf = src_data.data;
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
 

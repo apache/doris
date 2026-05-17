@@ -2857,9 +2857,8 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
     if (_lazy_read_ctx.resize_first_column) {
         // VExprContext.execute has an optimization, the filtering is executed when block->rows() > 0
         // The following process may be tricky and time-consuming, but we have no other way.
-        auto column = IColumn::mutate(std::move(block->get_by_position(0).column));
-        column->resize(size);
-        block->replace_by_position(0, std::move(column));
+        auto column_guard = block->mutate_column_scoped(0);
+        column_guard.mutable_column()->resize(size);
     }
 
     // transactional hive orc delete row

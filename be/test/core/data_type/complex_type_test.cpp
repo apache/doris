@@ -109,12 +109,14 @@ TEST(ComplexTypeTest, DeserializeArrayWritesBackSharedNestedColumn) {
     auto buf = serialize_column(array_type, src_column->get_ptr());
 
     ColumnPtr shared_nested_column = ColumnInt32::create();
-    MutableColumnPtr dst_column = ColumnArray::create(shared_nested_column);
+    ColumnPtr shared_offsets_column = ColumnArray::ColumnOffsets::create();
+    MutableColumnPtr dst_column = ColumnArray::create(shared_nested_column, shared_offsets_column);
     deserialize_column(array_type, buf, &dst_column);
 
     const auto& array_column = assert_cast<const ColumnArray&>(*dst_column);
     EXPECT_EQ(2, array_column.size());
     EXPECT_EQ(0, shared_nested_column->size());
+    EXPECT_EQ(0, shared_offsets_column->size());
     EXPECT_EQ(3, array_column.get_data().size());
     EXPECT_EQ(2, array_column.get_offsets()[0]);
     EXPECT_EQ(3, array_column.get_offsets()[1]);
@@ -150,6 +152,7 @@ TEST(ComplexTypeTest, DeserializeMapWritesBackSharedKeyAndValueColumns) {
     EXPECT_EQ(1, map_column.size());
     EXPECT_EQ(0, shared_keys_column->size());
     EXPECT_EQ(0, shared_values_column->size());
+    EXPECT_EQ(0, offsets_column->size());
     EXPECT_EQ(2, map_column.get_keys().size());
     EXPECT_EQ(2, map_column.get_values().size());
 

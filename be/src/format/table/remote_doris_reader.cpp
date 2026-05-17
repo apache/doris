@@ -72,21 +72,24 @@ Status RemoteDorisReader::_do_get_next_block(Block* block, size_t* read_rows, bo
     auto batch = chunk.data;
     auto num_rows = batch->num_rows();
     auto num_columns = batch->num_columns();
-    auto columns = block->mutate_columns();
+    const auto block_structure = block->dump_structure();
+    auto columns_guard = block->mutate_columns_scoped();
+    auto& columns = columns_guard.mutable_columns();
     for (int c = 0; c < num_columns; ++c) {
         arrow::Array* column = batch->column(c).get();
 
         std::string column_name = batch->schema()->field(c)->name();
         if (!_col_name_to_block_idx->contains(column_name)) {
             return Status::InternalError("column {} not found in block {}", column_name,
-                                         block->dump_structure());
+                                         block_structure);
         }
 
         try {
             auto block_pos = (*_col_name_to_block_idx)[column_name];
-            const ColumnWithTypeAndName& column_with_name = block->get_by_position(block_pos);
-            RETURN_IF_ERROR(column_with_name.type->get_serde()->read_column_from_arrow(
-                    *columns[block_pos], column, 0, num_rows, _ctzz));
+            RETURN_IF_ERROR(columns_guard.get_datatype_by_position(block_pos)
+                                    ->get_serde()
+                                    ->read_column_from_arrow(*columns[block_pos], column, 0,
+                                                             num_rows, _ctzz));
         } catch (Exception& e) {
             return Status::InternalError(
                     "Failed to convert from arrow to block, column_name: {}, e: {}", column_name,
@@ -94,7 +97,6 @@ Status RemoteDorisReader::_do_get_next_block(Block* block, size_t* read_rows, bo
         }
     }
 
-    block->set_columns(std::move(columns));
     *read_rows += num_rows;
 
     return Status::OK();

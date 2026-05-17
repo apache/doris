@@ -115,9 +115,9 @@ protected:
         if (_padding_block.empty()) {
             _padding_block.swap(_origin_block);
         } else if (_origin_block.rows()) {
-            auto mutable_block = MutableBlock::build_mutable_block(&_padding_block);
+            ScopedMutableBlock scoped_mutable_block(&_padding_block);
+            auto& mutable_block = scoped_mutable_block.mutable_block();
             RETURN_IF_ERROR(mutable_block.merge(_origin_block));
-            _padding_block.set_columns(std::move(mutable_block.mutable_columns()));
         }
         return Status::OK();
     }

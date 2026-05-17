@@ -80,8 +80,8 @@ Status JsonbSerializeUtil::jsonb_to_block(
         const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx, Block& dst,
         const std::vector<std::string>& default_values,
         const std::unordered_set<int>& include_cids) {
-    MutableColumns dst_columns = dst.mutate_columns();
-    Defer restore_columns([&]() { dst.set_columns(std::move(dst_columns)); });
+    auto dst_columns_guard = dst.mutate_columns_scoped();
+    MutableColumns& dst_columns = dst_columns_guard.mutable_columns();
     for (int i = 0; i < jsonb_column.size(); ++i) {
         StringRef jsonb_data = jsonb_column.get_data_at(i);
         RETURN_IF_ERROR(jsonb_to_columns(serdes, jsonb_data.data, jsonb_data.size, col_id_to_idx,
@@ -156,8 +156,8 @@ Status JsonbSerializeUtil::jsonb_to_block(
         const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx, Block& dst,
         const std::vector<std::string>& default_values,
         const std::unordered_set<int>& include_cids) {
-    MutableColumns dst_columns = dst.mutate_columns();
-    Defer restore_columns([&]() { dst.set_columns(std::move(dst_columns)); });
+    auto dst_columns_guard = dst.mutate_columns_scoped();
+    MutableColumns& dst_columns = dst_columns_guard.mutable_columns();
     return jsonb_to_columns(serdes, data, size, col_id_to_idx, dst_columns, default_values,
                             include_cids);
 }

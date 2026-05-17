@@ -775,8 +775,9 @@ Status FileScanner::_convert_to_output_block(Block* block) {
 
     // After convert, the column_ptr should be copied into output block.
     // Can not use block->insert() because it may cause use_count() non-zero bug
-    MutableBlock mutable_output_block =
-            VectorizedUtils::build_mutable_mem_reuse_block(block, *_dest_row_desc);
+    auto scoped_mutable_output_block =
+            VectorizedUtils::build_scoped_mutable_mem_reuse_block(block, *_dest_row_desc);
+    auto& mutable_output_block = scoped_mutable_output_block.mutable_block();
     auto& mutable_output_columns = mutable_output_block.mutable_columns();
 
     std::vector<BitmapValue>* skip_bitmaps {nullptr};
@@ -868,7 +869,7 @@ Status FileScanner::_convert_to_output_block(Block* block) {
         mutable_output_columns[j]->insert_range_from(*column_ptr, 0, rows);
         ctx_idx++;
     }
-    block->set_columns(std::move(mutable_output_columns));
+    scoped_mutable_output_block.restore();
 
     // after do the dest block insert operation, clear _src_block to remove the reference of origin column
     _src_block_ptr->clear();

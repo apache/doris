@@ -667,9 +667,8 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
             if (_lazy_read_ctx.resize_first_column) {
                 // VExprContext.execute has an optimization, the filtering is executed when block->rows() > 0
                 // The following process may be tricky and time-consuming, but we have no other way.
-                auto column = IColumn::mutate(std::move(block->get_by_position(0).column));
-                column->resize(pre_read_rows);
-                block->replace_by_position(0, std::move(column));
+                auto column_guard = block->mutate_column_scoped(0);
+                column_guard.mutable_column()->resize(pre_read_rows);
             }
             result_filter.assign(pre_read_rows, static_cast<unsigned char>(1));
             std::vector<IColumn::Filter*> filters;
@@ -899,7 +898,8 @@ Status RowGroupReader::_fill_missing_columns(
         RETURN_IF_ERROR(_get_block_column_pos(*block, kv.first, &block_pos));
         if (kv.second == nullptr) {
             // no default column, fill with null
-            auto mutable_column = block->get_by_position(block_pos).column->assume_mutable();
+            auto column_guard = block->mutate_column_scoped(block_pos);
+            auto& mutable_column = column_guard.mutable_column();
             auto* nullable_column = assert_cast<ColumnNullable*>(mutable_column.get());
             nullable_column->insert_many_defaults(rows);
         } else {

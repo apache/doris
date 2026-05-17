@@ -132,9 +132,9 @@ Status SchemaRoleMappingsScanner::get_next_block_internal(Block* block, bool* eo
     }
 
     int current_batch_rows = std::min(_block_rows_limit, _total_rows - _row_idx);
-    MutableBlock mblock = MutableBlock::build_mutable_block(block);
+    ScopedMutableBlock scoped_mblock(block);
+    auto& mblock = scoped_mblock.mutable_block();
     RETURN_IF_ERROR(mblock.add_rows(_role_mappings_block.get(), _row_idx, current_batch_rows));
-    block->set_columns(std::move(mblock.mutable_columns()));
     _row_idx += current_batch_rows;
 
     *eos = _row_idx == _total_rows;

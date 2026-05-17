@@ -186,8 +186,8 @@ void VerticalBlockReader::_init_agg_state(const ReaderParams& read_params) {
         return;
     }
     DCHECK(_return_columns.size() == _next_row.block->columns());
-    _stored_data_columns =
-            _next_row.block->create_same_struct_block(_reader_context.batch_size)->mutate_columns();
+    auto stored_block = _next_row.block->create_same_struct_block(_reader_context.batch_size);
+    _stored_data_columns = std::move(*stored_block).mutate_columns();
 
     _stored_has_null_tag.resize(_stored_data_columns.size());
     _stored_has_variable_length_tag.resize(_stored_data_columns.size());
@@ -398,7 +398,8 @@ Status VerticalBlockReader::_agg_key_next_block(Block* block, bool* eof) {
         return Status::OK();
     }
     int target_block_row = 0;
-    auto target_columns = block->mutate_columns();
+    auto target_columns_guard = block->mutate_columns_scoped();
+    auto& target_columns = target_columns_guard.mutable_columns();
 
     // copy first row get from collect_iter in init
     _append_agg_data(target_columns);
@@ -413,7 +414,6 @@ Status VerticalBlockReader::_agg_key_next_block(Block* block, bool* eof) {
                 break;
             }
             LOG(WARNING) << "next failed: " << res;
-            block->set_columns(std::move(target_columns));
             return res;
         }
         DCHECK(_next_row.block->columns() == block->columns());
@@ -431,8 +431,6 @@ Status VerticalBlockReader::_agg_key_next_block(Block* block, bool* eof) {
     _agg_data_counters.push_back(_last_agg_data_counter);
     _last_agg_data_counter = 0;
     _update_agg_data(target_columns);
-    block->set_columns(std::move(target_columns));
-
     return Status::OK();
 }
 
@@ -484,7 +482,8 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
             // delete sign column must store in last column of the block
             int delete_sign_idx = block->columns() - 1;
             DCHECK(delete_sign_idx > 0);
-            auto target_columns = block->mutate_columns();
+            auto target_columns_guard = block->mutate_columns_scoped();
+            auto& target_columns = target_columns_guard.mutable_columns();
             auto delete_filter_column = IColumn::mutate(std::move(_delete_filter_column));
             auto* delete_filter_data_column =
                     reinterpret_cast<ColumnUInt8*>(delete_filter_column.get());
@@ -520,7 +519,7 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
             }
 
             const auto column_to_keep = target_columns.size();
-            block->set_columns(std::move(target_columns));
+            target_columns_guard.restore();
             _delete_filter_column = std::move(delete_filter_column);
             ColumnWithTypeAndName column_with_type_and_name {_delete_filter_column,
                                                              std::make_shared<DataTypeUInt8>(),
@@ -552,7 +551,8 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
     }
 
     // Value column processing - use batch optimization
-    auto target_columns = block->mutate_columns();
+    auto target_columns_guard = block->mutate_columns_scoped();
+    auto& target_columns = target_columns_guard.mutable_columns();
     const size_t column_count = block->columns();
 
     // Try to use batch optimization for value column compaction
@@ -566,7 +566,6 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
             RETURN_IF_ERROR(mask_iter->unique_key_next_batch(&batches, _reader_context.batch_size,
                                                              &actual_rows));
             if (actual_rows == 0) {
-                block->set_columns(std::move(target_columns));
                 *eof = true;
                 _eof = true;
                 return Status::OK();
@@ -594,7 +593,6 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
                 dst_offset += batch.count;
             }
 
-            block->set_columns(std::move(target_columns));
             return Status::OK();
         }
     }
@@ -610,7 +608,6 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
                 break;
             }
             LOG(WARNING) << "next failed: " << res;
-            block->set_columns(std::move(target_columns));
             return res;
         }
         const auto& src_block = _next_row.block;
@@ -623,7 +620,6 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
         });
         ++target_block_row;
     } while (target_block_row < _reader_context.batch_size);
-    block->set_columns(std::move(target_columns));
     return Status::OK();
 }
 

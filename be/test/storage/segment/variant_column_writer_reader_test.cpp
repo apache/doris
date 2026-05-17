@@ -264,7 +264,7 @@ protected:
 
         for (const auto& batch : batches) {
             Block block = _tablet_schema->create_block();
-            auto columns = block.mutate_columns();
+            auto columns = std::move(block).mutate_columns();
             auto variant_col = ColumnVariant::create(
                     _tablet_schema->column(0).variant_max_subcolumns_count(), false);
             auto json_col = ColumnString::create();
@@ -305,7 +305,7 @@ protected:
         }
 
         Block block = _tablet_schema->create_block();
-        auto columns = block.mutate_columns();
+        auto columns = std::move(block).mutate_columns();
         auto variant_col = ColumnVariant::create(
                 _tablet_schema->column(0).variant_max_subcolumns_count(), false);
         auto json_col = ColumnString::create();

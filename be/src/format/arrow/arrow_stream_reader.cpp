@@ -94,7 +94,8 @@ Status ArrowStreamReader::_do_get_next_block(Block* block, size_t* read_rows, bo
             std::move(res_reader).ValueUnsafe();
 
     // convert arrow batch to block
-    auto columns = block->mutate_columns();
+    auto columns_guard = block->mutate_columns_scoped();
+    auto& columns = columns_guard.mutable_columns();
     size_t batch_size = out_batches.size();
     for (size_t i = 0; i < batch_size; i++) {
         arrow::RecordBatch& batch = *out_batches[i];
@@ -105,15 +106,17 @@ Status ArrowStreamReader::_do_get_next_block(Block* block, size_t* read_rows, bo
             std::string column_name = batch.schema()->field(c)->name();
 
             try {
-                const ColumnWithTypeAndName& column_with_name = block->safe_get_by_position(c);
+                const auto& column_name_in_block = columns_guard.get_name_by_position(c);
 
-                if (column_with_name.name != column_name) {
+                if (column_name_in_block != column_name) {
                     return Status::InternalError("Column name mismatch: expected {}, got {}",
-                                                 column_with_name.name, column_name);
+                                                 column_name_in_block, column_name);
                 }
 
-                RETURN_IF_ERROR(column_with_name.type->get_serde()->read_column_from_arrow(
-                        *columns[c], column, 0, num_rows, _ctzz));
+                RETURN_IF_ERROR(
+                        columns_guard.get_datatype_by_position(c)
+                                ->get_serde()
+                                ->read_column_from_arrow(*columns[c], column, 0, num_rows, _ctzz));
             } catch (Exception& e) {
                 return Status::InternalError("Failed to convert from arrow to block: {}", e.what());
             }
@@ -121,7 +124,6 @@ Status ArrowStreamReader::_do_get_next_block(Block* block, size_t* read_rows, bo
         *read_rows += batch.num_rows();
     }
 
-    block->set_columns(std::move(columns));
     *eof = (*read_rows == 0);
     return Status::OK();
 }

@@ -230,7 +230,8 @@ Status LanceRustReader::_do_get_next_block(Block* block, size_t* read_rows, bool
     const auto num_columns = record_batch->num_columns();
 
     // Convert Arrow columns to Doris Block columns (same pattern as PaimonCppReader)
-    auto columns = block->mutate_columns();
+    auto columns_guard = block->mutate_columns_scoped();
+    auto& columns = columns_guard.mutable_columns();
     for (int c = 0; c < num_columns; ++c) {
         const auto& field = record_batch->schema()->field(c);
 
@@ -240,16 +241,17 @@ Status LanceRustReader::_do_get_next_block(Block* block, size_t* read_rows, bool
         }
 
         const auto block_pos = it->second;
-        const ColumnWithTypeAndName& column_with_name = block->get_by_position(block_pos);
         try {
-            RETURN_IF_ERROR(column_with_name.type->get_serde()->read_column_from_arrow(
-                    *columns[block_pos], record_batch->column(c).get(), 0, num_rows, _ctzz));
+            RETURN_IF_ERROR(columns_guard.get_datatype_by_position(block_pos)
+                                    ->get_serde()
+                                    ->read_column_from_arrow(*columns[block_pos],
+                                                             record_batch->column(c).get(), 0,
+                                                             num_rows, _ctzz));
         } catch (Exception& e) {
             return Status::InternalError("Failed to convert Lance arrow to block: {}", e.what());
         }
     }
 
-    block->set_columns(std::move(columns));
     *read_rows = num_rows;
     *eof = false;
     return Status::OK();

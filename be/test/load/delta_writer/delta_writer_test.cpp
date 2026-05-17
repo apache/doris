@@ -446,7 +446,7 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
 }
 
 static void generate_data(Block* block, int8_t k1, int16_t k2, int32_t seq) {
-    auto columns = block->mutate_columns();
+    auto columns = std::move(*block).mutate_columns();
     int8_t c1 = k1;
     columns[0]->insert_data((const char*)&c1, sizeof(c1));
 
@@ -569,7 +569,7 @@ TEST_F(TestDeltaWriter, vec_write) {
                                            slot_desc->col_name()));
     }
 
-    auto columns = block.mutate_columns();
+    auto columns = std::move(block).mutate_columns();
     {
         int8_t k1 = -127;
         columns[0]->insert_data((const char*)&k1, sizeof(k1));

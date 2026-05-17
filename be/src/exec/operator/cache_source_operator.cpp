@@ -156,9 +156,10 @@ Status CacheSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* 
             if (need_clone_empty) {
                 *block = output_block->clone_empty();
             }
-            auto mutable_block = MutableBlock::build_mutable_block(block);
+            ScopedMutableBlock scoped_mutable_block(block);
+            auto& mutable_block = scoped_mutable_block.mutable_block();
             RETURN_IF_ERROR(mutable_block.merge(*output_block));
-            block->set_columns(std::move(mutable_block.mutable_columns()));
+            scoped_mutable_block.restore();
             local_state._current_query_cache_rows += output_block->rows();
             auto mem_consume = output_block->allocated_bytes();
             local_state._current_query_cache_bytes += mem_consume;
@@ -181,9 +182,10 @@ Status CacheSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* 
             if (need_clone_empty) {
                 *block = hit_cache_block->clone_empty();
             }
-            auto mutable_block = MutableBlock::build_mutable_block(block);
+            ScopedMutableBlock scoped_mutable_block(block);
+            auto& mutable_block = scoped_mutable_block.mutable_block();
             RETURN_IF_ERROR(mutable_block.merge(*hit_cache_block));
-            block->set_columns(std::move(mutable_block.mutable_columns()));
+            scoped_mutable_block.restore();
             if (!local_state._hit_cache_column_orders.empty()) {
                 auto datas = block->get_columns_with_type_and_name();
                 block->clear();

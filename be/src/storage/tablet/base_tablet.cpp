@@ -876,8 +876,10 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
 }
 
 Status BaseTablet::sort_block(Block& in_block, Block& output_block) {
-    MutableBlock mutable_input_block = MutableBlock::build_mutable_block(&in_block);
-    MutableBlock mutable_output_block = MutableBlock::build_mutable_block(&output_block);
+    ScopedMutableBlock scoped_input_block(&in_block);
+    auto& mutable_input_block = scoped_input_block.mutable_block();
+    ScopedMutableBlock scoped_output_block(&output_block);
+    auto& mutable_output_block = scoped_output_block.mutable_block();
 
     std::shared_ptr<RowInBlockComparator> vec_row_comparator =
             std::make_shared<RowInBlockComparator>(_tablet_meta->tablet_schema());
@@ -903,10 +905,9 @@ Status BaseTablet::sort_block(Block& in_block, Block& output_block) {
     for (auto& block : row_in_blocks) {
         row_pos_vec.emplace_back(block->_row_pos);
     }
-    in_block.set_columns(std::move(mutable_input_block.mutable_columns()));
+    scoped_input_block.restore();
     RETURN_IF_ERROR(mutable_output_block.add_rows(&in_block, row_pos_vec.data(),
                                                   row_pos_vec.data() + input_rows));
-    output_block.set_columns(std::move(mutable_output_block.mutable_columns()));
     return Status::OK();
 }
 
@@ -992,7 +993,8 @@ Status BaseTablet::generate_default_value_block(const TabletSchema& schema,
                                                 const std::vector<std::string>& default_values,
                                                 const Block& ref_block,
                                                 Block& default_value_block) {
-    auto mutable_default_value_columns = default_value_block.mutate_columns();
+    auto mutable_default_value_columns_guard = default_value_block.mutate_columns_scoped();
+    auto& mutable_default_value_columns = mutable_default_value_columns_guard.mutable_columns();
     for (auto i = 0; i < cids.size(); ++i) {
         const auto& column = schema.column(cids[i]);
         if (column.has_default_value()) {
@@ -1002,7 +1004,6 @@ Status BaseTablet::generate_default_value_block(const TabletSchema& schema,
                     str, *mutable_default_value_columns[i]));
         }
     }
-    default_value_block.set_columns(std::move(mutable_default_value_columns));
     return Status::OK();
 }
 
@@ -1016,7 +1017,8 @@ Status BaseTablet::generate_new_block_for_partial_update(
     // 3. write a new segment and modify rowset meta
     // 4. mark current keys deleted
     CHECK(output_block);
-    auto full_mutable_columns = output_block->mutate_columns();
+    auto full_mutable_columns_guard = output_block->mutate_columns_scoped();
+    auto& full_mutable_columns = full_mutable_columns_guard.mutable_columns();
     const auto& missing_cids = partial_update_info->missing_cids;
     const auto& update_cids = partial_update_info->update_cids;
     auto old_block = rowset_schema->create_block_by_cids(missing_cids);
@@ -1119,7 +1121,7 @@ Status BaseTablet::generate_new_block_for_partial_update(
             }
         }
     }
-    output_block->set_columns(std::move(full_mutable_columns));
+    full_mutable_columns_guard.restore();
     VLOG_DEBUG << "full block when publish: " << output_block->dump_data();
     return Status::OK();
 }
@@ -1224,7 +1226,8 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
                                                              old_block, default_value_block));
 
     // 4. build the final block
-    auto full_mutable_columns = output_block->mutate_columns();
+    auto full_mutable_columns_guard = output_block->mutate_columns_scoped();
+    auto& full_mutable_columns = full_mutable_columns_guard.mutable_columns();
     DCHECK(rowset_schema->has_skip_bitmap_col());
     auto skip_bitmap_col_idx = rowset_schema->skip_bitmap_col_idx();
     const std::vector<BitmapValue>* skip_bitmaps =
@@ -1277,7 +1280,7 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
         DCHECK_EQ(full_mutable_columns[cid]->size(), update_rows);
     }
 
-    output_block->set_columns(std::move(full_mutable_columns));
+    full_mutable_columns_guard.restore();
     VLOG_DEBUG << "full block when publish: " << output_block->dump_data();
     return Status::OK();
 }

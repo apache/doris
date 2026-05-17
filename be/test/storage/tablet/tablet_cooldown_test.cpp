@@ -334,7 +334,7 @@ static void write_rowset(TabletSharedPtr* tablet, PUniqueId load_id, int64_t rep
                                            slot_desc->col_name()));
     }
     Status st;
-    auto columns = block.mutate_columns();
+    auto columns = std::move(block).mutate_columns();
 
     if (with_data) {
         int8_t c1 = 123;

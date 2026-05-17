@@ -426,8 +426,7 @@ TEST(FunctionVariantCast, CastFromVariantWithEmptyRoot) {
         auto result_col = block.get_by_position(result_column).column;
         ASSERT_NE(result_col.get(), nullptr);
         const auto* string_result = assert_cast<const ColumnString*>(result_col.get());
-        // just call ConvertImplGenericToString which will insert all source column data to ColumnString
-        ASSERT_EQ(string_result->size(), variant_col->size());
+        ASSERT_EQ(string_result->size(), 1);
         ASSERT_EQ(string_result->get_data_at(0).to_string(),
                   "{\"v\":{\"a\":20,\"b\":\"20\",\"c\":20,\"e\":\"50\",\"f\":20}}");
     }
@@ -436,7 +435,9 @@ TEST(FunctionVariantCast, CastFromVariantWithEmptyRoot) {
     {
         auto variant_col = construct_basic_varint_column();
         variant_col->finalize();
-        auto nullable_variant_col = make_nullable(variant_col->get_ptr());
+        const auto rows = variant_col->size();
+        auto nullable_variant_col =
+                ColumnNullable::create(std::move(variant_col), ColumnUInt8::create(rows, 0));
 
         auto nullable_string_type = make_nullable(std::make_shared<DataTypeString>());
         auto variant_type = std::make_shared<DataTypeVariant>();
@@ -461,7 +462,47 @@ TEST(FunctionVariantCast, CastFromVariantWithEmptyRoot) {
         ASSERT_NE(result_col.get(), nullptr);
         const auto* nullable_result = assert_cast<const ColumnNullable*>(result_col.get());
         ASSERT_EQ(nullable_result->size(), 1);
-        ASSERT_TRUE(nullable_result->is_null_at(1));
+        ASSERT_FALSE(nullable_result->is_null_at(0));
+        const auto* string_result =
+                assert_cast<const ColumnString*>(&nullable_result->get_nested_column());
+        ASSERT_EQ(string_result->get_data_at(0).to_string(),
+                  "{\"v\":{\"a\":20,\"b\":\"20\",\"c\":20,\"e\":\"50\",\"f\":20}}");
+    }
+
+    // Test case 5: nullable source null-map is preserved after the nested string cast is limited
+    // to input_rows_count.
+    {
+        auto variant_col = construct_basic_varint_column();
+        variant_col->finalize();
+        auto null_map = ColumnUInt8::create(variant_col->size(), 0);
+        null_map->get_data()[0] = 1;
+        auto nullable_variant_col =
+                ColumnNullable::create(std::move(variant_col), std::move(null_map));
+
+        auto nullable_string_type = make_nullable(std::make_shared<DataTypeString>());
+        auto variant_type = std::make_shared<DataTypeVariant>();
+        auto nullable_variant_type = make_nullable(variant_type);
+
+        ColumnsWithTypeAndName arguments {
+                {nullable_variant_col->get_ptr(), nullable_variant_type, "variant_col"},
+                {nullptr, nullable_string_type, "nullable_string_type"}};
+
+        auto function = SimpleFunctionFactory::instance().get_function("CAST", arguments,
+                                                                       nullable_string_type);
+        ASSERT_NE(function, nullptr);
+
+        Block block {arguments};
+        size_t result_column = block.columns();
+        block.insert({nullptr, nullable_string_type, "result"});
+        RuntimeState state;
+        auto ctx = FunctionContext::create_context(&state, {}, {});
+        ASSERT_TRUE(function->execute(ctx.get(), block, {0}, result_column, 1).ok());
+
+        auto result_col = block.get_by_position(result_column).column;
+        ASSERT_NE(result_col.get(), nullptr);
+        const auto* nullable_result = assert_cast<const ColumnNullable*>(result_col.get());
+        ASSERT_EQ(nullable_result->size(), 1);
+        ASSERT_TRUE(nullable_result->is_null_at(0));
     }
 }
 

@@ -162,7 +162,8 @@ void NestedLoopJoinProbeLocalState::_reset_with_next_probe_row() {
 void process_probe_block(int64_t probe_block_pos, Block& block, const Block& probe_block,
                          size_t probe_side_columns, const Block& build_block,
                          size_t build_side_columns) {
-    auto dst_columns = block.mutate_columns();
+    auto dst_columns_guard = block.mutate_columns_scoped();
+    auto& dst_columns = dst_columns_guard.mutable_columns();
     const size_t max_added_rows = build_block.rows();
     for (size_t i = 0; i < probe_side_columns; ++i) {
         const ColumnWithTypeAndName& src_column = probe_block.get_by_position(i);
@@ -197,13 +198,13 @@ void process_probe_block(int64_t probe_block_pos, Block& block, const Block& pro
                                                                    max_added_rows);
         }
     }
-    block.set_columns(std::move(dst_columns));
 }
 
 void process_build_block(int64_t build_block_pos, Block& block, const Block& build_block,
                          size_t build_side_columns, const Block& probe_block,
                          size_t probe_side_columns) {
-    auto dst_columns = block.mutate_columns();
+    auto dst_columns_guard = block.mutate_columns_scoped();
+    auto& dst_columns = dst_columns_guard.mutable_columns();
     const size_t max_added_rows = probe_block.rows();
     for (size_t i = 0; i < probe_side_columns; ++i) {
         const ColumnWithTypeAndName& src_column = probe_block.get_by_position(i);
@@ -237,7 +238,6 @@ void process_build_block(int64_t build_block_pos, Block& block, const Block& bui
                                                                   build_block_pos, max_added_rows);
         }
     }
-    block.set_columns(std::move(dst_columns));
 }
 
 void NestedLoopJoinProbeLocalState::_replace_lazy_placeholder_columns(size_t rows) {
@@ -983,7 +983,8 @@ template <bool BuildSide, bool IsSemi>
 // NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity): existing finalization handles multiple join variants.
 void NestedLoopJoinProbeLocalState::_finalize_current_phase(Block& block, size_t batch_size) {
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
-    auto dst_columns = block.mutate_columns();
+    auto dst_columns_guard = block.mutate_columns_scoped();
+    auto& dst_columns = dst_columns_guard.mutable_columns();
     DCHECK_GT(dst_columns.size(), 0);
     auto column_size = dst_columns[0]->size();
     if constexpr (BuildSide) {
@@ -1092,12 +1093,12 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(Block& block, size_t
             }
         }
     }
-    block.set_columns(std::move(dst_columns));
 }
 
 void NestedLoopJoinProbeLocalState::_append_probe_data_with_null(Block& block) const {
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
-    auto dst_columns = block.mutate_columns();
+    auto dst_columns_guard = block.mutate_columns_scoped();
+    auto& dst_columns = dst_columns_guard.mutable_columns();
     DCHECK(p._is_mark_join);
     for (size_t i = 0; i < p._num_probe_side_columns; ++i) {
         const ColumnWithTypeAndName& src_column = _child_block->get_by_position(i);
@@ -1123,7 +1124,6 @@ void NestedLoopJoinProbeLocalState::_append_probe_data_with_null(Block& block) c
     }
     auto& mark_column = *dst_columns[dst_columns.size() - 1];
     ColumnFilterHelper(mark_column).resize_fill(mark_column.size() + _probe_side_process_count, 0);
-    block.set_columns(std::move(dst_columns));
 }
 
 NestedLoopJoinProbeOperatorX::NestedLoopJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode,

@@ -159,8 +159,9 @@ protected:
         DORIS_CHECK(col_pos >= 0);
 
         if (_row_lineage_columns.first_row_id >= 0) {
-            auto col = block->get_by_position(col_pos).column->assume_mutable();
-            auto* nullable_column = assert_cast<ColumnNullable*>(col.get());
+            auto column_guard = block->mutate_column_scoped(col_pos);
+            auto* nullable_column =
+                    assert_cast<ColumnNullable*>(column_guard.mutable_column().get());
             auto& null_map = nullable_column->get_null_map_data();
             auto& data =
                     assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
@@ -180,8 +181,9 @@ protected:
         DORIS_CHECK(col_pos >= 0);
 
         if (_row_lineage_columns.last_updated_sequence_number >= 0) {
-            auto col = block->get_by_position(col_pos).column->assume_mutable();
-            auto* nullable_column = assert_cast<ColumnNullable*>(col.get());
+            auto column_guard = block->mutate_column_scoped(col_pos);
+            auto* nullable_column =
+                    assert_cast<ColumnNullable*>(column_guard.mutable_column().get());
             auto& null_map = nullable_column->get_null_map_data();
             auto& data =
                     assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
@@ -552,9 +554,9 @@ Status IcebergReaderMixin<BaseReader>::_equality_delete_base(
                 return st;
             }
             if (read_rows > 0) {
-                MutableBlock mutable_block(&eq_file_block);
+                ScopedMutableBlock scoped_mutable_block(&eq_file_block);
+                auto& mutable_block = scoped_mutable_block.mutable_block();
                 RETURN_IF_ERROR(mutable_block.merge(tmp_block));
-                eq_file_block = mutable_block.to_block();
             }
         }
     }

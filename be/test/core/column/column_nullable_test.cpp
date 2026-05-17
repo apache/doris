@@ -49,7 +49,7 @@ TEST(ColumnNullableTest, NullTest) {
     dst_col->clear();
     EXPECT_FALSE(dst_col->has_null());
     dst_col->insert_range_from(
-            *ColumnNullable::create(std::move(source_col), ColumnUInt8::create(10, 0)), 5, 5);
+            *ColumnNullable::create(std::move(source_col), ColumnUInt8::create(100, 0)), 5, 5);
     EXPECT_FALSE(dst_col->has_null());
 
     dst_col->clear();
@@ -79,6 +79,15 @@ TEST(ColumnNullableTest, NullTest) {
     EXPECT_FALSE(dst_col->has_null());
     dst_col->insert_from(*tmp_col, 9);
     EXPECT_TRUE(dst_col->has_null());
+}
+
+TEST(ColumnNullableTest, CreateRejectsMismatchedNestedAndNullMapSizes) {
+    EXPECT_THROW(
+            {
+                auto nullable = ColumnNullable::create(create_nested_column<TYPE_BIGINT>(100),
+                                                       ColumnUInt8::create(10, 0));
+            },
+            doris::Exception);
 }
 
 TEST(ColumnNullableTest, PredicateTest) {

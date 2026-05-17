@@ -212,8 +212,60 @@ public:
     /** Get empty columns with the same types as in block. */
     MutableColumns clone_empty_columns() const;
 
-    /** Get columns from block for mutation. Columns in block will be nullptr. */
-    MutableColumns mutate_columns();
+    class ScopedMutableColumns {
+    public:
+        explicit ScopedMutableColumns(Block& block);
+        ~ScopedMutableColumns();
+
+        ScopedMutableColumns(const ScopedMutableColumns&) = delete;
+        ScopedMutableColumns& operator=(const ScopedMutableColumns&) = delete;
+        ScopedMutableColumns(ScopedMutableColumns&& other) noexcept;
+        ScopedMutableColumns& operator=(ScopedMutableColumns&& other) noexcept;
+
+        MutableColumns& mutable_columns() { return _columns; }
+        const MutableColumns& mutable_columns() const { return _columns; }
+        const DataTypePtr& get_datatype_by_position(size_t position) const;
+        const std::string& get_name_by_position(size_t position) const;
+
+        void restore();
+
+    private:
+        Block* _block = nullptr;
+        MutableColumns _columns;
+    };
+
+    class ScopedMutableColumn {
+    public:
+        ScopedMutableColumn(Block& block, size_t position);
+        ~ScopedMutableColumn();
+
+        ScopedMutableColumn(const ScopedMutableColumn&) = delete;
+        ScopedMutableColumn& operator=(const ScopedMutableColumn&) = delete;
+        ScopedMutableColumn(ScopedMutableColumn&& other) noexcept;
+        ScopedMutableColumn& operator=(ScopedMutableColumn&& other) noexcept;
+
+        MutableColumnPtr& mutable_column() { return _column; }
+        const MutableColumnPtr& mutable_column() const { return _column; }
+
+        void restore();
+
+    private:
+        Block* _block = nullptr;
+        size_t _position = 0;
+        MutableColumnPtr _column;
+    };
+
+    /** Get columns from a consumed block for mutation. Columns in block will be nullptr. */
+    MutableColumns mutate_columns() &&;
+    MutableColumns mutate_columns() & = delete;
+
+    /** Get columns from a live block for mutation and restore them on every exit path. */
+    ScopedMutableColumns mutate_columns_scoped() &;
+    ScopedMutableColumns mutate_columns_scoped() && = delete;
+
+    /** Get one column from a live block for mutation and restore it on every exit path. */
+    ScopedMutableColumn mutate_column_scoped(size_t position) &;
+    ScopedMutableColumn mutate_column_scoped(size_t position) && = delete;
 
     /** Replace columns in a block */
     void set_columns(MutableColumns&& columns);
@@ -382,25 +434,30 @@ private:
     std::vector<std::string> _names;
 
 public:
-    static MutableBlock build_mutable_block(Block* block) {
-        return block == nullptr ? MutableBlock() : MutableBlock(block);
+    static MutableBlock build_mutable_block(Block&& block) {
+        return MutableBlock(std::move(block));
     }
+    static MutableBlock build_mutable_block(std::nullptr_t) { return MutableBlock(); }
+    static MutableBlock build_mutable_block(Block* block) = delete;
     MutableBlock() = default;
     ~MutableBlock() = default;
+    MutableBlock(const MutableBlock&) = delete;
+    MutableBlock& operator=(const MutableBlock&) = delete;
+    MutableBlock(MutableBlock&& m_block) noexcept
+            : _columns(std::move(m_block._columns)),
+              _data_types(std::move(m_block._data_types)),
+              _names(std::move(m_block._names)) {}
 
-    MutableBlock(Block* block)
-            : _columns(block->mutate_columns()),
-              _data_types(block->get_data_types()),
-              _names(block->get_names()) {}
     MutableBlock(Block&& block)
-            : _columns(block.mutate_columns()),
+            : _columns(std::move(block).mutate_columns()),
               _data_types(block.get_data_types()),
               _names(block.get_names()) {}
 
-    void operator=(MutableBlock&& m_block) {
+    MutableBlock& operator=(MutableBlock&& m_block) noexcept {
         _columns = std::move(m_block._columns);
         _data_types = std::move(m_block._data_types);
         _names = std::move(m_block._names);
+        return *this;
     }
 
     size_t rows() const;
@@ -409,6 +466,7 @@ public:
     bool empty() const { return rows() == 0; }
 
     MutableColumns& mutable_columns() { return _columns; }
+    const MutableColumns& mutable_columns() const { return _columns; }
 
     void set_mutable_columns(MutableColumns&& columns) { _columns = std::move(columns); }
 
@@ -603,6 +661,48 @@ public:
 
     /** Get a list of column names separated by commas. */
     std::string dump_names() const;
+};
+
+class ScopedMutableBlock {
+public:
+    ScopedMutableBlock() = delete;
+    explicit ScopedMutableBlock(Block* block) : _block(block) {
+        DCHECK(_block != nullptr);
+        _mutable_block = MutableBlock(std::move(*_block));
+    }
+    ~ScopedMutableBlock() { restore(); }
+
+    ScopedMutableBlock(const ScopedMutableBlock&) = delete;
+    ScopedMutableBlock& operator=(const ScopedMutableBlock&) = delete;
+
+    ScopedMutableBlock(ScopedMutableBlock&& other) noexcept
+            : _block(std::exchange(other._block, nullptr)),
+              _mutable_block(std::move(other._mutable_block)) {}
+
+    ScopedMutableBlock& operator=(ScopedMutableBlock&& other) noexcept {
+        if (this != &other) {
+            restore();
+            _block = std::exchange(other._block, nullptr);
+            _mutable_block = std::move(other._mutable_block);
+        }
+        return *this;
+    }
+
+    MutableBlock& mutable_block() { return _mutable_block; }
+    const MutableBlock& mutable_block() const { return _mutable_block; }
+    MutableColumns& mutable_columns() { return _mutable_block.mutable_columns(); }
+    const MutableColumns& mutable_columns() const { return _mutable_block.mutable_columns(); }
+
+    void restore() {
+        if (_block != nullptr) {
+            _block->set_columns(std::move(_mutable_block.mutable_columns()));
+            _block = nullptr;
+        }
+    }
+
+private:
+    Block* _block = nullptr;
+    MutableBlock _mutable_block;
 };
 
 struct IteratorRowRef {

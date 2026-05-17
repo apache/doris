@@ -500,8 +500,8 @@ Status PointQueryExecutor::_lookup_row_data() {
     // 3. get values
     SCOPED_TIMER(&_profile_metrics.lookup_data_ns);
     {
-        MutableColumns result_columns = _result_block->mutate_columns();
-        Defer restore_columns([&]() { _result_block->set_columns(std::move(result_columns)); });
+        auto result_columns_guard = _result_block->mutate_columns_scoped();
+        MutableColumns& result_columns = result_columns_guard.mutable_columns();
         for (size_t i = 0; i < _row_read_ctxs.size(); ++i) {
             if (_row_read_ctxs[i]._cached_row_data.valid()) {
                 RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_columns(

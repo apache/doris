@@ -832,7 +832,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, Block* in_block, bo
                                                      *local_state._build_expr_call_timer,
                                                      local_state._build_col_ids));
             local_state._build_side_mutable_block =
-                    MutableBlock::build_mutable_block(&tmp_build_block);
+                    MutableBlock::build_mutable_block(std::move(tmp_build_block));
         }
 
         if (!in_block->empty()) {

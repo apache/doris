@@ -157,8 +157,9 @@ private:
         DCHECK_LT(child_id, _child_size);
         DCHECK(!is_child_passthrough(child_id));
         if (input_block->rows() > 0) {
-            MutableBlock mblock =
-                    VectorizedUtils::build_mutable_mem_reuse_block(output_block, row_descriptor());
+            auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
+                    output_block, row_descriptor());
+            auto& mblock = scoped_mutable_block.mutable_block();
             Block res;
             auto& local_state = get_local_state(state);
             {
@@ -168,7 +169,6 @@ private:
             }
             local_state._child_row_idx += res.rows();
             RETURN_IF_ERROR(mblock.merge(res));
-            output_block->set_columns(std::move(mblock.mutable_columns()));
         }
         return Status::OK();
     }

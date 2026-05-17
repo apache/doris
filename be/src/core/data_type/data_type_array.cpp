@@ -120,15 +120,17 @@ const char* DataTypeArray::deserialize(const char* buf, MutableColumnPtr* column
     buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
 
     auto* data_column = assert_cast<ColumnArray*>(origin_column);
-    auto& offsets = data_column->get_offsets();
 
     // offsets
+    auto offsets_column = std::move(*data_column->get_offsets_ptr()).mutate();
+    auto& offsets = assert_cast<ColumnArray::ColumnOffsets&>(*offsets_column).get_data();
     offsets.resize(real_have_saved_num);
     memcpy(offsets.data(), buf, sizeof(ColumnArray::Offset64) * real_have_saved_num);
     buf += sizeof(ColumnArray::Offset64) * real_have_saved_num;
     // children
     auto nested_column = std::move(*data_column->get_data_ptr()).mutate();
     buf = get_nested_type()->deserialize(buf, &nested_column, be_exec_version);
+    data_column->get_offsets_ptr() = std::move(offsets_column);
     data_column->get_data_ptr() = std::move(nested_column);
     return buf;
 }
