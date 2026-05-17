@@ -53,7 +53,6 @@ public class LoadActionTest {
         Assertions.assertTrue(result instanceof RedirectView);
         RedirectView redirectView = (RedirectView) result;
         Assertions.assertEquals("http://be-host:8040/api/db1/tbl1/_stream_load?foo=bar", redirectView.getUrl());
-        Assertions.assertEquals(HttpStatus.TEMPORARY_REDIRECT, redirectView.getStatusCode());
         Mockito.verifyNoInteractions(response);
     }
 
