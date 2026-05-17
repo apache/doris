@@ -334,8 +334,15 @@ public class LoadAction extends RestBaseController {
 
             return createRedirectResponse(request, response, redirectAddr, isStreamLoad, dbName, tableName, label);
         } catch (StreamLoadForwardException e) {
-            // Special handling for stream load forwarding
-            return createRedirectResponse(request, response, e.getRedirectView(), isStreamLoad, db, table, label);
+            // Handle IOException from redirect response generation in the forwarding path.
+            try {
+                return createRedirectResponse(request, response, e.getRedirectView(),
+                        isStreamLoad, db, table, label);
+            } catch (IOException ioException) {
+                LOG.warn("stream load forward redirect failed, stream: {}, db: {}, tbl: {}, label: {}, err: {}",
+                        isStreamLoad, db, table, label, ioException.getMessage());
+                return new RestBaseResult(ioException.getMessage());
+            }
         } catch (Exception e) {
             LOG.warn("load failed, stream: {}, db: {}, tbl: {}, label: {}, err: {}",
                     isStreamLoad, db, table, label, e.getMessage());
