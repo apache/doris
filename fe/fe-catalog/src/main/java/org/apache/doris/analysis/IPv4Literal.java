@@ -108,7 +108,20 @@ public class IPv4Literal extends LiteralExpr {
 
     @Override
     public int compareLiteral(LiteralExpr expr) {
-        return 0;
+        if (expr instanceof PlaceHolderExpr) {
+            return this.compareLiteral(((PlaceHolderExpr) expr).getLiteral());
+        }
+        if (expr instanceof NullLiteral) {
+            return 1;
+        }
+        if (expr == MaxLiteral.MAX_VALUE) {
+            return -1;
+        }
+        if (expr instanceof IPv4Literal) {
+            // value holds the unsigned 32-bit address in a long, always non-negative
+            return Long.compare(this.value, ((IPv4Literal) expr).value);
+        }
+        return getStringValue().compareTo(expr.getStringValue());
     }
 
     @Override

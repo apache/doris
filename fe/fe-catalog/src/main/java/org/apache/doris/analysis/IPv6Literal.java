@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.gson.annotations.SerializedName;
+import com.googlecode.ipv6.IPv6Address;
 
 import java.util.regex.Pattern;
 
@@ -38,6 +39,9 @@ public class IPv6Literal extends LiteralExpr {
 
     @SerializedName("v")
     private String value;
+
+    // lazily parsed numeric form of value, used for value comparison
+    private transient IPv6Address parsedValue;
 
     /**
      * C'tor forcing type, e.g., due to implicit cast
@@ -88,9 +92,28 @@ public class IPv6Literal extends LiteralExpr {
         return IPV6_MIN.equals(this.value);
     }
 
+    private IPv6Address getParsedValue() {
+        if (parsedValue == null) {
+            parsedValue = IPv6Address.fromString(value);
+        }
+        return parsedValue;
+    }
+
     @Override
     public int compareLiteral(LiteralExpr expr) {
-        return 0;
+        if (expr instanceof PlaceHolderExpr) {
+            return this.compareLiteral(((PlaceHolderExpr) expr).getLiteral());
+        }
+        if (expr instanceof NullLiteral) {
+            return 1;
+        }
+        if (expr == MaxLiteral.MAX_VALUE) {
+            return -1;
+        }
+        if (expr instanceof IPv6Literal) {
+            return getParsedValue().compareTo(((IPv6Literal) expr).getParsedValue());
+        }
+        return getStringValue().compareTo(expr.getStringValue());
     }
 
     @Override
