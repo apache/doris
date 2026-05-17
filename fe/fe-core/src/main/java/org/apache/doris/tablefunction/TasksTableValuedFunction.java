@@ -108,6 +108,29 @@ public class TasksTableValuedFunction extends MetadataTableValuedFunction {
 
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
+        return getSchemaForDescribe(jobType);
+    }
+
+    public static List<Column> getSchemaForDescribe(Map<String, String> params) throws AnalysisException {
+        String type = null;
+        for (Map.Entry<String, String> entry : params.entrySet()) {
+            if (TYPE.equalsIgnoreCase(entry.getKey())) {
+                type = entry.getValue();
+                break;
+            }
+        }
+        if (type == null) {
+            throw new AnalysisException("Invalid task metadata query");
+        }
+        try {
+            JobType jobType = JobType.valueOf(type.toUpperCase());
+            return getSchemaForDescribe(jobType);
+        } catch (IllegalArgumentException e) {
+            throw new AnalysisException("Invalid task metadata query");
+        }
+    }
+
+    private static List<Column> getSchemaForDescribe(JobType jobType) throws AnalysisException {
         if (JobType.MV == jobType) {
             return MTMVTask.SCHEMA;
         } else if (JobType.INSERT == jobType) {

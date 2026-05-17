@@ -65,7 +65,6 @@ import org.apache.doris.datasource.FileCacheAdmissionManager;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.dictionary.LayoutType;
 import org.apache.doris.info.TableRefInfo;
-import org.apache.doris.info.TableValuedFunctionRefInfo;
 import org.apache.doris.job.common.IntervalUnit;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -8597,16 +8596,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitDescribeTableValuedFunction(DorisParser.DescribeTableValuedFunctionContext ctx) {
         String tvfName = ctx.tvfName.getText();
-        String alias = visitTableAlias(ctx.tableAlias());
         Map<String, String> params = visitPropertyItemList(ctx.properties);
-
-        TableValuedFunctionRefInfo tableValuedFunctionRefInfo = null;
-        try {
-            tableValuedFunctionRefInfo = new TableValuedFunctionRefInfo(tvfName, alias, params);
-        } catch (org.apache.doris.common.AnalysisException e) {
-            throw new AnalysisException(e.getDetailMessage());
-        }
-        return new DescribeCommand(tableValuedFunctionRefInfo);
+        return new DescribeCommand(tvfName, params);
     }
 
     @Override

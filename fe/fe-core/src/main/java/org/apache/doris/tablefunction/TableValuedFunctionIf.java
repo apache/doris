@@ -109,6 +109,48 @@ public abstract class TableValuedFunctionIf {
         }
     }
 
+    public static List<Column> getTableColumnsForDescribe(String funcName, Map<String, String> params)
+            throws AnalysisException {
+        switch (funcName.toLowerCase()) {
+            case NumbersTableValuedFunction.NAME:
+                return NumbersTableValuedFunction.getSchemaForDescribe();
+            case BackendsTableValuedFunction.NAME:
+                return BackendsTableValuedFunction.getSchemaForDescribe();
+            case FrontendsTableValuedFunction.NAME:
+                return FrontendsTableValuedFunction.getSchemaForDescribe();
+            case FrontendsDisksTableValuedFunction.NAME:
+                return FrontendsDisksTableValuedFunction.getSchemaForDescribe();
+            case CatalogsTableValuedFunction.NAME:
+                return CatalogsTableValuedFunction.getSchemaForDescribe();
+            case MvInfosTableValuedFunction.NAME:
+                return MvInfosTableValuedFunction.getSchemaForDescribe();
+            case PartitionsTableValuedFunction.NAME:
+                return PartitionsTableValuedFunction.getSchemaForDescribe(params);
+            case JobsTableValuedFunction.NAME:
+                return JobsTableValuedFunction.getSchemaForDescribe(params);
+            case TasksTableValuedFunction.NAME:
+                return TasksTableValuedFunction.getSchemaForDescribe(params);
+            case HudiTableValuedFunction.NAME:
+                return HudiTableValuedFunction.getSchemaForDescribe(params);
+            case ParquetMetadataTableValuedFunction.NAME:
+            case ParquetMetadataTableValuedFunction.NAME_FILE_METADATA:
+            case ParquetMetadataTableValuedFunction.NAME_KV_METADATA:
+            case ParquetMetadataTableValuedFunction.NAME_BLOOM_PROBE:
+                return ParquetMetadataTableValuedFunction.getSchemaForDescribe(funcName, params);
+            case S3TableValuedFunction.NAME:
+            case HdfsTableValuedFunction.NAME:
+            case LocalTableValuedFunction.NAME:
+            case HttpTableValuedFunction.NAME:
+            case HttpStreamTableValuedFunction.NAME:
+            case FileTableValuedFunction.NAME:
+            case CdcStreamTableValuedFunction.NAME:
+                return ExternalFileTableValuedFunction.getSchemaForDescribe(params);
+            default:
+                TableValuedFunctionIf tvf = getTableFunction(funcName, params);
+                return tvf.getTableColumns();
+        }
+    }
+
     public abstract String getTableName();
 
     public abstract List<Column> getTableColumns() throws AnalysisException;
