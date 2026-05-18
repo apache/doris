@@ -322,6 +322,202 @@ public:
 - 任何 table-level cast/default/generated/partition 语义都不能重新塞回
   `ParquetReader`。
 
+## ParquetReader 实现方案
+
+新 `ParquetReader` 建议基于 Arrow C++ Parquet core API 实现，而不是继续在 Doris 中
+自研完整 Parquet 解码栈。这里的“使用 Arrow”只指使用 Arrow C++ 的 Parquet 文件格式
+实现，不使用 Arrow 的内存格式适配层。
+
+### 依赖边界
+
+允许依赖：
+
+- `parquet::ParquetFileReader`
+- `parquet::FileMetaData`
+- `parquet::SchemaDescriptor`
+- `parquet::RowGroupReader`
+- `parquet::ColumnReader`
+- `parquet::TypedColumnReader<DType>`
+- `parquet::ReaderProperties`
+- `parquet::PageIndexReader`
+- `parquet::BloomFilterReader`
+
+不应依赖：
+
+- `parquet::arrow::FileReader`
+- `parquet::arrow::RowGroupReader`
+- `parquet::arrow::ColumnReader`
+- `arrow::Table`
+- `arrow::RecordBatch`
+- `arrow::Array`
+
+原因是 Doris 仍然保留自己的 `Block` 和列式内存格式。Arrow Parquet core API 只负责
+解析 Parquet 文件、解码 page、输出 physical values、definition levels 和 repetition
+levels；Doris 自己负责把这些结果写入 Doris column。
+
+建议 include 入口：
+
+```cpp
+#include <parquet/api/reader.h>
+#include <parquet/api/schema.h>
+```
+
+避免直接依赖 `parquet/*internal*.h`。如果后续确实需要 Arrow 标记为 experimental 的
+API，例如 dictionary expose 或 record reader，应在 Doris 自己的 wrapper 后面隔离。
+
+### 内部调用链
+
+`ParquetReader` 内部建议按以下链路实现：
+
+```text
+Doris io::FileReader
+    ->
+arrow::io::RandomAccessFile adapter
+    ->
+parquet::ParquetFileReader
+    ->
+parquet::FileMetaData / parquet::SchemaDescriptor
+    ->
+parquet::RowGroupReader
+    ->
+parquet::TypedColumnReader<DType>::ReadBatch
+    ->
+Doris Block / Column
+```
+
+其中 `arrow::io::RandomAccessFile adapter` 是 Doris 文件系统和 Arrow Parquet core API
+之间的薄适配层。它只转发随机读请求，不引入 Arrow table/array 作为 scan 输出。
+
+### 方法落点
+
+`ParquetReader::open`：
+
+- 保存 Doris 文件句柄和 IO 上下文；
+- 构造 Doris file 到 `arrow::io::RandomAccessFile` 的 adapter；
+- 创建 `parquet::ParquetFileReader`；
+- 读取 footer metadata；
+- 保存 `FileMetaData` 和 `SchemaDescriptor`。
+
+`ParquetReader::get_schema`：
+
+- 从 `parquet::SchemaDescriptor` 展开 Parquet leaf columns；
+- 结合 physical type、logical type、converted type、precision、scale、max definition
+  level、max repetition level 构造 `reader::SchemaField`；
+- 输出仍然是 file-local schema，不做 Iceberg field id mapping，不填 default/generated
+  columns。
+
+`ParquetReader::init`：
+
+- 接收 `reader::FileScanRequest` 或 `ParquetScanRequest`；
+- 根据 `projected_file_columns` 建立待读取的 Parquet column ordinal 集合；
+- 根据 `local_filters` 做 row group pruning；
+- 根据 page index 和 bloom filter 规划 page-level pruning；
+- 初始化当前 row group、column readers 和延时物化状态；
+- 不解释 table/global schema，不做 table-level cast/default/generated/partition 语义。
+
+`ParquetReader::next`：
+
+- 按 Doris batch size 从当前 row group 读取数据；
+- 对每个投影 leaf column 调用对应的 `TypedColumnReader<DType>::ReadBatch`；
+- 使用 definition levels 还原 nullable slots；
+- 使用 repetition levels 组装 nested value 边界；
+- 将 physical values 转换为 Doris file-local column；
+- 当前 row group 读完后切换到下一个未被裁剪的 row group；
+- 所有 row group 读完后返回 `eof=true`。
+
+### 谓词下推
+
+谓词下推仍然由 `TableColumnMapper` 决定哪些 table filter 可以变成 file-local filter。
+`ParquetReader` 只消费 `FileLocalFilter`。
+
+推荐分层：
+
+- row group pruning：使用 `ColumnChunkMetaData::statistics()`；
+- page pruning：使用 `PageIndexReader` / `ColumnIndex` / `OffsetIndex`；
+- bloom filter：使用 `BloomFilterReader`；
+- 解码后过滤：使用 `FileLocalFilter::conjunct` 或 reader expression fallback 的结果。
+
+关键约束：
+
+- Parquet 层只能基于 file-local column id 和 file-local type 做判断；
+- 如果 filter 涉及 table-level cast/default/generated/partition 语义，必须先由
+  `TableColumnMapper` 转换；
+- 不能让 Parquet 层重新理解 Iceberg schema evolution。
+
+### 延时物化
+
+基于 Arrow core column reader 可以支持 flat column 的延时物化：
+
+- 第一阶段读取谓词列；
+- 在 Doris 层计算 selection；
+- 第二阶段读取 projection 列并按 selection 输出。
+
+需要注意：
+
+- `TypedColumnReader::Skip` 跳过的是 physical values，不是 semantic rows；
+- 对 repeated/nested column，values 和 rows 不是一一对应关系；
+- 因此第一阶段建议只把 flat columns 的延时物化作为默认目标；
+- nested columns 的延时物化需要基于 definition/repetition levels 维护 row 边界，不能简单
+  用 value skip 代替 row skip。
+
+如果谓词列同时也是 projection 列，`ParquetReader` 可以在第一阶段缓存该 file-local
+column 的解码结果，第二阶段直接复用，避免重复读取。但该缓存仍然是 file-local block
+语义；是否需要执行 `finalize_expr` 由 `IcebergTableReader` 决定。
+
+### 复杂类型
+
+Arrow core `TypedColumnReader` 是 leaf-column API。它适合直接读取 primitive leaf
+values 和 def/rep levels，但不会直接生成 Doris 的 struct/list/map column。
+
+Doris 需要自己实现：
+
+- struct/list/map 的 schema 展开；
+- leaf column 到复杂列 child 的对应关系；
+- definition level 到 nullability 的转换；
+- repetition level 到 list/map row boundary 的转换；
+- 多个 leaf columns 之间的 row 对齐。
+
+第一阶段建议优先支持 flat primitive columns，并把复杂类型作为独立能力分阶段补齐。
+如果后续考虑使用 Arrow 的 record-level reader，需要单独评估 API 稳定性，因为相关路径
+存在 experimental/internal 风险。
+
+### 类型转换
+
+`ParquetReader` 只负责 Parquet physical/logical type 到 Doris file-local type 的转换。
+例如：
+
+- Parquet `INT32` / `INT64` 到 Doris 整数类型；
+- Parquet `BYTE_ARRAY` 到 Doris string；
+- Parquet decimal physical representation 到 Doris decimal；
+- Parquet timestamp logical type 或 `INT96` 到 Doris file-local timestamp 表示。
+
+table schema change 引入的类型转换不在 `ParquetReader` 中处理。比如 Iceberg table
+schema 从 `int` 演进为 `long`，应由 `TableColumnMapper` 生成 mapping/finalize 表达式，
+`ParquetReader` 仍然按文件里的 `int` 读取。
+
+### 字典编码
+
+默认方案是让 Arrow Parquet core reader 解码 dictionary，输出普通 values。这样 API
+稳定性最好，也最容易接入 Doris 现有列。
+
+后续如果要保留 dictionary indices 以支持 dictionary-aware execution，可以考虑
+`ColumnWithExposeEncoding` / `ReadBatchWithDictionary`，但这些 API 带 experimental 属性，
+必须封装在 Doris 内部 wrapper 后面，不能扩散到 `TableReader` 或 `IcebergTableReader`
+接口。
+
+### 实施顺序
+
+建议按以下顺序落地：
+
+1. 实现 Doris file 到 `arrow::io::RandomAccessFile` 的 adapter。
+2. 用 `parquet::ParquetFileReader` 打开文件并解析 metadata/schema。
+3. 支持 flat primitive columns 的 projection 读取。
+4. 支持 nullable flat columns，通过 definition levels 还原 null bitmap。
+5. 接入 row group statistics pruning。
+6. 接入 flat column 的延时物化。
+7. 接入 page index 和 bloom filter。
+8. 分阶段支持 decimal、timestamp、string lifetime 管理和复杂类型。
+
 ## 关键类型
 
 ### SchemaField
