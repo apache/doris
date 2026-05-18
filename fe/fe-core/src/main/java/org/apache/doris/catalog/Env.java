@@ -4469,9 +4469,11 @@ public class Env {
             if (icebergExternalTable.hasSortOrder()) {
                 sb.append("\n").append(icebergExternalTable.getSortOrderSql());
             }
-            String partitionSpecSql = icebergExternalTable.getPartitionSpecSql();
-            if (!partitionSpecSql.isEmpty()) {
-                sb.append("\n").append(partitionSpecSql);
+            if (table instanceof IcebergExternalTable) {
+                String partitionSpecSql = icebergExternalTable.getPartitionSpecSql();
+                if (!partitionSpecSql.isEmpty()) {
+                    sb.append("\n").append(partitionSpecSql);
+                }
             }
             sb.append("\nLOCATION '").append(icebergExternalTable.location()).append("'");
             sb.append("\nPROPERTIES (");
@@ -4865,9 +4867,11 @@ public class Env {
             if (icebergExternalTable.hasSortOrder()) {
                 sb.append("\n").append(icebergExternalTable.getSortOrderSql());
             }
-            String partitionSpecSql = icebergExternalTable.getPartitionSpecSql();
-            if (!partitionSpecSql.isEmpty()) {
-                sb.append("\n").append(partitionSpecSql);
+            if (table instanceof IcebergExternalTable) {
+                String partitionSpecSql = icebergExternalTable.getPartitionSpecSql();
+                if (!partitionSpecSql.isEmpty()) {
+                    sb.append("\n").append(partitionSpecSql);
+                }
             }
             sb.append("\nLOCATION '").append(icebergExternalTable.location()).append("'");
             sb.append("\nPROPERTIES (");
