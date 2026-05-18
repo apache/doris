@@ -384,11 +384,12 @@ public class NestedColumnPruning implements CustomRewriter {
             stripCoveredOffsetSuffixPaths(slot, predicateAccessPaths, allAccessPaths);
             stripCoveredArrayNullSuffixPaths(slot, predicateAccessPaths, allAccessPaths);
             stripNullSuffixPaths(slot, predicateAccessPaths);
-            retainPredicatePathsInAllAccessPaths(slot, predicateAccessPaths, allAccessPaths);
             List<ColumnAccessPath> predicatePaths =
                     buildColumnAccessPaths(slot, predicateAccessPaths);
             AccessPathInfo accessPathInfo = result.get(slot.getExprId().asInt());
             if (accessPathInfo != null) {
+                retainPredicatePathsInFinalAllAccessPaths(
+                        predicatePaths, accessPathInfo.getAllAccessPaths());
                 accessPathInfo.getPredicateAccessPaths().addAll(predicatePaths);
             }
         }
@@ -399,6 +400,8 @@ public class NestedColumnPruning implements CustomRewriter {
                     buildColumnAccessPaths(slot, predicateAccessPaths);
             AccessPathInfo accessPathInfo = result.get(slot.getExprId().asInt());
             if (accessPathInfo != null) {
+                retainPredicatePathsInFinalAllAccessPaths(
+                        predicatePaths, accessPathInfo.getAllAccessPaths());
                 accessPathInfo.getPredicateAccessPaths().addAll(predicatePaths);
             }
         }
@@ -620,7 +623,7 @@ public class NestedColumnPruning implements CustomRewriter {
             }
             List<String> prefix = path.subList(0, path.size() - 1);
             for (List<String> fullAccessPath : fullAccessPaths) {
-                if (fullAccessPath.equals(prefix)) {
+                if (pathCoversPrefix(fullAccessPath, prefix)) {
                     pathsToRemove.add(p);
                     break;
                 }
@@ -847,30 +850,25 @@ public class NestedColumnPruning implements CustomRewriter {
     /**
      * Keep predicate access paths as a subset of final all access paths after NULL/OFFSET cleanup.
      * Predicate paths are built from filter expressions first, but later all-path rewrites may drop
-     * metadata-only paths. Any predicate path not present in all paths must be removed before sending
-     * access info to BE.
+     * metadata-only paths or collapse paths to whole-column access. Any predicate path not present
+     * in final all paths must be removed before sending access info to BE.
      *
      * <p>Examples:
      * <ul>
-     *   <li>All paths {@code [s.city]}, predicate paths {@code [s.NULL]} becomes no predicate
+     *   <li>All paths {@code [s]}, predicate paths {@code [s.city.NULL]} becomes no predicate
      *       paths after parent NULL removal.</li>
      *   <li>All paths {@code [s.city.NULL, s.zip]}, predicate paths
      *       {@code [s.NULL, s.city.NULL]} becomes {@code [s.city.NULL]}.</li>
      * </ul>
      */
-    private static void retainPredicatePathsInAllAccessPaths(
-            Slot slot,
-            Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> predicateAccessPaths,
-            Multimap<Integer, Pair<ColumnAccessPathType, List<String>>> allAccessPaths) {
-        int slotId = slot.getExprId().asInt();
-        Collection<Pair<ColumnAccessPathType, List<String>>> predicatePaths = predicateAccessPaths.get(slotId);
+    private static void retainPredicatePathsInFinalAllAccessPaths(
+            List<ColumnAccessPath> predicatePaths, List<ColumnAccessPath> allPaths) {
         if (predicatePaths.isEmpty()) {
             return;
         }
 
-        Collection<Pair<ColumnAccessPathType, List<String>>> allPaths = allAccessPaths.get(slotId);
-        List<Pair<ColumnAccessPathType, List<String>>> toRemove = new ArrayList<>();
-        for (Pair<ColumnAccessPathType, List<String>> predicatePath : predicatePaths) {
+        List<ColumnAccessPath> toRemove = new ArrayList<>();
+        for (ColumnAccessPath predicatePath : predicatePaths) {
             if (!allPaths.contains(predicatePath)) {
                 toRemove.add(predicatePath);
             }
@@ -880,6 +878,10 @@ public class NestedColumnPruning implements CustomRewriter {
 
     private static boolean hasStrictPrefix(List<String> path, List<String> prefix) {
         return path.size() > prefix.size() && path.subList(0, prefix.size()).equals(prefix);
+    }
+
+    private static boolean pathCoversPrefix(List<String> path, List<String> prefix) {
+        return prefix.size() >= path.size() && prefix.subList(0, path.size()).equals(path);
     }
 
     private static List<ColumnAccessPath> buildColumnAccessPaths(

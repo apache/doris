@@ -661,6 +661,11 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 ImmutableList.of(path("s")),
                 ImmutableList.of()
         );
+        assertColumn("select s from tbl where struct_element(s, 'city') is null",
+                "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s")),
+                ImmutableList.of()
+        );
 
         assertColumn("select struct_element(s, 'data') from tbl where struct_element(s, 'city') is not null",
                 "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
