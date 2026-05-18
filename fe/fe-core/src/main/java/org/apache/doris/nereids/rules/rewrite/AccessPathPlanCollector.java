@@ -25,11 +25,13 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Explode;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeMap;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeMapOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeVariantArray;
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplode;
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplodeOuter;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
@@ -64,6 +66,7 @@ import java.util.TreeSet;
 public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementContext> {
     private Multimap<Integer, CollectAccessPathResult> allSlotToAccessPaths = LinkedHashMultimap.create();
     private Map<Slot, List<CollectAccessPathResult>> scanSlotToAccessPaths = new LinkedHashMap<>();
+    private boolean collectWholeVariantOutputEnabled = true;
 
     public Map<Slot, List<CollectAccessPathResult>> collect(Plan root, StatementContext context) {
         root.accept(this, context);
@@ -89,11 +92,12 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
             Function function = generators.get(i);
             Collection<CollectAccessPathResult> accessPaths = allSlotToAccessPaths.get(
                     generatorOutput.getExprId().asInt());
-            if (function instanceof Explode || function instanceof ExplodeOuter) {
+            if (function instanceof Explode || function instanceof ExplodeOuter
+                    || function instanceof ExplodeVariantArray) {
                 if (accessPaths.isEmpty()) {
                     // use the whole column
                     for (Expression child : function.children()) {
-                        exprCollector.collect(child);
+                        exprCollector.collectWholeVariantExpression(child);
                     }
                 } else {
                     for (CollectAccessPathResult accessPath : accessPaths) {
@@ -105,6 +109,7 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                             if (function.child(0).getDataType().isVariantType()) {
                                 argumentContext.getAccessPathBuilder()
                                         .addSuffix(path.subList(1, path.size()));
+                                argumentContext.setCollectVariantRoot(path.size() == 1);
                             } else {
                                 argumentContext.getAccessPathBuilder()
                                         .addSuffix(AccessPathInfo.ACCESS_ALL)
@@ -122,6 +127,7 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                             if (function.child(colIndex).getDataType().isVariantType()) {
                                 argumentContext.getAccessPathBuilder()
                                         .addSuffix(path.subList(2, path.size()));
+                                argumentContext.setCollectVariantRoot(path.size() == 2);
                             } else {
                                 argumentContext.getAccessPathBuilder()
                                         .addSuffix(AccessPathInfo.ACCESS_ALL)
@@ -132,7 +138,7 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                         }
                         // use the whole column
                         for (Expression child : function.children()) {
-                            exprCollector.collect(child);
+                            exprCollector.collectWholeVariantExpression(child);
                         }
                     }
                 }
@@ -140,7 +146,7 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                 if (accessPaths.isEmpty()) {
                     // use the whole column
                     for (Expression child : function.children()) {
-                        exprCollector.collect(child);
+                        exprCollector.collectWholeVariantExpression(child);
                     }
                 } else {
                     for (CollectAccessPathResult accessPath : accessPaths) {
@@ -171,14 +177,14 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                             }
                         }
                         // use the whole column
-                        exprCollector.collect(function.child(0));
+                        exprCollector.collectWholeVariantExpression(function.child(0));
                     }
                 }
             } else if (function instanceof PosExplode || function instanceof PosExplodeOuter) {
                 if (accessPaths.isEmpty()) {
                     // use the whole column
                     for (Expression child : function.children()) {
-                        exprCollector.collect(child);
+                        exprCollector.collectWholeVariantExpression(child);
                     }
                 } else {
                     boolean useWholeItem = false;
@@ -209,7 +215,7 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                     if (useWholeItem) {
                         // use the whole column
                         for (Expression child : function.children()) {
-                            exprCollector.collect(child);
+                            exprCollector.collectWholeVariantExpression(child);
                         }
                     } else {
                         for (int j = 0; j < function.arity(); j++) {
@@ -223,7 +229,13 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                 exprCollector.collect(function);
             }
         }
-        return generate.child().accept(this, context);
+        boolean previousCollectWholeVariantOutputEnabled = collectWholeVariantOutputEnabled;
+        collectWholeVariantOutputEnabled = false;
+        try {
+            return generate.child().accept(this, context);
+        } finally {
+            collectWholeVariantOutputEnabled = previousCollectWholeVariantOutputEnabled;
+        }
     }
 
     @Override
@@ -231,34 +243,52 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
         AccessPathExpressionCollector exprCollector
                 = new AccessPathExpressionCollector(context, allSlotToAccessPaths, false);
         for (NamedExpression output : project.getProjects()) {
+            Collection<CollectAccessPathResult> outputAccessPaths =
+                    allSlotToAccessPaths.get(output.getExprId().asInt());
             // e.g. select struct_element(s, 'city') from (select s from tbl)a;
             // we will not treat the inner `s` access all path
-            if (output instanceof Slot && allSlotToAccessPaths.containsKey(output.getExprId().asInt())) {
+            if (collectWholeVariantOutputEnabled && output instanceof Slot
+                    && collectWholeVariantOutput((Slot) output)) {
                 continue;
-            } else if (output instanceof Alias && output.child(0) instanceof Slot
-                    && allSlotToAccessPaths.containsKey(output.getExprId().asInt())) {
-                Slot innerSlot = (Slot) output.child(0);
-                Collection<CollectAccessPathResult> outerSlotAccessPaths = allSlotToAccessPaths.get(
-                        output.getExprId().asInt());
-                for (CollectAccessPathResult outerSlotAccessPath : outerSlotAccessPaths) {
-                    List<String> outerPath = outerSlotAccessPath.getPath();
-                    List<String> replaceSlotNamePath = new ArrayList<>();
-                    replaceSlotNamePath.add(innerSlot.getName());
-                    replaceSlotNamePath.addAll(outerPath.subList(1, outerPath.size()));
-                    allSlotToAccessPaths.put(
-                            innerSlot.getExprId().asInt(),
-                            new CollectAccessPathResult(
-                                    replaceSlotNamePath,
-                                    outerSlotAccessPath.isPredicate(),
-                                    outerSlotAccessPath.getType()
-                            )
-                    );
-                }
+            } else if (output instanceof Slot && !outputAccessPaths.isEmpty()) {
+                continue;
+            } else if (output instanceof Alias && !outputAccessPaths.isEmpty()) {
+                collectAliasAccessPaths((Alias) output, outputAccessPaths, exprCollector, context);
+            } else if (collectWholeVariantOutputEnabled && output instanceof Alias && output.child(0) instanceof Slot
+                    && collectWholeVariantOutput((Slot) output.child(0))) {
+                continue;
+            } else if (collectWholeVariantOutputEnabled && output.getDataType().isVariantType()) {
+                exprCollector.collectWholeVariantExpression(output);
             } else {
                 exprCollector.collect(output);
             }
         }
-        return project.child().accept(this, context);
+        boolean previousCollectWholeVariantOutputEnabled = collectWholeVariantOutputEnabled;
+        collectWholeVariantOutputEnabled = false;
+        try {
+            return project.child().accept(this, context);
+        } finally {
+            collectWholeVariantOutputEnabled = previousCollectWholeVariantOutputEnabled;
+        }
+    }
+
+    private void collectAliasAccessPaths(Alias alias, Collection<CollectAccessPathResult> aliasAccessPaths,
+            AccessPathExpressionCollector exprCollector, StatementContext context) {
+        Expression child = alias.child(0);
+        if (collectWholeVariantOutputEnabled && child.getDataType().isVariantType()) {
+            exprCollector.collectWholeVariantExpression(child);
+        }
+        for (CollectAccessPathResult aliasAccessPath : aliasAccessPaths) {
+            List<String> aliasPath = aliasAccessPath.getPath();
+            CollectorContext childContext = new CollectorContext(context, aliasAccessPath.isPredicate());
+            childContext.setType(aliasAccessPath.getType());
+            if (aliasPath.size() == 1 && child.getDataType().isVariantType()) {
+                childContext.setCollectVariantRoot(true);
+            } else {
+                childContext.getAccessPathBuilder().addSuffix(aliasPath.subList(1, aliasPath.size()));
+            }
+            child.accept(exprCollector, childContext);
+        }
     }
 
     @Override
@@ -305,7 +335,13 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
 
     @Override
     public Void visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer, StatementContext context) {
-        return cteProducer.child().accept(this, context);
+        boolean previousCollectWholeVariantOutputEnabled = collectWholeVariantOutputEnabled;
+        collectWholeVariantOutputEnabled = false;
+        try {
+            return cteProducer.child().accept(this, context);
+        } finally {
+            collectWholeVariantOutputEnabled = previousCollectWholeVariantOutputEnabled;
+        }
     }
 
     @Override
@@ -389,6 +425,18 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
         for (Expression expression : plan.getExpressions()) {
             exprCollector.collect(expression);
         }
+    }
+
+    private boolean collectWholeVariantOutput(Slot slot) {
+        if (!slot.getDataType().isVariantType()
+                || (slot instanceof SlotReference && ((SlotReference) slot).hasSubColPath())) {
+            return false;
+        }
+        List<String> path = new ArrayList<>();
+        path.add(slot.getName());
+        allSlotToAccessPaths.put(slot.getExprId().asInt(),
+                new CollectAccessPathResult(path, false, ColumnAccessPathType.DATA));
+        return true;
     }
 
     static List<CollectAccessPathResult> normalizeDataSkippingOnlyAccessPaths(

@@ -136,6 +136,8 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
     const FieldDescriptor* field_desc = nullptr;
     RETURN_IF_ERROR(this->get_file_metadata_schema(&field_desc));
     DCHECK(field_desc != nullptr);
+    this->prepare_parquet_file_schema_with_ids(field_desc);
+    field_desc = &this->parquet_file_schema();
 
     // Build table_info_node by field_id or name matching.
     // This must happen BEFORE column classification so we can use children_column_exists
@@ -312,8 +314,8 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
 // ============================================================================
 ColumnIdResult IcebergParquetReader::_create_column_ids(const FieldDescriptor* field_desc,
                                                         const TupleDescriptor* tuple_descriptor) {
-    auto* mutable_field_desc = const_cast<FieldDescriptor*>(field_desc);
-    mutable_field_desc->assign_ids();
+    FieldDescriptor field_desc_with_ids = field_desc->copy_with_assigned_ids();
+    field_desc = &field_desc_with_ids;
 
     std::unordered_map<int, const FieldSchema*> iceberg_id_to_field_schema_map;
     for (int i = 0; i < field_desc->size(); ++i) {
@@ -344,7 +346,7 @@ ColumnIdResult IcebergParquetReader::_create_column_ids(const FieldDescriptor* f
         auto field_schema = it->second;
 
         if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
-             slot->col_type() != TYPE_MAP)) {
+             slot->col_type() != TYPE_MAP && slot->col_type() != TYPE_VARIANT)) {
             column_ids.insert(field_schema->column_id);
             if (slot->is_predicate()) {
                 filter_column_ids.insert(field_schema->column_id);

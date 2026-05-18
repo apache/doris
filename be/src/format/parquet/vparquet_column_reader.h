@@ -18,13 +18,16 @@
 #pragma once
 #include <gen_cpp/parquet_types.h>
 #include <glog/logging.h>
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <list>
 #include <memory>
 #include <ostream>
+#include <set>
+#include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
@@ -48,10 +51,34 @@ struct IOContext;
 } // namespace doris::io
 
 namespace doris {
+class Field;
 struct FieldSchema;
+class IColumn;
+class ColumnVariant;
 template <typename T>
 class ColumnStr;
 using ColumnString = ColumnStr<UInt32>;
+
+#ifdef BE_TEST
+namespace parquet_variant_reader_test {
+bool can_direct_read_typed_value_for_test(const FieldSchema& typed_value_field);
+bool can_use_direct_typed_only_value_for_test(const FieldSchema& variant_field,
+                                              const std::set<uint64_t>& column_ids);
+Status append_direct_typed_column_to_batch_for_test(const FieldSchema& typed_value_field,
+                                                    const IColumn& typed_value_column, size_t start,
+                                                    size_t rows, ColumnVariant* batch);
+Status read_variant_row_for_test(const FieldSchema& variant_field, const Field& field,
+                                 bool output_nullable, Field* result, bool* sql_null);
+Status read_variant_rows_for_test(const FieldSchema& variant_field, const IColumn& struct_column,
+                                  const std::set<uint64_t>& column_ids, ColumnPtr& doris_column,
+                                  int64_t* direct_rows, int64_t* rowwise_rows);
+Status variant_to_json_for_test(const FieldSchema& variant_field, const Field& field,
+                                const std::string& inherited_metadata, std::string* json,
+                                bool* present);
+bool variant_struct_reader_type_is_nullable_for_test(const FieldSchema& variant_field);
+bool variant_struct_reader_column_is_nullable_for_test(const FieldSchema& variant_field);
+} // namespace parquet_variant_reader_test
+#endif
 
 class ParquetColumnReader {
 public:
@@ -76,7 +103,9 @@ public:
                   page_cache_hit_counter(0),
                   page_cache_missing_counter(0),
                   page_cache_compressed_hit_counter(0),
-                  page_cache_decompressed_hit_counter(0) {}
+                  page_cache_decompressed_hit_counter(0),
+                  variant_direct_typed_value_read_rows(0),
+                  variant_rowwise_read_rows(0) {}
 
         ColumnStatistics(ColumnChunkReaderStatistics& cs, int64_t null_map_time,
                          int64_t convert_time_)
@@ -99,7 +128,9 @@ public:
                   page_cache_hit_counter(cs.page_cache_hit_counter),
                   page_cache_missing_counter(cs.page_cache_missing_counter),
                   page_cache_compressed_hit_counter(cs.page_cache_compressed_hit_counter),
-                  page_cache_decompressed_hit_counter(cs.page_cache_decompressed_hit_counter) {}
+                  page_cache_decompressed_hit_counter(cs.page_cache_decompressed_hit_counter),
+                  variant_direct_typed_value_read_rows(0),
+                  variant_rowwise_read_rows(0) {}
 
         int64_t page_index_read_calls;
         int64_t decompress_time;
@@ -121,6 +152,8 @@ public:
         int64_t page_cache_missing_counter;
         int64_t page_cache_compressed_hit_counter;
         int64_t page_cache_decompressed_hit_counter;
+        int64_t variant_direct_typed_value_read_rows;
+        int64_t variant_rowwise_read_rows;
 
         void merge(ColumnStatistics& col_statistics) {
             page_index_read_calls += col_statistics.page_index_read_calls;
@@ -146,6 +179,9 @@ public:
             page_cache_compressed_hit_counter += col_statistics.page_cache_compressed_hit_counter;
             page_cache_decompressed_hit_counter +=
                     col_statistics.page_cache_decompressed_hit_counter;
+            variant_direct_typed_value_read_rows +=
+                    col_statistics.variant_direct_typed_value_read_rows;
+            variant_rowwise_read_rows += col_statistics.variant_rowwise_read_rows;
         }
     };
 
@@ -158,6 +194,10 @@ public:
                                     FilterMap& filter_map, size_t batch_size, size_t* read_rows,
                                     bool* eof, bool is_dict_filter,
                                     int64_t real_column_size = -1) = 0;
+    virtual Status read_nested_levels(FilterMap& filter_map, size_t batch_size, size_t* read_rows,
+                                      bool* eof) {
+        return Status::NotSupported("read_nested_levels is not supported for parquet field");
+    }
 
     virtual Status read_dict_values_to_column(MutableColumnPtr& doris_column, bool* has_dict) {
         return Status::NotSupported("read_dict_values_to_column is not supported");
@@ -211,11 +251,10 @@ class ScalarColumnReader : public ParquetColumnReader {
     ENABLE_FACTORY_CREATOR(ScalarColumnReader)
 public:
     ScalarColumnReader(const RowRanges& row_ranges, size_t total_rows,
-                       const tparquet::ColumnChunk& chunk_meta,
-                       const tparquet::OffsetIndex* offset_index, const cctz::time_zone* ctz,
-                       io::IOContext* io_ctx)
+                       tparquet::ColumnChunk chunk_meta, const tparquet::OffsetIndex* offset_index,
+                       const cctz::time_zone* ctz, io::IOContext* io_ctx)
             : ParquetColumnReader(row_ranges, total_rows, ctz, io_ctx),
-              _chunk_meta(chunk_meta),
+              _chunk_meta(std::move(chunk_meta)),
               _offset_index(offset_index) {}
     ~ScalarColumnReader() override { close(); }
     Status init(io::FileReaderSPtr file, FieldSchema* field, size_t max_buf_size,
@@ -325,6 +364,11 @@ private:
     Status _read_nested_column(ColumnPtr& doris_column, DataTypePtr& type, FilterMap& filter_map,
                                size_t batch_size, size_t* read_rows, bool* eof,
                                bool is_dict_filter);
+    Status _read_and_skip_nested_levels(FilterMap& filter_map, size_t before_rep_level_sz,
+                                        size_t filter_map_index,
+                                        std::vector<uint8_t>& nested_filter_map_data);
+    Status read_nested_levels(FilterMap& filter_map, size_t batch_size, size_t* read_rows,
+                              bool* eof) override;
     Status _try_load_dict_page(bool* loaded, bool* has_dict);
 };
 
@@ -335,11 +379,16 @@ public:
                       io::IOContext* io_ctx)
             : ParquetColumnReader(row_ranges, total_rows, ctz, io_ctx) {}
     ~ArrayColumnReader() override { close(); }
-    Status init(std::unique_ptr<ParquetColumnReader> element_reader, FieldSchema* field);
+    Status init(std::unique_ptr<ParquetColumnReader> element_reader, FieldSchema* field,
+                bool offset_only);
     Status read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
                             const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node,
                             FilterMap& filter_map, size_t batch_size, size_t* read_rows, bool* eof,
                             bool is_dict_filter, int64_t real_column_size = -1) override;
+    Status read_nested_levels(FilterMap& filter_map, size_t batch_size, size_t* read_rows,
+                              bool* eof) override {
+        return _element_reader->read_nested_levels(filter_map, batch_size, read_rows, eof);
+    }
     const std::vector<level_t>& get_rep_level() const override {
         return _element_reader->get_rep_level();
     }
@@ -353,6 +402,7 @@ public:
 
 private:
     std::unique_ptr<ParquetColumnReader> _element_reader;
+    bool _offset_only = false;
 };
 
 class MapColumnReader : public ParquetColumnReader {
@@ -369,6 +419,10 @@ public:
                             const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node,
                             FilterMap& filter_map, size_t batch_size, size_t* read_rows, bool* eof,
                             bool is_dict_filter, int64_t real_column_size = -1) override;
+    Status read_nested_levels(FilterMap& filter_map, size_t batch_size, size_t* read_rows,
+                              bool* eof) override {
+        return _key_reader->read_nested_levels(filter_map, batch_size, read_rows, eof);
+    }
 
     const std::vector<level_t>& get_rep_level() const override {
         return _key_reader->get_rep_level();
@@ -411,6 +465,8 @@ public:
                             const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node,
                             FilterMap& filter_map, size_t batch_size, size_t* read_rows, bool* eof,
                             bool is_dict_filter, int64_t real_column_size = -1) override;
+    Status read_nested_levels(FilterMap& filter_map, size_t batch_size, size_t* read_rows,
+                              bool* eof) override;
 
     const std::vector<level_t>& get_rep_level() const override {
         if (!_read_column_names.empty()) {
@@ -458,6 +514,49 @@ private:
     std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> _child_readers;
     std::vector<std::string> _read_column_names;
     //Need to use vector instead of set,see `get_rep_level()` for the reason.
+};
+
+class VariantColumnReader : public ParquetColumnReader {
+    ENABLE_FACTORY_CREATOR(VariantColumnReader)
+public:
+    VariantColumnReader(const RowRanges& row_ranges, size_t total_rows, const cctz::time_zone* ctz,
+                        io::IOContext* io_ctx)
+            : ParquetColumnReader(row_ranges, total_rows, ctz, io_ctx) {}
+    ~VariantColumnReader() override { close(); }
+
+    Status init(io::FileReaderSPtr file, FieldSchema* field, const tparquet::RowGroup& row_group,
+                size_t max_buf_size, std::unordered_map<int, tparquet::OffsetIndex>& col_offsets,
+                RuntimeState* state, bool in_collection, const std::set<uint64_t>& column_ids,
+                const std::set<uint64_t>& filter_column_ids);
+    Status read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
+                            const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node,
+                            FilterMap& filter_map, size_t batch_size, size_t* read_rows, bool* eof,
+                            bool is_dict_filter, int64_t real_column_size = -1) override;
+    Status read_nested_levels(FilterMap& filter_map, size_t batch_size, size_t* read_rows,
+                              bool* eof) override {
+        return _struct_reader->read_nested_levels(filter_map, batch_size, read_rows, eof);
+    }
+
+    const std::vector<level_t>& get_rep_level() const override {
+        return _struct_reader->get_rep_level();
+    }
+    const std::vector<level_t>& get_def_level() const override {
+        return _struct_reader->get_def_level();
+    }
+    ColumnStatistics column_statistics() override {
+        auto statistics = _struct_reader->column_statistics();
+        statistics.merge(_variant_statistics);
+        return statistics;
+    }
+    void close() override {}
+
+    void reset_filter_map_index() override { _struct_reader->reset_filter_map_index(); }
+
+private:
+    std::unique_ptr<FieldSchema> _variant_struct_field;
+    std::unique_ptr<ParquetColumnReader> _struct_reader;
+    std::set<uint64_t> _column_ids;
+    ColumnStatistics _variant_statistics;
 };
 
 // A special reader that skips actual reading but provides empty data with correct structure
@@ -532,9 +631,7 @@ public:
     }
 
     // Implement required pure virtual methods from base class
-    ColumnStatistics column_statistics() override {
-        return ColumnStatistics(); // Return empty statistics
-    }
+    ColumnStatistics column_statistics() override { return {}; }
 
     void close() override {
         // Nothing to close for skip reading

@@ -722,7 +722,8 @@ protected:
                           const std::vector<ColumnAccessPathConfig>& access_configs,
                           const std::set<uint64_t>& expected_column_ids,
                           const std::set<uint64_t>& expected_filter_column_ids,
-                          bool use_top_level_method = false, bool should_skip_assertion = false) {
+                          bool use_top_level_method = false, bool should_skip_assertion = false,
+                          const std::vector<int32_t>& top_level_file_column_idxs = {}) {
         std::string test_file =
                 "./be/test/exec/test_data/nested_user_profiles_parquet/"
                 "part-00000-64a7a390-1a03-4efc-ab51-557e9369a1f9-c000.snappy.parquet";
@@ -775,8 +776,13 @@ protected:
         // Execute test based on method choice
         ColumnIdResult actual_result;
         if (use_top_level_method) {
+            std::vector<int32_t> file_column_idxs = top_level_file_column_idxs;
+            if (file_column_idxs.empty()) {
+                file_column_idxs.assign(table_column_positions.begin(),
+                                        table_column_positions.end());
+            }
             actual_result = HiveParquetReader::_create_column_ids_by_top_level_col_index(
-                    field_desc, tuple_descriptor);
+                    field_desc, tuple_descriptor, table_column_names, file_column_idxs);
         } else {
             actual_result = HiveParquetReader::_create_column_ids(field_desc, tuple_descriptor);
         }
@@ -929,6 +935,15 @@ TEST_F(HiveReaderCreateColumnIdsTest, test_create_column_ids_2) {
                  expected_filter_column_ids);
     run_orc_test(table_column_names, {access_config}, expected_column_ids,
                  expected_filter_column_ids, true);
+}
+
+TEST_F(HiveReaderCreateColumnIdsTest, test_parquet_top_level_index_uses_scan_column_mapping) {
+    std::vector<std::string> table_column_names = {"friends"};
+    std::set<uint64_t> expected_column_ids = {26, 27, 28, 29, 30, 31, 32};
+    std::set<uint64_t> expected_filter_column_ids = {};
+
+    run_parquet_test(table_column_names, {}, expected_column_ids, expected_filter_column_ids, true,
+                     false, {5});
 }
 
 TEST_F(HiveReaderCreateColumnIdsTest, test_create_column_ids_3) {

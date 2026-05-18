@@ -64,6 +64,7 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
 
     private final IcebergExternalTable targetTable;
     private final DeleteCommandContext deleteContext;
+    private final boolean writeDataFiles;
     private List<TIcebergRewritableDeleteFileSet> rewritableDeleteFileSets = Collections.emptyList();
 
     private static final HashSet<TFileFormatType> supportedTypes = new HashSet<TFileFormatType>() {{
@@ -75,12 +76,18 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
     private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
 
     public IcebergMergeSink(IcebergExternalTable targetTable, DeleteCommandContext deleteContext) {
+        this(targetTable, deleteContext, true);
+    }
+
+    public IcebergMergeSink(IcebergExternalTable targetTable, DeleteCommandContext deleteContext,
+            boolean writeDataFiles) {
         super();
         if (targetTable.isView()) {
             throw new UnsupportedOperationException("UPDATE on iceberg view is not supported");
         }
         this.targetTable = targetTable;
         this.deleteContext = deleteContext;
+        this.writeDataFiles = writeDataFiles;
 
         IcebergExternalCatalog catalog = (IcebergExternalCatalog) targetTable.getCatalog();
         storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
@@ -128,6 +135,9 @@ public class IcebergMergeSink extends BaseExternalTableDataSink {
         int formatVersion = IcebergUtils.getFormatVersion(icebergTable);
         if (formatVersion >= 3) {
             schema = IcebergUtils.appendRowLineageFieldsForV3(schema);
+        }
+        if (writeDataFiles) {
+            IcebergUtils.validateVariantWriteUnsupported(schema);
         }
         tSink.setFormatVersion(formatVersion);
         tSink.setSchemaJson(SchemaParser.toJson(schema));

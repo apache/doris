@@ -237,12 +237,16 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
         projection.add(new TinyIntLiteral(IcebergMergeOperation.DELETE_OPERATION_NUMBER));
         projection.add(rowIdExpr);
         for (Column column : columns) {
-            if (!column.isVisible() && !IcebergUtils.isIcebergRowLineageColumn(column)) {
+            if (IcebergUtils.isIcebergRowLineageColumn(column)) {
+                List<String> nameParts = Lists.newArrayList(targetNameInPlan);
+                nameParts.add(column.getName());
+                projection.add(new UnboundSlot(nameParts));
                 continue;
             }
-            List<String> nameParts = Lists.newArrayList(targetNameInPlan);
-            nameParts.add(column.getName());
-            projection.add(new UnboundSlot(nameParts));
+            if (!column.isVisible()) {
+                continue;
+            }
+            projection.add(new NullLiteral(DataType.fromCatalogType(column.getType())));
         }
         return projection;
     }
@@ -462,9 +466,23 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
                 icebergTable.getBaseSchema(true),
                 outputExprs,
                 deleteCtx,
+                writesDataFiles(matchedClauses, notMatchedClauses),
                 Optional.empty(),
                 Optional.empty(),
                 projectPlan);
+    }
+
+    static boolean writesDataFiles(List<MergeMatchedClause> matchedClauses,
+            List<MergeNotMatchedClause> notMatchedClauses) {
+        if (!notMatchedClauses.isEmpty()) {
+            return true;
+        }
+        for (MergeMatchedClause clause : matchedClauses) {
+            if (!clause.isDelete()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean executeMergePlan(ConnectContext ctx, StmtExecutor executor,

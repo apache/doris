@@ -121,6 +121,33 @@ public class VariantPruningLogicTest extends TestWithFeService {
     }
 
     @Test
+    public void testExplodeVariantArrayFunctionAccessPaths() throws Exception {
+        assertAllAccessPathsContain(
+                "select x['x'] from variant_tbl lateral view explode_variant_array(v['arr']) tmp as x "
+                        + "where v['filter']['k'] = 1 and x['y'] is not null",
+                ImmutableList.of(
+                        path("v", "arr", "x"),
+                        path("v", "arr", "y"),
+                        path("v", "filter", "k")
+                ),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testExplodeVariantArrayFunctionFullOutputAccessPath() throws Exception {
+        assertAllAccessPathsContain(
+                "select x from variant_tbl lateral view explode_variant_array(v['arr']) tmp as x "
+                        + "where x['k'] is not null",
+                ImmutableList.of(
+                        path("v", "arr"),
+                        path("v", "arr", "k")
+                ),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
     public void testExplodeVariantDeepNestedAccessPaths() throws Exception {
         assertAllAccessPathsContain(
                 "select x['a']['b'][0]['c'] from variant_tbl lateral view explode(v['arr']) tmp as x",
@@ -131,17 +158,25 @@ public class VariantPruningLogicTest extends TestWithFeService {
 
     @Test
     public void testExplodeSubqueryJoinAggAccessPaths() throws Exception {
+        String sql = "select cast(t2.v['k'] as string) as k, count(*) from (select id, v from variant_tbl) t1 "
+                + "lateral view explode(t1.v['arr']) tmp as x "
+                + "join variant_tbl t2 on t1.id=t2.id "
+                + "where x['a']['b'] = 1 and t2.v['k'] is not null "
+                + "group by cast(t2.v['k'] as string)";
+        assertVariantSubColumnSlots(
+                sql,
+                ImmutableList.of(
+                        ImmutableList.of("arr"),
+                        ImmutableList.of("k")
+                )
+        );
         assertAllAccessPathsContain(
-                "select cast(t2.v['k'] as string) as k, count(*) from (select id, v from variant_tbl) t1 "
-                        + "lateral view explode(t1.v['arr']) tmp as x "
-                        + "join variant_tbl t2 on t1.id=t2.id "
-                        + "where x['a']['b'] = 1 and t2.v['k'] is not null "
-                        + "group by cast(t2.v['k'] as string)",
+                sql,
                 ImmutableList.of(
                         path("v", "arr", "a", "b"),
                         path("v", "k")
                 ),
-                ImmutableList.of()
+                ImmutableList.of(path("v"))
         );
     }
 
@@ -226,10 +261,12 @@ public class VariantPruningLogicTest extends TestWithFeService {
             allAccessPaths.addAll(slotDescriptor.getAllAccessPaths());
         }
         for (ColumnAccessPath accessPath : expectedContain) {
-            Assertions.assertTrue(allAccessPaths.contains(accessPath));
+            Assertions.assertTrue(allAccessPaths.contains(accessPath),
+                    "expected access path " + accessPath + " in " + allAccessPaths);
         }
         for (ColumnAccessPath accessPath : expectedNotContain) {
-            Assertions.assertFalse(allAccessPaths.contains(accessPath));
+            Assertions.assertFalse(allAccessPaths.contains(accessPath),
+                    "unexpected access path " + accessPath + " in " + allAccessPaths);
         }
     }
 

@@ -18,11 +18,13 @@
 #pragma once
 
 #include <gen_cpp/parquet_types.h>
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <list>
 #include <memory>
+#include <optional>
+#include <set>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -239,8 +241,14 @@ protected:
     const TupleDescriptor* get_tuple_descriptor() const { return _tuple_descriptor; }
     const RowDescriptor* get_row_descriptor() const { return _row_descriptor; }
     const FileMetaData* get_file_metadata() const { return _file_metadata; }
+    const FieldDescriptor& parquet_file_schema() const;
+    void prepare_parquet_file_schema_with_ids(const FieldDescriptor* field_desc);
 
 private:
+    static ColumnIdResult _create_column_ids_by_name(const FieldDescriptor* field_desc,
+                                                     const TupleDescriptor* tuple_descriptor);
+    std::string _selected_leaf_column_paths() const;
+
     struct ParquetProfile {
         RuntimeProfile::Counter* filtered_row_groups = nullptr;
         RuntimeProfile::Counter* filtered_row_groups_by_min_max = nullptr;
@@ -286,6 +294,8 @@ private:
         RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr;
         RuntimeProfile::Counter* convert_time = nullptr;
         RuntimeProfile::Counter* bloom_filter_read_time = nullptr;
+        RuntimeProfile::Counter* variant_direct_typed_value_read_rows = nullptr;
+        RuntimeProfile::Counter* variant_rowwise_read_rows = nullptr;
     };
 
     // ---- set_fill_columns sub-functions ----
@@ -361,6 +371,7 @@ private:
     // after _file_reader. Otherwise, there may be heap-use-after-free bug.
     ObjLRUCache::CacheHandle _meta_cache_handle;
     std::unique_ptr<FileMetaData> _file_metadata_ptr;
+    std::optional<FieldDescriptor> _file_schema_with_ids;
     const tparquet::FileMetaData* _t_metadata = nullptr;
 
     // _tracing_file_reader wraps _file_reader.

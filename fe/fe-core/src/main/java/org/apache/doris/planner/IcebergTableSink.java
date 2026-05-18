@@ -134,6 +134,7 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
             // iceberg v3 format requires additional row lineage fields when rewrite data files.
             schema = IcebergUtils.appendRowLineageFieldsForV3(schema);
         }
+        IcebergUtils.validateVariantWriteUnsupported(schema);
         tSink.setSchemaJson(SchemaParser.toJson(schema));
 
         // partition spec

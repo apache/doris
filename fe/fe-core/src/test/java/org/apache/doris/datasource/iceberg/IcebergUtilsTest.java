@@ -160,6 +160,12 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testIcebergVariantTypeToDorisVariant() {
+        Assert.assertEquals(Type.VARIANT,
+                IcebergUtils.icebergTypeToDorisType(Types.VariantType.get(), false, false));
+    }
+
+    @Test
     public void testGetPartitionInfoMapSkipBinaryIdentityPartition() {
         Schema schema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),

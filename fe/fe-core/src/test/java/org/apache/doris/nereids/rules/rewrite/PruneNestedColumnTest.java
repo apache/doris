@@ -29,13 +29,18 @@ import org.apache.doris.nereids.rules.rewrite.AccessPathExpressionCollector.Coll
 import org.apache.doris.nereids.rules.rewrite.NestedColumnPruning.DataTypeAccessTree;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
@@ -45,6 +50,10 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NestedColumnPrunable;
 import org.apache.doris.nereids.types.NullType;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.OlapScanNode;
@@ -52,6 +61,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.LinkedHashMultimap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -99,6 +109,20 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         createTable("create table variant_tbl(\n"
                 + "  id int,\n"
                 + "  v variant\n"
+                + ") properties ('replication_num'='1')");
+
+        createTable("create table variant_container_tbl(\n"
+                + "  id int,\n"
+                + "  arr array<int>,\n"
+                + "  m map<string, int>,\n"
+                + "  v variant\n"
+                + ") properties ('replication_num'='1')");
+
+        createTable("create table variant_expr_tbl(\n"
+                + "  id int,\n"
+                + "  flag boolean,\n"
+                + "  v1 variant,\n"
+                + "  v2 variant\n"
                 + ") properties ('replication_num'='1')");
 
         // Table for string-length offset-only optimization tests
@@ -184,6 +208,48 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testNonVariantInsideNamedStructConstructorCollectsSubPath() throws Exception {
+        StructType structType = new StructType(ImmutableList.of(
+                new StructField("city", StringType.INSTANCE, true, "")));
+        SlotReference slot = new SlotReference("s", structType, true);
+        Expression expression = new StructElement(
+                new StructElement(
+                        new CreateNamedStruct(new VarcharLiteral("a"), slot),
+                        new VarcharLiteral("a")),
+                new VarcharLiteral("city"));
+
+        LinkedHashMultimap<Integer, CollectAccessPathResult> slotToAccessPaths =
+                LinkedHashMultimap.create();
+        AccessPathExpressionCollector collector =
+                new AccessPathExpressionCollector(null, slotToAccessPaths, false);
+        collector.collect(expression);
+
+        Assertions.assertEquals(ImmutableList.of(new CollectAccessPathResult(
+                        ImmutableList.of("s", "city"), false, ColumnAccessPathType.DATA)),
+                ImmutableList.copyOf(slotToAccessPaths.get(slot.getExprId().asInt())));
+    }
+
+    @Test
+    public void testNonVariantInsideStructConstructorCollectsSubPath() throws Exception {
+        StructType structType = new StructType(ImmutableList.of(
+                new StructField("city", StringType.INSTANCE, true, "")));
+        SlotReference slot = new SlotReference("s", structType, true);
+        Expression expression = new StructElement(
+                new StructElement(new CreateStruct(slot), new VarcharLiteral("col1")),
+                new VarcharLiteral("city"));
+
+        LinkedHashMultimap<Integer, CollectAccessPathResult> slotToAccessPaths =
+                LinkedHashMultimap.create();
+        AccessPathExpressionCollector collector =
+                new AccessPathExpressionCollector(null, slotToAccessPaths, false);
+        collector.collect(expression);
+
+        Assertions.assertEquals(ImmutableList.of(new CollectAccessPathResult(
+                        ImmutableList.of("s", "city"), false, ColumnAccessPathType.DATA)),
+                ImmutableList.copyOf(slotToAccessPaths.get(slot.getExprId().asInt())));
+    }
+
+    @Test
     public void testVariantMultiProjectionAccessPaths() throws Exception {
         assertVariantSubColumnSlots("select v['a'], v['b']['c'] from variant_tbl",
                 ImmutableList.of(
@@ -202,12 +268,252 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testVariantTopLevelNullPredicateUsesRootAccessPath() throws Exception {
+        assertColumn("select 1 from variant_tbl where v is null",
+                "variant",
+                ImmutableList.of(path("v")),
+                ImmutableList.of(path("v"))
+        );
+        assertColumn("select 1 from variant_tbl where v is not null",
+                "variant",
+                ImmutableList.of(path("v")),
+                ImmutableList.of(path("v"))
+        );
+    }
+
+    @Test
+    public void testVariantWholeColumnWithPredicateAccessPath() throws Exception {
+        assertVariantWholeColumnAndPredicateAccessPaths(
+                "select v from variant_tbl where v['k'] is not null");
+    }
+
+    @Test
+    public void testVariantWholeColumnWithSiblingSubPathAccessPath() throws Exception {
+        assertAllAccessPathsContain(
+                "select v from (select v, v['k'] as k from variant_tbl) t where k is not null",
+                ImmutableList.of(path("v")),
+                ImmutableList.of());
+    }
+
+    @Test
+    public void testVariantAliasWholeOutputWithOrderSubPathAccessPath() throws Exception {
+        assertAllAccessPathsContain(
+                "select v as a from variant_tbl order by cast(a['k'] as string)",
+                ImmutableList.of(path("v"), path("v", "k")),
+                ImmutableList.of());
+    }
+
+    @Test
+    public void testVariantAliasWholeOutputWithPredicateSubPathAccessPath() throws Exception {
+        assertAllAccessPathsContain(
+                "select a from (select v as a from variant_tbl) t where a['k'] is not null",
+                ImmutableList.of(path("v"), path("v", "k")),
+                ImmutableList.of());
+    }
+
+    @Test
+    public void testVariantWholeExpressionWithPredicateAccessPath() throws Exception {
+        assertVariantWholeColumnAndPredicateAccessPaths(
+                "select cast(v as string) from variant_tbl where v['k'] is not null");
+    }
+
+    @Test
+    public void testVariantTypeWholeExpressionWithPredicateAccessPath() throws Exception {
+        assertVariantWholeColumnAndPredicateAccessPaths(
+                "select variant_type(v) from variant_tbl where v['k'] is not null");
+    }
+
+    @Test
+    public void testVariantComparisonPredicateCollectsWholeVariantOperand() {
+        SlotReference slot = new SlotReference("v", VariantType.INSTANCE, true);
+        Expression expression = new EqualTo(slot, new NullLiteral(VariantType.INSTANCE));
+
+        LinkedHashMultimap<Integer, CollectAccessPathResult> slotToAccessPaths =
+                LinkedHashMultimap.create();
+        AccessPathExpressionCollector collector =
+                new AccessPathExpressionCollector(null, slotToAccessPaths, true);
+        collector.collect(expression);
+
+        Assertions.assertEquals(ImmutableList.of(new CollectAccessPathResult(
+                        ImmutableList.of("v"), true, ColumnAccessPathType.DATA)),
+                ImmutableList.copyOf(slotToAccessPaths.get(slot.getExprId().asInt())));
+    }
+
+    @Test
+    public void testVariantLiteralPathComparisonKeepsSubPathOperand() {
+        SlotReference slot = new SlotReference("v", VariantType.INSTANCE, true);
+        Expression expression = new EqualTo(
+                new ElementAt(slot, new VarcharLiteral("k")),
+                new NullLiteral(VariantType.INSTANCE));
+
+        LinkedHashMultimap<Integer, CollectAccessPathResult> slotToAccessPaths =
+                LinkedHashMultimap.create();
+        AccessPathExpressionCollector collector =
+                new AccessPathExpressionCollector(null, slotToAccessPaths, true);
+        collector.collect(expression);
+
+        Assertions.assertEquals(ImmutableList.of(new CollectAccessPathResult(
+                        ImmutableList.of("v", "k"), true, ColumnAccessPathType.DATA)),
+                ImmutableList.copyOf(slotToAccessPaths.get(slot.getExprId().asInt())));
+    }
+
+    @Test
+    public void testVariantWholeOrderExpressionWithPredicateAccessPath() throws Exception {
+        assertVariantWholeColumnAndPredicateAccessPaths(
+                "select id from variant_tbl where v['k'] is not null order by cast(v as string)");
+    }
+
+    @Test
+    public void testVariantWholeGroupExpressionWithPredicateAccessPath() throws Exception {
+        assertVariantWholeColumnAndPredicateAccessPaths(
+                "select cast(v as string), count(*) from variant_tbl where v['k'] is not null "
+                        + "group by cast(v as string)");
+    }
+
+    @Test
+    public void testVariantDynamicElementAtWithPredicateAccessPath() throws Exception {
+        assertVariantWholeColumnAndPredicateAccessPaths(
+                "select v[cast(id as string)] from variant_tbl where v['k'] is not null");
+    }
+
+    @Test
+    public void testVariantChainedDynamicElementAtWithPredicateAccessPath() throws Exception {
+        assertVariantWholeColumnAndPredicateAccessPaths(
+                "select v[cast(id as string)]['x'] from variant_tbl where v['k'] is not null");
+    }
+
+    @Test
+    public void testVariantWholeNonSlotExpressionWithPredicateAccessPath() throws Exception {
+        assertVariantWholeColumnAndPredicateAccessPaths(
+                "select cast(if(id = 1, v, v) as string) from variant_tbl where v['k'] is not null");
+    }
+
+    @Test
+    public void testVariantWholeExpressionOutputWithSiblingPredicateAccessPath() throws Exception {
+        assertAllAccessPathsContain(
+                "select if(flag, v1, v2) as a from variant_expr_tbl where v1['p'] is not null",
+                ImmutableList.of(path("v1"), path("v2"), path("v1", "p")),
+                ImmutableList.of());
+    }
+
+    @Test
+    public void testVariantDynamicElementAtNonSlotExpressionWithPredicateAccessPath() throws Exception {
+        assertVariantWholeColumnAndPredicateAccessPaths(
+                "select element_at(if(id = 1, v, v), cast(id as string)) "
+                        + "from variant_tbl where v['k'] is not null");
+    }
+
+    @Test
+    public void testVariantLiteralElementAtNonSlotExpressionKeepsSubPath() throws Exception {
+        assertVariantSubColumnSlots(
+                "select element_at(if(id = 1, v, v), 'a') from variant_tbl where v['k'] is not null",
+                ImmutableList.of(
+                        ImmutableList.of("a"),
+                        ImmutableList.of("k")
+                ));
+    }
+
+    private void assertVariantWholeColumnAndPredicateAccessPaths(String sql) throws Exception {
+        Pair<PhysicalPlan, List<SlotDescriptor>> result = collectComplexSlots(sql);
+        List<SlotDescriptor> slotDescriptors = result.second;
+        Assertions.assertEquals(2, slotDescriptors.size());
+
+        boolean hasWholeColumnSlot = false;
+        boolean hasPredicateSlot = false;
+        for (SlotDescriptor slotDescriptor : slotDescriptors) {
+            TreeSet<ColumnAccessPath> allAccessPaths =
+                    new TreeSet<>(slotDescriptor.getAllAccessPaths());
+            TreeSet<ColumnAccessPath> predicateAccessPaths =
+                    new TreeSet<>(slotDescriptor.getPredicateAccessPaths());
+            if (allAccessPaths.equals(new TreeSet<>(ImmutableList.of(path("v"))))
+                    && predicateAccessPaths.isEmpty()) {
+                hasWholeColumnSlot = true;
+            }
+            if (allAccessPaths.equals(new TreeSet<>(ImmutableList.of(path("v", "k"))))
+                    && predicateAccessPaths.equals(new TreeSet<>(ImmutableList.of(path("v", "k"))))) {
+                hasPredicateSlot = true;
+            }
+        }
+        Assertions.assertTrue(hasWholeColumnSlot);
+        Assertions.assertTrue(hasPredicateSlot);
+    }
+
+    @Test
     public void testVariantProjectAndPredicateAccessPaths() throws Exception {
         assertVariantSubColumnSlots("select v['a'] from variant_tbl where v['b']['c'] = 1",
                 ImmutableList.of(
                         ImmutableList.of("a"),
                         ImmutableList.of("b", "c")
                 ));
+    }
+
+    @Test
+    public void testVariantCastProjectionKeepsSubPathWithSiblingPredicate() throws Exception {
+        assertAllAccessPathsContain(
+                "select cast(v as variant)['a'] from variant_tbl where v['k'] is not null",
+                ImmutableList.of(
+                        path("v", "a"),
+                        path("v", "k")
+                ),
+                ImmutableList.of(path("v")));
+        assertAllAccessPathsContain(
+                "select struct_element(cast(v['obj'] as struct<a:int,b:int>), 'a') "
+                        + "from variant_tbl where v['k'] is not null",
+                ImmutableList.of(
+                        path("v", "obj", "a"),
+                        path("v", "k")
+                ),
+                ImmutableList.of(path("v")));
+    }
+
+    @Test
+    public void testVariantIndexExpressionDoesNotInheritContainerPath() throws Exception {
+        assertAllAccessPathsContain(
+                "select arr[cast(v['idx'] as int)] from variant_container_tbl where v['k'] is not null",
+                ImmutableList.of(
+                        path("v", "idx"),
+                        path("v", "k")
+                ),
+                ImmutableList.of(path("v", "idx", AccessPathInfo.ACCESS_ALL)));
+        assertAllAccessPathsContain(
+                "select m[cast(v['map_key'] as string)] from variant_container_tbl where v['k'] is not null",
+                ImmutableList.of(
+                        path("v", "map_key"),
+                        path("v", "k")
+                ),
+                ImmutableList.of(path("v", "map_key", AccessPathInfo.ACCESS_ALL)));
+    }
+
+    @Test
+    public void testMapFunctionsCollectVariantArguments() throws Exception {
+        assertAllAccessPathsContain(
+                "select map_contains_key(m, cast(v['key'] as string)) "
+                        + "from variant_container_tbl where v['p'] is not null",
+                ImmutableList.of(
+                        path("m", "KEYS"),
+                        path("v", "key"),
+                        path("v", "p")
+                ),
+                ImmutableList.of());
+        assertAllAccessPathsContain(
+                "select map_contains_value(m, cast(v['value'] as int)) "
+                        + "from variant_container_tbl where v['p'] is not null",
+                ImmutableList.of(
+                        path("m", "VALUES"),
+                        path("v", "value"),
+                        path("v", "p")
+                ),
+                ImmutableList.of());
+        assertAllAccessPathsContain(
+                "select map_contains_entry(m, cast(v['key'] as string), cast(v['value'] as int)) "
+                        + "from variant_container_tbl where v['p'] is not null",
+                ImmutableList.of(
+                        path("m", AccessPathInfo.ACCESS_ALL),
+                        path("v", "key"),
+                        path("v", "value"),
+                        path("v", "p")
+                ),
+                ImmutableList.of());
     }
 
     @Test
@@ -229,6 +535,16 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testVariantUnusedCteDoesNotCollectWholeColumn() throws Exception {
+        assertColumn("with t as (select v from variant_tbl) select 1 from t", null, null, null);
+    }
+
+    @Test
+    public void testVariantUnusedSubqueryDoesNotCollectWholeColumn() throws Exception {
+        assertColumn("select 1 from (select v from variant_tbl) t", null, null, null);
+    }
+
+    @Test
     public void testVariantJoinAccessPathPropagation() throws Exception {
         assertVariantSubColumnSlotCount(
                 "select 1 from variant_tbl t1 join variant_tbl t2 on t1.id=t2.id "
@@ -245,6 +561,14 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 ImmutableList.of(path("v", "k")),
                 ImmutableList.of()
         );
+    }
+
+    @Test
+    public void testExplodeVariantWholeOutputWithPredicateAccessPath() throws Exception {
+        assertAllAccessPathsContain(
+                "select x from variant_tbl lateral view explode(v) tmp as x where x['k'] is not null",
+                ImmutableList.of(path("v")),
+                ImmutableList.of());
     }
 
     @Test
@@ -956,6 +1280,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 ),
                 "STRUCT<city:TEXT,data:ARRAY<MAP<INT,STRUCT<b:DOUBLE>>>>"
         );
+
     }
 
     @Test

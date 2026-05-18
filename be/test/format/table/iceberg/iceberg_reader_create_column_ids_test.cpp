@@ -175,7 +175,8 @@ protected:
                 {"id", 1},         {"name", 2},
                 {"profile", 3},    {"tags", 4},
                 {"friends", 5},    {"recent_activity", 6},
-                {"attributes", 7}, {"complex_attributes", 8}};
+                {"attributes", 7}, {"complex_attributes", 8},
+                {"v", 100}};
 
         auto it = column_to_field_id.find(column_name);
         if (it != column_to_field_id.end()) {
@@ -185,6 +186,7 @@ protected:
     }
 
     // Helper function to create tuple descriptor
+    // NOLINTNEXTLINE(readability-function-size): test descriptor setup mirrors thrift fixtures.
     const TupleDescriptor* create_tuple_descriptor(
             DescriptorTbl** desc_tbl, ObjectPool& obj_pool, TDescriptorTable& t_desc_table,
             TTableDescriptor& t_table_desc, const std::vector<std::string>& column_names,
@@ -573,6 +575,16 @@ protected:
                     hobby_level_node.__set_scalar_type(hobby_level_scalar);
                     type.types.push_back(hobby_level_node);
                     tslot_desc.__set_slotType(type);
+                } else if (types[i] == TPrimitiveType::VARIANT) {
+                    TTypeNode node;
+                    node.__set_type(TTypeNodeType::SCALAR);
+                    TScalarType scalar_type;
+                    scalar_type.__set_type(TPrimitiveType::VARIANT);
+                    scalar_type.__set_variant_max_subcolumns_count(2048);
+                    scalar_type.__set_variant_enable_doc_mode(false);
+                    node.__set_scalar_type(scalar_type);
+                    type.types.push_back(node);
+                    tslot_desc.__set_slotType(type);
                 } else {
                     // 普通类型
                     TTypeNode node;
@@ -619,6 +631,68 @@ protected:
         create_table_desc(t_desc_table, t_table_desc, column_names, column_positions, column_types);
         EXPECT_TRUE(DescriptorTbl::create(&obj_pool, t_desc_table, desc_tbl).ok());
         return (*desc_tbl)->get_tuple_descriptor(0);
+    }
+
+    static tparquet::SchemaElement make_root_schema(int num_children) {
+        tparquet::SchemaElement schema;
+        schema.__set_name("schema");
+        schema.__set_num_children(num_children);
+        return schema;
+    }
+
+    static tparquet::SchemaElement make_group_schema(
+            std::string name, int num_children, tparquet::FieldRepetitionType::type repetition_type,
+            int field_id = -1, bool is_variant = false) {
+        tparquet::SchemaElement schema;
+        schema.__set_name(name);
+        schema.__set_num_children(num_children);
+        schema.__set_repetition_type(repetition_type);
+        if (field_id >= 0) {
+            schema.__set_field_id(field_id);
+        }
+        if (is_variant) {
+            tparquet::LogicalType logical_type;
+            logical_type.__set_VARIANT(tparquet::VariantType());
+            schema.__set_logicalType(logical_type);
+        }
+        return schema;
+    }
+
+    static tparquet::SchemaElement make_primitive_schema(
+            std::string name, tparquet::Type::type type,
+            tparquet::FieldRepetitionType::type repetition_type, int field_id = -1) {
+        tparquet::SchemaElement schema;
+        schema.__set_name(name);
+        schema.__set_type(type);
+        schema.__set_repetition_type(repetition_type);
+        if (field_id >= 0) {
+            schema.__set_field_id(field_id);
+        }
+        return schema;
+    }
+
+    FieldDescriptor make_iceberg_variant_field_id_descriptor() {
+        std::vector<tparquet::SchemaElement> schemas;
+        schemas.push_back(make_root_schema(1));
+        schemas.push_back(
+                make_group_schema("v", 3, tparquet::FieldRepetitionType::OPTIONAL, 100, true));
+        schemas.push_back(make_primitive_schema("metadata", tparquet::Type::BYTE_ARRAY,
+                                                tparquet::FieldRepetitionType::REQUIRED, 101));
+        schemas.push_back(make_primitive_schema("value", tparquet::Type::BYTE_ARRAY,
+                                                tparquet::FieldRepetitionType::OPTIONAL, 102));
+        schemas.push_back(
+                make_group_schema("typed_value", 1, tparquet::FieldRepetitionType::OPTIONAL, 103));
+        schemas.push_back(
+                make_group_schema("metric", 1, tparquet::FieldRepetitionType::REQUIRED, 104));
+        schemas.push_back(
+                make_group_schema("typed_value", 1, tparquet::FieldRepetitionType::OPTIONAL, 105));
+        schemas.push_back(make_group_schema("x", 1, tparquet::FieldRepetitionType::REQUIRED, 106));
+        schemas.push_back(make_primitive_schema("typed_value", tparquet::Type::INT64,
+                                                tparquet::FieldRepetitionType::OPTIONAL, 107));
+
+        FieldDescriptor field_desc;
+        EXPECT_TRUE(field_desc.parse_from_thrift(schemas).ok());
+        return field_desc;
     }
 
     // Helper function: set column access paths on a slot descriptor
@@ -1164,6 +1238,83 @@ TEST_F(IcebergReaderCreateColumnIdsTest, test_create_column_ids_6) {
         run_orc_test(table_column_names, access_configs, expected_column_ids,
                      expected_filter_column_ids);
     }
+}
+
+TEST_F(IcebergReaderCreateColumnIdsTest, test_variant_field_id_pruning_uses_typed_value_columns) {
+    auto field_desc = make_iceberg_variant_field_id_descriptor();
+
+    ColumnAccessPathConfig access_config;
+    access_config.column_name = "v";
+    access_config.all_column_paths = {{"100", "metric", "x"}};
+    access_config.predicate_paths = {{"100", "metric", "x"}};
+
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    const TupleDescriptor* tuple_descriptor =
+            create_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc, {"v"}, {0},
+                                    {TPrimitiveType::VARIANT}, {access_config});
+
+    auto actual_result = IcebergParquetReader::_create_column_ids(&field_desc, tuple_descriptor);
+
+    const std::set<uint64_t> expected_typed_value_column_ids = {1, 4, 5, 6, 7, 8};
+    EXPECT_EQ(actual_result.column_ids, expected_typed_value_column_ids);
+    EXPECT_EQ(actual_result.filter_column_ids, expected_typed_value_column_ids);
+    EXPECT_FALSE(actual_result.column_ids.contains(2)); // top-level metadata
+    EXPECT_FALSE(actual_result.column_ids.contains(3)); // top-level residual value
+}
+
+TEST_F(IcebergReaderCreateColumnIdsTest, test_parquet_column_id_creation_does_not_mutate_schema) {
+    auto field_desc = make_iceberg_variant_field_id_descriptor();
+    ASSERT_EQ(field_desc.get_column(0)->get_column_id(), UNASSIGNED_COLUMN_ID);
+
+    ColumnAccessPathConfig access_config;
+    access_config.column_name = "v";
+    access_config.all_column_paths = {{"100", "metric", "x"}};
+    access_config.predicate_paths = {{"100", "metric", "x"}};
+
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    const TupleDescriptor* tuple_descriptor =
+            create_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc, {"v"}, {0},
+                                    {TPrimitiveType::VARIANT}, {access_config});
+
+    auto actual_result = IcebergParquetReader::_create_column_ids(&field_desc, tuple_descriptor);
+
+    EXPECT_FALSE(actual_result.column_ids.empty());
+    EXPECT_EQ(field_desc.get_column(0)->get_column_id(), UNASSIGNED_COLUMN_ID);
+    EXPECT_EQ(field_desc.get_column(0)->get_max_column_id(), 0);
+}
+
+TEST_F(IcebergReaderCreateColumnIdsTest,
+       test_variant_field_id_pruning_treats_numeric_keys_as_variant_names) {
+    auto field_desc = make_iceberg_variant_field_id_descriptor();
+
+    ColumnAccessPathConfig access_config;
+    access_config.column_name = "v";
+    access_config.all_column_paths = {{"100", "104", "106"}};
+    access_config.predicate_paths = {{"100", "104", "106"}};
+
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    const TupleDescriptor* tuple_descriptor =
+            create_tuple_descriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc, {"v"}, {0},
+                                    {TPrimitiveType::VARIANT}, {access_config});
+
+    auto actual_result = IcebergParquetReader::_create_column_ids(&field_desc, tuple_descriptor);
+
+    const std::set<uint64_t> expected_residual_value_column_ids = {1, 2, 3};
+    EXPECT_EQ(actual_result.column_ids, expected_residual_value_column_ids);
+    EXPECT_EQ(actual_result.filter_column_ids, expected_residual_value_column_ids);
+    EXPECT_FALSE(actual_result.column_ids.contains(4)); // typed_value
+    EXPECT_FALSE(actual_result.column_ids.contains(5)); // typed_value.metric
+    EXPECT_FALSE(actual_result.column_ids.contains(6)); // typed_value.metric.typed_value
+    EXPECT_FALSE(actual_result.column_ids.contains(7)); // typed_value.metric.typed_value.x
 }
 
 } // namespace doris

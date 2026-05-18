@@ -83,6 +83,37 @@ class VExprContext;
 //using namespace iceberg;
 using namespace parquet;
 
+namespace {
+
+std::vector<tparquet::SchemaElement> make_variant_root_schema(const std::string& column_name) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(1);
+
+    tparquet::LogicalType variant_type;
+    variant_type.__set_VARIANT(tparquet::VariantType());
+
+    tparquet::SchemaElement variant;
+    variant.__set_name(column_name);
+    variant.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    variant.__set_num_children(2);
+    variant.__set_logicalType(variant_type);
+
+    tparquet::SchemaElement metadata;
+    metadata.__set_name("metadata");
+    metadata.__set_type(tparquet::Type::BYTE_ARRAY);
+    metadata.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+
+    tparquet::SchemaElement value;
+    value.__set_name("value");
+    value.__set_type(tparquet::Type::BYTE_ARRAY);
+    value.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+
+    return {root, variant, metadata, value};
+}
+
+} // namespace
+
 class ParquetExprTest : public testing::Test {
 public:
     ParquetExprTest() {}
@@ -1171,6 +1202,37 @@ TEST_F(ParquetExprTest, test_expr_push_down_and) {
                                 &filter_group, &filtered_by_min_max, &filtered_by_bloom_filter)
                         .OK());
     ASSERT_TRUE(filter_group);
+}
+
+TEST_F(ParquetExprTest, test_row_group_stats_skip_top_level_variant_root) {
+    FieldDescriptor descriptor;
+    Status st = descriptor.parse_from_thrift(make_variant_root_schema("int64_col"));
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    p_reader->prepare_parquet_file_schema_with_ids(&descriptor);
+
+    std::unique_ptr<MutilColumnBlockPredicate> pred = AndBlockColumnPredicate::create_unique();
+    pred->add_column_predicate(SingleColumnBlockPredicate::create_unique(
+            ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ>::create_shared(
+                    2, "", Field::create_field<TYPE_BIGINT>(10000000001))));
+
+    p_reader->_push_down_predicates.clear();
+    p_reader->_push_down_predicates.push_back(std::move(pred));
+    p_reader->_enable_filter_by_min_max = true;
+    p_reader->_enable_filter_by_bloom_filter = true;
+
+    tparquet::RowGroup row_group;
+    row_group.__set_num_rows(3);
+
+    bool filter_group = false;
+    bool filtered_by_min_max = false;
+    bool filtered_by_bloom_filter = false;
+    ASSERT_TRUE(p_reader->_process_column_stat_filter(row_group, p_reader->_push_down_predicates,
+                                                      &filter_group, &filtered_by_min_max,
+                                                      &filtered_by_bloom_filter)
+                        .ok());
+    EXPECT_FALSE(filter_group);
+    EXPECT_FALSE(filtered_by_min_max);
+    EXPECT_FALSE(filtered_by_bloom_filter);
 }
 
 TEST_F(ParquetExprTest, test_expr_push_down_or_string) {

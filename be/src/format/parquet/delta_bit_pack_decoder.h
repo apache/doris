@@ -31,6 +31,7 @@
 
 #include "common/status.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_nullable.h"
 #include "format/parquet/decoder.h"
 #include "format/parquet/fix_length_plain_decoder.h"
 #include "format/parquet/parquet_common.h"
@@ -329,7 +330,8 @@ public:
         RETURN_IF_ERROR(_get_internal(_values.data(), cast_set<uint32_t>(num_values - null_count),
                                       &num_valid_values));
         DCHECK_EQ(num_values - null_count, num_valid_values);
-        if (doris_column->is_column_string()) {
+        if (doris_column->is_column_string() ||
+            remove_nullable(data_type)->get_primitive_type() == TYPE_VARBINARY) {
             return decode_byte_array<has_filter>(_values, doris_column, data_type, select_vector);
         } else {
             return decode_fixed_byte_array<has_filter>(_values, doris_column, data_type,

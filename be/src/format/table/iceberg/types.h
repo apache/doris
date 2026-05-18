@@ -46,6 +46,7 @@ enum TypeID {
     FIXED,
     BINARY,
     DECIMAL,
+    VARIANT,
     STRUCT,
     LIST,
     MAP
@@ -392,6 +393,15 @@ public:
     TypeID type_id() const override { return TypeID::BOOLEAN; }
 
     std::string to_string() const override { return "boolean"; }
+};
+
+class VariantType : public PrimitiveType {
+public:
+    ~VariantType() override = default;
+
+    TypeID type_id() const override { return TypeID::VARIANT; }
+
+    std::string to_string() const override { return "variant"; }
 };
 
 class Types {

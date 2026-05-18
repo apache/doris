@@ -29,6 +29,68 @@
 namespace doris::parquet {
 const cctz::time_zone ConvertParams::utc0 = cctz::utc_time_zone();
 
+namespace {
+
+struct TimeToMicroScale {
+    int64_t numerator;
+    int64_t denominator;
+};
+
+TimeToMicroScale time_unit_to_micro_scale(const tparquet::TimeUnit& time_unit) {
+    if (time_unit.__isset.MILLIS) {
+        return {1000, 1};
+    }
+    if (time_unit.__isset.MICROS) {
+        return {1, 1};
+    }
+    DCHECK(time_unit.__isset.NANOS);
+    return {1, 1000};
+}
+
+TimeToMicroScale parquet_time_to_micro_scale(const tparquet::SchemaElement& schema) {
+    if (schema.__isset.logicalType && schema.logicalType.__isset.TIME) {
+        return time_unit_to_micro_scale(schema.logicalType.TIME.unit);
+    }
+    DCHECK(schema.__isset.converted_type);
+    if (schema.converted_type == tparquet::ConvertedType::TIME_MILLIS) {
+        return {1000, 1};
+    }
+    DCHECK(schema.converted_type == tparquet::ConvertedType::TIME_MICROS);
+    return {1, 1};
+}
+
+template <PrimitiveType SrcPrimitiveType>
+class VariantIntToTimeV2 final : public PhysicalToLogicalConverter {
+public:
+    explicit VariantIntToTimeV2(TimeToMicroScale scale) : _scale(scale) {}
+
+    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
+        using SrcColumnType = typename PrimitiveTypeTraits<SrcPrimitiveType>::ColumnType;
+        using TimeType = typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType;
+
+        ColumnPtr src_col = remove_nullable(src_physical_col);
+        MutableColumnPtr dst_col = remove_nullable(src_logical_column)->assume_mutable();
+
+        size_t rows = src_col->size();
+        size_t start_idx = dst_col->size();
+        dst_col->resize(start_idx + rows);
+
+        const auto& src_data = static_cast<const SrcColumnType*>(src_col.get())->get_data();
+        auto& data = static_cast<ColumnTimeV2*>(dst_col.get())->get_data();
+
+        for (int i = 0; i < rows; i++) {
+            data[start_idx + i] =
+                    static_cast<TimeType>(src_data[i] * _scale.numerator / _scale.denominator);
+        }
+        return Status::OK();
+    }
+
+private:
+    TimeToMicroScale _scale;
+};
+
+} // namespace
+
 #define FOR_LOGICAL_DECIMAL_TYPES(M) \
     M(TYPE_DECIMAL32)                \
     M(TYPE_DECIMAL64)                \
@@ -246,6 +308,20 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
                               convert_params.get(), physical_converter);
     } else if (src_logical_primitive == TYPE_DATEV2) {
         physical_converter = std::make_unique<Int32ToDate>();
+    } else if (src_logical_primitive == TYPE_TIMEV2) {
+        if (!field_schema->is_in_variant) {
+            physical_converter =
+                    std::make_unique<UnsupportedConverter>(src_physical_type, src_logical_type);
+        } else if (src_physical_type == tparquet::Type::INT32) {
+            physical_converter = std::make_unique<VariantIntToTimeV2<TYPE_INT>>(
+                    parquet_time_to_micro_scale(parquet_schema));
+        } else if (src_physical_type == tparquet::Type::INT64) {
+            physical_converter = std::make_unique<VariantIntToTimeV2<TYPE_BIGINT>>(
+                    parquet_time_to_micro_scale(parquet_schema));
+        } else {
+            physical_converter =
+                    std::make_unique<UnsupportedConverter>(src_physical_type, src_logical_type);
+        }
     } else if (src_logical_primitive == TYPE_DATETIMEV2) {
         if (src_physical_type == tparquet::Type::INT96) {
             // int96 only stores nanoseconds in standard parquet file

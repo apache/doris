@@ -15,16 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "format/table/hive/hive_parquet_nested_column_utils.h"
+#pragma once
 
-#include "format/parquet/parquet_nested_column_utils.h"
+#include <cstdint>
+#include <set>
+#include <string>
+#include <vector>
 
 namespace doris {
 
-void HiveParquetNestedColumnUtils::extract_nested_column_ids(
-        const FieldSchema& field_schema, const std::vector<std::vector<std::string>>& paths,
-        std::set<uint64_t>& column_ids) {
-    ParquetNestedColumnUtils::extract_nested_column_ids_by_name(field_schema, paths, column_ids);
-}
+struct FieldSchema;
+
+class ParquetNestedColumnUtils {
+public:
+    static void extract_nested_column_ids_by_name(
+            const FieldSchema& field_schema, const std::vector<std::vector<std::string>>& paths,
+            std::set<uint64_t>& column_ids);
+
+    static void extract_nested_column_ids_by_field_id(
+            const FieldSchema& field_schema, const std::vector<std::vector<std::string>>& paths,
+            std::set<uint64_t>& column_ids);
+};
 
 } // namespace doris

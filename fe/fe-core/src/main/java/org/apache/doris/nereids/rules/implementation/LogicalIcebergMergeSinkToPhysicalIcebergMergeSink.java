@@ -39,6 +39,7 @@ public class LogicalIcebergMergeSinkToPhysicalIcebergMergeSink extends OneImplem
                     sink.getCols(),
                     sink.getOutputExprs(),
                     sink.getDeleteContext(),
+                    sink.writeDataFiles(),
                     Optional.empty(),
                     sink.getLogicalProperties(),
                     null,

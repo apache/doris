@@ -137,7 +137,7 @@ ColumnIdResult HiveOrcReader::_create_column_ids(const orc::Type* orc_type,
 
         // primitive (non-nested) types
         if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
-             slot->col_type() != TYPE_MAP)) {
+             slot->col_type() != TYPE_MAP && slot->col_type() != TYPE_VARIANT)) {
             column_ids.insert(orc_field->getColumnId());
             if (slot->is_predicate()) {
                 filter_column_ids.insert(orc_field->getColumnId());
@@ -193,7 +193,7 @@ ColumnIdResult HiveOrcReader::_create_column_ids_by_top_level_col_index(
 
         // primitive (non-nested) types
         if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
-             slot->col_type() != TYPE_MAP)) {
+             slot->col_type() != TYPE_MAP && slot->col_type() != TYPE_VARIANT)) {
             column_ids.insert(orc_field->getColumnId());
             if (slot->is_predicate()) {
                 filter_column_ids.insert(orc_field->getColumnId());
@@ -240,6 +240,8 @@ Status HiveParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
     const FieldDescriptor* field_desc = nullptr;
     RETURN_IF_ERROR(get_file_metadata_schema(&field_desc));
     DCHECK(field_desc != nullptr);
+    prepare_parquet_file_schema_with_ids(field_desc);
+    field_desc = &parquet_file_schema();
 
     // Build table_info_node based on config
     if (get_state()->query_options().hive_parquet_use_column_names) {
@@ -279,8 +281,9 @@ Status HiveParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
     if (get_state()->query_options().hive_parquet_use_column_names) {
         column_id_result = _create_column_ids(field_desc, ctx->tuple_descriptor);
     } else {
-        column_id_result =
-                _create_column_ids_by_top_level_col_index(field_desc, ctx->tuple_descriptor);
+        column_id_result = _create_column_ids_by_top_level_col_index(
+                field_desc, ctx->tuple_descriptor, ctx->column_names,
+                get_scan_params().column_idxs);
     }
     ctx->column_ids = std::move(column_id_result.column_ids);
     ctx->filter_column_ids = std::move(column_id_result.filter_column_ids);
@@ -291,9 +294,8 @@ Status HiveParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
 
 ColumnIdResult HiveParquetReader::_create_column_ids(const FieldDescriptor* field_desc,
                                                      const TupleDescriptor* tuple_descriptor) {
-    // First, assign column IDs to the field descriptor
-    auto* mutable_field_desc = const_cast<FieldDescriptor*>(field_desc);
-    mutable_field_desc->assign_ids();
+    FieldDescriptor field_desc_with_ids = field_desc->copy_with_assigned_ids();
+    field_desc = &field_desc_with_ids;
 
     // map top-level table column name (lower-cased) -> FieldSchema*
     std::unordered_map<std::string, const FieldSchema*> table_col_name_to_field_schema_map;
@@ -328,7 +330,7 @@ ColumnIdResult HiveParquetReader::_create_column_ids(const FieldDescriptor* fiel
 
         // primitive (non-nested) types
         if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
-             slot->col_type() != TYPE_MAP)) {
+             slot->col_type() != TYPE_MAP && slot->col_type() != TYPE_VARIANT)) {
             column_ids.insert(field_schema->column_id);
 
             if (slot->is_predicate()) {
@@ -351,18 +353,24 @@ ColumnIdResult HiveParquetReader::_create_column_ids(const FieldDescriptor* fiel
 }
 
 ColumnIdResult HiveParquetReader::_create_column_ids_by_top_level_col_index(
-        const FieldDescriptor* field_desc, const TupleDescriptor* tuple_descriptor) {
-    // First, assign column IDs to the field descriptor
-    auto* mutable_field_desc = const_cast<FieldDescriptor*>(field_desc);
-    mutable_field_desc->assign_ids();
+        const FieldDescriptor* field_desc, const TupleDescriptor* tuple_descriptor,
+        const std::vector<std::string>& table_column_names,
+        const std::vector<int32_t>& file_column_idxs) {
+    FieldDescriptor field_desc_with_ids = field_desc->copy_with_assigned_ids();
+    field_desc = &field_desc_with_ids;
 
-    // map top-level table column position -> FieldSchema*
-    std::unordered_map<uint64_t, const FieldSchema*> table_col_pos_to_field_schema_map;
-    for (int i = 0; i < field_desc->size(); ++i) {
-        auto field_schema = field_desc->get_column(i);
-        if (!field_schema) continue;
-
-        table_col_pos_to_field_schema_map[i] = field_schema;
+    // map top-level table column name -> file FieldSchema* using the same by-position mapping
+    // that builds table_info_node.
+    DORIS_CHECK(table_column_names.size() == file_column_idxs.size());
+    std::unordered_map<std::string, const FieldSchema*> table_col_name_to_field_schema_map;
+    const auto& parquet_fields_schema = field_desc->get_fields_schema();
+    for (size_t idx = 0; idx < file_column_idxs.size(); ++idx) {
+        const int32_t file_index = file_column_idxs[idx];
+        if (file_index >= parquet_fields_schema.size()) {
+            continue;
+        }
+        table_col_name_to_field_schema_map[to_lower(table_column_names[idx])] =
+                &parquet_fields_schema[file_index];
     }
 
     std::set<uint64_t> column_ids;
@@ -380,8 +388,8 @@ ColumnIdResult HiveParquetReader::_create_column_ids_by_top_level_col_index(
     };
 
     for (const auto* slot : tuple_descriptor->slots()) {
-        auto it = table_col_pos_to_field_schema_map.find(slot->col_pos());
-        if (it == table_col_pos_to_field_schema_map.end()) {
+        auto it = table_col_name_to_field_schema_map.find(slot->col_name_lower_case());
+        if (it == table_col_name_to_field_schema_map.end()) {
             // Column not found in file
             continue;
         }
@@ -389,7 +397,7 @@ ColumnIdResult HiveParquetReader::_create_column_ids_by_top_level_col_index(
 
         // primitive (non-nested) types
         if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
-             slot->col_type() != TYPE_MAP)) {
+             slot->col_type() != TYPE_MAP && slot->col_type() != TYPE_VARIANT)) {
             column_ids.insert(field_schema->column_id);
 
             if (slot->is_predicate()) {
