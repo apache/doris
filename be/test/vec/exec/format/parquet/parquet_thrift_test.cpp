@@ -482,8 +482,9 @@ TEST_F(ParquetThriftReaderTest, is_dictionary_encoded_rejects_plain_data_page_v2
     RowGroupReader::LazyReadContext lazy_read_ctx;
     std::set<uint64_t> column_ids;
     std::set<uint64_t> filter_column_ids;
-    RowGroupReader row_group_reader(nullptr, {}, 0, row_group, nullptr, nullptr, position_delete_ctx,
-                                    lazy_read_ctx, nullptr, column_ids, filter_column_ids);
+    RowGroupReader row_group_reader(nullptr, {}, 0, row_group, nullptr, nullptr,
+                                    position_delete_ctx, lazy_read_ctx, nullptr, column_ids,
+                                    filter_column_ids);
 
     EXPECT_FALSE(row_group_reader.is_dictionary_encoded(column_metadata));
 }
