@@ -234,6 +234,15 @@ public class TypeCoercionUtilsTest {
         );
         decimalDowngrade = (EqualTo) TypeCoercionUtils.processComparisonPredicate(decimalDowngrade);
         Assertions.assertEquals(DecimalV2Type.createDecimalV2Type(16, 7), decimalDowngrade.left().getDataType());
+        Assertions.assertEquals(DecimalV2Type.createDecimalV2Type(16, 7), decimalDowngrade.right().getDataType());
+
+        decimalDowngrade = new EqualTo(
+                new DecimalV3Literal(BigDecimal.valueOf(12345.1234567)),
+                new SlotReference("c1", DecimalV2Type.createDecimalV2Type(15, 6))
+        );
+        decimalDowngrade = (EqualTo) TypeCoercionUtils.processComparisonPredicate(decimalDowngrade);
+        Assertions.assertEquals(DecimalV2Type.createDecimalV2Type(16, 7), decimalDowngrade.left().getDataType());
+        Assertions.assertEquals(DecimalV2Type.createDecimalV2Type(16, 7), decimalDowngrade.right().getDataType());
 
         // DateV1 slot vs DateV2 literal (this case cover right slot vs left literal)
         EqualTo dateDowngrade = new EqualTo(

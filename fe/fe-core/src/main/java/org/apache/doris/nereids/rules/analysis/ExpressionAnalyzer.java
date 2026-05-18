@@ -100,6 +100,7 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.util.BooleanUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
@@ -811,7 +812,8 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     public Expression visitInPredicate(InPredicate inPredicate, ExpressionRewriteContext context) {
         List<Expression> rewrittenChildren = inPredicate.children().stream()
                 .map(e -> e.accept(this, context)).collect(Collectors.toList());
-        InPredicate newInPredicate = inPredicate.withChildren(rewrittenChildren);
+        InPredicate newInPredicate = inPredicate.withChildren(
+                BooleanUtils.processInPredicateChildren(rewrittenChildren));
         return TypeCoercionUtils.processInPredicate(newInPredicate);
     }
 
