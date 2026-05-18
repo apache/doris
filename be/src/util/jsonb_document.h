@@ -1037,6 +1037,9 @@ inline const JsonbValue* JsonbDocument::createValue(const char* pb, size_t size)
     }
 
     const auto* val = (const JsonbValue*)doc->payload_;
+    // Same as checkAndCreateDocument(), this is intentionally a lightweight structural check for
+    // hot paths. Do not recursively validate container bodies here unless the caller is a clearly
+    // untrusted raw binary boundary and accepts the O(document size) cost.
     if (size != sizeof(JsonbHeader) + val->numPackedBytes()) {
         return nullptr;
     }
