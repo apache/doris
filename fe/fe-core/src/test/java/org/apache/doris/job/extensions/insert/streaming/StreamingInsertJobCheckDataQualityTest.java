@@ -18,6 +18,8 @@
 package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.job.base.JobExecutionConfiguration;
+import org.apache.doris.job.base.TimerDefinition;
 import org.apache.doris.job.cdc.request.CommitOffsetRequest;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.exception.JobException;
@@ -142,6 +144,58 @@ public class StreamingInsertJobCheckDataQualityTest {
         Assert.assertEquals(0L, (long) Deencapsulation.getField(job, "sampleWindowScannedRows"));
         Assert.assertEquals(0L, (long) Deencapsulation.getField(job, "sampleWindowFilteredRows"));
         Assert.assertTrue((long) Deencapsulation.getField(job, "sampleStartTime") > oldStartTime);
+    }
+
+    private static StreamingInsertJob jobWithProperties(String maxIntervalSec) {
+        StreamingInsertJob job = Deencapsulation.newInstance(StreamingInsertJob.class);
+        Map<String, String> props = new HashMap<>();
+        props.put(StreamingJobProperties.MAX_INTERVAL_SECOND_PROPERTY, maxIntervalSec);
+        Deencapsulation.setField(job, "properties", props);
+        Deencapsulation.setField(job, "jobProperties", new StreamingJobProperties(props));
+
+        JobExecutionConfiguration cfg = new JobExecutionConfiguration();
+        cfg.setTimerDefinition(new TimerDefinition());
+        Deencapsulation.setField(job, "jobConfig", cfg);
+        return job;
+    }
+
+    @Test
+    public void testRecomputeDerivedFieldsRebuildsSampleWindowMs() throws Exception {
+        StreamingInsertJob job = jobWithProperties("10");
+        Deencapsulation.setField(job, "sampleWindowMs", 0L);
+        Deencapsulation.setField(job, "sampleStartTime", 0L);
+
+        Deencapsulation.invoke(job, "recomputeDerivedFields");
+
+        Assert.assertEquals(100_000L, (long) Deencapsulation.getField(job, "sampleWindowMs"));
+        Assert.assertTrue((long) Deencapsulation.getField(job, "sampleStartTime") > 0L);
+    }
+
+    @Test
+    public void testModifyPropertiesInternalRefreshesDerivedFields() throws Exception {
+        StreamingInsertJob job = jobWithProperties("10");
+        JobExecutionConfiguration cfg = (JobExecutionConfiguration) Deencapsulation.getField(job, "jobConfig");
+        cfg.getTimerDefinition().setInterval(10L);
+        Deencapsulation.setField(job, "sampleWindowMs", 100_000L);
+
+        Map<String, String> alter = new HashMap<>();
+        alter.put(StreamingJobProperties.MAX_INTERVAL_SECOND_PROPERTY, "30");
+        Deencapsulation.invoke(job, "modifyPropertiesInternal", alter);
+
+        Assert.assertEquals(300_000L, (long) Deencapsulation.getField(job, "sampleWindowMs"));
+        Assert.assertEquals(30L, cfg.getTimerDefinition().getInterval().longValue());
+    }
+
+    @Test
+    public void testRecomputeDerivedFieldsResetsSampleCounters() throws Exception {
+        StreamingInsertJob job = jobWithProperties("10");
+        Deencapsulation.setField(job, "sampleWindowScannedRows", 1000L);
+        Deencapsulation.setField(job, "sampleWindowFilteredRows", 100L);
+
+        Deencapsulation.invoke(job, "recomputeDerivedFields");
+
+        Assert.assertEquals(0L, (long) Deencapsulation.getField(job, "sampleWindowScannedRows"));
+        Assert.assertEquals(0L, (long) Deencapsulation.getField(job, "sampleWindowFilteredRows"));
     }
 
     @Test

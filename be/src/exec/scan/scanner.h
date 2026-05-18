@@ -274,6 +274,10 @@ protected:
     int64_t _projection_timer = 0;
 
     bool _should_stop = false;
+
+    // Cached pointer to ScanOperator's remaining-limit counter. Null when
+    // this scanner is on the topn path or the query has no LIMIT.
+    std::atomic<int64_t>* _shared_scan_limit = nullptr;
 };
 
 using ScannerSPtr = std::shared_ptr<Scanner>;

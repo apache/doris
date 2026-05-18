@@ -182,9 +182,6 @@ public:
         size_t read_orderby_key_num_prefix_columns = 0;
         // limit of rows for read_orderby_key
         size_t read_orderby_key_limit = 0;
-        // filter_block arguments
-        VExprContextSPtrs filter_block_conjuncts;
-
         // for vertical compaction
         bool is_key_column_group = false;
         std::vector<uint32_t> key_group_cluster_key_idxes;
@@ -214,9 +211,7 @@ public:
 
         uint64_t condition_cache_digest = 0;
 
-        // General limit pushdown for DUP_KEYS and UNIQUE_KEYS with MOW.
-        // When > 0, the storage layer (VCollectIterator) will stop reading
-        // after returning this many rows. -1 means no limit.
+        // General LIMIT budget forwarded to SegmentIterator. -1 means no limit.
         int64_t general_read_limit = -1;
     };
 

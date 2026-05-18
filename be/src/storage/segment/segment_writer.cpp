@@ -124,8 +124,7 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
         }
         // encode the rowid into the primary key index
         if (_is_mow_with_cluster_key()) {
-            const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>();
-            _rowid_coder = get_key_coder(type_info->type());
+            _rowid_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
             // primary keys
             _primary_key_coders.swap(_key_coders);
             // cluster keys

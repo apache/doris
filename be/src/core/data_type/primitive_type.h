@@ -47,7 +47,7 @@ class ColumnVarbinary;
 using ColumnString = ColumnStr<UInt32>;
 class JsonbField;
 struct Array;
-struct Tuple;
+struct Struct;
 struct Map;
 struct FieldWithDataType;
 using VariantMap = std::map<PathInData, FieldWithDataType>;
@@ -487,7 +487,7 @@ struct PrimitiveTypeTraits<TYPE_MAP> {
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_STRUCT> {
-    using CppType = Tuple;
+    using CppType = Struct;
     using StorageFieldType = CppType;
     using DataType = DataTypeStruct;
     using ColumnType = ColumnStruct;

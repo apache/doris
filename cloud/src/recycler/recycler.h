@@ -589,7 +589,8 @@ private:
     int abort_job_for_related_rowset(const RowsetMetaCloudPB& rowset_meta);
 
     template <typename T>
-    int abort_txn_or_job_for_recycle(T& rowset_meta_pb);
+    int batch_abort_txn_or_job_for_recycle(const std::vector<std::string>& keys,
+                                           bool skip_base_version);
 
 private:
     std::atomic_bool stopped_ {false};

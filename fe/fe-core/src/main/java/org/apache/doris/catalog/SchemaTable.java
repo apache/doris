@@ -830,6 +830,7 @@ public class SchemaTable extends Table {
                             .column("LABEL", ScalarType.createStringType())
                             .column("MSG", ScalarType.createStringType())
                             .column("COUNT", ScalarType.createType(PrimitiveType.INT))
+                            .column("VAULT_ID", ScalarType.createStringType())
                             .build()))
             .put("cluster_snapshot_properties",
                     new SchemaTable(SystemIdGenerator.getNextId(), "cluster_snapshot_properties", TableType.SCHEMA,
@@ -926,6 +927,14 @@ public class SchemaTable extends Table {
                                     .column("VERTICAL_TOTAL_GROUPS", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("VERTICAL_COMPLETED_GROUPS", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("STATUS_MSG", ScalarType.createVarchar(1024))
+                                    .build()))
+            .put("backend_ms_rpc_table_throttlers",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "backend_ms_rpc_table_throttlers", TableType.SCHEMA,
+                            builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("TABLE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("RPC_TYPE", ScalarType.createVarchar(64))
+                                    .column("QPS_LIMIT", ScalarType.createType(PrimitiveType.DOUBLE))
+                                    .column("CURRENT_QPS", ScalarType.createType(PrimitiveType.DOUBLE))
                                     .build()))
             .build();
 

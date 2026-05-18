@@ -1313,6 +1313,11 @@ DECLARE_String(inverted_index_query_cache_limit);
 // condition cache limit
 DECLARE_Int16(condition_cache_limit);
 
+// ANN index topn result cache
+DECLARE_String(ann_index_result_cache_limit);
+DECLARE_Int32(ann_index_result_cache_shards);
+DECLARE_Int32(ann_index_result_cache_stale_sweep_time_sec);
+
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
 DECLARE_mInt32(inverted_index_max_buffered_docs);
@@ -1425,6 +1430,8 @@ DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
 DECLARE_mInt32(variant_max_json_key_length);
 // Treat invalid json format str as string, instead of throwing exception if false
 DECLARE_mBool(variant_throw_exeception_on_invalid_json);
+// Enable duplicate path check when parsing json into variant subcolumns/jsonb.
+DECLARE_mBool(variant_enable_duplicate_json_path_check);
 // Enable vertical compact subcolumns of variant column
 DECLARE_mBool(enable_vertical_compact_variant_subcolumns);
 DECLARE_mBool(enable_variant_doc_sparse_write_subcolumns);

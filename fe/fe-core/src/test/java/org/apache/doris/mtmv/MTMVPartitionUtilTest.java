@@ -28,6 +28,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -169,6 +170,22 @@ public class MTMVPartitionUtilTest {
         boolean isSyncWithPartition = MTMVPartitionUtil
                 .isSyncWithPartitions(context, "name1", Sets.newHashSet("name2"), baseOlapTable);
         Assert.assertFalse(isSyncWithPartition);
+    }
+
+    @Test
+    public void testIsMTMVPartitionSyncWithImmutableExcludedTriggerTables() throws AnalysisException {
+        Map<MTMVRelatedTableIf, Set<String>> partitionMappings = Maps.newHashMap();
+        partitionMappings.put(baseOlapTable, Sets.newHashSet("name2"));
+        Mockito.when(context.getByPartitionName("name1")).thenReturn(partitionMappings);
+        Mockito.when(mtmvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.FOLLOW_BASE_TABLE);
+        Mockito.when(mtmvPartitionInfo.getPctTables()).thenReturn(Sets.newHashSet(baseOlapTable));
+
+        Set<TableNameInfo> excludedTriggerTables = ImmutableSet.of();
+        boolean isMTMVPartitionSync = MTMVPartitionUtil.isMTMVPartitionSync(context, "name1", baseTables,
+                excludedTriggerTables);
+
+        Assert.assertTrue(isMTMVPartitionSync);
+        Assert.assertTrue(excludedTriggerTables.isEmpty());
     }
 
     @Test

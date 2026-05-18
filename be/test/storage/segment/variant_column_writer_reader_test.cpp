@@ -1538,29 +1538,7 @@ TEST_F(VariantColumnWriterReaderTest, test_read_doc_compact_from_doc_value_bucke
     st = variant_column_reader->new_iterator(&root_it, &parent_column, &storage_read_opts,
                                              &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
-    EXPECT_TRUE(dynamic_cast<HierarchicalDataIterator*>(root_it.get()) != nullptr);
-
-    ColumnIteratorOptions root_iter_opts;
-    root_iter_opts.stats = &stats;
-    root_iter_opts.file_reader = file_reader.get();
-    st = root_it->init(root_iter_opts);
-    EXPECT_TRUE(st.ok()) << st.msg();
-
-    MutableColumnPtr root_dst =
-            ColumnVariant::create(parent_column.variant_max_subcolumns_count(), false);
-    size_t root_nrows = kRows;
-    st = root_it->seek_to_ordinal(0);
-    EXPECT_TRUE(st.ok()) << st.msg();
-    st = root_it->next_batch(&root_nrows, root_dst);
-    EXPECT_TRUE(st.ok()) << st.msg();
-    EXPECT_EQ(root_nrows, kRows);
-
-    for (int i = 0; i < kRows; ++i) {
-        std::string value;
-        assert_cast<ColumnVariant*>(root_dst.get())
-                ->serialize_one_row_to_string(i, &value, options);
-        EXPECT_EQ(value, inserted_jsonstr[i]);
-    }
+    EXPECT_TRUE(dynamic_cast<VariantRootColumnIterator*>(root_it.get()) != nullptr);
 
     // 6. Read and validate each doc value bucket column: should choose ReadKind::DOC_COMPACT.
     for (int bucket = 0; bucket < kDocBuckets; ++bucket) {

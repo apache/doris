@@ -686,7 +686,7 @@ class CastToImpl<Mode, DataTypeString, ToDataType> : public CastToBase {
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count,
                         const NullMap::value_type* null_map = nullptr) const override {
-        const auto* col_from = check_and_get_column<DataTypeString::ColumnType>(
+        const auto* col_from = assert_cast<const DataTypeString::ColumnType*>(
                 block.get_by_position(arguments[0]).column.get());
 
         auto to_type = block.get_by_position(result).type;

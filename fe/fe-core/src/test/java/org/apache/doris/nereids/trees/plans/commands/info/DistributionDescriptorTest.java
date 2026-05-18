@@ -17,10 +17,16 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.HashDistributionDesc;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.JsonType;
+import org.apache.doris.nereids.types.VariantType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -112,5 +118,47 @@ public class DistributionDescriptorTest {
         AnalysisException ex3 = Assertions.assertThrows(AnalysisException.class,
                 () -> desc3.validate(columnMap, KeysType.DUP_KEYS));
         Assertions.assertTrue(ex3.getMessage().contains("greater than zero"));
+    }
+
+    @Test
+    public void testRejectJsonAndVariantTranslatedDistributionColumns() {
+        Map<String, ColumnDefinition> columnMap = Maps.newHashMap();
+        columnMap.put("json_col", new ColumnDefinition("json_col", JsonType.INSTANCE, false));
+        columnMap.put("variant_col", new ColumnDefinition("variant_col", VariantType.INSTANCE, false));
+
+        DistributionDescriptor jsonDesc = new DistributionDescriptor(
+                true, false, 1, Lists.newArrayList("json_col"));
+        jsonDesc.validate(columnMap, KeysType.DUP_KEYS);
+        DdlException jsonException = Assertions.assertThrows(DdlException.class,
+                () -> jsonDesc.translateToCatalogStyle()
+                        .toDistributionInfo(Lists.newArrayList(new Column("json_col", Type.JSONB))));
+        Assertions.assertEquals("JsonType type should not be used in distribution column[json_col].",
+                jsonException.getDetailMessage());
+
+        DistributionDescriptor variantDesc = new DistributionDescriptor(
+                true, false, 1, Lists.newArrayList("variant_col"));
+        variantDesc.validate(columnMap, KeysType.DUP_KEYS);
+        DdlException variantException = Assertions.assertThrows(DdlException.class,
+                () -> variantDesc.translateToCatalogStyle()
+                        .toDistributionInfo(Lists.newArrayList(new Column("variant_col", Type.VARIANT))));
+        Assertions.assertEquals("Variant type should not be used in distribution column[variant_col].",
+                variantException.getDetailMessage());
+    }
+
+    @Test
+    public void testRejectJsonAndVariantCatalogDistributionColumns() {
+        Column jsonColumn = new Column("json_col", Type.JSONB);
+        HashDistributionDesc jsonDesc = new HashDistributionDesc(1, Lists.newArrayList("json_col"));
+        DdlException jsonException = Assertions.assertThrows(DdlException.class,
+                () -> jsonDesc.toDistributionInfo(Lists.newArrayList(jsonColumn)));
+        Assertions.assertEquals("JsonType type should not be used in distribution column[json_col].",
+                jsonException.getDetailMessage());
+
+        Column variantColumn = new Column("variant_col", Type.VARIANT);
+        HashDistributionDesc variantDesc = new HashDistributionDesc(1, Lists.newArrayList("variant_col"));
+        DdlException variantException = Assertions.assertThrows(DdlException.class,
+                () -> variantDesc.toDistributionInfo(Lists.newArrayList(variantColumn)));
+        Assertions.assertEquals("Variant type should not be used in distribution column[variant_col].",
+                variantException.getDetailMessage());
     }
 }

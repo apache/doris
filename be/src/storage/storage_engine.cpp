@@ -289,7 +289,7 @@ static Status load_data_dirs(const std::vector<DataDir*>& data_dirs) {
 
             auto st = data_dir->load();
             if (!st.ok()) {
-                LOG(WARNING) << "error occured when init load tables. res=" << st
+                LOG(WARNING) << "error occurred when init load tables. res=" << st
                              << ", data dir=" << data_dir->path();
                 std::lock_guard lock(result_mtx);
                 result = std::move(st);

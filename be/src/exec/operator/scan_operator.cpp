@@ -73,7 +73,7 @@ bool ScanLocalState<Derived>::should_run_serial() const {
 Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* state,
                                                               int& arrived_rf_num) {
     // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads
-    std::unique_lock lock(_conjuncts_lock);
+    LockGuard lock(_conjuncts_lock);
     RETURN_IF_ERROR(_helper.try_append_late_arrival_runtime_filter(state, _parent->row_descriptor(),
                                                                    arrived_rf_num, _conjuncts));
     if (state->enable_adjust_conjunct_order_by_cost()) {
@@ -86,7 +86,7 @@ Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* stat
 
 Status ScanLocalStateBase::clone_conjunct_ctxs(VExprContextSPtrs& scanner_conjuncts) {
     // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads
-    std::unique_lock lock(_conjuncts_lock);
+    LockGuard lock(_conjuncts_lock);
     scanner_conjuncts.resize(_conjuncts.size());
     for (size_t i = 0; i != _conjuncts.size(); ++i) {
         RETURN_IF_ERROR(_conjuncts[i]->clone(_state, scanner_conjuncts[i]));
@@ -310,8 +310,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
             RETURN_IF_ERROR(_normalize_predicate(conjunct.get(), conjunct->root(), new_root));
             if (new_root) {
                 conjunct->set_root(new_root);
-                if (_should_push_down_common_expr() &&
-                    VExpr::is_acting_on_a_slot(*(conjunct->root()))) {
+                if (_should_push_down_common_expr(conjunct->root())) {
                     _common_expr_ctxs_push_down.emplace_back(conjunct);
                     it = _conjuncts.erase(it);
                     continue;
@@ -1039,6 +1038,14 @@ TPushAggOp::type ScanLocalState<Derived>::get_push_down_agg_type() {
 template <typename Derived>
 int64_t ScanLocalState<Derived>::limit_per_scanner() {
     return _parent->cast<typename Derived::Parent>()._limit_per_scanner;
+}
+
+template <typename Derived>
+std::atomic<int64_t>* ScanLocalState<Derived>::shared_scan_limit_ptr() {
+    auto* p = &_parent->cast<typename Derived::Parent>()._shared_scan_limit;
+    // -1 means "no SQL LIMIT" — return nullptr so callers naturally skip
+    // all limit logic.
+    return p->load(std::memory_order_relaxed) < 0 ? nullptr : p;
 }
 
 template <typename Derived>
