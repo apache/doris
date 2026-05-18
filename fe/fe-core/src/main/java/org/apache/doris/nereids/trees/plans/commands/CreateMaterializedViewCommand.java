@@ -208,12 +208,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         if (mvDb == null || mvDb.isEmpty()) {
             mvDb = ctx.getDatabase();
         }
-        if (mvDb != null && !mvDb.isEmpty() && !mvDb.equals(dbName)) {
-            throw new AnalysisException(String.format(
-                    "The database '%s' of the sync materialized view must be the same as"
-                            + " the database '%s' of the base table",
-                    mvDb, dbName));
-        }
+        checkDatabaseConsistency(mvDb, dbName);
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName, baseIndexName,
                         PrivPredicate.ALTER)) {
@@ -240,6 +235,15 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
         }
         return Pair.of(plan, planner.getCascadesContext());
+    }
+
+    void checkDatabaseConsistency(String mvDb, String baseTableDb) {
+        if (mvDb != null && !mvDb.isEmpty() && !mvDb.equals(baseTableDb)) {
+            throw new AnalysisException(String.format(
+                    "The database '%s' of the sync materialized view must be the same as"
+                            + " the database '%s' of the base table",
+                    mvDb, baseTableDb));
+        }
     }
 
     private class ValidateContext {
