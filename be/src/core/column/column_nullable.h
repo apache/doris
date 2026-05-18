@@ -60,8 +60,8 @@ private:
     ColumnNullable(const ColumnNullable&) = default;
 
 public:
-    /** Create immutable column using immutable arguments. This arguments may be shared with other columns.
-      * Use IColumn::mutate in order to make mutable column and mutate shared nested columns.
+    /** Create a column from immutable/shared subcolumns without cloning them.
+      * Call IColumn::mutate before modifying the returned column tree.
       */
     using Base = COWHelper<IColumn, ColumnNullable>;
     static MutablePtr create(const ColumnPtr& nested_column_, const ColumnPtr& null_map_) {

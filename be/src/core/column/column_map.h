@@ -53,8 +53,8 @@ class Arena;
   */
 class ColumnMap final : public COWHelper<IColumn, ColumnMap> {
 public:
-    /** Create immutable column using immutable arguments. This arguments may be shared with other columns.
-      * Use IColumn::mutate in order to make mutable column and mutate shared nested columns.
+    /** Create a column from immutable/shared subcolumns without cloning them.
+      * Call IColumn::mutate before modifying the returned column tree.
       */
     using Base = COWHelper<IColumn, ColumnMap>;
     using COffsets = ColumnArray::ColumnOffsets;

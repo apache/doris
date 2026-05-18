@@ -212,6 +212,10 @@ public:
     /** Get empty columns with the same types as in block. */
     MutableColumns clone_empty_columns() const;
 
+    // RAII owner for mutating columns borrowed from a live Block. While the
+    // guard is alive, the Block's column slots are moved out and column data
+    // must be accessed through mutable_columns(). The guard restores columns on
+    // destruction, so use it when the caller may exit early after detaching.
     class ScopedMutableColumns {
     public:
         explicit ScopedMutableColumns(Block& block);
@@ -227,6 +231,11 @@ public:
         const DataTypePtr& get_datatype_by_position(size_t position) const;
         const std::string& get_name_by_position(size_t position) const;
 
+        // Transfer the borrowed owners to another RAII object that will restore
+        // them. After release(), the original Block remains without columns
+        // until that owner restores them. Normal callers should let this guard
+        // restore on destruction.
+        MutableColumns release();
         void restore();
 
     private:
@@ -234,6 +243,8 @@ public:
         MutableColumns _columns;
     };
 
+    // Single-column variant for localized mutation of a live Block slot. The
+    // selected slot is unavailable from the Block until this guard restores it.
     class ScopedMutableColumn {
     public:
         ScopedMutableColumn(Block& block, size_t position);
@@ -259,11 +270,13 @@ public:
     MutableColumns mutate_columns() &&;
     MutableColumns mutate_columns() & = delete;
 
-    /** Get columns from a live block for mutation and restore them on every exit path. */
+    /** Temporarily mutate a live Block's columns. The returned guard owns the columns and
+      * restores them on destruction; prefer this over manual move/writeback.
+      */
     ScopedMutableColumns mutate_columns_scoped() &;
     ScopedMutableColumns mutate_columns_scoped() && = delete;
 
-    /** Get one column from a live block for mutation and restore it on every exit path. */
+    /** Temporarily mutate one live Block column; use when only one slot needs ownership. */
     ScopedMutableColumn mutate_column_scoped(size_t position) &;
     ScopedMutableColumn mutate_column_scoped(size_t position) && = delete;
 
@@ -276,10 +289,11 @@ public:
     // Shuffle columns in place based on the result_column_ids
     void shuffle_columns(const std::vector<int>& result_column_ids);
 
-    // Default column size = -1 means clear all column in block
-    // Else clear column [0, column_size) delete column [column_size, data.size)
-    void clear_column_data(int64_t column_size = -1) noexcept;
-    void clear_column_data(const std::vector<uint32_t>& columns_to_clear) noexcept;
+    // column_size == -1 clears all columns; otherwise clear [0, column_size)
+    // and drop the rest. Shared columns are detached through clone_empty(), so
+    // allocation or clone failures propagate.
+    void clear_column_data(int64_t column_size = -1);
+    void clear_column_data(const std::vector<uint32_t>& columns_to_clear);
 
     MOCK_FUNCTION bool mem_reuse() { return !data.empty(); }
 
@@ -434,6 +448,10 @@ private:
     std::vector<std::string> _names;
 
 public:
+    // Build from a consumed Block. This has no restore contract: the source
+    // Block is left without columns and must not be used as a live output block.
+    // For caller-owned live Blocks, use ScopedMutableBlock or
+    // mutate_columns_scoped() instead.
     static MutableBlock build_mutable_block(Block&& block) {
         return MutableBlock(std::move(block));
     }
@@ -448,6 +466,8 @@ public:
               _data_types(std::move(m_block._data_types)),
               _names(std::move(m_block._names)) {}
 
+    // Consumes block columns and converts them to mutable columns recursively.
+    // This constructor is for temporary/owned Blocks only.
     MutableBlock(Block&& block)
             : _columns(std::move(block).mutate_columns()),
               _data_types(block.get_data_types()),
@@ -643,7 +663,8 @@ public:
         _names.clear();
     }
 
-    // columns resist. columns' inner data removed.
+    // Clear owned mutable columns in place. MutableBlock already owns its
+    // columns exclusively, so this does not perform COW detaching or cloning.
     void clear_column_data() noexcept;
 
     size_t allocated_bytes() const;
@@ -663,13 +684,14 @@ public:
     std::string dump_names() const;
 };
 
+// RAII adapter for code that wants the MutableBlock API over a live Block. It
+// owns only the temporary mutable columns and restores them to the Block on
+// destruction. While the adapter is alive, read/write column data through
+// mutable_block()/mutable_columns(); the Block's column slots are moved out.
 class ScopedMutableBlock {
 public:
     ScopedMutableBlock() = delete;
-    explicit ScopedMutableBlock(Block* block) : _block(block) {
-        DCHECK(_block != nullptr);
-        _mutable_block = MutableBlock(std::move(*_block));
-    }
+    explicit ScopedMutableBlock(Block* block);
     ~ScopedMutableBlock() { restore(); }
 
     ScopedMutableBlock(const ScopedMutableBlock&) = delete;

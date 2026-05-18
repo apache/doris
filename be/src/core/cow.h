@@ -316,6 +316,10 @@ protected:
 public:
     MutablePtr mutate() const&& { return shallow_mutate(); }
 
+    // Ownership assertion for callers that have already proved this object is
+    // uniquely owned. This does not detach shared owners; use a type-specific
+    // COW entry point (for example IColumn::mutate) when the pointer may be
+    // shared.
     MutablePtr assume_mutable() const {
         if (this->use_count() > 1) {
             throw Exception(ErrorCode::INTERNAL_ERROR, "COW::assume_mutable: use_count() > 1");
@@ -323,6 +327,7 @@ public:
         return const_cast<COW*>(this)->get_ptr();
     }
 
+    // Reference variant of assume_mutable(), with the same ownership contract.
     Derived& assume_mutable_ref() const {
         if (this->use_count() > 1) {
             throw Exception(ErrorCode::INTERNAL_ERROR, "COW::assume_mutable: use_count() > 1");

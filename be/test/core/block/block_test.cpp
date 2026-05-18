@@ -35,12 +35,14 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/object_pool.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
 #include "core/column/column_complex.h"
 #include "core/column/column_const.h"
 #include "core/column/column_decimal.h"
+#include "core/column/column_dummy.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
@@ -66,6 +68,47 @@
 #include "testutil/column_helper.h"
 
 namespace doris {
+
+namespace {
+
+class ThrowOnCloneColumn final : public COWHelper<IColumnDummy, ThrowOnCloneColumn> {
+private:
+    friend class COWHelper<IColumnDummy, ThrowOnCloneColumn>;
+
+    ThrowOnCloneColumn(size_t size, bool throw_on_clone, bool throw_on_clone_empty)
+            : _throw_on_clone(throw_on_clone), _throw_on_clone_empty(throw_on_clone_empty) {
+        s = size;
+    }
+
+    ThrowOnCloneColumn(const ThrowOnCloneColumn&) = default;
+
+    MutableColumnPtr clone() const override {
+        if (_throw_on_clone) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "injected clone failure");
+        }
+        return MutableColumnPtr(new ThrowOnCloneColumn(*this));
+    }
+
+public:
+    std::string get_name() const override { return "ThrowOnClone"; }
+
+    MutableColumnPtr clone_dummy(size_t size) const override {
+        if (_throw_on_clone_empty) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "injected clone_empty failure");
+        }
+        return ThrowOnCloneColumn::create(size, _throw_on_clone, _throw_on_clone_empty);
+    }
+
+    bool structure_equals(const IColumn& rhs) const override {
+        return typeid(rhs) == typeid(ThrowOnCloneColumn);
+    }
+
+private:
+    bool _throw_on_clone = false;
+    bool _throw_on_clone_empty = false;
+};
+
+} // namespace
 
 void block_to_pb(
         const Block& block, PBlock* pblock,
@@ -1317,6 +1360,36 @@ TEST(BlockTest, ClearSelectedColumnDataClonesSharedColumn) {
     EXPECT_EQ(block.get_by_position(1).column.get(), old_col1.get());
 }
 
+TEST(BlockTest, ClearColumnDataPropagatesSharedCloneEmptyFailure) {
+    auto type = std::make_shared<DataTypeInt32>();
+    auto mutable_col = ThrowOnCloneColumn::create(2, false, true);
+    ColumnPtr old_col = mutable_col->get_ptr();
+
+    Block block;
+    block.insert({std::move(mutable_col), type, "c0"});
+
+    EXPECT_THROW(block.clear_column_data(), Exception);
+    ASSERT_NE(block.get_by_position(0).column.get(), nullptr);
+    EXPECT_EQ(block.get_by_position(0).column.get(), old_col.get());
+    EXPECT_EQ(block.get_by_position(0).column->size(), 2);
+    EXPECT_EQ(old_col->size(), 2);
+}
+
+TEST(BlockTest, ClearSelectedColumnDataPropagatesSharedCloneEmptyFailure) {
+    auto type = std::make_shared<DataTypeInt32>();
+    auto mutable_col = ThrowOnCloneColumn::create(2, false, true);
+    ColumnPtr old_col = mutable_col->get_ptr();
+
+    Block block;
+    block.insert({std::move(mutable_col), type, "c0"});
+
+    EXPECT_THROW(block.clear_column_data(std::vector<uint32_t> {0}), Exception);
+    ASSERT_NE(block.get_by_position(0).column.get(), nullptr);
+    EXPECT_EQ(block.get_by_position(0).column.get(), old_col.get());
+    EXPECT_EQ(block.get_by_position(0).column->size(), 2);
+    EXPECT_EQ(old_col->size(), 2);
+}
+
 TEST(BlockTest, ScopedMutableColumnsRestoreOnErrorAndDetachSharedColumn) {
     auto type = std::make_shared<DataTypeInt32>();
     auto mutable_col = ColumnInt32::create();
@@ -1355,6 +1428,35 @@ TEST(BlockTest, ScopedMutableColumnsReadSchemaFromLiveBlock) {
     EXPECT_EQ(columns_guard.get_name_by_position(0), "c0");
 }
 
+TEST(BlockTest, ScopedMutableColumnsConstructorFailureRestoresAcquiredColumns) {
+    auto type = std::make_shared<DataTypeInt32>();
+    auto mutable_col = ColumnInt32::create();
+    mutable_col->insert_value(1);
+    mutable_col->insert_value(2);
+    const IColumn* old_col = mutable_col.get();
+
+    auto throwing_col = ThrowOnCloneColumn::create(2, true, false);
+    ColumnPtr old_throwing_col = throwing_col->get_ptr();
+
+    Block block;
+    block.insert({std::move(mutable_col), type, "c0"});
+    block.insert({std::move(throwing_col), type, "throwing"});
+
+    EXPECT_THROW(
+            [&]() {
+                auto columns_guard = block.mutate_columns_scoped();
+                static_cast<void>(columns_guard);
+            }(),
+            Exception);
+
+    ASSERT_NE(block.get_by_position(0).column.get(), nullptr);
+    ASSERT_NE(block.get_by_position(1).column.get(), nullptr);
+    EXPECT_EQ(block.get_by_position(0).column.get(), old_col);
+    EXPECT_EQ(block.get_by_position(0).column->size(), 2);
+    EXPECT_EQ(block.get_by_position(1).column.get(), old_throwing_col.get());
+    EXPECT_EQ(block.get_by_position(1).column->size(), 2);
+}
+
 TEST(BlockTest, ScopedMutableColumnRestoreOnErrorDetachSharedAndCreateMissingColumn) {
     auto type = std::make_shared<DataTypeInt32>();
     auto mutable_col = ColumnInt32::create();
@@ -1388,6 +1490,26 @@ TEST(BlockTest, ScopedMutableColumnRestoreOnErrorDetachSharedAndCreateMissingCol
     EXPECT_EQ(block.get_by_position(1).column->size(), 1);
 }
 
+TEST(BlockTest, ScopedMutableColumnConstructorFailureKeepsOriginalColumn) {
+    auto type = std::make_shared<DataTypeInt32>();
+    auto throwing_col = ThrowOnCloneColumn::create(2, true, false);
+    ColumnPtr old_throwing_col = throwing_col->get_ptr();
+
+    Block block;
+    block.insert({std::move(throwing_col), type, "throwing"});
+
+    EXPECT_THROW(
+            [&]() {
+                auto column_guard = block.mutate_column_scoped(0);
+                static_cast<void>(column_guard);
+            }(),
+            Exception);
+
+    ASSERT_NE(block.get_by_position(0).column.get(), nullptr);
+    EXPECT_EQ(block.get_by_position(0).column.get(), old_throwing_col.get());
+    EXPECT_EQ(block.get_by_position(0).column->size(), 2);
+}
+
 TEST(BlockTest, ScopedMutableBlockRestoreOnErrorAndDetachSharedColumn) {
     auto type = std::make_shared<DataTypeInt32>();
     auto mutable_col = ColumnInt32::create();
@@ -1408,6 +1530,35 @@ TEST(BlockTest, ScopedMutableBlockRestoreOnErrorAndDetachSharedColumn) {
     EXPECT_EQ(block.rows(), 3);
     EXPECT_EQ(old_col->size(), 2);
     EXPECT_NE(block.get_by_position(0).column.get(), old_col.get());
+}
+
+TEST(BlockTest, ScopedMutableBlockConstructorFailureRestoresBlockColumns) {
+    auto type = std::make_shared<DataTypeInt32>();
+    auto mutable_col = ColumnInt32::create();
+    mutable_col->insert_value(1);
+    mutable_col->insert_value(2);
+    const IColumn* old_col = mutable_col.get();
+
+    auto throwing_col = ThrowOnCloneColumn::create(2, true, false);
+    ColumnPtr old_throwing_col = throwing_col->get_ptr();
+
+    Block block;
+    block.insert({std::move(mutable_col), type, "c0"});
+    block.insert({std::move(throwing_col), type, "throwing"});
+
+    EXPECT_THROW(
+            [&]() {
+                ScopedMutableBlock scoped_block(&block);
+                static_cast<void>(scoped_block);
+            }(),
+            Exception);
+
+    ASSERT_NE(block.get_by_position(0).column.get(), nullptr);
+    ASSERT_NE(block.get_by_position(1).column.get(), nullptr);
+    EXPECT_EQ(block.get_by_position(0).column.get(), old_col);
+    EXPECT_EQ(block.get_by_position(0).column->size(), 2);
+    EXPECT_EQ(block.get_by_position(1).column.get(), old_throwing_col.get());
+    EXPECT_EQ(block.get_by_position(1).column->size(), 2);
 }
 
 } // namespace doris
