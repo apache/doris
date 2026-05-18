@@ -18,11 +18,14 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.types.TimeStampTzType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.util.Optional;
 
 public class ColumnDefinitionTest {
@@ -50,5 +53,13 @@ public class ColumnDefinitionTest {
         Assertions.assertNotNull(column.getRealDefaultValue());
         Assertions.assertTrue(column.getRealDefaultValue().matches(
                 "\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{6}[+-]\\d{2}:\\d{2}"));
+    }
+
+    @Test
+    public void testTimestampTzFormatterUsesNumericUtcOffset() {
+        ZonedDateTime utcDateTime = ZonedDateTime.of(2026, 5, 16, 12, 0, 0, 123456000, ZoneOffset.UTC);
+
+        Assertions.assertEquals("2026-05-16 12:00:00.123456+00:00",
+                TimestampTzLiteral.formatDateTime(utcDateTime, 6));
     }
 }

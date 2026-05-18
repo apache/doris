@@ -31,6 +31,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import java.time.LocalDateTime;
 import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Objects;
 
 /**
@@ -40,6 +41,7 @@ public class TimestampTzLiteral extends DateTimeLiteral {
 
     public static final TimestampTzLiteral USE_IN_FLOOR_CEIL
             = new TimestampTzLiteral(0001L, 01L, 01L, 0L, 0L, 0L, 0L);
+    private static final DateTimeFormatter ZONE_OFFSET_FORMATTER = DateTimeFormatter.ofPattern("xxx");
 
     public TimestampTzLiteral(String s) {
         this(TimeStampTzType.forTypeFromString(s), s);
@@ -460,7 +462,7 @@ public class TimestampTzLiteral extends DateTimeLiteral {
     }
 
     public static String formatDateTime(ZonedDateTime dateTime, int precision) {
-        return formatDateTime(dateTime.toLocalDateTime(), precision) + dateTime.getOffset();
+        return formatDateTime(dateTime.toLocalDateTime(), precision) + ZONE_OFFSET_FORMATTER.format(dateTime);
     }
 
     @Override
