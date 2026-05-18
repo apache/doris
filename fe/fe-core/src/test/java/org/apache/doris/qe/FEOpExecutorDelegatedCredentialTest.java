@@ -46,8 +46,11 @@ public class FEOpExecutorDelegatedCredentialTest {
             context.setSessionContext(SessionContext.of(new DelegatedCredential(
                     DelegatedCredential.Type.ID_TOKEN, "forwarded-id-token", OptionalLong.of(12345L))));
 
+            String delegatedCredentialSessionId = context.getSessionContext().getSessionId();
             TMasterOpRequest request = new TestFEOpExecutor(context).build();
 
+            Assert.assertTrue(request.isSetDelegatedCredentialSessionId());
+            Assert.assertEquals(delegatedCredentialSessionId, request.getDelegatedCredentialSessionId());
             Assert.assertTrue(request.isSetDelegatedCredentialType());
             Assert.assertTrue(request.isSetDelegatedCredentialToken());
             Assert.assertTrue(request.isSetDelegatedCredentialExpiresAtMillis());

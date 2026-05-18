@@ -22,16 +22,19 @@ import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.property.storage.OSSProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.qe.ConnectContext;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.aws.AwsClientProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
+import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.rest.auth.AuthProperties;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -213,6 +216,34 @@ public class IcebergRestPropertiesTest {
         Assertions.assertFalse(catalogProps.containsKey(OAuth2Properties.CREDENTIAL));
         Assertions.assertFalse(catalogProps.containsKey(OAuth2Properties.OAUTH2_SERVER_URI));
         Assertions.assertFalse(catalogProps.containsKey(OAuth2Properties.SCOPE));
+    }
+
+    @Test
+    public void testInitCatalogDoesNotCaptureCurrentDelegatedCredential() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.security.type", "oauth2");
+        props.put("iceberg.rest.session", "user");
+        props.put("iceberg.rest.oauth2.credential", "client_credentials");
+        props.put("iceberg.rest.oauth2.server-uri", "http://auth.example.com/token");
+        props.put("iceberg.rest.oauth2.scope", "read write");
+
+        CapturingIcebergRestProperties restProps = new CapturingIcebergRestProperties(props);
+        restProps.initNormalizeAndCheckProps();
+
+        ConnectContext context = new ConnectContext();
+        context.setSessionContext(SessionContext.of(new DelegatedCredential(
+                DelegatedCredential.Type.ACCESS_TOKEN, "delegated-access-token")));
+        context.setThreadLocalInfo();
+        try {
+            restProps.initCatalog("test_catalog", new HashMap<>(), new ArrayList<>());
+
+            Assertions.assertFalse(restProps.capturedCatalogProps.containsKey(OAuth2Properties.TOKEN));
+            Assertions.assertEquals("client_credentials",
+                    restProps.capturedCatalogProps.get(OAuth2Properties.CREDENTIAL));
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     @Test
@@ -977,5 +1008,19 @@ public class IcebergRestPropertiesTest {
         // First non-S3Properties (oss1) should be used
         Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", fileIOProperties.get(S3FileIOProperties.ENDPOINT));
         Assertions.assertEquals("ossAK1", fileIOProperties.get(S3FileIOProperties.ACCESS_KEY_ID));
+    }
+
+    private static class CapturingIcebergRestProperties extends IcebergRestProperties {
+        private Map<String, String> capturedCatalogProps;
+
+        private CapturingIcebergRestProperties(Map<String, String> props) {
+            super(props);
+        }
+
+        @Override
+        protected Catalog buildIcebergCatalog(String catalogName, Map<String, String> options, Configuration conf) {
+            capturedCatalogProps = new HashMap<>(options);
+            return Mockito.mock(Catalog.class);
+        }
     }
 }

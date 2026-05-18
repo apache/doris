@@ -26,7 +26,6 @@ import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
-import org.apache.doris.qe.ConnectContext;
 
 import lombok.Getter;
 import org.apache.hadoop.conf.Configuration;
@@ -210,7 +209,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     @Override
     public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
             List<StorageProperties> storagePropertiesList) {
-        catalogProps.putAll(getIcebergRestCatalogPropertiesForCatalogInit(currentSessionContext()));
+        catalogProps.putAll(getIcebergRestCatalogPropertiesForCatalogInit(SessionContext.empty()));
         Configuration configuration = new Configuration();
         toFileIOProperties(storagePropertiesList, catalogProps, configuration);
         // 4. Build iceberg catalog
@@ -418,15 +417,6 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             catalogProperties.put(credential.getIcebergCredentialKey(), credential.getToken());
         }
         return Collections.unmodifiableMap(catalogProperties);
-    }
-
-    private static SessionContext currentSessionContext() {
-        ConnectContext context = ConnectContext.get();
-        if (context == null) {
-            return SessionContext.empty();
-        }
-        SessionContext sessionContext = context.getSessionContext();
-        return sessionContext == null ? SessionContext.empty() : sessionContext;
     }
 
     public boolean isIcebergRestVendedCredentialsEnabled() {

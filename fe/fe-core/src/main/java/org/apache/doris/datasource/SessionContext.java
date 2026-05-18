@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.UUID;
@@ -45,6 +46,11 @@ public class SessionContext {
             return empty();
         }
         return new SessionContext(UUID.randomUUID().toString(), delegatedCredential);
+    }
+
+    public static SessionContext of(String sessionId, DelegatedCredential delegatedCredential) {
+        return new SessionContext(Objects.requireNonNull(sessionId, "sessionId is required"),
+                Objects.requireNonNull(delegatedCredential, "delegatedCredential is required"));
     }
 
     public String getSessionId() {

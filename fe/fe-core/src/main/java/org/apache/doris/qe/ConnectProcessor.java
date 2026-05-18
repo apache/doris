@@ -846,7 +846,10 @@ public abstract class ConnectProcessor {
         OptionalLong expiresAtMillis = request.isSetDelegatedCredentialExpiresAtMillis()
                 ? OptionalLong.of(request.getDelegatedCredentialExpiresAtMillis())
                 : OptionalLong.empty();
-        context.setSessionContext(SessionContext.of(new DelegatedCredential(
+        String sessionId = request.isSetDelegatedCredentialSessionId()
+                ? request.getDelegatedCredentialSessionId()
+                : UUID.randomUUID().toString();
+        context.setSessionContext(SessionContext.of(sessionId, new DelegatedCredential(
                 DelegatedCredential.Type.valueOf(request.getDelegatedCredentialType()),
                 request.getDelegatedCredentialToken(),
                 expiresAtMillis)));

@@ -214,6 +214,7 @@ public class FEOpExecutor {
         }
 
         ctx.getSessionContext().getDelegatedCredential().ifPresent((DelegatedCredential credential) -> {
+            params.setDelegatedCredentialSessionId(ctx.getSessionContext().getSessionId());
             params.setDelegatedCredentialType(credential.getType().name());
             params.setDelegatedCredentialToken(credential.getToken());
             credential.getExpiresAtMillis().ifPresent(params::setDelegatedCredentialExpiresAtMillis);

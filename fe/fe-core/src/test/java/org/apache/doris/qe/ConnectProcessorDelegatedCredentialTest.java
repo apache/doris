@@ -70,6 +70,7 @@ class ConnectProcessorDelegatedCredentialTest {
     @Test
     void testRestoreForwardedDelegatedCredential() {
         TMasterOpRequest request = new TMasterOpRequest();
+        request.setDelegatedCredentialSessionId("forwarded-session-id");
         request.setDelegatedCredentialType(DelegatedCredential.Type.ACCESS_TOKEN.name());
         request.setDelegatedCredentialToken("forwarded-access-token");
         request.setDelegatedCredentialExpiresAtMillis(12345L);
@@ -77,6 +78,7 @@ class ConnectProcessorDelegatedCredentialTest {
 
         ConnectProcessor.restoreForwardedSessionContext(context, request);
 
+        Assertions.assertEquals("forwarded-session-id", context.getSessionContext().getSessionId());
         DelegatedCredential credential = context.getSessionContext().getDelegatedCredential().get();
         Assertions.assertEquals(DelegatedCredential.Type.ACCESS_TOKEN, credential.getType());
         Assertions.assertEquals("forwarded-access-token", credential.getToken());

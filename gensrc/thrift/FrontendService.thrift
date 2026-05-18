@@ -409,6 +409,7 @@ struct TMasterOpRequest {
     1004: optional string delegated_credential_type
     1005: optional string delegated_credential_token
     1006: optional i64 delegated_credential_expires_at_millis
+    1007: optional string delegated_credential_session_id
 }
 
 struct TColumnDefinition {

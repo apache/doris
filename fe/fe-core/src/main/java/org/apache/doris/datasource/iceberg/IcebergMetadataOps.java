@@ -1220,14 +1220,14 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     private Catalog catalog(SessionContext ctx) {
-        if (isIcebergRestUserSessionEnabled()) {
+        if (useSessionCatalog(ctx)) {
             return sessionCatalogAdapter.delegatedCatalog(ctx);
         }
         return catalog;
     }
 
     private SupportsNamespaces namespaces(SessionContext ctx) {
-        if (isIcebergRestUserSessionEnabled()) {
+        if (useSessionCatalog(ctx)) {
             return sessionCatalogAdapter.delegatedNamespaces(ctx);
         }
         return nsCatalog;
@@ -1237,7 +1237,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         if (!isViewCatalogEnabled()) {
             return Optional.empty();
         }
-        if (isIcebergRestUserSessionEnabled()) {
+        if (useSessionCatalog(ctx)) {
             return sessionCatalogAdapter.delegatedViewCatalog(ctx);
         }
         return Optional.of((ViewCatalog) catalog);
