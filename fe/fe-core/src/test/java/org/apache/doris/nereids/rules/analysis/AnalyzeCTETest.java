@@ -120,6 +120,15 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
             + "WHERE b.grp = s.grp "
             + "AND (DATE(b.ts6) = s.dt OR b.ts3_n <=> s.ts3_n))";
 
+    private final String correlatedOuterCteAliasNestedShadowSql = "WITH seed AS ("
+            + "SELECT id, grp, v FROM cte_alias_shadow_outer_nested "
+            + "UNION ALL "
+            + "SELECT id, grp, v FROM cte_alias_shadow_outer_nested WHERE 1 = 0) "
+            + "SELECT id FROM seed s "
+            + "WHERE EXISTS ("
+            + "SELECT 1 FROM cte_alias_shadow_inner_nested b "
+            + "WHERE b.probe = s.v.x)";
+
     private final List<String> testSqls = ImmutableList.of(
             multiCte, cteWithColumnAlias, cteConsumerInSubQuery, cteConsumerJoin, cteReferToAnotherOne, cteJoinSelf,
             cteNested, cteInTheMiddle, cteWithDiffRelationId
@@ -144,6 +153,16 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
                         + "i_nn int not null, i_n int null, j_nn int not null, s varchar(32) null)\n"
                         + "duplicate key(id, grp, dt)\n"
                         + "distributed by hash(id) buckets 1\n"
+                        + "properties('replication_num' = '1');",
+                "create table test.cte_alias_shadow_outer_nested\n"
+                        + "(id int, grp int, v struct<x:int>)\n"
+                        + "duplicate key(id, grp)\n"
+                        + "distributed by hash(id) buckets 1\n"
+                        + "properties('replication_num' = '1');",
+                "create table test.cte_alias_shadow_inner_nested\n"
+                        + "(grp int, probe int, s struct<v:struct<x:int>>)\n"
+                        + "duplicate key(grp, probe)\n"
+                        + "distributed by hash(grp) buckets 1\n"
                         + "properties('replication_num' = '1');"
         );
     }
@@ -259,6 +278,17 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
     public void testCorrelatedOuterCteAliasNotShadowedByInnerColumn() {
         Plan plan = PlanChecker.from(connectContext)
                 .analyze(correlatedOuterCteAliasShadowSql)
+                .getPlan();
+        Set<Plan> applyNodes = plan.collect(LogicalApply.class::isInstance);
+
+        Assertions.assertEquals(1, applyNodes.size());
+        Assertions.assertTrue(((LogicalApply<?, ?>) applyNodes.iterator().next()).isCorrelated());
+    }
+
+    @Test
+    public void testCorrelatedOuterCteAliasNestedReferenceNotShadowedByInnerColumn() {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze(correlatedOuterCteAliasNestedShadowSql)
                 .getPlan();
         Set<Plan> applyNodes = plan.collect(LogicalApply.class::isInstance);
 

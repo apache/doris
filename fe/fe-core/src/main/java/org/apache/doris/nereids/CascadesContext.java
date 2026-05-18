@@ -168,6 +168,9 @@ public class CascadesContext implements ScheduleContext {
         }
         this.isLeadingDisableJoinReorder = isLeadingDisableJoinReorder;
         this.recursiveCteContext = Optional.ofNullable(recursiveCteContext);
+        if (parent.isPresent()) {
+            this.outerScope = parent.get().getOuterScope();
+        }
     }
 
     /** init a temporary context to rewrite expression */
@@ -225,9 +228,6 @@ public class CascadesContext implements ScheduleContext {
             CTEContext recursiveCteContext) {
         CascadesContext cascadesContext = new CascadesContext(parent, subtree, statementContext, initPlan, null,
                 cteContext, requireProperties, isLeadingDisableJoinReorder, recursiveCteContext);
-        if (parent.isPresent() && parent.get().getOuterScope().isPresent()) {
-            cascadesContext.setOuterScope(parent.get().getOuterScope().get());
-        }
         return cascadesContext;
     }
 
