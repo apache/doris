@@ -3982,4 +3982,7 @@ public class Config extends ConfigBase {
         "Secret key synchronization interval (seconds)"})
     public static int secret_key_sync_time_s = 3600;
 
+    @ConfField(mutable = true, description = {"连接HMS超过指定时间打印慢调用日志",
+        "print a warning when the duration exceeds the specified time."})
+    public static long log_slow_hms_time_ms = 5000;
 }
