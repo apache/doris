@@ -5334,7 +5334,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         // When doc mode is enabled, disable subcolumn extraction and sparse column features
         if (enableVariantDocMode) {
             // Disable sparse column features
-            variantMaxSubcolumnsCount = 0;
             enableTypedPathsToSparse = false;
             variantMaxSparseColumnStatisticsSize = 0;
             variantSparseHashShardCount = 0;

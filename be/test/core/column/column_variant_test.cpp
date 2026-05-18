@@ -3571,4 +3571,547 @@ TEST_F(ColumnVariantTest, deserialize_mixed_array_elements) {
             << subcolumn.get_least_common_type()->get_name();
 }
 
+// Helper: create a subcolumn-only ColumnVariant (enable_doc_mode=true, no sparse)
+static auto create_doc_mode_subcolumn_variant(int row_count) {
+    auto col = ColumnVariant::create(0, true);
+    for (int i = 0; i < row_count; ++i) {
+        std::vector<std::pair<std::string, doris::Field>> data;
+        data.emplace_back("v.a", doris::Field::create_field<TYPE_INT>(i * 10));
+        data.emplace_back("v.b", doris::Field::create_field<TYPE_INT>(i * 20));
+        data.emplace_back("v.c", doris::Field::create_field<TYPE_INT>(i * 30));
+        data.emplace_back("v.d", doris::Field::create_field<TYPE_INT>(i * 40));
+        data.emplace_back("v.e", doris::Field::create_field<TYPE_INT>(i * 50));
+        col->try_insert(VariantUtil::construct_variant_map(data));
+    }
+    col->finalize(ColumnVariant::FinalizeMode::WRITE_MODE);
+    return col;
+}
+
+// Helper: create a doc-mode ColumnVariant via OnlyDocValueColumn parse
+static auto create_doc_mode_variant(const std::vector<std::string>& jsons,
+                                    bool enable_doc_mode = false) {
+    auto col = ColumnVariant::create(0, enable_doc_mode);
+    auto col_str = ColumnString::create();
+    for (const auto& json : jsons) {
+        col_str->insert_data(json.data(), json.size());
+    }
+    ParseConfig config;
+    config.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
+
+    variant_util::parse_json_to_variant(*col, *col_str, config);
+    return col;
+}
+
+// Helper: collect doc_value paths for a given row
+static std::vector<std::string> get_doc_value_paths_for_row(const ColumnVariant& col, size_t row) {
+    const auto [doc_keys, doc_values] = col.get_doc_value_data_paths_and_values();
+    const auto& doc_offsets = col.serialized_doc_value_column_offsets();
+    size_t start = row > 0 ? doc_offsets[row - 1] : 0;
+    size_t end = doc_offsets[row];
+    std::vector<std::string> paths;
+    for (size_t i = start; i < end; ++i) {
+        paths.push_back(doc_keys->get_data_at(i).to_string());
+    }
+    return paths;
+}
+
+// Helper: check column has no doc_value data for any row
+static void assert_no_doc_value_data(const ColumnVariant& col) {
+    const auto& offsets = col.serialized_doc_value_column_offsets();
+    EXPECT_EQ(offsets[col.size() - 1], 0) << "doc_value_column should be empty";
+}
+
+// Helper: check column has no sparse data for any row
+static void assert_no_sparse_data(const ColumnVariant& col) {
+    const auto& offsets = col.serialized_sparse_column_offsets();
+    EXPECT_EQ(offsets[col.size() - 1], 0) << "sparse_column should be empty";
+}
+
+// Helper: collect non-root subcolumn paths
+static std::vector<std::string> get_subcolumn_paths(const ColumnVariant& col) {
+    std::vector<std::string> paths;
+    for (const auto& entry : col.subcolumns) {
+        if (entry->path.empty()) continue;
+        paths.push_back(entry->path.get_path());
+    }
+    std::sort(paths.begin(), paths.end());
+    return paths;
+}
+
+// Test insert_from in doc mode (4 cross scenarios, no sparse):
+//   Case 1: src=subcolumn, dst=subcolumn
+//   Case 2: src=doc_value, dst=doc_value
+//   Case 3: src=subcolumn, dst=doc_value
+//   Case 4: src=doc_value, dst=subcolumn
+
+// Case 1: both subcolumn (doc mode)
+TEST_F(ColumnVariantTest, insert_from_cross_mode_subcolumn_to_subcolumn) {
+    auto src = create_doc_mode_subcolumn_variant(3);
+    EXPECT_EQ(src->size(), 3);
+    EXPECT_EQ(get_subcolumn_paths(*src).size(), 5);
+    assert_no_doc_value_data(*src);
+    assert_no_sparse_data(*src);
+
+    auto dst = create_doc_mode_subcolumn_variant(2);
+    EXPECT_EQ(dst->size(), 2);
+    EXPECT_EQ(get_subcolumn_paths(*dst).size(), 5);
+    assert_no_doc_value_data(*dst);
+    assert_no_sparse_data(*dst);
+
+    dst->insert_from(*src, 1);
+    EXPECT_EQ(dst->size(), 3);
+
+    // Result: still subcolumn mode, no sparse, no doc_value
+    EXPECT_EQ(get_subcolumn_paths(*dst).size(), 5);
+    assert_no_doc_value_data(*dst);
+    assert_no_sparse_data(*dst);
+
+    // All 5 paths accessible
+    auto field = (*dst)[2];
+    const auto& obj = field.get<TYPE_VARIANT>();
+    std::set<std::string> all_paths;
+    for (const auto& [key, value] : obj) {
+        if (!key.get_path().empty()) {
+            all_paths.insert(key.get_path());
+        }
+    }
+    EXPECT_EQ(all_paths.size(), 5);
+    EXPECT_TRUE(all_paths.count("v.a"));
+    EXPECT_TRUE(all_paths.count("v.b"));
+    EXPECT_TRUE(all_paths.count("v.c"));
+    EXPECT_TRUE(all_paths.count("v.d"));
+    EXPECT_TRUE(all_paths.count("v.e"));
+}
+
+// Case 2: both doc_value (doc mode)
+TEST_F(ColumnVariantTest, insert_from_cross_mode_doc_to_doc) {
+    auto src =
+            create_doc_mode_variant({R"({"x1":100,"x2":200,"x3":300,"x4":400,"x5":500,"x6":600})",
+                                     R"({"x1":101,"x2":201,"x3":301,"x4":401,"x5":501,"x6":601})"},
+                                    true);
+    EXPECT_TRUE(src->is_doc_mode());
+    EXPECT_EQ(src->size(), 2);
+    EXPECT_EQ(src->get_subcolumns().size(), 1);
+    assert_no_sparse_data(*src);
+    for (size_t row = 0; row < 2; ++row) {
+        EXPECT_EQ(get_doc_value_paths_for_row(*src, row).size(), 6);
+    }
+
+    auto dst = create_doc_mode_variant({R"({"y1":10,"y2":20,"y3":30,"y4":40})"}, true);
+    EXPECT_TRUE(dst->is_doc_mode());
+    EXPECT_EQ(dst->size(), 1);
+    EXPECT_EQ(dst->get_subcolumns().size(), 1);
+    assert_no_sparse_data(*dst);
+    EXPECT_EQ(get_doc_value_paths_for_row(*dst, 0).size(), 4);
+
+    dst->insert_from(*src, 1);
+    EXPECT_EQ(dst->size(), 2);
+
+    // Result should remain doc mode: root only, no sparse
+    EXPECT_TRUE(dst->is_doc_mode());
+    EXPECT_EQ(dst->get_subcolumns().size(), 1);
+    assert_no_sparse_data(*dst);
+
+    // Row 0 should still have 4 paths (y1-y4)
+    auto paths0 = get_doc_value_paths_for_row(*dst, 0);
+    EXPECT_EQ(paths0.size(), 4);
+    EXPECT_EQ(paths0[0], "y1");
+    EXPECT_EQ(paths0[3], "y4");
+
+    // Row 1 should have 6 paths (x1-x6)
+    auto paths1 = get_doc_value_paths_for_row(*dst, 1);
+    EXPECT_EQ(paths1.size(), 6);
+    EXPECT_EQ(paths1[0], "x1");
+    EXPECT_EQ(paths1[5], "x6");
+}
+
+// Case 3: src=subcolumn (doc_mode), dst=doc_value (doc_mode)
+// Verifies that subcolumn data from src is serialized into dst's doc_value_column.
+TEST_F(ColumnVariantTest, insert_from_cross_mode_subcolumn_to_doc) {
+    auto src = create_doc_mode_subcolumn_variant(3);
+    EXPECT_EQ(src->size(), 3);
+    EXPECT_GT(src->get_subcolumns().size(), 1);
+    assert_no_doc_value_data(*src);
+    assert_no_sparse_data(*src);
+
+    auto dst = create_doc_mode_variant(
+            {R"({"x1":100,"x2":200,"x3":300,"x4":400,"x5":500,"x6":600})"}, true);
+    EXPECT_EQ(dst->size(), 1);
+    EXPECT_TRUE(dst->is_doc_mode());
+    EXPECT_EQ(dst->get_subcolumns().size(), 1);
+    assert_no_sparse_data(*dst);
+    EXPECT_EQ(get_doc_value_paths_for_row(*dst, 0).size(), 6);
+
+    dst->insert_from(*src, 1);
+    EXPECT_EQ(dst->size(), 2);
+
+    // Result should be doc mode: root only, no sparse
+    EXPECT_TRUE(dst->is_doc_mode());
+    EXPECT_EQ(dst->get_subcolumns().size(), 1);
+    assert_no_sparse_data(*dst);
+
+    EXPECT_EQ(get_doc_value_paths_for_row(*dst, 0).size(), 6);
+
+    auto paths1 = get_doc_value_paths_for_row(*dst, 1);
+    EXPECT_EQ(paths1.size(), 5);
+    EXPECT_EQ(paths1[0], "v.a");
+    EXPECT_EQ(paths1[1], "v.b");
+    EXPECT_EQ(paths1[2], "v.c");
+    EXPECT_EQ(paths1[3], "v.d");
+    EXPECT_EQ(paths1[4], "v.e");
+}
+
+// Case 4: src=doc_value (doc_mode), dst=subcolumn (doc_mode)
+// Verifies that dst subcolumns are converted to doc_value.
+TEST_F(ColumnVariantTest, insert_from_cross_mode_doc_to_subcolumn) {
+    auto dst = create_doc_mode_subcolumn_variant(3);
+    EXPECT_EQ(dst->size(), 3);
+    EXPECT_GT(dst->get_subcolumns().size(), 1);
+    assert_no_doc_value_data(*dst);
+    assert_no_sparse_data(*dst);
+
+    auto src = create_doc_mode_variant(
+            {R"({"y1":100,"y2":200,"y3":300,"y4":400,"y5":500,"y6":600})"}, true);
+    EXPECT_EQ(src->size(), 1);
+    EXPECT_TRUE(src->is_doc_mode());
+    EXPECT_EQ(src->get_subcolumns().size(), 1);
+    assert_no_sparse_data(*src);
+    EXPECT_EQ(get_doc_value_paths_for_row(*src, 0).size(), 6);
+
+    dst->insert_from(*src, 0);
+    EXPECT_EQ(dst->size(), 4);
+
+    // Result should be doc mode: root only, no sparse
+    EXPECT_TRUE(dst->is_doc_mode());
+    EXPECT_EQ(dst->get_subcolumns().size(), 1);
+    assert_no_sparse_data(*dst);
+
+    // Original rows should each have 5 paths
+    for (size_t row = 0; row < 3; ++row) {
+        auto paths = get_doc_value_paths_for_row(*dst, row);
+        EXPECT_EQ(paths.size(), 5) << "Original row " << row;
+        EXPECT_EQ(paths[0], "v.a");
+        EXPECT_EQ(paths[4], "v.e");
+    }
+
+    // Inserted row should have 6 paths (y1-y6)
+    auto paths3 = get_doc_value_paths_for_row(*dst, 3);
+    EXPECT_EQ(paths3.size(), 6);
+    EXPECT_EQ(paths3[0], "y1");
+    EXPECT_EQ(paths3[5], "y6");
+}
+
+// Case 5: dst is empty doc mode, src=subcolumn → accept subcolumn structure
+TEST_F(ColumnVariantTest, insert_from_cross_mode_empty_dst_accepts_subcolumn) {
+    auto src = create_doc_mode_subcolumn_variant(3);
+    EXPECT_EQ(src->size(), 3);
+    EXPECT_GT(src->get_subcolumns().size(), 1);
+    assert_no_doc_value_data(*src);
+    assert_no_sparse_data(*src);
+
+    // dst is empty doc mode column
+    auto dst = ColumnVariant::create(0, true);
+
+    dst->insert_from(*src, 1);
+    EXPECT_EQ(dst->size(), 1);
+
+    // Result: subcolumn mode (inherited from src), no doc_value, no sparse
+    EXPECT_EQ(get_subcolumn_paths(*dst).size(), 5);
+    assert_no_doc_value_data(*dst);
+    assert_no_sparse_data(*dst);
+
+    auto field = (*dst)[0];
+    const auto& obj = field.get<TYPE_VARIANT>();
+    std::set<std::string> all_paths;
+    for (const auto& [key, value] : obj) {
+        if (!key.get_path().empty()) {
+            all_paths.insert(key.get_path());
+        }
+    }
+    EXPECT_EQ(all_paths.size(), 5);
+    EXPECT_TRUE(all_paths.count("v.a"));
+    EXPECT_TRUE(all_paths.count("v.e"));
+}
+
+// Case 6: dst is empty doc mode, src=doc_value → accept doc_value structure
+TEST_F(ColumnVariantTest, insert_from_cross_mode_empty_dst_accepts_doc_value) {
+    auto src =
+            create_doc_mode_variant({R"({"x1":100,"x2":200,"x3":300,"x4":400,"x5":500,"x6":600})",
+                                     R"({"x1":101,"x2":201,"x3":301,"x4":401,"x5":501,"x6":601})"},
+                                    true);
+    EXPECT_TRUE(src->is_doc_mode());
+    EXPECT_EQ(src->size(), 2);
+
+    // dst is empty doc mode column
+    auto dst = ColumnVariant::create(0, true);
+
+    dst->insert_from(*src, 0);
+    EXPECT_EQ(dst->size(), 1);
+
+    // Result: doc_value mode, no sparse
+    EXPECT_TRUE(dst->is_doc_mode());
+    EXPECT_EQ(dst->get_subcolumns().size(), 1);
+    assert_no_sparse_data(*dst);
+
+    auto paths0 = get_doc_value_paths_for_row(*dst, 0);
+    EXPECT_EQ(paths0.size(), 6);
+    EXPECT_EQ(paths0[0], "x1");
+    EXPECT_EQ(paths0[5], "x6");
+}
+
+// Test insert_range_from in doc mode (4 cross scenarios, no sparse):
+//   Case 1: src=subcolumn, dst=subcolumn
+//   Case 2: src=doc_value, dst=doc_value
+//   Case 3: src=subcolumn, dst=doc_value
+//   Case 4: src=doc_value, dst=subcolumn
+
+// Case 1: both subcolumn (doc mode)
+TEST_F(ColumnVariantTest, insert_range_from_cross_mode_subcolumn_to_subcolumn) {
+    auto src = create_doc_mode_subcolumn_variant(3);
+    EXPECT_EQ(src->size(), 3);
+    EXPECT_EQ(get_subcolumn_paths(*src).size(), 5);
+    assert_no_doc_value_data(*src);
+    assert_no_sparse_data(*src);
+
+    auto dst = create_doc_mode_subcolumn_variant(2);
+    EXPECT_EQ(dst->size(), 2);
+    EXPECT_EQ(get_subcolumn_paths(*dst).size(), 5);
+    assert_no_doc_value_data(*dst);
+    assert_no_sparse_data(*dst);
+
+    dst->insert_range_from(*src, 0, 3);
+    EXPECT_EQ(dst->size(), 5);
+
+    // Result: still subcolumn mode, no sparse, no doc_value
+    EXPECT_EQ(get_subcolumn_paths(*dst).size(), 5);
+    assert_no_doc_value_data(*dst);
+    assert_no_sparse_data(*dst);
+
+    for (size_t row = 0; row < 5; ++row) {
+        auto field = (*dst)[row];
+        const auto& obj = field.get<TYPE_VARIANT>();
+        std::set<std::string> paths;
+        for (const auto& [key, value] : obj) {
+            if (!key.get_path().empty()) {
+                paths.insert(key.get_path());
+            }
+        }
+        EXPECT_EQ(paths.size(), 5) << "row " << row << " should have all 5 paths";
+    }
+}
+
+// Case 2: both doc_value (doc mode)
+TEST_F(ColumnVariantTest, insert_range_from_cross_mode_doc_to_doc) {
+    auto src =
+            create_doc_mode_variant({R"({"x1":100,"x2":200,"x3":300,"x4":400,"x5":500,"x6":600})",
+                                     R"({"x1":101,"x2":201,"x3":301,"x4":401,"x5":501,"x6":601})",
+                                     R"({"x1":102,"x2":202,"x3":302,"x4":402,"x5":502,"x6":602})"},
+                                    true);
+    EXPECT_TRUE(src->is_doc_mode());
+    EXPECT_EQ(src->size(), 3);
+    EXPECT_EQ(src->get_subcolumns().size(), 1);
+    assert_no_sparse_data(*src);
+    for (size_t row = 0; row < 3; ++row) {
+        EXPECT_EQ(get_doc_value_paths_for_row(*src, row).size(), 6);
+    }
+
+    auto dst = create_doc_mode_variant({R"({"y1":10,"y2":20,"y3":30,"y4":40})"}, true);
+    EXPECT_TRUE(dst->is_doc_mode());
+    EXPECT_EQ(dst->size(), 1);
+    EXPECT_EQ(dst->get_subcolumns().size(), 1);
+    assert_no_sparse_data(*dst);
+    EXPECT_EQ(get_doc_value_paths_for_row(*dst, 0).size(), 4);
+
+    dst->insert_range_from(*src, 1, 2);
+    EXPECT_EQ(dst->size(), 3);
+
+    EXPECT_TRUE(dst->is_doc_mode());
+    EXPECT_EQ(dst->get_subcolumns().size(), 1);
+    assert_no_sparse_data(*dst);
+
+    EXPECT_EQ(get_doc_value_paths_for_row(*dst, 0).size(), 4);
+    for (size_t row = 1; row < 3; ++row) {
+        auto paths = get_doc_value_paths_for_row(*dst, row);
+        EXPECT_EQ(paths.size(), 6) << "row " << row;
+        EXPECT_EQ(paths[0], "x1");
+        EXPECT_EQ(paths[5], "x6");
+    }
+}
+
+// Case 3: src=subcolumn (doc_mode), dst=doc_value (doc_mode)
+TEST_F(ColumnVariantTest, insert_range_from_cross_mode_subcolumn_to_doc) {
+    auto src = create_doc_mode_subcolumn_variant(3);
+    EXPECT_EQ(src->size(), 3);
+    EXPECT_GT(src->get_subcolumns().size(), 1);
+    assert_no_doc_value_data(*src);
+    assert_no_sparse_data(*src);
+
+    auto dst = create_doc_mode_variant(
+            {R"({"x1":100,"x2":200,"x3":300,"x4":400,"x5":500,"x6":600})"}, true);
+    EXPECT_EQ(dst->size(), 1);
+    EXPECT_TRUE(dst->is_doc_mode());
+    EXPECT_EQ(dst->get_subcolumns().size(), 1);
+    assert_no_sparse_data(*dst);
+    EXPECT_EQ(get_doc_value_paths_for_row(*dst, 0).size(), 6);
+
+    dst->insert_range_from(*src, 0, 3);
+    EXPECT_EQ(dst->size(), 4);
+
+    EXPECT_TRUE(dst->is_doc_mode());
+    EXPECT_EQ(dst->get_subcolumns().size(), 1);
+    assert_no_sparse_data(*dst);
+
+    EXPECT_EQ(get_doc_value_paths_for_row(*dst, 0).size(), 6);
+
+    for (size_t row = 1; row < 4; ++row) {
+        auto paths = get_doc_value_paths_for_row(*dst, row);
+        EXPECT_EQ(paths.size(), 5) << "row " << row;
+        EXPECT_EQ(paths[0], "v.a");
+        EXPECT_EQ(paths[4], "v.e");
+    }
+}
+
+// Case 4: src=doc_value (doc_mode), dst=subcolumn (doc_mode)
+TEST_F(ColumnVariantTest, insert_range_from_cross_mode_doc_to_subcolumn) {
+    auto dst = create_doc_mode_subcolumn_variant(3);
+    EXPECT_EQ(dst->size(), 3);
+    EXPECT_GT(dst->get_subcolumns().size(), 1);
+    assert_no_doc_value_data(*dst);
+    assert_no_sparse_data(*dst);
+    EXPECT_EQ(get_subcolumn_paths(*dst).size(), 5);
+
+    auto src =
+            create_doc_mode_variant({R"({"y1":100,"y2":200,"y3":300,"y4":400,"y5":500,"y6":600})",
+                                     R"({"y1":101,"y2":201,"y3":301,"y4":401,"y5":501,"y6":601})"},
+                                    true);
+    EXPECT_EQ(src->size(), 2);
+    EXPECT_TRUE(src->is_doc_mode());
+    EXPECT_EQ(src->get_subcolumns().size(), 1);
+    assert_no_sparse_data(*src);
+
+    dst->insert_range_from(*src, 0, 2);
+    EXPECT_EQ(dst->size(), 5);
+
+    EXPECT_TRUE(dst->is_doc_mode());
+    EXPECT_EQ(dst->get_subcolumns().size(), 1);
+    assert_no_sparse_data(*dst);
+
+    for (size_t row = 0; row < 3; ++row) {
+        auto paths = get_doc_value_paths_for_row(*dst, row);
+        EXPECT_EQ(paths.size(), 5) << "Original row " << row;
+        EXPECT_EQ(paths[0], "v.a");
+        EXPECT_EQ(paths[4], "v.e");
+    }
+
+    for (size_t row = 3; row < 5; ++row) {
+        auto paths = get_doc_value_paths_for_row(*dst, row);
+        EXPECT_EQ(paths.size(), 6) << "Inserted row " << row;
+        EXPECT_EQ(paths[0], "y1");
+        EXPECT_EQ(paths[5], "y6");
+    }
+}
+
+// Case 5: dst is empty doc mode, src=subcolumn → accept subcolumn structure
+TEST_F(ColumnVariantTest, insert_range_from_cross_mode_empty_dst_accepts_subcolumn) {
+    auto src = create_doc_mode_subcolumn_variant(3);
+    EXPECT_EQ(src->size(), 3);
+    EXPECT_GT(src->get_subcolumns().size(), 1);
+    assert_no_doc_value_data(*src);
+    assert_no_sparse_data(*src);
+
+    // dst is empty doc mode column
+    auto dst = ColumnVariant::create(0, true);
+
+    dst->insert_range_from(*src, 0, 3);
+    EXPECT_EQ(dst->size(), 3);
+
+    // Result: subcolumn mode (inherited from src), no doc_value, no sparse
+    EXPECT_EQ(get_subcolumn_paths(*dst).size(), 5);
+    assert_no_doc_value_data(*dst);
+    assert_no_sparse_data(*dst);
+
+    for (size_t row = 0; row < 3; ++row) {
+        auto field = (*dst)[row];
+        const auto& obj = field.get<TYPE_VARIANT>();
+        std::set<std::string> paths;
+        for (const auto& [key, value] : obj) {
+            if (!key.get_path().empty()) {
+                paths.insert(key.get_path());
+            }
+        }
+        EXPECT_EQ(paths.size(), 5) << "row " << row << " should have all 5 paths";
+    }
+}
+
+// Case 6: dst is empty doc mode, src=doc_value → accept doc_value structure
+TEST_F(ColumnVariantTest, insert_range_from_cross_mode_empty_dst_accepts_doc_value) {
+    auto src =
+            create_doc_mode_variant({R"({"x1":100,"x2":200,"x3":300,"x4":400,"x5":500,"x6":600})",
+                                     R"({"x1":101,"x2":201,"x3":301,"x4":401,"x5":501,"x6":601})"},
+                                    true);
+    EXPECT_TRUE(src->is_doc_mode());
+    EXPECT_EQ(src->size(), 2);
+
+    // dst is empty doc mode column
+    auto dst = ColumnVariant::create(0, true);
+
+    dst->insert_range_from(*src, 0, 2);
+    EXPECT_EQ(dst->size(), 2);
+
+    // Result: doc_value mode, no sparse
+    EXPECT_TRUE(dst->is_doc_mode());
+    EXPECT_EQ(dst->get_subcolumns().size(), 1);
+    assert_no_sparse_data(*dst);
+
+    auto paths0 = get_doc_value_paths_for_row(*dst, 0);
+    EXPECT_EQ(paths0.size(), 6);
+    EXPECT_EQ(paths0[0], "x1");
+    EXPECT_EQ(paths0[5], "x6");
+
+    auto paths1 = get_doc_value_paths_for_row(*dst, 1);
+    EXPECT_EQ(paths1.size(), 6);
+    EXPECT_EQ(paths1[0], "x1");
+    EXPECT_EQ(paths1[5], "x6");
+}
+
+// Regression: dst has subcolumns structure but 0 rows, src is doc_value-only.
+// Before the fix, convert_subcolumns_to_doc_value() returned early when
+// num_rows == 0 without collapsing the subcolumn structure, causing
+// _insert_range_from_doc_mode scenario 4 to recurse forever.
+TEST_F(ColumnVariantTest, insert_range_from_cross_mode_dst_subcolumns_zero_rows) {
+    auto dst = create_doc_mode_subcolumn_variant(2);
+    EXPECT_GT(dst->get_subcolumns().size(), 1);
+    dst->pop_back(dst->size());
+    EXPECT_EQ(dst->size(), 0);
+    EXPECT_GT(dst->get_subcolumns().size(), 1);
+
+    auto src = create_doc_mode_variant({R"({"x1":1,"x2":2})", R"({"x1":3,"x2":4})"}, true);
+    EXPECT_TRUE(src->is_doc_mode());
+
+    dst->insert_range_from(*src, 0, 2);
+    EXPECT_EQ(dst->size(), 2);
+    EXPECT_EQ(dst->get_subcolumns().size(), 1);
+    EXPECT_TRUE(dst->is_doc_mode());
+
+    auto paths0 = get_doc_value_paths_for_row(*dst, 0);
+    EXPECT_EQ(paths0.size(), 2);
+    EXPECT_EQ(paths0[0], "x1");
+}
+
+// Regression: convert_subcolumns_to_doc_value on a column with subcolumns but
+// num_rows == 0 must collapse to root-only so subsequent doc-mode operations
+// don't see stale subcolumn structure.
+TEST_F(ColumnVariantTest, convert_subcolumns_to_doc_value_zero_rows_collapses_structure) {
+    auto col = create_doc_mode_subcolumn_variant(3);
+    EXPECT_GT(col->get_subcolumns().size(), 1);
+    col->pop_back(col->size());
+    EXPECT_EQ(col->size(), 0);
+    EXPECT_GT(col->get_subcolumns().size(), 1);
+
+    col->convert_subcolumns_to_doc_value();
+
+    EXPECT_EQ(col->size(), 0);
+    EXPECT_EQ(col->get_subcolumns().size(), 1);
+}
+
 } // namespace doris

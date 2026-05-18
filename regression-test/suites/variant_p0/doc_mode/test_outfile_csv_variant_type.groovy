@@ -26,6 +26,7 @@ suite("outfile_csv_variant_doc_value", "p0") {
     sql """ set enable_nereids_planner=true """
     sql """ set enable_fallback_to_original_planner=false """
     sql """ set default_variant_enable_doc_mode = true """
+    sql """ set default_variant_max_subcolumns_count = 0 """
 
     String ak = getS3AK()
     String sk = getS3SK()

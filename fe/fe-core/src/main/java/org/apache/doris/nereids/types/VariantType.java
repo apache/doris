@@ -137,13 +137,20 @@ public class VariantType extends PrimitiveType {
 
     @Override
     public boolean acceptsType(DataType other) {
-        return other instanceof VariantType;
+        // Variant types are only interchangeable when their configuration
+        // (max_subcolumns_count, enable_doc_mode, ...) matches. Different
+        // configurations represent different physical storage layouts and
+        // cannot be implicitly converted (BE has no real Variant->Variant
+        // conversion). Behaviour is intentionally aligned with DecimalV3Type.
+        return other.equals(this);
     }
 
     @Override
     public boolean isAssignableFrom(DataType targetDataType) {
-        // Any VariantType is assignable to any other VariantType,
-        // regardless of property differences (maxSubcolumns, etc.)
+        // Any VariantType is assignable from any other VariantType so that function
+        // signatures using VariantType.INSTANCE as a placeholder can match concrete
+        // Variant arguments (whose properties differ from the default INSTANCE).
+        // Strict variant-to-variant configuration checks are enforced in acceptsType().
         if (targetDataType instanceof VariantType) {
             return true;
         }
@@ -165,11 +172,15 @@ public class VariantType extends PrimitiveType {
             sb.append("\"variant_enable_doc_mode\" = \"")
                                     .append(String.valueOf(enableVariantDocMode)).append("\"");
             sb.append(",");
+            sb.append("\"variant_max_subcolumns_count\" = \"")
+                                    .append(String.valueOf(variantMaxSubcolumnsCount)).append("\"");
+            sb.append(",");
             sb.append("\"variant_doc_materialization_min_rows\" = \"")
                                     .append(String.valueOf(variantDocMaterializationMinRows)).append("\"");
             sb.append(",");
             sb.append("\"variant_doc_hash_shard_count\" = \"")
                                     .append(String.valueOf(variantDocShardCount)).append("\"");
+
         } else {
             sb.append("\"variant_max_subcolumns_count\" = \"")
                                     .append(String.valueOf(variantMaxSubcolumnsCount)).append("\"");
@@ -181,8 +192,9 @@ public class VariantType extends PrimitiveType {
                                     .append(String.valueOf(variantMaxSparseColumnStatisticsSize))
                                     .append("\"");
             sb.append(",");
+            // Output at least 1 for backward compatibility: old data without this parameter defaults to 0
             sb.append("\"variant_sparse_hash_shard_count\" = \"")
-                                    .append(String.valueOf(variantSparseHashShardCount))
+                                    .append(String.valueOf(Math.max(1, variantSparseHashShardCount)))
                                     .append("\"");
         }
         if (enableNestedGroup) {

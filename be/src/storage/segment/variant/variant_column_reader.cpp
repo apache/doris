@@ -51,6 +51,7 @@
 #include "storage/segment/variant/nested_group_path.h"
 #include "storage/segment/variant/sparse_column_merge_iterator.h"
 #include "storage/segment/variant/variant_doc_snpashot_compact_iterator.h"
+#include "storage/segment/variant/variant_subcolumn_to_doc_iterator.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/debug_points.h"
 #include "util/json/path_in_data.h"
@@ -395,6 +396,45 @@ DataTypePtr create_variant_type(const TabletColumn& target_col) {
 Status VariantColumnReader::_build_read_plan_flat_leaves(
         ReadPlan* plan, const TabletColumn& target_col, const StorageReadOptions* opts,
         ColumnReaderCache* column_reader_cache, PathToBinaryColumnCache* binary_column_cache_ptr) {
+    // Fast paths that avoid loading the full external meta. The legacy code
+    // path unconditionally calls load_external_meta_once at the top of this
+    // function, which costs ~10-15 MB per source segment and becomes a
+    // dominant read-side allocation in pure doc-mode compaction. Detect cases
+    // where we definitively don't need _subcolumns_meta_info and short-circuit.
+    if (target_col.has_path_info()) {
+        auto relative_path_fast = target_col.path_info_ptr()->copy_pop_front();
+        const std::string rel_fast = relative_path_fast.get_path();
+
+        // Case A: doc-value bucket read in MULTIPLE_DOC_VALUE source. We only
+        // need _binary_column_reader to select the right bucket.
+        if (_binary_column_reader &&
+            _binary_column_reader->get_type() == BinaryColumnType::MULTIPLE_DOC_VALUE &&
+            rel_fast.find(DOC_VALUE_COLUMN_PATH) != std::string::npos) {
+            const size_t bucket_pos = rel_fast.rfind('b');
+            if (bucket_pos != std::string::npos) {
+                const uint32_t bucket_value =
+                        static_cast<uint32_t>(std::stoul(rel_fast.substr(bucket_pos + 1)));
+                plan->kind = ReadKind::DOC_COMPACT;
+                plan->type = DataTypeFactory::instance().create_data_type(target_col);
+                plan->binary_column_reader = _binary_column_reader->select_reader(bucket_value);
+                return Status::OK();
+            }
+        }
+
+        // Case B: parent variant column read (empty relative_path). Compaction
+        // reads each storage column independently; the parent variant always
+        // returns the persisted root column (which is null in doc-mode
+        // segments — that is expected). Reconstructing the parent from
+        // doc-value here would double-write the data on the output side.
+        if (rel_fast.empty()) {
+            plan->kind = ReadKind::ROOT_FLAT;
+            plan->type = create_variant_type(target_col);
+            plan->relative_path = relative_path_fast;
+            plan->needs_root_merge = _needs_root_nested_group_merge(relative_path_fast);
+            return Status::OK();
+        }
+    }
+
     // make sure external meta is loaded otherwise can't find any meta data for extracted columns
     // TODO(lhy): this will load all external meta if not loaded, and memory will be consumed.
     RETURN_IF_ERROR(load_external_meta_once());
@@ -408,6 +448,14 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
     const auto* node = (!relative_path.empty() && target_col.has_path_info())
                                ? _subcolumns_meta_info->find_leaf(relative_path)
                                : nullptr;
+
+    if (relative_path.empty()) {
+        plan->type = create_variant_type(target_col);
+        plan->relative_path = relative_path;
+        plan->needs_root_merge = _needs_root_nested_group_merge(relative_path);
+        plan->kind = ReadKind::ROOT_FLAT;
+        return Status::OK();
+    }
 
     if (!relative_path.empty() && _can_use_nested_group_read_path() &&
         _try_fill_nested_group_plan(plan, target_col, opts, col_uid, relative_path)) {
@@ -451,12 +499,56 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
 
         // case 3: doc snapshot column
         if (rel.find(DOC_VALUE_COLUMN_PATH) != std::string::npos) {
-            CHECK(_binary_column_reader->get_type() == BinaryColumnType::MULTIPLE_DOC_VALUE);
-            size_t bucket = rel.rfind('b');
-            uint32_t bucket_value = static_cast<uint32_t>(std::stoul(rel.substr(bucket + 1)));
-            plan->kind = ReadKind::DOC_COMPACT;
+            size_t bucket_pos = rel.rfind('b');
+            uint32_t bucket_value = static_cast<uint32_t>(std::stoul(rel.substr(bucket_pos + 1)));
+
+            if (_binary_column_reader &&
+                _binary_column_reader->get_type() == BinaryColumnType::MULTIPLE_DOC_VALUE) {
+                // This segment has doc-value data: use direct doc compact reader
+                plan->kind = ReadKind::DOC_COMPACT;
+                plan->type = DataTypeFactory::instance().create_data_type(target_col);
+                plan->binary_column_reader = _binary_column_reader->select_reader(bucket_value);
+                return Status::OK();
+            }
+
+            // This segment has subcolumn-only data (downgraded):
+            // collect leaf subcolumns that belong to this bucket.
+            plan->kind = ReadKind::SUBCOLUMN_TO_DOC;
             plan->type = DataTypeFactory::instance().create_data_type(target_col);
-            plan->binary_column_reader = _binary_column_reader->select_reader(bucket_value);
+            // Get the total bucket count from the parent variant column.
+            // target_col is a doc-bucket child column; parent carries the shard count.
+            // The binary reader is Dummy for a downgraded segment (no binary data),
+            // and num_buckets() would throw NotImplemented there — always read from
+            // the tablet schema instead.
+            uint32_t total_buckets = 1;
+            if (opts != nullptr && opts->tablet_schema != nullptr) {
+                const auto& parent_col =
+                        opts->tablet_schema->column_by_uid(target_col.parent_unique_id());
+                total_buckets = static_cast<uint32_t>(
+                        std::max(1, parent_col.variant_doc_hash_shard_count()));
+            }
+            // If we can get bucket_num from the column that created this path
+            // The parent column should carry the shard count
+            const auto& leaves = _subcolumns_meta_info->get_leaves();
+            for (const auto& leaf : leaves) {
+                // NOTE: Skip the root node (empty parts). Do NOT skip "empty key" subcolumns
+                // where path.get_path() is "" but parts are not empty. Otherwise v[''] data
+                // will be lost during SUBCOLUMN_TO_DOC conversion.
+                if (leaf->path.empty()) continue;
+                const std::string& path = leaf->path.get_path();
+                StringRef path_ref {path.data(), path.size()};
+                if (variant_util::variant_binary_shard_of(path_ref, total_buckets) ==
+                    bucket_value) {
+                    std::shared_ptr<ColumnReader> reader;
+                    RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(
+                            col_uid, leaf->path, &reader, opts->stats, leaf.get()));
+                    if (!reader) {
+                        return Status::NotFound("subcolumn reader not found for path: {}", path);
+                    }
+                    plan->subcolumn_entries_for_doc.push_back(
+                            {path, std::move(reader), leaf->data.file_column_type});
+                }
+            }
             return Status::OK();
         }
 
@@ -875,8 +967,15 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
     if (_has_prefix_path_unlocked(relative_path)) {
         // Example {"b" : {"c":456,"e":7.111}}
         // b.c is sparse column, b.e is subcolumn, so b is both the prefix of sparse column and
-        // subcolumn
-        plan->kind = ReadKind::HIERARCHICAL;
+        // subcolumn.
+        // Doc mode with actual doc_value data: extract from doc_value column.
+        // Downgraded doc mode (no doc_value in segment) or non-doc mode: read subcolumns + sparse.
+        if (target_col.variant_enable_doc_mode() &&
+            _statistics->has_doc_value_column_non_null_size()) {
+            plan->kind = ReadKind::HIERARCHICAL_DOC;
+        } else {
+            plan->kind = ReadKind::HIERARCHICAL;
+        }
         plan->type = create_variant_type(target_col);
         plan->relative_path = relative_path;
         plan->node = node;
@@ -1028,6 +1127,15 @@ Status VariantColumnReader::_create_iterator_from_plan(
         ColumnIteratorUPtr inner_iter;
         RETURN_IF_ERROR(plan.binary_column_reader->new_iterator(&inner_iter, nullptr));
         *iterator = std::make_unique<VariantDocValueCompactIterator>(std::move(inner_iter));
+        return Status::OK();
+    }
+    case ReadKind::SUBCOLUMN_TO_DOC: {
+        std::vector<SubcolumnToDocCompactIterator::LeafEntry> entries;
+        entries.reserve(plan.subcolumn_entries_for_doc.size());
+        for (const auto& e : plan.subcolumn_entries_for_doc) {
+            entries.push_back({e.path, e.reader, nullptr, e.type});
+        }
+        *iterator = std::make_unique<SubcolumnToDocCompactIterator>(std::move(entries));
         return Status::OK();
     }
     case ReadKind::HIERARCHICAL_DOC: {

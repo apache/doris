@@ -377,7 +377,12 @@ static void fill_variant_column_with_doc_value_only(
     ParseConfig config;
     config.deprecated_enable_flatten_nested = false;
     config.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
-    variant_util::parse_json_to_variant(*column_object, *column_string, config);
+    // Use single-row API to bypass batch sampling logic, ensuring doc-value-only output
+    for (size_t i = 0; i < column_string->size(); ++i) {
+        StringRef ref = column_string->get_data_at(i);
+        variant_util::parse_json_to_variant(*column_object, ref, nullptr, config);
+    }
+    column_object->finalize();
 }
 
 // DOC_COMPACT reads only one doc bucket column (e.g. "__DORIS_VARIANT_DOC_VALUE__.b0"), so it
@@ -1244,7 +1249,10 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_and_read_hierarchical_doc) 
     footer.set_num_rows(kRows);
 
     // 6. validate footer contains doc snapshot bucket columns and per-bucket stats
-    EXPECT_EQ(footer.columns_size(), 1 + kDocBuckets);
+    //    With materialization_min_rows=100000 > kRows=200, NO materialized subcolumns should exist.
+    //    Footer should have exactly: 1 root + kDocBuckets doc-value buckets, nothing more.
+    EXPECT_EQ(footer.columns_size(), 1 + kDocBuckets)
+            << "min_rows=100000 > 200 rows: should NOT have materialized subcolumns";
     for (int i = 1; i < footer.columns_size(); ++i) {
         const auto& col = footer.columns(i);
         EXPECT_TRUE(col.has_column_path_info());
@@ -1534,11 +1542,37 @@ TEST_F(VariantColumnWriterReaderTest, test_read_doc_compact_from_doc_value_bucke
     auto tz = cctz::utc_time_zone();
     options.timezone = &tz;
 
+    // Compaction reads each storage column independently. The parent variant
+    // column always returns the persisted root column directly (ROOT_FLAT) —
+    // doc-mode segments persist nothing in the root, so every row reads back
+    // as null. The data is restored via the per-bucket doc-value reads below.
     ColumnIteratorUPtr root_it;
     st = variant_column_reader->new_iterator(&root_it, &parent_column, &storage_read_opts,
                                              &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(dynamic_cast<VariantRootColumnIterator*>(root_it.get()) != nullptr);
+
+    ColumnIteratorOptions root_iter_opts;
+    root_iter_opts.stats = &stats;
+    root_iter_opts.file_reader = file_reader.get();
+    st = root_it->init(root_iter_opts);
+    EXPECT_TRUE(st.ok()) << st.msg();
+
+    MutableColumnPtr root_dst =
+            ColumnVariant::create(parent_column.variant_max_subcolumns_count(), false);
+    size_t root_nrows = kRows;
+    st = root_it->seek_to_ordinal(0);
+    EXPECT_TRUE(st.ok()) << st.msg();
+    st = root_it->next_batch(&root_nrows, root_dst);
+    EXPECT_TRUE(st.ok()) << st.msg();
+    EXPECT_EQ(root_nrows, kRows);
+
+    for (int i = 0; i < kRows; ++i) {
+        std::string value;
+        assert_cast<ColumnVariant*>(root_dst.get())
+                ->serialize_one_row_to_string(i, &value, options);
+        EXPECT_EQ(value, "\\N") << "row " << i << " should be null in doc-mode root";
+    }
 
     // 6. Read and validate each doc value bucket column: should choose ReadKind::DOC_COMPACT.
     for (int bucket = 0; bucket < kDocBuckets; ++bucket) {
@@ -2006,7 +2040,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_sparse_write_array_gap_and_
     EXPECT_TRUE(st.ok()) << st.msg();
 
     MutableColumnPtr dst =
-            ColumnVariant::create(parent_column.variant_max_subcolumns_count(), false);
+            ColumnVariant::create(parent_column.variant_max_subcolumns_count(), true);
     size_t nrows = kRows;
     st = it->seek_to_ordinal(0);
     EXPECT_TRUE(st.ok()) << st.msg();
@@ -4235,7 +4269,6 @@ TEST_F(VariantColumnWriterReaderTest,
     rowset_ctx.tablet_schema = _tablet_schema;
     rowset_ctx.input_rs_readers = input_readers;
     opts.rowset_ctx = &rowset_ctx;
-
     TabletColumn column = _tablet_schema->column(0);
     _init_column_meta(opts.meta, 0, column, CompressionTypePB::LZ4);
 
@@ -4342,6 +4375,328 @@ TEST_F(VariantColumnWriterReaderTest, test_compaction_nokey_variant_uid0) {
     RowsetSharedPtr output_rowset;
     ASSERT_TRUE(output_writer->build(output_rowset).ok());
     ASSERT_EQ(output_rowset->num_rows(), 4);
+}
+
+// NOTE: test_doc_mode_downgrade_path_explosion was removed — downgrade was moved
+// from parse-time to writer-stage, so parse-level sampling downgrade no longer applies.
+// The old test verified parse-level sampling downgrade (512 sample rows with 80 paths
+// < max_subcolumns_count=100, then post-sample rows exploding to 200+ paths).
+// Since downgrade now happens in the writer stage, this scenario is no longer relevant.
+
+// Non-downgraded doc mode: data stored as doc_value binary, not subcolumns.
+// Tests _binary_column_reader path in HierarchicalDataIterator for:
+//   - select * (root read via doc_value)
+//   - subcolumn extract from doc_value (v['key'])
+//   - hierarchical read from doc_value (v['obj'] with 20 children > max_subcolumns=3)
+//     verifies subcolumn/sparse split in the read ColumnVariant structure
+TEST_F(VariantColumnWriterReaderTest, test_doc_mode_no_downgrade_hierarchical_read) {
+    constexpr int kRows = 100;
+    constexpr int kMaxSubcolumns = 3;
+    constexpr int kDocBuckets = 1;
+    constexpr int kObjKeyCount = 20; // obj.f0..obj.f19, far exceeds kMaxSubcolumns
+
+    // 1. Schema: doc mode, max_subcolumns=3 so many paths stay in doc_value
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "V1", kMaxSubcolumns, false, false, 0,
+                     true,
+                     /*variant_doc_materialization_min_rows=*/100000,
+                     /*variant_doc_hash_shard_count=*/kDocBuckets);
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _tablet_schema->init_from_pb(schema_pb);
+
+    // 2. Create tablet
+    TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    tablet_meta->_tablet_id = 50000;
+    _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
+    EXPECT_TRUE(_tablet->init().ok());
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
+
+    // 3. Build JSON data with flat keys + nested object with 20 children
+    //    Each row: {"a":<i>, "b":"s<i>", "obj":{"f0":<i*1000+0>,...,"f19":<i*1000+19>}}
+    auto type_string = std::make_shared<DataTypeString>();
+    auto json_column = type_string->create_column();
+    auto* column_string = assert_cast<ColumnString*>(json_column.get());
+    for (int i = 0; i < kRows; ++i) {
+        std::string json = "{\"a\":" + std::to_string(i) + ",\"b\":\"s" + std::to_string(i) + "\"" +
+                           ",\"obj\":{";
+        for (int f = 0; f < kObjKeyCount; ++f) {
+            if (f > 0) json += ",";
+            json += "\"f" + std::to_string(f) + "\":" + std::to_string(i * 1000 + f);
+        }
+        json += "}}";
+        column_string->insert_data(json.data(), json.size());
+    }
+
+    // 4. Parse with single-row API to ensure doc_value mode (no sampling downgrade)
+    auto column_object = ColumnVariant::create(0, true /* enable_doc_mode */);
+    ParseConfig config;
+    config.deprecated_enable_flatten_nested = false;
+    config.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
+    for (size_t i = 0; i < column_string->size(); ++i) {
+        StringRef ref = column_string->get_data_at(i);
+        variant_util::parse_json_to_variant(*column_object, ref, nullptr, config);
+    }
+    column_object->finalize();
+    ASSERT_TRUE(column_object->is_doc_mode()) << "Should remain in doc mode (no downgrade)";
+
+    // 5. Write via ColumnWriter
+    Block block;
+    block.insert({column_object->get_ptr(),
+                  std::make_shared<DataTypeVariant>(kMaxSubcolumns, false), "V1"});
+
+    io::FileWriterPtr file_writer;
+    auto file_path = local_segment_path(_tablet->tablet_path(), "0", 0);
+    auto st = io::global_local_filesystem()->create_file(file_path, &file_writer);
+    EXPECT_TRUE(st.ok()) << st.msg();
+
+    SegmentFooterPB footer;
+    ColumnWriterOptions opts;
+    opts.meta = footer.add_columns();
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.file_writer = file_writer.get();
+    opts.footer = &footer;
+    RowsetWriterContext rowset_ctx;
+    rowset_ctx.write_type = DataWriteType::TYPE_DIRECT;
+    opts.rowset_ctx = &rowset_ctx;
+    opts.rowset_ctx->tablet_schema = _tablet_schema;
+    TabletColumn parent_column = _tablet_schema->column(0);
+    _init_column_meta(opts.meta, 0, parent_column, CompressionTypePB::LZ4);
+
+    std::unique_ptr<ColumnWriter> writer;
+    EXPECT_TRUE(ColumnWriter::create(opts, &parent_column, file_writer.get(), &writer).ok());
+    EXPECT_TRUE(writer->init().ok());
+
+    auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
+    olap_data_convertor->add_column_data_convertor(parent_column);
+    olap_data_convertor->set_source_content(&block, 0, kRows);
+    auto [result, accessor] = olap_data_convertor->convert_column_data(0);
+    EXPECT_TRUE(result.ok()) << result.msg();
+    st = writer->append(accessor->get_nullmap(), accessor->get_data(), kRows);
+    EXPECT_TRUE(st.ok()) << st.msg();
+    st = writer->finish();
+    EXPECT_TRUE(st.ok()) << st.msg();
+    st = writer->write_data();
+    EXPECT_TRUE(st.ok()) << st.msg();
+    st = writer->write_ordinal_index();
+    EXPECT_TRUE(st.ok()) << st.msg();
+    st = writer->write_zone_map();
+    EXPECT_TRUE(st.ok()) << st.msg();
+    EXPECT_TRUE(file_writer->close().ok());
+    footer.set_num_rows(kRows);
+
+    // 6. Verify footer: doc_value bucket columns, no dense subcolumns
+    EXPECT_EQ(footer.columns_size(), 1 + kDocBuckets)
+            << "Should have root + doc_value bucket(s), no dense subcolumns";
+
+    // 7. Open reader
+    io::FileReaderSPtr file_reader;
+    st = io::global_local_filesystem()->open_file(file_path, &file_reader);
+    EXPECT_TRUE(st.ok()) << st.msg();
+    std::shared_ptr<ColumnReader> column_reader;
+    st = create_variant_root_reader(footer, file_reader, _tablet_schema, &column_reader);
+    EXPECT_TRUE(st.ok()) << st.msg();
+    MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
+    auto* variant_column_reader = assert_cast<VariantColumnReader*>(column_reader.get());
+    ASSERT_TRUE(variant_column_reader != nullptr);
+
+    StorageReadOptions storage_read_opts;
+    OlapReaderStatistics stats;
+    storage_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
+    storage_read_opts.stats = &stats;
+
+    ColumnIteratorOptions column_iter_opts;
+    column_iter_opts.stats = &stats;
+    column_iter_opts.file_reader = file_reader.get();
+
+    DataTypeSerDe::FormatOptions format_opts;
+    auto tz = cctz::utc_time_zone();
+    format_opts.timezone = &tz;
+
+    // 8. Select * via root column: HierarchicalDataIterator with DOC_VALUE_COLUMN ReadType
+    {
+        ColumnIteratorUPtr root_it;
+        st = variant_column_reader->new_iterator(&root_it, &parent_column, &storage_read_opts,
+                                                 &column_reader_cache);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_TRUE(dynamic_cast<HierarchicalDataIterator*>(root_it.get()) != nullptr);
+
+        st = root_it->init(column_iter_opts);
+        EXPECT_TRUE(st.ok()) << st.msg();
+
+        MutableColumnPtr root_col =
+                ColumnVariant::create(parent_column.variant_max_subcolumns_count(), false);
+        size_t nrows = kRows;
+        st = root_it->seek_to_ordinal(0);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        st = root_it->next_batch(&nrows, root_col);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_EQ(nrows, kRows);
+
+        auto* root_variant = assert_cast<ColumnVariant*>(root_col.get());
+        // Row 0: {"a":0,"b":"s0","obj":{"f0":0,...,"f19":19}}
+        std::string val0;
+        root_variant->serialize_one_row_to_string(0, &val0, format_opts);
+        EXPECT_TRUE(val0.find("\"a\":0") != std::string::npos) << "Row 0: " << val0;
+        EXPECT_TRUE(val0.find("\"b\":\"s0\"") != std::string::npos) << "Row 0: " << val0;
+        EXPECT_TRUE(val0.find("\"f0\":0") != std::string::npos) << "Row 0: " << val0;
+        EXPECT_TRUE(val0.find("\"f19\":19") != std::string::npos) << "Row 0: " << val0;
+
+        // Row 50: a=50, obj.f0=50000
+        std::string val50;
+        root_variant->serialize_one_row_to_string(50, &val50, format_opts);
+        EXPECT_TRUE(val50.find("\"a\":50") != std::string::npos) << "Row 50: " << val50;
+        EXPECT_TRUE(val50.find("\"f0\":50000") != std::string::npos) << "Row 50: " << val50;
+    }
+
+    // 9. Subcolumn extract from doc_value: select v['a']
+    //    No dense subcolumn for 'a' (stored in doc_value), uses BinaryColumnExtractIterator
+    {
+        EXPECT_TRUE(variant_column_reader->get_subcolumn_meta_by_path(PathInData("a")) == nullptr)
+                << "a should not have dense subcolumn meta (stored in doc_value)";
+
+        TabletColumn subcolumn;
+        subcolumn.set_name(parent_column.name_lower_case() + ".a");
+        subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+        subcolumn.set_parent_unique_id(parent_column.unique_id());
+        subcolumn.set_path_info(PathInData(parent_column.name_lower_case() + ".a"));
+        subcolumn.set_variant_max_subcolumns_count(parent_column.variant_max_subcolumns_count());
+        subcolumn.set_is_nullable(true);
+
+        ColumnIteratorUPtr extract_it;
+        st = variant_column_reader->new_iterator(&extract_it, &subcolumn, &storage_read_opts,
+                                                 &column_reader_cache);
+        EXPECT_TRUE(st.ok()) << st.msg();
+
+        st = extract_it->init(column_iter_opts);
+        EXPECT_TRUE(st.ok()) << st.msg();
+
+        MutableColumnPtr extract_col = ColumnVariant::create(kMaxSubcolumns, false);
+        size_t nrows = kRows;
+        st = extract_it->seek_to_ordinal(0);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        st = extract_it->next_batch(&nrows, extract_col);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_EQ(nrows, kRows);
+
+        auto* extract_variant = assert_cast<ColumnVariant*>(extract_col.get());
+        // Row 0: a=0
+        std::string a_val0;
+        extract_variant->serialize_one_row_to_string(0, &a_val0, format_opts);
+        EXPECT_EQ(a_val0, "0") << "v['a'] row 0";
+        // Row 99: a=99
+        std::string a_val99;
+        extract_variant->serialize_one_row_to_string(99, &a_val99, format_opts);
+        EXPECT_EQ(a_val99, "99") << "v['a'] row 99";
+    }
+
+    // 10. Hierarchical read from doc_value: select v['obj']
+    //     obj has 20 children (obj.f0..obj.f19) — all in doc_value binary.
+    //     HierarchicalDataIterator uses _binary_column_reader to extract and merge.
+    //     Read ColumnVariant has max_subcolumns=3, so 20 keys split into:
+    //       - up to 3 dense subcolumns (most frequent paths)
+    //       - remaining overflow to sparse column
+    {
+        TabletColumn subcolumn;
+        subcolumn.set_name(parent_column.name_lower_case() + ".obj");
+        subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+        subcolumn.set_parent_unique_id(parent_column.unique_id());
+        subcolumn.set_path_info(PathInData(parent_column.name_lower_case() + ".obj"));
+        subcolumn.set_variant_max_subcolumns_count(parent_column.variant_max_subcolumns_count());
+        subcolumn.set_is_nullable(true);
+
+        ColumnIteratorUPtr hier_it;
+        st = variant_column_reader->new_iterator(&hier_it, &subcolumn, &storage_read_opts,
+                                                 &column_reader_cache);
+        EXPECT_TRUE(st.ok()) << st.msg();
+
+        st = hier_it->init(column_iter_opts);
+        EXPECT_TRUE(st.ok()) << st.msg();
+
+        MutableColumnPtr hier_col = ColumnVariant::create(kMaxSubcolumns, false);
+        size_t nrows = kRows;
+        st = hier_it->seek_to_ordinal(0);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        st = hier_it->next_batch(&nrows, hier_col);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_EQ(nrows, kRows);
+
+        auto* hier_variant = assert_cast<ColumnVariant*>(hier_col.get());
+
+        // Verify ColumnVariant internal structure:
+        // Doc mode hierarchical read → data stays in doc_value (root only, no subcolumns).
+        // Sparse column must be empty (doc-mode invariant).
+        EXPECT_EQ(hier_variant->get_subcolumns().size(), 1)
+                << "Doc mode read: should be root only, all data in doc_value";
+        EXPECT_TRUE(hier_variant->is_doc_mode())
+                << "Doc mode read: result should be doc_value mode";
+
+        const auto& sparse_offsets = hier_variant->serialized_sparse_column_offsets();
+        bool has_sparse = sparse_offsets[kRows - 1] > 0;
+        EXPECT_FALSE(has_sparse) << "Doc mode: sparse column must be empty";
+
+        // Verify data correctness via serialization (merges subcolumn + sparse)
+        // Row 0: obj.f0=0, obj.f19=19
+        std::string obj0;
+        hier_variant->serialize_one_row_to_string(0, &obj0, format_opts);
+        EXPECT_TRUE(obj0.find("\"f0\":0") != std::string::npos)
+                << "v['obj'] row 0 should contain f0=0, got: " << obj0;
+        EXPECT_TRUE(obj0.find("\"f19\":19") != std::string::npos)
+                << "v['obj'] row 0 should contain f19=19, got: " << obj0;
+
+        // Row 10: obj.f0=10000, obj.f10=10010
+        std::string obj10;
+        hier_variant->serialize_one_row_to_string(10, &obj10, format_opts);
+        EXPECT_TRUE(obj10.find("\"f0\":10000") != std::string::npos)
+                << "v['obj'] row 10: " << obj10;
+        EXPECT_TRUE(obj10.find("\"f10\":10010") != std::string::npos)
+                << "v['obj'] row 10: " << obj10;
+
+        // Row 99: obj.f0=99000, obj.f19=99019
+        std::string obj99;
+        hier_variant->serialize_one_row_to_string(99, &obj99, format_opts);
+        EXPECT_TRUE(obj99.find("\"f0\":99000") != std::string::npos)
+                << "v['obj'] row 99: " << obj99;
+        EXPECT_TRUE(obj99.find("\"f19\":99019") != std::string::npos)
+                << "v['obj'] row 99: " << obj99;
+    }
+
+    // 11. Non-existent subcolumn read: select v['nonexistent']
+    {
+        EXPECT_TRUE(variant_column_reader->get_subcolumn_meta_by_path(PathInData("nonexistent")) ==
+                    nullptr);
+
+        TabletColumn subcolumn;
+        subcolumn.set_name(parent_column.name_lower_case() + ".nonexistent");
+        subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+        subcolumn.set_parent_unique_id(parent_column.unique_id());
+        subcolumn.set_path_info(PathInData(parent_column.name_lower_case() + ".nonexistent"));
+        subcolumn.set_is_nullable(true);
+
+        ColumnIteratorUPtr default_it;
+        st = variant_column_reader->new_iterator(&default_it, &subcolumn, &storage_read_opts,
+                                                 &column_reader_cache);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_TRUE(dynamic_cast<DefaultValueColumnIterator*>(default_it.get()) != nullptr)
+                << "nonexistent path should return DefaultValueColumnIterator";
+
+        st = default_it->init(column_iter_opts);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        MutableColumnPtr default_column =
+                ColumnNullable::create(ColumnVariant::create(0, false), ColumnUInt8::create());
+        size_t default_nrows = kRows;
+        st = default_it->seek_to_ordinal(0);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        st = default_it->next_batch(&default_nrows, default_column);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_EQ(default_nrows, kRows);
+        auto* nullable_col = assert_cast<ColumnNullable*>(default_column.get());
+        for (size_t row = 0; row < kRows; ++row) {
+            EXPECT_TRUE(nullable_col->is_null_at(row))
+                    << "nonexistent column should be null at row " << row;
+        }
+    }
 }
 
 } // namespace doris

@@ -141,12 +141,10 @@ struct CastToVariant {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count,
                           const NullMap::value_type* null_map = nullptr) {
-        // auto& data_type_to = block.get_by_position(result).type;
+        const auto& data_type_to = block.get_by_position(result).type;
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const auto& from_type = col_with_type_and_name.type;
         const auto& col_from = col_with_type_and_name.column;
-        // set variant root column/type to from column/type
-        const auto& data_type_to = block.get_by_position(result).type;
         const auto* variant_type =
                 typeid_cast<const DataTypeVariant*>(remove_nullable(data_type_to).get());
         auto variant = ColumnVariant::create(

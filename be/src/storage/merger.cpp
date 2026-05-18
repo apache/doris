@@ -24,12 +24,14 @@
 
 #include <algorithm>
 #include <iterator>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <numeric>
 #include <ostream>
 #include <shared_mutex>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -166,6 +168,45 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     return Status::OK();
 }
 
+// Variant subcolumn group sizes. A variant column's extracted entries
+// (sub-paths, sparse buckets, doc-value buckets) are heavier than a normal
+// scalar column at compaction time, so they get dedicated groups instead of
+// sharing the regular num_columns_per_group budget.
+namespace {
+constexpr size_t kVariantDocValueColumnsPerGroup = 1;
+constexpr size_t kVariantSparseColumnsPerGroup = 5;
+constexpr size_t kVariantSubColumnsPerGroup = 100;
+constexpr size_t kVariantSubColumnMaxGroups = 20;
+
+constexpr std::string_view kVariantDocValueMarker = "__DORIS_VARIANT_DOC_VALUE__";
+constexpr std::string_view kVariantSparseMarker = "__DORIS_VARIANT_SPARSE__";
+
+// Per-variant-parent bucket of extracted columns split by category.
+struct VariantSubColumnBucket {
+    std::vector<uint32_t> doc_value_cols;
+    std::vector<uint32_t> sparse_cols;
+    std::vector<uint32_t> sub_cols;
+};
+
+void emit_fixed_size_groups(const std::vector<uint32_t>& cols, size_t group_size,
+                            std::vector<std::vector<uint32_t>>* column_groups) {
+    if (cols.empty() || group_size == 0) {
+        return;
+    }
+    std::vector<uint32_t> group;
+    for (uint32_t idx : cols) {
+        if (!group.empty() && group.size() % group_size == 0) {
+            column_groups->push_back(std::move(group));
+            group.clear();
+        }
+        group.push_back(idx);
+    }
+    if (!group.empty()) {
+        column_groups->push_back(std::move(group));
+    }
+}
+} // namespace
+
 // split columns into several groups, make sure all keys in one group
 // unique_key should consider sequence&delete column
 void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
@@ -223,23 +264,55 @@ void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
         column_groups->emplace_back(key_columns);
     }
 
-    std::vector<uint32_t> value_columns;
+    // Split value columns into:
+    //   - regular_value_cols: non-variant columns and variant root columns,
+    //     grouped by num_columns_per_group (existing behavior)
+    //   - per-variant-parent buckets of extracted columns split into
+    //     doc_value / sparse / sub-column categories. Each variant's groups are
+    //     emitted independently so a single overweight variant cannot steal
+    //     budget from another variant or from the regular columns.
+    std::vector<uint32_t> regular_value_cols;
+    std::map<int32_t, VariantSubColumnBucket> variant_buckets;
 
     for (size_t i = num_key_cols; i < total_cols; ++i) {
         if (i == sequence_col_idx || i == delete_sign_idx ||
             key_columns.end() != std::find(key_columns.begin(), key_columns.end(), i)) {
             continue;
         }
-
-        if (!value_columns.empty() && value_columns.size() % num_columns_per_group == 0) {
-            column_groups->push_back(value_columns);
-            value_columns.clear();
+        const auto& col = tablet_schema.column(i);
+        if (col.is_extracted_column() && col.parent_unique_id() >= 0) {
+            VariantSubColumnBucket& bucket = variant_buckets[col.parent_unique_id()];
+            const std::string& path =
+                    col.has_path_info() ? col.path_info_ptr()->get_path() : std::string();
+            if (path.find(kVariantDocValueMarker) != std::string::npos) {
+                bucket.doc_value_cols.push_back(cast_set<uint32_t>(i));
+            } else if (path.find(kVariantSparseMarker) != std::string::npos) {
+                bucket.sparse_cols.push_back(cast_set<uint32_t>(i));
+            } else {
+                bucket.sub_cols.push_back(cast_set<uint32_t>(i));
+            }
+        } else {
+            regular_value_cols.push_back(cast_set<uint32_t>(i));
         }
-        value_columns.push_back(cast_set<uint32_t>(i));
     }
 
-    if (!value_columns.empty()) {
-        column_groups->push_back(value_columns);
+    emit_fixed_size_groups(regular_value_cols, static_cast<size_t>(num_columns_per_group),
+                           column_groups);
+
+    for (auto& [parent_uid, bucket] : variant_buckets) {
+        emit_fixed_size_groups(bucket.doc_value_cols, kVariantDocValueColumnsPerGroup,
+                               column_groups);
+        emit_fixed_size_groups(bucket.sparse_cols, kVariantSparseColumnsPerGroup, column_groups);
+
+        // Sub-columns: 100 per group by default, but cap the total number of
+        // groups at kVariantSubColumnMaxGroups so a wide variant doesn't blow
+        // up compaction round count. Past the cap we widen the group instead.
+        size_t n = bucket.sub_cols.size();
+        size_t sub_group_size = kVariantSubColumnsPerGroup;
+        if (n > kVariantSubColumnsPerGroup * kVariantSubColumnMaxGroups) {
+            sub_group_size = (n + kVariantSubColumnMaxGroups - 1) / kVariantSubColumnMaxGroups;
+        }
+        emit_fixed_size_groups(bucket.sub_cols, sub_group_size, column_groups);
     }
 }
 

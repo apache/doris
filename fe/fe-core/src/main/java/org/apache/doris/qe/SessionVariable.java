@@ -3749,7 +3749,7 @@ public class SessionVariable implements Serializable, Writable {
         boolean zeroOrOne = random.nextBoolean();
         this.defaultVariantDocMaterializationMinRows = zeroOrOne ? 0 : random.nextInt(20);
         if (this.defaultVariantEnableDocMode) {
-            this.defaultVariantMaxSubcolumnsCount = 0;
+            this.defaultVariantMaxSubcolumnsCount = random.nextInt(5);
             this.defaultEnableTypedPathsToSparse = false;
         } else {
             this.defaultVariantDocMaterializationMinRows = 0L;

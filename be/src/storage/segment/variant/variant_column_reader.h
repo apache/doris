@@ -306,6 +306,7 @@ private:
         DEFAULT_NESTED,     // fill nested subcolumn using sibling nested column
         DEFAULT_FILL,       // default iterator when path not exist
         DOC_COMPACT,        // read from doc value column when compaction read
+        SUBCOLUMN_TO_DOC,   // read subcolumns and convert to doc-value format
         NESTED_GROUP_WHOLE, // read whole NestedGroup as array<variant>
         NESTED_GROUP_CHILD  // read child from NestedGroup (single or multi-level)
     };
@@ -337,6 +338,14 @@ private:
         std::vector<const NestedGroupReader*>
                 nested_group_chain; // for nested groups (single or multi-level)
         std::optional<NestedGroupPathFilter> nested_group_path_filter;
+
+        // SUBCOLUMN_TO_DOC: leaf entries (path, reader, type) for subcolumn-to-doc conversion
+        struct SubcolumnDocEntry {
+            std::string path;
+            std::shared_ptr<ColumnReader> reader;
+            DataTypePtr type;
+        };
+        std::vector<SubcolumnDocEntry> subcolumn_entries_for_doc;
     };
 
     // Build read plan for flat-leaf (compaction/checksum) mode. Only decides the

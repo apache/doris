@@ -17,6 +17,7 @@
 
 suite("test_variant_predefine_doc_value", "nonConcurrent"){
     sql """ set default_variant_enable_doc_mode = true """
+    sql """ set default_variant_max_subcolumns_count = 0 """
     sql """ set default_variant_doc_materialization_min_rows = 0 """
     //sql """ set default_variant_doc_hash_shard_count = 0"""
     sql """DROP TABLE IF EXISTS test_predefine"""
