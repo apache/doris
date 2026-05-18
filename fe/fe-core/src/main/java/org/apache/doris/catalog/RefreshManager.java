@@ -248,16 +248,6 @@ public class RefreshManager {
     }
 
     public void refreshTableInternal(ExternalDatabase db, ExternalTable table, long updateTime) {
-        table.unsetObjectCreated();
-        // Iceberg partition evolution can change partition specs across FEs.
-        // Clear related-table validation cache to avoid stale partitioned/unpartitioned judgment.
-        if (table instanceof IcebergExternalTable) {
-            ((IcebergExternalTable) table).setIsValidRelatedTableCached(false);
-        }
-        if (updateTime > 0) {
-            table.setUpdateTime(updateTime);
-        }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(table);
         if (table instanceof HMSExternalTable && table.isView()) {
             String convertedSql = ConnectContext.get() == null
                     ? ((HMSExternalTable) table).getViewText()
@@ -280,6 +270,16 @@ public class RefreshManager {
                 refreshTableInternal(dbRelation, tableRelation, 0);
             }
         }
+        table.unsetObjectCreated();
+        // Iceberg partition evolution can change partition specs across FEs.
+        // Clear related-table validation cache to avoid stale partitioned/unpartitioned judgment.
+        if (table instanceof IcebergExternalTable) {
+            ((IcebergExternalTable) table).setIsValidRelatedTableCached(false);
+        }
+        if (updateTime > 0) {
+            table.setUpdateTime(updateTime);
+        }
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(table);
         LOG.info("refresh table {}, id {} from db {} in catalog {}, update time: {}",
                 table.getName(), table.getId(), db.getFullName(), db.getCatalog().getName(), updateTime);
     }
