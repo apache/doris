@@ -192,11 +192,11 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
                     partial_block.dump_types());
         } else {
             for (int i = 0; i < output_block->columns(); ++i) {
-                auto column = IColumn::mutate(std::move(output_block->get_by_position(i).column));
+                auto column_guard = output_block->mutate_column_scoped(i);
+                MutableColumnPtr& column = column_guard.mutable_column();
                 column->insert_range_from(
                         *partial_block.get_by_position(i).column->convert_to_full_column_if_const(),
                         0, partial_block.rows());
-                output_block->replace_by_position(i, std::move(column));
             }
         }
         return Status::OK();
@@ -370,9 +370,10 @@ struct DorisFormatReadBatch {
 
 static void scatter_scan_blocks_to_result_block(
         const std::vector<std::pair<size_t, size_t>>& row_id_block_idx,
-        std::vector<Block>& scan_blocks, Block& result_block) {
+        const std::vector<Block>& scan_blocks, Block& result_block) {
     for (size_t column_id = 0; column_id < result_block.columns(); ++column_id) {
-        auto dst_col = const_cast<IColumn*>(result_block.get_by_position(column_id).column.get());
+        auto dst_col_guard = result_block.mutate_column_scoped(column_id);
+        MutableColumnPtr& dst_col = dst_col_guard.mutable_column();
 
         std::vector<const IColumn*> scan_src_columns;
         scan_src_columns.reserve(row_id_block_idx.size());

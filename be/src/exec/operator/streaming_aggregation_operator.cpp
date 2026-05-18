@@ -368,17 +368,26 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::Block* in_blo
         }
         bool mem_reuse = p._make_nullable_keys.empty() && out_block->mem_reuse();
 
+        if (mem_reuse) {
+            auto columns_guard = out_block->mutate_columns_scoped();
+            MutableColumns& columns = columns_guard.mutable_columns();
+            for (int i = 0; i != _aggregate_evaluators.size(); ++i) {
+                SCOPED_TIMER(_insert_values_to_column_timer);
+                RETURN_IF_ERROR(_aggregate_evaluators[i]->streaming_agg_serialize_to_column(
+                        in_block, columns[i + key_size], rows, _agg_arena_pool));
+            }
+            for (int i = 0; i < key_size; ++i) {
+                columns[i]->insert_range_from(*key_columns[i], 0, rows);
+            }
+            return Status::OK();
+        }
+
         std::vector<DataTypePtr> data_types;
         MutableColumns value_columns;
         for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
             auto data_type = _aggregate_evaluators[i]->function()->get_serialized_type();
-            if (mem_reuse) {
-                value_columns.emplace_back(IColumn::mutate(
-                        std::move(out_block->get_by_position(i + key_size).column)));
-            } else {
-                value_columns.emplace_back(
-                        _aggregate_evaluators[i]->function()->create_serialize_column());
-            }
+            value_columns.emplace_back(
+                    _aggregate_evaluators[i]->function()->create_serialize_column());
             data_types.emplace_back(data_type);
         }
 
@@ -388,28 +397,16 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::Block* in_blo
                     in_block, value_columns[i], rows, _agg_arena_pool));
         }
 
-        if (!mem_reuse) {
-            ColumnsWithTypeAndName columns_with_schema;
-            for (int i = 0; i < key_size; ++i) {
-                columns_with_schema.emplace_back(key_columns[i]->clone_resized(rows),
-                                                 _probe_expr_ctxs[i]->root()->data_type(),
-                                                 _probe_expr_ctxs[i]->root()->expr_name());
-            }
-            for (int i = 0; i < value_columns.size(); ++i) {
-                columns_with_schema.emplace_back(std::move(value_columns[i]), data_types[i], "");
-            }
-            out_block->swap(Block(columns_with_schema));
-        } else {
-            MutableColumns columns(out_block->columns());
-            for (int i = 0; i < key_size; ++i) {
-                columns[i] = IColumn::mutate(std::move(out_block->get_by_position(i).column));
-                columns[i]->insert_range_from(*key_columns[i], 0, rows);
-            }
-            for (int i = 0; i < value_columns.size(); ++i) {
-                columns[key_size + i] = std::move(value_columns[i]);
-            }
-            out_block->set_columns(std::move(columns));
+        ColumnsWithTypeAndName columns_with_schema;
+        for (int i = 0; i < key_size; ++i) {
+            columns_with_schema.emplace_back(key_columns[i]->clone_resized(rows),
+                                             _probe_expr_ctxs[i]->root()->data_type(),
+                                             _probe_expr_ctxs[i]->root()->expr_name());
         }
+        for (int i = 0; i < value_columns.size(); ++i) {
+            columns_with_schema.emplace_back(std::move(value_columns[i]), data_types[i], "");
+        }
+        out_block->swap(Block(columns_with_schema));
     } else {
         bool need_agg = true;
         if (need_do_sort_limit != 1) {
