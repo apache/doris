@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.jobs.executor;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownExpressionsInHashCondition
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.qe.ConnectContext;
@@ -70,7 +72,9 @@ public class Optimizer {
         MoreFieldsThread.keepFunctionSignature(() -> {
             Plan rewritePlan = cascadesContext.getRewritePlan();
             if (containsCte(rewritePlan)) {
-                cascadesContext.setRewritePlan(normalizeCtePlan(rewritePlan));
+                Plan normalizedPlan = normalizeCtePlan(rewritePlan);
+                cascadesContext.setRewritePlan(normalizedPlan);
+                refreshCteContext(normalizedPlan);
             }
             // generate inlined CTE alternative for CBO comparison
             Plan cboInlinedPlan = generateCTEInlineAlternative();
@@ -219,6 +223,7 @@ public class Optimizer {
             if (pushedDownInlinedPlan.anyMatch(p -> p instanceof LogicalEmptyRelation)) {
                 pushedDownInlinedPlan = normalizeCtePlan(pushedDownInlinedPlan);
                 cascadesContext.setRewritePlan(pushedDownInlinedPlan);
+                refreshCteContext(pushedDownInlinedPlan);
                 return null;
             }
         }
@@ -247,6 +252,20 @@ public class Optimizer {
 
     private boolean containsCte(Plan plan) {
         return plan.anyMatch(p -> p instanceof LogicalCTEAnchor || p instanceof LogicalCTEConsumer);
+    }
+
+    private void refreshCteContext(Plan plan) {
+        StatementContext statementContext = cascadesContext.getStatementContext();
+        statementContext.clearCteEnvironment();
+        plan.foreach(p -> {
+            if (p instanceof LogicalCTEAnchor) {
+                LogicalCTEAnchor<?, ?> anchor = (LogicalCTEAnchor<?, ?>) p;
+                statementContext.setCteProducer(anchor.getCteId(), (LogicalCTEProducer<?>) anchor.left());
+            } else if (p instanceof LogicalCTEConsumer) {
+                cascadesContext.putCTEIdToConsumer((LogicalCTEConsumer) p);
+            }
+            return false;
+        });
     }
 
     private Plan eliminateEmptyRelation(Plan plan) {
