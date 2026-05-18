@@ -44,6 +44,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
@@ -189,6 +190,9 @@ public class OlapScanNode extends ScanNode {
     private Set<Integer> distributionColumnIds;
 
     private long maxVersion = -1L;
+
+    // Only for debug: restrict tablets to scan.
+    private Set<Long> specifiedTabletIds = Sets.newHashSet();
     private SortInfo annSortInfo = null;
     private long annSortLimit = -1;
 
@@ -402,7 +406,7 @@ public class OlapScanNode extends ScanNode {
                 .collect(Collectors.toMap(loc -> loc.getScanRange().getPaloScanRange().getTabletId(), loc -> loc));
         for (Long partitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(partitionId);
-            final MaterializedIndex selectedTable = partition.getIndex(selectedIndexId);
+            final MaterializedIndex selectedTable = olapTable.getPartitionIndex(partition, selectedIndexId);
             final List<Tablet> tablets = selectedTable.getTablets();
             Long visibleVersion = visibleVersionMap.get(partitionId);
             assert visibleVersion != null : "the acquried version is not exists in the visible version map";
@@ -425,6 +429,10 @@ public class OlapScanNode extends ScanNode {
 
     public long getMaxVersion() {
         return maxVersion;
+    }
+
+    public void setSpecifiedTabletIds(Set<Long> specifiedTabletIds) {
+        this.specifiedTabletIds = specifiedTabletIds;
     }
 
     private void addScanRangeLocations(Partition partition,
@@ -695,7 +703,7 @@ public class OlapScanNode extends ScanNode {
         return true;
     }
 
-    private void computePartitionInfo() throws AnalysisException {
+    public void computePartitionInfo() throws AnalysisException {
         long start = System.currentTimeMillis();
         // Step1: compute partition ids
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
@@ -756,7 +764,7 @@ public class OlapScanNode extends ScanNode {
         Preconditions.checkState(selectedIndexId != -1);
         for (Long partitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(partitionId);
-            final MaterializedIndex selectedIndex = partition.getIndex(selectedIndexId);
+            final MaterializedIndex selectedIndex = olapTable.getPartitionIndex(partition, selectedIndexId);
             // selectedIndex is not expected to be null, because MaterializedIndex ids in one rollup's partitions
             // are all same. skip this partition here.
             if (selectedIndex != null) {
@@ -787,7 +795,7 @@ public class OlapScanNode extends ScanNode {
         for (int i = 0; i < selectedPartitionList.size(); i++) {
             int seekPid = (int) ((i + partitionSeek) % selectedPartitionList.size());
             final Partition partition = olapTable.getPartition(selectedPartitionList.get(seekPid));
-            final MaterializedIndex selectedTable = partition.getIndex(selectedIndexId);
+            final MaterializedIndex selectedTable = olapTable.getPartitionIndex(partition, selectedIndexId);
             List<Tablet> tablets = selectedTable.getTablets();
             if (tablets.isEmpty()) {
                 continue;
@@ -879,7 +887,7 @@ public class OlapScanNode extends ScanNode {
                 && connectContext.getStatementContext().isShortCircuitQuery();
         for (Long partitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(partitionId);
-            final MaterializedIndex selectedTable = partition.getIndex(selectedIndexId);
+            final MaterializedIndex selectedTable = olapTable.getPartitionIndex(partition, selectedIndexId);
             final List<Tablet> tablets = Lists.newArrayList();
             List<Long> allTabletIds = selectedTable.getTabletIdsInOrder();
             // point query need prune tablets at this place
@@ -896,6 +904,14 @@ public class OlapScanNode extends ScanNode {
                 }
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("after sample tablets: {}", prunedTabletIds);
+                }
+            }
+
+            if (specifiedTabletIds != null && !specifiedTabletIds.isEmpty()) {
+                if (prunedTabletIds != null) {
+                    prunedTabletIds.retainAll(specifiedTabletIds);
+                } else {
+                    prunedTabletIds = new ArrayList<>(specifiedTabletIds);
                 }
             }
 
@@ -1145,6 +1161,9 @@ public class OlapScanNode extends ScanNode {
         msg.olap_scan_node = new TOlapScanNode(desc.getId().asInt(), keyColumnNames, keyColumnTypes, isPreAggregation);
         msg.olap_scan_node.setColumnsDesc(columnsDesc);
         msg.olap_scan_node.setIndexesDesc(indexDesc);
+        if (olapTable instanceof RowBinlogTableWrapper) {
+            msg.olap_scan_node.setReadRowBinlog(true);
+        }
         if (selectedIndexId != -1) {
             msg.olap_scan_node.setSchemaVersion(olapTable.getIndexSchemaVersion(selectedIndexId));
         }
@@ -1219,6 +1238,10 @@ public class OlapScanNode extends ScanNode {
         }
 
         msg.olap_scan_node.setDistributeColumnIds(new ArrayList<>(distributionColumnIds));
+
+        if (selectedIndexId != -1 && olapTable.getIndexMetaByIndexId(selectedIndexId).isRowBinlogIndex()) {
+            msg.olap_scan_node.setReadRowBinlog(true);
+        }
 
         super.toThrift(msg);
     }

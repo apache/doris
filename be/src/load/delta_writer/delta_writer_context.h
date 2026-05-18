@@ -30,9 +30,9 @@ class SlotDescriptor;
 class OlapTableSchemaParam;
 
 enum class WriteRequestType {
-    DATA = 0,
-    ROW_BINLOG = 1,
-    GROUP = 2,
+    DATA = 0,       // data write
+    ROW_BINLOG = 1, // row binlog write
+    GROUP = 2,      // group write for data and binlog<row>
 };
 
 struct WriteRequest {
@@ -51,11 +51,6 @@ struct WriteRequest {
     bool write_file_cache = false;
     WriteRequestType write_req_type = WriteRequestType::DATA;
     std::string storage_vault_id;
-};
-
-struct GroupWriteRequest : public WriteRequest {
-    WriteRequest data_req;
-    WriteRequest row_binlog_req;
 };
 
 } // namespace doris
