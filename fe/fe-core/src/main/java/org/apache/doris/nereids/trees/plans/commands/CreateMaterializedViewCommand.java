@@ -202,6 +202,18 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         mvKeysType = planValidator.context.keysType;
         dbName = planValidator.context.dbName;
         baseIndexName = planValidator.context.baseIndexName;
+        // The MV's effective database (explicitly specified or current session db) must match the base table's db,
+        // because a sync materialized view is stored as an index on the base table.
+        String mvDb = name.getDb();
+        if (mvDb == null || mvDb.isEmpty()) {
+            mvDb = ctx.getDatabase();
+        }
+        if (mvDb != null && !mvDb.isEmpty() && !mvDb.equals(dbName)) {
+            throw new AnalysisException(String.format(
+                    "The database '%s' of the sync materialized view must be the same as"
+                            + " the database '%s' of the base table",
+                    mvDb, dbName));
+        }
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName, baseIndexName,
                         PrivPredicate.ALTER)) {
