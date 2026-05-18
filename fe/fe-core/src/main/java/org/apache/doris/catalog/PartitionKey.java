@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DateLiteral;
-import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.IntLiteral;
@@ -149,8 +148,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                 return new DateTimeV2Literal(value);
             } else if (type.isTimeStampTz()) {
                 if (hasExplicitTimeZone(value)) {
-                    return Literal.fromLegacyLiteral(DateLiteralUtils.createDateLiteral(
-                            normalizeTimestampTzOffset(value), type), type);
+                    return new TimestampTzLiteral((TimeStampTzType) DataType.fromCatalogType(type), value);
                 }
                 DateTimeV2Literal literal = new DateTimeV2Literal(value);
                 DateTimeV2Literal dtV2Lit = (DateTimeV2Literal) DateTimeExtractAndTransform.convertTz(
@@ -167,10 +165,6 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         }
         throw new AnalysisException("date convert to datetime failed, "
                 + "value is [" + value + "], type is [" + type + "].");
-    }
-
-    private static String normalizeTimestampTzOffset(String value) {
-        return value.replaceFirst("\\s+([+-]\\d{2}:\\d{2})$", "$1");
     }
 
     private static boolean hasExplicitTimeZone(String value) {

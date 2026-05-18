@@ -427,6 +427,42 @@ public class CreateTableLikeTest {
     }
 
     @Test
+    public void testTimestampTzRangePartitionCreateTableAcceptsNamedAndLowercaseZones() throws Exception {
+        String tableName = "test_timestamptz_named_lowercase_zone_create";
+        String createTableSql = "CREATE TABLE test." + tableName + " (\n"
+                + "  `ts` TIMESTAMPTZ(6) NOT NULL,\n"
+                + "  `seq` INT NOT NULL\n"
+                + ")\n"
+                + "UNIQUE KEY(`ts`)\n"
+                + "PARTITION BY RANGE(`ts`) (\n"
+                + "  PARTITION p1 VALUES [('2024-01-15 20:00:00Asia/Shanghai'), ('2024-01-15 13:00:00    uTc')),\n"
+                + "  PARTITION p2 VALUES [('2024-01-15 13:00:00    uTc'), ('2024-01-15 22:00:00 Asia/Shanghai'))\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(`ts`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "  \"replication_num\" = \"1\",\n"
+                + "  \"enable_unique_key_merge_on_write\" = \"true\"\n"
+                + ");";
+
+        String originalTimeZone = connectContext.getSessionVariable().getTimeZone();
+        try {
+            connectContext.getSessionVariable().setTimeZone("America/New_York");
+            createTable(createTableSql);
+
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+            OlapTable table = (OlapTable) db.getTableOrDdlException(tableName);
+
+            String createStmt = getCreateTableStmt(table);
+            Assert.assertTrue(createStmt, createStmt.contains(
+                    "PARTITION p1 VALUES [('2024-01-15 12:00:00.000000+00:00'), ('2024-01-15 13:00:00.000000+00:00'))"));
+            Assert.assertTrue(createStmt, createStmt.contains(
+                    "PARTITION p2 VALUES [('2024-01-15 13:00:00.000000+00:00'), ('2024-01-15 14:00:00.000000+00:00'))"));
+        } finally {
+            connectContext.getSessionVariable().setTimeZone(originalTimeZone);
+        }
+    }
+
+    @Test
     public void testTimestampTzLessThanPartitionCreateTableUsesSessionTimezoneWithoutOffset() throws Exception {
         String tableName = "test_timestamptz_less_than_session_tz";
         String createTableSql = "CREATE TABLE test." + tableName + " (\n"

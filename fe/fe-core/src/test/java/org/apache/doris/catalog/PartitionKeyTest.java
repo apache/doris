@@ -322,6 +322,42 @@ public class PartitionKeyTest {
     }
 
     @Test
+    public void testTimestampTzPartitionKeyAcceptsNamedTimezone() throws Exception {
+        PartitionKey key = PartitionKey.createPartitionKey(
+                Arrays.asList(new PartitionValue("2024-01-15 20:00:00Asia/Shanghai")),
+                Arrays.asList(timestampTz));
+
+        DateLiteral literal = (DateLiteral) key.getKeys().get(0);
+        Assert.assertEquals(2024, literal.getYear());
+        Assert.assertEquals(1, literal.getMonth());
+        Assert.assertEquals(15, literal.getDay());
+        Assert.assertEquals(12, literal.getHour());
+        Assert.assertEquals(0, literal.getMinute());
+        Assert.assertEquals(0, literal.getSecond());
+        Assert.assertEquals(0, literal.getMicrosecond());
+        Assert.assertTrue(literal.getStringValue().startsWith("2024-01-15 12:00:00"));
+        Assert.assertTrue(literal.getStringValue().endsWith("+00:00"));
+    }
+
+    @Test
+    public void testTimestampTzPartitionKeyAcceptsLowercaseTimezone() throws Exception {
+        PartitionKey key = PartitionKey.createPartitionKey(
+                Arrays.asList(new PartitionValue("2024-01-15 12:00:00    uTc")),
+                Arrays.asList(timestampTz));
+
+        DateLiteral literal = (DateLiteral) key.getKeys().get(0);
+        Assert.assertEquals(2024, literal.getYear());
+        Assert.assertEquals(1, literal.getMonth());
+        Assert.assertEquals(15, literal.getDay());
+        Assert.assertEquals(12, literal.getHour());
+        Assert.assertEquals(0, literal.getMinute());
+        Assert.assertEquals(0, literal.getSecond());
+        Assert.assertEquals(0, literal.getMicrosecond());
+        Assert.assertTrue(literal.getStringValue().startsWith("2024-01-15 12:00:00"));
+        Assert.assertTrue(literal.getStringValue().endsWith("+00:00"));
+    }
+
+    @Test
     public void testTimestampTzPartitionKeyUsesSessionTimezoneWithoutExplicitOffset() throws Exception {
         boolean originalRunningUnitTest = FeConstants.runningUnitTest;
         FeConstants.runningUnitTest = true;

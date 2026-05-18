@@ -218,4 +218,40 @@ suite("test_timestamptz_partition_boundary_timezone") {
         FROM bug113_auto_tz_range
         ORDER BY id
     """
+
+    sql "SET time_zone = 'America/New_York'"
+    sql "DROP TABLE IF EXISTS bug114_named_lowercase_tz"
+    sql """
+        CREATE TABLE bug114_named_lowercase_tz (
+            ts TIMESTAMPTZ(6) NOT NULL,
+            seq INT NOT NULL
+        )
+        UNIQUE KEY(ts)
+        PARTITION BY RANGE(ts) (
+            PARTITION p1 VALUES [('2024-01-15 20:00:00Asia/Shanghai'), ('2024-01-15 13:00:00    uTc')),
+            PARTITION p2 VALUES [('2024-01-15 13:00:00    uTc'), ('2024-01-15 22:00:00 Asia/Shanghai'))
+        )
+        DISTRIBUTED BY HASH(ts) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true"
+        )
+    """
+
+    def bug114Create = sql "SHOW CREATE TABLE bug114_named_lowercase_tz"
+    assertTrue(bug114Create[0][1].contains(createBoundary))
+    assertTrue(bug114Create[0][1].contains(createBoundary2))
+
+    sql "SET time_zone = '+00:00'"
+    sql """
+        INSERT INTO bug114_named_lowercase_tz VALUES
+        (CAST('2024-01-15 12:30:00 +00:00' AS TIMESTAMPTZ(6)), 1),
+        (CAST('2024-01-15 13:30:00 +00:00' AS TIMESTAMPTZ(6)), 2)
+    """
+
+    order_qt_bug114_named_lowercase_tz """
+        SELECT CAST(ts AS STRING), seq
+        FROM bug114_named_lowercase_tz
+        ORDER BY seq
+    """
 }
