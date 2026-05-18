@@ -240,8 +240,11 @@ Status FSFileCacheStorage::remove(const FileCacheKey& key) {
     std::vector<FileInfo> files;
     bool exists {false};
     RETURN_IF_ERROR(fs->list(dir, true, &files, &exists));
-    if (files.empty()) {
-        RETURN_IF_ERROR(fs->delete_directory(dir));
+    if (exists && files.empty()) {
+        auto st = fs->delete_empty_directory(dir);
+        if (!st.ok()) {
+            LOG_WARNING("failed to remove cache directory {}", dir).error(st);
+        }
     }
     return Status::OK();
 }
