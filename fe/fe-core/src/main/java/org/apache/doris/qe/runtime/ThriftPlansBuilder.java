@@ -95,7 +95,6 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
-import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 
 public class ThriftPlansBuilder {
@@ -280,7 +279,8 @@ public class ThriftPlansBuilder {
         return workerCounter;
     }
 
-    private static Map<Integer, Integer> computeExchangeSenderNum(PipelineDistributedPlan distributedPlan) {
+    private static Map<Integer, Integer> computeExchangeSenderNum(
+            PipelineDistributedPlan distributedPlan) {
         Map<Integer, Integer> senderNum = Maps.newLinkedHashMap();
         for (Entry<ExchangeNode, DistributedPlan> kv : distributedPlan.getInputs().entries()) {
             ExchangeNode exchangeNode = kv.getKey();
@@ -583,39 +583,55 @@ public class ThriftPlansBuilder {
         }
 
         Map<Integer, Integer> destIdToInstanceId = Maps.newLinkedHashMap();
-        filterInstancesWhichReceiveDataFromRemote(
-                receivePlan, worker,
-                (instanceJob, destId) -> destIdToInstanceId.put(destId, instanceToIndex.get(instanceJob))
-        );
-        return destIdToInstanceId;
-    }
-
-    private static void filterInstancesWhichReceiveDataFromRemote(
-            PipelineDistributedPlan receivePlan, DistributedPlanWorker filterWorker,
-            BiConsumer<AssignedJob, Integer> computeFn) {
-
-        // current only support all input plans have same destination with same order,
-        // so we can get first input plan to compute shuffle index to instance id
-        Set<Entry<ExchangeNode, DistributedPlan>> exchangeToChildPlanSet = receivePlan.getInputs().entries();
-        if (exchangeToChildPlanSet.isEmpty()) {
-            return;
-        }
-        Entry<ExchangeNode, DistributedPlan> exchangeToChildPlan = exchangeToChildPlanSet.iterator().next();
-        ExchangeNode linkNode = exchangeToChildPlan.getKey();
-        PipelineDistributedPlan firstInputPlan = (PipelineDistributedPlan) exchangeToChildPlan.getValue();
-        Map<DataSink, List<AssignedJob>> sinkToDestInstances = firstInputPlan.getDestinations();
-        for (Entry<DataSink, List<AssignedJob>> kv : sinkToDestInstances.entrySet()) {
-            DataSink senderSink = kv.getKey();
-            if (senderSink.getExchNodeId().asInt() == linkNode.getId().asInt()) {
-                for (int destId = 0; destId < kv.getValue().size(); destId++) {
-                    AssignedJob assignedJob = kv.getValue().get(destId);
-                    if (assignedJob.getAssignedWorker().id() == filterWorker.id()) {
-                        computeFn.accept(assignedJob, destId);
-                    }
+        // dest id is defined by sender-side destination order rather than receiver fragment instance order.
+        // When FE inserts local shuffle or serial source, one worker may have multiple local receiver instances,
+        // but only the first one actually receives remote data. In that case receiverPlan.getInstanceJobs()
+        // no longer matches sender destinations, and using receiver instance order will produce an invalid
+        // shuffle_idx_to_instance_idx mapping for BE.
+        //
+        // When a fragment has multiple ExchangeNode inputs (e.g., NLJ with probe + BROADCAST build sides),
+        // always pick the one with the most destinations on this worker. A BROADCAST input has 1 dest per BE
+        // while the main data-carrying input (HASH-partitioned probe) has N dests per BE; using the BROADCAST
+        // one would produce a 1-entry map for GLOBAL_HASH LOCAL_EXCHANGE, causing rows to be lost.
+        Entry<ExchangeNode, DistributedPlan> exchangeToChildPlan = null;
+        int maxDestsOnWorker = -1;
+        for (Entry<ExchangeNode, DistributedPlan> entry : receivePlan.getInputs().entries()) {
+            ExchangeNode exchNode = entry.getKey();
+            PipelineDistributedPlan childPlan = (PipelineDistributedPlan) entry.getValue();
+            for (Entry<DataSink, List<AssignedJob>> kv : childPlan.getDestinations().entrySet()) {
+                if (kv.getKey().getExchNodeId().asInt() != exchNode.getId().asInt()) {
+                    continue;
+                }
+                int destsOnWorker = (int) kv.getValue().stream()
+                        .filter(j -> j.getAssignedWorker().id() == worker.id())
+                        .count();
+                if (destsOnWorker > maxDestsOnWorker) {
+                    maxDestsOnWorker = destsOnWorker;
+                    exchangeToChildPlan = entry;
                 }
                 break;
             }
         }
+        if (exchangeToChildPlan == null) {
+            return destIdToInstanceId;
+        }
+        ExchangeNode linkNode = exchangeToChildPlan.getKey();
+        PipelineDistributedPlan firstInputPlan = (PipelineDistributedPlan) exchangeToChildPlan.getValue();
+        for (Entry<DataSink, List<AssignedJob>> kv : firstInputPlan.getDestinations().entrySet()) {
+            DataSink senderSink = kv.getKey();
+            if (senderSink.getExchNodeId().asInt() != linkNode.getId().asInt()) {
+                continue;
+            }
+            List<AssignedJob> destinationJobs = kv.getValue();
+            for (int destId = 0; destId < destinationJobs.size(); destId++) {
+                AssignedJob destinationJob = destinationJobs.get(destId);
+                if (destinationJob.getAssignedWorker().id() == worker.id()) {
+                    destIdToInstanceId.put(destId, instanceToIndex.get(destinationJob));
+                }
+            }
+            break;
+        }
+        return destIdToInstanceId;
     }
 
     private static Set<Integer> setParamsForRecursiveCteNode(List<PipelineDistributedPlan> distributedPlans,

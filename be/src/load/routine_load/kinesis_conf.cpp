@@ -115,7 +115,9 @@ Status KinesisConf::apply_to_get_shard_iterator_request(
     it = _get_shard_iterator_params.find("timestamp");
     if (it != _get_shard_iterator_params.end()) {
         try {
-            request.SetTimestamp(Aws::Utils::DateTime(std::stol(it->second)));
+            // Cast to int64_t explicitly: on macOS `long` is 64-bit but not identical to
+            // int64_t, causing ambiguity between DateTime(int64_t) and DateTime(double).
+            request.SetTimestamp(Aws::Utils::DateTime(static_cast<int64_t>(std::stol(it->second))));
         } catch (const std::exception&) {
             return Status::InternalError("Failed to apply get_shard_iterator.timestamp: {}",
                                          it->second);

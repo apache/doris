@@ -19,6 +19,10 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.GroupingInfo;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -86,11 +90,21 @@ public class RepeatNode extends PlanNode {
 
     // Determined by its child.
     @Override
-    public boolean isSerialOperator() {
-        return children.get(0).isSerialOperator();
+    public boolean isSerialNode() {
+        return children.get(0).isSerialNode();
     }
 
     public GroupingInfo getGroupingInfo() {
         return groupingInfo;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
+            PlanTranslatorContext translatorContext, PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+        Pair<PlanNode, LocalExchangeType> enforceResult
+                = enforceRequire(translatorContext, children.get(0), 0, parentRequire);
+        children = new java.util.ArrayList<>();
+        children.add(enforceResult.first);
+        return Pair.of(this, enforceResult.second);
     }
 }

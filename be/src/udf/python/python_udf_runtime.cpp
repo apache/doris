@@ -21,8 +21,6 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include <boost/process.hpp>
-
 #include "common/logging.h"
 
 namespace doris {
