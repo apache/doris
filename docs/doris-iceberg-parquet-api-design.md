@@ -74,6 +74,8 @@ namespace doris::reader
 - 管理 scan 生命周期；
 - 承接动态分区裁剪等 table-level 通用过滤逻辑；
 - 对外统一输出 table block。
+- `next` 是基类统一入口，内部负责 EOF 后切换 reader；具体表格式只提供打开和读取
+  当前 reader 的 hook。
 
 建议接口形状：
 
@@ -86,9 +88,14 @@ public:
 
     virtual Status init(const TableReadOptions& options);
     virtual Status filter(const VExprContextSPtr& expr, bool* can_filter_all);
-    virtual Status next_reader();
-    virtual Status next(Block* table_block, size_t* rows, bool* eof);
+    Status next(Block* table_block, size_t* rows, bool* eof);
     virtual Status close();
+
+protected:
+    Status next_reader();
+    virtual Status open_next_reader(bool* has_reader);
+    virtual Status read_current(Block* table_block, size_t* rows, bool* eof);
+    virtual Status close_current_reader();
 };
 
 } // namespace doris::reader
@@ -99,6 +106,7 @@ public:
 - `TableReader` 输出的是 table block，不输出 file-local block。
 - `TableReader` 负责多文件编排和 table-level 通用裁剪，不负责 schema mapping，不负责
   Parquet 物理解码。
+- `next_reader` 是 `TableReader` 自己的通用切换逻辑，不作为子类公开 override 接口。
 - 动态分区裁剪这类逻辑应下放到 `TableReader`，而不是散落在具体表格式 reader 中。
 - `TableReader` 不直接依赖旧 `vparquet` 表层语义。
 
@@ -122,7 +130,7 @@ namespace doris::iceberg
 建议职责：
 
 - 绑定 Iceberg 当前 table schema；
-- 接收 `IcebergScanTask`；
+- 接收 `IcebergScanTask` 列表，并按 `TableReader` 的统一调度打开当前 task；
 - 处理 position delete、equality delete、deletion vector；
 - 物化 `_row_id`、`_last_updated_sequence_number` 等虚拟列；
 - 将 `ParquetReader` 返回的 file-local block finalize 成 table block。
@@ -136,13 +144,13 @@ class IcebergTableReader : public reader::TableReader {
 public:
     virtual ~IcebergTableReader() = default;
 
-    Status init(const IcebergReadOptions& options,
-                std::unique_ptr<reader::FileReader> data_reader);
-    Status bind(const std::vector<reader::TableColumn>& iceberg_schema);
-    Status init(const reader::TableScanRequest& request);
-    Status open_task(const IcebergScanTask& task);
-    Status next(Block* table_block, size_t* rows, bool* eof) override;
+    Status init(IcebergTableReadParams params);
     Status close() override;
+
+protected:
+    Status open_next_reader(bool* has_reader) override;
+    Status read_current(Block* table_block, size_t* rows, bool* eof) override;
+    Status close_current_reader() override;
 };
 
 } // namespace doris::iceberg
@@ -153,6 +161,11 @@ public:
 - `IcebergTableReader` 继承 `TableReader`，并通过组合使用 `FileReader`。
 - `IcebergTableReader` 不做 Parquet page/column 解码。
 - `IcebergTableReader` 负责 table-level finalize，不负责 file-local pruning 实现。
+- `IcebergTableReader` 的 schema、scan request、scan tasks 和底层 `FileReader` 应通过
+  一个初始化参数对象一次性传入；除非存在明确生命周期差异，不拆成 `bind` /
+  `init(TableScanRequest)` / `set_scan_tasks` 多阶段接口。
+- `IcebergTableReader` 不重新实现 reader 切换循环，只实现打开 Iceberg task、读取当前
+  task 和关闭当前 reader 的 hook。
 
 ### TableColumnMapper
 
@@ -429,6 +442,21 @@ Iceberg 场景下，column id 默认对应 field id。
 - deletion vector 信息。
 
 它是 `IcebergTableReader` 的输入，不应直接传给 `ParquetReader`。
+
+### IcebergTableReadParams
+
+`IcebergTableReadParams` 表示一次 Iceberg table scan 的完整初始化输入。
+
+建议包含的信息：
+
+- Iceberg read options；
+- Iceberg table schema；
+- table scan request；
+- Iceberg scan task 列表；
+- 底层 `FileReader`。
+
+它用于避免 `IcebergTableReader` 暴露多个半初始化阶段。调用方应一次性构造完整
+参数并调用 `init`。
 
 ## 设计原则
 

@@ -113,6 +113,9 @@ public:
     explicit TableColumnMapper(TableColumnMapperOptions options = {}) : _options(std::move(options)) {}
     virtual ~TableColumnMapper() = default;
 
+    // 建立 table schema 到 file schema 的列映射。
+    // 输出的 ColumnMapping 描述 table column 如何从 file column、常量列或表达式得到；
+    // 后续 projection、filter localization 和 table block finalize 都应复用这份映射。
     virtual Status create_mapping(const std::vector<TableColumn>& table_schema,
                                   const std::vector<SchemaField>& file_schema,
                                   std::vector<ColumnMapping>* mappings) {
@@ -136,6 +139,9 @@ public:
         return Status::OK();
     }
 
+    // 把 table-level scan 请求转换成 file-local scan 请求。
+    // table_request 使用 table/global schema；file_request 只包含 FileReader 能理解的
+    // projected_file_columns、local_filters 和 reader_expression_map。
     virtual Status create_scan_request(const TableScanRequest& table_request,
                                        const std::vector<ColumnMapping>& mappings,
                                        FileScanRequest* file_request) {
@@ -154,6 +160,9 @@ public:
         return Status::OK();
     }
 
+    // 将 table-level filter 定位到文件 schema。
+    // trivial mapping 可以直接复制结构化谓词；类型变化时可以尝试安全 cast；无法安全
+    // 下推的表达式应通过 reader_expression_map 或 table-level finalize/filter fallback 处理。
     virtual Status localize_filters(const std::vector<TableFilter>& table_filters,
                                     FileScanRequest* file_request) const {
         // 真实实现会处理 trivial mapping、safe cast、reader expression fallback 和
@@ -213,15 +222,21 @@ struct TableReadOptions {
 
 // table-level reader 基类。
 // 该层负责多文件编排和动态分区裁剪等通用 table-level 逻辑，对外输出 table block。
+// 子类只需要实现“如何打开下一个具体 reader”和“如何读取当前 reader”的表格式语义。
 class TableReader {
 public:
     virtual ~TableReader() = default;
 
+    // 初始化 table reader 的通用运行参数。
+    // 子类可以在自己的 init(params) 中调用该方法；这里不接收具体表格式 schema/task。
     virtual Status init(const TableReadOptions& options) {
         _options = options;
         return Status::OK();
     }
 
+    // table-level 动态过滤入口。
+    // 该方法用于根据 split、partition value 或文件级统计判断是否可以跳过后续 reader。
+    // can_filter_all=true 表示当前 table reader 范围内的数据都可以被裁剪。
     virtual Status filter(const VExprContextSPtr& expr, bool* can_filter_all) {
         // 真实实现会基于 split/partition/file stats 判断动态分区裁剪结果。
         (void)expr;
@@ -231,12 +246,78 @@ public:
         return Status::OK();
     }
 
-    virtual Status next_reader() {
-        // 真实实现会切换到下一个 data file / split reader。
+    // 对外读取 table block 的统一入口。
+    // 基类负责 current reader 的打开、EOF 后切换和关闭；子类只实现 protected hook。
+    // table_block 的列必须已经是 table/global schema 语义。
+    Status next(Block* table_block, size_t* rows, bool* eof) {
+        if (rows != nullptr) {
+            *rows = 0;
+        }
+        if (eof != nullptr) {
+            *eof = false;
+        }
+        while (true) {
+            if (!_has_current_reader) {
+                RETURN_IF_ERROR(next_reader());
+                if (!_has_current_reader) {
+                    if (eof != nullptr) {
+                        *eof = true;
+                    }
+                    return Status::OK();
+                }
+            }
+
+            size_t current_rows = 0;
+            bool current_eof = false;
+            RETURN_IF_ERROR(read_current(table_block, &current_rows, &current_eof));
+            if (rows != nullptr) {
+                *rows = current_rows;
+            }
+            if (!current_eof || current_rows > 0) {
+                return Status::OK();
+            }
+            RETURN_IF_ERROR(close_current_reader());
+            _has_current_reader = false;
+        }
+    }
+
+    // 关闭 table reader 及当前正在读取的底层 reader。
+    // 子类如果持有额外表格式资源，应 override 后先调用 TableReader::close()。
+    virtual Status close() {
+        RETURN_IF_ERROR(close_current_reader());
+        _has_current_reader = false;
         return Status::OK();
     }
 
-    virtual Status next(Block* table_block, size_t* rows, bool* eof) {
+protected:
+    // 切换到下一个 reader 的通用流程。
+    // 该方法先关闭当前 reader，再调用 open_next_reader；子类不应重复实现这个循环。
+    Status next_reader() {
+        // 多文件切换的公共流程留在基类：关闭当前 reader，然后打开下一个 reader。
+        // 子类只通过 open_next_reader 提供具体表格式的 task/split 打开方式。
+        RETURN_IF_ERROR(close_current_reader());
+        bool has_reader = false;
+        RETURN_IF_ERROR(open_next_reader(&has_reader));
+        _has_current_reader = has_reader;
+        return Status::OK();
+    }
+
+    // 打开下一个具体 reader。
+    // 子类在这里选择下一个 split/task，创建或重置底层 FileReader，并设置 has_reader。
+    // has_reader=false 表示没有更多输入，TableReader::next 会返回 eof=true。
+    virtual Status open_next_reader(bool* has_reader) {
+        // stub 默认没有下一个 reader。
+        if (has_reader != nullptr) {
+            *has_reader = false;
+        }
+        return Status::OK();
+    }
+
+    // 从当前 reader 读取一批 table block。
+    // 子类应在这里读取 file-local block，并完成 delete、virtual column、finalize_expr
+    // 等 table-level 处理，最终写入 table_block。
+    virtual Status read_current(Block* table_block, size_t* rows, bool* eof) {
+        // stub 默认当前 reader 立即 EOF。
         (void)table_block;
         if (rows != nullptr) {
             *rows = 0;
@@ -247,10 +328,12 @@ public:
         return Status::OK();
     }
 
-    virtual Status close() { return Status::OK(); }
+    // 关闭当前具体 reader。
+    // 该 hook 会被 next_reader 和 close 调用；实现应保持幂等。
+    virtual Status close_current_reader() { return Status::OK(); }
 
-protected:
     TableReadOptions _options;
+    bool _has_current_reader = false;
 };
 
 } // namespace doris::reader

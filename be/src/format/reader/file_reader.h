@@ -87,6 +87,9 @@ class FileReader {
 public:
     virtual ~FileReader() = default;
 
+    // 打开一个物理文件并加载文件级元数据。
+    // 该方法只建立 file-local reader 状态，不接收 table schema，也不做 projection/filter
+    // 规划；这些输入由 init(FileScanRequest) 提供。
     virtual Status open(io::FileReaderSPtr file, io::IOContext* io_ctx = nullptr) {
         // 真实实现会保存文件句柄、IO 上下文并读取文件元数据。
         _file = std::move(file);
@@ -95,12 +98,18 @@ public:
         return Status::OK();
     }
 
+    // 返回文件自己的 schema 视图。
+    // 返回结果必须是 file-local schema：列 id、类型和 children 都按文件格式展开，
+    // 不在这里解释 Iceberg field id、缺失列、默认值或 generated column。
     virtual Status get_schema(std::vector<SchemaField>* file_schema) const {
         // 真实实现会展开文件格式自己的 file-local schema。
         file_schema->clear();
         return Status::OK();
     }
 
+    // 初始化一次 file-local scan。
+    // request 由 TableColumnMapper 生成，只包含文件列投影、本地过滤条件和 reader
+    // expression。FileReader 可以基于它初始化 row group/page/stripe 等文件格式计划。
     virtual Status init(const FileScanRequest& request) {
         // 真实实现会根据 projected columns、local filters 和 reader expressions
         // 初始化文件格式自己的物理读取计划。
@@ -110,6 +119,9 @@ public:
         return Status::OK();
     }
 
+    // 读取下一批 file-local block。
+    // file_block 的列顺序和类型必须遵守 FileScanRequest，而不是 table/global schema。
+    // eof 表示当前文件 reader 是否读完；多文件切换由 TableReader 负责。
     virtual Status next(Block* file_block, size_t* rows, bool* eof) {
         // stub 默认立即 EOF。
         (void)file_block;
@@ -123,6 +135,8 @@ public:
         return Status::OK();
     }
 
+    // 关闭当前物理文件 reader 并释放文件层状态。
+    // 该方法不处理 table-level delete/finalize 状态，后者由 TableReader 子类管理。
     virtual Status close() {
         _file.reset();
         _io_ctx = nullptr;
