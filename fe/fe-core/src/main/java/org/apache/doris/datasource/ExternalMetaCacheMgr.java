@@ -114,8 +114,8 @@ public class ExternalMetaCacheMgr {
         // The queue size should be large enough,
         // because there may be thousands of partitions being queried at the same time.
         fileListingExecutor = TtlExecutors.getTtlExecutorService(newThreadPool(isCheckpointCatalog,
-                Config.max_external_cache_loader_thread_pool_size,
-                Config.max_external_cache_loader_thread_pool_size * 1000,
+                Config.max_external_file_cache_loader_thread_pool_size,
+                Config.max_external_file_cache_loader_thread_pool_size * 1000,
                 "FileListingExecutor", 10, true));
 
         scheduleExecutor = TtlExecutors.getTtlExecutorService(newThreadPool(isCheckpointCatalog,

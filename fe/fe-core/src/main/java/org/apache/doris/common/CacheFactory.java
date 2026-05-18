@@ -149,8 +149,10 @@ public class CacheFactory {
 
         if (weigher != null) {
             builder.weigher(weigher).maximumWeight(maxWeight);
+            builder.initialCapacity((int) maxWeight);
         } else {
             builder.maximumSize(maxSize);
+            builder.initialCapacity((int) maxSize);
         }
 
         if (ticker != null) {

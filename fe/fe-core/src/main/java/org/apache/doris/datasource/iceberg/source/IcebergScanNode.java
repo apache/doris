@@ -488,7 +488,8 @@ public class IcebergScanNode extends FileQueryScanNode {
             this.pushdownIcebergPredicates.add(predicate.toString());
         }
 
-        icebergTableScan = scan.planWith(source.getCatalog().getThreadPoolWithPreAuth());
+        ExecutorService executor = Env.getCurrentEnv().getExtMetaCacheMgr().getFileListingExecutor();
+        icebergTableScan = scan.planWith(executor);
 
         return icebergTableScan;
     }

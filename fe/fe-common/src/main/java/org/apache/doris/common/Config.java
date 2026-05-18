@@ -2266,7 +2266,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(description = {"Hive Metastore 表级别分区缓存的最大数量。",
             "Max cache number of partition at table level in Hive Metastore."})
-    public static long max_hive_partition_cache_num = 10000;
+    public static long max_hive_partition_cache_num = 30000;
 
     @ConfField(description = {"Hudi/Iceberg/Paimon 表级别缓存的最大数量。",
             "Max cache number of hudi/iceberg table."})
@@ -2274,7 +2274,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {"External Catalog 中，Database 和 Table 的实例缓存的最大数量。",
             "Max cache number of database and table instance in external catalog."})
-    public static long max_meta_object_cache_num = 1000;
+    public static long max_meta_object_cache_num = 5000;
 
     @ConfField(description = {"Hive 分区表缓存的最大数量",
             "Max cache number of hive partition table"})
@@ -2301,14 +2301,21 @@ public class Config extends ConfigBase {
      * Max thread pool size for loading external meta cache
      */
     @ConfField(mutable = false, masterOnly = false)
-    public static int max_external_cache_loader_thread_pool_size = 64;
+    public static int max_external_cache_loader_thread_pool_size = 128;
+
+    /**
+     * Max file cache loader thread-pool size.
+     * Max thread pool size for loading external file meta cache
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static int max_external_file_cache_loader_thread_pool_size = 4096;
 
     /**
      * Max cache num of external catalog's file
      * Decrease this value if FE's memory is small
      */
     @ConfField(mutable = false, masterOnly = false)
-    public static long max_external_file_cache_num = 10000;
+    public static long max_external_file_cache_num = 50000;
 
     /**
      * Max cache num of external table's schema
@@ -2322,6 +2329,13 @@ public class Config extends ConfigBase {
             "The expiration time of a cache object after last write of it. For external meta cache."
     })
     public static long external_cache_expire_time_seconds_after_write = 180L; // 3 minutes
+
+    /**
+     * The expiration time of a cache object after last write of it.
+     * For external db cache.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static long external_db_cache_expire_time_seconds_after_write = 86400; // 1440 mins
 
     @ConfField(description = {
             "外部表元数据缓存对象的自动刷新时间",
@@ -3923,7 +3937,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {"过滤的Hive分区表缓存的最大数量",
         "Max cache number of filter hive table partition"})
-    public static long max_filter_hive_partition_cache_num = 1000;
+    public static long max_filter_hive_partition_cache_num = 30000;
 
     @ConfField(mutable = true, description = {"单个hive表不使用谓词下推的最大分区数量",
         "max partition num for single hive table without filter"})
