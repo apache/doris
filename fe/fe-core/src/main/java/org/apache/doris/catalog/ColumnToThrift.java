@@ -112,9 +112,6 @@ public class ColumnToThrift {
                 return TAggregationType.NONE;
             case HLL_UNION:
                 return TAggregationType.HLL_UNION;
-            case DATASKETCHES_HLL_UNION_AGG:
-                // datasketches is not supported as a table agg type.
-                return TAggregationType.NONE;
             case BITMAP_UNION:
                 return TAggregationType.BITMAP_UNION;
             case QUANTILE_UNION:
