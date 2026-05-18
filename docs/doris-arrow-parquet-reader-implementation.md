@@ -443,6 +443,17 @@ Arrow Parquet `ReadBatch` 返回两类数量：
 - 支持 nullable bool/int32/int64/float/double。
 - 输出 Doris file-local block。
 
+当前实现说明：
+
+- `ParquetReader::next` 已支持按 row group 顺序读取 flat physical primitive columns。
+- 输出 `Block` 的列顺序与 `FileScanRequest::projected_file_columns` 一致，列名使用
+  Parquet file-local dot path，列类型使用 file-local Doris type。
+- nullable primitive column 根据 definition level 展开成 Doris nullable column。
+- 第二阶段只接受没有 logical/converted annotation、`max_repetition_level == 0`、
+  `max_definition_level <= 1` 的物理 primitive 列。带 annotation 的 int/date/time/
+  timestamp/decimal/string 仍留给后续阶段。
+- 空 projection 只推进 row group 行游标，不向 `Block` 插入列。
+
 验收：
 
 - flat primitive Parquet 文件可读。

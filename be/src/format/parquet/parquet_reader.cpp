@@ -31,6 +31,7 @@
 #include <vector>
 
 #include "common/exception.h"
+#include "core/block/block.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -41,6 +42,8 @@
 namespace doris::parquet {
 
 namespace {
+
+constexpr int64_t DEFAULT_PARQUET_READ_BATCH_SIZE = 4096;
 
 Status arrow_status_to_doris_status(const arrow::Status& status) {
     if (status.ok()) {
@@ -142,6 +145,15 @@ DataTypePtr make_nullable_if_needed(DataTypePtr type, const ::parquet::ColumnDes
 
 DataTypePtr create_type(PrimitiveType type, bool nullable, int precision = 0, int scale = 0) {
     return DataTypeFactory::instance().create_data_type(type, nullable, precision, scale);
+}
+
+bool has_non_physical_annotation(const ::parquet::ColumnDescriptor* column) {
+    if (column == nullptr) {
+        return false;
+    }
+    const auto& logical_type = column->logical_type();
+    return column->converted_type() != ::parquet::ConvertedType::NONE ||
+           (logical_type != nullptr && logical_type->is_valid() && !logical_type->is_none());
 }
 
 PrimitiveType decimal_primitive_type(int precision) {
@@ -302,12 +314,37 @@ std::string column_name(const ::parquet::ColumnDescriptor* column) {
     return column->name();
 }
 
+DataTypePtr direct_flat_primitive_doris_type(const ::parquet::ColumnDescriptor* column) {
+    if (column == nullptr || column->max_repetition_level() != 0 ||
+        column->max_definition_level() > 1 || has_non_physical_annotation(column)) {
+        return nullptr;
+    }
+
+    const bool nullable = column->max_definition_level() > 0;
+    switch (column->physical_type()) {
+    case ::parquet::Type::BOOLEAN:
+        return create_type(TYPE_BOOLEAN, nullable);
+    case ::parquet::Type::INT32:
+        return create_type(TYPE_INT, nullable);
+    case ::parquet::Type::INT64:
+        return create_type(TYPE_BIGINT, nullable);
+    case ::parquet::Type::FLOAT:
+        return create_type(TYPE_FLOAT, nullable);
+    case ::parquet::Type::DOUBLE:
+        return create_type(TYPE_DOUBLE, nullable);
+    default:
+        return nullptr;
+    }
+}
+
 } // namespace
 
 struct ParquetColumnReaderState {
     int file_column_id = -1;
     int parquet_column_ordinal = -1;
     const ::parquet::ColumnDescriptor* descriptor = nullptr;
+    DataTypePtr type;
+    std::string name;
     std::shared_ptr<::parquet::ColumnReader> reader;
 };
 
@@ -326,9 +363,11 @@ struct ParquetFileState {
     // groups；后续 row group/page/bloom pruning 只消费 FileLocalFilter。
     std::vector<int> projected_columns;
     std::vector<int> selected_row_groups;
-    int next_row_group_idx = 0;
+    size_t next_row_group_idx = 0;
     std::shared_ptr<::parquet::RowGroupReader> current_row_group;
     std::vector<ParquetColumnReaderState> current_columns;
+    int64_t current_row_group_rows = 0;
+    int64_t current_row_group_rows_read = 0;
 };
 
 namespace {
@@ -340,6 +379,212 @@ Status reset_reader_position(ParquetFileState* state) {
     state->next_row_group_idx = 0;
     state->current_row_group.reset();
     state->current_columns.clear();
+    state->current_row_group_rows = 0;
+    state->current_row_group_rows_read = 0;
+    return Status::OK();
+}
+
+void reset_current_row_group(ParquetFileState* state) {
+    state->current_row_group.reset();
+    state->current_columns.clear();
+    state->current_row_group_rows = 0;
+    state->current_row_group_rows_read = 0;
+}
+
+template <PrimitiveType DorisType, typename ParquetValueType>
+void insert_physical_value(IColumn& column, const ParquetValueType& value) {
+    using DorisCppType = typename PrimitiveTypeTraits<DorisType>::CppType;
+    DorisCppType doris_value = static_cast<DorisCppType>(value);
+    column.insert_data(reinterpret_cast<const char*>(&doris_value), sizeof(DorisCppType));
+}
+
+template <typename ParquetReaderType, PrimitiveType DorisType>
+Status read_flat_primitive_column(ParquetColumnReaderState& column_state, int64_t batch_rows,
+                                  MutableColumnPtr* result_column, int64_t* rows_read) {
+    auto* typed_reader = dynamic_cast<ParquetReaderType*>(column_state.reader.get());
+    if (typed_reader == nullptr) {
+        return Status::InternalError("Unexpected parquet column reader type for column {}",
+                                     column_state.name);
+    }
+
+    using ParquetValueType = typename ParquetReaderType::T;
+    const size_t batch_size = static_cast<size_t>(batch_rows);
+    auto values = std::make_unique<ParquetValueType[]>(batch_size);
+    std::vector<int16_t> def_levels;
+    int16_t* def_levels_ptr = nullptr;
+    if (column_state.descriptor->max_definition_level() > 0) {
+        def_levels.resize(batch_size);
+        def_levels_ptr = def_levels.data();
+    }
+
+    int64_t values_read = 0;
+    int64_t levels_read = 0;
+    try {
+        levels_read = typed_reader->ReadBatch(batch_rows, def_levels_ptr, nullptr, values.get(),
+                                              &values_read);
+    } catch (const ::parquet::ParquetException& e) {
+        return Status::Corruption("Failed to read parquet column {}: {}", column_state.name,
+                                  e.what());
+    } catch (const std::exception& e) {
+        return Status::InternalError("Failed to read parquet column {}: {}", column_state.name,
+                                     e.what());
+    }
+
+    if (levels_read < 0 || values_read < 0 || levels_read > batch_rows || values_read > batch_rows) {
+        return Status::Corruption("Invalid parquet read result for column {}", column_state.name);
+    }
+
+    auto column = column_state.type->create_column();
+    if (column_state.descriptor->max_definition_level() == 0) {
+        if (values_read != levels_read) {
+            return Status::Corruption(
+                    "Invalid required parquet column read result for column {}: levels={}, "
+                    "values={}",
+                    column_state.name, levels_read, values_read);
+        }
+        const size_t level_count = static_cast<size_t>(levels_read);
+        for (size_t i = 0; i < level_count; ++i) {
+            insert_physical_value<DorisType>(*column, values[i]);
+        }
+    } else {
+        size_t value_idx = 0;
+        const size_t value_count = static_cast<size_t>(values_read);
+        const size_t level_count = static_cast<size_t>(levels_read);
+        const int16_t max_definition_level = column_state.descriptor->max_definition_level();
+        for (size_t i = 0; i < level_count; ++i) {
+            if (def_levels[i] == max_definition_level) {
+                if (value_idx >= value_count) {
+                    return Status::Corruption(
+                            "Parquet definition levels exceed values for column {}",
+                            column_state.name);
+                }
+                insert_physical_value<DorisType>(*column, values[value_idx++]);
+            } else {
+                column->insert_data(nullptr, 0);
+            }
+        }
+        if (value_idx != value_count) {
+            return Status::Corruption(
+                    "Parquet values exceed definition levels for column {}: consumed={}, "
+                    "values={}",
+                    column_state.name, value_idx, values_read);
+        }
+    }
+
+    *rows_read = levels_read;
+    *result_column = std::move(column);
+    return Status::OK();
+}
+
+Status read_column_batch(ParquetColumnReaderState& column_state, int64_t batch_rows,
+                         MutableColumnPtr* result_column, int64_t* rows_read) {
+    switch (column_state.descriptor->physical_type()) {
+    case ::parquet::Type::BOOLEAN:
+        return read_flat_primitive_column<::parquet::BoolReader, TYPE_BOOLEAN>(
+                column_state, batch_rows, result_column, rows_read);
+    case ::parquet::Type::INT32:
+        return read_flat_primitive_column<::parquet::Int32Reader, TYPE_INT>(
+                column_state, batch_rows, result_column, rows_read);
+    case ::parquet::Type::INT64:
+        return read_flat_primitive_column<::parquet::Int64Reader, TYPE_BIGINT>(
+                column_state, batch_rows, result_column, rows_read);
+    case ::parquet::Type::FLOAT:
+        return read_flat_primitive_column<::parquet::FloatReader, TYPE_FLOAT>(
+                column_state, batch_rows, result_column, rows_read);
+    case ::parquet::Type::DOUBLE:
+        return read_flat_primitive_column<::parquet::DoubleReader, TYPE_DOUBLE>(
+                column_state, batch_rows, result_column, rows_read);
+    default:
+        return Status::NotSupported("Unsupported parquet physical type for stage 2 column {}",
+                                    column_state.name);
+    }
+}
+
+Status open_next_row_group(ParquetFileState* state, bool* has_row_group) {
+    *has_row_group = false;
+    while (state->next_row_group_idx < state->selected_row_groups.size()) {
+        const int row_group_idx = state->selected_row_groups[state->next_row_group_idx++];
+        try {
+            state->current_row_group = state->parquet_reader->RowGroup(row_group_idx);
+        } catch (const ::parquet::ParquetException& e) {
+            return Status::Corruption("Failed to open parquet row group {}: {}", row_group_idx,
+                                      e.what());
+        } catch (const std::exception& e) {
+            return Status::InternalError("Failed to open parquet row group {}: {}", row_group_idx,
+                                         e.what());
+        }
+
+        auto row_group_metadata = state->metadata->RowGroup(row_group_idx);
+        state->current_row_group_rows =
+                row_group_metadata == nullptr ? 0 : row_group_metadata->num_rows();
+        if (state->current_row_group_rows < 0) {
+            return Status::Corruption("Invalid negative row count in parquet row group {}",
+                                      row_group_idx);
+        }
+        state->current_row_group_rows_read = 0;
+        state->current_columns.clear();
+        state->current_columns.reserve(state->projected_columns.size());
+
+        for (int file_column_id : state->projected_columns) {
+            const auto* descriptor = state->schema->Column(file_column_id);
+            DataTypePtr type = direct_flat_primitive_doris_type(descriptor);
+            if (type == nullptr) {
+                return Status::NotSupported(
+                        "Stage 2 parquet reader only supports flat physical primitive columns; "
+                        "column {} is not supported",
+                        column_name(descriptor));
+            }
+
+            ParquetColumnReaderState column_state;
+            column_state.file_column_id = file_column_id;
+            column_state.parquet_column_ordinal = file_column_id;
+            column_state.descriptor = descriptor;
+            column_state.type = std::move(type);
+            column_state.name = column_name(descriptor);
+            column_state.reader = state->current_row_group->Column(file_column_id);
+            if (column_state.reader == nullptr) {
+                return Status::Corruption("Failed to create parquet column reader for column {}",
+                                          column_state.name);
+            }
+            state->current_columns.push_back(std::move(column_state));
+        }
+
+        if (state->current_row_group_rows == 0) {
+            reset_current_row_group(state);
+            continue;
+        }
+        *has_row_group = true;
+        return Status::OK();
+    }
+    return Status::OK();
+}
+
+Status read_current_row_group_batch(ParquetFileState* state, int64_t batch_rows,
+                                    Block* file_block, size_t* rows) {
+    file_block->clear();
+
+    if (state->current_columns.empty()) {
+        *rows = static_cast<size_t>(batch_rows);
+        return Status::OK();
+    }
+
+    int64_t expected_rows = -1;
+    for (auto& column_state : state->current_columns) {
+        MutableColumnPtr column;
+        int64_t column_rows = 0;
+        RETURN_IF_ERROR(read_column_batch(column_state, batch_rows, &column, &column_rows));
+        if (expected_rows < 0) {
+            expected_rows = column_rows;
+        } else if (column_rows != expected_rows) {
+            return Status::Corruption(
+                    "Parquet columns returned different row counts in the same batch: {} vs {}",
+                    expected_rows, column_rows);
+        }
+        file_block->insert(ColumnWithTypeAndName {std::move(column), column_state.type,
+                                                  column_state.name});
+    }
+
+    *rows = static_cast<size_t>(std::max<int64_t>(expected_rows, 0));
     return Status::OK();
 }
 
@@ -429,19 +674,55 @@ Status ParquetReader::init(const reader::FileScanRequest& request) {
 }
 
 Status ParquetReader::next(Block* file_block, size_t* rows, bool* eof) {
-    (void)file_block;
     if (rows != nullptr) {
         *rows = 0;
     }
     if (eof != nullptr) {
-        *eof = _eof;
+        *eof = false;
+    }
+    if (file_block == nullptr || rows == nullptr || eof == nullptr) {
+        return Status::InvalidArgument("ParquetReader::next requires non-null output arguments");
     }
     if (_eof) {
+        *eof = true;
         return Status::OK();
     }
-    return Status::NotSupported(
-            "Arrow-backed ParquetReader stage 1 only supports metadata/schema initialization; "
-            "Doris Block decoding will be implemented in the flat primitive read stage");
+
+    while (true) {
+        if (_state == nullptr || _state->parquet_reader == nullptr || _state->schema == nullptr) {
+            return Status::Uninitialized("ParquetReader is not open");
+        }
+
+        if (_state->current_row_group == nullptr) {
+            bool has_row_group = false;
+            RETURN_IF_ERROR(open_next_row_group(_state.get(), &has_row_group));
+            if (!has_row_group) {
+                _eof = true;
+                *eof = true;
+                return Status::OK();
+            }
+        }
+
+        const int64_t remaining_rows =
+                _state->current_row_group_rows - _state->current_row_group_rows_read;
+        if (remaining_rows <= 0) {
+            reset_current_row_group(_state.get());
+            continue;
+        }
+
+        const int64_t batch_rows = std::min<int64_t>(DEFAULT_PARQUET_READ_BATCH_SIZE,
+                                                     remaining_rows);
+        RETURN_IF_ERROR(read_current_row_group_batch(_state.get(), batch_rows, file_block, rows));
+        if (*rows == 0) {
+            return Status::Corruption("Parquet row group returned zero rows before EOF");
+        }
+        _state->current_row_group_rows_read += static_cast<int64_t>(*rows);
+        if (_state->current_row_group_rows_read >= _state->current_row_group_rows) {
+            reset_current_row_group(_state.get());
+        }
+        *eof = false;
+        return Status::OK();
+    }
 }
 
 Status ParquetReader::close() {
