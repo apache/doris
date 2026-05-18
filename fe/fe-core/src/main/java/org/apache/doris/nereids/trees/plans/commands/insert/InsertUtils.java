@@ -59,7 +59,6 @@ import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
@@ -619,11 +618,13 @@ public class InsertUtils {
 
     private static NamedExpression generateDefaultExpression(Column column) {
         GeneratedColumnInfo generatedColumnInfo = column.getGeneratedColumnInfo();
-        // Using NullLiteral as a placeholder.
-        // If return the expr in generatedColumnInfo, will lead to slot not found error in analyze.
-        // Instead, getting the generated column expr and analyze the expr in BindSink can avoid the error.
+        // Preserve DEFAULT as a marker for generated columns.
+        // Returning the generated expression here would lead to slot binding errors during analyze,
+        // and BindSink is responsible for expanding generated column expressions later.
         if (generatedColumnInfo != null) {
-            return new Alias(new NullLiteral(DataType.fromCatalogType(column.getType())), column.getName());
+            // Preserve DEFAULT for generated columns so BindSink can recognize
+            // that the user did not explicitly assign a value.
+            return new DefaultValueSlot();
         }
         if (column.getDefaultValue() == null) {
             if (!column.isAllowNull() && !column.isAutoInc()) {
