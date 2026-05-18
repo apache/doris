@@ -20,10 +20,12 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
+import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonSyntaxException;
 import com.google.gson.annotations.SerializedName;
 
+import java.util.Map;
 import java.util.Objects;
 
 public class JsonLiteral extends LiteralExpr {
@@ -41,13 +43,48 @@ public class JsonLiteral extends LiteralExpr {
 
     public JsonLiteral(String value) throws AnalysisException {
         try {
-            parser.parse(value);
+            JsonElement element = parser.parse(value);
+            validateNoLoneSurrogate(element);
         } catch (JsonSyntaxException e) {
             throw new AnalysisException("Invalid jsonb literal: " + e.getMessage());
         }
         this.value = value;
         type = Type.JSONB;
         this.nullable = false;
+    }
+
+    // RFC 8259 §8.2: JSON strings must not contain lone UTF-16 surrogates.
+    // Gson accepts them by default, so we validate after parsing.
+    // Both string values AND object field names are checked.
+    private static void validateNoLoneSurrogate(JsonElement element) throws AnalysisException {
+        if (element.isJsonPrimitive() && element.getAsJsonPrimitive().isString()) {
+            validateNoLoneSurrogateInString(element.getAsString());
+        } else if (element.isJsonObject()) {
+            for (Map.Entry<String, JsonElement> entry : element.getAsJsonObject().entrySet()) {
+                validateNoLoneSurrogateInString(entry.getKey());
+                validateNoLoneSurrogate(entry.getValue());
+            }
+        } else if (element.isJsonArray()) {
+            for (JsonElement child : element.getAsJsonArray()) {
+                validateNoLoneSurrogate(child);
+            }
+        }
+    }
+
+    private static void validateNoLoneSurrogateInString(String s) throws AnalysisException {
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (Character.isHighSurrogate(c)) {
+                if (i + 1 >= s.length() || !Character.isLowSurrogate(s.charAt(i + 1))) {
+                    throw new AnalysisException(
+                            "Invalid jsonb literal: JSON string contains lone high surrogate");
+                }
+                i++; // skip the paired low surrogate
+            } else if (Character.isLowSurrogate(c)) {
+                throw new AnalysisException(
+                        "Invalid jsonb literal: JSON string contains lone low surrogate");
+            }
+        }
     }
 
     protected JsonLiteral(JsonLiteral other) {
