@@ -33,6 +33,7 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/function/function_string_concat.h"
+#include "util/defer_op.h"
 
 using namespace doris;
 namespace doris {
@@ -854,6 +855,29 @@ TEST_F(ColumnStringTest, insert_range_from_ignore_overflow) {
     column_string_common_test(assert_column_vector_insert_range_from_ignore_overflow_callback,
                               false);
 }
+
+TEST_F(ColumnStringTest, checked_insert_reports_configured_string_overflow) {
+    auto source = ColumnString::create();
+    source->insert_data("abcde", 5);
+    source->insert_data("fghij", 5);
+
+    auto string_overflow_size = config::string_overflow_size;
+    config::string_overflow_size = 9;
+    Defer defer([string_overflow_size]() { config::string_overflow_size = string_overflow_size; });
+
+    auto checked_target = ColumnString::create();
+    EXPECT_THROW(checked_target->insert_range_from(*source, 0, source->size()), Exception);
+
+    auto accumulator_target = ColumnString::create();
+    EXPECT_NO_THROW(
+            accumulator_target->insert_range_from_ignore_overflow(*source, 0, source->size()));
+    auto converted = accumulator_target->convert_column_if_overflow();
+    ASSERT_TRUE(converted->is_column_string64());
+    ASSERT_EQ(converted->size(), source->size());
+    EXPECT_EQ(converted->get_data_at(0).to_string(), "abcde");
+    EXPECT_EQ(converted->get_data_at(1).to_string(), "fghij");
+}
+
 TEST_F(ColumnStringTest, insert_indices_from) {
     auto test_func = [](auto& target_column, const auto& source_column) {
         // Test case 1: Empty source column
