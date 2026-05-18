@@ -232,7 +232,7 @@ public:
         }
         if (_partition_exprs.empty()) {
             return _needs_finalize
-                           ? DataDistribution(ExchangeType::NOOP)
+                           ? DataDistribution(TLocalPartitionType::NOOP)
                            : StatefulOperatorX<StreamingAggLocalState>::required_data_distribution(
                                      state);
         }

@@ -143,8 +143,8 @@ Status PipelineXSinkLocalState<SharedStateArg>::terminate(RuntimeState* state) {
 
 DataDistribution OperatorBase::required_data_distribution(RuntimeState* /*state*/) const {
     return _child && _child->is_serial_operator() && !is_source()
-                   ? DataDistribution(ExchangeType::PASSTHROUGH)
-                   : DataDistribution(ExchangeType::NOOP);
+                   ? DataDistribution(TLocalPartitionType::PASSTHROUGH)
+                   : DataDistribution(TLocalPartitionType::NOOP);
 }
 
 bool OperatorBase::is_hash_shuffle(ExchangeType exchange_type) {
