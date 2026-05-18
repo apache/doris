@@ -95,8 +95,7 @@ private:
 };
 
 // Helper: build a nullable Float64 column from a list of (value, is_null) pairs.
-static ColumnPtr make_nullable_float64_column(
-        const std::vector<std::pair<double, bool>>& values) {
+static ColumnPtr make_nullable_float64_column(const std::vector<std::pair<double, bool>>& values) {
     auto nested = ColumnFloat64::create();
     auto null_map = ColumnUInt8::create();
     for (auto& [v, is_null] : values) {
@@ -146,7 +145,8 @@ TEST_F(VConditionExprCoalesceTest, Float64_NaN_NotPolluteResult) {
     auto coalesce_expr = VectorizedCoalesceExpr::create_shared(coalesce_node);
 
     // _data_type is already set to Nullable(Float64) by the base ctor; reassert it explicitly.
-    coalesce_expr->_data_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeFloat64>());
+    coalesce_expr->_data_type =
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeFloat64>());
     coalesce_expr->_open_finished = true;
 
     const double kNaN = std::numeric_limits<double>::quiet_NaN();
@@ -155,8 +155,7 @@ TEST_F(VConditionExprCoalesceTest, Float64_NaN_NotPolluteResult) {
 
     auto child0 = std::make_shared<MockChildVExpr>(
             col0, std::make_shared<DataTypeNullable>(std::make_shared<DataTypeFloat64>()));
-    auto child1 =
-            std::make_shared<MockChildVExpr>(col1, std::make_shared<DataTypeFloat64>());
+    auto child1 = std::make_shared<MockChildVExpr>(col1, std::make_shared<DataTypeFloat64>());
     coalesce_expr->add_child(child0);
     coalesce_expr->add_child(child1);
 
@@ -186,7 +185,8 @@ TEST_F(VConditionExprCoalesceTest, Float64_NaN_NotPolluteResult) {
 TEST_F(VConditionExprCoalesceTest, Float64_Inf_NotPolluteResult) {
     auto coalesce_node = make_coalesce_node(TPrimitiveType::DOUBLE, /*is_nullable=*/true);
     auto coalesce_expr = VectorizedCoalesceExpr::create_shared(coalesce_node);
-    coalesce_expr->_data_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeFloat64>());
+    coalesce_expr->_data_type =
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeFloat64>());
     coalesce_expr->_open_finished = true;
 
     const double kInf = std::numeric_limits<double>::infinity();
@@ -225,7 +225,8 @@ TEST_F(VConditionExprCoalesceTest, Float64_Inf_NotPolluteResult) {
 TEST_F(VConditionExprCoalesceTest, Float64_NaN_PreservedWhenSelected) {
     auto coalesce_node = make_coalesce_node(TPrimitiveType::DOUBLE, /*is_nullable=*/true);
     auto coalesce_expr = VectorizedCoalesceExpr::create_shared(coalesce_node);
-    coalesce_expr->_data_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeFloat64>());
+    coalesce_expr->_data_type =
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeFloat64>());
     coalesce_expr->_open_finished = true;
 
     const double kNaN = std::numeric_limits<double>::quiet_NaN();
@@ -292,8 +293,7 @@ TEST_F(VConditionExprCoalesceTest, Float32_NaN_NotPolluteResult) {
     auto get_f32 = [&](size_t row, bool* is_null) -> float {
         if (const auto* nullable = check_and_get_column<ColumnNullable>(result.get())) {
             *is_null = nullable->is_null_at(row);
-            return assert_cast<const ColumnFloat32&>(nullable->get_nested_column())
-                    .get_data()[row];
+            return assert_cast<const ColumnFloat32&>(nullable->get_nested_column()).get_data()[row];
         }
         *is_null = false;
         return assert_cast<const ColumnFloat32*>(result.get())->get_data()[row];
@@ -346,8 +346,7 @@ TEST_F(VConditionExprCoalesceTest, Int32_NormalPathStillWorks) {
     auto get_int = [&](size_t row, bool* is_null) -> int32_t {
         if (const auto* nullable = check_and_get_column<ColumnNullable>(result.get())) {
             *is_null = nullable->is_null_at(row);
-            return assert_cast<const ColumnInt32&>(nullable->get_nested_column())
-                    .get_data()[row];
+            return assert_cast<const ColumnInt32&>(nullable->get_nested_column()).get_data()[row];
         }
         *is_null = false;
         return assert_cast<const ColumnInt32*>(result.get())->get_data()[row];

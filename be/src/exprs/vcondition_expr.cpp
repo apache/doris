@@ -586,12 +586,13 @@ void insert_result_data(MutableColumnPtr& result_column, ColumnPtr& argument_col
         } else if constexpr (std::is_same_v<ColumnType, ColumnFloat32> ||
                              std::is_same_v<ColumnType, ColumnFloat64>) {
             auto flag = (!(null_map_data[row] | filled_flag[row]));
-            result_raw_data[row] += std::isfinite(column_raw_data[row]) ?
-                column_raw_data[row] * flag : (flag ? column_raw_data[row] : 0);
+            result_raw_data[row] += std::isfinite(column_raw_data[row])
+                                            ? column_raw_data[row] * flag
+                                            : (flag ? column_raw_data[row] : 0);
         } else {
             result_raw_data[row] +=
-                     column_raw_data[row] *
-                     typename ColumnType::value_type(!(null_map_data[row] | filled_flag[row]));
+                    column_raw_data[row] *
+                    typename ColumnType::value_type(!(null_map_data[row] | filled_flag[row]));
         }
 
         filled_flag[row] += (!(null_map_data[row] | filled_flag[row]));
