@@ -471,7 +471,6 @@ struct TQueryOptions {
   // session variable `spill_repartition_max_depth` in FE. Default is 8.
   209: optional i32 spill_repartition_max_depth = 8
 
-
   210: optional double max_scan_mem_ratio = 0.3;
   211: optional bool enable_adaptive_scan = false;
 
@@ -493,6 +492,10 @@ struct TQueryOptions {
   219: optional bool enable_segment_limit_pushdown = true
 
   220: optional bool enable_ann_index_result_cache = true
+
+  // enable plan local exchange node in fe
+  221: optional bool enable_local_shuffle_planner;
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
