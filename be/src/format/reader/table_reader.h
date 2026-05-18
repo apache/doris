@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <bvar/status.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -26,6 +28,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "core/block/block.h"
 #include "core/data_type/data_type.h"
 #include "exprs/vexpr_fwd.h"
 #include "format/reader/file_reader.h"
@@ -110,7 +113,8 @@ struct TableScanRequest {
 // Iceberg-only 组件。
 class TableColumnMapper {
 public:
-    explicit TableColumnMapper(TableColumnMapperOptions options = {}) : _options(std::move(options)) {}
+    explicit TableColumnMapper(TableColumnMapperOptions options = {})
+            : _options(std::move(options)) {}
     virtual ~TableColumnMapper() = default;
 
     // 建立 table schema 到 file schema 的列映射。
@@ -184,14 +188,15 @@ public:
     const std::vector<ColumnMapping>& mappings() const { return _mappings; }
 
 private:
-    const SchemaField* find_file_field(
-            const TableColumn& table_column,
-            const std::vector<SchemaField>& file_schema) const {
+    const SchemaField* find_file_field(const TableColumn& table_column,
+                                       const std::vector<SchemaField>& file_schema) const {
         for (const auto& field : file_schema) {
-            if (_options.mode == TableColumnMappingMode::BY_FIELD_ID && field.id == table_column.id) {
+            if (_options.mode == TableColumnMappingMode::BY_FIELD_ID &&
+                field.id == table_column.id) {
                 return &field;
             }
-            if (_options.mode == TableColumnMappingMode::BY_NAME && field.name == table_column.name) {
+            if (_options.mode == TableColumnMappingMode::BY_NAME &&
+                field.name == table_column.name) {
                 return &field;
             }
         }
@@ -216,8 +221,28 @@ private:
     std::vector<ColumnMapping> _mappings;
 };
 
+struct BaseDataFile {
+    virtual ~BaseDataFile() = default;
+
+    std::string path;
+    std::string format;
+    int64_t record_count = 0;
+    int64_t file_size = 0;
+};
+
+struct ScanTask {
+    virtual ~ScanTask() = default;
+
+    std::unique_ptr<BaseDataFile> data_file;
+};
+
 struct TableReadOptions {
     size_t batch_size = 4096;
+    // TODO: deleted? SCHEMA should be derived from table metadata and inited by TableReader it self? it shouldn't be part of read options.
+    std::vector<TableColumn> schema;
+    TableScanRequest scan_request;
+    // Each task denotes a descriptor of a single file to read, along with file-level metadata such as stats and delete files.
+    std::vector<std::unique_ptr<ScanTask>> scan_tasks;
 };
 
 // table-level reader 基类。
@@ -228,9 +253,12 @@ public:
     virtual ~TableReader() = default;
 
     // 初始化 table reader 的通用运行参数。
-    // 子类可以在自己的 init(params) 中调用该方法；这里不接收具体表格式 schema/task。
-    virtual Status init(const TableReadOptions& options) {
-        _options = options;
+    // 子类可以在自己的 init(options) 中调用该方法；这里不接收具体表格式 schema/task。
+    virtual Status init(TableReadOptions options) {
+        _schema = std::move(_options.schema);
+        _table_scan_request = std::move(_options.scan_request);
+        _scan_tasks = std::move(_options.scan_tasks);
+        _next_task_idx = 0;
         return Status::OK();
     }
 
@@ -249,91 +277,102 @@ public:
     // 对外读取 table block 的统一入口。
     // 基类负责 current reader 的打开、EOF 后切换和关闭；子类只实现 protected hook。
     // table_block 的列必须已经是 table/global schema 语义。
-    Status next(Block* table_block, size_t* rows, bool* eof) {
-        if (rows != nullptr) {
-            *rows = 0;
+    Status get_block(Block* block, bool* eos) {
+        if (eos != nullptr) {
+            *eos = false;
         }
-        if (eof != nullptr) {
-            *eof = false;
-        }
-        while (true) {
-            if (!_has_current_reader) {
-                RETURN_IF_ERROR(next_reader());
-                if (!_has_current_reader) {
-                    if (eof != nullptr) {
-                        *eof = true;
-                    }
+        while (block->empty() && !*eos) {
+            if (!_data_reader) {
+                RETURN_IF_ERROR(create_next_reader(eos));
+                if (!_data_reader) {
+                    DCHECK(*eos);
                     return Status::OK();
                 }
             }
 
-            size_t current_rows = 0;
             bool current_eof = false;
-            RETURN_IF_ERROR(read_current(table_block, &current_rows, &current_eof));
-            if (rows != nullptr) {
-                *rows = current_rows;
+            RETURN_IF_ERROR(_data_reader->get_block(block, &current_eof));
+            RETURN_IF_ERROR(finalize_chunk(block));
+            RETURN_IF_ERROR(materialize_virtual_columns(block));
+            if (current_eof) {
+                RETURN_IF_ERROR(close_current_reader());
             }
-            if (!current_eof || current_rows > 0) {
-                return Status::OK();
-            }
-            RETURN_IF_ERROR(close_current_reader());
-            _has_current_reader = false;
         }
+        return Status::OK();
     }
 
     // 关闭 table reader 及当前正在读取的底层 reader。
     // 子类如果持有额外表格式资源，应 override 后先调用 TableReader::close()。
     virtual Status close() {
-        RETURN_IF_ERROR(close_current_reader());
-        _has_current_reader = false;
+        if (_data_reader) {
+            RETURN_IF_ERROR(close_current_reader());
+        }
         return Status::OK();
     }
 
 protected:
     // 切换到下一个 reader 的通用流程。
-    // 该方法先关闭当前 reader，再调用 open_next_reader；子类不应重复实现这个循环。
-    Status next_reader() {
+    // 该方法先关闭当前 reader，再打开下一个具体 reader；子类不应重复实现这个循环。
+    Status create_next_reader(bool* eos) {
         // 多文件切换的公共流程留在基类：关闭当前 reader，然后打开下一个 reader。
-        // 子类只通过 open_next_reader 提供具体表格式的 task/split 打开方式。
-        RETURN_IF_ERROR(close_current_reader());
-        bool has_reader = false;
-        RETURN_IF_ERROR(open_next_reader(&has_reader));
-        _has_current_reader = has_reader;
+        DCHECK(_data_reader == nullptr);
+        // TODO: 创建_data_reader
+        // _data_reader = std::make_unique<FileReader>(...);
+        if (!_data_reader) {
+            if (eos != nullptr) {
+                *eos = true;
+            }
+            return Status::OK();
+        }
+        RETURN_IF_ERROR(open_reader());
         return Status::OK();
     }
 
-    // 打开下一个具体 reader。
-    // 子类在这里选择下一个 split/task，创建或重置底层 FileReader，并设置 has_reader。
-    // has_reader=false 表示没有更多输入，TableReader::next 会返回 eof=true。
-    virtual Status open_next_reader(bool* has_reader) {
-        // stub 默认没有下一个 reader。
-        if (has_reader != nullptr) {
-            *has_reader = false;
-        }
-        return Status::OK();
-    }
+    // 打开当前具体 reader。
+    // 子类在这里基于当前 split/task 初始化底层 FileReader。
+    virtual Status open_reader() {
+        std::vector<SchemaField> file_schema;
+        RETURN_IF_ERROR(_data_reader->get_schema(&file_schema));
+        TableColumnMapperOptions mapper_options;
+        mapper_options.mode = TableColumnMappingMode::BY_FIELD_ID;
+        _column_mapper = TableColumnMapper(mapper_options);
+        RETURN_IF_ERROR(_column_mapper.create_mapping(_schema, file_schema, &_mappings));
 
-    // 从当前 reader 读取一批 table block。
-    // 子类应在这里读取 file-local block，并完成 delete、virtual column、finalize_expr
-    // 等 table-level 处理，最终写入 table_block。
-    virtual Status read_current(Block* table_block, size_t* rows, bool* eof) {
-        // stub 默认当前 reader 立即 EOF。
-        (void)table_block;
-        if (rows != nullptr) {
-            *rows = 0;
-        }
-        if (eof != nullptr) {
-            *eof = true;
-        }
+        FileScanRequest file_request;
+        RETURN_IF_ERROR(
+                _column_mapper.create_scan_request(_table_scan_request, _mappings, &file_request));
+        RETURN_IF_ERROR(_data_reader->init(file_request));
         return Status::OK();
     }
 
     // 关闭当前具体 reader。
-    // 该 hook 会被 next_reader 和 close 调用；实现应保持幂等。
-    virtual Status close_current_reader() { return Status::OK(); }
+    // 该 hook 会被 create_next_reader 和 close 调用；实现应保持幂等。
+    virtual Status close_current_reader() {
+        RETURN_IF_ERROR(_data_reader->close());
+        _data_reader.reset();
+        return Status::OK();
+    }
+
+    // 将 file-local block 转换为 table/global schema block。
+    // 这里执行 ColumnMapping 中的 finalize_expr、缺失列填充、partition/generated 列
+    // 物化以及复杂列 remap。
+    virtual Status finalize_chunk(Block* block) { return Status::OK(); }
+
+    // 物化虚拟列。
+    // 例如 _row_id、_last_updated_sequence_number 等，它们不来自文件物理列。
+    virtual Status materialize_virtual_columns(Block* table_block) {
+        // 真实实现会物化 _row_id、_last_updated_sequence_number 等 Iceberg 虚拟列。
+        return Status::OK();
+    }
 
     TableReadOptions _options;
-    bool _has_current_reader = false;
+    std::unique_ptr<FileReader> _data_reader;
+    std::vector<std::unique_ptr<ScanTask>> _scan_tasks;
+    TableScanRequest _table_scan_request;
+    std::vector<TableColumn> _schema;
+    std::vector<ColumnMapping> _mappings;
+    TableColumnMapper _column_mapper;
+    size_t _next_task_idx = 0;
 };
 
 } // namespace doris::reader

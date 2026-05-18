@@ -122,12 +122,8 @@ public:
     // 读取下一批 file-local block。
     // file_block 的列顺序和类型必须遵守 FileScanRequest，而不是 table/global schema。
     // eof 表示当前文件 reader 是否读完；多文件切换由 TableReader 负责。
-    virtual Status next(Block* file_block, size_t* rows, bool* eof) {
+    virtual Status get_block(Block* file_block, bool* eof) {
         // stub 默认立即 EOF。
-        (void)file_block;
-        if (rows != nullptr) {
-            *rows = 0;
-        }
         if (eof != nullptr) {
             *eof = true;
         }
