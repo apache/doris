@@ -998,6 +998,48 @@ TEST(BlockTest, clear_blocks) {
     }
 }
 
+TEST(BlockTest, merge_returns_error_when_checked_string_append_exceeds_limit) {
+    auto input_block = create_string_block({"abcde", "fghij"});
+    auto output_block = create_string_block({});
+
+    auto string_overflow_size = config::string_overflow_size;
+    config::string_overflow_size = 9;
+    Defer defer([string_overflow_size]() { config::string_overflow_size = string_overflow_size; });
+
+    auto status = [&]() {
+        ScopedMutableBlock scoped_mutable_block(&output_block);
+        return scoped_mutable_block.mutable_block().merge(input_block);
+    }();
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("string column length is too large"), std::string::npos)
+            << status.to_string();
+
+    ASSERT_EQ(output_block.rows(), 0);
+    ASSERT_FALSE(output_block.get_by_position(0).column->is_column_string64());
+}
+
+TEST(BlockTest, merge_ignore_overflow_keeps_owned_accumulation_convertible) {
+    auto input_block = create_string_block({"abcde", "fghij"});
+    auto output_block = create_string_block({});
+
+    auto string_overflow_size = config::string_overflow_size;
+    config::string_overflow_size = 9;
+    Defer defer([string_overflow_size]() { config::string_overflow_size = string_overflow_size; });
+
+    ColumnPtr converted_column;
+    {
+        ScopedMutableBlock scoped_mutable_block(&output_block);
+        auto& mutable_block = scoped_mutable_block.mutable_block();
+        auto status = mutable_block.merge_ignore_overflow(input_block);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        converted_column = mutable_block.get_column_by_position(0)->convert_column_if_overflow();
+    }
+    ASSERT_TRUE(converted_column->is_column_string64());
+    ASSERT_EQ(converted_column->size(), 2);
+    EXPECT_EQ(converted_column->get_data_at(0).to_string(), "abcde");
+    EXPECT_EQ(converted_column->get_data_at(1).to_string(), "fghij");
+}
+
 TEST(BlockTest, replace_by_position) {
     auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
     block.insert(0, ColumnHelper::create_column_with_name<DataTypeString>({"a", "b", "c"}));
