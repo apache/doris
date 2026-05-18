@@ -309,4 +309,19 @@ suite("set_preagg") {
         contains "(preagg_t2), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
         contains "(preagg_t3), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
     }
+
+    explain {
+        sql("""
+            select cw.k1, cw.k2, cw.v7, cw.v9
+            from preagg_t1 cw
+            inner join (
+                select k1, k2, max(v9) as v9
+                from preagg_t1
+                where k1 in (1, 2)
+                group by k1, k2
+            ) mw on cw.k1 = mw.k1 and cw.v9 = mw.v9;
+        """)
+        contains "(preagg_t1), PREAGGREGATION: OFF. Reason: No valid aggregate on scan."
+        contains "(preagg_t1), PREAGGREGATION: ON"
+    }
 }
