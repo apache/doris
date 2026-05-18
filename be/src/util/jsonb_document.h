@@ -251,6 +251,31 @@ constexpr char ESCAPE = '\\';
 constexpr unsigned int MEMBER_CODE = 0;
 constexpr unsigned int ARRAY_CODE = 1;
 
+inline bool parse_json_path_array_index(std::string_view idx_string, int& index) {
+    idx_string = trim(idx_string);
+    if (idx_string.empty()) {
+        return false;
+    }
+
+    auto result = std::from_chars(idx_string.data(), idx_string.data() + idx_string.size(), index);
+    return result.ec == std::errc() && result.ptr == idx_string.data() + idx_string.size();
+}
+
+inline bool parse_json_path_last_offset(std::string_view idx_string, int& index) {
+    idx_string = trim(idx_string);
+    if (idx_string.empty()) {
+        return false;
+    }
+
+    for (char c : idx_string) {
+        if (!std::isdigit(static_cast<unsigned char>(c))) {
+            return false;
+        }
+    }
+
+    return parse_json_path_array_index(idx_string, index);
+}
+
 /// A simple input stream class for the JSON path parser.
 class Stream {
 public:
@@ -316,8 +341,8 @@ public:
     unsigned int get_leg_len() const { return leg_len; }
 
     void remove_escapes() {
-        int new_len = 0;
-        for (int i = 0; i < leg_len; i++) {
+        unsigned int new_len = 0;
+        for (unsigned int i = 0; i < leg_len; i++) {
             if (leg_ptr[i] != '\\') {
                 leg_ptr[new_len++] = leg_ptr[i];
             }
@@ -341,7 +366,7 @@ private:
     char* leg_ptr = nullptr;
 
     ///path leg len
-    unsigned int leg_len;
+    unsigned int leg_len = 0;
 
     ///Whether to contain escape characters
     bool has_escapes = false;
@@ -1284,7 +1309,7 @@ inline bool JsonbPath::parsePath(Stream* stream, JsonbPath* path) {
     if (stream->peek() == BEGIN_ARRAY) {
         return parse_array(stream, path);
     }
-    // $.a or $.[0]
+    // $.a
     else if (stream->peek() == BEGIN_MEMBER) {
         // advance past the .
         stream->skip(1);
@@ -1293,9 +1318,8 @@ inline bool JsonbPath::parsePath(Stream* stream, JsonbPath* path) {
             return false;
         }
 
-        // $.[0]
         if (stream->peek() == BEGIN_ARRAY) {
-            return parse_array(stream, path);
+            return false;
         }
         // $.a
         else {
@@ -1327,9 +1351,8 @@ inline bool JsonbPath::parsePath(Stream* stream, JsonbPath* path) {
                 return false;
             }
 
-            // $.[0]
             if (stream->peek() == BEGIN_ARRAY) {
-                return parse_array(stream, path);
+                return false;
             }
             // $.a
             else {
@@ -1388,34 +1411,30 @@ inline bool JsonbPath::parse_array(Stream* stream, JsonbPath* path) {
     //parse array index to int
 
     std::string_view idx_string(stream->get_leg_ptr(), stream->get_leg_len());
+    idx_string = trim(idx_string);
     int index = 0;
 
-    if (stream->get_leg_len() >= 4 &&
-        std::equal(LAST, LAST + 4, stream->get_leg_ptr(),
-                   [](char c1, char c2) { return std::tolower(c1) == std::tolower(c2); })) {
+    if (idx_string.size() >= 4 && std::equal(LAST, LAST + 4, idx_string.data())) {
         auto pos = idx_string.find(MINUS);
 
         if (pos != std::string::npos) {
             for (size_t i = 4; i < pos; ++i) {
-                if (std::isspace(idx_string[i])) {
+                if (std::isspace(static_cast<unsigned char>(idx_string[i]))) {
                     continue;
                 } else {
-                    // leading zeroes are not allowed
+                    // Only spaces are allowed between last and minus.
                     LOG(WARNING) << "Non-space char in idx_string: '" << idx_string << "'";
                     return false;
                 }
             }
             idx_string = idx_string.substr(pos + 1);
-            idx_string = trim(idx_string);
 
-            auto result = std::from_chars(idx_string.data(), idx_string.data() + idx_string.size(),
-                                          index);
-            if (result.ec != std::errc()) {
+            if (!parse_json_path_last_offset(idx_string, index)) {
                 LOG(WARNING) << "Invalid index in JSON path: '" << idx_string << "'";
                 return false;
             }
 
-        } else if (stream->get_leg_len() > 4) {
+        } else if (idx_string.size() > 4) {
             return false;
         }
 
@@ -1425,9 +1444,7 @@ inline bool JsonbPath::parse_array(Stream* stream, JsonbPath* path) {
         return true;
     }
 
-    auto result = std::from_chars(idx_string.data(), idx_string.data() + idx_string.size(), index);
-
-    if (result.ec != std::errc()) {
+    if (!parse_json_path_array_index(idx_string, index)) {
         return false;
     }
 
