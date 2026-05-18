@@ -226,4 +226,128 @@ suite("test_date_trunc_whole_month_rewrite") {
         sql("${query7}")
         contains("mv_month_v2 fail")
     }
+
+    // Test 8: DATETIME type should NOT use whole-bucket rewrite
+    // Reason: dt <= '2025-01-31 00:00:00' does not cover the full day of Jan 31
+    sql """
+    drop table if exists tb_detail_datetime
+    """
+
+    sql """
+    CREATE TABLE tb_detail_datetime (
+        dt DATETIME NOT NULL,
+        uuid VARCHAR(50) NOT NULL,
+        amt DECIMAL(10, 2) NOT NULL
+    ) DUPLICATE KEY(dt, uuid)
+    AUTO PARTITION BY RANGE (date_trunc(dt, 'day')) ()
+    DISTRIBUTED BY HASH(uuid) BUCKETS 3
+    PROPERTIES ("replication_num" = "1")
+    """
+
+    sql """
+    insert into tb_detail_datetime values
+    ('2025-01-01 00:00:00', 'uuid1', 100.00),
+    ('2025-01-15 12:30:00', 'uuid2', 200.00),
+    ('2025-01-31 23:59:59', 'uuid3', 300.00),
+    ('2025-02-01 00:00:00', 'uuid4', 400.00)
+    """
+
+    sql """analyze table tb_detail_datetime with sync"""
+
+    sql """
+    drop materialized view if exists mv_month_datetime
+    """
+
+    sql """
+    CREATE MATERIALIZED VIEW mv_month_datetime
+    BUILD IMMEDIATE
+    REFRESH ON MANUAL
+    PARTITION BY (month_dt)
+    DISTRIBUTED BY RANDOM BUCKETS AUTO
+    PROPERTIES ('replication_num' = '1')
+    AS SELECT
+        date_trunc(dt, 'month') AS month_dt,
+        SUM(amt) AS gmv,
+        COUNT(DISTINCT uuid) AS uv
+    FROM tb_detail_datetime
+    GROUP BY month_dt
+    """
+
+    waitingMTMVTaskFinished(getJobName(db, "mv_month_datetime"))
+
+    sql """analyze table mv_month_datetime with sync"""
+
+    // This query looks like a whole month but is NOT because of DATETIME semantics
+    // dt <= '2025-01-31 00:00:00' excludes most of Jan 31
+    def query8 = """
+    SELECT SUM(amt) AS gmv
+    FROM tb_detail_datetime
+    WHERE dt >= '2025-01-01 00:00:00' AND dt <= '2025-01-31 00:00:00'
+    """
+
+    // Should NOT use MV because DATETIME boundary semantics differ from DATE
+    explain {
+        sql("${query8}")
+        contains("mv_month_datetime fail")
+    }
+
+    // Test 9: DATETIMEV2 type should also NOT use whole-bucket rewrite
+    sql """
+    drop table if exists tb_detail_datetimev2
+    """
+
+    sql """
+    CREATE TABLE tb_detail_datetimev2 (
+        dt DATETIMEV2 NOT NULL,
+        uuid VARCHAR(50) NOT NULL,
+        amt DECIMAL(10, 2) NOT NULL
+    ) DUPLICATE KEY(dt, uuid)
+    AUTO PARTITION BY RANGE (date_trunc(dt, 'day')) ()
+    DISTRIBUTED BY HASH(uuid) BUCKETS 3
+    PROPERTIES ("replication_num" = "1")
+    """
+
+    sql """
+    insert into tb_detail_datetimev2 values
+    ('2025-01-01 00:00:00', 'uuid1', 100.00),
+    ('2025-01-15 12:30:00', 'uuid2', 200.00),
+    ('2025-01-31 23:59:59', 'uuid3', 300.00)
+    """
+
+    sql """analyze table tb_detail_datetimev2 with sync"""
+
+    sql """
+    drop materialized view if exists mv_month_datetimev2
+    """
+
+    sql """
+    CREATE MATERIALIZED VIEW mv_month_datetimev2
+    BUILD IMMEDIATE
+    REFRESH ON MANUAL
+    PARTITION BY (month_dt)
+    DISTRIBUTED BY RANDOM BUCKETS AUTO
+    PROPERTIES ('replication_num' = '1')
+    AS SELECT
+        date_trunc(dt, 'month') AS month_dt,
+        SUM(amt) AS gmv,
+        COUNT(DISTINCT uuid) AS uv
+    FROM tb_detail_datetimev2
+    GROUP BY month_dt
+    """
+
+    waitingMTMVTaskFinished(getJobName(db, "mv_month_datetimev2"))
+
+    sql """analyze table mv_month_datetimev2 with sync"""
+
+    def query9 = """
+    SELECT SUM(amt) AS gmv
+    FROM tb_detail_datetimev2
+    WHERE dt >= '2025-01-01 00:00:00' AND dt <= '2025-01-31 00:00:00'
+    """
+
+    // Should NOT use MV
+    explain {
+        sql("${query9}")
+        contains("mv_month_datetimev2 fail")
+    }
 }

@@ -313,6 +313,15 @@ public class Predicates {
                 continue;
             }
             SlotReference slot = (SlotReference) entry.getKey();
+
+            // Only apply to DATE/DATEV2 types, not DATETIME/DATETIMEV2
+            // Reason: Boundary conversion (dt > '2024-12-31' → dt >= '2025-01-01') is only
+            // valid for DATE types. For DATETIME, dt <= '2025-01-31 00:00:00' does not cover
+            // the full day of Jan 31, so whole-bucket detection would be semantically incorrect.
+            if (!slot.getDataType().isDateType() && !slot.getDataType().isDateV2Type()) {
+                continue;
+            }
+
             DateTrunc viewDateTrunc = querySlotToViewDateTrunc.get(slot);
             if (viewDateTrunc == null) {
                 continue;
@@ -331,19 +340,20 @@ public class Predicates {
                     continue;
                 }
                 ComparisonPredicate cp = (ComparisonPredicate) pred;
-                if (!(cp.right() instanceof DateLiteral) || cp.right() instanceof DateTimeLiteral) {
+                // Exclude DateTimeLiteral (which extends DateLiteral) because DATETIME semantics differ
+                if (cp.right() instanceof DateTimeLiteral || !(cp.right() instanceof DateLiteral)) {
                     continue;
                 }
                 DateLiteral literal = (DateLiteral) cp.right();
                 if (cp instanceof GreaterThanEqual) {
                     lowerBound = literal;
                 } else if (cp instanceof GreaterThan) {
-                    // dt > '2024-12-31' is equivalent to dt >= '2025-01-01' for DATE type
+                    // dt > '2024-12-31' is equivalent to dt >= '2025-01-01' for DATE type only
                     lowerBound = (DateLiteral) literal.plusDays(1);
                 } else if (cp instanceof LessThanEqual) {
                     upperBound = literal;
                 } else if (cp instanceof LessThan) {
-                    // dt < '2025-02-01' is equivalent to dt <= '2025-01-31' for DATE type
+                    // dt < '2025-02-01' is equivalent to dt <= '2025-01-31' for DATE type only
                     upperBound = (DateLiteral) literal.plusDays(-1);
                 }
             }

@@ -203,4 +203,26 @@ class DateTruncRangeDetectorTest {
         DateTimeLiteral dtLiteral = new DateTimeLiteral(2025, 1, 1, 0, 0, 0);
         Assertions.assertTrue(dtLiteral instanceof DateLiteral);
     }
+
+    @Test
+    void testDetectWholeBucket_DateTimeLiteral_ShouldNotDetect() {
+        // Even though the date components match a whole month, DateTimeLiteral should not
+        // be treated as a whole bucket because the time component matters
+        DateTimeLiteral lower = new DateTimeLiteral(2025, 1, 1, 0, 0, 0);
+        DateTimeLiteral upper = new DateTimeLiteral(2025, 1, 31, 0, 0, 0);
+
+        // The detector itself would match based on date components, but the caller
+        // (Predicates.detectAndSynthesizeWholeBucketPredicates) must filter out
+        // DateTimeLiteral before calling this method
+        Optional<DateTruncRangeDetector.BucketInfo> result =
+                DateTruncRangeDetector.detectWholeBucket(lower, upper);
+
+        // This would technically detect a match, which is why the caller MUST
+        // check slot type (DATE/DATEV2 only) and literal type (exclude DateTimeLiteral)
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals("month", result.get().unit);
+
+        // But semantically, dt <= '2025-01-31 00:00:00' excludes most of Jan 31,
+        // so this should never be used for DATETIME types
+    }
 }
