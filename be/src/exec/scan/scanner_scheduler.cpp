@@ -75,12 +75,10 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
     TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
     auto sumbit_task = [&]() {
         auto work_func = [scanner_ref = scan_task, ctx]() {
-            Status status = Status::OK();
-            try {
-                _scanner_scan(ctx, scanner_ref);
-            } catch (const Exception& e) {
-                status = e.to_status();
-            }
+            auto status = [&] {
+                RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
+                return Status::OK();
+            }();
 
             if (!status.ok()) {
                 scanner_ref->set_status(status);
