@@ -21,6 +21,10 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -29,6 +33,7 @@ import org.apache.doris.thrift.TRecCTENode;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class RecursiveCteNode extends PlanNode {
@@ -85,5 +90,24 @@ public class RecursiveCteNode extends PlanNode {
                 .add("id", getId().asInt())
                 .add("tid", tupleIds.get(0).asInt())
                 .add("isUnionAll", isUnionAll).toString();
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
+            PlanTranslatorContext translatorContext, PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+        ArrayList<PlanNode> newChildren = Lists.newArrayList();
+        for (int i = 0; i < children.size(); i++) {
+            PlanNode child = children.get(i);
+            Pair<PlanNode, LocalExchangeType> childOutput = enforceRequire(
+                    translatorContext, child, i, LocalExchangeTypeRequire.noRequire());
+            newChildren.add(childOutput.first);
+        }
+        this.children = newChildren;
+        return Pair.of(this, LocalExchangeType.NOOP);
+    }
+
+    @Override
+    protected boolean shouldResetSerialFlagForChild(int childIndex) {
+        return true;
     }
 }

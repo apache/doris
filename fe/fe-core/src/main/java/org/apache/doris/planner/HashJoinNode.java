@@ -28,7 +28,11 @@ import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.thrift.TEqJoinCondition;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.THashJoinNode;
@@ -122,6 +126,19 @@ public class HashJoinNode extends JoinNodeBase {
     public void setColocate(boolean colocate, String reason) {
         isColocate = colocate;
         colocateReason = reason;
+    }
+
+    public boolean isColocate() {
+        return isColocate;
+    }
+
+    @Override
+    public boolean requiresShuffleForCorrectness() {
+        // BE: HashJoinBuild/Probe.is_shuffled_operator() = PARTITIONED || BUCKET_SHUFFLE || COLOCATE.
+        // (BROADCAST and NONE are not shuffled — they don't depend on hash distribution.)
+        return distrMode == DistributionMode.PARTITIONED
+                || distrMode == DistributionMode.BUCKET_SHUFFLE
+                || isColocate;
     }
 
     public Map<ExprId, SlotId> getHashOutputExprSlotIdMap() {
@@ -284,5 +301,72 @@ public class HashJoinNode extends JoinNodeBase {
 
     public List<Expr> getMarkJoinConjuncts() {
         return markJoinConjuncts;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
+            PlanTranslatorContext translatorContext, PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+
+        LocalExchangeTypeRequire probeSideRequire;
+        LocalExchangeTypeRequire buildSideRequire;
+        LocalExchangeType outputType = null;
+
+        if (joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN) {
+            buildSideRequire = probeSideRequire = LocalExchangeTypeRequire.noRequire();
+            outputType = LocalExchangeType.NOOP;
+        } else if (distrMode == DistributionMode.BROADCAST) {
+            // BE: _child->is_serial_operator() ? PASSTHROUGH/PASS_TO_ONE : NOOP
+            boolean probeChildSerial = children.get(0).isSerialOperatorOnBe(
+                    translatorContext.getConnectContext());
+            boolean buildChildSerial = children.get(1).isSerialOperatorOnBe(
+                    translatorContext.getConnectContext());
+            probeSideRequire = probeChildSerial
+                    ? LocalExchangeTypeRequire.requirePassthrough()
+                    : LocalExchangeTypeRequire.noRequire();
+            buildSideRequire = buildChildSerial
+                    ? LocalExchangeTypeRequire.requirePassToOne()
+                    : LocalExchangeTypeRequire.noRequire();
+            // For serial probe: output is PASSTHROUGH (data from single instance).
+            // For non-serial probe: propagate probe side's actual distribution.
+            outputType = probeChildSerial ? LocalExchangeType.PASSTHROUGH : null;
+        } else if (isColocate() || isBucketShuffle()) {
+            probeSideRequire = LocalExchangeTypeRequire.requireBucketHash();
+            // For BUCKET_SHUFFLE with serial build child: use requireBucketHash() (not
+            // requirePassToOne()). Unlike BROADCAST joins, BUCKET_SHUFFLE has no shared
+            // hash table mechanism — PASS_TO_ONE routes all data to task 0 while tasks 1..N-1
+            // build empty hash tables, losing rows. BUCKET_HASH_SHUFFLE correctly distributes
+            // build data by bucket to match the probe side's bucket distribution.
+            // The serial exchange returns NOOP, so enforceRequire() will insert a
+            // BUCKET_HASH_SHUFFLE local exchange (with PASSTHROUGH fan-out for heavy-ops
+            // bottleneck avoidance).
+            buildSideRequire = LocalExchangeTypeRequire.requireBucketHash();
+            outputType = AddLocalExchange.resolveExchangeType(
+                    LocalExchangeTypeRequire.requireBucketHash(), translatorContext, this,
+                    children.get(0));
+        } else {
+            // Use requireHash() (not requireGlobalExecutionHash()) so that resolveExchangeType()
+            // can downgrade to LOCAL_EXECUTION_HASH_SHUFFLE via shouldUseLocalExecutionHash().
+            // This matches BE-native behavior where use_serial_exchange=true sets _use_serial_source=true,
+            // causing _add_local_exchange_impl to use LOCAL (not GLOBAL) hash shuffle.
+            // With use_serial_exchange=false, the upstream ExchangeNode already outputs
+            // GLOBAL_EXECUTION_HASH_SHUFFLE which satisfies requireHash() — no new exchange inserted.
+            buildSideRequire = probeSideRequire = LocalExchangeTypeRequire.requireHash();
+            outputType = null; // derived from probeResult.second below
+        }
+
+        Pair<PlanNode, LocalExchangeType> probeResult = enforceRequire(
+                translatorContext, children.get(0), 0, probeSideRequire);
+        Pair<PlanNode, LocalExchangeType> buildResult = enforceRequire(
+                translatorContext, children.get(1), 1, buildSideRequire);
+        this.children = Lists.newArrayList(probeResult.first, buildResult.first);
+        if (outputType == null) {
+            outputType = probeResult.second;
+        }
+        return Pair.of(this, outputType);
+    }
+
+    @Override
+    protected boolean shouldResetSerialFlagForChild(int childIndex) {
+        return childIndex == 1;
     }
 }
