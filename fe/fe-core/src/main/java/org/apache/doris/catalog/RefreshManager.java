@@ -27,11 +27,17 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.parser.SqlDialectHelper;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.qe.BDPAuthContext;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -42,6 +48,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
@@ -251,6 +258,28 @@ public class RefreshManager {
             table.setUpdateTime(updateTime);
         }
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(table);
+        if (table instanceof HMSExternalTable && table.isView()) {
+            String convertedSql = ConnectContext.get() == null
+                    ? ((HMSExternalTable) table).getViewText()
+                    : SqlDialectHelper.convertSqlByDialect(((HMSExternalTable) table).getViewText(),
+                    ConnectContext.get().getSessionVariable());
+            LogicalPlan logicalPlan = new NereidsParser().parseForCreateView(convertedSql);
+            Set<UnboundRelation> relations = logicalPlan.collect(UnboundRelation.class::isInstance);
+            for (UnboundRelation relation : relations) {
+                String[] parts = relation.getTableName().split("\\.");
+                String dbName = parts[0];
+                String tableName = parts[1];
+                HMSExternalDatabase dbRelation = (HMSExternalDatabase) db.getCatalog().getDbNullable(dbName);
+                if (dbRelation == null) {
+                    continue;
+                }
+                ExternalTable tableRelation = db.getTableNullable(tableName);
+                if (tableRelation == null) {
+                    continue;
+                }
+                refreshTableInternal(dbRelation, tableRelation, 0);
+            }
+        }
         LOG.info("refresh table {}, id {} from db {} in catalog {}, update time: {}",
                 table.getName(), table.getId(), db.getFullName(), db.getCatalog().getName(), updateTime);
     }
