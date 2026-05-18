@@ -35,49 +35,24 @@ class Block;
 namespace doris::iceberg {
 
 // Iceberg data file 摘要。它描述当前要读取的物理 data file，不承载列映射逻辑。
-struct IcebergDataFile {
-    std::string path;
-    std::string format;
-    int64_t record_count = 0;
-    int64_t file_size = 0;
+struct IcebergDataFile final : public reader::BaseDataFile {
     int64_t sequence_number = 0;
     int64_t first_row_id = -1;
 };
 
 // Iceberg delete file 摘要。position/equality/deletion vector 的具体读取在
 // IcebergTableReader 实现阶段补齐。
-struct IcebergDeleteFile {
-    std::string path;
-    std::string format;
+struct IcebergDeleteFile final : public reader::BaseDataFile {
     int64_t sequence_number = 0;
     std::vector<reader::ColumnId> equality_field_ids;
 };
 
 // 单个 Iceberg data file 的 scan 输入。
 // 该结构只进入 IcebergTableReader，不直接传给 ParquetReader。
-struct IcebergScanTask {
-    IcebergDataFile data_file;
+struct IcebergScanTask final : public reader::ScanTask {
     std::vector<IcebergDeleteFile> positional_deletes;
     std::vector<IcebergDeleteFile> equality_deletes;
     std::vector<IcebergDeleteFile> deletion_vectors;
-};
-
-struct IcebergReadOptions {
-    reader::TableReadOptions table_options;
-    bool enable_position_delete = true;
-    bool enable_equality_delete = true;
-    bool enable_deletion_vector = true;
-};
-
-// IcebergTableReader 的完整初始化输入。
-// 这些字段共同决定一次 table scan 的语义，除非后续有明确的生命周期差异，否则不拆成
-// bind/init/set_tasks 多个阶段，避免调用点暴露半初始化状态。
-struct IcebergTableReadParams {
-    IcebergReadOptions options;
-    std::vector<reader::TableColumn> iceberg_schema;
-    reader::TableScanRequest scan_request;
-    std::vector<IcebergScanTask> scan_tasks;
-    std::unique_ptr<reader::FileReader> data_reader;
 };
 
 // Iceberg table-level reader。
@@ -90,18 +65,12 @@ public:
     ~IcebergTableReader() override = default;
 
     // 初始化一次 Iceberg table scan。
-    // params 必须一次性提供 schema、projection/filter、scan tasks 和底层 FileReader；
-    // 这样 IcebergTableReader 不会暴露 bind/set_tasks 等半初始化阶段。
-    Status init(IcebergTableReadParams params) {
+    // options 必须一次性提供 schema、projection/filter 和 scan tasks，避免暴露
+    // bind/set_tasks 等半初始化阶段。
+    Status init(reader::TableReadOptions options) override {
         // 一次性保存 Iceberg table scan 所需输入。TableReader 负责 reader 切换流程；
         // IcebergTableReader 只提供后续要打开的 task 以及 table/file schema 映射语义。
-        _iceberg_options = params.options;
-        _iceberg_schema = std::move(params.iceberg_schema);
-        _table_scan_request = std::move(params.scan_request);
-        _scan_tasks = std::move(params.scan_tasks);
-        _data_reader = std::move(params.data_reader);
-        _next_task_idx = 0;
-        return reader::TableReader::init(_iceberg_options.table_options);
+        return reader::TableReader::init(std::move(options));
     }
 
     // 关闭当前 Iceberg scan。
@@ -114,75 +83,20 @@ public:
     }
 
 protected:
-    // 打开单个 Iceberg scan task。
-    // 该方法完成当前 data file 的 schema mapping、filter localization、position delete
-    // 注入，并初始化底层 FileReader；它由 TableReader 的 reader 切换流程调用。
-    Status open_task(const IcebergScanTask& task) {
-        // 真实实现会读取 data file schema，创建 field-id mapping，应用 position deletes，
-        // 并初始化底层 ParquetReader。
-        _scan_task = task;
-        std::vector<reader::SchemaField> file_schema;
-        if (_data_reader) {
-            RETURN_IF_ERROR(_data_reader->get_schema(&file_schema));
-        }
-        reader::TableColumnMapperOptions mapper_options;
-        mapper_options.mode = reader::TableColumnMappingMode::BY_FIELD_ID;
-        _column_mapper = reader::TableColumnMapper(mapper_options);
-        RETURN_IF_ERROR(_column_mapper.create_mapping(_iceberg_schema, file_schema, &_mappings));
-
-        reader::FileScanRequest file_request;
-        RETURN_IF_ERROR(_column_mapper.create_scan_request(_table_scan_request, _mappings,
-                                                           &file_request));
-        RETURN_IF_ERROR(apply_position_deletes(&file_request));
-        if (_data_reader) {
-            RETURN_IF_ERROR(_data_reader->init(file_request));
-        }
-        return Status::OK();
-    }
-
-    // 打开下一个 Iceberg task。
-    // TableReader 负责循环和 EOF 处理；这里仅从 _scan_tasks 中取下一个 task 并调用
-    // open_task。
-    Status open_next_reader(bool* has_reader) override {
-        if (_next_task_idx >= _scan_tasks.size()) {
-            if (has_reader != nullptr) {
-                *has_reader = false;
-            }
-            return Status::OK();
-        }
-        RETURN_IF_ERROR(open_task(_scan_tasks[_next_task_idx++]));
-        if (has_reader != nullptr) {
-            *has_reader = true;
-        }
-        return Status::OK();
-    }
-
-    // 读取当前 Iceberg task 的下一批 table block。
-    // 这里组合底层 FileReader 输出的 file-local block，并负责 equality delete、
-    // virtual columns 和 finalize，最终输出 table/global schema block。
-    Status read_current(Block* table_block, size_t* rows, bool* eof) override {
-        // 真实实现会读取 file-local block，finalize 成 table block，再应用 equality delete
-        // 和 Iceberg virtual columns。stub 默认 EOF。
-        // 后续实现应在 IcebergTableReader 内部持有 file-local block；这里仅复用输出指针
-        // 作为 header-only API 占位，避免在骨架阶段引入 Block 的完整定义。
-        Block* file_block = table_block;
-        if (_data_reader) {
-            RETURN_IF_ERROR(_data_reader->next(file_block, rows, eof));
-        }
-        RETURN_IF_ERROR(finalize_chunk(file_block, table_block));
-        RETURN_IF_ERROR(apply_equality_deletes(table_block));
-        RETURN_IF_ERROR(materialize_virtual_columns(table_block, rows != nullptr ? *rows : 0));
-        return Status::OK();
-    }
-
     // 将 file-local block 转换为 table/global schema block。
     // 这里执行 ColumnMapping 中的 finalize_expr、缺失列填充、partition/generated 列
     // 物化以及复杂列 remap。
-    Status finalize_chunk(Block* file_block, Block* table_block) {
+    Status finalize_chunk(Block* block) override {
         // 真实实现会根据 ColumnMapping 执行 finalize_expr/default/partition/generated
         // expressions，把 file-local block 写成 table block。
-        (void)file_block;
-        (void)table_block;
+        RETURN_IF_ERROR(apply_equality_deletes(block));
+        return Status::OK();
+    }
+
+    // 物化 Iceberg 虚拟列。
+    // 例如 _row_id、_last_updated_sequence_number 等，它们不来自 Parquet 文件物理列。
+    Status materialize_virtual_columns(Block* table_block) override {
+        // 真实实现会物化 _row_id、_last_updated_sequence_number 等 Iceberg 虚拟列。
         return Status::OK();
     }
 
@@ -196,40 +110,10 @@ protected:
 
     // 在 table block 上应用 equality delete。
     // equality delete 依赖 table-level 列语义，因此不能下沉到 ParquetReader。
-    Status apply_equality_deletes(Block* table_block) {
+    Status apply_equality_deletes(Block* block) {
         // 真实实现会在 table block 上应用 equality delete。
-        (void)table_block;
         return Status::OK();
     }
-
-    // 物化 Iceberg 虚拟列。
-    // 例如 _row_id、_last_updated_sequence_number 等，它们不来自 Parquet 文件物理列。
-    Status materialize_virtual_columns(Block* table_block, size_t rows) {
-        // 真实实现会物化 _row_id、_last_updated_sequence_number 等 Iceberg 虚拟列。
-        (void)table_block;
-        (void)rows;
-        return Status::OK();
-    }
-
-    // 关闭当前 task 对应的底层 FileReader。
-    // 该方法由 TableReader 在切换 reader 或 close 时调用，要求可重复调用。
-    Status close_current_reader() override {
-        if (_data_reader) {
-            RETURN_IF_ERROR(_data_reader->close());
-        }
-        return Status::OK();
-    }
-
-private:
-    IcebergReadOptions _iceberg_options;
-    IcebergScanTask _scan_task;
-    std::vector<IcebergScanTask> _scan_tasks;
-    size_t _next_task_idx = 0;
-    reader::TableScanRequest _table_scan_request;
-    std::vector<reader::TableColumn> _iceberg_schema;
-    std::vector<reader::ColumnMapping> _mappings;
-    reader::TableColumnMapper _column_mapper;
-    std::unique_ptr<reader::FileReader> _data_reader;
 };
 
 } // namespace doris::iceberg
