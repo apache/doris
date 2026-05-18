@@ -108,6 +108,18 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
             + "WITH picked AS (SELECT s_suppkey FROM supplier WHERE s_region = outer_s.s_region) "
             + "SELECT 1 FROM picked)";
 
+    private final String correlatedOuterCteAliasShadowSql = "WITH seed AS ("
+            + "SELECT id, grp, dt, ts6, ts3_n, i_nn, i_n, j_nn FROM cte_alias_shadow_outer "
+            + "UNION ALL "
+            + "SELECT id, grp, dt, ts6, ts3_n, i_nn, i_n, j_nn "
+            + "FROM cte_alias_shadow_outer WHERE 1 = 0) "
+            + "SELECT id FROM seed s "
+            + "WHERE s.i_nn IN ("
+            + "SELECT CASE WHEN b.i_n IS NULL THEN b.j_nn ELSE b.i_nn END "
+            + "FROM cte_alias_shadow_inner b "
+            + "WHERE b.grp = s.grp "
+            + "AND (DATE(b.ts6) = s.dt OR b.ts3_n <=> s.ts3_n))";
+
     private final List<String> testSqls = ImmutableList.of(
             multiCte, cteWithColumnAlias, cteConsumerInSubQuery, cteConsumerJoin, cteReferToAnotherOne, cteJoinSelf,
             cteNested, cteInTheMiddle, cteWithDiffRelationId
@@ -120,6 +132,20 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
         SSBUtils.createTables(this);
         createView("CREATE VIEW V1 AS SELECT * FROM part");
         createView("CREATE VIEW V2 AS SELECT * FROM part");
+        createTables(
+                "create table test.cte_alias_shadow_outer\n"
+                        + "(id int, grp int, dt date, ts6 datetimev2(6) not null, ts3_n datetimev2(3) null, "
+                        + "i_nn int not null, i_n int null, j_nn int not null)\n"
+                        + "duplicate key(id, grp, dt)\n"
+                        + "distributed by hash(id) buckets 1\n"
+                        + "properties('replication_num' = '1');",
+                "create table test.cte_alias_shadow_inner\n"
+                        + "(id int, grp int, dt date, ts6 datetimev2(6) not null, ts3_n datetimev2(3) null, "
+                        + "i_nn int not null, i_n int null, j_nn int not null, s varchar(32) null)\n"
+                        + "duplicate key(id, grp, dt)\n"
+                        + "distributed by hash(id) buckets 1\n"
+                        + "properties('replication_num' = '1');"
+        );
     }
 
     @Override
@@ -227,6 +253,17 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
                 () -> PlanChecker.from(connectContext).analyze(correlatedSlotUnderCteProducerSql),
                 "Not throw expected exception.");
         Assertions.assertTrue(exception.getMessage().contains("Unsupported correlated subquery in cte"));
+    }
+
+    @Test
+    public void testCorrelatedOuterCteAliasNotShadowedByInnerColumn() {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze(correlatedOuterCteAliasShadowSql)
+                .getPlan();
+        Set<Plan> applyNodes = plan.collect(LogicalApply.class::isInstance);
+
+        Assertions.assertEquals(1, applyNodes.size());
+        Assertions.assertTrue(((LogicalApply<?, ?>) applyNodes.iterator().next()).isCorrelated());
     }
 
     @Test

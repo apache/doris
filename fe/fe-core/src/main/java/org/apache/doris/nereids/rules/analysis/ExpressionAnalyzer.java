@@ -306,14 +306,38 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     @Override
     public Expression visitUnboundSlot(UnboundSlot unboundSlot, ExpressionRewriteContext context) {
         Optional<Scope> outerScope = getScope().getOuterScope();
-        Optional<List<? extends Expression>> boundedOpt = Optional.of(bindSlotByThisScope(unboundSlot));
-        boolean foundInThisScope = !boundedOpt.get().isEmpty();
+        AnalysisException thisScopeBindException = null;
+        List<? extends Expression> bounded;
+        try {
+            bounded = bindSlotByThisScope(unboundSlot);
+        } catch (AnalysisException e) {
+            if (bindSlotInOuterScope && outerScope.isPresent() && unboundSlot.getNameParts().size() > 1) {
+                bounded = ImmutableList.of();
+                thisScopeBindException = e;
+            } else {
+                throw e;
+            }
+        }
+        boolean foundInThisScope = !bounded.isEmpty();
         // Currently only looking for symbols on the previous level.
-        if (bindSlotInOuterScope && !foundInThisScope && outerScope.isPresent()) {
-            boundedOpt = Optional.of(bindSlotByScope(unboundSlot, outerScope.get()));
+        if (bindSlotInOuterScope && outerScope.isPresent()) {
+            if (!foundInThisScope) {
+                bounded = bindSlotByScope(unboundSlot, outerScope.get());
+            } else if (unboundSlot.getNameParts().size() > 1
+                    && !hasExactQualifierMatch(unboundSlot, bounded)) {
+                // Current-scope nested-field fallback should not shadow a correlated table alias,
+                // e.g. inner column `s` must not block outer reference `s.grp`.
+                List<Expression> boundedInOuterScope = bindExactSlotsByThisScope(unboundSlot, outerScope.get());
+                if (hasExactQualifierMatch(unboundSlot, boundedInOuterScope)) {
+                    bounded = boundedInOuterScope;
+                    foundInThisScope = false;
+                }
+            }
+        }
+        if (!foundInThisScope && bounded.isEmpty() && thisScopeBindException != null) {
+            throw thisScopeBindException;
         }
         // it is heavy to deduplicate slots in scope. So we deduplicates bounded here
-        List<? extends Expression> bounded = boundedOpt.get();
         if (bounded.size() > 1) {
             bounded = bounded.stream().distinct().collect(Collectors.toList());
         }
@@ -1125,6 +1149,12 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         // we should return origin candidates slots if extract slots is empty,
         // and then throw an ambiguous exception
         return !extractSlots.isEmpty() ? extractSlots : candidates;
+    }
+
+    protected boolean hasExactQualifierMatch(UnboundSlot unboundSlot, List<? extends Expression> candidates) {
+        int namePartSize = unboundSlot.getNameParts().size();
+        return candidates.stream().anyMatch(bound ->
+                bound instanceof Slot && namePartSize == ((Slot) bound).getQualifier().size() + 1);
     }
 
     private List<Slot> addSqlIndexInfo(List<Slot> slots, Optional<Pair<Integer, Integer>> indexInSql) {
