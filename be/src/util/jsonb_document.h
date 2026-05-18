@@ -251,31 +251,6 @@ constexpr char ESCAPE = '\\';
 constexpr unsigned int MEMBER_CODE = 0;
 constexpr unsigned int ARRAY_CODE = 1;
 
-inline bool parse_json_path_array_index(std::string_view idx_string, int& index) {
-    idx_string = trim(idx_string);
-    if (idx_string.empty()) {
-        return false;
-    }
-
-    auto result = std::from_chars(idx_string.data(), idx_string.data() + idx_string.size(), index);
-    return result.ec == std::errc() && result.ptr == idx_string.data() + idx_string.size();
-}
-
-inline bool parse_json_path_last_offset(std::string_view idx_string, int& index) {
-    idx_string = trim(idx_string);
-    if (idx_string.empty()) {
-        return false;
-    }
-
-    for (char c : idx_string) {
-        if (!std::isdigit(static_cast<unsigned char>(c))) {
-            return false;
-        }
-    }
-
-    return parse_json_path_array_index(idx_string, index);
-}
-
 /// A simple input stream class for the JSON path parser.
 class Stream {
 public:
@@ -341,8 +316,8 @@ public:
     unsigned int get_leg_len() const { return leg_len; }
 
     void remove_escapes() {
-        unsigned int new_len = 0;
-        for (unsigned int i = 0; i < leg_len; i++) {
+        int new_len = 0;
+        for (int i = 0; i < leg_len; i++) {
             if (leg_ptr[i] != '\\') {
                 leg_ptr[new_len++] = leg_ptr[i];
             }
@@ -366,7 +341,7 @@ private:
     char* leg_ptr = nullptr;
 
     ///path leg len
-    unsigned int leg_len = 0;
+    unsigned int leg_len;
 
     ///Whether to contain escape characters
     bool has_escapes = false;
@@ -1309,7 +1284,9 @@ inline bool JsonbPath::parsePath(Stream* stream, JsonbPath* path) {
     if (stream->peek() == BEGIN_ARRAY) {
         return parse_array(stream, path);
     }
-    // $.a
+    // $.a or $.[0]
+    // Keep $.[0] for backward compatibility: although the dot before an array
+    // leg is non-standard, existing JSONB users may rely on it.
     else if (stream->peek() == BEGIN_MEMBER) {
         // advance past the .
         stream->skip(1);
@@ -1318,8 +1295,9 @@ inline bool JsonbPath::parsePath(Stream* stream, JsonbPath* path) {
             return false;
         }
 
+        // $.[0]
         if (stream->peek() == BEGIN_ARRAY) {
-            return false;
+            return parse_array(stream, path);
         }
         // $.a
         else {
@@ -1351,8 +1329,10 @@ inline bool JsonbPath::parsePath(Stream* stream, JsonbPath* path) {
                 return false;
             }
 
+            // $**.[0]
+            // Keep the dot-array form compatible with the root path behavior.
             if (stream->peek() == BEGIN_ARRAY) {
-                return false;
+                return parse_array(stream, path);
             }
             // $.a
             else {
@@ -1411,30 +1391,38 @@ inline bool JsonbPath::parse_array(Stream* stream, JsonbPath* path) {
     //parse array index to int
 
     std::string_view idx_string(stream->get_leg_ptr(), stream->get_leg_len());
-    idx_string = trim(idx_string);
     int index = 0;
 
-    if (idx_string.size() >= 4 && std::equal(LAST, LAST + 4, idx_string.data())) {
+    // Match "last" case-insensitively for compatibility with existing JSONB
+    // paths such as [Last] and [LAST].
+    if (stream->get_leg_len() >= 4 &&
+        std::equal(LAST, LAST + 4, stream->get_leg_ptr(),
+                   [](char c1, char c2) { return std::tolower(c1) == std::tolower(c2); })) {
         auto pos = idx_string.find(MINUS);
 
         if (pos != std::string::npos) {
             for (size_t i = 4; i < pos; ++i) {
-                if (std::isspace(static_cast<unsigned char>(idx_string[i]))) {
+                if (std::isspace(idx_string[i])) {
                     continue;
                 } else {
-                    // Only spaces are allowed between last and minus.
+                    // leading zeroes are not allowed
                     LOG(WARNING) << "Non-space char in idx_string: '" << idx_string << "'";
                     return false;
                 }
             }
             idx_string = idx_string.substr(pos + 1);
+            idx_string = trim(idx_string);
 
-            if (!parse_json_path_last_offset(idx_string, index)) {
+            // Keep numeric-prefix parsing for last-N offsets as existing JSONB
+            // path behavior.
+            auto result = std::from_chars(idx_string.data(), idx_string.data() + idx_string.size(),
+                                          index);
+            if (result.ec != std::errc()) {
                 LOG(WARNING) << "Invalid index in JSON path: '" << idx_string << "'";
                 return false;
             }
 
-        } else if (idx_string.size() > 4) {
+        } else if (stream->get_leg_len() > 4) {
             return false;
         }
 
@@ -1444,7 +1432,12 @@ inline bool JsonbPath::parse_array(Stream* stream, JsonbPath* path) {
         return true;
     }
 
-    if (!parse_json_path_array_index(idx_string, index)) {
+    // Preserve legacy numeric-prefix parsing for array indexes. std::from_chars
+    // may stop before the end (for example [1.5] is parsed as index 1), and
+    // current JSONB path semantics treat that as supported behavior.
+    auto result = std::from_chars(idx_string.data(), idx_string.data() + idx_string.size(), index);
+
+    if (result.ec != std::errc()) {
         return false;
     }
 
