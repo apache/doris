@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <memory>
 #include <vector>
 
 #include "common/status.h"
@@ -30,6 +31,8 @@ struct IOContext;
 
 namespace doris::parquet {
 
+struct ParquetFileState;
+
 // ParquetReader 的 file-local scan 请求。
 // 当前没有新增 Parquet-only 字段，但保留独立类型，便于后续加入 row group/page index
 // 等 Parquet 专属选项。
@@ -40,38 +43,34 @@ struct ParquetScanRequest : public reader::FileScanRequest {};
 // schema，不处理 table-level cast/default/generated/partition 语义。
 class ParquetReader : public reader::FileReader {
 public:
-    virtual ~ParquetReader() = default;
+    ParquetReader();
+    ~ParquetReader() override;
+
+    // 打开 Parquet 文件并解析 footer metadata。
+    Status open(io::FileReaderSPtr file, io::IOContext* io_ctx = nullptr) override;
 
     // 解析 Parquet footer 并返回 Parquet 文件自身的 schema。
     // 这里不做 Iceberg schema evolution，也不把字段转换成 table/global schema。
-    Status get_schema(std::vector<reader::SchemaField>* file_schema) const override {
-        // 真实实现会从 Parquet footer / schema descriptor 展开 file-local schema。
-        file_schema->clear();
-        return Status::OK();
-    }
+    Status get_schema(std::vector<reader::SchemaField>* file_schema) const override;
 
     // 初始化 Parquet 专属 scan。
     // 后续可以在 ParquetScanRequest 中扩展 row group、page index、bloom filter 等
     // Parquet-only 选项；table-level 语义仍然必须由 TableColumnMapper 提前转换。
-    Status init(const ParquetScanRequest& request) {
-        // 真实实现会根据 projected_file_columns、local_filters 和 reader_expression_map
-        // 初始化 row group、column chunk、page reader 以及延时物化计划。
-        return reader::FileReader::init(request);
-    }
+    Status init(const ParquetScanRequest& request);
 
     // 读取下一批 Parquet file-local block。
     // 返回列必须保持 file-local 语义，不能在这里补 default/generated/partition 列。
-    Status next(Block* file_block, size_t* rows, bool* eof) override {
-        // 真实实现会输出 file-local block。stub 默认立即 EOF。
-        return reader::FileReader::next(file_block, rows, eof);
-    }
+    Status next(Block* file_block, size_t* rows, bool* eof) override;
+
+    Status close() override;
 
     // 通用 FileReader 初始化入口。
     // 当上层只持有 reader::FileReader 指针时会走该接口；Parquet 专属参数通过
     // ParquetScanRequest 重载表达。
-    Status init(const reader::FileScanRequest& request) override {
-        return reader::FileReader::init(request);
-    }
+    Status init(const reader::FileScanRequest& request) override;
+
+private:
+    std::unique_ptr<ParquetFileState> _state;
 };
 
 } // namespace doris::parquet

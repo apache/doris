@@ -4,7 +4,10 @@
 Arrow C++ Parquet core API 作为 Parquet 文件格式实现，但仍然输出 Doris 自己的
 `Block` / column，不引入 Arrow 内存格式作为 scan 结果。
 
-本文档只讨论实现设计，不包含代码 patch。
+本文档描述实现设计，并作为后续实现阶段的边界说明。当前分支已开始落地阶段一代码：
+`ParquetReader` 通过 Arrow Parquet core API 完成文件打开、footer metadata 读取、
+file-local schema 导出和 scan 初始化；真实 `Block` 解码仍留到 flat primitive read
+阶段实现。
 
 ## 目标
 
@@ -414,6 +417,19 @@ Arrow Parquet `ReadBatch` 返回两类数量：
 - `ParquetReader::get_schema` 转出 file-local schema。
 - `ParquetReader::init` 保存 projection 并初始化 row group 列表。
 - `next` 对未支持的数据读取返回 `NotSupported`。
+
+当前实现说明：
+
+- `DorisRandomAccessFile` 只适配 `io::FileReader::read_at`、`size`、`Seek`、`Tell` 和
+  `ReadAt`，不承载 schema/filter/projection 语义。
+- `get_schema` 只展开 Parquet leaf columns，字段 id 使用 Parquet leaf ordinal，字段名
+  使用 column dot path。
+- schema type 映射优先使用 logical type，其次使用 converted type，最后才回退到
+  physical type。无法明确映射的类型返回 `NotSupported`。
+- `init` 只校验 file-local projection，并保守选择所有 row groups；row group/page/bloom
+  pruning 留到后续阶段。
+- `next` 不伪装 EOF。只要文件仍有待读 row group，就返回 `NotSupported`，明确表示
+  Doris `Block` 解码尚未实现。
 
 验收：
 
