@@ -1844,6 +1844,7 @@ public class Env {
                 } catch (Exception e) {
                     LOG.warn("failed to drop backends", e);
                 }
+                System.clearProperty(FeConstants.DROP_BACKENDS_KEY);
                 LOG.info("finished dropping all backends");
             }
 
