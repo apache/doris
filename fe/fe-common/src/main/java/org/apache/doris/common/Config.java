@@ -3336,8 +3336,8 @@ public class Config extends ConfigBase {
                     + "0 表示关闭该兼容逻辑，正数表示最大丢弃字节数。",
             "The maximum number of request body bytes FE drains after returning 307 for Stream Load redirects. "
                     + "0 disables the compatibility logic, and a positive value sets the byte limit."})
-    // Enable a bounded drain window by default to preserve FE redirect compatibility on Jetty 12.
-    public static long stream_load_redirect_bounded_drain_max_bytes = 16 * 1024 * 1024;
+    // Enable a generous bounded drain window by default to preserve FE redirect compatibility on Jetty 12.
+    public static long stream_load_redirect_bounded_drain_max_bytes = 1024L * 1024 * 1024;
 
     @ConfField(mutable = true, description = {
             "Stream Load redirect 场景下，FE 在检测到请求体暂时无可读数据后继续等待的最大空闲时长，单位毫秒。"
