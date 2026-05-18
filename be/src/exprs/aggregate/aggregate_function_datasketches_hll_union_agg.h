@@ -161,7 +161,11 @@ public:
     }
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena&) const override {
-        this->data(place).merge(this->data(rhs).hll_union_data->get_result(datasketches::HLL_8));
+        const auto& rhs_data = this->data(rhs);
+        if (rhs_data.hll_union_data == nullptr) {
+            return;
+        }
+        this->data(place).merge(rhs_data.hll_union_data->get_result(datasketches::HLL_8));
     }
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         this->data(place).write(buf);

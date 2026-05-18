@@ -131,7 +131,7 @@ public enum AggregateType {
         primitiveTypeList.clear();
         primitiveTypeList.add(PrimitiveType.VARCHAR);
         primitiveTypeList.add(PrimitiveType.STRING);
-        compatibilityMap.put(DATASKETCHES_HLL_UNION_AGG, EnumSet.copyOf(primitiveTypeList));
+        compatibilityMap.put(DATASKETCHES_HLL_UNION_AGG, EnumSet.noneOf(PrimitiveType.class));
 
         primitiveTypeList.clear();
         primitiveTypeList.add(PrimitiveType.BITMAP);

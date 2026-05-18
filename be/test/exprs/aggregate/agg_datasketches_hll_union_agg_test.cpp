@@ -144,6 +144,67 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testMergeTwoAggStates) {
     agg_func->destroy(place2);
 }
 
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testMergeEmptyStateDoesNotCrash) {
+    DataTypePtr input_type = std::make_shared<DataTypeString>();
+    DataTypes argument_types = {input_type};
+
+    using AggFunc =
+            AggregateFunctionDataSketchesHllUnionAgg<TYPE_STRING,
+                                                     AggregateFunctionHllSketchData<TYPE_STRING>>;
+    auto agg_func = std::make_shared<AggFunc>(argument_types);
+
+    AggregateDataPtr place_with_data =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(place_with_data);
+
+    AggregateDataPtr empty_rhs_place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(empty_rhs_place);
+
+    datasketches::hll_sketch sketch(8, datasketches::HLL_8);
+    for (int i = 0; i < 100; ++i) {
+        sketch.update(i);
+    }
+    const auto ser = sketch.serialize_compact();
+
+    auto column_string = ColumnString::create();
+    column_string->insert_data((const char*)ser.data(), ser.size());
+    const IColumn* columns[1] = {column_string.get()};
+    agg_func->add(place_with_data, columns, 0, *arena);
+
+    // Covers the "all NULL" style path: rhs exists but never saw add().
+    EXPECT_NO_THROW(agg_func->merge(place_with_data, empty_rhs_place, *arena));
+
+    ColumnInt64 result;
+    agg_func->insert_result_into(place_with_data, result);
+    EXPECT_EQ(result.get_data()[0], static_cast<int64_t>(sketch.get_estimate()));
+
+    // Covers the "empty string" path: add() gets called but ignores the row and keeps rhs empty.
+    auto empty_string_column = ColumnString::create();
+    empty_string_column->insert_data("", 0);
+    const IColumn* empty_columns[1] = {empty_string_column.get()};
+    EXPECT_NO_THROW(agg_func->add(empty_rhs_place, empty_columns, 0, *arena));
+    EXPECT_NO_THROW(agg_func->merge(place_with_data, empty_rhs_place, *arena));
+
+    ColumnInt64 result_after_empty_string_rhs;
+    agg_func->insert_result_into(place_with_data, result_after_empty_string_rhs);
+    EXPECT_EQ(result_after_empty_string_rhs.get_data()[0],
+              static_cast<int64_t>(sketch.get_estimate()));
+
+    AggregateDataPtr empty_lhs_place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(empty_lhs_place);
+    EXPECT_NO_THROW(agg_func->merge(empty_lhs_place, empty_rhs_place, *arena));
+
+    ColumnInt64 empty_merge_result;
+    agg_func->insert_result_into(empty_lhs_place, empty_merge_result);
+    EXPECT_EQ(empty_merge_result.get_data()[0], 0);
+
+    agg_func->destroy(place_with_data);
+    agg_func->destroy(empty_rhs_place);
+    agg_func->destroy(empty_lhs_place);
+}
+
 TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testEmptyState) {
     DataTypePtr input_type = std::make_shared<DataTypeString>();
     DataTypes argument_types = {input_type};
