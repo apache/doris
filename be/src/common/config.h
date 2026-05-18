@@ -334,6 +334,17 @@ DECLARE_mInt32(download_binlog_meta_timeout_ms);
 // the interval time(seconds) for agent report index policy to FE
 DECLARE_mInt32(report_index_policy_interval_seconds);
 
+// DNS cache: log the "Failed to resolve hostname ... use cached ip" warning
+// only once per N consecutive failures for the same hostname, to avoid
+// flooding be.WARNING. Set <= 1 to log every failure (legacy behavior).
+DECLARE_mInt32(dns_cache_log_every_n_failures);
+
+// DNS cache: evict a hostname after this many consecutive resolution failures.
+// At the default refresh interval of 60s, the default value of 30 means an
+// entry is evicted after ~30 minutes of being un-resolvable. Set <= 0 to
+// disable eviction (legacy behavior, kept for backward compatibility).
+DECLARE_mInt32(dns_cache_max_consecutive_failures);
+
 // deprecated, use env var LOG_DIR in be.conf
 DECLARE_String(sys_log_dir);
 // for udf

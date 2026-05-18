@@ -18,6 +18,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
 #include <iostream>
 #include <shared_mutex>
 #include <string>
@@ -38,6 +39,12 @@ public:
     // get ip by hostname
     Status get(const std::string& hostname, std::string* ip);
 
+    // visible for testing
+    size_t size_for_test() const {
+        std::shared_lock<std::shared_mutex> lock(mutex);
+        return cache.size();
+    }
+
 private:
     // Resolve hostname to IP address.
     // If resolution fails, falls back to cached IP if available.
@@ -47,6 +54,9 @@ private:
     // update the ip of hostname in cache
     Status _update(const std::string& hostname);
 
+    // erase a hostname from cache (with unique_lock)
+    void _erase(const std::string& hostname);
+
     // a function for refresh daemon thread
     // update cache at fix internal
     void _refresh_cache();
@@ -54,6 +64,8 @@ private:
 private:
     // hostname -> ip
     std::unordered_map<std::string, std::string> cache;
+    // hostname -> consecutive resolution failure count
+    std::unordered_map<std::string, uint32_t> failure_count;
     mutable std::shared_mutex mutex;
     std::thread refresh_thread;
     bool stop_refresh = false;
