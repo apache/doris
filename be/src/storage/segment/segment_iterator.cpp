@@ -196,17 +196,24 @@ Status rebind_storage_exprs_to_reader_schema(const StorageReadOptions& opts, con
         return Status::OK();
     }
     DORIS_CHECK(opts.runtime_state != nullptr);
+    DORIS_CHECK(opts.tablet_schema != nullptr);
+
+    const auto keys_type = opts.tablet_schema->keys_type();
+    if (keys_type == KeysType::DUP_KEYS ||
+        (keys_type == KeysType::UNIQUE_KEYS && opts.enable_unique_key_merge_on_write)) {
+        return Status::OK();
+    }
 
     // Storage exprs are prepared with RowDescriptor, so VSlotRef/VirtualSlotRef column_id points to
     // the scan tuple column ordinal. SegmentIterator evaluates cloned exprs on a block built from
-    // the reader schema instead. That schema can be expanded or reordered by merge/aggregation
-    // readers, lazy materialization, common expr columns, and virtual columns, so the scan tuple
-    // ordinal is not always the same as the runtime block ordinal.
+    // the reader schema instead. AGG_KEYS and non-MOW UNIQUE_KEYS readers may expand the reader
+    // schema, for example by filling all key columns before merging/aggregating rows, so the scan
+    // tuple ordinal is not always the same as the runtime block ordinal.
     //
-    // Do not skip this only by key model. DUP_KEYS and UNIQUE_KEYS MOW often use direct readers, but
-    // the key model does not guarantee that the reader schema layout matches the scan tuple layout.
-    // The reader schema is the source of truth here; map tablet column id to reader-block position
-    // and rebind every storage expr slot to that position.
+    // DUP_KEYS and UNIQUE_KEYS MOW use direct readers for query scans, so their reader block keeps
+    // the scan tuple layout and can skip this per-segment expression-tree traversal. For merge/agg
+    // readers, the reader schema is the source of truth: map tablet column id to reader-block
+    // position and rebind every storage expr slot to that position.
     std::unordered_map<ColumnId, size_t> cid_to_pos;
     for (size_t pos = 0; pos < schema.num_column_ids(); ++pos) {
         cid_to_pos.emplace(schema.column_id(cast_set<int>(pos)), pos);
