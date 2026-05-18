@@ -907,7 +907,8 @@ public class NestedColumnPruning implements CustomRewriter {
         if (accessWholeColumn) {
             SlotReference slotReference = (SlotReference) slot;
             String wholeColumnName = slotReference.getOriginalColumn().get().getName();
-            return ImmutableList.of(new ColumnAccessPath(accessWholeColumnType, ImmutableList.of(wholeColumnName)));
+            return new ArrayList<>(
+                    ImmutableList.of(new ColumnAccessPath(accessWholeColumnType, ImmutableList.of(wholeColumnName))));
         }
         return paths;
     }
