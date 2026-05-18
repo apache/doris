@@ -175,6 +175,10 @@ Status rebind_storage_expr_to_reader_schema(
                     virtual_slot_ref->slot_id(), slot->col_name(), cid);
         }
         virtual_slot_ref->set_column_id(cast_set<int>(pos_it->second));
+        // A virtual slot has its own output position in the reader block, and its
+        // materialization expression may also contain real slot refs. Rebind both
+        // sides so evaluating the virtual expression reads from the same block
+        // layout used by SegmentIterator.
         RETURN_IF_ERROR(rebind_storage_expr_to_reader_schema(
                 opts, virtual_slot_ref->get_virtual_column_expr(), cid_to_pos));
     }
@@ -193,8 +197,16 @@ Status rebind_storage_exprs_to_reader_schema(const StorageReadOptions& opts, con
     }
     DORIS_CHECK(opts.runtime_state != nullptr);
 
-    // Storage exprs are prepared with the scan tuple layout, but SegmentIterator executes them on
-    // the reader schema block, whose column order may be expanded for merge/aggregation readers.
+    // Storage exprs are prepared with RowDescriptor, so VSlotRef/VirtualSlotRef column_id points to
+    // the scan tuple column ordinal. SegmentIterator evaluates cloned exprs on a block built from
+    // the reader schema instead. That schema can be expanded or reordered by merge/aggregation
+    // readers, lazy materialization, common expr columns, and virtual columns, so the scan tuple
+    // ordinal is not always the same as the runtime block ordinal.
+    //
+    // Do not skip this only by key model. DUP_KEYS and UNIQUE_KEYS MOW often use direct readers, but
+    // the key model does not guarantee that the reader schema layout matches the scan tuple layout.
+    // The reader schema is the source of truth here; map tablet column id to reader-block position
+    // and rebind every storage expr slot to that position.
     std::unordered_map<ColumnId, size_t> cid_to_pos;
     for (size_t pos = 0; pos < schema.num_column_ids(); ++pos) {
         cid_to_pos.emplace(schema.column_id(cast_set<int>(pos)), pos);
