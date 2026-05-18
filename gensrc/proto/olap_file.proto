@@ -72,6 +72,12 @@ message PackedSliceLocationPB {
     optional int64 packed_file_size = 4;  // Total size of the packed file
 }
 
+message VariantSchemaRepresentativePB {
+    optional int32 segment_id = 1;
+    optional fixed64 schema_hash_lo = 2;
+    optional fixed64 schema_hash_hi = 3;
+}
+
 // ATTN: When adding or deleting fields, please update `message RowsetMetaCloudPB`
 // simultaneously and modify the conversion function in the be/src/cloud/pb_convert.{h,cpp}.
 message RowsetMetaPB {
@@ -174,6 +180,10 @@ message RowsetMetaPB {
     optional string job_id = 1014;
 
     optional int64 commit_tso = 1015 [default = -1];
+
+    optional fixed64 variant_schema_hash_lo = 1016;
+    optional fixed64 variant_schema_hash_hi = 1017;
+    repeated VariantSchemaRepresentativePB variant_schema_representatives = 1018;
 }
 
 message SchemaDictKeyList {
@@ -287,6 +297,10 @@ message RowsetMetaCloudPB {
     optional bool is_recycled = 112;
     optional string job_id = 113;
     optional int64 commit_tso = 114 [default = -1];
+
+    optional fixed64 variant_schema_hash_lo = 115;
+    optional fixed64 variant_schema_hash_hi = 116;
+    repeated VariantSchemaRepresentativePB variant_schema_representatives = 117;
 
 }
 

@@ -33,10 +33,13 @@
 #include <unicode/uchar.h>
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <iterator>
+#include <limits>
 #include <list>
 #include <memory>
 #include <mutex>
@@ -47,7 +50,9 @@
 #include <stack>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -97,12 +102,210 @@
 #include "storage/tablet/tablet_fwd.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/client_cache.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
+#include "util/hash/murmur_hash3.h"
 #include "util/json/json_parser.h"
 #include "util/json/path_in_data.h"
 #include "util/json/simd_json_parser.h"
 
 namespace doris::variant_util {
+
+namespace {
+
+constexpr std::string_view VARIANT_SEGMENT_SCHEMA_KEY_VERSION = "variant_segment_schema_key_v1";
+constexpr std::string_view VARIANT_ROWSET_SCHEMA_KEY_VERSION = "variant_rowset_schema_key_v1";
+constexpr uint32_t VARIANT_SCHEMA_HASH_SEED = 0x9e3779b9;
+
+void append_token(std::string* dst, std::string_view token) {
+    dst->append(std::to_string(token.size()));
+    dst->push_back(':');
+    dst->append(token.data(), token.size());
+    dst->push_back(';');
+}
+
+template <typename T>
+void append_number(std::string* dst, T value) {
+    append_token(dst, std::to_string(value));
+}
+
+void canonicalize_column_path_info(const segment_v2::ColumnPathInfo& path_info,
+                                   segment_v2::ColumnPathInfo* canonical_path_info) {
+    canonical_path_info->set_path(path_info.path());
+    canonical_path_info->set_has_nested(path_info.has_nested());
+    canonical_path_info->set_is_typed(path_info.is_typed());
+    canonical_path_info->set_parrent_column_unique_id(path_info.parrent_column_unique_id());
+    canonical_path_info->set_is_nested_group_offsets(path_info.is_nested_group_offsets());
+    canonical_path_info->set_nested_group_parent_path(path_info.nested_group_parent_path());
+    canonical_path_info->set_nested_group_depth(path_info.nested_group_depth());
+    for (const auto& part : path_info.path_part_infos()) {
+        auto* canonical_part = canonical_path_info->add_path_part_infos();
+        canonical_part->set_key(part.key());
+        canonical_part->set_is_nested(part.is_nested());
+        canonical_part->set_anonymous_array_level(part.anonymous_array_level());
+    }
+}
+
+void canonicalize_column_meta_schema(const segment_v2::ColumnMetaPB& meta,
+                                     segment_v2::ColumnMetaPB* canonical_meta) {
+    canonical_meta->set_type(meta.type());
+    canonical_meta->set_length(meta.length());
+    canonical_meta->set_is_nullable(meta.is_nullable());
+    canonical_meta->set_precision(meta.precision());
+    canonical_meta->set_frac(meta.frac());
+    canonical_meta->set_result_is_nullable(meta.result_is_nullable());
+    canonical_meta->set_variant_max_subcolumns_count(meta.variant_max_subcolumns_count());
+    canonical_meta->set_variant_enable_doc_mode(meta.variant_enable_doc_mode());
+    if (meta.has_column_path_info()) {
+        canonicalize_column_path_info(meta.column_path_info(),
+                                      canonical_meta->mutable_column_path_info());
+    }
+    for (const auto& child_name : meta.children_column_names()) {
+        canonical_meta->add_children_column_names(child_name);
+    }
+    for (const auto& child : meta.children_columns()) {
+        canonicalize_column_meta_schema(child, canonical_meta->add_children_columns());
+    }
+}
+
+std::string serialize_column_meta_schema_key(const segment_v2::ColumnMetaPB& meta) {
+    segment_v2::ColumnMetaPB canonical_meta;
+    canonicalize_column_meta_schema(meta, &canonical_meta);
+    std::string serialized;
+    CHECK(canonical_meta.SerializeToString(&serialized));
+    return serialized;
+}
+
+bool is_describe_variant_subcolumn(const segment_v2::ColumnMetaPB& meta) {
+    if (!meta.has_column_path_info() || !meta.column_path_info().has_parrent_column_unique_id()) {
+        return false;
+    }
+    PathInData full_path;
+    full_path.from_protobuf(meta.column_path_info());
+    auto relative_path = full_path.copy_pop_front();
+    if (relative_path.empty()) {
+        return false;
+    }
+    const auto& path = relative_path.get_path();
+    if (path == SPARSE_COLUMN_PATH || path.starts_with(std::string(SPARSE_COLUMN_PATH) + ".b") ||
+        path.find(DOC_VALUE_COLUMN_PATH) != std::string::npos ||
+        segment_v2::contains_nested_group_marker(path)) {
+        return false;
+    }
+    return true;
+}
+
+bool has_unsupported_describe_fast_path_shape(const segment_v2::ColumnMetaPB& meta) {
+    if (!meta.has_column_path_info() || !meta.column_path_info().has_parrent_column_unique_id()) {
+        return false;
+    }
+    PathInData full_path;
+    full_path.from_protobuf(meta.column_path_info());
+    auto relative_path = full_path.copy_pop_front();
+    if (relative_path.empty()) {
+        return meta.type() != static_cast<int>(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    }
+    const auto& path = relative_path.get_path();
+    if (path == SPARSE_COLUMN_PATH || path.starts_with(std::string(SPARSE_COLUMN_PATH) + ".b")) {
+        return meta.variant_statistics().sparse_column_non_null_size_size() > 0;
+    }
+    return path.find(DOC_VALUE_COLUMN_PATH) != std::string::npos ||
+           segment_v2::contains_nested_group_marker(path);
+}
+
+} // namespace
+
+VariantSchemaHash hash_variant_schema_key(std::string_view key) {
+    DCHECK_LE(key.size(), static_cast<size_t>(std::numeric_limits<int>::max()));
+    std::array<uint64_t, 2> hash {0, 0};
+    murmur_hash3_x64_128(key.data(), static_cast<int>(key.size()), VARIANT_SCHEMA_HASH_SEED,
+                         hash.data());
+    return {.lo = hash[0], .hi = hash[1]};
+}
+
+bool build_segment_variant_schema_key(const segment_v2::SegmentFooterPB& footer,
+                                      VariantSchemaKey* schema_key) {
+    if (schema_key == nullptr) {
+        return false;
+    }
+
+    std::vector<int32_t> root_uids;
+    struct SubcolumnEntry {
+        int32_t parent_uid = -1;
+        std::string path;
+        std::string key;
+    };
+    std::vector<SubcolumnEntry> subcolumns;
+
+    for (const auto& column : footer.columns()) {
+        if (column.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_VARIANT)) {
+            // Doc-mode layouts can materialize schema outside ordinary dynamic subcolumns.
+            if (column.variant_enable_doc_mode()) {
+                return false;
+            }
+            root_uids.push_back(static_cast<int32_t>(column.unique_id()));
+        }
+        if (has_unsupported_describe_fast_path_shape(column)) {
+            return false;
+        }
+        if (!is_describe_variant_subcolumn(column)) {
+            continue;
+        }
+        PathInData full_path;
+        full_path.from_protobuf(column.column_path_info());
+        auto relative_path = full_path.copy_pop_front();
+
+        auto entry_key = serialize_column_meta_schema_key(column);
+        subcolumns.push_back(
+                {static_cast<int32_t>(column.column_path_info().parrent_column_unique_id()),
+                 relative_path.get_path(), std::move(entry_key)});
+    }
+
+    if (root_uids.empty() || subcolumns.empty()) {
+        return false;
+    }
+
+    std::sort(root_uids.begin(), root_uids.end());
+    root_uids.erase(std::unique(root_uids.begin(), root_uids.end()), root_uids.end());
+    // Keep the key independent from writer/test construction order even though writers normally
+    // emit a deterministic footer order.
+    std::sort(subcolumns.begin(), subcolumns.end(), [](const auto& lhs, const auto& rhs) {
+        return std::tie(lhs.parent_uid, lhs.path, lhs.key) <
+               std::tie(rhs.parent_uid, rhs.path, rhs.key);
+    });
+
+    std::string key;
+    append_token(&key, VARIANT_SEGMENT_SCHEMA_KEY_VERSION);
+    append_number(&key, root_uids.size());
+    for (const auto root_uid : root_uids) {
+        append_number(&key, root_uid);
+    }
+    append_number(&key, subcolumns.size());
+    for (const auto& subcolumn : subcolumns) {
+        append_token(&key, subcolumn.key);
+    }
+
+    schema_key->key = std::move(key);
+    schema_key->hash = hash_variant_schema_key(schema_key->key);
+    return true;
+}
+
+VariantSchemaHash build_rowset_variant_schema_hash(const std::vector<std::string>& schema_keys) {
+    std::vector<std::string_view> sorted_schema_keys;
+    sorted_schema_keys.reserve(schema_keys.size());
+    for (const auto& schema_key : schema_keys) {
+        sorted_schema_keys.push_back(schema_key);
+    }
+    std::sort(sorted_schema_keys.begin(), sorted_schema_keys.end());
+
+    std::string key;
+    append_token(&key, VARIANT_ROWSET_SCHEMA_KEY_VERSION);
+    append_number(&key, sorted_schema_keys.size());
+    for (const auto& schema_key : sorted_schema_keys) {
+        append_token(&key, schema_key);
+    }
+    return hash_variant_schema_key(key);
+}
 
 inline void append_escaped_regex_char(std::string* regex_output, char ch) {
     switch (ch) {
@@ -1600,17 +1803,118 @@ TabletSchemaSPtr VariantCompactionUtil::calculate_variant_extended_schema(
         return nullptr;
     }
 
-    std::vector<TabletSchemaSPtr> schemas;
+    struct RowsetScanSegments {
+        RowsetSharedPtr rowset;
+        std::vector<int64_t> segment_ids;
+    };
+
+    struct RepresentativeSegments {
+        std::vector<int64_t> segment_ids;
+        bool complete_metadata = false;
+    };
+
+    auto get_all_segment_ids = [](const RowsetSharedPtr& rs) {
+        std::vector<int64_t> segment_ids;
+        segment_ids.reserve(rs->num_segments());
+        for (int64_t segment_id = 0; segment_id < rs->num_segments(); ++segment_id) {
+            segment_ids.push_back(segment_id);
+        }
+        return segment_ids;
+    };
+
+    auto get_representative_segment_ids = [&](const RowsetSharedPtr& rs) {
+        auto rowset_meta = rs->rowset_meta();
+        if (rowset_meta == nullptr || !rowset_meta->has_variant_schema_representatives()) {
+            return RepresentativeSegments {.segment_ids = get_all_segment_ids(rs),
+                                           .complete_metadata = false};
+        }
+        std::unordered_set<int64_t> seen_segment_ids;
+        std::vector<int64_t> segment_ids;
+        segment_ids.reserve(rowset_meta->variant_schema_representatives().size());
+        for (const auto& representative : rowset_meta->variant_schema_representatives()) {
+            if (!representative.has_segment_id()) {
+                LOG(WARNING) << "Incomplete Variant schema representative for rowset "
+                             << rs->rowset_id();
+                return RepresentativeSegments {.segment_ids = get_all_segment_ids(rs),
+                                               .complete_metadata = false};
+            }
+            const int64_t segment_id = representative.segment_id();
+            if (segment_id < 0 || segment_id >= rs->num_segments()) {
+                LOG(WARNING) << "Invalid Variant schema representative segment id " << segment_id
+                             << " for rowset " << rs->rowset_id()
+                             << ", num_segments=" << rs->num_segments();
+                return RepresentativeSegments {.segment_ids = get_all_segment_ids(rs),
+                                               .complete_metadata = false};
+            }
+            if (!seen_segment_ids.insert(segment_id).second) {
+                LOG(WARNING) << "Duplicate Variant schema representative segment id " << segment_id
+                             << " for rowset " << rs->rowset_id();
+                return RepresentativeSegments {.segment_ids = get_all_segment_ids(rs),
+                                               .complete_metadata = false};
+            }
+            segment_ids.push_back(segment_id);
+        }
+        if (segment_ids.empty()) {
+            return RepresentativeSegments {.segment_ids = get_all_segment_ids(rs),
+                                           .complete_metadata = false};
+        }
+        return RepresentativeSegments {.segment_ids = std::move(segment_ids),
+                                       .complete_metadata = true};
+    };
+
+    auto build_rowset_schema_dedup_key = [](const RowsetMetaSharedPtr& rowset_meta) {
+        const auto [hash_lo, hash_hi] = rowset_meta->variant_schema_hash();
+        return fmt::format("{}:{}", hash_lo, hash_hi);
+    };
+
+    std::vector<RowsetScanSegments> rowset_scan_segments;
+    std::unordered_set<std::string> seen_rowset_schema_hashes;
     for (const auto& rs : rowsets) {
         if (rs->num_segments() == 0) {
             continue;
         }
+        auto rowset_meta = rs->rowset_meta();
+        auto representative_segments = get_representative_segment_ids(rs);
+        if (representative_segments.complete_metadata) {
+            const auto dedup_key = build_rowset_schema_dedup_key(rowset_meta);
+            if (!seen_rowset_schema_hashes.insert(dedup_key).second) {
+                continue;
+            }
+        }
+        rowset_scan_segments.push_back({rs, std::move(representative_segments.segment_ids)});
+    }
+
+    DBUG_EXECUTE_IF("VariantCompactionUtil.calculate_variant_extended_schema.check_scan_segments", {
+        int64_t selected_segment_count = 0;
+        for (const auto& scan : rowset_scan_segments) {
+            selected_segment_count += static_cast<int64_t>(scan.segment_ids.size());
+        }
+        const int64_t expected_selected_rowsets = dp->param<int64_t>("selected_rowsets", -1);
+        const int64_t expected_selected_segments = dp->param<int64_t>("selected_segments", -1);
+        if ((expected_selected_rowsets >= 0 &&
+             expected_selected_rowsets != static_cast<int64_t>(rowset_scan_segments.size())) ||
+            (expected_selected_segments >= 0 &&
+             expected_selected_segments != selected_segment_count)) {
+            LOG(WARNING) << "Unexpected Variant DESCRIBE scan segments, selected_rowsets="
+                         << rowset_scan_segments.size()
+                         << ", expected_selected_rowsets=" << expected_selected_rowsets
+                         << ", selected_segments=" << selected_segment_count
+                         << ", expected_selected_segments=" << expected_selected_segments;
+            return base_schema;
+        }
+    });
+
+    std::vector<TabletSchemaSPtr> schemas;
+    for (const auto& scan : rowset_scan_segments) {
+        const auto& rs = scan.rowset;
         const auto& tablet_schema = rs->tablet_schema();
         SegmentCacheHandle segment_cache;
-        auto st = SegmentLoader::instance()->load_segments(std::static_pointer_cast<BetaRowset>(rs),
-                                                           &segment_cache);
-        if (!st.ok()) {
-            return base_schema;
+        for (const auto segment_id : scan.segment_ids) {
+            auto st = SegmentLoader::instance()->load_segment(
+                    std::static_pointer_cast<BetaRowset>(rs), segment_id, &segment_cache, true);
+            if (!st.ok()) {
+                return base_schema;
+            }
         }
         for (const auto& segment : segment_cache.get_segments()) {
             TabletSchemaSPtr schema = tablet_schema->copy_without_variant_extracted_columns();
@@ -1620,7 +1924,7 @@ TabletSchemaSPtr VariantCompactionUtil::calculate_variant_extended_schema(
                 }
                 std::shared_ptr<ColumnReader> column_reader;
                 OlapReaderStatistics stats;
-                st = segment->get_column_reader(column->unique_id(), &column_reader, &stats);
+                auto st = segment->get_column_reader(column->unique_id(), &column_reader, &stats);
                 if (!st.ok()) {
                     LOG(WARNING) << "Failed to get column reader for column: " << column->name()
                                  << " error: " << st.to_string();

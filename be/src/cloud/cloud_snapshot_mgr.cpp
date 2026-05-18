@@ -283,6 +283,17 @@ Status CloudSnapshotMgr::_create_rowset_meta(
         new_rowset_meta_pb->set_segments_key_bounds_aggregated(
                 source_meta_pb.segments_key_bounds_aggregated());
     }
+    new_rowset_meta_pb->clear_variant_schema_hash_lo();
+    new_rowset_meta_pb->clear_variant_schema_hash_hi();
+    new_rowset_meta_pb->clear_variant_schema_representatives();
+    if (source_meta_pb.has_variant_schema_hash_lo()) {
+        new_rowset_meta_pb->set_variant_schema_hash_lo(source_meta_pb.variant_schema_hash_lo());
+    }
+    if (source_meta_pb.has_variant_schema_hash_hi()) {
+        new_rowset_meta_pb->set_variant_schema_hash_hi(source_meta_pb.variant_schema_hash_hi());
+    }
+    new_rowset_meta_pb->mutable_variant_schema_representatives()->CopyFrom(
+            source_meta_pb.variant_schema_representatives());
     if (source_meta_pb.has_delete_predicate()) {
         DeletePredicatePB* new_delete_condition = new_rowset_meta_pb->mutable_delete_predicate();
         *new_delete_condition = source_meta_pb.delete_predicate();

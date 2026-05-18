@@ -346,6 +346,10 @@ void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
     set_total_disk_size(data_disk_size() + index_disk_size());
     set_segments_key_bounds_truncated(is_segments_key_bounds_truncated() ||
                                       other.is_segments_key_bounds_truncated());
+    // The persisted Variant schema metadata contains only hashes and representative segment ids,
+    // not the full canonical keys. After merging rowset metas, keeping a partial summary could make
+    // DESCRIBE skip segments from `other`, so force the safe full-scan fallback.
+    clear_variant_schema_metadata();
     // merge_rowset_meta is used in the MOW partial-update publish path, which relies
     // on per-segment bounds. Aggregation should never be enabled for MOW rowsets,
     // so we do not expect either side to be aggregated here.

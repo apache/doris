@@ -42,6 +42,8 @@ struct SegmentStatistics {
     int64_t data_size;
     int64_t index_size;
     KeyBoundsPB key_bounds;
+    bool has_variant_schema_key = false;
+    std::string variant_schema_key;
 
     SegmentStatistics() = default;
 
@@ -56,12 +58,16 @@ struct SegmentStatistics {
         segstat_pb->set_data_size(data_size);
         segstat_pb->set_index_size(index_size);
         segstat_pb->mutable_key_bounds()->CopyFrom(key_bounds);
+        // SegmentStatisticsPB is also used by load-stream control messages. Do not serialize the
+        // canonical Variant schema key because it grows with Variant subcolumns; remote receivers
+        // will omit rowset-level Variant schema metadata and fall back to the full DESCRIBE scan.
     }
 
     std::string to_string() {
         std::stringstream ss;
         ss << "row_num: " << row_num << ", data_size: " << data_size
-           << ", index_size: " << index_size << ", key_bounds: " << key_bounds.ShortDebugString();
+           << ", index_size: " << index_size << ", key_bounds: " << key_bounds.ShortDebugString()
+           << ", has_variant_schema_key: " << has_variant_schema_key;
         return ss.str();
     }
 };

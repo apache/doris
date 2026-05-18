@@ -25,11 +25,13 @@
 #include <functional>
 #include <map>
 #include <memory> // unique_ptr
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <vector>
 
 #include "common/status.h" // Status
+#include "exec/common/variant_util.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/olap_define.h"
 #include "storage/partial_update_info.h"
@@ -111,6 +113,9 @@ public:
 
     Status finalize_columns_index(uint64_t* index_size);
     Status finalize_footer(uint64_t* segment_file_size);
+    const std::optional<variant_util::VariantSchemaKey>& variant_schema_key() const {
+        return _variant_schema_key;
+    }
 
     Slice min_encoded_key();
     Slice max_encoded_key();
@@ -213,6 +218,7 @@ private:
     IndexFileWriter* _index_file_writer = nullptr;
 
     SegmentFooterPB _footer;
+    std::optional<variant_util::VariantSchemaKey> _variant_schema_key;
     // for mow tables with cluster key, the sort key is the cluster keys not unique keys
     // for other tables, the sort key is the keys
     size_t _num_sort_key_columns;

@@ -26,6 +26,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "common/cast_set.h"
@@ -437,6 +438,40 @@ public:
     int64_t segment_file_size(int seg_id) const;
 
     const auto& segments_file_size() const { return _rowset_meta_pb.segments_file_size(); }
+
+    bool has_variant_schema_hash() const {
+        return _rowset_meta_pb.has_variant_schema_hash_lo() &&
+               _rowset_meta_pb.has_variant_schema_hash_hi();
+    }
+
+    bool has_variant_schema_representatives() const {
+        return has_variant_schema_hash() &&
+               _rowset_meta_pb.variant_schema_representatives_size() > 0;
+    }
+
+    std::pair<uint64_t, uint64_t> variant_schema_hash() const {
+        return {_rowset_meta_pb.variant_schema_hash_lo(), _rowset_meta_pb.variant_schema_hash_hi()};
+    }
+
+    const auto& variant_schema_representatives() const {
+        return _rowset_meta_pb.variant_schema_representatives();
+    }
+
+    void set_variant_schema_hash(uint64_t hash_lo, uint64_t hash_hi) {
+        _rowset_meta_pb.set_variant_schema_hash_lo(hash_lo);
+        _rowset_meta_pb.set_variant_schema_hash_hi(hash_hi);
+    }
+
+    void add_variant_schema_representative(int32_t segment_id) {
+        auto* representative = _rowset_meta_pb.add_variant_schema_representatives();
+        representative->set_segment_id(segment_id);
+    }
+
+    void clear_variant_schema_metadata() {
+        _rowset_meta_pb.clear_variant_schema_hash_lo();
+        _rowset_meta_pb.clear_variant_schema_hash_hi();
+        _rowset_meta_pb.clear_variant_schema_representatives();
+    }
 
     // Used for partial update, when publish, partial update may add a new rowset and we should update rowset meta
     void merge_rowset_meta(const RowsetMeta& other);

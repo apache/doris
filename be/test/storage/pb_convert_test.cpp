@@ -176,6 +176,31 @@ std::set<std::string> get_set_fields(const google::protobuf::Message& msg) {
     return set_fields;
 }
 
+template <typename RowsetMetaPBType>
+void fill_variant_schema_metadata(RowsetMetaPBType* rowset_meta) {
+    rowset_meta->set_variant_schema_hash_lo(11);
+    rowset_meta->set_variant_schema_hash_hi(22);
+    auto* representative = rowset_meta->add_variant_schema_representatives();
+    representative->set_segment_id(3);
+    representative = rowset_meta->add_variant_schema_representatives();
+    representative->set_segment_id(5);
+}
+
+template <typename RowsetMetaPBType>
+void expect_variant_schema_metadata(const RowsetMetaPBType& rowset_meta) {
+    EXPECT_TRUE(rowset_meta.has_variant_schema_hash_lo());
+    EXPECT_TRUE(rowset_meta.has_variant_schema_hash_hi());
+    EXPECT_EQ(rowset_meta.variant_schema_hash_lo(), 11);
+    EXPECT_EQ(rowset_meta.variant_schema_hash_hi(), 22);
+    ASSERT_EQ(rowset_meta.variant_schema_representatives_size(), 2);
+    EXPECT_EQ(rowset_meta.variant_schema_representatives(0).segment_id(), 3);
+    EXPECT_FALSE(rowset_meta.variant_schema_representatives(0).has_schema_hash_lo());
+    EXPECT_FALSE(rowset_meta.variant_schema_representatives(0).has_schema_hash_hi());
+    EXPECT_EQ(rowset_meta.variant_schema_representatives(1).segment_id(), 5);
+    EXPECT_FALSE(rowset_meta.variant_schema_representatives(1).has_schema_hash_lo());
+    EXPECT_FALSE(rowset_meta.variant_schema_representatives(1).has_schema_hash_hi());
+}
+
 // clang-format off
 
 auto print = [](auto v) { std::stringstream s; for (auto& i : v) s << i << " "; return s.str(); };
@@ -286,6 +311,32 @@ TEST(PbConvert, ensure_all_fields_converted_correctly) {
         << "\n input_fields=" << print(tablet_meta_cloud_set_fields)
         << "\n output_fields=" << print(tablet_meta_out_set_fields)
         << "\n diff=" << print(set_diff(tablet_meta_cloud_set_fields, tablet_meta_out_set_fields));
+}
+
+TEST(PbConvert, test_variant_schema_metadata_round_trip_values) {
+    RowsetMetaPB rs;
+    fill_variant_schema_metadata(&rs);
+
+    RowsetMetaCloudPB cloud_from_const;
+    doris_rowset_meta_to_cloud(&cloud_from_const, rs);
+    expect_variant_schema_metadata(cloud_from_const);
+
+    RowsetMetaPB rs_for_move = rs;
+    RowsetMetaCloudPB cloud_from_move;
+    doris_rowset_meta_to_cloud(&cloud_from_move, std::move(rs_for_move));
+    expect_variant_schema_metadata(cloud_from_move);
+
+    RowsetMetaCloudPB cloud;
+    fill_variant_schema_metadata(&cloud);
+
+    RowsetMetaPB rs_from_const;
+    cloud_rowset_meta_to_doris(&rs_from_const, cloud);
+    expect_variant_schema_metadata(rs_from_const);
+
+    RowsetMetaCloudPB cloud_for_move = cloud;
+    RowsetMetaPB rs_from_move;
+    cloud_rowset_meta_to_doris(&rs_from_move, std::move(cloud_for_move));
+    expect_variant_schema_metadata(rs_from_move);
 }
 
 TEST(PbConvert, test_rvalue_overloads) {

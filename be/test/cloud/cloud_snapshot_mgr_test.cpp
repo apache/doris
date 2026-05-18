@@ -109,6 +109,10 @@ TEST_F(CloudSnapshotMgrTest, TestConvertRowsets) {
     rowset_meta->set_index_disk_size(2048);
     rowset_meta->set_rowset_state(RowsetStatePB::VISIBLE);
     rowset_meta->set_newest_write_timestamp(1678901234567890);
+    rowset_meta->set_variant_schema_hash_lo(11);
+    rowset_meta->set_variant_schema_hash_hi(22);
+    auto* representative = rowset_meta->add_variant_schema_representatives();
+    representative->set_segment_id(1);
 
     TabletSchemaPB* rowset_schema = rowset_meta->mutable_tablet_schema();
     rowset_schema->CopyFrom(*input_schema);
@@ -155,6 +159,14 @@ TEST_F(CloudSnapshotMgrTest, TestConvertRowsets) {
     EXPECT_EQ(output_meta_pb.rs_metas(0).data_disk_size(), 2048);
     EXPECT_EQ(output_meta_pb.rs_metas(0).index_disk_size(), 2048);
     EXPECT_EQ(output_meta_pb.rs_metas(0).rowset_state(), RowsetStatePB::VISIBLE);
+    EXPECT_TRUE(output_meta_pb.rs_metas(0).has_variant_schema_hash_lo());
+    EXPECT_TRUE(output_meta_pb.rs_metas(0).has_variant_schema_hash_hi());
+    EXPECT_EQ(output_meta_pb.rs_metas(0).variant_schema_hash_lo(), 11);
+    EXPECT_EQ(output_meta_pb.rs_metas(0).variant_schema_hash_hi(), 22);
+    ASSERT_EQ(output_meta_pb.rs_metas(0).variant_schema_representatives_size(), 1);
+    EXPECT_EQ(output_meta_pb.rs_metas(0).variant_schema_representatives(0).segment_id(), 1);
+    EXPECT_FALSE(output_meta_pb.rs_metas(0).variant_schema_representatives(0).has_schema_hash_lo());
+    EXPECT_FALSE(output_meta_pb.rs_metas(0).variant_schema_representatives(0).has_schema_hash_hi());
     EXPECT_EQ(output_meta_pb.rs_metas(0).resource_id(), storage_resource.fs->id());
     EXPECT_FALSE(file_mapping.empty());
     EXPECT_TRUE(status.ok());

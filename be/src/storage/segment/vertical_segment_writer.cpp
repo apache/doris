@@ -1392,6 +1392,14 @@ Status VerticalSegmentWriter::_write_primary_key_index() {
 
 Status VerticalSegmentWriter::_write_footer() {
     _footer.set_num_rows(_row_count);
+    if (_tablet_schema->num_variant_columns() > 0) {
+        variant_util::VariantSchemaKey schema_key;
+        if (variant_util::build_segment_variant_schema_key(_footer, &schema_key)) {
+            _variant_schema_key = std::move(schema_key);
+        } else {
+            _variant_schema_key.reset();
+        }
+    }
 
     // Decide whether to externalize ColumnMetaPB by tablet default, and stamp footer version
 
