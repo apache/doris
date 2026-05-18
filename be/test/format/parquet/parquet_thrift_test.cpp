@@ -30,6 +30,7 @@
 #include <memory>
 #include <new>
 #include <ostream>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -456,5 +457,34 @@ TEST_F(ParquetThriftReaderTest, type_decoder) {
 TEST_F(ParquetThriftReaderTest, dict_decoder) {
     read_parquet_data_and_check("./be/test/exec/test_data/parquet_scanner/dict-decoder.parquet",
                                 "./be/test/exec/test_data/parquet_scanner/dict-decoder.txt", 12);
+}
+
+TEST_F(ParquetThriftReaderTest, is_dictionary_encoded_rejects_plain_data_page_v2) {
+    tparquet::ColumnMetaData column_metadata;
+    column_metadata.type = tparquet::Type::BYTE_ARRAY;
+    column_metadata.__isset.encoding_stats = true;
+
+    tparquet::PageEncodingStats dict_page;
+    dict_page.page_type = tparquet::PageType::DATA_PAGE_V2;
+    dict_page.encoding = tparquet::Encoding::RLE_DICTIONARY;
+    dict_page.count = 2;
+
+    tparquet::PageEncodingStats plain_page;
+    plain_page.page_type = tparquet::PageType::DATA_PAGE_V2;
+    plain_page.encoding = tparquet::Encoding::PLAIN;
+    plain_page.count = 1;
+
+    column_metadata.encoding_stats = {dict_page, plain_page};
+
+    tparquet::RowGroup row_group;
+    row_group.num_rows = 0;
+    RowGroupReader::PositionDeleteContext position_delete_ctx(row_group.num_rows, 0);
+    RowGroupReader::LazyReadContext lazy_read_ctx;
+    std::set<uint64_t> column_ids;
+    std::set<uint64_t> filter_column_ids;
+    RowGroupReader row_group_reader(nullptr, {}, 0, row_group, nullptr, nullptr, position_delete_ctx,
+                                    lazy_read_ctx, nullptr, column_ids, filter_column_ids);
+
+    EXPECT_FALSE(row_group_reader.is_dictionary_encoded(column_metadata));
 }
 } // namespace doris
