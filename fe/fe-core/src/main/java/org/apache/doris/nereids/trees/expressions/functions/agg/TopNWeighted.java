@@ -210,6 +210,9 @@ public class TopNWeighted extends NullableAggregateFunction
     @Override
     public void checkLegalityAfterRewrite() {
         Expression topNCount = getArgument(2);
+        if (topNCount.isNullLiteral()) {
+            return;
+        }
         if (!(topNCount instanceof Literal) || ((Literal) topNCount).getDouble() <= 0) {
             throw new AnalysisException(
                     "topn_weighted requires third parameter must be a constant positive integer: "
