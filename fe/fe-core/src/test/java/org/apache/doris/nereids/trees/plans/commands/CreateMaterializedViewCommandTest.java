@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 
 import com.google.common.collect.ImmutableMap;
@@ -26,7 +27,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Unit tests for {@link CreateMaterializedViewCommand}, focusing on the
- * database-consistency validation added for DORIS-19133.
+ * catalog and database consistency validation added for DORIS-19133.
  */
 public class CreateMaterializedViewCommandTest {
 
@@ -36,13 +37,44 @@ public class CreateMaterializedViewCommandTest {
     }
 
     // ---------------------------------------------------------------------------
+    // checkCatalogConsistency tests (DORIS-19133)
+    // ---------------------------------------------------------------------------
+
+    @Test
+    public void testInternalCatalogDoesNotThrow() {
+        CreateMaterializedViewCommand cmd = newCmd("db1", "mv1");
+        Assertions.assertDoesNotThrow(
+                () -> cmd.checkCatalogConsistency(InternalCatalog.INTERNAL_CATALOG_NAME));
+    }
+
+    @Test
+    public void testExternalCatalogThrows() {
+        CreateMaterializedViewCommand cmd = newCmd("db1", "mv1");
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> cmd.checkCatalogConsistency("hive_catalog"));
+        Assertions.assertTrue(ex.getMessage().contains("internal catalog"),
+                "Exception message should mention the internal catalog requirement");
+    }
+
+    @Test
+    public void testNullCatalogDoesNotThrow() {
+        CreateMaterializedViewCommand cmd = newCmd("db1", "mv1");
+        Assertions.assertDoesNotThrow(() -> cmd.checkCatalogConsistency(null));
+    }
+
+    @Test
+    public void testEmptyCatalogDoesNotThrow() {
+        CreateMaterializedViewCommand cmd = newCmd("db1", "mv1");
+        Assertions.assertDoesNotThrow(() -> cmd.checkCatalogConsistency(""));
+    }
+
+    // ---------------------------------------------------------------------------
     // checkDatabaseConsistency tests (DORIS-19133)
     // ---------------------------------------------------------------------------
 
     @Test
     public void testSameDatabaseDoesNotThrow() {
         CreateMaterializedViewCommand cmd = newCmd("db1", "mv1");
-        // No exception when MV db equals base table db.
         Assertions.assertDoesNotThrow(() -> cmd.checkDatabaseConsistency("db1", "db1"));
     }
 
@@ -57,14 +89,12 @@ public class CreateMaterializedViewCommandTest {
 
     @Test
     public void testNullMvDbDoesNotThrow() {
-        // When no MV db is provided (null), the check is skipped.
         CreateMaterializedViewCommand cmd = newCmd("db1", "mv1");
         Assertions.assertDoesNotThrow(() -> cmd.checkDatabaseConsistency(null, "db2"));
     }
 
     @Test
     public void testEmptyMvDbDoesNotThrow() {
-        // When MV db is empty string, the check is skipped.
         CreateMaterializedViewCommand cmd = newCmd("db1", "mv1");
         Assertions.assertDoesNotThrow(() -> cmd.checkDatabaseConsistency("", "db2"));
     }

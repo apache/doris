@@ -16,8 +16,8 @@
 // under the License.
 
 // Regression test for DORIS-19133:
-// Creating a sync materialized view must fail when the MV's database
-// does not match the base table's database.
+// Creating a sync materialized view must fail when the MV's database or catalog
+// does not match the base table's database/catalog.
 
 suite("test_cross_db_mv_error") {
     String baseDb = context.config.getDbNameByFile(context.file)
@@ -57,8 +57,14 @@ suite("test_cross_db_mv_error") {
         exception "must be the same as the database"
     }
 
-    // Creating a sync MV in the correct db must succeed.
+    // Specifying an external catalog in the MV name should fail.
     sql "USE ${baseDb}"
+    test {
+        sql """CREATE MATERIALIZED VIEW hive_catalog.${baseDb}.mv_cross_ctl AS SELECT d FROM cross_db_test_t"""
+        exception "internal catalog"
+    }
+
+    // Creating a sync MV in the correct db must succeed.
     sql "DROP MATERIALIZED VIEW IF EXISTS mv_cross_ok ON cross_db_test_t"
     sql """CREATE MATERIALIZED VIEW ${baseDb}.mv_cross_ok AS SELECT d FROM cross_db_test_t"""
 
