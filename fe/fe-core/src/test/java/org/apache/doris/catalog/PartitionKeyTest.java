@@ -294,6 +294,8 @@ public class PartitionKeyTest {
 
     @Test
     public void testTimestampTzPartitionKeyKeepsExplicitOffset() throws Exception {
+        boolean originalRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = true;
         ConnectContext context = new ConnectContext();
         context.setThreadLocalInfo();
         try {
@@ -315,11 +317,14 @@ public class PartitionKeyTest {
             Assert.assertTrue(literal.getStringValue().endsWith("+00:00"));
         } finally {
             ConnectContext.remove();
+            FeConstants.runningUnitTest = originalRunningUnitTest;
         }
     }
 
     @Test
     public void testTimestampTzPartitionKeyUsesSessionTimezoneWithoutExplicitOffset() throws Exception {
+        boolean originalRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = true;
         ConnectContext context = new ConnectContext();
         context.setThreadLocalInfo();
         try {
@@ -341,6 +346,7 @@ public class PartitionKeyTest {
             Assert.assertTrue(literal.getStringValue().endsWith("+00:00"));
         } finally {
             ConnectContext.remove();
+            FeConstants.runningUnitTest = originalRunningUnitTest;
         }
     }
 }

@@ -261,6 +261,9 @@ public class PartitionExprUtil {
             timeString = String.format(DATETIME_FORMATTER,
                     dateLiteral.getYear(), dateLiteral.getMonth(), dateLiteral.getDay(),
                     dateLiteral.getHour(), dateLiteral.getMinute(), dateLiteral.getSecond());
+            if (partitionColumnType.isTimeStampTz()) {
+                timeString = dateLiteral.getStringValue(partitionColumnType);
+            }
         } else {
             throw new AnalysisException(
                     "not support range partition with column type : " + partitionColumnType.toString());

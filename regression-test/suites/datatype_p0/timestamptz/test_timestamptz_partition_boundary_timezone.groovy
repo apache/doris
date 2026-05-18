@@ -181,4 +181,41 @@ suite("test_timestamptz_partition_boundary_timezone") {
         FROM bug111_src
         ORDER BY seq
     """
+
+    sql "SET time_zone = '+00:00'"
+    sql "DROP TABLE IF EXISTS bug113_auto_tz_range"
+    sql """
+        CREATE TABLE bug113_auto_tz_range (
+            id INT,
+            ts_tz TIMESTAMPTZ(6) NOT NULL
+        )
+        DUPLICATE KEY(id)
+        AUTO PARTITION BY RANGE (date_trunc(`ts_tz`, 'day')) ()
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        )
+    """
+
+    order_qt_bug113_direct_date_trunc_utc """
+        SELECT CAST(date_trunc(ts, 'day') AS VARCHAR(64))
+        FROM (
+            SELECT CAST('2024-06-15 20:00:00 +00:00' AS TIMESTAMPTZ(6)) AS ts
+        ) t
+    """
+
+    sql """
+        INSERT INTO bug113_auto_tz_range VALUES
+        (1, CAST('2024-06-15 20:00:00 +00:00' AS TIMESTAMPTZ(6)))
+    """
+
+    def bug113Create = sql "SHOW CREATE TABLE bug113_auto_tz_range"
+    assertTrue(bug113Create[0][1].contains(
+            "PARTITION p20240615000000 VALUES [('2024-06-15 00:00:00.000000+00:00'), ('2024-06-16 00:00:00.000000+00:00'))"))
+
+    order_qt_bug113_auto_tz_range """
+        SELECT CAST(ts_tz AS STRING), id
+        FROM bug113_auto_tz_range
+        ORDER BY id
+    """
 }
