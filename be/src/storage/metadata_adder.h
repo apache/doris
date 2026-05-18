@@ -20,7 +20,6 @@
 #include <bvar/bvar.h>
 #include <stdint.h>
 
-#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_profile.h"
 

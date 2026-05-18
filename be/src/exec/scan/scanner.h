@@ -25,7 +25,6 @@
 
 #include "common/status.h"
 #include "core/block/block.h"
-#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "storage/tablet/tablet.h"
 #include "util/stopwatch.hpp"

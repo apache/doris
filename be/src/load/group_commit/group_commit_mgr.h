@@ -33,7 +33,6 @@
 #include "core/block/block.h"
 #include "exec/sink/writer/vwal_writer.h"
 #include "load/group_commit/wal/wal_manager.h"
-#include "runtime/exec_env.h"
 #include "util/threadpool.h"
 
 namespace doris {

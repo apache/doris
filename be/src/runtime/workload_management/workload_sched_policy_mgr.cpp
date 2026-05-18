@@ -20,6 +20,7 @@
 #include <memory>
 
 #include "common/config.h"
+#include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/workload_management/resource_context.h"
 

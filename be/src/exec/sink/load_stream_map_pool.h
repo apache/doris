@@ -54,7 +54,6 @@
 #include "core/data_type/data_type.h"
 #include "exec/sink/load_stream_stub.h"
 #include "exprs/vexpr_fwd.h"
-#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"

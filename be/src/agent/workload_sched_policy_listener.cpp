@@ -17,6 +17,7 @@
 
 #include "agent/workload_sched_policy_listener.h"
 
+#include "runtime/exec_env.h"
 #include "runtime/workload_management/workload_action.h"
 #include "runtime/workload_management/workload_condition.h"
 #include "runtime/workload_management/workload_sched_policy.h"

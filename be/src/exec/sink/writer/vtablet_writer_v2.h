@@ -56,7 +56,6 @@
 #include "exec/sink/vrow_distribution.h"
 #include "exec/sink/writer/async_result_writer.h"
 #include "exprs/vexpr_fwd.h"
-#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
