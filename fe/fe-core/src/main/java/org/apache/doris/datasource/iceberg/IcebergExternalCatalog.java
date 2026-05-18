@@ -205,6 +205,11 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         return tableNames;
     }
 
+    @Override
+    protected boolean shouldBypassTableNameCache(SessionContext ctx) {
+        return ctx != null && ctx.hasDelegatedCredential() && isIcebergRestUserSessionEnabled();
+    }
+
     public boolean isIcebergRestUserSessionEnabled() {
         makeSureInitialized();
         return msProperties instanceof IcebergRestProperties

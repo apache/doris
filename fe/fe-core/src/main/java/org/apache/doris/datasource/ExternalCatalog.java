@@ -349,6 +349,10 @@ public abstract class ExternalCatalog
      */
     protected abstract List<String> listTableNamesFromRemote(SessionContext ctx, String dbName);
 
+    protected boolean shouldBypassTableNameCache(SessionContext ctx) {
+        return false;
+    }
+
     /**
      * check if the specified table exist.
      *
