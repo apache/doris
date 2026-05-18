@@ -108,6 +108,18 @@ public class PhysicalPartitionTopN<CHILD_TYPE extends Plan> extends PhysicalUnar
         return orderKeys;
     }
 
+    /**
+     * Return the output order keys used by physical property derivation.
+     */
+    public List<OrderKey> getOutputOrderKeys() {
+        return ImmutableList.<OrderKey>builder()
+                .addAll(partitionKeys.stream()
+                        .map(partitionKey -> new OrderKey(partitionKey, true, false))
+                        .collect(ImmutableList.toImmutableList()))
+                .addAll(orderKeys)
+                .build();
+    }
+
     @Override
     public boolean hasGlobalLimit() {
         return hasGlobalLimit;

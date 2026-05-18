@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
@@ -349,9 +350,18 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
      */
     public Plan pushPartitionLimitThroughWindow(WindowExpression windowFunc,
             long partitionLimit, boolean hasGlobalLimit) {
-        LogicalWindow<?> window = (LogicalWindow<?>) withChildren(new LogicalPartitionTopN<>(windowFunc, hasGlobalLimit,
-                partitionLimit, child(0)));
+        List<OrderExpression> orderKeys = prunePartitionKeys(windowFunc.getPartitionKeys(), windowFunc.getOrderKeys());
+        LogicalWindow<?> window = (LogicalWindow<?>) withChildren(new LogicalPartitionTopN<>(windowFunc.getFunction(),
+                windowFunc.getPartitionKeys(), orderKeys, hasGlobalLimit, partitionLimit, Optional.empty(),
+                Optional.empty(), child(0)));
         return window;
+    }
+
+    private static List<OrderExpression> prunePartitionKeys(List<Expression> partitionKeys,
+            List<OrderExpression> orderKeys) {
+        return orderKeys.stream()
+                .filter(orderKey -> !partitionKeys.contains(orderKey.getOrderKey().getExpr()))
+                .collect(ImmutableList.toImmutableList());
     }
 
     private Set<Expression> extractRelatedConjuncts(Set<Expression> conjuncts, ExprId slotRefID) {

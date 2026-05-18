@@ -421,7 +421,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             Preconditions.checkState(childDistSpec instanceof DistributionSpecHash,
                     "child dist spec is not hash spec");
 
-            return new PhysicalProperties(childDistSpec, new OrderSpec(partitionTopN.getOrderKeys()));
+            return new PhysicalProperties(childDistSpec, new OrderSpec(partitionTopN.getOutputOrderKeys()));
         }
     }
 
