@@ -79,7 +79,7 @@ class InferAggNotNullTest implements MemoPatternMatchSupported {
                 .aggGroupUsingIndex(ImmutableList.of(),
                         ImmutableList.of(
                                 new Alias(new Avg(scan1.getOutput().get(1)), "avg_k1"),
-                                new Alias(new Sum(scan1.getOutput().get(2)), "sum_k2")))
+                                new Alias(new Sum(scan1.getOutput().get(0)), "sum_k2")))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)

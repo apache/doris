@@ -39,17 +39,12 @@ import com.google.common.collect.ImmutableSet;
 import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 
 /**
  * InferNotNull from Agg count(distinct);
  */
 public class InferAggNotNull extends OneRewriteRuleFactory {
-    private static final int MAX_INFER_NOT_NULL_EXPR_WIDTH = 256;
-    private static final int MAX_INFER_NOT_NULL_EXPR_DEPTH = 64;
-    private static final int MAX_INFER_NOT_NULL_INPUT_SLOTS = 32;
-
     @Override
     public Rule build() {
         return logicalAggregate()
@@ -139,7 +134,7 @@ public class InferAggNotNull extends OneRewriteRuleFactory {
     private boolean canInferFunctionNotNull(AggregateFunction aggregateFunction) {
         return isSupportedAggregateFunction(aggregateFunction)
                 && !aggregateFunction.children().isEmpty()
-                && isCheapEnoughToInferNotNull(aggregateFunction.children());
+                && ExpressionUtils.isCheapEnoughToInferNotNull(aggregateFunction.children());
     }
 
     private boolean isSupportedAggregateFunction(AggregateFunction aggregateFunction) {
@@ -150,18 +145,4 @@ public class InferAggNotNull extends OneRewriteRuleFactory {
                 || aggregateFunction instanceof Min;
     }
 
-    private boolean isCheapEnoughToInferNotNull(List<Expression> expressions) {
-        Set<Expression> inputSlots = new HashSet<>();
-        for (Expression expression : expressions) {
-            if (expression.getWidth() > MAX_INFER_NOT_NULL_EXPR_WIDTH
-                    || expression.getDepth() > MAX_INFER_NOT_NULL_EXPR_DEPTH) {
-                return false;
-            }
-            inputSlots.addAll(expression.getInputSlots());
-            if (inputSlots.size() > MAX_INFER_NOT_NULL_INPUT_SLOTS) {
-                return false;
-            }
-        }
-        return true;
-    }
 }
