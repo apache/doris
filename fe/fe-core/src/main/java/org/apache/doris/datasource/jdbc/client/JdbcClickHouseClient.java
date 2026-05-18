@@ -50,6 +50,9 @@ public class JdbcClickHouseClient extends JdbcClient {
         }
     }
 
+    protected JdbcClickHouseClient() {
+    }
+
     @Override
     public List<String> getDatabaseNameList() {
         Connection conn = null;
@@ -123,7 +126,7 @@ public class JdbcClickHouseClient extends JdbcClient {
 
     @Override
     protected String[] getTableTypes() {
-        return new String[] {"TABLE", "VIEW", "SYSTEM TABLE"};
+        return new String[] { "TABLE", "VIEW", "SYSTEM TABLE" };
     }
 
     @Override
@@ -184,6 +187,8 @@ public class JdbcClickHouseClient extends JdbcClient {
             case "Bool":
                 return Type.BOOLEAN;
             case "Int8":
+                return Type.TINYINT;
+            case "Nothing":
                 return Type.TINYINT;
             case "Int16":
             case "UInt8":
