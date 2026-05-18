@@ -39,8 +39,8 @@ public class LoadActionTest {
 
     @AfterEach
     public void tearDown() {
-        Config.stream_load_redirect_bounded_drain_max_bytes = 0;
-        Config.stream_load_redirect_bounded_drain_max_idle_time_ms = 100;
+        Config.stream_load_redirect_bounded_drain_max_bytes = 16 * 1024 * 1024;
+        Config.stream_load_redirect_bounded_drain_max_idle_time_ms = 1000;
     }
 
     @Test

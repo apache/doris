@@ -3336,7 +3336,8 @@ public class Config extends ConfigBase {
                     + "0 表示关闭该兼容逻辑，正数表示最大丢弃字节数。",
             "The maximum number of request body bytes FE drains after returning 307 for Stream Load redirects. "
                     + "0 disables the compatibility logic, and a positive value sets the byte limit."})
-    public static long stream_load_redirect_bounded_drain_max_bytes = 0;
+    // Enable a bounded drain window by default to preserve FE redirect compatibility on Jetty 12.
+    public static long stream_load_redirect_bounded_drain_max_bytes = 16 * 1024 * 1024;
 
     @ConfField(mutable = true, description = {
             "Stream Load redirect 场景下，FE 在检测到请求体暂时无可读数据后继续等待的最大空闲时长，单位毫秒。"
@@ -3344,7 +3345,8 @@ public class Config extends ConfigBase {
             "The maximum idle wait time in milliseconds after FE detects no readable request body bytes "
                     + "during Stream Load redirect drain. 0 disables the extra idle wait, while a positive value "
                     + "keeps a bounded grace window for slow clients or delayed request body chunks."})
-    public static int stream_load_redirect_bounded_drain_max_idle_time_ms = 100;
+    // Keep a small grace period for delayed body chunks after FE has already written the redirect.
+    public static int stream_load_redirect_bounded_drain_max_idle_time_ms = 1000;
 
     @ConfField(mutable = true, description = {
             "Whether to enable group commit streamload BE forward feature in cloud mode. "
