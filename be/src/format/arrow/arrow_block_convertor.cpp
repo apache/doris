@@ -158,7 +158,8 @@ Status make_zero_column_arrow_batch(const std::shared_ptr<arrow::Schema>& schema
 }
 
 Status convert_from_arrow_batch(const std::shared_ptr<arrow::RecordBatch>& batch,
-                                const DataTypes& types, Block* block, const cctz::time_zone& timezone_obj) {
+                                const DataTypes& types, Block* block,
+                                const cctz::time_zone& timezone_obj) {
     FromRecordBatchToBlockConverter converter(batch, types, timezone_obj);
     return converter.convert(block);
 }

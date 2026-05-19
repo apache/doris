@@ -42,6 +42,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
@@ -291,9 +292,13 @@ public class ShowFunctionsCommand extends ShowCommand {
         if (!Strings.isNullOrEmpty(function.getRuntimeVersion())) {
             properties.put("RUNTIME_VERSION", function.getRuntimeVersion());
         }
-
         if (function instanceof ScalarFunction) {
             ScalarFunction scalarFunction = (ScalarFunction) function;
+            if (!scalarFunction.isUDTFunction()
+                    && (function.getBinaryType() == TFunctionBinaryType.JAVA_UDF
+                    || function.getBinaryType() == TFunctionBinaryType.PYTHON_UDF)) {
+                properties.put("VOLATILITY", function.getVolatility().toSql());
+            }
             properties.put("SYMBOL", Strings.nullToEmpty(scalarFunction.getSymbolName()));
             if (scalarFunction.getPrepareFnSymbol() != null) {
                 properties.put("PREPARE_FN", scalarFunction.getPrepareFnSymbol());
@@ -342,6 +347,11 @@ public class ShowFunctionsCommand extends ShowCommand {
         return properties.entrySet().stream()
                 .map(entry -> entry.getKey() + "=" + entry.getValue())
                 .collect(Collectors.joining(", "));
+    }
+
+    @VisibleForTesting
+    String buildPropertiesForTest(Function function) {
+        return buildProperties(function);
     }
 
 }

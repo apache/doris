@@ -17,7 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.catalog.Function.BinaryType;
+import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
@@ -27,6 +27,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.thrift.TFunctionBinaryType;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -181,7 +182,7 @@ public class CatalogRecycleBinTest {
         String functionName = "recycled_py_udf";
         Database db = new Database(10001, dbName);
         ScalarFunction function = ScalarFunction.createUdf(
-                BinaryType.PYTHON_UDF,
+                TFunctionBinaryType.PYTHON_UDF,
                 new FunctionName(dbName, functionName),
                 new Type[] {Type.INT},
                 Type.INT,

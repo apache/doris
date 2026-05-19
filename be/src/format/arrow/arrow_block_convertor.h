@@ -43,7 +43,8 @@ namespace doris {
 
 class FromBlockToRecordBatchConverter {
 public:
-    FromBlockToRecordBatchConverter(const Block& block, const std::shared_ptr<arrow::Schema>& schema,
+    FromBlockToRecordBatchConverter(const Block& block,
+                                    const std::shared_ptr<arrow::Schema>& schema,
                                     arrow::MemoryPool* pool, const cctz::time_zone& timezone_obj)
             : _block(block),
               _schema(schema),
@@ -53,7 +54,8 @@ public:
               _row_range_start(0),
               _row_range_end(0) {}
 
-    FromBlockToRecordBatchConverter(const Block& block, const std::shared_ptr<arrow::Schema>& schema,
+    FromBlockToRecordBatchConverter(const Block& block,
+                                    const std::shared_ptr<arrow::Schema>& schema,
                                     arrow::MemoryPool* pool, const cctz::time_zone& timezone_obj,
                                     size_t start_row, size_t end_row)
             : _block(block),
@@ -92,8 +94,7 @@ private:
 class FromRecordBatchToBlockConverter {
 public:
     FromRecordBatchToBlockConverter(const std::shared_ptr<arrow::RecordBatch>& batch,
-                                    const DataTypes& types,
-                                    const cctz::time_zone& timezone_obj)
+                                    const DataTypes& types, const cctz::time_zone& timezone_obj)
             : _batch(batch), _types(types), _timezone_obj(timezone_obj) {}
 
     ~FromRecordBatchToBlockConverter() = default;

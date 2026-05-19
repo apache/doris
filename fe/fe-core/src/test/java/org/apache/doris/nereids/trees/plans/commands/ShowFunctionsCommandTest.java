@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
@@ -24,11 +25,15 @@ import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.FunctionVolatility;
+import org.apache.doris.catalog.ScalarFunction;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TFunctionBinaryType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -109,6 +114,52 @@ public class ShowFunctionsCommandTest extends TestWithFeService {
         connectContext.setDatabase("test");
         ShowFunctionsCommand sf = new ShowFunctionsCommand("test", false, null);
         Assertions.assertTrue(sf.like("test_for_create_function", "test_for_create_function%"));
+    }
+
+    @Test
+    void testBuildProperties_scalarUdfEmitsVolatility() {
+        ShowFunctionsCommand sf = new ShowFunctionsCommand("test", true, null);
+        ScalarFunction fn = ScalarFunction.createUdf(TFunctionBinaryType.JAVA_UDF,
+                new FunctionName("test", "java_scalar_fn"), new Type[] {Type.INT},
+                Type.INT, false, null, "com.example.ScalarFn", null, null);
+        fn.setVolatility(FunctionVolatility.IMMUTABLE);
+
+        String properties = sf.buildPropertiesForTest(fn);
+
+        Assertions.assertTrue(properties.contains("SYMBOL=com.example.ScalarFn"));
+        Assertions.assertTrue(properties.contains("VOLATILITY=immutable"));
+    }
+
+    @Test
+    void testBuildProperties_javaUdtfDoesNotEmitVolatility() {
+        ShowFunctionsCommand sf = new ShowFunctionsCommand("test", true, null);
+        ScalarFunction fn = ScalarFunction.createUdf(TFunctionBinaryType.JAVA_UDF,
+                new FunctionName("test", "java_table_fn"), new Type[] {Type.INT},
+                Type.INT, false, null, "com.example.TableFn", null, null);
+        fn.setUDTFunction(true);
+        fn.setVolatility(FunctionVolatility.IMMUTABLE);
+
+        String properties = sf.buildPropertiesForTest(fn);
+
+        Assertions.assertTrue(properties.contains("SYMBOL=com.example.TableFn"));
+        Assertions.assertFalse(properties.contains("VOLATILITY"));
+    }
+
+    @Test
+    void testBuildProperties_pythonUdtfDoesNotEmitVolatility() {
+        ShowFunctionsCommand sf = new ShowFunctionsCommand("test", true, null);
+        ScalarFunction fn = ScalarFunction.createUdf(TFunctionBinaryType.PYTHON_UDF,
+                new FunctionName("test", "py_table_fn"), new Type[] {Type.INT},
+                Type.INT, false, null, "evaluate", null, null);
+        fn.setUDTFunction(true);
+        fn.setRuntimeVersion("3.10.2");
+        fn.setVolatility(FunctionVolatility.IMMUTABLE);
+
+        String properties = sf.buildPropertiesForTest(fn);
+
+        Assertions.assertTrue(properties.contains("RUNTIME_VERSION=3.10.2"));
+        Assertions.assertTrue(properties.contains("SYMBOL=evaluate"));
+        Assertions.assertFalse(properties.contains("VOLATILITY"));
     }
 
     @Test

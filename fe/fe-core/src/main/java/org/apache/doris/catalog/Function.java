@@ -157,6 +157,8 @@ public class Function implements Writable {
     protected String runtimeVersion;
     @SerializedName("fc")
     protected String functionCode;
+    @SerializedName("vol")
+    protected FunctionVolatility volatility = FunctionVolatility.IMMUTABLE;
 
     // Only used for serialization
     protected Function() {
@@ -221,6 +223,7 @@ public class Function implements Writable {
         this.expirationTime = other.expirationTime;
         this.runtimeVersion = other.runtimeVersion;
         this.functionCode = other.functionCode;
+        this.volatility = other.getVolatility();
     }
 
     public void setNestedFunction(Function nestedFunction) {
@@ -350,6 +353,14 @@ public class Function implements Writable {
 
     public void setFunctionCode(String functionCode) {
         this.functionCode = functionCode;
+    }
+
+    public FunctionVolatility getVolatility() {
+        return volatility == null ? FunctionVolatility.IMMUTABLE : volatility;
+    }
+
+    public void setVolatility(FunctionVolatility volatility) {
+        this.volatility = volatility == null ? FunctionVolatility.IMMUTABLE : volatility;
     }
 
     // TODO(cmy): Currently we judge whether it is UDF by wheter the 'location' is set.

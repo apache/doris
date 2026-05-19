@@ -44,6 +44,7 @@ import java.util.Map;
  */
 public class ScalarFunction extends Function {
     private static final Logger LOG = LogManager.getLogger(ScalarFunction.class);
+    private static final long DEFAULT_EXPIRATION_TIME = 360;
     // The name inside the binary at location_ that contains this particular
     // function. e.g. org.example.MyUdf.class.
     @SerializedName("sn")
@@ -241,12 +242,33 @@ public class ScalarFunction extends Function {
                     .append("\"" + (getLocation() == null ? "" : getLocation().toString()) + "\"");
             boolean isReturnNull = this.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
             sb.append(",\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\"");
+            if (!isUDTFunction()) {
+                sb.append(",\n  \"VOLATILITY\"=").append("\"" + getVolatility().toSql() + "\"");
+            }
+        } else if (getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
+            if (getLocation() != null) {
+                sb.append(",\n  \"FILE\"=").append("\"" + getLocation().toString() + "\"");
+            }
+            boolean isReturnNull = this.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
+            sb.append(",\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\"");
+            sb.append(",\n  \"RUNTIME_VERSION\"=").append("\"" + Strings.nullToEmpty(getRuntimeVersion()) + "\"");
+            if (getExpirationTime() != DEFAULT_EXPIRATION_TIME) {
+                sb.append(",\n  \"EXPIRATION_TIME\"=").append("\"" + getExpirationTime() + "\"");
+            }
+            if (!isUDTFunction()) {
+                sb.append(",\n  \"VOLATILITY\"=").append("\"" + getVolatility().toSql() + "\"");
+            }
         } else {
             sb.append(",\n  \"OBJECT_FILE\"=")
                     .append("\"" + (getLocation() == null ? "" : getLocation().toString()) + "\"");
         }
         sb.append(",\n  \"TYPE\"=").append("\"" + this.getBinaryType() + "\"");
-        sb.append("\n);");
+        if (getBinaryType() == TFunctionBinaryType.PYTHON_UDF && !Strings.isNullOrEmpty(getFunctionCode())) {
+            // Keep inline Python UDFs replayable in SHOW CREATE FUNCTION output.
+            sb.append("\n)\nAS $$\n").append(getFunctionCode()).append("\n$$;");
+        } else {
+            sb.append("\n);");
+        }
         return sb.toString();
     }
 
