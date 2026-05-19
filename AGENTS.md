@@ -35,7 +35,7 @@ When conducting code review (including self-review and review tasks), complete t
 Always use only the `build.sh` script with its correct parameters to build Doris BE and FE. For example, the simplest BE+FE build command is `./build.sh --be --fe`.
 Build type can be set via `BUILD_TYPE` in `custom_env.sh`, but only set it to `RELEASE` when explicitly required for performance testing; otherwise, keep it as `ASAN`.
 You may modify BE and FE ports and network settings in `conf/` before compilation to ensure correctness and avoid conflicts.
-Build artifacts are in the current directory's `output/`. If starting the service, ensure all process artifacts have their conf set with appropriate non-conflicting ports and `priority_networks = 10.16.10.3/24`. Use `--daemon` when starting. Cluster startup is slow; wait at least 30s for success. If still not ready after waiting, continue waiting. If not ready after a long time, check BE and FE logs to investigate.
+Build artifacts are in the current directory's `output/`. If starting the service, ensure all process artifacts have their conf set with appropriate non-conflicting ports and the correct `priority_networks` that match the current network environment, for example `priority_networks = 10.16.10.3/24`. Use `--daemon` when starting. Cluster startup is slow; wait at least 30s for success. If still not ready after waiting, continue waiting. If not ready after a long time, check BE and FE logs to investigate.
 For first-time cluster startup, you may need to manually add the backend.
 
 ## Testing Standards
@@ -47,11 +47,13 @@ You must use the preset scripts in the codebase with their correct parameters to
 Key utility functions in BE code, as well as the core logic of complete features, must have corresponding unit tests. If it is inconvenient to add unit tests, revisit the module design and function decomposition to ensure high cohesion and low coupling.
 
 Added regression tests must comply with the following standards:
+
 1. Use `order_qt` prefix or manually add `order by` to ensure ordered results
 2. For cases expected to error, use the `test{sql,exception}` pattern
 3. After completing tests, do not drop tables; instead drop tables before using them in tests, to preserve the environment for debugging
 4. For ordinary single test tables, do not use `def tableName` form; instead hardcode your table name in all SQL
 5. Except for variables you explicitly need to adjust for testing current functionality, other variables do not need extra setup before testing. For example, nereids optimizer and pipeline engine settings can use default states
+6. For determined expected results, do not using methods like `assert` in test groovy files, but instead generate the `.out` file using `qt_sql` and similar methods.
 
 ## Commit Standards
 
@@ -83,10 +85,12 @@ Problem Summary: <Describe the problem this commit addresses>
 ```
 
 Key rules for commit messages:
+
 1. The title must follow the `[type](module)` format validated by the PR title checker (`.github/workflows/title-checker.yml`). Common types include: `fix`, `feature`, `improvement`, `refactor`, `chore`, `test`, `doc`. Common modules include: `fe`, `be`, `cloud`, `regression`, `build`
 2. The short summary must be concise and written in imperative mood (e.g., `[fix](fe) Fix null pointer in scan node` not `[fix](fe) Fixed null pointer`)
 3. The `Issue Number` field must reference the corresponding GitHub Issue with `close #xxx` syntax when applicable
 4. The `Release note` section must be filled in for any user-visible behavior or feature change; write "None" for internal refactoring or test-only changes
-5. The test section must honestly reflect the testing performed; do not claim tests that were not actually run
+5. The `Problem Summary` section should cover the following content when available: problem reproduction method, root cause in code, end-to-end results/phenomena before and after repair, and the fix. If it's a refactoring, explain the reason. If it's a performance improvement, specify the case and the exact improvement amount. DO NOT mention any specific JIRA numbers. The background of the problem should be fully understandable through this section alone.
+6. The test section must honestly reflect the testing performed; do not claim tests that were not actually run
 
 Files in a git commit should only be related to the current modification task. Environment modifications for running (for example `conf/`, `AGENTS.md`, `hooks/`) must not be `git add`ed. When delivering the final task, ensure all actual code modifications have been committed.

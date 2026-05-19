@@ -45,7 +45,8 @@ suite("string_length_column_pruning") {
             struct_col STRUCT<f1: INT, f3: STRING>,
             arr_col  ARRAY<INT>,
             map_col  MAP<STRING, STRING>,
-            map_arr_col MAP<STRING, ARRAY<INT>>
+            map_arr_col MAP<STRING, ARRAY<INT>>,
+            map_arr_struct_col MAP<STRING, ARRAY<STRUCT<verified: BOOLEAN, value: INT>>>
         ) ENGINE = OLAP
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -53,7 +54,9 @@ suite("string_length_column_pruning") {
     """
     sql """
         INSERT INTO slcp_str_tbl VALUES
-            (1, 'hello', named_struct('f1', 10, 'f3', 'world'), [1, 2, 3], {'a': 'x', 'b': 'y'}, {'a': [1, 2], 'b': [3]})
+            (1, 'hello', named_struct('f1', 10, 'f3', 'world'), [1, 2, 3], {'a': 'x', 'b': 'y'},
+              {'a': [1, 2], 'b': [3]},
+              map('a', array(named_struct('verified', true, 'value', 10))))
     """
 
     // ─── Optimizable cases ──────────────────────────────────────────────────────
@@ -150,6 +153,21 @@ suite("string_length_column_pruning") {
         notContains "OFFSET"
         notContains "type=bigint"
     }
+
+    // Full access to the same array field covers its OFFSET metadata for any data type.
+    explain {
+        sql "select id, cardinality(arr_col), arr_col from slcp_str_tbl"
+        contains "nested columns"
+        contains "all access paths: [arr_col]"
+        notContains "arr_col.OFFSET"
+        notContains "predicate access paths:"
+        notContains "type=bigint"
+    }
+
+    order_qt_array_full_access_strips_offset """
+        select id, cardinality(arr_col), arr_col from slcp_str_tbl
+        order by id
+    """
 
     // ─── Map column cases ────────────────────────────────────────────────────────
 
@@ -252,6 +270,56 @@ suite("string_length_column_pruning") {
         sql "select cardinality(map_arr_col['a']), map_arr_col['b'][0] from slcp_str_tbl"
         notContains "OFFSET"
         notContains "type=bigint"
+    }
+
+    // value array item also accessed directly → full VALUES item path covers value OFFSET.
+    explain {
+        sql "select cardinality(map_arr_struct_col['a']), map_arr_struct_col['a'][1].verified from slcp_str_tbl"
+        contains "nested columns"
+        contains "map_arr_struct_col.*.*.verified"
+        notContains "map_arr_struct_col.*.OFFSET"
+        notContains "type=bigint"
+    }
+
+    explain {
+        sql "select id, cardinality(map_arr_col['a']), map_arr_col['a'] from slcp_str_tbl"
+        contains "nested columns"
+        contains "all access paths: [map_arr_col.*]"
+        notContains "map_arr_col.*.OFFSET"
+        notContains "predicate access paths:"
+        notContains "type=bigint"
+    }
+
+    order_qt_map_element_full_access_strips_offset """
+        select id, cardinality(map_arr_col['a']), map_arr_col['a'] from slcp_str_tbl
+        order by id
+    """
+
+    // Predicate OFFSET path must also be removed when the projected value field already
+    // makes the corresponding array data path available. predicateAccessPaths remains a
+    // subset of allAccessPaths.
+    explain {
+        sql "select map_arr_struct_col['a'][1].verified from slcp_str_tbl where cardinality(map_arr_struct_col['a']) > 0"
+        contains "nested columns"
+        contains "all access paths: [map_arr_struct_col.*.*.verified]"
+        notContains "map_arr_struct_col.*.OFFSET"
+        notContains "predicate access paths:"
+        notContains "type=bigint"
+    }
+
+    order_qt_map_value_array_predicate_offset_covered """
+        select map_arr_struct_col['a'][1].verified from slcp_str_tbl
+        where cardinality(map_arr_struct_col['a']) > 0
+        order by 1
+    """
+
+    // value array item also accessed directly → full VALUES item path covers value NULL.
+    explain {
+        sql "select map_arr_struct_col['a'][1].verified from slcp_str_tbl where map_arr_struct_col['a'] is null"
+        contains "nested columns"
+        contains "map_arr_struct_col.*.*.verified"
+        notContains "map_arr_struct_col.*.NULL"
+        notContains "predicate access paths:"
     }
 
     // ─── Non-optimizable cases ──────────────────────────────────────────────────

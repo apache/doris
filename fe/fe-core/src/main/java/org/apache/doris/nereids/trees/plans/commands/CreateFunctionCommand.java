@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionName;
 import org.apache.doris.catalog.FunctionUtil;
+import org.apache.doris.catalog.FunctionVolatility;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
@@ -152,6 +153,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     public static final String IS_STATIC_LOAD = "static_load";
     public static final String EXPIRATION_TIME = "expiration_time";
     public static final String RUNTIME_VERSION = "runtime_version";
+    public static final String VOLATILITY = "volatility";
 
     private static final Pattern PYTHON_VERSION_PATTERN = Pattern.compile("^3\\.\\d{1,2}(?:\\.\\d{1,2})?$");
     private static final Logger LOG = LogManager.getLogger(CreateFunctionCommand.class);
@@ -182,6 +184,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     // if not, will core dump when input is not null column, but need return null
     // like https://github.com/apache/doris/pull/14002/files
     private NullableMode returnNullMode = NullableMode.ALWAYS_NULLABLE;
+    private FunctionVolatility volatility = FunctionVolatility.IMMUTABLE;
     private String runtimeVersion;
     private String functionCode;
 
@@ -320,6 +323,9 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             throw new AnalysisException("do not support 'NATIVE' udf type after doris version 1.2.0,"
                     + "please use JAVA_UDF or RPC instead");
         }
+        if (properties.containsKey(VOLATILITY) && (isAggregate || isTableFunction)) {
+            throw new AnalysisException("volatility property only supports scalar JAVA_UDF and PYTHON_UDF");
+        }
 
         userFile = properties.getOrDefault(FILE_KEY, properties.get(OBJECT_FILE_KEY));
         originalUserFile = userFile; // Keep original jar name for BE
@@ -340,6 +346,9 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
         if (binaryType == Function.BinaryType.JAVA_UDF) {
             FunctionUtil.checkEnableJavaUdf();
+            if (!isAggregate && !isTableFunction) {
+                volatility = analyzeVolatility();
+            }
 
             // always_nullable the default value is true, equal null means true
             Boolean isReturnNull = parseBooleanFromProperties(IS_RETURN_NULL);
@@ -354,6 +363,9 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             extractExpirationTime();
         } else if (binaryType == Function.BinaryType.PYTHON_UDF) {
             FunctionUtil.checkEnablePythonUdf();
+            if (!isAggregate && !isTableFunction) {
+                volatility = analyzeVolatility();
+            }
 
             // always_nullable the default value is true, equal null means true
             Boolean isReturnNull = parseBooleanFromProperties(IS_RETURN_NULL);
@@ -370,6 +382,19 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                         + "'3.X.X' or '3.XX.XX' (e.g. '3.10.2').", runtimeVersionString));
             }
             runtimeVersion = runtimeVersionString;
+        } else if (properties.containsKey(VOLATILITY)) {
+            throw new AnalysisException("volatility property only supports JAVA_UDF and PYTHON_UDF");
+        }
+    }
+
+    private FunctionVolatility analyzeVolatility() throws AnalysisException {
+        if (!properties.containsKey(VOLATILITY)) {
+            return FunctionVolatility.VOLATILE;
+        }
+        try {
+            return FunctionVolatility.fromString(properties.get(VOLATILITY));
+        } catch (IllegalArgumentException e) {
+            throw new AnalysisException(e.getMessage());
         }
     }
 
@@ -481,6 +506,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         function.setUDTFunction(true);
         function.setRuntimeVersion(runtimeVersion);
         function.setFunctionCode(functionCode);
+        function.setVolatility(volatility);
         // Todo: maybe in create tables function, need register two function, one is
         // normal and one is outer as those have different result when result is NULL.
     }
@@ -555,6 +581,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         function.setExpirationTime(expirationTime);
         function.setRuntimeVersion(runtimeVersion);
         function.setFunctionCode(functionCode);
+        function.setVolatility(volatility);
     }
 
     private void analyzeUdf() throws AnalysisException {
@@ -592,6 +619,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         function.setExpirationTime(expirationTime);
         function.setRuntimeVersion(runtimeVersion);
         function.setFunctionCode(functionCode);
+        function.setVolatility(volatility);
     }
 
     private void analyzeJavaUdaf(String clazz) throws AnalysisException {

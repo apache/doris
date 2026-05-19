@@ -19,7 +19,10 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <functional>
 #include <memory>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -306,6 +309,7 @@ TEST_F(DataStreamRecvrTest, TestRandomCloseSender) {
 }
 
 class MockClosure : public google::protobuf::Closure {
+public:
     MockClosure() = default;
 
     ~MockClosure() override = default;
@@ -321,6 +325,111 @@ void to_pblock(Block& block, PBlock* pblock) {
     EXPECT_TRUE(block.serialize(BeExecVersionManager::get_newest_version(), pblock,
                                 &uncompressed_bytes, &compressed_bytes, &compressed_time,
                                 segment_v2::CompressionTypePB::NO_COMPRESSION));
+}
+
+void run_concurrent_remote_add_and_drain(VDataStreamRecvr::SenderQueue* sender,
+                                         MockVDataStreamRecvr* recvr, bool use_cancel) {
+    constexpr int num_threads = 4;
+    constexpr int blocks_per_thread = 200;
+    constexpr int num_blocks = num_threads * blocks_per_thread;
+    constexpr int min_delayed_callbacks_before_drain = 16;
+
+    recvr->always_exceeds_limit = true;
+
+    std::atomic_bool start {false};
+    std::atomic_int add_attempts {0};
+    std::atomic_int delayed_callbacks {0};
+    std::atomic_int callbacks_run {0};
+    std::mutex closures_lock;
+    std::vector<std::shared_ptr<MockClosure>> closures;
+    closures.reserve(num_blocks);
+
+    auto add_func = [&](int be_number) {
+        while (!start.load(std::memory_order_acquire)) {
+            std::this_thread::yield();
+        }
+
+        for (int packet_seq = 0; packet_seq < blocks_per_thread; ++packet_seq) {
+            add_attempts.fetch_add(1, std::memory_order_relaxed);
+
+            auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 5});
+            auto pblock = std::make_unique<PBlock>();
+            to_pblock(block, pblock.get());
+
+            auto closure = std::make_shared<MockClosure>();
+            closure->_cb = [&]() { callbacks_run.fetch_add(1, std::memory_order_relaxed); };
+            {
+                std::lock_guard<std::mutex> lock(closures_lock);
+                closures.push_back(closure);
+            }
+
+            google::protobuf::Closure* done = closure.get();
+            auto st = sender->add_block(std::move(pblock), be_number, packet_seq, &done, 0, 0);
+            EXPECT_TRUE(st) << st.msg();
+            if (done != nullptr) {
+                done->Run();
+            } else {
+                delayed_callbacks.fetch_add(1, std::memory_order_relaxed);
+            }
+        }
+    };
+
+    auto drain_func = [&]() {
+        while (!start.load(std::memory_order_acquire)) {
+            std::this_thread::yield();
+        }
+        while (delayed_callbacks.load(std::memory_order_relaxed) <
+                       min_delayed_callbacks_before_drain &&
+               add_attempts.load(std::memory_order_relaxed) < num_blocks) {
+            std::this_thread::yield();
+        }
+
+        if (use_cancel) {
+            sender->cancel(Status::Cancelled("test cancel"));
+        } else {
+            sender->close();
+        }
+    };
+
+    std::vector<std::thread> threads;
+    for (int i = 0; i < num_threads; ++i) {
+        threads.emplace_back(add_func, i + 1);
+    }
+    threads.emplace_back(drain_func);
+
+    start.store(true, std::memory_order_release);
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    EXPECT_EQ(callbacks_run.load(std::memory_order_relaxed), num_blocks);
+    EXPECT_EQ(sender->_block_queue.size(), 0);
+}
+
+TEST_F(DataStreamRecvrTest, TestRemoteCancelConcurrentWithAddBlock) {
+    create_recvr(4, false);
+    ASSERT_EQ(recvr->sender_queues().size(), 1);
+
+    auto* sender = recvr->sender_queues().back();
+    run_concurrent_remote_add_and_drain(sender, recvr.get(), true);
+
+    Block block;
+    bool eos = false;
+    auto st = sender->get_batch(&block, &eos);
+    EXPECT_FALSE(st.ok());
+}
+
+TEST_F(DataStreamRecvrTest, TestRemoteCloseConcurrentWithAddBlock) {
+    create_recvr(4, false);
+    ASSERT_EQ(recvr->sender_queues().size(), 1);
+
+    auto* sender = recvr->sender_queues().back();
+    run_concurrent_remote_add_and_drain(sender, recvr.get(), false);
+
+    Block block;
+    bool eos = false;
+    auto st = sender->get_batch(&block, &eos);
+    EXPECT_FALSE(st.ok());
 }
 
 TEST_F(DataStreamRecvrTest, TestRemoteSender) {
