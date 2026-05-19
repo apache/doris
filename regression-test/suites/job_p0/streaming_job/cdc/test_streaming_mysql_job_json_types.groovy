@@ -33,7 +33,7 @@ suite("test_streaming_mysql_job_json_types", "p0,external,mysql,external_docker,
     def jobName = "test_streaming_mysql_job_json_types_name"
     def currentDb = (sql "select database()")[0][0]
     def table1 = "streaming_json_types_pk"
-    def mysqlDb = "test_cdc_json_db"
+    def mysqlDb = "test_cdc_db"
 
     sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
     sql """drop table if exists ${currentDb}.${table1} force"""
@@ -68,8 +68,7 @@ suite("test_streaming_mysql_job_json_types", "p0,external,mysql,external_docker,
             sql """insert into ${mysqlDb}.${table1} values (7,  'empty_arr',       '[]')"""
             sql """insert into ${mysqlDb}.${table1} values (8,  'unicode_chinese', '{"name":"张三","city":"上海"}')"""
             sql """insert into ${mysqlDb}.${table1} values (9,  'emoji',           '{"msg":"Hello 🚀 World 😀"}')"""
-            // Build values containing control chars via JSON_OBJECT to dodge SQL escape complexity.
-            sql """insert into ${mysqlDb}.${table1} values (10, 'newline_in_value', JSON_OBJECT('text', CONCAT('line1', CHAR(10), 'line2')))"""
+            sql """insert into ${mysqlDb}.${table1} values (10, 'newline_in_value', JSON_OBJECT('text', CONVERT(CONCAT('line1', CHAR(10), 'line2') USING utf8mb4)))"""
             sql """insert into ${mysqlDb}.${table1} values (11, 'quote_in_value',   JSON_OBJECT('text', 'she said "hi"'))"""
             sql """insert into ${mysqlDb}.${table1} values (12, 'scalar_array',    '[true,false,null,1,1.5,"str"]')"""
             sql """insert into ${mysqlDb}.${table1} values (13, 'sql_null',        NULL)"""
@@ -125,7 +124,7 @@ suite("test_streaming_mysql_job_json_types", "p0,external,mysql,external_docker,
             sql """insert into ${mysqlDb}.${table1} values (107, 'empty_arr',       '[]')"""
             sql """insert into ${mysqlDb}.${table1} values (108, 'unicode_chinese', '{"name":"李四","city":"北京"}')"""
             sql """insert into ${mysqlDb}.${table1} values (109, 'emoji',           '{"msg":"Bye 👋 👀"}')"""
-            sql """insert into ${mysqlDb}.${table1} values (110, 'newline_in_value', JSON_OBJECT('text', CONCAT('abc', CHAR(10), 'def')))"""
+            sql """insert into ${mysqlDb}.${table1} values (110, 'newline_in_value', JSON_OBJECT('text', CONVERT(CONCAT('abc', CHAR(10), 'def') USING utf8mb4)))"""
             sql """insert into ${mysqlDb}.${table1} values (111, 'quote_in_value',   JSON_OBJECT('text', 'he said "ok"'))"""
             sql """insert into ${mysqlDb}.${table1} values (112, 'scalar_array',    '[false,true,null,42,3.14,"x"]')"""
             sql """insert into ${mysqlDb}.${table1} values (113, 'sql_null',        NULL)"""

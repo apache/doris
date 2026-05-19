@@ -41,7 +41,7 @@ suite("test_streaming_mysql_job_enum_set", "p0,external,mysql,external_docker,ex
     def jobName = "test_streaming_mysql_job_enum_set_name"
     def currentDb = (sql "select database()")[0][0]
     def table1 = "streaming_enum_set_pk"
-    def mysqlDb = "test_cdc_enum_set_db"
+    def mysqlDb = "test_cdc_db"
 
     sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
     sql """drop table if exists ${currentDb}.${table1} force"""

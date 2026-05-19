@@ -29,7 +29,7 @@ suite("test_streaming_mysql_job_partition", "p0,external,mysql,external_docker,e
     def jobName = "test_streaming_mysql_job_partition_name"
     def currentDb = (sql "select database()")[0][0]
     def table1 = "user_info_mysql_orders"
-    def mysqlDb = "test_cdc_partition_db"
+    def mysqlDb = "test_cdc_db"
 
     sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
     sql """drop table if exists ${currentDb}.${table1} force"""

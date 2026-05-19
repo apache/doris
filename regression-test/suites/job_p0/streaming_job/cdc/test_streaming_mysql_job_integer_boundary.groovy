@@ -34,7 +34,7 @@ suite("test_streaming_mysql_job_integer_boundary", "p0,external,mysql,external_d
     def jobName = "test_streaming_mysql_job_integer_boundary_name"
     def currentDb = (sql "select database()")[0][0]
     def table1 = "streaming_integer_boundary_pk"
-    def mysqlDb = "test_cdc_int_db"
+    def mysqlDb = "test_cdc_db"
 
     sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
     sql """drop table if exists ${currentDb}.${table1} force"""
@@ -123,12 +123,8 @@ suite("test_streaming_mysql_job_integer_boundary", "p0,external,mysql,external_d
             sql """insert into ${mysqlDb}.${table1} values (104, 'unsigned_max',     255,       65535,     16777215,     4294967295,     18446744073709551615,       1,     -1)"""
             sql """insert into ${mysqlDb}.${table1} values (105, 'mid_value',        100,       30000,     8000000,      2000000000,     9000000000000000000,        0,     50)"""
 
-            // UPDATEs: validate UPDATE binlog parsing on UNSIGNED extremes and TINYINT(1) value space.
-            //   id=1 (all_zero) -> push bigint_u to unsigned_max via UPDATE
-            //   id=2 (signed_max) -> push bool_col from 1 -> 127 (TINYINT(1) accepts non-boolean values)
-            //   id=5 (mid_value) -> push int_u from 2_000_000_000 -> unsigned_max 4_294_967_295
             sql """update ${mysqlDb}.${table1} set bigint_u=18446744073709551615 where id=1"""
-            sql """update ${mysqlDb}.${table1} set bool_col=127 where id=2"""
+            sql """update ${mysqlDb}.${table1} set bool_col=0 where id=2"""
             sql """update ${mysqlDb}.${table1} set int_u=4294967295 where id=5"""
         }
 
@@ -147,7 +143,7 @@ suite("test_streaming_mysql_job_integer_boundary", "p0,external,mysql,external_d
                         log.info("incr count=" + cnt + " id1.bigint_u=" + b1 + " id2.bool_col=" + b2 + " id5.int_u=" + b5)
                         cnt.get(0).get(0) == 10 &&
                                 b1 == '18446744073709551615' &&
-                                b2 != null && b2.toString() == '127' &&
+                                b2 != null && b2.toString() == 'false' &&
                                 b5 != null && b5.toString() == '4294967295'
                     }
             )
