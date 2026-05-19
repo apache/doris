@@ -1534,8 +1534,25 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         BuildMode buildMode = visitBuildMode(ctx.buildMode());
         RefreshMethod refreshMethod = visitRefreshMethod(ctx.refreshMethod());
         MTMVRefreshTriggerInfo refreshTriggerInfo = visitRefreshTrigger(ctx.refreshTrigger());
-        LogicalPlan logicalPlan = visitQuery(ctx.query());
-        String querySql = getOriginSql(ctx.query());
+
+        String originQuerySql = getOriginSql(ctx.query());
+        String querySql = originQuerySql;
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null) {
+            querySql = SqlDialectHelper.convertSqlByDialect(originQuerySql, connectContext.getSessionVariable());
+        }
+        LogicalPlan logicalPlan;
+        if (querySql.equals(originQuerySql)) {
+            // SQL was not converted, use the original parsed query from context
+            logicalPlan = visitQuery(ctx.query());
+        } else {
+            // SQL was converted by dialect, need to re-parse the converted SQL
+            logicalPlan = new NereidsParser().parseSingle(querySql, this);
+            // Remove UnboundResultSink wrapper if present
+            if (logicalPlan instanceof UnboundResultSink) {
+                logicalPlan = (LogicalPlan) ((UnboundResultSink<?>) logicalPlan).child();
+            }
+        }
 
         int bucketNum = FeConstants.default_bucket_num;
         if (ctx.INTEGER_VALUE() != null) {
