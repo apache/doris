@@ -35,9 +35,9 @@ public class TypeTest {
         ArrayType a3 = new ArrayType(new ArrayType(Type.BIGINT, true), true);
         Assert.assertFalse(Type.matchExactType(a1, a3, false));
 
-        // containsNull differs -> matchesType fails
+        // containsNull is always true now, so a4 is equivalent to a1
         ArrayType a4 = new ArrayType(new ArrayType(Type.INT, true), false);
-        Assert.assertFalse(Type.matchExactType(a1, a4, false));
+        Assert.assertTrue(Type.matchExactType(a1, a4, false));
 
         // array nested decimal test
         ArrayType a5 = new ArrayType(new ArrayType(ScalarType.createDecimalV3Type(8, 2), true), true);
@@ -63,7 +63,7 @@ public class TypeTest {
         Assert.assertFalse(Type.matchExactType(m1, m3, false));
         Assert.assertFalse(Type.matchExactType(m1, m3, true));
 
-        // key/value containsNull differs -> doesn't matter for matching
+        // key/value containsNull differs, but MapType.equals() ignores it -> matches
         MapType m4 = new MapType(Type.INT, arrayOfD, false, true);
         Assert.assertTrue(Type.matchExactType(m1, m4, false));
     }

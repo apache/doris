@@ -42,6 +42,11 @@
 
 namespace doris {
 
+static MutableColumnPtr create_nullable_nested_array_column(MutableColumnPtr nested,
+                                                            MutableColumnPtr offsets) {
+    return ColumnArray::create(make_nullable(std::move(nested)), std::move(offsets));
+}
+
 class MockTableFunctionChildOperator : public OperatorXBase {
 public:
     Status get_block_after_projects(RuntimeState* state, Block* block, bool* eos) override {
@@ -372,7 +377,7 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode) {
         offsets->insert_value(3);
         offsets->insert_value(3);
         offsets->insert_value(4);
-        auto arr_col = ColumnArray::create(std::move(nested), std::move(offsets));
+        auto arr_col = create_nullable_nested_array_column(std::move(nested), std::move(offsets));
 
         push_child_block(
                 Block({ColumnWithTypeAndName(id_col, int_type, "id"),
@@ -398,8 +403,8 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode) {
         expected_offsets->insert_value(3);
         expected_offsets->insert_value(5);
         expected_offsets->insert_value(6);
-        auto expected_arr =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                std::move(expected_offsets));
 
         auto expected_out = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3, 4});
 
@@ -431,7 +436,7 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_batch_truncate) {
         offsets->insert_value(3);
         offsets->insert_value(3);
         offsets->insert_value(4);
-        auto arr_col = ColumnArray::create(std::move(nested), std::move(offsets));
+        auto arr_col = create_nullable_nested_array_column(std::move(nested), std::move(offsets));
 
         push_child_block(
                 Block({ColumnWithTypeAndName(id_col, int_type, "id"),
@@ -451,8 +456,8 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_batch_truncate) {
         auto expected_offsets = ColumnArray::ColumnOffsets::create();
         expected_offsets->insert_value(1);
         expected_offsets->insert_value(3);
-        auto expected_arr =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                std::move(expected_offsets));
         auto expected_out = ColumnHelper::create_column<DataTypeInt32>({1, 2});
 
         auto int_type = std::make_shared<DataTypeInt32>();
@@ -475,8 +480,8 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_batch_truncate) {
         auto expected_offsets = ColumnArray::ColumnOffsets::create();
         expected_offsets->insert_value(2);
         expected_offsets->insert_value(3);
-        auto expected_arr =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                std::move(expected_offsets));
         auto expected_out = ColumnHelper::create_column<DataTypeInt32>({3, 4});
 
         auto int_type = std::make_shared<DataTypeInt32>();
@@ -503,7 +508,7 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_array_skip) {
         offsets->insert_value(1);
         offsets->insert_value(1);
         offsets->insert_value(2);
-        auto arr_col = ColumnArray::create(std::move(nested), std::move(offsets));
+        auto arr_col = create_nullable_nested_array_column(std::move(nested), std::move(offsets));
 
         push_child_block(
                 Block({ColumnWithTypeAndName(id_col, int_type, "id"),
@@ -523,8 +528,8 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_array_skip) {
         auto expected_offsets = ColumnArray::ColumnOffsets::create();
         expected_offsets->insert_value(1);
         expected_offsets->insert_value(2);
-        auto expected_arr =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                std::move(expected_offsets));
 
         auto expected_out = ColumnHelper::create_column<DataTypeInt32>({1, 2});
 
@@ -552,7 +557,7 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_array_null_ro
         offsets->insert_value(1);
         offsets->insert_value(1);
         offsets->insert_value(2);
-        auto arr_data = ColumnArray::create(std::move(nested), std::move(offsets));
+        auto arr_data = create_nullable_nested_array_column(std::move(nested), std::move(offsets));
         auto null_map = ColumnUInt8::create();
         null_map->insert_value(0);
         null_map->insert_value(1);
@@ -576,8 +581,8 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_array_null_ro
         auto expected_offsets = ColumnArray::ColumnOffsets::create();
         expected_offsets->insert_value(1);
         expected_offsets->insert_value(2);
-        auto expected_arr_data =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr_data = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                     std::move(expected_offsets));
         auto expected_arr_null = ColumnUInt8::create();
         expected_arr_null->insert_value(0);
         expected_arr_null->insert_value(0);
@@ -611,7 +616,7 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_array_misalig
         offsets->insert_value(1);
         offsets->insert_value(2);
         offsets->insert_value(3);
-        auto arr_data = ColumnArray::create(std::move(nested), std::move(offsets));
+        auto arr_data = create_nullable_nested_array_column(std::move(nested), std::move(offsets));
         auto null_map = ColumnUInt8::create();
         null_map->insert_value(0);
         null_map->insert_value(1);
@@ -635,8 +640,8 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_array_misalig
         auto expected_offsets = ColumnArray::ColumnOffsets::create();
         expected_offsets->insert_value(1);
         expected_offsets->insert_value(2);
-        auto expected_arr_data =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr_data = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                     std::move(expected_offsets));
         auto expected_arr_null = ColumnUInt8::create();
         expected_arr_null->insert_value(0);
         expected_arr_null->insert_value(0);
@@ -674,7 +679,7 @@ TEST_F(TableFunctionOperatorTest,
         offsets->insert_value(3);
         offsets->insert_value(4);
         offsets->insert_value(5);
-        auto arr_data = ColumnArray::create(std::move(nested), std::move(offsets));
+        auto arr_data = create_nullable_nested_array_column(std::move(nested), std::move(offsets));
         auto null_map = ColumnUInt8::create();
         null_map->insert_value(0);
         null_map->insert_value(1);
@@ -702,8 +707,8 @@ TEST_F(TableFunctionOperatorTest,
         auto expected_offsets = ColumnArray::ColumnOffsets::create();
         expected_offsets->insert_value(3);
         expected_offsets->insert_value(6);
-        auto expected_arr_data =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr_data = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                     std::move(expected_offsets));
         auto expected_arr_null = ColumnUInt8::create();
         expected_arr_null->insert_value(0);
         expected_arr_null->insert_value(0);
@@ -730,8 +735,8 @@ TEST_F(TableFunctionOperatorTest,
         auto expected_offsets = ColumnArray::ColumnOffsets::create();
         expected_offsets->insert_value(3);
         expected_offsets->insert_value(4);
-        auto expected_arr_data =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr_data = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                     std::move(expected_offsets));
         auto expected_arr_null = ColumnUInt8::create();
         expected_arr_null->insert_value(0);
         expected_arr_null->insert_value(0);
@@ -768,7 +773,7 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_elements) {
 
         auto offsets = ColumnArray::ColumnOffsets::create();
         offsets->insert_value(3);
-        auto arr_col = ColumnArray::create(std::move(nested), std::move(offsets));
+        auto arr_col = create_nullable_nested_array_column(std::move(nested), std::move(offsets));
 
         push_child_block(
                 Block({ColumnWithTypeAndName(id_col, int_type, "id"),
@@ -808,8 +813,8 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_elements) {
         expected_offsets->insert_value(3);
         expected_offsets->insert_value(6);
         expected_offsets->insert_value(9);
-        auto expected_arr =
-                ColumnArray::create(std::move(expected_nested), std::move(expected_offsets));
+        auto expected_arr = create_nullable_nested_array_column(std::move(expected_nested),
+                                                                std::move(expected_offsets));
 
         auto expected_out_data = ColumnInt32::create();
         expected_out_data->insert_value(1);
