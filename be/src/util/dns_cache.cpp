@@ -156,8 +156,8 @@ void DNSCache::_refresh_cache() {
             }
             int32_t threshold = config::dns_cache_max_consecutive_failures;
             if (threshold > 0 && failures >= static_cast<uint32_t>(threshold)) {
-                LOG(WARNING) << "Evicting hostname " << key << " from DNS cache after "
-                             << failures << " consecutive resolution failures";
+                LOG(WARNING) << "Evicting hostname " << key << " from DNS cache after " << failures
+                             << " consecutive resolution failures";
                 _erase(key);
             }
         }
