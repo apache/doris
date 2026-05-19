@@ -1434,7 +1434,8 @@ public class BindExpression implements AnalysisRuleFactory {
         for (Expression groupByExpr : groupByExpressions) {
             Expression newGroupByExpr = groupByExpr;
             if (groupByExpr.containsVolatileExpression()) {
-                Expression ignoreUniqueIdExpr = ExpressionUtils.setIgnoreUniqueIdForUniqueFunc(groupByExpr, true);
+                Expression ignoreUniqueIdExpr = ExpressionUtils.setIgnoreUniqueIdForVolatileExpression(groupByExpr,
+                        true);
                 Expression previousGroupByExpr = ignoreUniqueIdGroupByExprs.get(ignoreUniqueIdExpr);
                 if (previousGroupByExpr == null) {
                     ignoreUniqueIdGroupByExprs.put(ignoreUniqueIdExpr, groupByExpr);
@@ -1481,10 +1482,10 @@ public class BindExpression implements AnalysisRuleFactory {
         }
 
         // first ignore unique id, then replace sub expression with group by expression
-        Expression resExpr = ExpressionUtils.setIgnoreUniqueIdForUniqueFunc(expression, true);
+        Expression resExpr = ExpressionUtils.setIgnoreUniqueIdForVolatileExpression(expression, true);
         resExpr = ExpressionUtils.replace(resExpr, bindUniqueIdReplaceMap);
         // enable unique id back
-        resExpr = ExpressionUtils.setIgnoreUniqueIdForUniqueFunc(resExpr, false);
+        resExpr = ExpressionUtils.setIgnoreUniqueIdForVolatileExpression(resExpr, false);
         return (T) resExpr;
     }
 
@@ -1523,7 +1524,8 @@ public class BindExpression implements AnalysisRuleFactory {
         Map<Expression, Expression> replaceMap = Maps.newHashMap();
         for (Expression expression : groupByByExpressions) {
             if (expression.containsVolatileExpression()) {
-                Expression ignoreUniqueIdExpr = ExpressionUtils.setIgnoreUniqueIdForUniqueFunc(expression, true);
+                Expression ignoreUniqueIdExpr = ExpressionUtils.setIgnoreUniqueIdForVolatileExpression(expression,
+                        true);
                 // for sql:
                 //    select distinct a + random(),  a + random()
                 //    from t
@@ -1555,7 +1557,8 @@ public class BindExpression implements AnalysisRuleFactory {
             for (Expression groupBy : boundGroupingSet) {
                 Expression newGroupBy = groupBy;
                 if (groupBy.containsVolatileExpression()) {
-                    Expression ignoreUniqueIdGroupBy = ExpressionUtils.setIgnoreUniqueIdForUniqueFunc(groupBy, true);
+                    Expression ignoreUniqueIdGroupBy = ExpressionUtils.setIgnoreUniqueIdForVolatileExpression(groupBy,
+                            true);
                     Expression previousGroupBy = ignoreUniqueIdGroupByExpressions.get(ignoreUniqueIdGroupBy);
                     if (previousGroupBy == null) {
                         ignoreUniqueIdGroupByExpressions.put(ignoreUniqueIdGroupBy, groupBy);
