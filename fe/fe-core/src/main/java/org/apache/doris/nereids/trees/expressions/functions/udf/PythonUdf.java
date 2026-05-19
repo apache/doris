@@ -22,11 +22,14 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionName;
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.catalog.FunctionVolatility;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.VolatileExpression;
+import org.apache.doris.nereids.trees.expressions.VolatileIdentity;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
@@ -43,12 +46,14 @@ import java.util.stream.Collectors;
 /**
  * Python UDF for Nereids
  */
-public class PythonUdf extends ScalarFunction implements ExplicitlyCastableSignature, Udf {
+public class PythonUdf extends ScalarFunction implements ExplicitlyCastableSignature, Udf, VolatileExpression {
     private final String dbName;
     private final long functionId;
     private final Function.BinaryType binaryType;
     private final FunctionSignature signature;
     private final NullableMode nullableMode;
+    private final FunctionVolatility volatility;
+    private final VolatileIdentity volatileIdentity;
     private final String objectFile;
     private final String symbol;
     private final String prepareFn;
@@ -64,7 +69,8 @@ public class PythonUdf extends ScalarFunction implements ExplicitlyCastableSigna
      */
     public PythonUdf(String name, long functionId, String dbName, Function.BinaryType binaryType,
                      FunctionSignature signature,
-                     NullableMode nullableMode, String objectFile, String symbol, String prepareFn, String closeFn,
+                     NullableMode nullableMode, FunctionVolatility volatility, VolatileIdentity volatileIdentity,
+                     String objectFile, String symbol, String prepareFn, String closeFn,
                      String checkSum, boolean isStaticLoad, long expirationTime,
                      String runtimeVersion, String functionCode, Expression... args) {
         super(name, args);
@@ -73,6 +79,8 @@ public class PythonUdf extends ScalarFunction implements ExplicitlyCastableSigna
         this.binaryType = binaryType;
         this.signature = signature;
         this.nullableMode = nullableMode;
+        this.volatility = volatility;
+        this.volatileIdentity = volatileIdentity;
         this.objectFile = objectFile;
         this.symbol = symbol;
         this.prepareFn = prepareFn;
@@ -111,8 +119,53 @@ public class PythonUdf extends ScalarFunction implements ExplicitlyCastableSigna
     public PythonUdf withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == this.children.size());
         return new PythonUdf(getName(), functionId, dbName, binaryType, signature, nullableMode,
+            volatility, volatileIdentity,
             objectFile, symbol, prepareFn, closeFn, checkSum, isStaticLoad, expirationTime,
             runtimeVersion, functionCode, children.toArray(new Expression[0]));
+    }
+
+    @Override
+    public VolatileIdentity getVolatileIdentity() {
+        return volatileIdentity;
+    }
+
+    @Override
+    public PythonUdf withIgnoreUniqueId(boolean ignoreUniqueId) {
+        Preconditions.checkState(isVolatile(), "Only volatile Python UDF can ignore unique id");
+        return new PythonUdf(getName(), functionId, dbName, binaryType, signature, nullableMode,
+            volatility, volatileIdentity.withIgnoreUniqueId(ignoreUniqueId),
+            objectFile, symbol, prepareFn, closeFn, checkSum, isStaticLoad, expirationTime,
+            runtimeVersion, functionCode, children.toArray(new Expression[0]));
+    }
+
+    /** Return a copy with a new per-call identity when this UDF is VOLATILE. */
+    public PythonUdf withFreshVolatileIdentity() {
+        if (volatility != FunctionVolatility.VOLATILE) {
+            return this;
+        }
+        return new PythonUdf(getName(), functionId, dbName, binaryType, signature, nullableMode,
+            volatility, VolatileIdentity.newVolatileIdentity(),
+            objectFile, symbol, prepareFn, closeFn, checkSum, isStaticLoad, expirationTime,
+            runtimeVersion, functionCode, children.toArray(new Expression[0]));
+    }
+
+    @Override
+    public boolean isDeterministic() {
+        return volatility == FunctionVolatility.IMMUTABLE;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof PythonUdf)) {
+            return false;
+        }
+        PythonUdf other = (PythonUdf) o;
+        return volatileIdentity.equalsByIdentity(other.volatileIdentity, super.equals(o));
+    }
+
+    @Override
+    public int computeHashCode() {
+        return volatileIdentity.hashCodeByIdentity(super.computeHashCode());
     }
 
     /**
@@ -135,7 +188,7 @@ public class PythonUdf extends ScalarFunction implements ExplicitlyCastableSigna
                 .toArray(SlotReference[]::new);
 
         PythonUdf udf = new PythonUdf(fnName, scalar.getId(), dbName, scalar.getBinaryType(), sig,
-                scalar.getNullableMode(),
+                scalar.getNullableMode(), scalar.getVolatility(), createVolatileIdentity(scalar.getVolatility()),
                 scalar.getLocation() == null ? null : scalar.getLocation().getLocation(),
                 scalar.getSymbolName(),
                 scalar.getPrepareFnSymbol(),
@@ -175,9 +228,15 @@ public class PythonUdf extends ScalarFunction implements ExplicitlyCastableSigna
             expr.setExpirationTime(expirationTime);
             expr.setRuntimeVersion(runtimeVersion);
             expr.setFunctionCode(functionCode);
+            expr.setVolatility(volatility);
             return expr;
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
+    }
+
+    private static VolatileIdentity createVolatileIdentity(FunctionVolatility volatility) {
+        return volatility == FunctionVolatility.VOLATILE
+                ? VolatileIdentity.newVolatileIdentity() : VolatileIdentity.NON_VOLATILE;
     }
 }
