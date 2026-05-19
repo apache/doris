@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "load/delta_writer/delta_writer_context.h"
 #include "load/memtable/memtable.h"
 #include "util/threadpool.h"
 
@@ -34,6 +35,10 @@ namespace doris {
 class DataDir;
 class MemTable;
 class MemTableMemoryLimiter;
+class Block;
+class GroupRowsetWriter;
+class OlapTableSchemaParam;
+class AutoIncIDBuffer;
 class RowsetWriter;
 class SystemMetrics;
 class WorkloadGroup;
@@ -48,6 +53,29 @@ struct FlushStatistic {
     std::atomic_uint64_t flush_size_bytes = 0;
     std::atomic_uint64_t flush_disk_size_bytes = 0;
     std::atomic_uint64_t flush_wait_time_ns = 0;
+};
+
+struct SharedMemtable {
+    std::shared_ptr<MemTable> memtable;
+    int32_t segment_id = 0;
+
+    ~SharedMemtable();
+
+    std::once_flag block_once;
+    Status block_status;
+    std::shared_ptr<Block> block;
+
+    std::atomic<int> finished_sub_task_count {0};
+    // data + binlog
+    std::atomic<int> total_sub_task_count {2};
+
+    int add_finished_sub_task() { return finished_sub_task_count.fetch_add(1); }
+
+    std::string debug_string() const {
+        return "PartOfGroupMemtableFlushTask{segment_id=" + std::to_string(segment_id) +
+               ", finished_sub_task_count=" + std::to_string(finished_sub_task_count.load()) +
+               ", total_sub_task_count=" + std::to_string(total_sub_task_count.load()) + "}";
+    }
 };
 
 std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat);
@@ -82,6 +110,17 @@ public:
         _rowset_writer = rowset_writer;
     }
 
+    void set_table_schema_param(std::shared_ptr<OlapTableSchemaParam> table_schema_param) {
+        _table_schema_param = std::move(table_schema_param);
+    }
+
+#ifdef BE_TEST
+    void set_row_binlog_lsn_buffer_for_test(
+            std::shared_ptr<AutoIncIDBuffer> row_binlog_lsn_buffer) {
+        _row_binlog_lsn_buffer = std::move(row_binlog_lsn_buffer);
+    }
+#endif
+
     const MemTableStat& memtable_stat() { return _memtable_stat; }
 
 private:
@@ -92,11 +131,21 @@ private:
 
 private:
     friend class MemtableFlushTask;
+    friend class PartOfGroupMemtableFlushTask;
+
+    Status _submit_sub_tasks(ThreadPool* pool, std::vector<std::shared_ptr<Runnable>> sub_tasks);
+
+    void _flush_memtable_impl(RowsetWriter* flush_writer, MemTable* memtable, int32_t segment_id,
+                              int64_t submit_task_time, SharedMemtable* shared_memtable = nullptr);
 
     void _flush_memtable(std::shared_ptr<MemTable> memtable_ptr, int32_t segment_id,
                          int64_t submit_task_time);
 
-    Status _do_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size);
+    void _flush_group_memtable(std::shared_ptr<SharedMemtable> shared_memtable,
+                               WriteRequestType write_req_type, int64_t submit_task_time);
+
+    Status _memtable2block(MemTable* memtable, SharedMemtable* shared_memtable,
+                           std::shared_ptr<Block>& flush_block);
 
     Status _try_reserve_memory(const std::shared_ptr<ResourceContext>& resource_context,
                                int64_t size);
@@ -109,6 +158,9 @@ private:
     FlushStatistic _stats;
 
     std::shared_ptr<RowsetWriter> _rowset_writer = nullptr;
+
+    std::shared_ptr<OlapTableSchemaParam> _table_schema_param = nullptr;
+    std::shared_ptr<AutoIncIDBuffer> _row_binlog_lsn_buffer = nullptr;
 
     MemTableStat _memtable_stat;
 
@@ -145,7 +197,8 @@ public:
 
     Status create_flush_token(std::shared_ptr<FlushToken>& flush_token,
                               std::shared_ptr<RowsetWriter> rowset_writer, bool is_high_priority,
-                              std::shared_ptr<WorkloadGroup> wg_sptr);
+                              std::shared_ptr<WorkloadGroup> wg_sptr,
+                              std::shared_ptr<OlapTableSchemaParam> table_schema_param = nullptr);
 
     // return true if it already has any flushing task
     bool check_and_inc_has_any_flushing_task() {

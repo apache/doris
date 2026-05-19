@@ -2003,6 +2003,7 @@ nonReserved
     | BEGIN
     | BELONG
     | BIN
+    | BINLOG
     | BITAND
     | BITMAP
     | BITMAP_EMPTY
