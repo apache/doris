@@ -119,7 +119,7 @@ start_cloud_fe() {
             exit $MV_RES
         fi
         health_log "Recovery script executed and renamed to ${RECOVERY_SCRIPT}.bak"
-        RECOVERY_ARGS="--metadata_failure_recovery --recovery_journal_id $JOURNAL_ID"
+        RECOVERY_ARGS="--metadata_failure_recovery --recovery_journal_id $JOURNAL_ID --drop_backends"
     fi
 
     if [ -f "$REGISTER_FILE" ] || [ -n "$RECOVERY_ARGS" ]; then
