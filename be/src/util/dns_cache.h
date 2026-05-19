@@ -53,8 +53,10 @@ private:
     // Returns the resolved IP, or cached IP on failure, or empty string if no cache available.
     std::string _resolve_hostname(const std::string& hostname);
 
-    // update the ip of hostname in cache
-    Status _update(const std::string& hostname);
+    // update the ip of hostname in cache; if out_failures is non-null, it is
+    // set to the current consecutive failure count for hostname (read under the
+    // same lock used to update cache, avoiding a second lock acquisition).
+    Status _update(const std::string& hostname, uint32_t* out_failures = nullptr);
 
     // erase a hostname from cache (with unique_lock)
     void _erase(const std::string& hostname);

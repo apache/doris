@@ -340,9 +340,11 @@ DECLARE_mInt32(report_index_policy_interval_seconds);
 DECLARE_mInt32(dns_cache_log_every_n_failures);
 
 // DNS cache: evict a hostname after this many consecutive resolution failures.
-// At the default refresh interval of 60s, the default value of 30 means an
-// entry is evicted after ~30 minutes of being un-resolvable. Set <= 0 to
-// disable eviction (legacy behavior, kept for backward compatibility).
+// At the default refresh interval of 60s, the default value of 30 means a
+// hostname that was once successfully resolved is evicted after ~30 minutes of
+// being un-resolvable.  Hostnames that have never been successfully resolved are
+// not tracked and are unaffected by this threshold.
+// Set <= 0 to disable eviction (legacy behavior, kept for backward compatibility).
 DECLARE_mInt32(dns_cache_max_consecutive_failures);
 
 // deprecated, use env var LOG_DIR in be.conf

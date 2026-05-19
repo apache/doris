@@ -114,9 +114,10 @@ void DNSCache::_erase(const std::string& hostname) {
     failure_count.erase(hostname);
 }
 
-Status DNSCache::_update(const std::string& hostname) {
+Status DNSCache::_update(const std::string& hostname, uint32_t* out_failures) {
     std::string real_ip = _resolve_hostname(hostname);
     if (real_ip.empty()) {
+        if (out_failures) *out_failures = 0;
         return Status::InternalError("Failed to resolve hostname {} and no cached ip available",
                                      hostname);
     }
@@ -126,6 +127,12 @@ Status DNSCache::_update(const std::string& hostname) {
     if (it == cache.end() || it->second != real_ip) {
         cache[hostname] = real_ip;
         LOG(INFO) << "update hostname " << hostname << "'s ip to " << real_ip;
+    }
+    // Read failure_count under the same lock we already hold, so _refresh_once
+    // does not need a second lock acquisition to decide on eviction.
+    if (out_failures) {
+        auto fc_it = failure_count.find(hostname);
+        *out_failures = fc_it != failure_count.end() ? fc_it->second : 0;
     }
     return Status::OK();
 }
@@ -138,7 +145,8 @@ void DNSCache::_refresh_once() {
                        [](const auto& pair) { return pair.first; });
     }
     for (auto& key : keys) {
-        Status st = _update(key);
+        uint32_t failures = 0;
+        Status st = _update(key, &failures);
         if (!st.ok()) {
             // _update only returns an error when _resolve_hostname returns an
             // empty string, which happens only if the hostname has never been
@@ -157,14 +165,6 @@ void DNSCache::_refresh_once() {
         //   1) be.WARNING gets flooded with `failed to get ip from host`.
         //   2) brpc keeps re-using the stale IP from cache, producing
         //      `Fail to wait EPOLLOUT ... Connection timed out`.
-        uint32_t failures = 0;
-        {
-            std::shared_lock<std::shared_mutex> lock(mutex);
-            auto it = failure_count.find(key);
-            if (it != failure_count.end()) {
-                failures = it->second;
-            }
-        }
         int32_t threshold = config::dns_cache_max_consecutive_failures;
         if (threshold > 0 && failures >= static_cast<uint32_t>(threshold)) {
             LOG(WARNING) << "Evicting hostname " << key << " from DNS cache after " << failures
