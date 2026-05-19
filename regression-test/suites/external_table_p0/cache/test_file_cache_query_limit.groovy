@@ -43,7 +43,7 @@ suite("test_file_cache_query_limit", "p0,external") {
             BACKEND_CONFIG_CHECK_FAILED_PREFIX + "file_cache_background_monitor_interval_ms is empty or not configured")
 
     long backgroundMonitorIntervalMs = fileCacheBackgroundMonitorIntervalMsResult[0][3].toLong()
-    long waitTimeoutSeconds = Math.max(10L, (backgroundMonitorIntervalMs / 1000L) + 5L)
+    long waitTimeoutSeconds = Math.max(10L, backgroundMonitorIntervalMs.intdiv(1000L) + 5L)
 
     String catalogName = "test_file_cache_query_limit"
     String externalDbName = "tpch1_parquet"
@@ -214,7 +214,8 @@ suite("test_file_cache_query_limit", "p0,external") {
     // Re-run the same query with a lower per-query cache limit and verify the observed cache usage stays bounded.
     logger.info("Start file cache query limit test")
 
-    long fileCacheQueryLimitPercentTest1 = Math.max(1L, Math.floor(fileCacheQueryLimitPercent / 2.0d) as Long)
+    long fileCacheQueryLimitPercentCandidate = Math.floor(fileCacheQueryLimitPercent / 2.0d).longValue()
+    long fileCacheQueryLimitPercentTest1 = Math.max(1L, fileCacheQueryLimitPercentCandidate)
     logger.info("file_cache_query_limit_percent_test1: " + fileCacheQueryLimitPercentTest1)
 
     clearFileCacheAndWait()
