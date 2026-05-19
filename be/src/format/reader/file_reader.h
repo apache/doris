@@ -47,7 +47,7 @@ using ColumnId = int32_t;
 // schema 语义。Iceberg field id、name mapping、default/generated/partition 列都不在
 // FileReader 内部解释。
 struct SchemaField {
-    ColumnId id = -1;
+    int32_t id = -1;
     std::string name;
     DataTypePtr type;
     std::vector<SchemaField> children;
@@ -65,7 +65,14 @@ struct FileLocalFilter {
 
     // 结构化列谓词。适合文件层 pruning，例如 min/max、page index、dictionary、
     // bloom filter 等只理解单列谓词的优化。
+    // TODO: conjunct 支持表达所有 filter 语义之后删除。
     std::vector<std::shared_ptr<ColumnPredicate>> predicates;
+};
+
+enum class FileFormat {
+    PARQUET,
+    ORC,
+    CSV,
 };
 
 // 通用文件层 scan 请求。
@@ -75,9 +82,23 @@ struct FileLocalFilter {
 struct FileScanRequest {
     virtual ~FileScanRequest() = default;
 
-    std::vector<ColumnId> projected_file_columns;
+    std::vector<ColumnId> predicate_columns;
+    std::vector<ColumnId> non_predicate_columns;
     std::vector<FileLocalFilter> local_filters;
+    // fallback path if filters cannot be localized to file-local predicates. The expression can reference projected_file_columns and partition columns.
     std::vector<std::pair<ColumnId, VExprContextSPtr>> reader_expression_map;
+    // partition key -> value
+    std::map<std::string, Field> partition_values;
+
+    // projected_columns' id is file-local column id, and they are all from file schema.
+    // For example,
+    // file schema: [0: id (int), 1: name (string), 2: age (int)]
+    // predicate: age > 30
+    // table-level projection: [name, id]
+    // predicate_columns: [2]
+    // non_predicate_columns: [1, 0]
+    // projected_columns are columns in blocks returned to table reader: [1, 0] means only name and id are projected,
+    std::vector<ColumnId> projected_columns;
 };
 
 // 文件物理读取层通用接口。
@@ -113,7 +134,7 @@ public:
     virtual Status init(const FileScanRequest& request) {
         // 真实实现会根据 projected columns、local filters 和 reader expressions
         // 初始化文件格式自己的物理读取计划。
-        _request.projected_file_columns = request.projected_file_columns;
+        // _request.projected_file_columns = request.projected_file_columns;
         _request.local_filters = request.local_filters;
         _request.reader_expression_map = request.reader_expression_map;
         return Status::OK();

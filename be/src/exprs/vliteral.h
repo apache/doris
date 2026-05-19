@@ -39,7 +39,9 @@ public:
     VLiteral(const TExprNode& node, bool should_init = true)
             : VExpr(node), _expr_name(_data_type->get_name()) {
         if (should_init) {
-            init(node);
+            Field field;
+            field = _data_type->get_field(node);
+            _column_ptr = _data_type->create_column_const(1, field);
         }
     }
 
@@ -69,11 +71,9 @@ public:
     uint64_t get_digest(uint64_t seed) const override;
 
 protected:
+    VLiteral(const DataTypePtr& type) : VExpr(type, false) {}
     ColumnPtr _column_ptr;
     std::string _expr_name;
-
-private:
-    void init(const TExprNode& node);
 };
 
 } // namespace doris
