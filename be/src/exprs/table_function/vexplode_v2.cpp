@@ -30,6 +30,7 @@
 #include "core/column/column.h"
 #include "core/column/column_array.h"
 #include "core/column/column_nothing.h"
+#include "core/column/column_struct.h"
 #include "core/column/column_variant.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
@@ -40,8 +41,6 @@
 #include "exprs/vexpr_context.h"
 
 namespace doris {
-
-#include "core/column/column_struct.h"
 
 VExplodeV2TableFunction::VExplodeV2TableFunction() {
     _fn_name = "vexplode";

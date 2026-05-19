@@ -67,6 +67,7 @@
 #include "storage/rowset/segment_creator.h"
 #include "storage/segment/column_writer.h" // ColumnWriter
 #include "storage/segment/external_col_meta_util.h"
+#include "storage/segment/historical_row_retriever.h"
 #include "storage/segment/page_io.h"
 #include "storage/segment/page_pointer.h"
 #include "storage/segment/segment_loader.h"
@@ -84,8 +85,8 @@ namespace doris::segment_v2 {
 using namespace ErrorCode;
 using namespace KeyConsts;
 
-static const char* k_segment_magic = "D0R1";
-static const uint32_t k_segment_magic_length = 4;
+static constexpr const char* k_segment_magic = "D0R1";
+static constexpr uint32_t k_segment_magic_length = 4;
 
 inline std::string vertical_segment_writer_mem_tracker_name(uint32_t segment_id) {
     return "VerticalSegmentWriter:Segment-" + std::to_string(segment_id);
@@ -130,8 +131,7 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
         }
         // encode the rowid into the primary key index
         if (_is_mow_with_cluster_key()) {
-            const auto* type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>();
-            _rowid_coder = get_key_coder(type_info->type());
+            _rowid_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
             // primary keys
             _primary_key_coders.swap(_key_coders);
             // cluster keys
@@ -632,8 +632,9 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
 
     // read to fill full_block
     RETURN_IF_ERROR(read_plan.fill_missing_columns(
-            _opts.rowset_ctx, _rsid_to_rowset, *_tablet_schema, full_block,
-            use_default_or_null_flag, has_default_or_nullable, segment_start_pos, data.block));
+            _opts.rowset_ctx->make_historical_row_retriever_context(), _rsid_to_rowset,
+            *_tablet_schema, full_block, use_default_or_null_flag, has_default_or_nullable,
+            segment_start_pos, data.block));
 
     if (_tablet_schema->num_variant_columns() > 0) {
         RETURN_IF_ERROR(variant_util::parse_and_materialize_variant_columns(
@@ -797,9 +798,9 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(RowsIn
 
     // 6. read according plan to fill full_block
     RETURN_IF_ERROR(read_plan.fill_non_primary_key_columns(
-            _opts.rowset_ctx, _rsid_to_rowset, *_tablet_schema, full_block,
-            use_default_or_null_flag, has_default_or_nullable, segment_start_pos,
-            cast_set<uint32_t>(data.row_pos), data.block, skip_bitmaps));
+            _opts.rowset_ctx->make_historical_row_retriever_context(), _rsid_to_rowset,
+            *_tablet_schema, full_block, use_default_or_null_flag, has_default_or_nullable,
+            segment_start_pos, cast_set<uint32_t>(data.row_pos), data.block, skip_bitmaps));
 
     // TODO(bobhan1): should we replace the skip bitmap column with empty bitmaps to reduce storage occupation?
     // this column is not needed in read path for merge-on-write table

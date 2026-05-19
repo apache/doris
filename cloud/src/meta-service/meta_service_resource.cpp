@@ -59,6 +59,11 @@ bool is_valid_storage_vault_name(const std::string& str) {
 
 namespace doris::cloud {
 
+static CredProviderTypePB get_cred_provider_type(const ObjectStoreInfoPB& obj) {
+    return obj.has_cred_provider_type() ? obj.cred_provider_type()
+                                        : CredProviderTypePB::INSTANCE_PROFILE;
+}
+
 static std::string_view print_cluster_status(const ClusterStatus& status) {
     switch (status) {
     case ClusterStatus::UNKNOWN:
@@ -318,6 +323,96 @@ static int find_cascade_instances(TxnKv* txn_kv, const std::string& root_instanc
     LOG(INFO) << "find_cascade_instances completed, found " << out->size()
               << " instances to cascade from root: " << root_instance_id;
     return 0;
+}
+
+static int find_storage_vault_position_by_id(const InstanceInfoPB& instance,
+                                             std::string_view vault_id) {
+    auto id_itr =
+            std::find(instance.resource_ids().begin(), instance.resource_ids().end(), vault_id);
+    if (id_itr == instance.resource_ids().end()) {
+        return -1;
+    }
+    return static_cast<int>(id_itr - instance.resource_ids().begin());
+}
+
+static int find_storage_vault_id_by_name(const InstanceInfoPB& instance,
+                                         std::string_view vault_name, std::string* vault_id) {
+    auto name_itr = std::find_if(
+            instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
+            [&](const auto& current_name) { return current_name == vault_name; });
+    if (name_itr == instance.storage_vault_names().end()) {
+        return -1;
+    }
+    int pos = static_cast<int>(name_itr - instance.storage_vault_names().begin());
+    *vault_id = instance.resource_ids().Get(pos);
+    return 0;
+}
+
+static int alter_instance_obj_store_info_by_id(InstanceInfoPB& instance,
+                                               std::string_view target_obj_id, std::string_view ak,
+                                               std::string_view sk, std::string_view role_arn,
+                                               std::string_view external_id,
+                                               const EncryptionInfoPB& encryption_info,
+                                               MetaServiceCode& code, std::string& msg) {
+    auto& obj_info = const_cast<std::decay_t<decltype(instance.obj_info())>&>(instance.obj_info());
+    for (auto& it : obj_info) {
+        if (it.id() != target_obj_id) {
+            continue;
+        }
+
+        if (role_arn.empty()) {
+            if (it.ak() == ak && it.sk() == sk) {
+                code = MetaServiceCode::OK;
+                msg = "ak/sk not changed";
+                return 1;
+            }
+            it.clear_role_arn();
+            it.clear_external_id();
+            it.clear_cred_provider_type();
+
+            it.set_ak(std::string(ak));
+            it.set_sk(std::string(sk));
+            it.mutable_encryption_info()->CopyFrom(encryption_info);
+        } else {
+            if (!ak.empty() || !sk.empty()) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = "invaild argument, both set ak/sk and role_arn is not allowed";
+                LOG(INFO) << msg;
+                return -1;
+            }
+
+            if (it.provider() != ObjectStoreInfoPB::S3) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = "role_arn is only supported for s3 provider";
+                LOG(INFO) << msg << " provider=" << it.provider();
+                return -1;
+            }
+
+            if (it.role_arn() == role_arn && it.external_id() == external_id) {
+                code = MetaServiceCode::OK;
+                msg = "ak/sk not changed";
+                return 1;
+            }
+            it.clear_ak();
+            it.clear_sk();
+            it.clear_encryption_info();
+
+            it.set_role_arn(std::string(role_arn));
+            it.set_external_id(std::string(external_id));
+            it.set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
+        }
+
+        auto now_time = std::chrono::system_clock::now();
+        uint64_t time =
+                std::chrono::duration_cast<std::chrono::seconds>(now_time.time_since_epoch())
+                        .count();
+        it.set_mtime(time);
+        return 0;
+    }
+
+    code = MetaServiceCode::INVALID_ARGUMENT;
+    msg = fmt::format("obj info id={} not found", target_obj_id);
+    return -1;
 }
 
 // Helper function to update AK/SK for a single instance
@@ -679,12 +774,11 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
     std::string region = obj->has_region() ? obj->region() : "";
 
     if (obj->has_role_arn()) {
-        if (obj->role_arn().empty() || !obj->has_cred_provider_type() ||
-            obj->cred_provider_type() != CredProviderTypePB::INSTANCE_PROFILE ||
-            !obj->has_provider() || obj->provider() != ObjectStoreInfoPB::S3 || bucket.empty() ||
-            endpoint.empty() || region.empty()) {
+        if (obj->role_arn().empty() || !obj->has_cred_provider_type() || !obj->has_provider() ||
+            obj->provider() != ObjectStoreInfoPB::S3 || bucket.empty() || endpoint.empty() ||
+            region.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "s3 conf info err with role_arn, please check it";
+            msg = "s3 conf info err with role_arn or cred provider, please check it";
             return;
         }
     } else {
@@ -801,9 +895,11 @@ static bool vault_exist(const InstanceInfoPB& instance, const std::string& new_v
     return false;
 }
 
-static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Transaction>& txn,
-                                    const StorageVaultPB& vault, MetaServiceCode& code,
-                                    std::string& msg, AlterObjStoreInfoResponse* response) {
+static int alter_hdfs_storage_vault_by_id(InstanceInfoPB& instance,
+                                          std::unique_ptr<Transaction>& txn,
+                                          std::string_view target_vault_id,
+                                          const StorageVaultPB& vault, MetaServiceCode& code,
+                                          std::string& msg, AlterObjStoreInfoResponse* response) {
     if (!vault.has_hdfs_info()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         std::stringstream ss;
@@ -821,19 +917,25 @@ static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tr
         return -1;
     }
     const auto& name = vault.name();
-    // Here we try to get mutable iter since we might need to alter the vault name
-    auto name_itr = std::find_if(instance.mutable_storage_vault_names()->begin(),
-                                 instance.mutable_storage_vault_names()->end(),
-                                 [&](const auto& vault_name) { return name == vault_name; });
-    if (name_itr == instance.storage_vault_names().end()) {
+    int pos = find_storage_vault_position_by_id(instance, target_vault_id);
+    if (pos < 0) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         std::stringstream ss;
-        ss << "invalid storage vault name, not found, name =" << name;
+        ss << "invalid storage vault id, not found, id =" << target_vault_id;
         msg = ss.str();
         return -1;
     }
-    auto pos = name_itr - instance.storage_vault_names().begin();
-    std::string vault_id = instance.resource_ids().begin()[pos];
+    auto* storage_vault_names = instance.mutable_storage_vault_names();
+    auto* name_ptr = storage_vault_names->Mutable(pos);
+    DCHECK(name_ptr != nullptr);
+    const std::string old_name = *name_ptr;
+    if (old_name != name) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("storage vault id={} name mismatch, expected={}, actual={}",
+                          target_vault_id, name, old_name);
+        return -1;
+    }
+    std::string vault_id = instance.resource_ids().Get(pos);
     auto vault_key = storage_vault_key({instance.instance_id(), vault_id});
     std::string val;
 
@@ -877,7 +979,10 @@ static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tr
         }
 
         new_vault.set_name(vault.alter_name());
-        *name_itr = vault.alter_name();
+        *name_ptr = vault.alter_name();
+        if (instance.default_storage_vault_id() == vault_id) {
+            instance.set_default_storage_vault_name(vault.alter_name());
+        }
     }
     auto* alter_hdfs_info = new_vault.mutable_hdfs_info();
     if (hdfs_info.build_conf().has_hdfs_kerberos_keytab()) {
@@ -914,9 +1019,24 @@ static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tr
     return 0;
 }
 
-static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Transaction>& txn,
-                                  const StorageVaultPB& vault, MetaServiceCode& code,
-                                  std::string& msg, AlterObjStoreInfoResponse* response) {
+static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Transaction>& txn,
+                                    const StorageVaultPB& vault, MetaServiceCode& code,
+                                    std::string& msg, AlterObjStoreInfoResponse* response) {
+    std::string vault_id;
+    if (find_storage_vault_id_by_name(instance, vault.name(), &vault_id) != 0) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        std::stringstream ss;
+        ss << "invalid storage vault name, not found, name =" << vault.name();
+        msg = ss.str();
+        return -1;
+    }
+    return alter_hdfs_storage_vault_by_id(instance, txn, vault_id, vault, code, msg, response);
+}
+
+static int alter_s3_storage_vault_by_id(InstanceInfoPB& instance, std::unique_ptr<Transaction>& txn,
+                                        std::string_view target_vault_id,
+                                        const StorageVaultPB& vault, MetaServiceCode& code,
+                                        std::string& msg, AlterObjStoreInfoResponse* response) {
     if (!vault.has_obj_info()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         std::stringstream ss;
@@ -935,19 +1055,25 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
     }
 
     const auto& name = vault.name();
-    // Here we try to get mutable iter since we might need to alter the vault name
-    auto name_itr = std::find_if(instance.mutable_storage_vault_names()->begin(),
-                                 instance.mutable_storage_vault_names()->end(),
-                                 [&](const auto& vault_name) { return name == vault_name; });
-    if (name_itr == instance.storage_vault_names().end()) {
+    int pos = find_storage_vault_position_by_id(instance, target_vault_id);
+    if (pos < 0) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         std::stringstream ss;
-        ss << "invalid storage vault name, not found, name =" << name;
+        ss << "invalid storage vault id, not found, id =" << target_vault_id;
         msg = ss.str();
         return -1;
     }
-    auto pos = name_itr - instance.storage_vault_names().begin();
-    std::string vault_id = instance.resource_ids().begin()[pos];
+    auto* storage_vault_names = instance.mutable_storage_vault_names();
+    auto* name_ptr = storage_vault_names->Mutable(pos);
+    DCHECK(name_ptr != nullptr);
+    const std::string old_name = *name_ptr;
+    if (old_name != name) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("storage vault id={} name mismatch, expected={}, actual={}",
+                          target_vault_id, name, old_name);
+        return -1;
+    }
+    std::string vault_id = instance.resource_ids().Get(pos);
     auto vault_key = storage_vault_key({instance.instance_id(), vault_id});
     std::string val;
 
@@ -991,7 +1117,10 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
         }
 
         new_vault.set_name(vault.alter_name());
-        *name_itr = vault.alter_name();
+        *name_ptr = vault.alter_name();
+        if (instance.default_storage_vault_id() == vault_id) {
+            instance.set_default_storage_vault_name(vault.alter_name());
+        }
     }
 
     if (obj_info.has_role_arn() && (obj_info.has_ak() || obj_info.has_sk())) {
@@ -1037,7 +1166,7 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
         new_vault.mutable_obj_info()->clear_encryption_info();
 
         new_vault.mutable_obj_info()->set_role_arn(obj_info.role_arn());
-        new_vault.mutable_obj_info()->set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
+        new_vault.mutable_obj_info()->set_cred_provider_type(get_cred_provider_type(obj_info));
         if (obj_info.has_external_id()) {
             new_vault.mutable_obj_info()->set_external_id(obj_info.external_id());
         }
@@ -1068,6 +1197,20 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
     DCHECK_EQ(new_vault.id(), vault_id);
     response->set_storage_vault_id(new_vault.id());
     return 0;
+}
+
+static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Transaction>& txn,
+                                  const StorageVaultPB& vault, MetaServiceCode& code,
+                                  std::string& msg, AlterObjStoreInfoResponse* response) {
+    std::string vault_id;
+    if (find_storage_vault_id_by_name(instance, vault.name(), &vault_id) != 0) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        std::stringstream ss;
+        ss << "invalid storage vault name, not found, name =" << vault.name();
+        msg = ss.str();
+        return -1;
+    }
+    return alter_s3_storage_vault_by_id(instance, txn, vault_id, vault, code, msg, response);
 }
 
 struct ObjectStorageDesc {
@@ -1170,7 +1313,7 @@ static ObjectStoreInfoPB object_info_pb_factory(ObjectStorageDesc& obj_desc,
     } else {
         last_item.set_role_arn(role_arn);
         last_item.set_external_id(external_id);
-        last_item.set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
+        last_item.set_cred_provider_type(get_cred_provider_type(obj));
     }
     last_item.set_bucket(bucket);
     // format prefix, such as `/aa/bb/`, `aa/bb//`, `//aa/bb`, `  /aa/bb` -> `aa/bb`
@@ -1303,6 +1446,17 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         return;
     }
 
+    bool supports_cascade = request->op() == AlterObjStoreInfoRequest::ALTER_S3_VAULT ||
+                            request->op() == AlterObjStoreInfoRequest::ALTER_HDFS_VAULT;
+    std::string root_vault_id;
+    if (supports_cascade &&
+        find_storage_vault_id_by_name(instance, request->vault().name(), &root_vault_id) != 0) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("invalid storage vault name, not found, name ={}",
+                          request->vault().name());
+        return;
+    }
+
     switch (request->op()) {
     case AlterObjStoreInfoRequest::ADD_S3_VAULT: {
         if (!instance.enable_storage_vault()) {
@@ -1330,9 +1484,8 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         }
 
         if (!role_arn.empty()) {
-            if (!obj.has_cred_provider_type() ||
-                obj.cred_provider_type() != CredProviderTypePB::INSTANCE_PROFILE ||
-                !obj.has_provider() || obj.provider() != ObjectStoreInfoPB::S3) {
+            if (!obj.has_cred_provider_type() || !obj.has_provider() ||
+                obj.provider() != ObjectStoreInfoPB::S3) {
                 code = MetaServiceCode::INVALID_ARGUMENT;
                 msg = "s3 conf info err with role_arn, please check it";
                 return;
@@ -1491,6 +1644,115 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         code = cast_as<ErrCategory::COMMIT>(err);
         msg = fmt::format("failed to commit kv txn, err={}", err);
         LOG(WARNING) << msg;
+        return;
+    }
+
+    async_notify_refresh_instance(txn_kv_, instance_id, true);
+
+    if (!supports_cascade) {
+        return;
+    }
+
+    if (!instance.has_snapshot_switch_status() ||
+        instance.snapshot_switch_status() == SNAPSHOT_SWITCH_DISABLED) {
+        LOG(INFO) << "snapshot disabled for instance_id=" << instance_id
+                  << ", skip cascade updating derived instances after alter_storage_vault";
+        return;
+    }
+
+    std::vector<std::string> cascade_instance_ids;
+    if (find_cascade_instances(txn_kv_.get(), instance_id, &cascade_instance_ids) != 0) {
+        LOG(WARNING) << "failed to find derived instances for storage vault cascade, instance_id="
+                     << instance_id;
+        return;
+    }
+
+    for (const auto& cascade_id : cascade_instance_ids) {
+        std::unique_ptr<Transaction> cascade_txn;
+        TxnErrorCode cascade_err = txn_kv_->create_txn(&cascade_txn);
+        if (cascade_err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::CREATE>(cascade_err);
+            msg = fmt::format(
+                    "failed to create txn for derived storage vault update, instance_id={}, "
+                    "err={}",
+                    cascade_id, cascade_err);
+            LOG(WARNING) << msg;
+            return;
+        }
+
+        std::string cascade_key;
+        std::string cascade_val;
+        instance_key({cascade_id}, &cascade_key);
+        cascade_err = cascade_txn->get(cascade_key, &cascade_val);
+        if (cascade_err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(cascade_err);
+            msg = fmt::format(
+                    "failed to get derived instance for storage vault update, instance_id={}, "
+                    "err={}",
+                    cascade_id, cascade_err);
+            LOG(WARNING) << msg;
+            return;
+        }
+
+        InstanceInfoPB cascade_instance;
+        if (!cascade_instance.ParseFromString(cascade_val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = fmt::format(
+                    "failed to parse derived InstanceInfoPB for storage vault update, "
+                    "instance_id={}",
+                    cascade_id);
+            LOG(WARNING) << msg;
+            return;
+        }
+
+        MetaServiceCode cascade_code = MetaServiceCode::OK;
+        std::string cascade_msg;
+        AlterObjStoreInfoResponse cascade_response;
+        int ret = -1;
+        if (request->op() == AlterObjStoreInfoRequest::ALTER_S3_VAULT) {
+            ret = alter_s3_storage_vault_by_id(cascade_instance, cascade_txn, root_vault_id,
+                                               request->vault(), cascade_code, cascade_msg,
+                                               &cascade_response);
+        } else if (request->op() == AlterObjStoreInfoRequest::ALTER_HDFS_VAULT) {
+            ret = alter_hdfs_storage_vault_by_id(cascade_instance, cascade_txn, root_vault_id,
+                                                 request->vault(), cascade_code, cascade_msg,
+                                                 &cascade_response);
+        }
+        if (ret != 0) {
+            code = cascade_code;
+            msg = fmt::format(
+                    "failed to cascade storage vault update, instance_id={}, vault_id={}, msg={}",
+                    cascade_id, root_vault_id, cascade_msg);
+            LOG(WARNING) << msg << " code=" << static_cast<int>(code);
+            return;
+        }
+
+        cascade_val = cascade_instance.SerializeAsString();
+        if (cascade_val.empty()) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format(
+                    "failed to serialize derived instance after storage vault update, "
+                    "instance_id={}",
+                    cascade_id);
+            LOG(WARNING) << msg;
+            return;
+        }
+
+        cascade_txn->atomic_add(system_meta_service_instance_update_key(), 1);
+        cascade_txn->put(cascade_key, cascade_val);
+        cascade_err = cascade_txn->commit();
+        if (cascade_err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::COMMIT>(cascade_err);
+            msg = fmt::format(
+                    "failed to commit derived storage vault update, instance_id={}, err={}",
+                    cascade_id, cascade_err);
+            LOG(WARNING) << msg;
+            return;
+        }
+
+        async_notify_refresh_instance(txn_kv_, cascade_id, true);
+        LOG(INFO) << "cascade storage vault update finished, root_instance_id=" << instance_id
+                  << " derived_instance_id=" << cascade_id << " vault_id=" << root_vault_id;
     }
 }
 
@@ -1582,72 +1844,28 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         return;
     }
 
+    bool supports_cascade = request->op() == AlterObjStoreInfoRequest::ALTER_OBJ_INFO ||
+                            request->op() == AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK;
+    std::string root_obj_id =
+            request->has_obj() && request->obj().has_id() ? request->obj().id() : "0";
+
     switch (request->op()) {
     case AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK:
     case AlterObjStoreInfoRequest::ALTER_OBJ_INFO: {
-        // get id
-        std::string id = request->obj().has_id() ? request->obj().id() : "0";
-        int idx = std::stoi(id);
+        int idx = std::stoi(root_obj_id);
         if (idx < 1 || idx > instance.obj_info().size()) {
             // err
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "id invalid, please check it";
             return;
         }
-        auto& obj_info =
-                const_cast<std::decay_t<decltype(instance.obj_info())>&>(instance.obj_info());
-        for (auto& it : obj_info) {
-            if (std::stoi(it.id()) == idx) {
-                if (role_arn.empty()) {
-                    if (it.ak() == ak && it.sk() == sk) {
-                        // not change, just return ok
-                        code = MetaServiceCode::OK;
-                        msg = "ak/sk not changed";
-                        return;
-                    }
-                    it.clear_role_arn();
-                    it.clear_external_id();
-                    it.clear_cred_provider_type();
-
-                    it.set_ak(ak);
-                    it.set_sk(sk);
-                    it.mutable_encryption_info()->CopyFrom(encryption_info);
-                } else {
-                    if (!ak.empty() || !sk.empty()) {
-                        code = MetaServiceCode::INVALID_ARGUMENT;
-                        msg = "invaild argument, both set ak/sk and role_arn is not allowed";
-                        LOG(INFO) << msg;
-                        return;
-                    }
-
-                    if (it.provider() != ObjectStoreInfoPB::S3) {
-                        code = MetaServiceCode::INVALID_ARGUMENT;
-                        msg = "role_arn is only supported for s3 provider";
-                        LOG(INFO) << msg << " provider=" << it.provider();
-                        return;
-                    }
-
-                    if (it.role_arn() == role_arn && it.external_id() == external_id) {
-                        // not change, just return ok
-                        code = MetaServiceCode::OK;
-                        msg = "ak/sk not changed";
-                        return;
-                    }
-                    it.clear_ak();
-                    it.clear_sk();
-                    it.clear_encryption_info();
-
-                    it.set_role_arn(role_arn);
-                    it.set_external_id(external_id);
-                    it.set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
-                }
-
-                auto now_time = std::chrono::system_clock::now();
-                uint64_t time = std::chrono::duration_cast<std::chrono::seconds>(
-                                        now_time.time_since_epoch())
-                                        .count();
-                it.set_mtime(time);
+        int ret = alter_instance_obj_store_info_by_id(instance, root_obj_id, ak, sk, role_arn,
+                                                      external_id, encryption_info, code, msg);
+        if (ret != 0) {
+            if (ret > 0) {
+                return;
             }
+            return;
         }
     } break;
     case AlterObjStoreInfoRequest::ADD_OBJ_INFO: {
@@ -1723,6 +1941,105 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         code = cast_as<ErrCategory::COMMIT>(err);
         msg = fmt::format("failed to commit kv txn, err={}", err);
         LOG(WARNING) << msg;
+        return;
+    }
+
+    async_notify_refresh_instance(txn_kv_, instance_id, true);
+
+    if (!supports_cascade) {
+        return;
+    }
+
+    if (!instance.has_snapshot_switch_status() ||
+        instance.snapshot_switch_status() == SNAPSHOT_SWITCH_DISABLED) {
+        LOG(INFO) << "snapshot disabled for instance_id=" << instance_id
+                  << ", skip cascade updating derived instances after alter_obj_store_info";
+        return;
+    }
+
+    std::vector<std::string> cascade_instance_ids;
+    if (find_cascade_instances(txn_kv_.get(), instance_id, &cascade_instance_ids) != 0) {
+        LOG(WARNING) << "failed to find derived instances for obj store cascade, instance_id="
+                     << instance_id;
+        return;
+    }
+
+    for (const auto& cascade_id : cascade_instance_ids) {
+        std::unique_ptr<Transaction> cascade_txn;
+        TxnErrorCode cascade_err = txn_kv_->create_txn(&cascade_txn);
+        if (cascade_err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::CREATE>(cascade_err);
+            msg = fmt::format(
+                    "failed to create txn for derived obj store update, instance_id={}, err={}",
+                    cascade_id, cascade_err);
+            LOG(WARNING) << msg;
+            return;
+        }
+
+        std::string cascade_key;
+        std::string cascade_val;
+        instance_key({cascade_id}, &cascade_key);
+        cascade_err = cascade_txn->get(cascade_key, &cascade_val);
+        if (cascade_err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(cascade_err);
+            msg = fmt::format(
+                    "failed to get derived instance for obj store update, instance_id={}, err={}",
+                    cascade_id, cascade_err);
+            LOG(WARNING) << msg;
+            return;
+        }
+
+        InstanceInfoPB cascade_instance;
+        if (!cascade_instance.ParseFromString(cascade_val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = fmt::format(
+                    "failed to parse derived InstanceInfoPB for obj store update, instance_id={}",
+                    cascade_id);
+            LOG(WARNING) << msg;
+            return;
+        }
+
+        MetaServiceCode cascade_code = MetaServiceCode::OK;
+        std::string cascade_msg;
+        int ret = alter_instance_obj_store_info_by_id(cascade_instance, root_obj_id, ak, sk,
+                                                      role_arn, external_id, encryption_info,
+                                                      cascade_code, cascade_msg);
+        if (ret != 0) {
+            if (ret < 0) {
+                code = cascade_code;
+                msg = fmt::format(
+                        "failed to cascade obj store update, instance_id={}, obj_info_id={}, "
+                        "msg={}",
+                        cascade_id, root_obj_id, cascade_msg);
+                LOG(WARNING) << msg << " code=" << static_cast<int>(code);
+                return;
+            }
+        }
+
+        cascade_val = cascade_instance.SerializeAsString();
+        if (cascade_val.empty()) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format(
+                    "failed to serialize derived instance after obj store update, instance_id={}",
+                    cascade_id);
+            LOG(WARNING) << msg;
+            return;
+        }
+
+        cascade_txn->atomic_add(system_meta_service_instance_update_key(), 1);
+        cascade_txn->put(cascade_key, cascade_val);
+        cascade_err = cascade_txn->commit();
+        if (cascade_err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::COMMIT>(cascade_err);
+            msg = fmt::format("failed to commit derived obj store update, instance_id={}, err={}",
+                              cascade_id, cascade_err);
+            LOG(WARNING) << msg;
+            return;
+        }
+
+        async_notify_refresh_instance(txn_kv_, cascade_id, true);
+        LOG(INFO) << "cascade obj store update finished, root_instance_id=" << instance_id
+                  << " derived_instance_id=" << cascade_id << " obj_info_id=" << root_obj_id;
     }
 }
 
@@ -1845,9 +2162,11 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
         std::unique_ptr<Transaction> cascade_txn;
         TxnErrorCode cascade_err = txn_kv_->create_txn(&cascade_txn);
         if (cascade_err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to create txn for derived instance, instance_id=" << cascade_id
-                         << " err=" << cascade_err;
-            continue;
+            code = cast_as<ErrCategory::CREATE>(cascade_err);
+            msg = fmt::format("failed to create txn for derived instance, instance_id={}, err={}",
+                              cascade_id, cascade_err);
+            LOG(WARNING) << msg;
+            return;
         }
 
         InstanceKeyInfo cascade_key_info {cascade_id};
@@ -1857,15 +2176,20 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
 
         cascade_err = cascade_txn->get(cascade_key, &cascade_val);
         if (cascade_err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to get derived instance, instance_id=" << cascade_id
-                         << " err=" << cascade_err;
-            continue;
+            code = cast_as<ErrCategory::READ>(cascade_err);
+            msg = fmt::format("failed to get derived instance, instance_id={}, err={}", cascade_id,
+                              cascade_err);
+            LOG(WARNING) << msg;
+            return;
         }
 
         InstanceInfoPB cascade_instance;
         if (!cascade_instance.ParseFromString(cascade_val)) {
-            LOG(WARNING) << "failed to parse InstanceInfoPB for derived instance_id=" << cascade_id;
-            continue;
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = fmt::format("failed to parse InstanceInfoPB for derived instance_id={}",
+                              cascade_id);
+            LOG(WARNING) << msg;
+            return;
         }
 
         // Update the cascade instance using helper function
@@ -1874,24 +2198,30 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
         std::string cascade_msg;
         if (update_instance_ak_sk(cascade_instance, request, time, cascade_code, cascade_msg,
                                   cascade_update_record) != 0) {
-            LOG(WARNING) << "failed to update derived instance, instance_id=" << cascade_id
-                         << " msg=" << cascade_msg;
-            continue;
+            code = cascade_code;
+            msg = fmt::format("failed to update derived instance, instance_id={}, msg={}",
+                              cascade_id, cascade_msg);
+            LOG(WARNING) << msg << " code=" << static_cast<int>(code);
+            return;
         }
 
         cascade_val = cascade_instance.SerializeAsString();
         if (cascade_val.empty()) {
-            LOG(WARNING) << "failed to serialize derived instance, instance_id=" << cascade_id;
-            continue;
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format("failed to serialize derived instance, instance_id={}", cascade_id);
+            LOG(WARNING) << msg;
+            return;
         }
 
         cascade_txn->put(cascade_key, cascade_val);
 
         cascade_err = cascade_txn->commit();
         if (cascade_err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to commit derived instance txn, instance_id=" << cascade_id
-                         << " err=" << cascade_err;
-            continue;
+            code = cast_as<ErrCategory::COMMIT>(cascade_err);
+            msg = fmt::format("failed to commit derived instance txn, instance_id={}, err={}",
+                              cascade_id, cascade_err);
+            LOG(WARNING) << msg;
+            return;
         }
 
         async_notify_refresh_instance(txn_kv_, cascade_id, true);

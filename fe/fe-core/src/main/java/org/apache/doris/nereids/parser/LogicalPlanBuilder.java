@@ -53,6 +53,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.info.BranchOptions;
 import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.info.TagOptions;
 import org.apache.doris.cloud.stage.StageUtil;
 import org.apache.doris.common.Config;
@@ -63,7 +64,6 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.FileCacheAdmissionManager;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.dictionary.LayoutType;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.info.TableValuedFunctionRefInfo;
 import org.apache.doris.job.common.IntervalUnit;
@@ -1918,7 +1918,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         TableNameInfo mvName = new TableNameInfo(nameParts);
         AlterMTMVInfo alterMTMVInfo = null;
         if (ctx.RENAME() != null) {
-            alterMTMVInfo = new AlterMTMVRenameInfo(mvName, ctx.newName.getText());
+            alterMTMVInfo = new AlterMTMVRenameInfo(mvName,
+                    new TableNameInfo(visitMultipartIdentifier(ctx.renameNewName)));
         } else if (ctx.REFRESH() != null) {
             MTMVRefreshInfo refreshInfo = new MTMVRefreshInfo();
             if (ctx.refreshMethod() != null) {
@@ -1932,7 +1933,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             alterMTMVInfo = new AlterMTMVPropertyInfo(mvName,
                     Maps.newHashMap(visitPropertyItemList(ctx.fileProperties)));
         } else if (ctx.REPLACE() != null) {
-            String newName = ctx.newName.getText();
+            String newName = ctx.replaceNewName.getText();
             Map<String, String> properties = ctx.propertyClause() != null
                     ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
             alterMTMVInfo = new AlterMTMVReplaceInfo(mvName, newName, properties);
@@ -2275,7 +2276,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             for (Token filePath : ddc.filePaths) {
                 multiFilePaths.add(filePath.getText().substring(1, filePath.getText().length() - 1));
             }
-            List<String> filePaths = ddc.filePath == null ? null : multiFilePaths;
+            List<String> filePaths = multiFilePaths.isEmpty() ? null : multiFilePaths;
             List<Expression> colMappings;
             if (ddc.columnMapping == null) {
                 colMappings = null;
@@ -5259,7 +5260,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> {
             switch (ctx.complex.getType()) {
                 case DorisParser.ARRAY:
-                    return ArrayType.of(typedVisit(ctx.dataType(0)), true);
+                    return ArrayType.of(typedVisit(ctx.dataType(0)));
                 case DorisParser.MAP:
                     return MapType.of(typedVisit(ctx.dataType(0)), typedVisit(ctx.dataType(1)));
                 case DorisParser.STRUCT:

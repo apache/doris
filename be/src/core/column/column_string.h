@@ -31,6 +31,7 @@
 
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -51,6 +52,9 @@ class Arena;
 class ColumnSorter;
 
 /** Column for String values.
+  * Note: In string functions, we assume that ColumnStr contains valid UTF-8 encoded data.
+  * However, ColumnStr is not guaranteed to always hold valid UTF-8, since it is also used
+  * as a serialization container where the content may be arbitrary binary data.
   */
 template <typename T>
 class ColumnStr final : public COWHelper<IColumn, ColumnStr<T>> {
@@ -62,11 +66,16 @@ public:
 
     void static check_chars_length(size_t total_length, size_t element_number, size_t rows = 0) {
         if constexpr (std::is_same_v<T, UInt32>) {
-            if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
+            size_t max_string_size = MAX_STRING_SIZE;
+            if (config::string_overflow_size > 0 &&
+                config::string_overflow_size < static_cast<int64_t>(MAX_STRING_SIZE)) {
+                max_string_size = static_cast<size_t>(config::string_overflow_size);
+            }
+            if (UNLIKELY(total_length > max_string_size)) {
                 throw Exception(ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
                                 "string column length is too large: total_length={}, "
-                                "element_number={}, rows={}",
-                                total_length, element_number, rows);
+                                "limit={}, element_number={}, rows={}",
+                                total_length, max_string_size, element_number, rows);
             }
         }
     }
@@ -536,6 +545,7 @@ public:
     }
 
     bool is_ascii() const;
+    bool is_valid_utf8() const;
 
     Chars& get_chars() { return chars; }
     const Chars& get_chars() const { return chars; }

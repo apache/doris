@@ -61,11 +61,6 @@ std::pair<std::string, std::string> splitName(const std::string& name) {
     return {{begin, first_end}, {second_begin, end}};
 }
 
-std::string extract_table_name(const std::string& nested_name) {
-    auto splitted = splitName(nested_name);
-    return splitted.first;
-}
-
 } // namespace Nested
 
 } // namespace doris

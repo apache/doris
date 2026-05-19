@@ -68,7 +68,10 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
     }
 
     scan_task->set_state(ScanTask::State::IN_FLIGHT);
-    scanner_delegate->_scanner->pause();
+    // Only starts the wait timer without touching the CPU timer, because the CPU
+    // timer uses CLOCK_THREAD_CPUTIME_ID which must be read on the same thread
+    // that started it.
+    scanner_delegate->_scanner->start_wait_worker_timer();
     TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
     auto sumbit_task = [&]() {
         auto work_func = [scanner_ref = scan_task, ctx]() {
@@ -164,13 +167,9 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     max_run_time_watch.start();
     scanner->resume();
 
-    bool need_update_profile = true;
     auto update_scanner_profile = [&]() {
-        if (need_update_profile) {
-            scanner->pause();
-            scanner->update_realtime_counters();
-            need_update_profile = false;
-        }
+        scanner->pause();
+        scanner->update_realtime_counters();
     };
 
     Status status = Status::OK();
@@ -212,9 +211,8 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             }
 
             bool first_read = true;
-            int64_t limit = scanner->limit(); if (UNLIKELY(ctx->done())) {
-                eos = true;
-            } else if (ctx->remaining_limit() == 0) { eos = true; } else if (!eos) {
+            int64_t limit = scanner->limit();
+            if (UNLIKELY(ctx->done())) { eos = true; } else if (!eos) {
                 do {
                     DEFER_RELEASE_RESERVED();
                     BlockUPtr free_block;
@@ -249,22 +247,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     // Or it may cause a crash when the block is not normal.
                     _make_sure_virtual_col_is_materialized(scanner, free_block.get());
 
-                    // Shared limit quota: acquire rows from the context's shared pool.
-                    // Discard or truncate the block if quota is exhausted.
-                    if (free_block->rows() > 0) {
-                        int64_t block_rows = free_block->rows();
-                        int64_t granted = ctx->acquire_limit_quota(block_rows);
-                        if (granted == 0) {
-                            // No quota remaining, discard this block and mark eos.
-                            ctx->return_free_block(std::move(free_block));
-                            eos = true;
-                            break;
-                        } else if (granted < block_rows) {
-                            // Partial quota: truncate block to granted rows and mark eos.
-                            free_block->set_num_rows(granted);
-                            eos = true;
-                        }
-                    }
                     // Projection will truncate useless columns, makes block size change.
                     auto free_block_bytes = free_block->allocated_bytes();
                     ctx->reestimated_block_mem_bytes(cast_set<int64_t>(free_block_bytes));
@@ -290,21 +272,22 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 } while (false);
             }
 
-                                              if (UNLIKELY(!status.ok())) {
-                                                  scan_task->set_status(status);
-                                                  eos = true;
-                                              },
-                                              status);
+            if (UNLIKELY(!status.ok())) {
+                scan_task->set_status(status);
+                eos = true;
+            },
+            status);
 
     if (UNLIKELY(!status.ok())) {
         scan_task->set_status(status);
         eos = true;
     }
 
+    // Always update scanner profile to properly account for CPU time on the same
+    // thread that started the CPU timer (CLOCK_THREAD_CPUTIME_ID is per-thread).
+    update_scanner_profile();
+
     if (eos) {
-        // If eos, scanner will call _collect_profile_before_close to update profile,
-        // so we need update_scanner_profile here
-        update_scanner_profile();
         scanner->mark_to_need_to_close();
         scan_task->set_state(ScanTask::State::EOS);
     } else {

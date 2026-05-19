@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "core/column/column_nullable.h"
 #include "core/data_type/data_type_variant.h"
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/cast_to_string.h"
@@ -26,12 +27,15 @@ namespace doris::CastWrapper {
 // shared implementation for casting from variant to arbitrary non-nullable target type
 inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
                                      const ColumnNumbers& arguments, uint32_t result,
-                                     size_t input_rows_count,
-                                     const NullMap::value_type* /*null_map*/,
+                                     size_t input_rows_count, const NullMap::value_type* null_map,
                                      const DataTypePtr& data_type_to) {
     const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
     const auto& col_from = col_with_type_and_name.column;
-    const auto& variant = assert_cast<const ColumnVariant&>(*col_from);
+    const IColumn* variant_column = col_from.get();
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(*variant_column)) {
+        variant_column = &nullable->get_nested_column();
+    }
+    const auto& variant = assert_cast<const ColumnVariant&>(*variant_column);
     ColumnPtr col_to = data_type_to->create_column();
 
     if (!variant.is_finalized()) {
@@ -79,10 +83,11 @@ inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
             col_to = make_nullable(col_to, true);
         } else {
             col_to = tmp_block.get_by_position(1).column;
-            // Note: here we should return the nullable result column
-            col_to = wrap_in_nullable(
-                    col_to, Block({{nested, nested_from_type, ""}, {col_to, data_type_to, ""}}),
-                    {0}, input_rows_count);
+            col_to = wrap_in_nullable(col_to,
+                                      Block({{nested, nested_from_type, ""},
+                                             {col_from, col_with_type_and_name.type, ""},
+                                             {col_to, data_type_to, ""}}),
+                                      {0, 1}, input_rows_count);
         }
     } else {
         if (variant.only_have_default_values()) {
@@ -103,6 +108,13 @@ inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
         } else {
             assert_cast<ColumnNullable&>(*col_to->assume_mutable())
                     .insert_many_defaults(input_rows_count);
+        }
+    }
+
+    if (null_map == nullptr) {
+        if (const auto* nullable_result = check_and_get_column<ColumnNullable>(*col_to);
+            nullable_result != nullptr && !nullable_result->has_null()) {
+            col_to = nullable_result->get_nested_column_ptr();
         }
     }
 

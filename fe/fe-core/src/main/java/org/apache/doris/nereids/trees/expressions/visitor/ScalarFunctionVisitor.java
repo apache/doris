@@ -298,6 +298,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsNan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsUuid;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsValidUtf8;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
@@ -307,6 +308,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObjectFlatten;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonQuote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonRemove;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonReplace;
@@ -1701,6 +1703,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(isUuid, context);
     }
 
+    default R visitIsValidUtf8(IsValidUtf8 isValidUtf8, C context) {
+        return visitScalarFunction(isValidUtf8, context);
+    }
+
     default R visitIsInf(IsInf isInf, C context) {
         return visitScalarFunction(isInf, context);
     }
@@ -1719,6 +1725,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitJsonObject(JsonObject jsonObject, C context) {
         return visitScalarFunction(jsonObject, context);
+    }
+
+    default R visitJsonObjectFlatten(JsonObjectFlatten jsonObjectFlatten, C context) {
+        return visitScalarFunction(jsonObjectFlatten, context);
     }
 
     default R visitJsonExtractNoQuotes(JsonExtractNoQuotes jsonExtract, C context) {

@@ -54,8 +54,8 @@ public:
                           bool null_aware, int filter_id,
                           int sampling_frequency = RuntimeFilterSelectivity::DISABLE_SAMPLING);
     ~VRuntimeFilterWrapper() override = default;
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override;
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;

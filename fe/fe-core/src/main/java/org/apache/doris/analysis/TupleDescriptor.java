@@ -20,7 +20,9 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
@@ -118,8 +120,29 @@ public class TupleDescriptor {
                 .add("tbl", tblStr));
         builder.append("\n");
         for (SlotDescriptor slot : slots) {
-            builder.append(slot.getExplainString(prefix)).append("\n");
+            builder.append(getExplainString(slot, prefix)).append("\n");
         }
         return builder.toString();
+    }
+
+    public String getExplainString(SlotDescriptor slotDescriptor, String prefix) {
+        String caption =  slotDescriptor.getCaption();
+        Column column = slotDescriptor.getColumn();
+        Type type = slotDescriptor.getType();
+        Expr virtualColumn = slotDescriptor.getVirtualColumn();
+        return new StringBuilder()
+                .append(prefix).append("SlotDescriptor{")
+                .append("id=").append(slotDescriptor.getId().asInt())
+                .append(", col=").append(caption)
+                .append(", colUniqueId=").append(column == null ? "null" : column.getUniqueId())
+                .append(", type=").append(type == null ? "null" : type.toSql())
+                .append(", nullable=").append(slotDescriptor.isNullable())
+                .append(", isAutoIncrement=").append(slotDescriptor.isNullable())
+                .append(", subColPath=").append(slotDescriptor.getSubColPath())
+                .append(", virtualColumn=")
+                .append(virtualColumn == null
+                        ? null : virtualColumn.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE))
+                .append("}")
+                .toString();
     }
 }

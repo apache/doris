@@ -33,6 +33,7 @@ import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.IndexToThriftConvertor;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -430,11 +431,12 @@ public class OlapTableSink extends DataSink {
                 indexes = table.getIndexes();
             }
             for (Index index : indexes) {
-                TOlapTableIndex tIndex = index.toThrift(index.getColumnUniqueIds(table.getBaseSchema()));
+                TOlapTableIndex tIndex = IndexToThriftConvertor.toThrift(index, table.getBaseSchema());
                 indexDesc.add(tIndex);
             }
             TOlapTableIndexSchema indexSchema = new TOlapTableIndexSchema(pair.getKey(), columns,
                     indexMeta.getSchemaHash());
+            indexSchema.setRowBinlogId(indexMeta.getRowBinlogIndexId());
             Expr whereClause = indexMeta.getWhereClause();
             if (whereClause != null) {
                 Expr expr = syncMvWhereClauses.getOrDefault(pair.getKey(), null);
@@ -448,6 +450,22 @@ public class OlapTableSink extends DataSink {
             indexSchema.setIndexesDesc(indexDesc);
             schemaParam.addToIndexes(indexSchema);
         }
+
+        if (table.needRowBinlog()) {
+            MaterializedIndexMeta rowBinlogMeta = table.getRowBinlogMeta();
+            List<String> binlogColumns = Lists.newArrayList();
+            List<TColumn> binlogColumnsDesc = Lists.newArrayList();
+            for (Column column : rowBinlogMeta.getSchema(true)) {
+                TColumn tColumn = ColumnToThrift.toThrift(column);
+                binlogColumnsDesc.add(tColumn);
+                binlogColumns.add(column.getName());
+            }
+            TOlapTableIndexSchema rowBinlogIndexSchema = new TOlapTableIndexSchema(
+                    rowBinlogMeta.getIndexId(), binlogColumns, rowBinlogMeta.getSchemaHash());
+            rowBinlogIndexSchema.setColumnsDesc(binlogColumnsDesc);
+            schemaParam.setRowBinlogIndexSchema(rowBinlogIndexSchema);
+        }
+
         setPartialUpdateInfoForParam(schemaParam, table, uniqueKeyUpdateMode);
         schemaParam.setInvertedIndexFileStorageFormat(table.getInvertedIndexFileStorageFormat());
         return schemaParam;

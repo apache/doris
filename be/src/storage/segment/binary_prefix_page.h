@@ -76,30 +76,13 @@ public:
 
     uint64_t get_raw_data_size() const override { return _raw_data_size; }
 
-    Status get_first_value(void* value) const override {
-        DCHECK(_finished);
-        if (_count == 0) {
-            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
-        }
-        *reinterpret_cast<Slice*>(value) = Slice(_first_entry);
-        return Status::OK();
-    }
-
-    Status get_last_value(void* value) const override {
-        DCHECK(_finished);
-        if (_count == 0) {
-            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
-        }
-        *reinterpret_cast<Slice*>(value) = Slice(_last_entry);
-        return Status::OK();
-    }
-
 private:
     BinaryPrefixPageBuilder(const PageBuilderOptions& options) : _options(options) {}
 
     PageBuilderOptions _options;
     std::vector<uint32_t> _restart_points_offset;
-    faststring _first_entry;
+    // Holds the most recently added entry; used by add() to compute the
+    // shared-prefix length against the next entry.
     faststring _last_entry;
     size_t _count = 0;
     bool _finished = false;

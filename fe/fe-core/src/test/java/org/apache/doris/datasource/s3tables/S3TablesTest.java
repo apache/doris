@@ -17,8 +17,6 @@
 
 package org.apache.doris.datasource.s3tables;
 
-import org.apache.doris.datasource.iceberg.s3tables.CustomAwsCredentialsProvider;
-
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
@@ -39,14 +37,7 @@ public class S3TablesTest {
         S3TablesCatalog s3TablesCatalog = new S3TablesCatalog();
         Map<String, String> s3Properties = new HashMap<>();
 
-        // ak, sk
-        String accessKeyId = "";
-        String secretKey = "";
-
         s3Properties.put("client.region", "us-east-1");
-        s3Properties.put("client.credentials-provider", CustomAwsCredentialsProvider.class.getName());
-        s3Properties.put("client.credentials-provider.s3.access-key-id", accessKeyId);
-        s3Properties.put("client.credentials-provider.s3.secret-access-key", secretKey);
 
         String warehouse = "arn:aws:s3tables:us-east-1:169698404049:bucket/yy-s3-table-bucket";
         s3Properties.put("warehouse", warehouse);

@@ -56,6 +56,7 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                         olapScan.getSelectedIndexId(),
                         olapScan.getSelectedTabletIds(),
                         olapScan.getSelectedPartitionIds(),
+                        olapScan.hasPartitionPredicate(),
                         convertDistribution(olapScan),
                         olapScan.getPreAggStatus(),
                         olapScan.getOutputByIndex(olapScan.getTable().getBaseIndexId()),
@@ -71,7 +72,8 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                         olapScan.getScoreRangeInfo(),
                         olapScan.getAnnOrderKeys(),
                         olapScan.getAnnLimit(),
-                        olapScan.getTableAlias())
+                        olapScan.getTableAlias(),
+                        olapScan.getPartitionPrunablePredicates())
         ).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
     }
 

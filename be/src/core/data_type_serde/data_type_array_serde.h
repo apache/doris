@@ -25,12 +25,12 @@
 #include <utility>
 
 #include "common/status.h"
+#include "core/data_type_serde/data_type_nullable_serde.h"
 #include "core/data_type_serde/data_type_serde.h"
 
 namespace doris {
 class PValues;
 struct JsonbValue;
-class JsonWriter;
 
 class IColumn;
 class Arena;
@@ -39,7 +39,12 @@ class IDataType;
 class DataTypeArraySerDe : public DataTypeSerDe {
 public:
     DataTypeArraySerDe(DataTypeSerDeSPtr _nested_serde, int nesting_level = 1)
-            : DataTypeSerDe(nesting_level), nested_serde(std::move(_nested_serde)) {}
+            : DataTypeSerDe(nesting_level) {
+        auto nullable_serde =
+                std::dynamic_pointer_cast<DataTypeNullableSerDe>(std::move(_nested_serde));
+        DORIS_CHECK(nullable_serde != nullptr);
+        nested_serde = std::move(nullable_serde);
+    }
 
     std::string get_name() const override { return "Array(" + nested_serde->get_name() + ")"; }
 
@@ -133,6 +138,6 @@ private:
     template <bool is_strict_mode>
     Status _from_string(StringRef& str, IColumn& column, const FormatOptions& options) const;
 
-    DataTypeSerDeSPtr nested_serde;
+    DataTypeNullableSerDeSPtr nested_serde;
 };
 } // namespace doris

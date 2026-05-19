@@ -55,7 +55,7 @@ struct StatFuncOneArg {
 };
 
 template <typename StatFunc, bool NullableInput>
-class AggregateFunctionVarianceSimple
+class AggregateFunctionVarianceSimple final
         : public IAggregateFunctionDataHelper<
                   typename StatFunc::Data,
                   AggregateFunctionVarianceSimple<StatFunc, NullableInput>> {

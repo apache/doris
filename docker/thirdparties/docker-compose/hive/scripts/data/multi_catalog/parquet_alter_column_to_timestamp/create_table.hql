@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS multi_catalog;
 USE multi_catalog;
 
-CREATE TABLE `multi_catalog.parquet_alter_column_to_timestamp`(
+drop table if exists `multi_catalog.parquet_alter_column_to_timestamp`;
+
+create table `multi_catalog.parquet_alter_column_to_timestamp`(
   `col_int` int, 
   `col_smallint` smallint, 
   `col_tinyint` tinyint, 
@@ -26,5 +28,3 @@ TBLPROPERTIES (
   'last_modified_by'='hadoop', 
   'last_modified_time'='1697217395', 
   'transient_lastDdlTime'='1697217395');
-
-msck repair table parquet_alter_column_to_timestamp;

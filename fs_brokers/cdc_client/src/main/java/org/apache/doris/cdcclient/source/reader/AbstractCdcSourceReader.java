@@ -20,6 +20,7 @@ package org.apache.doris.cdcclient.source.reader;
 import org.apache.doris.cdcclient.source.deserialize.DeserializeResult;
 import org.apache.doris.cdcclient.source.deserialize.SourceRecordDeserializer;
 import org.apache.doris.cdcclient.utils.SchemaChangeManager;
+import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.JobBaseRecordRequest;
 
 import org.apache.flink.cdc.connectors.base.utils.SerializerUtils;
@@ -37,6 +38,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.debezium.document.Document;
 import io.debezium.document.DocumentReader;
 import io.debezium.document.DocumentWriter;
+import io.debezium.relational.Column;
 import io.debezium.relational.TableId;
 import io.debezium.relational.history.TableChanges;
 import lombok.Getter;
@@ -62,6 +64,49 @@ public abstract class AbstractCdcSourceReader implements SourceReader {
 
     protected SourceRecordDeserializer<SourceRecord, DeserializeResult> serializer;
     protected Map<TableId, TableChanges.TableChange> tableSchemas;
+
+    private final Map<String, Class<?>> splitKeyClassCache = new ConcurrentHashMap<>();
+
+    protected abstract Class<?> probeSplitKeyClass(
+            TableId tableId, Column splitColumn, JobBaseConfig jobConfig);
+
+    protected Class<?> resolveSplitKeyClass(
+            TableId tableId, Column splitColumn, JobBaseConfig jobConfig) {
+        String key = tableId.identifier() + "." + splitColumn.name();
+        return splitKeyClassCache.computeIfAbsent(
+                key, k -> probeSplitKeyClass(tableId, splitColumn, jobConfig));
+    }
+
+    protected static Object[] convertBounds(Object[] raw, Class<?> target, ObjectMapper mapper) {
+        if (raw == null) {
+            return null;
+        }
+        Object[] out = new Object[raw.length];
+        for (int i = 0; i < raw.length; i++) {
+            out[i] = convertBound(raw[i], target, mapper);
+        }
+        return out;
+    }
+
+    private static Object convertBound(Object v, Class<?> target, ObjectMapper mapper) {
+        if (v == null) {
+            return null;
+        }
+        if (target.isInstance(v)) {
+            return v;
+        }
+        String s = v.toString();
+        if (target == java.sql.Date.class) {
+            return java.sql.Date.valueOf(s);
+        }
+        if (target == java.sql.Timestamp.class) {
+            return java.sql.Timestamp.valueOf(s);
+        }
+        if (target == java.sql.Time.class) {
+            return java.sql.Time.valueOf(s);
+        }
+        return mapper.convertValue(v, target);
+    }
 
     /**
      * Load tableSchemas from a JSON string (produced by {@link #serializeTableSchemas()}). Used

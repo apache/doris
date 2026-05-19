@@ -40,12 +40,14 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/query_context.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
 
 namespace doris {
+
 RuntimeFilterMgr::RuntimeFilterMgr(const bool is_global)
         : _is_global(is_global),
           _tracker(std::make_unique<MemTracker>(
@@ -187,7 +189,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     auto filter_id = runtime_filter_desc->filter_id;
     GlobalMergeContext* cnt_val;
     {
-        std::unique_lock<std::shared_mutex> guard(_filter_map_mutex);
+        LockGuard guard(_filter_map_mutex);
         cnt_val = &_filter_map[filter_id]; // may inplace construct default object
     }
 
@@ -237,7 +239,7 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
     auto filter_id = request->filter_id();
     std::map<int, GlobalMergeContext>::iterator iter;
     {
-        std::shared_lock<std::shared_mutex> guard(_filter_map_mutex);
+        SharedLockGuard guard(_filter_map_mutex);
         iter = _filter_map.find(filter_id);
         if (iter == _filter_map.end()) {
             return Status::InvalidArgument("unknown filter id {}",
@@ -245,12 +247,12 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
         }
     }
     auto& cnt_val = iter->second;
-    std::unique_lock<std::mutex> l(iter->second.mtx);
+    std::unique_lock<std::mutex> l(cnt_val.mtx);
     // Discard stale-stage runtime filter size requests from old recursive CTE rounds.
     // Each round increments the stage counter; only messages matching the current stage
     // should be processed. This prevents old PFC's runtime filters from corrupting
     // the merge state of the new round's filters.
-    if (request->stage() != iter->second.stage) {
+    if (request->stage() != cnt_val.stage) {
         return Status::OK();
     }
     cnt_val.source_addrs.push_back(request->source_addr());
@@ -258,9 +260,9 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
     Status st = Status::OK();
     // After all runtime filters' size are collected, we should send response to all producers.
     if (cnt_val.merger->add_rf_size(request->filter_size())) {
-        auto ctx = query_ctx->ignore_runtime_filter_error() ? std::weak_ptr<QueryContext> {}
-                                                            : query_ctx;
-        for (auto addr : cnt_val.source_addrs) {
+        cnt_val.sync_size_callbacks.resize(cnt_val.source_addrs.size());
+        for (size_t i = 0; i < cnt_val.source_addrs.size(); ++i) {
+            auto& addr = cnt_val.source_addrs[i];
             std::shared_ptr<PBackendService_Stub> stub(
                     ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(addr));
             if (stub == nullptr) {
@@ -271,12 +273,16 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
             }
 
             auto sync_request = std::make_shared<PSyncFilterSizeRequest>();
-            sync_request->set_stage(iter->second.stage);
+            sync_request->set_stage(cnt_val.stage);
 
-            auto closure = AutoReleaseClosure<PSyncFilterSizeRequest,
-                                              DummyBrpcCallback<PSyncFilterSizeResponse>>::
-                    create_unique(sync_request,
-                                  DummyBrpcCallback<PSyncFilterSizeResponse>::create_shared(), ctx);
+            auto callback = HandleErrorBrpcCallback<PSyncFilterSizeResponse>::create_shared(
+                    query_ctx->ignore_runtime_filter_error() ? std::weak_ptr<QueryContext> {}
+                                                             : query_ctx->weak_from_this());
+            cnt_val.sync_size_callbacks[i] = callback;
+            auto closure = AutoReleaseClosure<
+                    PSyncFilterSizeRequest,
+                    HandleErrorBrpcCallback<PSyncFilterSizeResponse>>::create_unique(sync_request,
+                                                                                     callback);
 
             auto* pquery_id = closure->request_->mutable_query_id();
             pquery_id->set_hi(query_ctx->query_id().hi);
@@ -289,7 +295,6 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
 
             closure->request_->set_filter_id(filter_id);
             closure->request_->set_filter_size(cnt_val.merger->get_received_sum_size());
-
             stub->sync_filter_size(closure->cntl_.get(), closure->request_.get(),
                                    closure->response_.get(), closure.get());
             closure.release();
@@ -338,7 +343,7 @@ Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryContext> q
     auto filter_id = request->filter_id();
     std::map<int, GlobalMergeContext>::iterator iter;
     {
-        std::shared_lock<std::shared_mutex> guard(_filter_map_mutex);
+        SharedLockGuard guard(_filter_map_mutex);
         iter = _filter_map.find(filter_id);
         VLOG_ROW << "recv filter id:" << request->filter_id() << " " << request->ShortDebugString();
         if (iter == _filter_map.end()) {
@@ -349,9 +354,9 @@ Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryContext> q
     auto& cnt_val = iter->second;
     bool is_ready = false;
     {
-        std::lock_guard<std::mutex> l(iter->second.mtx);
+        std::lock_guard<std::mutex> l(cnt_val.mtx);
         // Discard stale-stage merge requests from old recursive CTE rounds.
-        if (request->stage() != iter->second.stage) {
+        if (request->stage() != cnt_val.stage) {
             return Status::OK();
         }
         if (cnt_val.merger == nullptr) {
@@ -424,11 +429,14 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(GlobalMergeContext
 
     std::vector<TRuntimeFilterTargetParamsV2>& targets = cnt_val.targetv2_info;
     auto st = Status::OK();
-    for (auto& target : targets) {
+    cnt_val.publish_callbacks.resize(targets.size());
+    for (size_t i = 0; i < targets.size(); ++i) {
+        auto& target = targets[i];
+        auto callback = HandleErrorBrpcCallback<PPublishFilterResponse>::create_shared(ctx);
+        cnt_val.publish_callbacks[i] = callback;
         auto closure = AutoReleaseClosure<PPublishFilterRequestV2,
-                                          DummyBrpcCallback<PPublishFilterResponse>>::
-                create_unique(std::make_shared<PPublishFilterRequestV2>(apply_request),
-                              DummyBrpcCallback<PPublishFilterResponse>::create_shared(), ctx);
+                                          HandleErrorBrpcCallback<PPublishFilterResponse>>::
+                create_unique(std::make_shared<PPublishFilterRequestV2>(apply_request), callback);
 
         closure->request_->set_merge_time(merge_time);
         *closure->request_->mutable_query_id() = query_id;
@@ -486,6 +494,8 @@ Status GlobalMergeContext::reset(QueryContext* query_ctx) {
     merger->set_expected_producer_num(producer_size);
     arrive_id.clear();
     source_addrs.clear();
+    sync_size_callbacks.clear();
+    publish_callbacks.clear();
     done = false;
     stage++;
     // Keep the Merger's own stage in sync for consistent debug output.
@@ -498,7 +508,7 @@ Status RuntimeFilterMergeControllerEntity::reset_global_rf(
     for (const auto& filter_id : filter_ids) {
         GlobalMergeContext* cnt_val;
         {
-            std::unique_lock<std::shared_mutex> guard(_filter_map_mutex);
+            LockGuard guard(_filter_map_mutex);
             cnt_val = &_filter_map[filter_id]; // may inplace construct default object
         }
         RETURN_IF_ERROR(cnt_val->reset(query_ctx));
@@ -508,7 +518,7 @@ Status RuntimeFilterMergeControllerEntity::reset_global_rf(
 
 std::string RuntimeFilterMergeControllerEntity::debug_string() {
     std::string result = "RuntimeFilterMergeControllerEntity Info:\n";
-    std::shared_lock<std::shared_mutex> guard(_filter_map_mutex);
+    SharedLockGuard guard(_filter_map_mutex);
     for (const auto& [filter_id, ctx] : _filter_map) {
         result += fmt::format("filter_id: {}, stage: {}, {}\n", filter_id, ctx.stage,
                               ctx.merger->debug_string());

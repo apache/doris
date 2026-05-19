@@ -17,16 +17,21 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.info.TableNameInfo;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -166,5 +171,51 @@ public class OlapScanNodeTest {
             long mod = (int) ((hashValue & 0xffffffff) % 3);
             Assert.assertEquals(mod, 2);
         } // CHECKSTYLE IGNORE THIS LINE
+    }
+
+    @Test
+    public void testHasPartitionPredicateWithEquality() {
+        TupleDescriptor tupleDescriptor = new TupleDescriptor(new TupleId(1));
+        SlotDescriptor partitionSlot = addSlot(tupleDescriptor, 1, "p1");
+        addSlot(tupleDescriptor, 2, "c1");
+
+        List<Expr> conjuncts = Lists.newArrayList(new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                new SlotRef(partitionSlot), new IntLiteral(1)));
+
+        Assert.assertTrue(ScanNode.containsPartitionPredicate(
+                Lists.newArrayList(partitionSlot.getColumn()), tupleDescriptor, conjuncts, null));
+    }
+
+    @Test
+    public void testHasPartitionPredicateWithInPredicate() {
+        TupleDescriptor tupleDescriptor = new TupleDescriptor(new TupleId(1));
+        SlotDescriptor partitionSlot = addSlot(tupleDescriptor, 1, "p1");
+        addSlot(tupleDescriptor, 2, "c1");
+
+        List<Expr> inList = Lists.newArrayList(new IntLiteral(1), new IntLiteral(2));
+        List<Expr> conjuncts = Lists.newArrayList(new InPredicate(new SlotRef(partitionSlot), inList, false));
+
+        Assert.assertTrue(ScanNode.containsPartitionPredicate(
+                Lists.newArrayList(partitionSlot.getColumn()), tupleDescriptor, conjuncts, null));
+    }
+
+    @Test
+    public void testHasPartitionPredicateIgnoresNonPartitionColumn() {
+        TupleDescriptor tupleDescriptor = new TupleDescriptor(new TupleId(1));
+        SlotDescriptor partitionSlot = addSlot(tupleDescriptor, 1, "p1");
+        SlotDescriptor nonPartitionSlot = addSlot(tupleDescriptor, 2, "c1");
+
+        List<Expr> conjuncts = Lists.newArrayList(new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                new SlotRef(nonPartitionSlot), new IntLiteral(1)));
+
+        Assert.assertFalse(ScanNode.containsPartitionPredicate(
+                Lists.newArrayList(partitionSlot.getColumn()), tupleDescriptor, conjuncts, null));
+    }
+
+    private SlotDescriptor addSlot(TupleDescriptor tupleDescriptor, int slotId, String columnName) {
+        SlotDescriptor slotDescriptor = new SlotDescriptor(new SlotId(slotId), tupleDescriptor.getId());
+        slotDescriptor.setColumn(new Column(columnName, PrimitiveType.BIGINT));
+        tupleDescriptor.addSlot(slotDescriptor);
+        return slotDescriptor;
     }
 }

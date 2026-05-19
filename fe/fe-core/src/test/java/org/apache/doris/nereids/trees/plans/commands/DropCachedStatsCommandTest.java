@@ -19,11 +19,11 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -83,7 +83,7 @@ public class DropCachedStatsCommandTest extends TestWithFeService {
         TableNameInfo tableNameInfo2 =
                 new TableNameInfo(CatalogMocker.TEST_DB_NAME, "");
         DropCachedStatsCommand command2 = new DropCachedStatsCommand(tableNameInfo2);
-        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class, () -> command2.validate(connectContext),
+        Assertions.assertThrows(RuntimeException.class, () -> command2.validate(connectContext),
                 "Table name is null");
 
         //test unkown catalog

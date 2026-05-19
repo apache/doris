@@ -162,6 +162,13 @@ public class DropColumnOp extends AlterTableOp {
     }
 
     @Override
+    public boolean allowOpRowBinlog() {
+        // Drop column is considered safe for row binlog tables after whitelist
+        // check in schema change job.
+        return true;
+    }
+
+    @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("DROP COLUMN `").append(colName).append("`");

@@ -62,7 +62,8 @@ enum TPlanNodeType {
   GROUP_COMMIT_SCAN_NODE = 33,
   MATERIALIZATION_NODE = 34,
   REC_CTE_NODE = 35,
-  REC_CTE_SCAN_NODE = 36
+  REC_CTE_SCAN_NODE = 36,
+  BUCKETED_AGGREGATION_NODE = 37
 }
 
 struct TKeyRange {
@@ -111,7 +112,9 @@ enum TFileFormatType {
     FORMAT_WAL = 15,
     FORMAT_ARROW = 16,
     FORMAT_TEXT = 17,
-    FORMAT_NATIVE = 18
+    FORMAT_NATIVE = 18,
+    FORMAT_LANCE = 19,
+    FORMAT_ES_HTTP = 20
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -253,9 +256,21 @@ struct TFileTextScanRangeParams {
     8: optional bool empty_field_as_null
 }
 
+enum TColumnCategory {
+    REGULAR = 0,
+    PARTITION_KEY = 1,
+    SYNTHESIZED = 2,
+    GENERATED = 3,
+}
+
 struct TFileScanSlotInfo {
     1: optional Types.TSlotId slot_id;
     2: optional bool is_file_slot;
+    3: optional TColumnCategory category;
+    // Default value expression for this column when it is missing from the data file.
+    // Populated by FE from Column.getDefaultValue() or NULL literal.
+    // This replaces the separate default_value_of_src_slot map in TFileScanRangeParams.
+    4: optional Exprs.TExpr default_value_expr;
 }
 
 // descirbe how to read file
@@ -413,6 +428,15 @@ struct TRemoteDorisFileDesc {
     6: optional string password
 }
 
+struct TLanceFileDesc {
+    // URI of the Lance dataset (s3://..., file:///..., etc.)
+    1: optional string dataset_uri
+    // Specific fragment IDs to read (for split-level parallelism)
+    2: optional list<i64> fragment_ids
+    // Dataset version for time travel
+    3: optional i64 version
+}
+
 struct TTableFormatFileDesc {
     1: optional string table_format_type
     2: optional TIcebergFileDesc iceberg_params
@@ -426,6 +450,10 @@ struct TTableFormatFileDesc {
     10: optional TRemoteDorisFileDesc remote_doris_params
     // JDBC connection parameters (used when table_format_type == "jdbc")
     11: optional map<string, string> jdbc_params
+    12: optional TLanceFileDesc lance_params
+    // ES per-shard parameters (used when table_format_type == "es")
+    // Contains: index, type, shard_id, host_port, es_hosts
+    13: optional map<string, string> es_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
@@ -502,6 +530,12 @@ struct TFileScanRangeParams {
     // Paimon options from FE, used for jni/native scanner
     // Set at ScanNode level to avoid redundant serialization in each split
     30: optional map<string, string> paimon_options
+    // ES node-level properties (query_dsl, auth, doc_values_mode, etc.)
+    31: optional map<string, string> es_properties
+    // ES docvalue field→docvalue_type mappings
+    32: optional map<string, string> es_docvalue_context
+    // ES fields field→keyword mappings
+    33: optional map<string, string> es_fields_context
 }
 
 struct TFileRangeDesc {
@@ -913,6 +947,8 @@ struct TOlapScanNode {
   24: optional bool enable_mor_value_predicate_pushdown
   // Read MOR table as DUP table: skip merge, skip delete sign
   25: optional bool read_mor_as_dup
+  // Read row binlog index instead of base index
+  26: optional bool read_row_binlog
 }
 
 struct TEqJoinCondition {
@@ -1084,6 +1120,15 @@ struct TAggregationNode {
   8: optional bool is_first_phase
   9: optional bool is_colocate
   10: optional TSortInfo agg_sort_info_by_group_key
+}
+
+struct TBucketedAggregationNode {
+  1: optional list<Exprs.TExpr> grouping_exprs
+  2: optional list<Exprs.TExpr> aggregate_functions
+  // Single tuple ID — bucketed agg is one-phase (raw input → final result),
+  // so intermediate and output tuples are always identical.
+  3: optional Types.TTupleId tuple_id
+  5: optional bool need_finalize
 }
 
 struct TRepeatNode {
@@ -1534,6 +1579,7 @@ struct TPlanNode {
   50: optional list<list<Exprs.TExpr>> distribute_expr_lists
   51: optional bool is_serial_operator
   52: optional TRecCTEScanNode rec_cte_scan_node
+  53: optional TBucketedAggregationNode bucketed_agg_node
 
   // projections is final projections, which means projecting into results and materializing them into the output block.
   101: optional list<Exprs.TExpr> projections

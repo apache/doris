@@ -40,6 +40,8 @@ struct TTabletStat {
     9: optional i64 local_segment_size = 0    // .dat
     10: optional i64 remote_index_size = 0    // .idx
     11: optional i64 remote_segment_size = 0  // .dat
+    12: optional i64 binlog_size = 0          // __row_binlog/xxx.dat
+    13: optional i64 binlog_file_num = 0
 }
 
 struct TTabletStatResult {
@@ -52,6 +54,17 @@ struct TKafkaLoadInfo {
     2: required string topic;
     3: required map<i32, i64> partition_begin_offset;
     4: optional map<string, string> properties;
+}
+
+// Kinesis load info for routine load from AWS Kinesis
+struct TKinesisLoadInfo {
+    1: required string region;
+    2: required string stream;
+    3: optional string endpoint;
+    // Map from shard ID to starting sequence number
+    4: required map<string, string> shard_begin_sequence_number;
+    // AWS credentials and other properties
+    5: optional map<string, string> properties;
 }
 
 struct TRoutineLoadTask {
@@ -74,6 +87,7 @@ struct TRoutineLoadTask {
     17: optional bool memtable_on_sink_node;
     18: optional string qualified_user
     19: optional string cloud_cluster
+    20: optional TKinesisLoadInfo kinesis_load_info
 }
 
 struct TKafkaMetaProxyRequest {

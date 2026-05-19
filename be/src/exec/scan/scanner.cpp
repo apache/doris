@@ -47,6 +47,12 @@ Scanner::Scanner(RuntimeState* state, ScanLocalStateBase* local_state, int64_t l
 }
 
 Status Scanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
+    // All scanners share a remaining-limit counter so a LIMIT query can
+    // stop once enough rows have been collected across scanners.
+    // Key TopN scans have no ordinary scan LIMIT, so each scanner can
+    // independently produce its full local top-N.
+    _shared_scan_limit = _local_state->shared_scan_limit_ptr();
+
     if (!conjuncts.empty()) {
         _conjuncts.resize(conjuncts.size());
         for (size_t i = 0; i != conjuncts.size(); ++i) {
@@ -87,24 +93,16 @@ Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool
         } else {
             _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
             const auto min_batch_size = std::max(state->batch_size() / 2, 1);
-            // For LOAD queries, use load_reader_max_block_bytes as the byte-based
-            // upper bound for block accumulation, so small blocks can still be
-            // merged to a reasonable size without exceeding the memory limit.
-            const int64_t load_max_bytes = (state->query_type() == TQueryType::LOAD &&
-                                            config::load_reader_max_block_bytes > 0)
-                                                   ? config::load_reader_max_block_bytes
-                                                   : 0;
-            while (_padding_block.rows() < min_batch_size && !*eos) {
-                if (load_max_bytes > 0 &&
-                    static_cast<int64_t>(_padding_block.bytes()) >= load_max_bytes) {
-                    break;
-                }
+            const auto block_max_bytes = state->preferred_block_size_bytes();
+            while (_padding_block.rows() < min_batch_size &&
+                   _padding_block.bytes() < block_max_bytes && !*eos) {
                 RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
                 if (_origin_block.rows() >= min_batch_size) {
                     break;
                 }
 
-                if (_origin_block.rows() + _padding_block.rows() <= state->batch_size()) {
+                if (_origin_block.rows() + _padding_block.rows() <= state->batch_size() &&
+                    _origin_block.bytes() + _padding_block.bytes() <= block_max_bytes) {
                     RETURN_IF_ERROR(_merge_padding_block());
                     _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
                 } else {
@@ -134,6 +132,15 @@ Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool
 Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     // only empty block should be here
     DCHECK(block->rows() == 0);
+
+    // Stop early if other scanners have already collected enough rows
+    // for the SQL LIMIT. Skipped when _shared_scan_limit is null (topn
+    // path or no LIMIT).
+    if (_shared_scan_limit && _shared_scan_limit->load(std::memory_order_acquire) <= 0) {
+        *eof = true;
+        return Status::OK();
+    }
+
     // scanner running time
     SCOPED_RAW_TIMER(&_per_scanner_timer);
     int64_t rows_read_threshold = _num_rows_read + config::doris_scanner_row_num;
@@ -167,6 +174,13 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
             }
             // record rows return (after filter) for _limit check
             _num_rows_return += block->rows();
+            // Publish progress to the shared counter so peer scanners can
+            // observe it. The counter may go negative when several scanners
+            // subtract concurrently; that is harmless because the operator's
+            // reached_limit() makes the final cut.
+            if (_shared_scan_limit && block->rows() > 0) {
+                _shared_scan_limit->fetch_sub(block->rows(), std::memory_order_acq_rel);
+            }
         } while (!_should_stop && !state->is_cancelled() && block->rows() == 0 && !(*eof) &&
                  _num_rows_read < rows_read_threshold);
     }
@@ -179,6 +193,7 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     // set eof to true if per scanner limit is reached
     // currently for query: ORDER BY key LIMIT n
     *eof = *eof || (_limit > 0 && _num_rows_return >= _limit);
+    *eof = *eof || (_shared_scan_limit && _shared_scan_limit->load(std::memory_order_acquire) <= 0);
 
     return Status::OK();
 }
@@ -253,6 +268,7 @@ Status Scanner::try_append_late_arrival_runtime_filter() {
     // avoid conjunct destroy in used by storage layer
     _conjuncts.clear();
     RETURN_IF_ERROR(_local_state->clone_conjunct_ctxs(_conjuncts));
+    _applied_rf_num = arrived_rf_num;
     return Status::OK();
 }
 

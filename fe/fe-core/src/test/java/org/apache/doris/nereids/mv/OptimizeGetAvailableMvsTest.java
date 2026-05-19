@@ -30,6 +30,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner;
+import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionPruneResult;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionTableType;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
@@ -93,51 +94,53 @@ public class OptimizeGetAvailableMvsTest extends SqlTestBase {
 
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
-        createMvByNereids("create materialized view mv1 "
-                + "        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
-                + "        PARTITION BY (id)\n"
-                + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
-                + "        PROPERTIES ('replication_num' = '1') \n"
-                + "        as "
-                + "        select T4.id from T4 inner join T2 "
-                + "        on T4.id = T2.id;");
-        mockCandidateMtmv("mv1");
-        CascadesContext c1 = createCascadesContext(
-                "select T4.id "
-                        + "from T4 "
-                        + "inner join T2 on T4.id = T2.id "
-                        + "inner join T3 on T4.id = T3.id",
-                connectContext
-        );
-        PlanChecker.from(c1)
-                .setIsQuery()
-                .analyze()
-                .rewrite()
-                .preMvRewrite()
-                .optimize()
-                .printlnBestPlanTree();
-        Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap = c1.getStatementContext()
-                .getTableUsedPartitionNameMap();
-        Assertions.assertFalse(tableUsedPartitionNameMap.isEmpty());
+        try {
+            createMvByNereids("create materialized view mv1 "
+                    + "        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
+                    + "        PARTITION BY (id)\n"
+                    + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                    + "        PROPERTIES ('replication_num' = '1') \n"
+                    + "        as "
+                    + "        select T4.id from T4 inner join T2 "
+                    + "        on T4.id = T2.id;");
+            mockCandidateMtmv("mv1");
+            CascadesContext c1 = createCascadesContext(
+                    "select T4.id "
+                            + "from T4 "
+                            + "inner join T2 on T4.id = T2.id "
+                            + "inner join T3 on T4.id = T3.id",
+                    connectContext
+            );
+            PlanChecker.from(c1)
+                    .setIsQuery()
+                    .analyze()
+                    .rewrite()
+                    .preMvRewrite()
+                    .optimize()
+                    .printlnBestPlanTree();
+            Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap = c1.getStatementContext()
+                    .getTableUsedPartitionNameMap();
+            Assertions.assertFalse(tableUsedPartitionNameMap.isEmpty());
 
-        for (Map.Entry<List<String>, Pair<RelationId, Set<String>>> tableInfoEntry
-                : tableUsedPartitionNameMap.entries()) {
-            if (tableInfoEntry.getKey().contains("T2")) {
-                Assertions.assertEquals(tableInfoEntry.getValue().value(), Sets.newHashSet("mock_partition"));
-            } else if (tableInfoEntry.getKey().contains("T3")) {
-                Assertions.assertEquals(tableInfoEntry.getValue().value(), Sets.newHashSet("mock_partition"));
-            } else if (tableInfoEntry.getKey().contains("T4")) {
-                Assertions.assertEquals(tableInfoEntry.getValue().value(), Sets.newHashSet("mock_partition"));
+            for (Map.Entry<List<String>, Pair<RelationId, Set<String>>> tableInfoEntry
+                    : tableUsedPartitionNameMap.entries()) {
+                if (tableInfoEntry.getKey().contains("T2")) {
+                    Assertions.assertEquals(tableInfoEntry.getValue().value(), Sets.newHashSet("mock_partition"));
+                } else if (tableInfoEntry.getKey().contains("T3")) {
+                    Assertions.assertEquals(tableInfoEntry.getValue().value(), Sets.newHashSet("mock_partition"));
+                } else if (tableInfoEntry.getKey().contains("T4")) {
+                    Assertions.assertEquals(tableInfoEntry.getValue().value(), Sets.newHashSet("mock_partition"));
+                }
             }
+
+            Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = c1.getStatementContext()
+                    .getMvCanRewritePartitionsMap();
+            Assertions.assertEquals(1, mvCanRewritePartitionsMap.size());
+            Assertions.assertTrue(mvCanRewritePartitionsMap.keySet().iterator().next().getTableName()
+                    .equalsIgnoreCase("mv1"));
+        } finally {
+            dropMvByNereids("drop materialized view if exists mv1");
         }
-
-        Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = c1.getStatementContext()
-                .getMvCanRewritePartitionsMap();
-        Assertions.assertEquals(1, mvCanRewritePartitionsMap.size());
-        Assertions.assertTrue(mvCanRewritePartitionsMap.keySet().iterator().next().getTableName()
-                .equalsIgnoreCase("mv1"));
-
-        dropMvByNereids("drop materialized view mv1");
     }
 
     @Test
@@ -173,62 +176,64 @@ public class OptimizeGetAvailableMvsTest extends SqlTestBase {
 
         try (MockedStatic<PartitionPruner> mockedPruner = Mockito.mockStatic(PartitionPruner.class,
                 Mockito.CALLS_REAL_METHODS)) {
-            mockedPruner.when(() -> PartitionPruner.<Long>prune(
+            mockedPruner.when(() -> PartitionPruner.<Long>pruneWithResult(
                     Mockito.<List<Slot>>any(), Mockito.any(Expression.class),
                     Mockito.<Map<Long, PartitionItem>>any(),
                     Mockito.any(CascadesContext.class), Mockito.any(PartitionTableType.class),
                     Mockito.<Optional<SortedPartitionRanges<Long>>>any()))
-                    .thenReturn(Pair.of(Lists.newArrayList(1L), Optional.empty()));
+                    .thenReturn(new PartitionPruneResult<>(Lists.newArrayList(1L), Optional.empty(), true));
 
             installValidRelationManager();
             connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
             connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
-            createMvByNereids("create materialized view mv2 "
-                    + "        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
-                    + "        PARTITION BY (id)\n"
-                    + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
-                    + "        PROPERTIES ('replication_num' = '1') \n"
-                    + "        as "
-                    + "        select T4.id from T4 inner join T2 "
-                    + "        on T4.id = T2.id;");
-            mockCandidateMtmv("mv2");
-            CascadesContext c1 = createCascadesContext(
-                    "select T4.id "
-                        + "from T4 "
-                        + "inner join T2 on T4.id = T2.id "
-                        + "inner join T3 on T4.id = T3.id "
-                        + "where T4.id > 0",
-                    connectContext
-            );
-            PlanChecker.from(c1)
-                .setIsQuery()
-                .analyze()
-                .rewrite()
-                .preMvRewrite()
-                .optimize()
-                    .printlnBestPlanTree();
-            Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap = c1.getStatementContext()
-                    .getTableUsedPartitionNameMap();
-            Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = c1.getStatementContext()
-                    .getMvCanRewritePartitionsMap();
-            Assertions.assertFalse(tableUsedPartitionNameMap.isEmpty());
+            try {
+                createMvByNereids("create materialized view mv2 "
+                        + "        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
+                        + "        PARTITION BY (id)\n"
+                        + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                        + "        PROPERTIES ('replication_num' = '1') \n"
+                        + "        as "
+                        + "        select T4.id from T4 inner join T2 "
+                        + "        on T4.id = T2.id;");
+                mockCandidateMtmv("mv2");
+                CascadesContext c1 = createCascadesContext(
+                        "select T4.id "
+                            + "from T4 "
+                            + "inner join T2 on T4.id = T2.id "
+                            + "inner join T3 on T4.id = T3.id "
+                            + "where T4.id > 0",
+                        connectContext
+                );
+                PlanChecker.from(c1)
+                    .setIsQuery()
+                    .analyze()
+                    .rewrite()
+                    .preMvRewrite()
+                    .optimize()
+                        .printlnBestPlanTree();
+                Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap
+                        = c1.getStatementContext().getTableUsedPartitionNameMap();
+                Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = c1.getStatementContext()
+                        .getMvCanRewritePartitionsMap();
+                Assertions.assertFalse(tableUsedPartitionNameMap.isEmpty());
 
-            for (Map.Entry<List<String>, Pair<RelationId, Set<String>>> tableInfoEntry
-                    : tableUsedPartitionNameMap.entries()) {
-                if (tableInfoEntry.getKey().contains("T2")) {
-                    Assertions.assertEquals(tableInfoEntry.getValue().value(), Sets.newHashSet("mock_partition"));
-                } else if (tableInfoEntry.getKey().contains("T3")) {
-                    Assertions.assertEquals(tableInfoEntry.getValue().value(), Sets.newHashSet("mock_partition"));
-                } else if (tableInfoEntry.getKey().contains("T4")) {
-                    Assertions.assertEquals(tableInfoEntry.getValue().value(), Sets.newHashSet("mock_partition"));
+                for (Map.Entry<List<String>, Pair<RelationId, Set<String>>> tableInfoEntry
+                        : tableUsedPartitionNameMap.entries()) {
+                    if (tableInfoEntry.getKey().contains("T2")) {
+                        Assertions.assertEquals(tableInfoEntry.getValue().value(), Sets.newHashSet("mock_partition"));
+                    } else if (tableInfoEntry.getKey().contains("T3")) {
+                        Assertions.assertEquals(tableInfoEntry.getValue().value(), Sets.newHashSet("mock_partition"));
+                    } else if (tableInfoEntry.getKey().contains("T4")) {
+                        Assertions.assertEquals(tableInfoEntry.getValue().value(), Sets.newHashSet("mock_partition"));
+                    }
                 }
+
+                Assertions.assertEquals(1, mvCanRewritePartitionsMap.size());
+                Assertions.assertTrue(mvCanRewritePartitionsMap.keySet().iterator().next().getTableName()
+                        .equalsIgnoreCase("mv2"));
+            } finally {
+                dropMvByNereids("drop materialized view if exists mv2");
             }
-
-            Assertions.assertEquals(1, mvCanRewritePartitionsMap.size());
-            Assertions.assertTrue(mvCanRewritePartitionsMap.keySet().iterator().next().getTableName()
-                    .equalsIgnoreCase("mv2"));
-
-            dropMvByNereids("drop materialized view mv2");
         }
     }
 }

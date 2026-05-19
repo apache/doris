@@ -128,23 +128,26 @@ static void read_orc_line(int64_t line, std::string block_dump,
 
     static_cast<void>(local_fs->open_file(range.path, &file_reader));
 
-    std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> iterator_pair;
-    iterator_pair =
-            std::make_pair(std::make_shared<RowIdColumnIteratorV2>(
-                                   IdManager::ID_VERSION, BackendOptions::get_backend_id(), 10),
-                           tuple_desc->slots().size());
-    reader->set_row_id_column_iterator(iterator_pair);
+    auto iter = std::make_shared<RowIdColumnIteratorV2>(IdManager::ID_VERSION,
+                                                        BackendOptions::get_backend_id(), 10);
+    reader->register_synthesized_column_handler("row_id", [&](Block* block, size_t rows) -> Status {
+        return reader->fill_topn_row_id(iter, "row_id", block, rows);
+    });
 
-    auto status = reader->init_reader(&column_names, &col_name_to_block_idx, {}, false, tuple_desc,
-                                      &row_desc, nullptr, nullptr);
+    // Construct OrcInitContext for standalone reader (no column_descs).
+    OrcInitContext orc_ctx;
+    orc_ctx.column_names = column_names;
+    orc_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+    orc_ctx.tuple_descriptor = tuple_desc;
+    orc_ctx.row_descriptor = &row_desc;
+    orc_ctx.params = &params;
+    orc_ctx.range = &range;
+    auto status = reader->init_reader(&orc_ctx);
 
     EXPECT_TRUE(status.ok());
 
-    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-            partition_columns;
-    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-    auto st = reader->set_fill_columns(partition_columns, missing_columns);
-    EXPECT_TRUE(st.ok()) << st;
+    // set_fill_columns logic is now inlined in _do_init_reader,
+    // so no separate call is needed.
     BlockUPtr block = Block::create_unique();
     for (const auto& slot_desc : tuple_desc->slots()) {
         auto data_type = slot_desc->type();
@@ -159,7 +162,7 @@ static void read_orc_line(int64_t line, std::string block_dump,
 
     bool eof = false;
     size_t read_row = 0;
-    st = reader->get_next_block(block.get(), &read_row, &eof);
+    Status st = reader->get_next_block(block.get(), &read_row, &eof);
     EXPECT_TRUE(st.ok()) << st;
     auto row_id_string_column = static_cast<const ColumnString&>(
             *block->get_by_position(block->get_position_by_name("row_id")).column.get());

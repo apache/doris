@@ -129,4 +129,7 @@ public:
 private:
     DataTypeSerDeSPtr nested_serde;
 };
+
+using DataTypeNullableSerDeSPtr = std::shared_ptr<DataTypeNullableSerDe>;
+
 } // namespace doris

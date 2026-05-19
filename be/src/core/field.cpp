@@ -31,7 +31,6 @@
 #include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_string.h"
-#include "util/io_helper.h"
 #include "util/var_int.h"
 
 namespace doris {
@@ -650,16 +649,20 @@ std::string Field::get_type_name() const {
 
 template <PrimitiveType T>
 typename PrimitiveTypeTraits<T>::CppType& Field::get() {
-    DCHECK(T == type || (is_string_type(type) && is_string_type(T)) || type == TYPE_NULL)
-            << "Type mismatch: requested " << type_to_string(T) << ", actual " << get_type_name();
+    if (T != type && !(is_string_type(type) && is_string_type(T)) && type != TYPE_NULL) {
+        throw Exception(Status::FatalError("Field::get type mismatch: requested {}, actual {}",
+                                           type_to_string(T), get_type_name()));
+    }
     auto* MAY_ALIAS ptr = reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(&storage);
     return *ptr;
 }
 
 template <PrimitiveType T>
 const typename PrimitiveTypeTraits<T>::CppType& Field::get() const {
-    DCHECK(T == type || (is_string_type(type) && is_string_type(T)) || type == TYPE_NULL)
-            << "Type mismatch: requested " << type_to_string(T) << ", actual " << get_type_name();
+    if (T != type && !(is_string_type(type) && is_string_type(T)) && type != TYPE_NULL) {
+        throw Exception(Status::FatalError("Field::get type mismatch: requested {}, actual {}",
+                                           type_to_string(T), get_type_name()));
+    }
     const auto* MAY_ALIAS ptr =
             reinterpret_cast<const typename PrimitiveTypeTraits<T>::CppType*>(&storage);
     return *ptr;

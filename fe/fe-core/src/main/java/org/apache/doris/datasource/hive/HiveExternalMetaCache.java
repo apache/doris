@@ -403,9 +403,16 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         try {
             RemoteIterator<FileEntry> iterator = directoryLister.listFiles(fs, isRecursiveDirectories,
                     table, path.getNormalizedLocation());
+            boolean isLzoInputFormat = HiveUtil.isLzoInputFormat(inputFormat);
             while (iterator.hasNext()) {
                 FileEntry entry = iterator.next();
                 String srcPath = entry.location().uri().toString();
+                // For LZO text InputFormats, only include *.lzo data files.
+                // *.lzo.index sidecar files and any other non-*.lzo files must be excluded,
+                // mirroring the file filtering semantics of Hive's LzoTextInputFormat.listStatus().
+                if (isLzoInputFormat && !HiveUtil.isLzoDataFile(srcPath)) {
+                    continue;
+                }
                 LocationPath locationPath = LocationPath.of(srcPath, path.getStorageProperties());
                 result.addFile(entry, locationPath);
             }
@@ -651,7 +658,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             }
 
             fileEntry.invalidateKey(new FileCacheKey(nameMapping.getCtlId(), tableId, partition.getPath(),
-                    null, partition.getPartitionValues()));
+                    partition.getInputFormat(), partition.getPartitionValues()));
             partitionEntry.invalidateKey(partKey);
         }
 
@@ -921,7 +928,11 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         private long dummyKey = 0;
         private long catalogId;
         private String location;
-        // Not part of cache identity.
+        // inputFormat is part of cache identity because the cached FileCacheValue is
+        // format-dependent: isSplittable() and file-filtering (e.g. LZO *.lzo.index
+        // exclusion) both depend on the InputFormat class name. Two Hive tables that
+        // share the same partition location but declare different InputFormats must
+        // therefore get independent cache entries.
         private String inputFormat;
         // The values of partitions.
         protected List<String> partitionValues;
@@ -956,6 +967,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             }
             return catalogId == ((FileCacheKey) obj).catalogId
                     && location.equals(((FileCacheKey) obj).location)
+                    && Objects.equals(inputFormat, ((FileCacheKey) obj).inputFormat)
                     && Objects.equals(partitionValues, ((FileCacheKey) obj).partitionValues);
         }
 
@@ -968,7 +980,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             if (dummyKey != 0) {
                 return Objects.hash(dummyKey);
             }
-            return Objects.hash(catalogId, location, partitionValues);
+            return Objects.hash(catalogId, location, inputFormat, partitionValues);
         }
 
         @Override

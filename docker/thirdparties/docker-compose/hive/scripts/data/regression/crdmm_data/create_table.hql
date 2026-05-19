@@ -1,7 +1,9 @@
 create database if not exists regression;
 use regression;
 
-CREATE TABLE `crdmm_data`(
+drop table if exists `crdmm_data`;
+
+create table `crdmm_data`(
   `apply_dt` string,
   `session_id` string,
   `apply_id` string,
@@ -157,6 +159,3 @@ LOCATION
   '/user/doris/suites/regression/crdmm_data/'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1685331029');
-
-msck repair table crdmm_data;
-

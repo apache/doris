@@ -66,7 +66,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     // to avoid erase log ahead of drop log
     private static final long minEraseLatency = 10 * 60 * 1000;  // 10 min
 
-    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     private void readLock() {
         lock.readLock().lock();
@@ -1698,7 +1698,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
 
         public void readFields(DataInput in) throws IOException {
-            db = Database.read(in);
+            db = Database.readForRecycleBin(in);
 
             int count  = in.readInt();
             for (int i = 0; i < count; i++) {
@@ -1710,7 +1710,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 long tableId = in.readLong();
                 tableIds.add(tableId);
             }
-            GsonUtils.GSON.fromJson(Text.readString(in), RecycleDatabaseInfo.class);
+            // Consume legacy trailing json for stream compatibility.
+            // Do not deserialize it because nested Database.gsonPostProcess()
+            // would register functions from recycle bin into Nereids registry.
+            Text.readString(in);
         }
     }
 

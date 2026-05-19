@@ -66,7 +66,7 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
         _dependency->block();
         _finish_dependency->block();
         {
-            std::lock_guard<std::mutex> guard(p._mutex);
+            LockGuard guard(p._mutex);
             p._finish_dependencies.push_back(_finish_dependency);
         }
     } else {
@@ -118,7 +118,14 @@ Status HashJoinBuildSinkLocalState::terminate(RuntimeState* state) {
     if (_terminated) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(_runtime_filter_producer_helper->skip_process(state));
+    // Defensive null-guard: other paths in this file already gate on
+    // `_runtime_filter_producer_helper` because cancel / early wake-up may
+    // run terminate before the helper is attached. The terminate path used
+    // to be the only one missing the guard, which would NPE inside
+    // skip_process() and surface as a generic crash deep in the allocator.
+    if (_runtime_filter_producer_helper) {
+        RETURN_IF_ERROR(_runtime_filter_producer_helper->skip_process(state));
+    }
     return JoinBuildSinkLocalState::terminate(state);
 }
 
@@ -235,7 +242,7 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         }
 
         if (p._use_shared_hash_table) {
-            std::unique_lock lock(p._mutex);
+            LockGuard lock(p._mutex);
             // Only signal non-builder tasks when the builder actually built the hash table.
             // When the builder is terminated (woken up early because the probe side finished
             // first), it never called process_build_block() so the hash table variant is still

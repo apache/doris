@@ -53,6 +53,11 @@ struct MethodBaseInner {
     Arena arena;
     DorisVector<size_t> hash_values;
 
+    /// Reusable buffer for source-side output iteration to avoid per-batch
+    /// heap allocation of std::vector<Key>. Callers use resize() + direct
+    /// element assignment, so the capacity is retained across batches.
+    std::vector<Key> output_keys;
+
     // use in join case
     DorisVector<uint32_t> bucket_nums;
 
@@ -1066,9 +1071,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
                 // nullable_col is obtained via key_columns and is itself a mutable element. However, when accessed
                 // through get_raw_data().data, it yields a const char*, necessitating the use of const_cast.
                 data = const_cast<char*>(nullable_col.get_nested_column().get_raw_data().data);
-                UInt8* nullmap = assert_cast<ColumnUInt8*>(&nullable_col.get_null_map_column())
-                                         ->get_data()
-                                         .data();
+                UInt8* nullmap = nullable_col.get_null_map_column().get_data().data();
 
                 // The current column is nullable. Check if the value of the
                 // corresponding key is nullable. Update the null map accordingly.

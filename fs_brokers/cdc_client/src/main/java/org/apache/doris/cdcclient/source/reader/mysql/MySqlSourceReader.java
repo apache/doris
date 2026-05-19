@@ -25,6 +25,7 @@ import org.apache.doris.cdcclient.source.reader.SnapshotReaderContext;
 import org.apache.doris.cdcclient.source.reader.SplitReadResult;
 import org.apache.doris.cdcclient.source.reader.SplitRecords;
 import org.apache.doris.cdcclient.utils.ConfigUtil;
+import org.apache.doris.cdcclient.utils.SmallFileMgr;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.CompareOffsetRequest;
 import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
@@ -48,6 +49,7 @@ import org.apache.flink.cdc.connectors.mysql.source.assigners.MySqlSnapshotSplit
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfig;
 import org.apache.flink.cdc.connectors.mysql.source.config.MySqlSourceConfigFactory;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffset;
+import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffsetKind;
 import org.apache.flink.cdc.connectors.mysql.source.offset.BinlogOffsetUtils;
 import org.apache.flink.cdc.connectors.mysql.source.split.FinishedSnapshotSplitInfo;
 import org.apache.flink.cdc.connectors.mysql.source.split.MySqlBinlogSplit;
@@ -59,6 +61,7 @@ import org.apache.flink.cdc.connectors.mysql.source.split.MySqlSplitState;
 import org.apache.flink.cdc.connectors.mysql.source.split.SourceRecords;
 import org.apache.flink.cdc.connectors.mysql.source.utils.ChunkUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
+import org.apache.flink.cdc.connectors.mysql.source.utils.StatementUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.TableDiscoveryUtils;
 import org.apache.flink.cdc.connectors.mysql.table.StartupMode;
 import org.apache.flink.cdc.connectors.mysql.table.StartupOptions;
@@ -67,7 +70,9 @@ import org.apache.flink.table.types.logical.RowType;
 import org.apache.kafka.connect.source.SourceRecord;
 
 import java.io.IOException;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -272,7 +277,19 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
             activePollFutures = null;
         }
 
-        // Clear previous contexts
+        // Close previous readers before clearing to avoid JDBC connection leak
+        if (!this.snapshotReaderContexts.isEmpty()) {
+            LOG.info(
+                    "Closing {} previous snapshot readers before preparing new splits",
+                    snapshotReaderContexts.size());
+            for (SnapshotReaderContext<
+                            MySqlSnapshotSplit, SnapshotSplitReader, MySqlSnapshotSplitState>
+                    context : snapshotReaderContexts) {
+                if (context.getReader() != null) {
+                    context.getReader().close();
+                }
+            }
+        }
         this.snapshotReaderContexts.clear();
         this.completedSplitIds.clear();
 
@@ -576,8 +593,6 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
             Map<String, Object> offset, JobBaseConfig jobConfig) throws JsonProcessingException {
         SnapshotSplit snapshotSplit = objectMapper.convertValue(offset, SnapshotSplit.class);
         TableId tableId = TableId.parse(snapshotSplit.getTableId());
-        Object[] splitStart = snapshotSplit.getSplitStart();
-        Object[] splitEnd = snapshotSplit.getSplitEnd();
         List<String> splitKeys = snapshotSplit.getSplitKey();
         Map<TableId, TableChanges.TableChange> tableSchemas = getTableSchemas(jobConfig);
         TableChanges.TableChange tableChange = tableSchemas.get(tableId);
@@ -586,6 +601,17 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         // only support one split key
         String splitKey = splitKeys.get(0);
         Column splitColumn = tableChange.getTable().columnWithName(splitKey);
+        Preconditions.checkNotNull(
+                splitColumn,
+                "Split key column "
+                        + splitKey
+                        + " not found in table "
+                        + tableId
+                        + " for job "
+                        + jobConfig.getJobId());
+        Class<?> keyClass = resolveSplitKeyClass(tableId, splitColumn, jobConfig);
+        Object[] splitStart = convertBounds(snapshotSplit.getSplitStart(), keyClass, objectMapper);
+        Object[] splitEnd = convertBounds(snapshotSplit.getSplitEnd(), keyClass, objectMapper);
         RowType splitType = ChunkUtils.getChunkKeyColumnType(splitColumn, false);
         MySqlSnapshotSplit split =
                 new MySqlSnapshotSplit(
@@ -617,6 +643,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                             .sorted(Comparator.comparing(AbstractSourceSplit::getSplitId))
                             .toList();
 
+            Map<TableId, TableChanges.TableChange> tableSchemas = getTableSchemas(config);
             for (SnapshotSplit split : assignedSplitLists) {
                 // find the min binlog offset
                 Map<String, String> offsetMap = split.getHighWatermark();
@@ -627,29 +654,54 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
                 if (maxOffsetFinishSplits == null || binlogOffset.isAfter(maxOffsetFinishSplits)) {
                     maxOffsetFinishSplits = binlogOffset;
                 }
+                TableId tid = TableId.parse(split.getTableId());
+                TableChanges.TableChange tableChange = tableSchemas.get(tid);
+                Preconditions.checkNotNull(
+                        tableChange, "Can not find table " + tid + " in job " + config.getJobId());
+                String splitKey = split.getSplitKey().get(0);
+                Column splitColumn = tableChange.getTable().columnWithName(splitKey);
+                Preconditions.checkNotNull(
+                        splitColumn,
+                        "Split key column "
+                                + splitKey
+                                + " not found in table "
+                                + tid
+                                + " for job "
+                                + config.getJobId());
+                Class<?> keyClass = resolveSplitKeyClass(tid, splitColumn, config);
+                Object[] start = convertBounds(split.getSplitStart(), keyClass, objectMapper);
+                Object[] end = convertBounds(split.getSplitEnd(), keyClass, objectMapper);
                 finishedSnapshotSplitInfos.add(
                         new FinishedSnapshotSplitInfo(
-                                TableId.parse(split.getTableId()),
-                                split.getSplitId(),
-                                split.getSplitStart(),
-                                split.getSplitEnd(),
-                                binlogOffset));
+                                tid, split.getSplitId(), start, end, binlogOffset));
             }
         }
 
         BinlogOffset startOffset;
-        BinlogOffset lastOffset =
-                new BinlogOffset(
-                        binlogSplit.getStartingOffset() == null
-                                ? new HashMap<>()
-                                : binlogSplit.getStartingOffset());
+        Map<String, String> lastOffsetMap =
+                binlogSplit.getStartingOffset() == null
+                        ? new HashMap<>()
+                        : new HashMap<>(binlogSplit.getStartingOffset());
+        // ALTER offset may not contain "kind", supplement it for Flink CDC
+        if (lastOffsetMap.containsKey(BinlogOffset.BINLOG_FILENAME_OFFSET_KEY)
+                && !lastOffsetMap.containsKey(BinlogOffset.OFFSET_KIND_KEY)) {
+            lastOffsetMap.put(BinlogOffset.OFFSET_KIND_KEY, BinlogOffsetKind.SPECIFIC.name());
+        }
+        BinlogOffset lastOffset = new BinlogOffset(lastOffsetMap);
         if (minOffsetFinishSplits != null && lastOffset.getOffsetKind() == null) {
             startOffset = minOffsetFinishSplits;
         } else if (lastOffset.getOffsetKind() != null && lastOffset.getFilename() != null) {
             startOffset = lastOffset;
         } else if (offsetConfig != null) {
+            LOG.warn(
+                    "Falling back to startup config offset {}, meta offset was: {}",
+                    offsetConfig,
+                    lastOffsetMap);
             startOffset = offsetConfig;
         } else {
+            LOG.warn(
+                    "No valid offset found, falling back to earliest. meta offset was: {}",
+                    lastOffsetMap);
             startOffset = BinlogOffset.ofEarliest();
         }
 
@@ -853,6 +905,28 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         dbzProps.setProperty(
                 MySqlConnectorConfig.KEEP_ALIVE_INTERVAL_MS.name(),
                 DEBEZIUM_HEARTBEAT_INTERVAL_MS + "");
+
+        if (cdcConfig.containsKey(DataSourceConfigKeys.SSL_MODE)) {
+            String normalized =
+                    normalizeSslModeForMysql(cdcConfig.get(DataSourceConfigKeys.SSL_MODE));
+            dbzProps.put("database.ssl.mode", normalized);
+            // Flink CDC's forked MySqlConnection drops Debezium SSL props from the snapshot
+            // JDBC URL, so mirror to Connector/J native names.
+            jdbcProperteis.put("sslMode", normalized);
+        }
+        if (cdcConfig.containsKey(DataSourceConfigKeys.SSL_ROOTCERT)) {
+            String fileName = cdcConfig.get(DataSourceConfigKeys.SSL_ROOTCERT);
+            String truststorePath = SmallFileMgr.getPkcs12TruststorePath(fileName);
+            LOG.info("Using SSL truststore file path: {}", truststorePath);
+            dbzProps.put("database.ssl.truststore", truststorePath);
+            dbzProps.put("database.ssl.truststore.password", SmallFileMgr.TRUSTSTORE_PASSWORD);
+            jdbcProperteis.put("trustCertificateKeyStoreUrl", "file:" + truststorePath);
+            // Connector/J defaults keystore type to JKS; we generate PKCS12.
+            jdbcProperteis.put("trustCertificateKeyStoreType", "PKCS12");
+            jdbcProperteis.put(
+                    "trustCertificateKeyStorePassword", SmallFileMgr.TRUSTSTORE_PASSWORD);
+        }
+
         configFactory.debeziumProperties(dbzProps);
         configFactory.heartbeatInterval(Duration.ofMillis(DEBEZIUM_HEARTBEAT_INTERVAL_MS));
 
@@ -1002,6 +1076,24 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         return schemas;
     }
 
+    @Override
+    protected Class<?> probeSplitKeyClass(
+            TableId tableId, Column splitColumn, JobBaseConfig jobConfig) {
+        MySqlSourceConfig sourceConfig = getSourceConfig(jobConfig);
+        String sql =
+                String.format(
+                        "SELECT %s FROM %s WHERE 1=0",
+                        StatementUtils.quote(splitColumn.name()), StatementUtils.quote(tableId));
+        try (MySqlConnection jdbc = DebeziumUtils.createMySqlConnection(sourceConfig);
+                Statement st = jdbc.connection().createStatement();
+                ResultSet rs = st.executeQuery(sql)) {
+            return Class.forName(rs.getMetaData().getColumnClassName(1));
+        } catch (Exception e) {
+            throw new RuntimeException(
+                    "Probe split key class failed for " + tableId + "." + splitColumn.name(), e);
+        }
+    }
+
     private Map<TableId, TableChanges.TableChange> discoverTableSchemas(JobBaseConfig config) {
         MySqlSourceConfig sourceConfig = getSourceConfig(config);
         try (MySqlConnection jdbc = DebeziumUtils.createMySqlConnection(sourceConfig)) {
@@ -1029,6 +1121,31 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     public DeserializeResult deserialize(Map<String, String> config, SourceRecord element)
             throws IOException {
         return serializer.deserialize(config, element);
+    }
+
+    /** Map Doris ssl_mode (PG-style) to Debezium MySQL's underscore spelling. */
+    static String normalizeSslModeForMysql(String sslMode) {
+        if (sslMode == null) {
+            throw new IllegalArgumentException("ssl_mode must not be null");
+        }
+        switch (sslMode) {
+            case DataSourceConfigKeys.SSL_MODE_DISABLE:
+                return MySqlConnectorConfig.SecureConnectionMode.DISABLED.getValue();
+            case DataSourceConfigKeys.SSL_MODE_REQUIRE:
+                return MySqlConnectorConfig.SecureConnectionMode.REQUIRED.getValue();
+            case DataSourceConfigKeys.SSL_MODE_VERIFY_CA:
+                return MySqlConnectorConfig.SecureConnectionMode.VERIFY_CA.getValue();
+            default:
+                throw new IllegalArgumentException(
+                        "Unsupported ssl_mode for MySQL: '"
+                                + sslMode
+                                + "'. Allowed: "
+                                + String.join(
+                                        ", ",
+                                        DataSourceConfigKeys.SSL_MODE_DISABLE,
+                                        DataSourceConfigKeys.SSL_MODE_REQUIRE,
+                                        DataSourceConfigKeys.SSL_MODE_VERIFY_CA));
+        }
     }
 
     /**

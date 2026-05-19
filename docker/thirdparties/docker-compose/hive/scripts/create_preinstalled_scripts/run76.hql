@@ -1,7 +1,9 @@
 create database if not exists multi_catalog;
 use multi_catalog;
 
-CREATE TABLE text_table_normal_skip_header (
+drop table if exists text_table_normal_skip_header;
+
+create table text_table_normal_skip_header (
   id INT,
   name STRING
 )
@@ -11,7 +13,9 @@ STORED AS TEXTFILE
 LOCATION '/user/doris/preinstalled_data/text/text_table_normal_skip_header'
 TBLPROPERTIES ("skip.header.line.count"="2");
 
-CREATE TABLE text_table_compressed_skip_header (
+drop table if exists text_table_compressed_skip_header;
+
+create table text_table_compressed_skip_header (
   id INT,
   name STRING
 )
@@ -21,7 +25,9 @@ STORED AS TEXTFILE
 LOCATION '/user/doris/preinstalled_data/text/text_table_compressed_skip_header'
 TBLPROPERTIES ("skip.header.line.count"="5");
 
-CREATE TABLE csv_json_table_simple (
+drop table if exists csv_json_table_simple;
+
+create table csv_json_table_simple (
   id STRING,
   status_json STRING
 )
@@ -30,7 +36,9 @@ ROW FORMAT SERDE
 STORED AS TEXTFILE
 LOCATION '/user/doris/preinstalled_data/csv/csv_json_table_simple';
 
-CREATE TABLE open_csv_table_null_format (
+drop table if exists open_csv_table_null_format;
+
+create table open_csv_table_null_format (
   id INT,
   name STRING
 )
@@ -39,7 +47,9 @@ ROW FORMAT SERDE
 STORED AS TEXTFILE
 LOCATION '/user/doris/preinstalled_data/csv/open_csv_table_null_format';
 
-CREATE TABLE open_csv_complex_type (
+drop table if exists open_csv_complex_type;
+
+create table open_csv_complex_type (
   id INT,
   arr_col ARRAY<INT>,
   map_col MAP<STRING, INT>,
@@ -58,7 +68,9 @@ LOCATION '/user/doris/preinstalled_data/csv/open_csv_complex_type';
 create database if not exists openx_json;
 use openx_json;
 
-CREATE TABLE IF NOT EXISTS json_table (
+drop table if exists json_table;
+
+create table json_table (
     id INT,
     name STRING,
     numbers ARRAY<INT>,
@@ -69,7 +81,10 @@ ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe'
 LOCATION '/user/doris/preinstalled_data/json/openx_json/json_table';
 
 
-CREATE TABLE IF NOT EXISTS json_table_ignore_malformed (
+drop table if exists json_table_ignore_malformed;
+
+
+create table json_table_ignore_malformed (
     id INT,
     name STRING,
     numbers ARRAY<INT>,
@@ -81,13 +96,19 @@ WITH SERDEPROPERTIES ("ignore.malformed.json" = "true" )
 LOCATION '/user/doris/preinstalled_data/json/openx_json/json_table';
 
 
-CREATE TABLE json_data_arrays_tb (
+drop table if exists json_data_arrays_tb;
+
+
+create table json_data_arrays_tb (
     name string, age int)
 ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe'
 LOCATION '/user/doris/preinstalled_data/json/openx_json/json_data_arrays_tb';
 
 
-CREATE TABLE IF NOT EXISTS scalar_to_array_tb(
+drop table if exists scalar_to_array_tb;
+
+
+create table scalar_to_array_tb(
     id INT,
     name STRING,
     tags ARRAY<STRING>
@@ -95,7 +116,10 @@ CREATE TABLE IF NOT EXISTS scalar_to_array_tb(
 LOCATION '/user/doris/preinstalled_data/json/openx_json/scalar_to_array_tb';
 
 
-CREATE TABLE IF NOT EXISTS json_one_column_table (
+drop table if exists json_one_column_table;
+
+
+create table json_one_column_table (
     name STRING,    
     id INT,
     numbers ARRAY<INT>,
@@ -104,9 +128,3 @@ CREATE TABLE IF NOT EXISTS json_one_column_table (
 )
 ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe'
 LOCATION '/user/doris/preinstalled_data/json/openx_json/json_one_column_table';
-
-msck repair table json_table;
-msck repair table json_table_ignore_malformed;
-msck repair table json_data_arrays_tb;
-msck repair table scalar_to_array_tb;
-msck repair table json_one_column_table;

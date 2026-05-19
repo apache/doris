@@ -137,7 +137,7 @@ struct SampData : BaseData<T> {
 };
 
 template <typename Data>
-class AggregateFunctionSampCovariance
+class AggregateFunctionSampCovariance final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionSampCovariance<Data>>,
           MultiExpression,
           NullableAggregateFunction {

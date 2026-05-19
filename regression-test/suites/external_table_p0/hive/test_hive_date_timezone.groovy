@@ -51,6 +51,35 @@ suite("test_hive_date_timezone", "p0,external") {
             sql """set time_zone = 'America/Mexico_City'"""
             qt_orc_date_west_tz """select date_col from orc_primitive_types_to_date order by id"""
             qt_parquet_date_west_tz """select date_col from parquet_primitive_types_to_date order by id"""
+
+            // The parquet timestamp table exercises the optimized timestamp convert path.
+            // Querying the same data under multiple timezone spellings lets this suite cover
+            // both fixed-offset normalization and named-timezone lookup behavior.
+            sql """set time_zone = 'UTC'"""
+            def parquetTimestampUtc = sql """select timestamp_col from parquet_primitive_types_to_timestamp order by id"""
+            sql """set time_zone = 'Etc/UTC'"""
+            def parquetTimestampEtcUtc = sql """select timestamp_col from parquet_primitive_types_to_timestamp order by id"""
+            sql """set time_zone = '+08:00'"""
+            def parquetTimestampFixedOffset = sql """select timestamp_col from parquet_primitive_types_to_timestamp order by id"""
+            sql """set time_zone = '+8:00'"""
+            def parquetTimestampShortOffset = sql """select timestamp_col from parquet_primitive_types_to_timestamp order by id"""
+            sql """set time_zone = 'Etc/GMT-8'"""
+            def parquetTimestampEtcGmtMinus8 = sql """select timestamp_col from parquet_primitive_types_to_timestamp order by id"""
+            sql """set time_zone = '-06:00'"""
+            def parquetTimestampFixedMexicoOffset = sql """select timestamp_col from parquet_primitive_types_to_timestamp order by id"""
+            sql """set time_zone = 'America/Mexico_City'"""
+            def parquetTimestampMexicoCity = sql """select timestamp_col from parquet_primitive_types_to_timestamp order by id"""
+
+            // Equivalent UTC spellings should stay on the same result set.
+            assertEquals(parquetTimestampUtc, parquetTimestampEtcUtc)
+            // These inputs are normalized to the same fixed offset and should match exactly.
+            assertEquals(parquetTimestampFixedOffset, parquetTimestampShortOffset)
+            // Etc/GMT-8 is a fixed-offset TZDB name. The sign is POSIX-style, so it means UTC+8.
+            assertEquals(parquetTimestampFixedOffset, parquetTimestampEtcGmtMinus8)
+            // America/Mexico_City must still read through the named-timezone path, not a constant
+            // -06:00 offset. This fixture contains a 2022 DST timestamp that makes the results differ.
+            assertEquals(parquetTimestampUtc.size(), parquetTimestampMexicoCity.size())
+            assertTrue(parquetTimestampFixedMexicoOffset != parquetTimestampMexicoCity)
         } finally {
             sql """set time_zone = default"""
             sql """switch internal"""

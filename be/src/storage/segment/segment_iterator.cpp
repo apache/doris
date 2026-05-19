@@ -51,6 +51,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_variant.h"
 #include "core/column/column_vector.h"
+#include "core/column/predicate_column.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
@@ -72,6 +73,7 @@
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "storage/binlog.h"
 #include "storage/compaction/collection_similarity.h"
 #include "storage/field.h"
 #include "storage/id_manager.h"
@@ -345,6 +347,39 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     return status;
 }
 
+std::unique_ptr<AdaptiveBlockSizePredictor> SegmentIterator::_make_block_size_predictor() const {
+    if (!config::enable_adaptive_batch_size || _opts.preferred_block_size_bytes == 0) {
+        return nullptr;
+    }
+
+    // Collect per-column raw byte metadata from the segment footer for the columns
+    // this iterator will actually output (defined by _schema, which is built from
+    // _opts.return_columns).
+    std::vector<AdaptiveBlockSizePredictor::ColumnMetadata> col_metadata;
+    uint32_t seg_rows = _segment->num_rows();
+    uint64_t total_raw_bytes = 0;
+    double metadata_hint_bytes_per_row = 0.0;
+    if (seg_rows > 0) {
+        const auto& ts = _segment->tablet_schema();
+        if (ts) {
+            for (ColumnId cid : _schema->column_ids()) {
+                if (static_cast<size_t>(cid) < ts->num_columns()) {
+                    int32_t uid = ts->column(cid).unique_id();
+                    uint64_t raw_bytes = _segment->column_raw_data_bytes(uid);
+                    if (uid >= 0 && raw_bytes > 0) {
+                        total_raw_bytes += raw_bytes;
+                    }
+                }
+            }
+            metadata_hint_bytes_per_row = total_raw_bytes / static_cast<double>(seg_rows);
+        }
+    }
+
+    return std::make_unique<AdaptiveBlockSizePredictor>(
+            _opts.preferred_block_size_bytes, metadata_hint_bytes_per_row,
+            AdaptiveBlockSizePredictor::kDefaultProbeRows, _opts.block_row_max);
+}
+
 Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     // get file handle from file descriptor of segment
     if (_inited) {
@@ -366,6 +401,10 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     _tablet_id = opts.tablet_id;
     // Read options will not change, so that just resize here
     _block_rowids.resize(_opts.block_row_max);
+
+    // Adaptive batch size: snapshot the initial row limit and create predictor if enabled.
+    _initial_block_row_max = _opts.block_row_max;
+    _block_size_predictor = _make_block_size_predictor();
 
     _remaining_conjunct_roots = opts.remaining_conjunct_roots;
 
@@ -490,10 +529,14 @@ Status SegmentIterator::_lazy_init(Block* block) {
         _range_iter.reset(new BitmapRangeIterator(_row_bitmap));
     }
 
-    // If the row bitmap size is smaller than block_row_max, there's no need to reserve that many column rows.
-    auto nrows_reserve_limit = std::min(_row_bitmap.cardinality(), uint64_t(_opts.block_row_max));
+    // Reserve columns for _initial_block_row_max (the original max before any adaptive
+    // prediction) because the predictor may increase block_row_max on subsequent batches
+    // up to this ceiling. Using the current (possibly reduced) _opts.block_row_max would
+    // cause heap-buffer-overflow if a later prediction is larger.
+    auto nrows_reserve_limit =
+            std::min(_row_bitmap.cardinality(), uint64_t(_initial_block_row_max));
     if (_lazy_materialization_read || _opts.record_rowids || _is_need_expr_eval) {
-        _block_rowids.resize(_opts.block_row_max);
+        _block_rowids.resize(_initial_block_row_max);
     }
     _current_return_columns.resize(_schema->columns().size());
 
@@ -916,7 +959,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
         return Status::OK();
     }
     IColumn::MutablePtr result_column;
-    std::unique_ptr<std::vector<uint64_t>> result_row_ids;
+    std::shared_ptr<std::vector<uint64_t>> result_row_ids;
     segment_v2::AnnIndexStats ann_index_stats;
 
     // Try to load ANN index before search
@@ -944,9 +987,13 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                 static_cast<int64_t>(load_costs_ms));
     }
 
+    bool enable_ann_index_result_cache =
+            !_opts.runtime_state ||
+            !_opts.runtime_state->query_options().__isset.enable_ann_index_result_cache ||
+            _opts.runtime_state->query_options().enable_ann_index_result_cache;
     RETURN_IF_ERROR(_ann_topn_runtime->evaluate_vector_ann_search(
-            ann_index_iterator_casted, &_row_bitmap, rows_of_segment, result_column, result_row_ids,
-            ann_index_stats));
+            ann_index_iterator_casted, &_row_bitmap, rows_of_segment, enable_ann_index_result_cache,
+            result_column, result_row_ids, ann_index_stats));
 
     VLOG_DEBUG << fmt::format("Ann topn filtered {} - {} = {} rows", pre_size,
                               _row_bitmap.cardinality(), pre_size - _row_bitmap.cardinality());
@@ -965,6 +1012,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     _opts.stats->ann_index_topn_engine_convert_ns += ann_index_stats.engine_convert_ns.value();
     _opts.stats->ann_index_topn_engine_prepare_ns += ann_index_stats.engine_prepare_ns.value();
     _opts.stats->ann_index_topn_search_cnt += 1;
+    _opts.stats->ann_index_cache_hits += ann_index_stats.topn_cache_hits.value();
     const size_t dst_col_idx = _ann_topn_runtime->get_dest_column_idx();
     ColumnIterator* column_iter = _column_iterators[_schema->column_id(dst_col_idx)].get();
     DCHECK(column_iter != nullptr);
@@ -974,8 +1022,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
             "Virtual column iterator, column_idx {}, is materialized with {} rows", dst_col_idx,
             result_row_ids->size());
     // reference count of result_column should be 1, so move will not issue any data copy.
-    virtual_column_iter->prepare_materialization(std::move(result_column),
-                                                 std::move(result_row_ids));
+    virtual_column_iter->prepare_materialization(std::move(result_column), result_row_ids);
 
     _need_read_data_indices[src_cid] = false;
     VLOG_DEBUG << fmt::format(
@@ -1170,6 +1217,11 @@ bool SegmentIterator::_check_apply_by_inverted_index(std::shared_ptr<ColumnPredi
 
 // TODO: optimization when all expr can not evaluate by inverted/ann index,
 Status SegmentIterator::_apply_index_expr() {
+    bool enable_ann_index_result_cache =
+            !_opts.runtime_state ||
+            !_opts.runtime_state->query_options().__isset.enable_ann_index_result_cache ||
+            _opts.runtime_state->query_options().enable_ann_index_result_cache;
+
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
         if (Status st = expr_ctx->evaluate_inverted_index(num_rows()); !st.ok()) {
             if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
@@ -1209,7 +1261,8 @@ Status SegmentIterator::_apply_index_expr() {
         size_t origin_rows = _row_bitmap.cardinality();
         RETURN_IF_ERROR(expr_ctx->evaluate_ann_range_search(
                 _index_iterators, _schema->column_ids(), _column_iterators,
-                _common_expr_to_slotref_map, _row_bitmap, ann_index_stats));
+                _common_expr_to_slotref_map, _row_bitmap, ann_index_stats,
+                enable_ann_index_result_cache));
         _opts.stats->rows_ann_index_range_filtered += (origin_rows - _row_bitmap.cardinality());
         _opts.stats->ann_index_load_ns += ann_index_stats.load_index_costs_ns.value();
         _opts.stats->ann_index_range_search_ns += ann_index_stats.search_costs_ns.value();
@@ -1223,6 +1276,7 @@ Status SegmentIterator::_apply_index_expr() {
         _opts.stats->ann_range_engine_convert_ns += ann_index_stats.engine_convert_ns.value();
         _opts.stats->ann_range_pre_process_ns += ann_index_stats.engine_prepare_ns.value();
         _opts.stats->ann_fall_back_brute_force_cnt += ann_index_stats.fall_back_brute_force_cnt;
+        _opts.stats->ann_index_range_cache_hits += ann_index_stats.range_cache_hits.value();
     }
 
     for (auto it = _common_expr_ctxs_push_down.begin(); it != _common_expr_ctxs_push_down.end();) {
@@ -1423,12 +1477,6 @@ Status SegmentIterator::_apply_inverted_index() {
  */
 bool SegmentIterator::_check_all_conditions_passed_inverted_index_for_column(ColumnId cid,
                                                                              bool default_return) {
-    // If common_expr_pushdown is disabled, we cannot guarantee that all conditions are processed by the inverted index.
-    // Consider a scenario where there is a column predicate and an expression involving the same column in the SQL query,
-    // such as 'a < 0' and 'abs(a) > 1'. This could potentially lead to errors.
-    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_common_expr_pushdown) {
-        return false;
-    }
     auto pred_it = _column_predicate_index_exec_status.find(cid);
     if (pred_it != _column_predicate_index_exec_status.end()) {
         const auto& pred_map = pred_it->second;
@@ -1736,7 +1784,7 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
                         .length() +
                 1;
         auto index_type = DataTypeFactory::instance().create_data_type(
-                _segment->_pk_index_reader->type_info()->type(), 1, 0);
+                _segment->_pk_index_reader->type(), 1, 0);
         auto index_column = index_type->create_column();
         size_t num_to_read = 1;
         size_t num_read = num_to_read;
@@ -2348,6 +2396,119 @@ void SegmentIterator::_replace_version_col_if_needed(const std::vector<ColumnId>
     VLOG_DEBUG << "replaced version column in segment iterator, version_col_idx:" << version_idx;
 }
 
+void SegmentIterator::_update_lsn_col_if_needed(const std::vector<ColumnId>& column_ids,
+                                                size_t num_rows) {
+    // | commit tso(64) | auto-inc row_id(64) |
+    if (_opts.version.first != _opts.version.second) {
+        return;
+    }
+
+    if (_opts.io_ctx.reader_type != ReaderType::READER_BINLOG &&
+        _opts.io_ctx.reader_type != ReaderType::READER_BINLOG_COMPACTION) {
+        return;
+    }
+
+    int32_t lsn_col_idx = _schema->lsn_col_idx();
+    if (lsn_col_idx < 0 || std::ranges::find(column_ids, lsn_col_idx) == column_ids.end()) {
+        return;
+    }
+
+    DCHECK_EQ(_opts.commit_tso.start_tso(), _opts.commit_tso.end_tso());
+    const Int64 commit_tso = _opts.commit_tso.end_tso() == -1 ? 0 : _opts.commit_tso.end_tso();
+
+    if (_is_pred_column[lsn_col_idx]) {
+        auto* lsn_column = assert_cast<PredicateColumnType<TYPE_LARGEINT>*>(
+                _current_return_columns[lsn_col_idx].get());
+        std::vector<Int128> binlog_lsns;
+        binlog_lsns.reserve(num_rows);
+        for (size_t j = 0; j < num_rows; j++) {
+            const Int128 row_id = lsn_column->get_data()[j];
+            binlog_lsns.emplace_back(make_row_binlog_lsn(commit_tso, row_id));
+        }
+        _current_return_columns[lsn_col_idx]->clear();
+        for (const auto& binlog_lsn : binlog_lsns) {
+            lsn_column->insert_data(reinterpret_cast<const char*>(&binlog_lsn), 0);
+        }
+        return;
+    }
+
+    auto* lsn_column = assert_cast<ColumnInt128*>(_current_return_columns[lsn_col_idx].get());
+    const auto* column_desc = _schema->column(lsn_col_idx);
+    auto column = Schema::get_data_type_ptr(*column_desc)->create_column();
+    DCHECK(column_desc->type() == FieldType::OLAP_FIELD_TYPE_LARGEINT);
+    auto* col_ptr = assert_cast<ColumnInt128*>(column.get());
+
+    for (size_t j = 0; j < num_rows; j++) {
+        const Int128 row_id = lsn_column->get_element(j);
+        col_ptr->insert_value(make_row_binlog_lsn(commit_tso, row_id));
+    }
+    _current_return_columns[lsn_col_idx] = std::move(column);
+}
+
+void SegmentIterator::_update_tso_col_if_needed(const std::vector<ColumnId>& column_ids,
+                                                size_t num_rows) {
+    // use physical time part of commit tso to replace timestamp col
+    if (_opts.version.first != _opts.version.second) {
+        return;
+    }
+
+    if (_opts.io_ctx.reader_type != ReaderType::READER_BINLOG &&
+        _opts.io_ctx.reader_type != ReaderType::READER_BINLOG_COMPACTION) {
+        return;
+    }
+
+    int32_t tso_col_idx = _schema->tso_col_idx();
+    if (tso_col_idx < 0 || std::ranges::find(column_ids, tso_col_idx) == column_ids.end()) {
+        return;
+    }
+
+    DCHECK_EQ(_opts.commit_tso.start_tso(), _opts.commit_tso.end_tso());
+    Int64 commit_tso = _opts.commit_tso.end_tso() == -1 ? 0 : _opts.commit_tso.end_tso();
+    Int64 commit_time = extract_tso_physical_time(commit_tso);
+
+    if (_is_pred_column[tso_col_idx]) {
+        // Nullable predicate column is represented as ColumnNullable(predicate_col)
+        if (auto* tso_nullable =
+                    typeid_cast<ColumnNullable*>(_current_return_columns[tso_col_idx].get())) {
+            _current_return_columns[tso_col_idx]->clear();
+            auto value = commit_time;
+            for (size_t j = 0; j < num_rows; j++) {
+                tso_nullable->get_nested_column_ptr()->insert_data(
+                        reinterpret_cast<const char*>(&value), 0);
+                tso_nullable->get_null_map_data().emplace_back(0);
+            }
+            return;
+        }
+
+        auto* tso_column = assert_cast<PredicateColumnType<TYPE_BIGINT>*>(
+                _current_return_columns[tso_col_idx].get());
+        _current_return_columns[tso_col_idx]->clear();
+        auto value = commit_time;
+        for (size_t j = 0; j < num_rows; j++) {
+            tso_column->insert_data(reinterpret_cast<const char*>(&value), 0);
+        }
+        return;
+    }
+
+    const auto* column_desc = _schema->column(tso_col_idx);
+    auto column = Schema::get_data_type_ptr(*column_desc)->create_column();
+    DCHECK(column_desc->type() == FieldType::OLAP_FIELD_TYPE_BIGINT);
+
+    if (auto* tso_nullable = typeid_cast<ColumnNullable*>(column.get())) {
+        auto* col_ptr = assert_cast<ColumnInt64*>(&tso_nullable->get_nested_column());
+        for (size_t j = 0; j < num_rows; j++) {
+            col_ptr->insert_value(commit_time);
+            tso_nullable->get_null_map_data().emplace_back(0);
+        }
+    } else {
+        auto* col_ptr = assert_cast<ColumnInt64*>(column.get());
+        for (size_t j = 0; j < num_rows; j++) {
+            col_ptr->insert_value(commit_time);
+        }
+    }
+    _current_return_columns[tso_col_idx] = std::move(column);
+}
+
 uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
                                                             uint16_t selected_size) {
     SCOPED_RAW_TIMER(&_opts.stats->vec_cond_ns);
@@ -2449,6 +2610,53 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
     return selected_size;
 }
 
+static void shrink_materialized_block_columns(Block* block, size_t rows) {
+    for (auto& entry : *block) {
+        if (entry.column && entry.column->size() > rows) {
+            entry.column = entry.column->shrink(rows);
+        }
+    }
+}
+
+static void slice_materialized_block_columns(Block* block, size_t offset, size_t rows,
+                                             size_t original_rows) {
+    for (auto& entry : *block) {
+        if (!entry.column || entry.column->size() == 0) {
+            continue;
+        }
+        DORIS_CHECK(entry.column->size() == original_rows);
+        entry.column = entry.column->cut(offset, rows);
+    }
+}
+
+Status SegmentIterator::_apply_read_limit_to_selected_rows(Block* block, uint16_t& selected_size) {
+    if (_opts.read_limit == 0) {
+        return Status::OK();
+    }
+    DORIS_CHECK(_rows_returned <= _opts.read_limit);
+    size_t remaining = _opts.read_limit - _rows_returned;
+    if (remaining == 0) {
+        selected_size = 0;
+        shrink_materialized_block_columns(block, 0);
+        return Status::OK();
+    }
+    if (selected_size > remaining) {
+        if (_opts.read_orderby_key_reverse) {
+            const auto original_size = selected_size;
+            const auto offset = original_size - remaining;
+            for (size_t i = 0; i < remaining; ++i) {
+                _sel_rowid_idx[i] = _sel_rowid_idx[offset + i];
+            }
+            selected_size = cast_set<uint16_t>(remaining);
+            slice_materialized_block_columns(block, offset, remaining, original_size);
+            return Status::OK();
+        }
+        selected_size = cast_set<uint16_t>(remaining);
+        shrink_materialized_block_columns(block, selected_size);
+    }
+    return Status::OK();
+}
+
 Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                                 std::vector<rowid_t>& rowid_vector,
                                                 uint16_t* sel_rowid_idx, size_t select_size,
@@ -2509,6 +2717,28 @@ Status SegmentIterator::next_batch(Block* block) {
     _init_virtual_columns(block);
     auto status = [&]() {
         RETURN_IF_CATCH_EXCEPTION({
+            // Adaptive batch size: predict how many rows this batch should read.
+            if (_block_size_predictor) {
+                auto predicted = static_cast<uint32_t>(_block_size_predictor->predict_next_rows());
+                _opts.block_row_max = std::min(predicted, _initial_block_row_max);
+                _opts.stats->adaptive_batch_size_predict_min_rows =
+                        std::min(_opts.stats->adaptive_batch_size_predict_min_rows,
+                                 static_cast<int64_t>(predicted));
+                _opts.stats->adaptive_batch_size_predict_max_rows =
+                        std::max(_opts.stats->adaptive_batch_size_predict_max_rows,
+                                 static_cast<int64_t>(predicted));
+            } else {
+                // No predictor — record the fixed batch size using min/max so we don't
+                // clobber values already accumulated by other segment iterators that
+                // share the same OlapReaderStatistics.
+                _opts.stats->adaptive_batch_size_predict_min_rows =
+                        std::min(_opts.stats->adaptive_batch_size_predict_min_rows,
+                                 static_cast<int64_t>(_opts.block_row_max));
+                _opts.stats->adaptive_batch_size_predict_max_rows =
+                        std::max(_opts.stats->adaptive_batch_size_predict_max_rows,
+                                 static_cast<int64_t>(_opts.block_row_max));
+            }
+
             auto res = _next_batch_internal(block);
 
             if (res.is<END_OF_FILE>()) {
@@ -2553,6 +2783,13 @@ Status SegmentIterator::next_batch(Block* block) {
             }
 
             RETURN_IF_ERROR(block->check_type_and_column());
+
+            // Adaptive batch size: update EWMA estimate from the completed batch.
+            // block->bytes() is accurate here: predicates have been applied and non-predicate
+            // columns have been filled for surviving rows by _next_batch_internal.
+            if (_block_size_predictor && block->rows() > 0) {
+                _block_size_predictor->update(*block);
+            }
 
             return Status::OK();
         });
@@ -2614,17 +2851,28 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
 
     SCOPED_RAW_TIMER(&_opts.stats->block_load_ns);
 
+    if (_opts.read_limit > 0 && _rows_returned >= _opts.read_limit) {
+        return _process_eof(block);
+    }
+
     // If the row bitmap size is smaller than nrows_read_limit, there's no need to reserve that many column rows.
     uint32_t nrows_read_limit =
             std::min(cast_set<uint32_t>(_row_bitmap.cardinality()), _opts.block_row_max);
-    if (_can_opt_topn_reads()) {
-        nrows_read_limit = std::min(static_cast<uint32_t>(_opts.topn_limit), nrows_read_limit);
+    if (_can_opt_limit_reads()) {
+        // No SegmentIterator-side conjunct remains to be evaluated, so LIMIT is equivalent before
+        // and after filtering. Cap the first read directly; this is the no-conjunct fast path that
+        // avoids reading rows past the pushed-down local LIMIT.
+        size_t cap = (_opts.read_limit > _rows_returned) ? (_opts.read_limit - _rows_returned) : 0;
+        if (cap < nrows_read_limit) {
+            nrows_read_limit = static_cast<uint32_t>(cap);
+        }
     }
     DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {
         if (nrows_read_limit != 1) {
             return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                    "topn opt 1 execute failed: nrows_read_limit={}, _opts.topn_limit={}",
-                    nrows_read_limit, _opts.topn_limit);
+                    "topn opt 1 execute failed: nrows_read_limit={}, "
+                    "_opts.read_limit={}",
+                    nrows_read_limit, _opts.read_limit);
         }
     })
 
@@ -2634,6 +2882,8 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
     _selected_size = 0;
     RETURN_IF_ERROR(_read_columns_by_index(nrows_read_limit, _selected_size));
     _replace_version_col_if_needed(_predicate_column_ids, _selected_size);
+    _update_lsn_col_if_needed(_predicate_column_ids, _selected_size);
+    _update_tso_col_if_needed(_predicate_column_ids, _selected_size);
 
     _opts.stats->blocks_load += 1;
     _opts.stats->raw_rows_read += _selected_size;
@@ -2677,6 +2927,8 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                                 _common_expr_column_ids, _block_rowids, _sel_rowid_idx.data(),
                                 _selected_size, &_current_return_columns));
                         _replace_version_col_if_needed(_common_expr_column_ids, _selected_size);
+                        _update_lsn_col_if_needed(_common_expr_column_ids, _selected_size);
+                        _update_tso_col_if_needed(_common_expr_column_ids, _selected_size);
                         RETURN_IF_ERROR(_process_columns(_common_expr_column_ids, block));
                     }
 
@@ -2700,6 +2952,8 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
             RETURN_IF_ERROR(_process_common_expr(_sel_rowid_idx.data(), _selected_size, block));
         }
 
+        RETURN_IF_ERROR(_apply_read_limit_to_selected_rows(block, _selected_size));
+
         // step4: read non_predicate column
         if (_selected_size > 0) {
             if (!_non_predicate_columns.empty()) {
@@ -2708,6 +2962,8 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                         _selected_size, &_current_return_columns,
                         _opts.condition_cache_digest && !_find_condition_cache));
                 _replace_version_col_if_needed(_non_predicate_columns, _selected_size);
+                _update_lsn_col_if_needed(_non_predicate_columns, _selected_size);
+                _update_tso_col_if_needed(_non_predicate_columns, _selected_size);
             } else {
                 if (_opts.condition_cache_digest && !_find_condition_cache) {
                     auto& condition_cache = *_condition_cache;
@@ -2738,6 +2994,9 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
     RETURN_IF_ERROR(_materialization_of_virtual_column(block));
     // shrink char_type suffix zero data
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
+    if (_opts.read_limit > 0) {
+        _rows_returned += block->rows();
+    }
     return _check_output_block(block);
 }
 
@@ -2758,11 +3017,8 @@ void SegmentIterator::_fill_column_nothing() {
     for (const auto pair : _vir_cid_to_idx_in_block) {
         auto cid = pair.first;
         auto pos = pair.second;
-        const auto* nothing_col =
-                check_and_get_column<ColumnNothing>(_current_return_columns[cid].get());
-        DCHECK(nothing_col != nullptr)
-                << fmt::format("ColumnNothing expected, but got {}, cid: {}, pos: {}",
-                               _current_return_columns[cid]->get_name(), cid, pos);
+        [[maybe_unused]] const auto* nothing_col =
+                assert_cast<const ColumnNothing*>(_current_return_columns[cid].get());
         _current_return_columns[cid] = _opts.vir_col_idx_to_type[pos]->create_column();
     }
 }
@@ -3171,8 +3427,15 @@ bool SegmentIterator::_has_delete_predicate(ColumnId cid) {
     return delete_columns_set.contains(cid);
 }
 
-bool SegmentIterator::_can_opt_topn_reads() {
-    if (_opts.topn_limit <= 0) {
+bool SegmentIterator::_can_opt_limit_reads() {
+    if (_opts.read_limit == 0) {
+        return false;
+    }
+
+    // If SegmentIterator still needs to evaluate predicates/common exprs, LIMIT must be applied to
+    // post-filter rows by _apply_read_limit_to_selected_rows(); capping the raw read here could
+    // return fewer rows than the query LIMIT.
+    if (_is_need_vec_eval || _is_need_short_eval || _is_need_expr_eval) {
         return false;
     }
 
@@ -3285,8 +3548,9 @@ void SegmentIterator::_prepare_score_column_materialization() {
     const size_t dst_col_idx = _score_runtime->get_dest_column_idx();
     auto* column_iter = _column_iterators[_schema->column_id(dst_col_idx)].get();
     auto* virtual_column_iter = dynamic_cast<VirtualColumnIterator*>(column_iter);
-    virtual_column_iter->prepare_materialization(std::move(result_column),
-                                                 std::move(result_row_ids));
+    virtual_column_iter->prepare_materialization(
+            std::move(result_column),
+            std::shared_ptr<std::vector<uint64_t>>(std::move(result_row_ids)));
 }
 
 } // namespace segment_v2

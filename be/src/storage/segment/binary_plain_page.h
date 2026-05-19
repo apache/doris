@@ -101,10 +101,6 @@ public:
                 put_fixed32_le(&_buffer, _offset);
             }
             put_fixed32_le(&_buffer, cast_set<uint32_t>(_offsets.size()));
-            if (_offsets.size() > 0) {
-                _copy_value_at(0, &_first_value);
-                _copy_value_at(_offsets.size() - 1, &_last_value);
-            }
             *slice = _buffer.build();
         });
         return Status::OK();
@@ -131,45 +127,9 @@ public:
 
     uint64_t get_raw_data_size() const override { return _raw_data_size; }
 
-    Status get_first_value(void* value) const override {
-        DCHECK(_finished);
-        if (_offsets.size() == 0) {
-            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
-        }
-        *reinterpret_cast<Slice*>(value) = Slice(_first_value);
-        return Status::OK();
-    }
-    Status get_last_value(void* value) const override {
-        DCHECK(_finished);
-        if (_offsets.size() == 0) {
-            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
-        }
-        *reinterpret_cast<Slice*>(value) = Slice(_last_value);
-        return Status::OK();
-    }
-
-    inline Slice operator[](size_t idx) const {
-        DCHECK(!_finished);
-        DCHECK_LT(idx, _offsets.size());
-        size_t value_size =
-                (idx < _offsets.size() - 1) ? _offsets[idx + 1] - _offsets[idx] : _last_value_size;
-        return Slice(&_buffer[_offsets[idx]], value_size);
-    }
-
-    Status get_dict_word(uint32_t value_code, Slice* word) override {
-        *word = (*this)[value_code];
-        return Status::OK();
-    }
-
 private:
     BinaryPlainPageBuilder(const PageBuilderOptions& options)
             : _size_estimate(0), _options(options) {}
-
-    void _copy_value_at(size_t idx, faststring* value) const {
-        size_t value_size =
-                (idx < _offsets.size() - 1) ? _offsets[idx + 1] - _offsets[idx] : _last_value_size;
-        value->assign_copy(&_buffer[_offsets[idx]], value_size);
-    }
 
     faststring _buffer;
     size_t _size_estimate;
@@ -180,8 +140,6 @@ private:
     // size of last added value
     uint32_t _last_value_size = 0;
     uint64_t _raw_data_size = 0;
-    faststring _first_value;
-    faststring _last_value;
 };
 
 template <FieldType Type>
@@ -345,12 +303,6 @@ public:
     size_t current_index() const override {
         DCHECK(_parsed);
         return _cur_idx;
-    }
-
-    Slice string_at_index(size_t idx) const {
-        const uint32_t start_offset = offset(idx);
-        uint32_t len = offset(idx + 1) - start_offset;
-        return Slice(&_data[start_offset], len);
     }
 
     Status get_dict_word_info(StringRef* dict_word_info) override {

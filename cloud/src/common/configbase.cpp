@@ -16,6 +16,9 @@
 // under the License.
 
 #include <fmt/core.h>
+#include <rapidjson/document.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
 
 #include <algorithm>
 #include <cerrno>
@@ -462,4 +465,58 @@ std::pair<bool, std::string> set_config(std::unordered_map<std::string, std::str
 std::shared_mutex* get_mutable_string_config_lock() {
     return &mutable_string_config_lock;
 }
+
+std::string show_config(const std::string& conf_name) {
+    if (full_conf_map == nullptr) {
+        return "";
+    }
+
+    rapidjson::Document doc;
+    doc.SetArray();
+    auto& allocator = doc.GetAllocator();
+    for (auto& [name, field] : *Register::_s_field_map) {
+        if (!conf_name.empty() && name != conf_name) {
+            continue;
+        }
+        auto it = full_conf_map->find(name);
+        std::string value = (it != full_conf_map->end()) ? it->second : "";
+
+        rapidjson::Value item(rapidjson::kArrayType);
+        item.PushBack(rapidjson::Value(name.data(), name.size(), allocator), allocator);
+        item.PushBack(rapidjson::Value(field.type, allocator), allocator);
+        item.PushBack(rapidjson::Value(value.data(), value.size(), allocator), allocator);
+        item.PushBack(field.valmutable, allocator);
+        doc.PushBack(item, allocator);
+    }
+
+    rapidjson::StringBuffer sb;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(sb);
+    doc.Accept(writer);
+    return sb.GetString();
+}
+
+std::pair<bool, std::string> update_config(const std::string& configs, bool persist,
+                                           const std::string& custom_conf_path) {
+    if (configs.empty()) {
+        return {false, "query param `configs` should not be empty"};
+    }
+
+    std::unordered_map<std::string, std::string> conf_map;
+    std::istringstream ss(configs);
+    std::string conf;
+    while (std::getline(ss, conf, ',')) {
+        auto pos = conf.find('=');
+        if (pos == std::string::npos) {
+            return {false, fmt::format("config {} is invalid", conf)};
+        }
+        std::string key = conf.substr(0, pos);
+        std::string val = conf.substr(pos + 1);
+        trim(key);
+        trim(val);
+        conf_map.emplace(std::move(key), std::move(val));
+    }
+
+    return set_config(std::move(conf_map), persist, custom_conf_path);
+}
+
 } // namespace doris::cloud::config

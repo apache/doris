@@ -23,7 +23,6 @@
 #include "core/types.h"
 #include "exprs/function/cast/cast_to_ip.h"
 #include "exprs/function/cast/cast_to_string.h"
-#include "util/io_helper.h"
 
 namespace doris {
 
@@ -67,7 +66,8 @@ Status DataTypeIPv4SerDe::deserialize_one_cell_from_json(IColumn& column, Slice&
     auto& column_data = reinterpret_cast<ColumnIPv4&>(column);
     StringRef str(slice.data, slice.size);
     IPv4 val = 0;
-    if (!read_ipv4_text_impl(val, str)) {
+    CastParameters params;
+    if (!CastToIPv4::from_string(str, val, params)) {
         return Status::InvalidArgument("parse ipv4 fail, string: '{}'", str.to_string());
     }
     column_data.insert_value(val);

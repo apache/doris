@@ -588,7 +588,8 @@ public class FeServiceClient {
         }
     }
 
-    public void taskGroupSuccess(String catalogName, String dbName, String tableName, long groupId)
+    public void taskGroupSuccess(String catalogName, String dbName, String tableName,
+            long groupId, boolean forceDropPartition)
             throws DdlException {
         TInsertOverwriteTaskRequest request = new TInsertOverwriteTaskRequest();
         request.setUser(user);
@@ -598,6 +599,7 @@ public class FeServiceClient {
         request.setTbl(tableName);
         request.setGroupId(groupId);
         request.setIsSuccess(true);
+        request.setForceDropPartition(forceDropPartition);
         long startTime = System.currentTimeMillis();
         TInsertOverwriteTaskResult result;
         try {

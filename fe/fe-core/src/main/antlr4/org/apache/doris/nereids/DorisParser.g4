@@ -83,9 +83,9 @@ materializedViewStatement
         propertyClause?
         AS? query                                                                               #createMTMV
     | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier (partitionSpec | COMPLETE | AUTO)    #refreshMTMV
-    | ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME newName=identifier)
+    | ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME renameNewName=multipartIdentifier)
         | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
-        | REPLACE WITH MATERIALIZED VIEW newName=identifier propertyClause?
+        | REPLACE WITH MATERIALIZED VIEW replaceNewName=identifier propertyClause?
         | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))                        #alterMTMV
     | DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier
         (ON tableName=multipartIdentifier)?                                                     #dropMV
@@ -1068,7 +1068,7 @@ identityOrFunction
     ;
 
 dataDesc
-    : ((WITH)? mergeType)? DATA INFILE LEFT_PAREN filePaths+=STRING_LITERAL (COMMA filePath+=STRING_LITERAL)* RIGHT_PAREN
+    : ((WITH)? mergeType)? DATA INFILE LEFT_PAREN filePaths+=STRING_LITERAL (COMMA filePaths+=STRING_LITERAL)* RIGHT_PAREN
         (negative=NEGATIVE)?
         INTO TABLE targetTableName=identifier
         (partitionSpec)?
@@ -1148,7 +1148,7 @@ userIdentify
     ;
 
 grantUserIdentify
-    : userIdentify (IDENTIFIED BY PASSWORD? STRING_LITERAL)?
+    : userIdentify (IDENTIFIED BY PASSWORD? pwd=STRING_LITERAL)?
     ;
 
 explain
@@ -2003,6 +2003,7 @@ nonReserved
     | BEGIN
     | BELONG
     | BIN
+    | BINLOG
     | BITAND
     | BITMAP
     | BITMAP_EMPTY

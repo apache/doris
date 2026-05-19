@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/call_on_type_index.h"
 #include "core/data_type/data_type.h"
@@ -41,7 +42,6 @@
 #include "exprs/function/cast/cast_parameters.h"
 #include "exprs/function/function.h"
 #include "exprs/function/function_helpers.h"
-#include "util/io_helper.h"
 
 namespace doris {
 

@@ -232,8 +232,6 @@ struct StringRef {
     static StringRef min_string_val();
     static StringRef max_string_val();
 
-    bool start_with(char) const;
-    bool end_with(char) const;
     bool start_with(const StringRef& search_string) const;
     bool end_with(const StringRef& search_string) const;
 

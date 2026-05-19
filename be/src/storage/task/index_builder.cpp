@@ -307,7 +307,10 @@ Status IndexBuilder::update_inverted_index_info() {
         RETURN_IF_ERROR(input_rowset->get_segments_key_bounds(&key_bounds));
         rowset_meta->set_segments_key_bounds_truncated(
                 input_rowset_meta->is_segments_key_bounds_truncated());
-        rowset_meta->set_segments_key_bounds(key_bounds);
+        // preserve aggregated layout via the setter so the aggregated flag is not
+        // clobbered by set_segments_key_bounds's default reset path.
+        rowset_meta->set_segments_key_bounds(
+                key_bounds, input_rowset_meta->is_segments_key_bounds_aggregated());
         std::vector<uint32_t> num_segment_rows;
         input_rowset_meta->get_num_segment_rows(&num_segment_rows);
         rowset_meta->set_num_segment_rows(num_segment_rows);
@@ -510,7 +513,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                                     })
                         } catch (const std::exception& e) {
                             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                                    "CLuceneError occured: {}", e.what());
+                                    "CLuceneError occurred: {}", e.what());
                         }
 
                         if (inverted_index_builder) {
@@ -540,7 +543,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                                     })
                         } catch (const std::exception& e) {
                             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                                    "CLuceneError occured: {}", e.what());
+                                    "CLuceneError occurred: {}", e.what());
                         }
 
                         if (index_writer) {
@@ -623,7 +626,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     })
                 } catch (const std::exception& e) {
                     return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                            "CLuceneError occured: {}", e.what());
+                            "CLuceneError occurred: {}", e.what());
                 }
             }
 
@@ -736,7 +739,7 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
                     _index_column_writers[index_writer_sign]->add_array_nulls(null_map, num_rows));
         } catch (const std::exception& e) {
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                    "CLuceneError occured: {}", e.what());
+                    "CLuceneError occurred: {}", e.what());
         }
 
         return Status::OK();
@@ -769,7 +772,7 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
                             { _CLTHROWA(CL_ERR_IO, "debug point: _add_nullable_throw_exception"); })
         } while (offset < num_rows);
     } catch (const std::exception& e) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occured: {}",
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occurred: {}",
                                                                       e.what());
     }
 
@@ -802,7 +805,7 @@ Status IndexBuilder::_add_data(const std::string& column_name,
         DBUG_EXECUTE_IF("IndexBuilder::_add_data_throw_exception",
                         { _CLTHROWA(CL_ERR_IO, "debug point: _add_data_throw_exception"); })
     } catch (const std::exception& e) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occured: {}",
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occurred: {}",
                                                                       e.what());
     }
 

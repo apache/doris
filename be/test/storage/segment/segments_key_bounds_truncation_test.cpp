@@ -48,6 +48,7 @@ private:
     std::string absolute_dir;
     std::unique_ptr<DataDir> data_dir;
     int cur_version {2};
+    bool _saved_aggregate_non_mow_key_bounds {false};
 
 public:
     void SetUp() override {
@@ -61,9 +62,15 @@ public:
         data_dir = std::make_unique<DataDir>(*engine_ref, kSegmentDir);
         ASSERT_TRUE(data_dir->update_capacity().ok());
         ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
+
+        // This suite asserts per-segment key bounds; force the non-MOW aggregation
+        // feature off so it is isolated from that orthogonal code path.
+        _saved_aggregate_non_mow_key_bounds = config::enable_aggregate_non_mow_key_bounds;
+        config::enable_aggregate_non_mow_key_bounds = false;
     }
 
     void TearDown() override {
+        config::enable_aggregate_non_mow_key_bounds = _saved_aggregate_non_mow_key_bounds;
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kSegmentDir).ok());
         engine_ref = nullptr;
         ExecEnv::GetInstance()->set_storage_engine(nullptr);

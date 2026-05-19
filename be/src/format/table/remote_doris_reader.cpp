@@ -58,7 +58,7 @@ Status RemoteDorisReader::init_reader() {
     return Status::OK();
 }
 
-Status RemoteDorisReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+Status RemoteDorisReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     arrow::flight::FlightStreamChunk chunk;
     RETURN_DORIS_STATUS_IF_ERROR(_stream->Next().Value(&chunk));
 
@@ -94,11 +94,12 @@ Status RemoteDorisReader::get_next_block(Block* block, size_t* read_rows, bool* 
     }
 
     *read_rows += num_rows;
+
     return Status::OK();
 }
 
-Status RemoteDorisReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                                      std::unordered_set<std::string>* missing_cols) {
+Status RemoteDorisReader::_get_columns_impl(
+        std::unordered_map<std::string, DataTypePtr>* name_to_type) {
     for (const auto& slot : _file_slot_descs) {
         name_to_type->emplace(slot->col_name(), slot->type());
     }

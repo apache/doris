@@ -28,11 +28,11 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.mvcc.MvccUtil;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
@@ -94,6 +94,7 @@ public class MTMVPartitionUtil {
             Set<TableNameInfo> excludedTriggerTables) throws AnalysisException {
         MTMV mtmv = refreshContext.getMtmv();
         Map<MTMVRelatedTableIf, Set<String>> partitionMappings = refreshContext.getByPartitionName(partitionName);
+        Set<TableNameInfo> excludedTriggerTablesToCheck = Sets.newHashSet(excludedTriggerTables);
         if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
             if (MapUtils.isEmpty(partitionMappings)) {
                 LOG.warn("can not found pct partition, partitionName: {}, mtmvName: {}",
@@ -104,7 +105,7 @@ public class MTMVPartitionUtil {
             for (MTMVRelatedTableIf pctTable : pctTables) {
                 Set<String> relatedPartitionNames = partitionMappings.getOrDefault(pctTable, Sets.newHashSet());
                 // if follow base table, not need compare with related table, only should compare with related partition
-                excludedTriggerTables.add(TableNameInfoUtils.fromCatalogDb(
+                excludedTriggerTablesToCheck.add(TableNameInfoUtils.fromCatalogDb(
                         pctTable.getDatabase().getCatalog(),
                         pctTable.getDatabase(), pctTable));
                 if (!isSyncWithPartitions(refreshContext, partitionName, relatedPartitionNames, pctTable)) {
@@ -114,7 +115,7 @@ public class MTMVPartitionUtil {
 
         }
         return isSyncWithAllBaseTables(refreshContext, partitionName, tables,
-                excludedTriggerTables);
+                excludedTriggerTablesToCheck);
 
     }
 

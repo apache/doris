@@ -463,13 +463,19 @@ private:
     // Returns 0 for success, -1 for error.
     int decrement_packed_file_ref_counts(const doris::RowsetMetaCloudPB& rs_meta_pb);
 
-    // Decrement packed file ref count for delete bitmap if it's stored in packed file.
+    enum class DeleteBitmapStorageType {
+        NOT_FOUND,
+        IN_FDB,
+        STANDALONE_FILE,
+        PACKED_FILE,
+    };
+
+    // Process delete bitmap storage and decrement packed file ref count when needed.
     // Returns 0 for success, -1 for error.
-    // If delete bitmap is not stored in packed file, this function does nothing and returns 0.
-    // out_is_packed: if not null, will be set to true if delete bitmap is stored in packed file.
+    // out_storage_type: if not null, will be set to the delete bitmap storage type.
     int decrement_delete_bitmap_packed_file_ref_counts(int64_t tablet_id,
                                                        const std::string& rowset_id,
-                                                       bool* out_is_packed);
+                                                       DeleteBitmapStorageType* out_storage_type);
 
     int delete_packed_file_and_kv(const std::string& packed_file_path,
                                   const std::string& packed_key,
@@ -583,7 +589,8 @@ private:
     int abort_job_for_related_rowset(const RowsetMetaCloudPB& rowset_meta);
 
     template <typename T>
-    int abort_txn_or_job_for_recycle(T& rowset_meta_pb);
+    int batch_abort_txn_or_job_for_recycle(const std::vector<std::string>& keys,
+                                           bool skip_base_version);
 
 private:
     std::atomic_bool stopped_ {false};

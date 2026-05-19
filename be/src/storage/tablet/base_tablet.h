@@ -103,6 +103,11 @@ public:
         return _max_version_schema;
     }
 
+    TabletSchemaSPtr row_binlog_tablet_schema() const {
+        std::shared_lock rlock(_meta_lock);
+        return _tablet_meta->row_binlog_schema();
+    }
+
     void set_alter_failed(bool alter_failed) { _alter_failed = alter_failed; }
     bool is_alter_failed() { return _alter_failed; }
 
@@ -138,7 +143,8 @@ public:
 
     // Get the missed versions until the spec_version.
     Versions get_missed_versions(int64_t spec_version) const;
-    Versions get_missed_versions_unlocked(int64_t spec_version) const;
+    Versions get_missed_versions_unlocked(int64_t spec_version,
+                                          bool capture_row_binlog = false) const;
 
     void generate_tablet_meta_copy(TabletMeta& new_tablet_meta, bool cloud_get_rowset_meta) const;
     void generate_tablet_meta_copy_unlocked(TabletMeta& new_tablet_meta,
@@ -367,6 +373,8 @@ protected:
 
     mutable std::shared_mutex _meta_lock;
     TimestampedVersionTracker _timestamped_version_tracker;
+    TimestampedVersionTracker _row_binlog_version_tracker;
+
     // After version 0.13, all newly created rowsets are saved in _rs_version_map.
     // And if rowset being compacted, the old rowsets will be saved in _stale_rs_version_map;
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _rs_version_map;
@@ -374,6 +382,8 @@ protected:
     // These _stale rowsets are been removed when rowsets' pathVersion is expired,
     // this policy is judged and computed by TimestampedVersionTracker.
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _stale_rs_version_map;
+    // for row_binlog
+    std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _row_binlog_rs_version_map;
     const TabletMetaSharedPtr _tablet_meta;
     TabletSchemaSPtr _max_version_schema;
 
@@ -447,6 +457,7 @@ struct CaptureRowsetOps {
     bool quiet = false;
     bool include_stale_rowsets = true;
     bool enable_fetch_rowsets_from_peers = false;
+    bool capture_row_binlog = false;
 
     // ======== only take effect in cloud mode ========
 

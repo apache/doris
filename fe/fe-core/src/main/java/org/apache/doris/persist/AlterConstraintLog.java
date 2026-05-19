@@ -19,9 +19,9 @@ package org.apache.doris.persist;
 
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.TableIdentifier;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 

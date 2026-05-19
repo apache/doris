@@ -17,11 +17,14 @@
 
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 #include "core/data_type/define_primitive_type.h"
+#include "exec/common/hash_table/phmap_fwd_decl.h"
 
 namespace doris {
 struct TransactionalHive {
@@ -54,4 +57,47 @@ struct TransactionalHive {
 
     static const std::unordered_map<std::string, uint32_t> DELETE_COL_NAME_TO_BLOCK_IDX;
 };
+
+// ACID row identifier for transactional Hive tables, used for delete row matching.
+// Placed here (not in TransactionalHiveReader) to avoid circular dependency with OrcReader.
+struct AcidRowID {
+    int64_t original_transaction;
+    int64_t bucket;
+    int64_t row_id;
+
+    struct Hash {
+        size_t operator()(const AcidRowID& transactional_row_id) const {
+            size_t hash_value = 0;
+            hash_value ^= std::hash<int64_t> {}(transactional_row_id.original_transaction) +
+                          0x9e3779b9 + (hash_value << 6) + (hash_value >> 2);
+            hash_value ^= std::hash<int64_t> {}(transactional_row_id.bucket) + 0x9e3779b9 +
+                          (hash_value << 6) + (hash_value >> 2);
+            hash_value ^= std::hash<int64_t> {}(transactional_row_id.row_id) + 0x9e3779b9 +
+                          (hash_value << 6) + (hash_value >> 2);
+            return hash_value;
+        }
+    };
+
+    struct Eq {
+        bool operator()(const AcidRowID& lhs, const AcidRowID& rhs) const {
+            return lhs.original_transaction == rhs.original_transaction &&
+                   lhs.bucket == rhs.bucket && lhs.row_id == rhs.row_id;
+        }
+    };
+};
+
+using AcidRowIDSet = flat_hash_set<AcidRowID, AcidRowID::Hash, AcidRowID::Eq>;
+
+inline bool operator<(const AcidRowID& lhs, const AcidRowID& rhs) {
+    if (lhs.original_transaction != rhs.original_transaction) {
+        return lhs.original_transaction < rhs.original_transaction;
+    } else if (lhs.bucket != rhs.bucket) {
+        return lhs.bucket < rhs.bucket;
+    } else if (lhs.row_id != rhs.row_id) {
+        return lhs.row_id < rhs.row_id;
+    } else {
+        return false;
+    }
+}
+
 } // namespace doris

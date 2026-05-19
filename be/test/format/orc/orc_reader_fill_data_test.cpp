@@ -80,7 +80,7 @@ TEST_F(OrcReaderFillDataTest, TestFillLongColumn) {
 
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+    auto reader = OrcReader::create_unique(params, range, 4064, "", nullptr, nullptr, true);
 
     MutableColumnPtr xx = column->assume_mutable();
 
@@ -106,7 +106,7 @@ TEST_F(OrcReaderFillDataTest, TestFillLongColumnWithNull) {
 
     TFileScanRangeParams params;
     TFileRangeDesc range;
-    auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+    auto reader = OrcReader::create_unique(params, range, 4064, "", nullptr, nullptr, true);
 
     MutableColumnPtr xx = column->assume_mutable();
 
@@ -160,7 +160,7 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
 
         TFileScanRangeParams params;
         TFileRangeDesc range;
-        auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+        auto reader = OrcReader::create_unique(params, range, 4064, "", nullptr, nullptr, true);
 
         auto doris_struct_type = std::make_shared<DataTypeStruct>(
                 std::vector<DataTypePtr> {
@@ -187,30 +187,30 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
         std::cout << block.dump_data() << "\n";
 
         ASSERT_EQ(block.dump_data(),
-                  "+---------------------------+\n"
-                  "|cc(Struct(col1:Array(INT)))|\n"
-                  "+---------------------------+\n"
-                  "|               {\"col1\":[0]}|\n"
-                  "|            {\"col1\":[1, 1]}|\n"
-                  "|         {\"col1\":[2, 2, 2]}|\n"
-                  "|      {\"col1\":[3, 3, 3, 3]}|\n"
-                  "|   {\"col1\":[4, 4, 4, 4, 4]}|\n"
-                  "|               {\"col1\":[5]}|\n"
-                  "|            {\"col1\":[6, 6]}|\n"
-                  "|         {\"col1\":[7, 7, 7]}|\n"
-                  "|      {\"col1\":[8, 8, 8, 8]}|\n"
-                  "|   {\"col1\":[9, 9, 9, 9, 9]}|\n"
-                  "|              {\"col1\":[10]}|\n"
-                  "|          {\"col1\":[11, 11]}|\n"
-                  "|      {\"col1\":[12, 12, 12]}|\n"
-                  "|  {\"col1\":[13, 13, 13, 13]}|\n"
-                  "|{\"col1\":[14, 14, 14, 14,...|\n"
-                  "|              {\"col1\":[15]}|\n"
-                  "|          {\"col1\":[16, 16]}|\n"
-                  "|      {\"col1\":[17, 17, 17]}|\n"
-                  "|  {\"col1\":[18, 18, 18, 18]}|\n"
-                  "|{\"col1\":[19, 19, 19, 19,...|\n"
-                  "+---------------------------+\n");
+                  "+-------------------------------------+\n"
+                  "|cc(Struct(col1:Array(Nullable(INT))))|\n"
+                  "+-------------------------------------+\n"
+                  "|                         {\"col1\":[0]}|\n"
+                  "|                      {\"col1\":[1, 1]}|\n"
+                  "|                   {\"col1\":[2, 2, 2]}|\n"
+                  "|                {\"col1\":[3, 3, 3, 3]}|\n"
+                  "|             {\"col1\":[4, 4, 4, 4, 4]}|\n"
+                  "|                         {\"col1\":[5]}|\n"
+                  "|                      {\"col1\":[6, 6]}|\n"
+                  "|                   {\"col1\":[7, 7, 7]}|\n"
+                  "|                {\"col1\":[8, 8, 8, 8]}|\n"
+                  "|             {\"col1\":[9, 9, 9, 9, 9]}|\n"
+                  "|                        {\"col1\":[10]}|\n"
+                  "|                    {\"col1\":[11, 11]}|\n"
+                  "|                {\"col1\":[12, 12, 12]}|\n"
+                  "|            {\"col1\":[13, 13, 13, 13]}|\n"
+                  "|        {\"col1\":[14, 14, 14, 14, 14]}|\n"
+                  "|                        {\"col1\":[15]}|\n"
+                  "|                    {\"col1\":[16, 16]}|\n"
+                  "|                {\"col1\":[17, 17, 17]}|\n"
+                  "|            {\"col1\":[18, 18, 18, 18]}|\n"
+                  "|        {\"col1\":[19, 19, 19, 19, 19]}|\n"
+                  "+-------------------------------------+\n");
     }
 
     {
@@ -246,7 +246,7 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
 
         TFileScanRangeParams params;
         TFileRangeDesc range;
-        auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+        auto reader = OrcReader::create_unique(params, range, 4064, "", nullptr, nullptr, true);
 
         auto doris_struct_type = std::make_shared<DataTypeStruct>(
                 std::vector<DataTypePtr> {std::make_shared<DataTypeInt32>(),
@@ -332,7 +332,7 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
 
         TFileScanRangeParams params;
         TFileRangeDesc range;
-        auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+        auto reader = OrcReader::create_unique(params, range, 4064, "", nullptr, nullptr, true);
 
         auto doris_struct_type = std::make_shared<DataTypeStruct>(
                 std::vector<DataTypePtr> {std::make_shared<DataTypeDecimal64>(18, 5)},
@@ -446,7 +446,7 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
 
         TFileScanRangeParams params;
         TFileRangeDesc range;
-        auto reader = OrcReader::create_unique(params, range, "", nullptr, nullptr, true);
+        auto reader = OrcReader::create_unique(params, range, 4064, "", nullptr, nullptr, true);
 
         auto doris_struct_type = std::make_shared<DataTypeMap>(std::make_shared<DataTypeInt32>(),
                                                                std::make_shared<DataTypeFloat32>());

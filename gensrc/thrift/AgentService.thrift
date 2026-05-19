@@ -92,7 +92,12 @@ enum TCredProviderType {
     // used for creating different credentials provider when creating s3client
     DEFAULT = 0,  // DefaultAWSCredentialsProviderChain
     SIMPLE = 1,  // SimpleAWSCredentialsProvider, corresponding to (ak, sk)
-    INSTANCE_PROFILE = 2  // InstanceProfileCredentialsProvider
+    INSTANCE_PROFILE = 2,  // InstanceProfileCredentialsProvider
+    ENV = 3,  // EnvironmentAWSCredentialsProvider
+    SYSTEM_PROPERTIES = 4,  // SystemPropertiesCredentialsProvider
+    WEB_IDENTITY = 5,  // STSAssumeRoleWebIdentityCredentialsProvider
+    CONTAINER = 6,  // TaskRoleCredentialsProvider
+    ANONYMOUS = 7  // AnonymousAWSCredentialsProvider
 }
 
 struct TS3StorageParam {
@@ -186,11 +191,18 @@ enum TInvertedIndexStorageFormat {
     V2 = 2       // Segment id per idx: Indexes are organized based on segment identifiers, grouping indexes by their associated segment.
 }
 
+enum TBinlogFormat {
+    STATEMENT_AND_SNAPSHOT = 0,
+    ROW = 1
+}
+
 struct TBinlogConfig {
     1: optional bool enable;
     2: optional i64 ttl_seconds;
     3: optional i64 max_bytes;
     4: optional i64 max_history_nums;
+    5: optional TBinlogFormat binlog_format;
+    6: optional bool need_historical_value;
 }
 
 struct TCreateTabletReq {
@@ -230,6 +242,7 @@ struct TCreateTabletReq {
     29: optional Types.TInvertedIndexFileStorageFormat inverted_index_file_storage_format = Types.TInvertedIndexFileStorageFormat.V2
     30: optional TEncryptionAlgorithm tde_algorithm
     31: optional i32 vertical_compaction_num_columns_per_group = 5
+    32: optional TTabletSchema row_binlog_schema
 
     // For cloud
     1000: optional bool is_in_memory = false

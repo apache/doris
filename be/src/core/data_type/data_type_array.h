@@ -29,6 +29,7 @@
 
 #include "common/status.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type_serde/data_type_array_serde.h"
 #include "core/data_type_serde/data_type_serde.h"
@@ -47,7 +48,8 @@ namespace doris {
 class DataTypeArray final : public IDataType {
 private:
     /// The type of array elements.
-    DataTypePtr nested;
+    DataTypeNullablePtr nested;
+    DataTypePtr nested_as_base;
 
 public:
     static constexpr PrimitiveType PType = TYPE_ARRAY;
@@ -67,7 +69,6 @@ public:
 
     MutableColumnPtr create_column() const override;
     Status check_column(const IColumn& column) const override;
-    Field get_default() const override;
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
@@ -79,7 +80,8 @@ public:
 
     bool equals(const IDataType& rhs) const override;
 
-    const DataTypePtr& get_nested_type() const { return nested; }
+    const DataTypePtr& get_nested_type() const { return nested_as_base; }
+    const DataTypeNullablePtr& get_nullable_nested_type() const { return nested; }
 
     /// 1 for plain array, 2 for array of arrays and so on.
     size_t get_number_of_dimensions() const;
@@ -99,7 +101,7 @@ public:
     void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
         node->set_type(TTypeNodeType::ARRAY);
         node->set_contains_null(nested->is_nullable());
-        nested->to_protobuf(ptype);
+        get_nested_type()->to_protobuf(ptype);
     }
 
 #ifdef BE_TEST
@@ -107,7 +109,7 @@ public:
         node.type = TTypeNodeType::ARRAY;
         node.__isset.contains_nulls = true;
         node.contains_nulls.push_back(nested->is_nullable());
-        nested->to_thrift(thrift_type);
+        get_nested_type()->to_thrift(thrift_type);
     }
 #endif
 };

@@ -21,7 +21,6 @@
 
 #include "common/exception.h"
 #include "common/status.h"
-#include "util/io_helper.h"
 
 namespace doris {
 

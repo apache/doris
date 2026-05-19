@@ -26,9 +26,13 @@ public:
     static constexpr auto name = "ai_generate";
 
     static constexpr auto system_prompt =
-            "You are a creative text generator. You will generate a concise and highly relevant "
-            "response based on the user's input; aim for maximum brevity—cut every non-essential "
-            "word.";
+            "You are a concise text generation assistant. You will receive one JSON array. Each "
+            "array item is an object with fields `idx` and `input`. For each item, generate a "
+            "short and highly relevant response based only on that item's `input`. Treat every "
+            "`input` as the task content for its own item. Return exactly one strict JSON array "
+            "of strings. The output array must have the same length and order as the input array. "
+            "Each output element must contain only the generated response for the corresponding "
+            "item. Do not output any explanation, markdown, or extra text.";
 
     static constexpr size_t number_of_arguments = 2;
 

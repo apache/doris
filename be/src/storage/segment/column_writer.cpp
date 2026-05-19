@@ -131,7 +131,7 @@ inline ScalarColumnWriter* get_null_writer(const ColumnWriterOptions& opts,
     null_options.meta->set_type(int(null_type));
     null_options.meta->set_is_nullable(false);
     null_options.meta->set_length(
-            cast_set<int32_t>(get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_TINYINT>()->size()));
+            cast_set<int32_t>(field_type_size(FieldType::OLAP_FIELD_TYPE_TINYINT)));
     null_options.meta->set_encoding(DEFAULT_ENCODING);
     null_options.meta->set_compression(opts.meta->compression());
 
@@ -210,8 +210,8 @@ Status ColumnWriter::create_array_writer(const ColumnWriterOptions& opts,
     length_options.meta->set_unique_id(2);
     length_options.meta->set_type(int(length_type));
     length_options.meta->set_is_nullable(false);
-    length_options.meta->set_length(cast_set<int32_t>(
-            get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>()->size()));
+    length_options.meta->set_length(
+            cast_set<int32_t>(field_type_size(FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT)));
     length_options.meta->set_encoding(DEFAULT_ENCODING);
     length_options.meta->set_compression(opts.meta->compression());
 
@@ -274,8 +274,8 @@ Status ColumnWriter::create_map_writer(const ColumnWriterOptions& opts, const Ta
     length_options.meta->set_unique_id(column->get_subtype_count() + 1);
     length_options.meta->set_type(int(length_type));
     length_options.meta->set_is_nullable(false);
-    length_options.meta->set_length(cast_set<int32_t>(
-            get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT>()->size()));
+    length_options.meta->set_length(
+            cast_set<int32_t>(field_type_size(FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT)));
     length_options.meta->set_encoding(DEFAULT_ENCODING);
     length_options.meta->set_compression(opts.meta->compression());
 
@@ -576,11 +576,11 @@ Status ScalarColumnWriter::init() {
     if (_opts.need_bloom_filter) {
         if (_opts.is_ngram_bf_index) {
             RETURN_IF_ERROR(NGramBloomFilterIndexWriterImpl::create(
-                    BloomFilterOptions(), get_field()->type_info(), _opts.gram_size,
-                    _opts.gram_bf_size, &_bloom_filter_index_builder));
+                    BloomFilterOptions(), get_field()->type(), _opts.gram_size, _opts.gram_bf_size,
+                    &_bloom_filter_index_builder));
         } else {
-            RETURN_IF_ERROR(BloomFilterIndexWriter::create(
-                    _opts.bf_options, get_field()->type_info(), &_bloom_filter_index_builder));
+            RETURN_IF_ERROR(BloomFilterIndexWriter::create(_opts.bf_options, get_field()->type(),
+                                                           &_bloom_filter_index_builder));
         }
     }
     return Status::OK();
@@ -912,7 +912,8 @@ Status OffsetColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     while (remaining > 0) {
         size_t num_written = remaining;
         RETURN_IF_ERROR(append_data_in_current_page(ptr, &num_written));
-        // _next_offset after append_data_in_current_page is the offset of next data, which will used in finish_current_page() to set next_array_item_ordinal
+        // Callers provide one extra tail offset after the written rows so the page footer can
+        // store the next array item ordinal for the current page.
         _next_offset = *(const uint64_t*)(*ptr);
         remaining -= num_written;
 
@@ -1185,14 +1186,10 @@ Status ArrayColumnWriter::write_ordinal_index() {
 }
 
 Status ArrayColumnWriter::append_nulls(size_t num_rows) {
-    size_t num_lengths = num_rows;
-    const ordinal_t offset = _item_writer->get_next_rowid();
-    while (num_lengths > 0) {
-        // TODO llj bulk write
-        const auto* offset_ptr = reinterpret_cast<const uint8_t*>(&offset);
-        RETURN_IF_ERROR(_offset_writer->append_data(&offset_ptr, 1));
-        --num_lengths;
-    }
+    const UInt64 offset = cast_set<UInt64>(_item_writer->get_next_rowid());
+    std::vector<UInt64> offsets_data(num_rows + 1, offset);
+    const uint8_t* offsets_ptr = reinterpret_cast<const uint8_t*>(offsets_data.data());
+    RETURN_IF_ERROR(_offset_writer->append_data(&offsets_ptr, num_rows));
     return write_null_column(num_rows, true);
 }
 
@@ -1327,9 +1324,9 @@ Status MapColumnWriter::append_nulls(size_t num_rows) {
     for (auto& sub_writer : _kv_writers) {
         RETURN_IF_ERROR(sub_writer->append_nulls(num_rows));
     }
-    const ordinal_t offset = _kv_writers[0]->get_next_rowid();
-    std::vector<UInt8> offsets_data(num_rows, cast_set<uint8_t>(offset));
-    const uint8_t* offsets_ptr = offsets_data.data();
+    const UInt64 offset = cast_set<UInt64>(_kv_writers[0]->get_next_rowid());
+    std::vector<UInt64> offsets_data(num_rows + 1, offset);
+    const uint8_t* offsets_ptr = reinterpret_cast<const uint8_t*>(offsets_data.data());
     RETURN_IF_ERROR(_offsets_writer->append_data(&offsets_ptr, num_rows));
 
     if (is_nullable()) {

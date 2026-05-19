@@ -217,8 +217,7 @@ TEST_F(ColumnDictionaryTest, insert) {
 }
 TEST_F(ColumnDictionaryTest, field) {
     auto count = column_dict_char->size();
-    auto* col_vec = assert_cast<ColumnDictI32*>(column_dict_char.get());
-    const auto& codes_data = col_vec->get_data();
+    const auto& codes_data = column_dict_char->get_data();
     for (size_t i = 0; i != count; ++i) {
         Field f;
         column_dict_char->get(i, f);

@@ -64,7 +64,6 @@
 #include "exprs/function/function_totype.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/json_functions.h"
-#include "util/io_helper.h"
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
 
@@ -392,42 +391,8 @@ public:
             data_columns.push_back(assert_cast<const ColumnString*>(column_ptrs.back().get()));
         }
 
-        Impl::execute(data_columns, *assert_cast<ColumnString*>(result_column.get()),
-                      input_rows_count);
+        Impl::execute(data_columns, *result_column.get(), input_rows_count);
         block.get_by_position(result).column = std::move(result_column);
-        return Status::OK();
-    }
-};
-
-template <typename Impl>
-class FunctionJsonNullable : public IFunction {
-public:
-    static constexpr auto name = Impl::name;
-    static FunctionPtr create() { return std::make_shared<FunctionJsonNullable<Impl>>(); }
-    String get_name() const override { return name; }
-    size_t get_number_of_arguments() const override { return 0; }
-    bool is_variadic() const override { return true; }
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeString>());
-    }
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
-        auto result_column = ColumnString::create();
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
-        std::vector<const ColumnString*> data_columns;
-        std::vector<bool> column_is_consts;
-        for (int i = 0; i < arguments.size(); i++) {
-            ColumnPtr arg_col;
-            bool arg_const;
-            std::tie(arg_col, arg_const) =
-                    unpack_if_const(block.get_by_position(arguments[i]).column);
-            column_is_consts.push_back(arg_const);
-            data_columns.push_back(assert_cast<const ColumnString*>(arg_col.get()));
-        }
-        Impl::execute(data_columns, *assert_cast<ColumnString*>(result_column.get()),
-                      null_map->get_data(), input_rows_count, column_is_consts);
-        block.replace_by_position(
-                result, ColumnNullable::create(std::move(result_column), std::move(null_map)));
         return Status::OK();
     }
 };

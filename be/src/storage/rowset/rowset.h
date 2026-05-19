@@ -166,8 +166,8 @@ public:
     RowsetMetaPB get_rowset_pb() const { return rowset_meta()->get_rowset_pb(); }
     // The writing time of the newest data in rowset, to measure the freshness of a rowset.
     int64_t newest_write_timestamp() const { return rowset_meta()->newest_write_timestamp(); }
-    // The commit tso of the newest data in rowset.
-    int64_t commit_tso() const { return rowset_meta()->commit_tso(); }
+    // The commit tso range of the data in rowset.
+    TsoRange commit_tso() const { return rowset_meta()->commit_tso(); }
 
     bool is_segments_overlapping() const { return rowset_meta()->is_segments_overlapping(); }
     KeysType keys_type() { return _schema->keys_type(); }
@@ -303,6 +303,10 @@ public:
 
     bool is_segments_key_bounds_truncated() const {
         return _rowset_meta->is_segments_key_bounds_truncated();
+    }
+
+    bool is_segments_key_bounds_aggregated() const {
+        return _rowset_meta->is_segments_key_bounds_aggregated();
     }
 
     bool check_rowset_segment();

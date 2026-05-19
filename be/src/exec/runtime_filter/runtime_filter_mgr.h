@@ -27,12 +27,11 @@
 #include <map>
 #include <memory>
 #include <mutex>
-#include <shared_mutex>
 #include <unordered_set>
-#include <utility>
 #include <vector>
 
 #include "common/status.h"
+#include "common/thread_safety_annotations.h"
 #include "util/uid_util.h"
 
 namespace butil {
@@ -52,6 +51,9 @@ class RuntimeFilterWrapper;
 class QueryContext;
 class ExecEnv;
 class RuntimeProfile;
+template <typename Response>
+class HandleErrorBrpcCallback;
+class SyncSizeCallback;
 
 struct LocalMergeContext {
     std::mutex mtx;
@@ -72,6 +74,9 @@ struct GlobalMergeContext {
     std::vector<TRuntimeFilterTargetParamsV2> targetv2_info;
     std::unordered_set<UniqueId> arrive_id;
     std::vector<PNetworkAddress> source_addrs;
+    std::vector<std::shared_ptr<HandleErrorBrpcCallback<PSyncFilterSizeResponse>>>
+            sync_size_callbacks;
+    std::vector<std::shared_ptr<HandleErrorBrpcCallback<PPublishFilterResponse>>> publish_callbacks;
     std::atomic<bool> done = false;
 
     // for represent the round number of recursive cte
@@ -168,7 +173,7 @@ public:
     std::string debug_string();
 
     bool empty() {
-        std::shared_lock<std::shared_mutex> read_lock(_filter_map_mutex);
+        SharedLockGuard read_lock(_filter_map_mutex);
         return _filter_map.empty();
     }
 
@@ -185,9 +190,9 @@ private:
                               int64_t merge_time, PUniqueId query_id, int execution_timeout);
 
     // protect _filter_map
-    std::shared_mutex _filter_map_mutex;
+    AnnotatedSharedMutex _filter_map_mutex;
     std::shared_ptr<MemTracker> _mem_tracker;
 
-    std::map<int, GlobalMergeContext> _filter_map;
+    std::map<int, GlobalMergeContext> _filter_map GUARDED_BY(_filter_map_mutex);
 };
 } // namespace doris

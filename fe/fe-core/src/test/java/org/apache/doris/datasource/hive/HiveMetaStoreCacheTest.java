@@ -114,4 +114,91 @@ public class HiveMetaStoreCacheTest {
         entry.forEach((k, v) -> count.incrementAndGet());
         return count.get();
     }
+
+    // -------------------------------------------------------------------------
+    // FileCacheKey identity: inputFormat must be part of equals() / hashCode()
+    // so that two tables at the same partition location but with different
+    // InputFormats (e.g. TextInputFormat vs LzoTextInputFormat) never share
+    // a cached FileCacheValue.
+    // -------------------------------------------------------------------------
+
+    @Test
+    public void testFileCacheKeyIdentity_SameInputFormat_Equal() {
+        long catalogId = 1L;
+        long id = 100L;
+        String location = "hdfs://namenode/warehouse/db/tbl/dt=2024-01-01";
+        String inputFormat = "org.apache.hadoop.mapred.TextInputFormat";
+        ArrayList<String> partitionValues = new ArrayList<>();
+
+        HiveExternalMetaCache.FileCacheKey key1 = new HiveExternalMetaCache.FileCacheKey(
+                catalogId, id, location, inputFormat, partitionValues);
+        HiveExternalMetaCache.FileCacheKey key2 = new HiveExternalMetaCache.FileCacheKey(
+                catalogId, id, location, inputFormat, partitionValues);
+
+        Assertions.assertEquals(key1, key2,
+                "Keys with same catalogId, location, inputFormat and partitionValues must be equal");
+        Assertions.assertEquals(key1.hashCode(), key2.hashCode(),
+                "Equal keys must have equal hashCodes");
+    }
+
+    @Test
+    public void testFileCacheKeyIdentity_DifferentInputFormat_NotEqual() {
+        long catalogId = 1L;
+        long id = 100L;
+        String location = "hdfs://namenode/warehouse/db/tbl/dt=2024-01-01";
+        ArrayList<String> partitionValues = new ArrayList<>();
+
+        // TextInputFormat table and LzoTextInputFormat table share the same partition path.
+        // Without inputFormat in the cache identity they would collide and one table could
+        // inherit the other's file list (e.g. TextInputFormat table inherits filtered .lzo
+        // listing, or LZO table inherits an unfiltered, splittable listing).
+        HiveExternalMetaCache.FileCacheKey textKey = new HiveExternalMetaCache.FileCacheKey(
+                catalogId, id, location,
+                "org.apache.hadoop.mapred.TextInputFormat", partitionValues);
+        HiveExternalMetaCache.FileCacheKey lzoKey = new HiveExternalMetaCache.FileCacheKey(
+                catalogId, id, location,
+                "com.hadoop.mapreduce.LzoTextInputFormat", partitionValues);
+
+        Assertions.assertNotEquals(textKey, lzoKey,
+                "Keys with different inputFormats must NOT be equal even when location is identical");
+        Assertions.assertNotEquals(textKey.hashCode(), lzoKey.hashCode(),
+                "Keys with different inputFormats should have different hashCodes");
+    }
+
+    @Test
+    public void testFileCacheKeyIdentity_AllLzoVariants_Distinct() {
+        long catalogId = 1L;
+        long id = 100L;
+        String location = "hdfs://namenode/warehouse/db/tbl/dt=2024-01-01";
+        ArrayList<String> partitionValues = new ArrayList<>();
+
+        HiveExternalMetaCache.FileCacheKey lzoKey = new HiveExternalMetaCache.FileCacheKey(
+                catalogId, id, location, "com.hadoop.compression.lzo.LzoTextInputFormat", partitionValues);
+        HiveExternalMetaCache.FileCacheKey lzoMrKey = new HiveExternalMetaCache.FileCacheKey(
+                catalogId, id, location, "com.hadoop.mapreduce.LzoTextInputFormat", partitionValues);
+        HiveExternalMetaCache.FileCacheKey deprecatedLzoKey = new HiveExternalMetaCache.FileCacheKey(
+                catalogId, id, location, "com.hadoop.mapred.DeprecatedLzoTextInputFormat", partitionValues);
+
+        // All three LZO variants are distinct input formats and must produce distinct cache keys.
+        Assertions.assertNotEquals(lzoKey, lzoMrKey);
+        Assertions.assertNotEquals(lzoKey, deprecatedLzoKey);
+        Assertions.assertNotEquals(lzoMrKey, deprecatedLzoKey);
+    }
+
+    @Test
+    public void testFileCacheKeyIdentity_DummyKey_IgnoresInputFormat() {
+        // Dummy keys are keyed by (catalogId, id) only; inputFormat must not affect them.
+        long catalogId = 1L;
+        long id = 100L;
+        String location = "hdfs://namenode/warehouse/db/tbl";
+
+        HiveExternalMetaCache.FileCacheKey dummy1 = HiveExternalMetaCache.FileCacheKey
+                .createDummyCacheKey(catalogId, id, location, "org.apache.hadoop.mapred.TextInputFormat");
+        HiveExternalMetaCache.FileCacheKey dummy2 = HiveExternalMetaCache.FileCacheKey
+                .createDummyCacheKey(catalogId, id, location, "com.hadoop.mapreduce.LzoTextInputFormat");
+
+        Assertions.assertEquals(dummy1, dummy2,
+                "Dummy keys with same catalogId and id must be equal regardless of inputFormat");
+        Assertions.assertEquals(dummy1.hashCode(), dummy2.hashCode());
+    }
 }

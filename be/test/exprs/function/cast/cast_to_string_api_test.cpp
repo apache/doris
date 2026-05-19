@@ -159,4 +159,16 @@ TEST(CastToStringTest, test) {
     }
 }
 
+TEST(CastToStringTest, from_int128_overloads) {
+    EXPECT_EQ(CastToString::from_int128(static_cast<int128_t>(-1234567890123456789LL)),
+              "-1234567890123456789");
+    EXPECT_EQ(CastToString::from_uint128(static_cast<uint128_t>(12345678901234567890ULL)),
+              "12345678901234567890");
+
+    UInt128 value;
+    value.items[0] = 0x0123456789ABCDEFULL;
+    value.items[1] = 0x0FEDCBA987654321ULL;
+    EXPECT_EQ(CastToString::from_uint128(value), "0123456789abcdeffedcba987654321");
+}
+
 } // namespace doris
