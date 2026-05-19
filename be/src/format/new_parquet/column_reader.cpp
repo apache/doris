@@ -278,6 +278,7 @@ public:
 
     Status read_batch(int64_t batch_rows, MutableColumnPtr* result_column,
                       int64_t* rows_read) override;
+    Status skip(int64_t rows) override;
 
 private:
     int _field_id = -1;
@@ -661,6 +662,16 @@ Status StructColumnReader::read_batch(int64_t batch_rows, MutableColumnPtr* resu
 
     *rows_read = std::max<int64_t>(expected_rows, 0);
     *result_column = ColumnStruct::create(std::move(child_columns));
+    return Status::OK();
+}
+
+Status StructColumnReader::skip(int64_t rows) {
+    if (rows <= 0) {
+        return Status::OK();
+    }
+    for (auto& child_reader : _children) {
+        RETURN_IF_ERROR(child_reader->skip(rows));
+    }
     return Status::OK();
 }
 
