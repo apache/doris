@@ -1243,6 +1243,7 @@ void BlockFileCache::reset_range(const UInt128Wrapper& hash, size_t offset, size
                      << " new_size=" << new_size;
         return;
     }
+    DCHECK_EQ(cell->file_block->_block_range.size(), old_size);
     if (cell->queue_iterator) {
         auto& queue = get_queue(cell->file_block->cache_type());
         DCHECK(queue.contains(hash, offset, cache_lock));
@@ -1251,8 +1252,13 @@ void BlockFileCache::reset_range(const UInt128Wrapper& hash, size_t offset, size
                                           cell->file_block->get_hash_value(),
                                           cell->file_block->offset(), new_size);
     }
+    cell->file_block->_block_range.right = cell->file_block->_block_range.left + new_size - 1;
     _cur_cache_size -= old_size;
     _cur_cache_size += new_size;
+    if (cell->file_block->cache_type() == FileCacheType::TTL) {
+        _cur_ttl_size -= old_size;
+        _cur_ttl_size += new_size;
+    }
 }
 
 bool BlockFileCache::try_reserve_from_other_queue_by_time_interval(
