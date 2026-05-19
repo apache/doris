@@ -125,6 +125,7 @@ public abstract class UniqueFunction extends ScalarFunction implements VolatileE
         return volatileIdentity;
     }
 
+    @Override
     public abstract UniqueFunction withIgnoreUniqueId(boolean ignoreUniqueId);
 
     @Override
