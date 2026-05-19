@@ -97,13 +97,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     public Table getPaimonTable(Optional<MvccSnapshot> snapshot) {
-        if (snapshot.isPresent()) {
-            // MTMV scenario: get from snapshot cache
-            return getOrFetchSnapshotCacheValue(snapshot).getSnapshot().getTable();
-        } else {
-            // Normal query scenario: get directly from table cache
-            return PaimonUtils.getPaimonTable(this);
-        }
+        return getOrFetchSnapshotCacheValue(snapshot).getSnapshot().getTable();
     }
 
     private PaimonSnapshotCacheValue getPaimonSnapshotCacheValue(Optional<TableSnapshot> tableSnapshot,
