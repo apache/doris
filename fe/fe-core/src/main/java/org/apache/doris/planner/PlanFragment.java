@@ -199,6 +199,12 @@ public class PlanFragment extends TreeNode<PlanFragment> {
                     return true;
                 }
             }
+            List<GroupJoinNode> groupJoinNodes = getPlanRoot().collectInCurrentFragment(GroupJoinNode.class::isInstance);
+            for (GroupJoinNode groupJoinNode : groupJoinNodes) {
+                if (groupJoinNode.isBucketShuffle()) {
+                    return true;
+                }
+            }
             List<SetOperationNode> setOperationNodes
                     = getPlanRoot().collectInCurrentFragment(SetOperationNode.class::isInstance);
             for (SetOperationNode setOperationNode : setOperationNodes) {

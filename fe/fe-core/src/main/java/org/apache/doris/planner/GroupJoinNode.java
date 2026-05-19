@@ -44,6 +44,9 @@ public class GroupJoinNode extends JoinNodeBase {
     private final List<Expr> groupByExprs;
     private final List<FunctionCallExpr> aggregateFunctions;
     private final Expr otherJoinConjunct;
+    private DistributionMode distrMode;
+    private boolean isColocate = false;
+    private String colocateReason = "";
 
     public GroupJoinNode(PlanNodeId id, PlanNode probeChild, PlanNode buildChild,
                          JoinOperator joinOp, List<Expr> eqJoinConjuncts, Expr otherJoinConjunct,
@@ -57,6 +60,20 @@ public class GroupJoinNode extends JoinNodeBase {
         this.tupleIds.addAll(buildChild.getOutputTupleIds());
         this.children.add(probeChild);
         this.children.add(buildChild);
+        this.distrMode = DistributionMode.NONE;
+    }
+
+    public void setDistributionMode(DistributionMode distrMode) {
+        this.distrMode = distrMode;
+    }
+
+    public boolean isBucketShuffle() {
+        return distrMode.equals(DistributionMode.BUCKET_SHUFFLE);
+    }
+
+    public void setColocate(boolean colocate, String reason) {
+        isColocate = colocate;
+        colocateReason = reason;
     }
 
     @Override
@@ -65,6 +82,8 @@ public class GroupJoinNode extends JoinNodeBase {
 
         msg.group_join_node = new TGroupJoinNode();
         msg.group_join_node.join_op = joinOp.toThrift();
+        msg.group_join_node.setIsBroadcastJoin(distrMode == DistributionMode.BROADCAST);
+        msg.group_join_node.setDistType(isColocate ? TJoinDistributionType.COLOCATE : distrMode.toThrift());
         List<TEqJoinCondition> eqConditions = new ArrayList<>();
         for (Expr conjunct : eqJoinConjuncts) {
             BinaryPredicate eqJoinPredicate = (BinaryPredicate) conjunct;
@@ -89,8 +108,8 @@ public class GroupJoinNode extends JoinNodeBase {
         if (otherJoinConjunct != null) {
             msg.hash_join_node.vother_join_conjunct = ExprToThriftVisitor.treeToThrift(otherJoinConjunct);
         }
-        msg.hash_join_node.is_broadcast_join = false;
-        msg.hash_join_node.dist_type = TJoinDistributionType.PARTITIONED;
+        msg.hash_join_node.setIsBroadcastJoin(distrMode == DistributionMode.BROADCAST);
+        msg.hash_join_node.setDistType(isColocate ? TJoinDistributionType.COLOCATE : distrMode.toThrift());
         if (vIntermediateTupleDescList != null) {
             for (TupleDescriptor tupleDescriptor : vIntermediateTupleDescList) {
                 msg.hash_join_node.addToVintermediateTupleIdList(tupleDescriptor.getId().asInt());
@@ -101,7 +120,9 @@ public class GroupJoinNode extends JoinNodeBase {
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
-        output.append(prefix).append("GROUP JOIN [").append(joinOp).append("]\n");
+        String distrModeStr = isColocate ? "COLOCATE[" + colocateReason + "]" : distrMode.toString();
+        output.append(prefix).append("GROUP JOIN [").append(joinOp).append("](")
+                .append(distrModeStr).append(")\n");
         output.append(prefix).append("  GROUP BY: ").append(groupByExprs).append("\n");
         output.append(prefix).append("  AGGREGATE: ").append(aggregateFunctions).append("\n");
         output.append(prefix).append("  EQ JOIN CONJUNCTS: ").append(eqJoinConjuncts).append("\n");

@@ -1624,10 +1624,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 "GroupJoin's left child should be PhysicalPlan");
         Preconditions.checkArgument(groupJoin.right() instanceof PhysicalPlan,
                 "GroupJoin's right child should be PhysicalPlan");
+        PhysicalGroupJoin<PhysicalPlan, PhysicalPlan> physicalGroupJoin
+                = (PhysicalGroupJoin<PhysicalPlan, PhysicalPlan>) groupJoin;
 
         // NOTICE: We must visit from right to left, to ensure the last fragment is root fragment
         PlanFragment rightFragment = groupJoin.child(1).accept(this, context);
         PlanFragment leftFragment = groupJoin.child(0).accept(this, context);
+        List<List<Expr>> distributeExprLists = getDistributeExprs(physicalGroupJoin.left(), physicalGroupJoin.right());
 
         PlanNode leftPlanRoot = leftFragment.getPlanRoot();
         PlanNode rightPlanRoot = rightFragment.getPlanRoot();
@@ -1692,6 +1695,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 groupByExprs,
                 aggFuncs);
         groupJoinNode.setOutputTupleDesc(outputTupleDesc);
+        groupJoinNode.setChildrenDistributeExprLists(distributeExprLists);
         List<TupleDescriptor> leftTuples = context.getTupleDesc(leftPlanRoot);
         List<SlotDescriptor> leftSlotDescriptors = leftTuples.stream()
                 .map(TupleDescriptor::getSlots)
@@ -1751,7 +1755,22 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             leftFragment.addChild(rightChild);
         }
 
-        // TODO(PR2): set distribution mode (broadcast/colocate/partitioned) for GroupJoinNode.
+        if (JoinUtils.shouldColocateJoin(physicalGroupJoin)) {
+            groupJoinNode.setColocate(true, "");
+            leftFragment.setHasColocatePlanNode(true);
+        } else if (JoinUtils.shouldBroadcastJoin(physicalGroupJoin)) {
+            Preconditions.checkState(rightPlanRoot instanceof ExchangeNode,
+                    "right child of broadcast group join must be ExchangeNode but it is " + rightFragment.getPlanRoot());
+            Preconditions.checkState(rightFragment.getChildren().size() == 1,
+                    "right child of broadcast group join must have 1 child, but meet "
+                            + rightFragment.getChildren().size());
+            ((ExchangeNode) rightPlanRoot).setRightChildOfBroadcastHashJoin(true);
+            groupJoinNode.setDistributionMode(DistributionMode.BROADCAST);
+        } else if (JoinUtils.shouldBucketShuffleJoin(physicalGroupJoin)) {
+            groupJoinNode.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
+        } else {
+            groupJoinNode.setDistributionMode(DistributionMode.PARTITIONED);
+        }
 
         // translate runtime filter
         context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> groupJoin

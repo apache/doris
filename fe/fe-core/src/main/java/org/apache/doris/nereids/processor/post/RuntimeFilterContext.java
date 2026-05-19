@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.planner.DataStreamSink;
@@ -101,7 +100,7 @@ public class RuntimeFilterContext {
      * @param targetId rf target
      * @param builderNode rf src
      */
-    public void removeFilters(ExprId targetId, PhysicalHashJoin builderNode) {
+    public void removeFilters(ExprId targetId, AbstractPhysicalPlan builderNode) {
         List<RuntimeFilter> filters = targetExprIdToFilter.get(targetId);
         if (filters != null) {
             Iterator<RuntimeFilter> filterIter = filters.iterator();

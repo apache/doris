@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -28,6 +29,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.thrift.TJoinDistributionType;
 import org.apache.doris.thrift.TPlanNode;
 
 import com.google.common.collect.Lists;
@@ -72,6 +74,23 @@ public class PlanNodeTest {
         Assertions.assertFalse(slotIds.contains(projectedExprSlot.getId()));
     }
 
+    @Test
+    public void testGroupJoinBucketShuffleDetectedByFragment() {
+        TestPlanNode probe = new TestPlanNode(0, new TupleId(0));
+        TestPlanNode build = new TestPlanNode(1, new TupleId(1));
+        GroupJoinNode groupJoinNode = new GroupJoinNode(new PlanNodeId(2), probe, build,
+                JoinOperator.LEFT_OUTER_JOIN, Lists.newArrayList(), null, Lists.newArrayList(), Lists.newArrayList());
+        groupJoinNode.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
+
+        PlanFragment fragment = new PlanFragment(new PlanFragmentId(0), groupJoinNode, DataPartition.RANDOM);
+        Assertions.assertTrue(fragment.hasBucketShuffleNode());
+
+        TPlanNode thriftNode = new TPlanNode();
+        groupJoinNode.toThrift(thriftNode);
+        Assertions.assertEquals(TJoinDistributionType.BUCKET_SHUFFLE, thriftNode.group_join_node.dist_type);
+        Assertions.assertEquals(TJoinDistributionType.BUCKET_SHUFFLE, thriftNode.hash_join_node.dist_type);
+    }
+
     private static SlotDescriptor createColumnSlot(TupleDescriptor tupleDescriptor, int slotId,
             String columnName) {
         SlotDescriptor slotDescriptor = new SlotDescriptor(new SlotId(slotId), tupleDescriptor.getId());
@@ -93,6 +112,10 @@ public class PlanNodeTest {
     private static class TestPlanNode extends PlanNode {
         TestPlanNode() {
             super(new PlanNodeId(0), "TEST");
+        }
+
+        TestPlanNode(int planNodeId, TupleId tupleId) {
+            super(new PlanNodeId(planNodeId), Lists.newArrayList(tupleId), "TEST");
         }
 
         @Override
