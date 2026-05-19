@@ -41,10 +41,24 @@ protected:
         config::dns_cache_log_every_n_failures = _saved_log_every;
     }
 
+    // Build a resolver whose failure behaviour can be flipped at runtime.
+    static DNSCache::Resolver make_resolver(bool* should_fail,
+                                            const std::string& ip = "1.2.3.4") {
+        return [should_fail, ip](const std::string&, std::string& out, bool) -> Status {
+            if (*should_fail) {
+                return Status::InternalError("mock failure");
+            }
+            out = ip;
+            return Status::OK();
+        };
+    }
+
 private:
     int32_t _saved_threshold = 0;
     int32_t _saved_log_every = 0;
 };
+
+// ── existing tests ────────────────────────────────────────────────────────────
 
 // Sanity: localhost resolves successfully and is cached.
 TEST_F(DNSCacheTest, resolve_localhost) {
@@ -89,6 +103,111 @@ TEST_F(DNSCacheTest, eviction_disabled_when_threshold_zero) {
     Status st = cache.get("another-non-existent.invalid", &ip);
     EXPECT_FALSE(st.ok());
     EXPECT_EQ(0u, cache.size_for_test());
+}
+
+// ── new tests for eviction logic ─────────────────────────────────────────────
+
+// A hostname that was once successfully resolved is evicted from the cache after
+// dns_cache_max_consecutive_failures refresh cycles of continuous DNS failure.
+TEST_F(DNSCacheTest, evicts_after_threshold) {
+    config::dns_cache_max_consecutive_failures = 3;
+
+    bool should_fail = false;
+    DNSCache cache(make_resolver(&should_fail));
+
+    // Populate the cache with one successful resolution.
+    std::string ip;
+    ASSERT_TRUE(cache.get("fake-host.test", &ip).ok());
+    ASSERT_EQ("1.2.3.4", ip);
+    ASSERT_EQ(1u, cache.size_for_test());
+
+    // Now make DNS fail.
+    should_fail = true;
+
+    // Each refresh_for_test() call is one _refresh_cache iteration.
+    // The entry must survive the first threshold-1 cycles and disappear on the
+    // threshold-th cycle.
+    for (int i = 0; i < 2; ++i) {
+        cache.refresh_for_test();
+        EXPECT_EQ(1u, cache.size_for_test()) << "should not be evicted yet (i=" << i << ")";
+    }
+    cache.refresh_for_test(); // third failure → threshold reached → eviction
+    EXPECT_EQ(0u, cache.size_for_test()) << "host should have been evicted after threshold";
+}
+
+// One successful resolution resets the failure counter, so a full threshold of
+// additional failures is required before the next eviction.
+TEST_F(DNSCacheTest, success_resets_failure_count) {
+    config::dns_cache_max_consecutive_failures = 3;
+
+    bool should_fail = false;
+    DNSCache cache(make_resolver(&should_fail));
+
+    std::string ip;
+    ASSERT_TRUE(cache.get("fake-host.test", &ip).ok());
+
+    // Accumulate threshold-1 failures — must NOT evict.
+    should_fail = true;
+    cache.refresh_for_test();
+    cache.refresh_for_test();
+    EXPECT_EQ(1u, cache.size_for_test()) << "should not be evicted yet";
+
+    // One success clears the counter.
+    should_fail = false;
+    cache.refresh_for_test();
+    EXPECT_EQ(1u, cache.size_for_test()) << "success should keep the cache entry";
+
+    // A full new round of threshold failures is needed before eviction.
+    should_fail = true;
+    cache.refresh_for_test();
+    cache.refresh_for_test();
+    EXPECT_EQ(1u, cache.size_for_test()) << "still not enough failures after counter reset";
+    cache.refresh_for_test(); // third failure post-reset → eviction
+    EXPECT_EQ(0u, cache.size_for_test()) << "evicted after second run of threshold failures";
+}
+
+// A hostname that was never successfully cached must not accumulate entries in
+// failure_count, regardless of how many times get() is called (fix for 7.2).
+TEST_F(DNSCacheTest, failure_count_does_not_grow_for_never_cached_host) {
+    auto always_fail = [](const std::string&, std::string&, bool) -> Status {
+        return Status::InternalError("always fails");
+    };
+    DNSCache cache(always_fail);
+
+    std::string ip;
+    for (int i = 0; i < 5; ++i) {
+        EXPECT_FALSE(cache.get("never-cached.test", &ip).ok());
+    }
+
+    EXPECT_EQ(0u, cache.size_for_test());
+    EXPECT_EQ(0u, cache.failure_count_for_test("never-cached.test"))
+            << "failure_count must not grow for a host that was never successfully resolved";
+}
+
+// After a hostname is evicted, subsequent get() calls must not re-accumulate
+// entries in failure_count (fix for 7.2).
+TEST_F(DNSCacheTest, failure_count_does_not_grow_after_eviction) {
+    config::dns_cache_max_consecutive_failures = 2;
+
+    bool should_fail = false;
+    DNSCache cache(make_resolver(&should_fail));
+
+    // Populate cache, then evict.
+    std::string ip;
+    ASSERT_TRUE(cache.get("fake-host.test", &ip).ok());
+    should_fail = true;
+    cache.refresh_for_test();
+    cache.refresh_for_test();
+    ASSERT_EQ(0u, cache.size_for_test()) << "prerequisite: host must be evicted";
+    EXPECT_EQ(0u, cache.failure_count_for_test("fake-host.test"))
+            << "failure_count must be cleared on eviction";
+
+    // Further get() calls on the evicted host must not re-grow failure_count.
+    for (int i = 0; i < 5; ++i) {
+        EXPECT_FALSE(cache.get("fake-host.test", &ip).ok());
+    }
+    EXPECT_EQ(0u, cache.failure_count_for_test("fake-host.test"))
+            << "failure_count must not grow for an evicted host";
 }
 
 } // end of namespace doris
