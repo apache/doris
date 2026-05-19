@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -116,5 +117,13 @@ public class SessionVariablesTest extends TestWithFeService {
         // Users can disable it.
         sv.enableStrictConsistencyDml = false;
         Assertions.assertFalse(sv.isEnableStrictConsistencyDml());
+    }
+
+    @Test
+    public void testDecimalSessionVariables() {
+        sessionVariable.setSqlDialect(Dialect.PRESTO.getDialectName());
+        Assertions.assertTrue(sessionVariable.isEnableDecimal256());
+        sessionVariable.setSqlDialect(Dialect.DORIS.getDialectName());
+        Assertions.assertFalse(sessionVariable.isEnableDecimal256());
     }
 }

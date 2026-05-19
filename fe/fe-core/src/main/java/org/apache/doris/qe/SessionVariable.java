@@ -5584,7 +5584,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isEnableDecimal256() {
-        return enableDecimal256;
+        return Dialect.PRESTO.getDialectName().equalsIgnoreCase(getSqlDialect()) || enableDecimal256;
     }
 
     public void checkAnalyzeTimeFormat(String time) {
