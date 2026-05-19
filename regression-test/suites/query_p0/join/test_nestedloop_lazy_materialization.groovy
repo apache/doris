@@ -225,4 +225,32 @@ suite("test_nestedloop_lazy_materialization") {
         ORDER BY p.id;
     """
     assertEquals([[1]], nullAwareAnti)
+
+    // Probe-side finalization must not consume a probe row when the output
+    // batch is already full and the build side is empty.
+    def leftOuterEmptyBuild = sql """
+        SELECT /*+SET_VAR(batch_size=2)*/ p.id, COALESCE(b.id, -1)
+        FROM test_nestedloop_lazy_materialization_probe p
+        LEFT OUTER JOIN (
+            SELECT *
+            FROM test_nestedloop_lazy_materialization_build
+            WHERE id < 0
+        ) b
+            ON p.v < b.v
+        ORDER BY p.id;
+    """
+    assertEquals([[1, -1], [2, -1], [3, -1], [4, -1], [5, -1]], leftOuterEmptyBuild)
+
+    def leftAntiEmptyBuild = sql """
+        SELECT /*+SET_VAR(batch_size=2)*/ p.id
+        FROM test_nestedloop_lazy_materialization_probe p
+        LEFT ANTI JOIN (
+            SELECT *
+            FROM test_nestedloop_lazy_materialization_build
+            WHERE id < 0
+        ) b
+            ON p.v < b.v
+        ORDER BY p.id;
+    """
+    assertEquals([[1], [2], [3], [4], [5]], leftAntiEmptyBuild)
 }

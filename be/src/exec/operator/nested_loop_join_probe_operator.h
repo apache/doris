@@ -99,7 +99,7 @@ private:
                                                            int64_t probe_row_pos,
                                                            int8_t mark_value);
     Status _finalize_lazy_probe_row(RuntimeState* state, const Block& probe_block,
-                                    int64_t probe_row_pos);
+                                    int64_t probe_row_pos, bool* consumed);
     Status _append_lazy_build_rows_with_probe_defaults(const Block& build_block,
                                                        const IColumn::Filter& filter,
                                                        size_t selected_rows);
