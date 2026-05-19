@@ -231,11 +231,11 @@ Status open_next_row_group(ParquetReaderScanState* state, bool* has_row_group) {
             }
         }
 
+        ParquetColumnReaderFactory column_reader_factory(arrow_readers);
         for (int file_field_id : state->projected_fields) {
             const auto& column_schema = state->file_schema[file_field_id];
             std::unique_ptr<ParquetColumnReader> column_reader;
-            RETURN_IF_ERROR(create_parquet_column_reader(*column_schema, arrow_readers,
-                                                         &column_reader));
+            RETURN_IF_ERROR(column_reader_factory.create(*column_schema, &column_reader));
             state->current_columns.push_back(std::move(column_reader));
         }
 

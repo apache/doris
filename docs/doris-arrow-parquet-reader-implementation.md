@@ -143,6 +143,12 @@ reader 作为物理列读取实现。
 list/map 和 nullable struct 仍需要完整 Dremel definition/repetition level assembler，
 当前不会伪装支持。
 
+`ParquetColumnReader` 不通过自由函数创建，而是由 `ParquetColumnReaderFactory`
+统一创建。factory 绑定当前 row group 的 Arrow Parquet core `ColumnReader` 列表，
+再根据 `ParquetColumnSchema` 递归创建 primitive/struct reader。这样后续 reader
+options、Dremel assembler、延时物化 cache/skip 策略可以挂在同一个 file-local
+创建上下文中，避免把这些状态继续散落到自由函数参数里。
+
 实际代码文件：
 
 ```text
@@ -265,7 +271,7 @@ index、bloom filter pruning 的统一入口。当前阶段实现保守返回全
 职责：
 
 - 如果当前 row group 没有打开，打开下一个 selected row group。
-- 为当前 row group 创建 projected column readers。
+- 通过 `ParquetColumnReaderFactory` 为当前 row group 创建 projected column readers。
 - 按 batch size 读取一批 file-local rows。
 - 将 decoded values 写入 Doris columns。
 - 当前 row group 读完后切换到下一个 selected row group。

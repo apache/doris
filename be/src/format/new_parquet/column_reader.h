@@ -70,18 +70,35 @@ public:
     virtual Status skip(int64_t rows);
 };
 
-// 创建当前阶段支持的 primitive Parquet column reader。
-Status create_parquet_column_reader(int file_column_id,
-                                    const ::parquet::ColumnDescriptor* descriptor,
-                                    DataTypePtr type, std::string name,
-                                    std::shared_ptr<::parquet::ColumnReader> arrow_reader,
-                                    std::unique_ptr<ParquetColumnReader>* reader);
+// Parquet column reader 工厂。
+// 工厂绑定当前 row group 的 Arrow Parquet core ColumnReader 列表，并根据 file-local
+// schema tree 创建 Doris 自己的 column reader。后续 reader options、Dremel assembler、
+// 延时物化 cache/skip 策略都应挂在该工厂上下文里，而不是继续扩展自由函数参数。
+class ParquetColumnReaderFactory {
+public:
+    explicit ParquetColumnReaderFactory(
+            const std::vector<std::shared_ptr<::parquet::ColumnReader>>& arrow_readers);
 
-// 根据 file-local schema tree 创建 column reader。复杂类型会在这里递归创建 children。
-Status create_parquet_column_reader(
-        const ParquetColumnSchema& column_schema,
-        const std::vector<std::shared_ptr<::parquet::ColumnReader>>& arrow_readers,
-        std::unique_ptr<ParquetColumnReader>* reader);
+    // 根据 file-local schema tree 创建 column reader。复杂类型会在这里递归创建
+    // children。该入口只理解 Parquet file schema，不处理 table/global schema。
+    Status create(const ParquetColumnSchema& column_schema,
+                  std::unique_ptr<ParquetColumnReader>* reader) const;
+
+private:
+    Status create_primitive(const ParquetColumnSchema& column_schema,
+                            std::unique_ptr<ParquetColumnReader>* reader) const;
+
+    Status create_struct(const ParquetColumnSchema& column_schema,
+                         std::unique_ptr<ParquetColumnReader>* reader) const;
+
+    Status create_primitive_reader(int file_column_id,
+                                   const ::parquet::ColumnDescriptor* descriptor,
+                                   DataTypePtr type, std::string name,
+                                   std::shared_ptr<::parquet::ColumnReader> arrow_reader,
+                                   std::unique_ptr<ParquetColumnReader>* reader) const;
+
+    const std::vector<std::shared_ptr<::parquet::ColumnReader>>& _arrow_readers;
+};
 
 } // namespace parquet
 } // namespace doris

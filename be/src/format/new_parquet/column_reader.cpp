@@ -668,11 +668,14 @@ Status ParquetColumnReader::skip(int64_t rows) {
     return Status::NotSupported("Parquet column skip is not implemented, rows={}", rows);
 }
 
-Status create_parquet_column_reader(int file_column_id,
-                                    const ::parquet::ColumnDescriptor* descriptor,
-                                    DataTypePtr type, std::string name,
-                                    std::shared_ptr<::parquet::ColumnReader> arrow_reader,
-                                    std::unique_ptr<ParquetColumnReader>* reader) {
+ParquetColumnReaderFactory::ParquetColumnReaderFactory(
+        const std::vector<std::shared_ptr<::parquet::ColumnReader>>& arrow_readers)
+        : _arrow_readers(arrow_readers) {}
+
+Status ParquetColumnReaderFactory::create_primitive_reader(
+        int file_column_id, const ::parquet::ColumnDescriptor* descriptor, DataTypePtr type,
+        std::string name, std::shared_ptr<::parquet::ColumnReader> arrow_reader,
+        std::unique_ptr<ParquetColumnReader>* reader) const {
     if (reader == nullptr) {
         return Status::InvalidArgument("reader is null");
     }
@@ -685,50 +688,59 @@ Status create_parquet_column_reader(int file_column_id,
     return Status::OK();
 }
 
-Status create_parquet_column_reader(
+Status ParquetColumnReaderFactory::create_primitive(
         const ParquetColumnSchema& column_schema,
-        const std::vector<std::shared_ptr<::parquet::ColumnReader>>& arrow_readers,
-        std::unique_ptr<ParquetColumnReader>* reader) {
+        std::unique_ptr<ParquetColumnReader>* reader) const {
+    if (reader == nullptr) {
+        return Status::InvalidArgument("reader is null");
+    }
+    if (column_schema.leaf_column_id < 0 ||
+        column_schema.leaf_column_id >= static_cast<int>(_arrow_readers.size())) {
+        return Status::InvalidArgument("Invalid parquet leaf column id {} for column {}",
+                                       column_schema.leaf_column_id, column_schema.name);
+    }
+    if (supported_flat_column_type(column_schema.descriptor) == nullptr) {
+        return Status::NotSupported(
+                "Current parquet reader only supports primitive columns without repetition; "
+                "column {} is not supported",
+                column_schema.name);
+    }
+    return create_primitive_reader(column_schema.leaf_column_id, column_schema.descriptor,
+                                   column_schema.type, column_schema.name,
+                                   _arrow_readers[column_schema.leaf_column_id], reader);
+}
+
+Status ParquetColumnReaderFactory::create_struct(
+        const ParquetColumnSchema& column_schema,
+        std::unique_ptr<ParquetColumnReader>* reader) const {
+    if (reader == nullptr) {
+        return Status::InvalidArgument("reader is null");
+    }
+    if (column_schema.type != nullptr && column_schema.type->is_nullable()) {
+        return Status::NotSupported("Nullable parquet STRUCT reader is not implemented for column {}",
+                                    column_schema.name);
+    }
+    std::vector<std::unique_ptr<ParquetColumnReader>> child_readers;
+    child_readers.reserve(column_schema.children.size());
+    for (const auto& child_schema : column_schema.children) {
+        std::unique_ptr<ParquetColumnReader> child_reader;
+        RETURN_IF_ERROR(create(*child_schema, &child_reader));
+        child_readers.push_back(std::move(child_reader));
+    }
+    *reader = std::make_unique<StructColumnReader>(column_schema, std::move(child_readers));
+    return Status::OK();
+}
+
+Status ParquetColumnReaderFactory::create(const ParquetColumnSchema& column_schema,
+                                          std::unique_ptr<ParquetColumnReader>* reader) const {
     if (reader == nullptr) {
         return Status::InvalidArgument("reader is null");
     }
     switch (column_schema.kind) {
-    case ParquetColumnSchemaKind::PRIMITIVE: {
-        if (column_schema.leaf_column_id < 0 ||
-            column_schema.leaf_column_id >= static_cast<int>(arrow_readers.size())) {
-            return Status::InvalidArgument("Invalid parquet leaf column id {} for column {}",
-                                           column_schema.leaf_column_id, column_schema.name);
-        }
-        if (supported_flat_column_type(column_schema.descriptor) == nullptr) {
-            return Status::NotSupported(
-                    "Current parquet reader only supports primitive columns without repetition; "
-                    "column {} is not supported",
-                    column_schema.name);
-        }
-        return create_parquet_column_reader(column_schema.leaf_column_id,
-                                            column_schema.descriptor,
-                                            column_schema.type,
-                                            column_schema.name,
-                                            arrow_readers[column_schema.leaf_column_id],
-                                            reader);
-    }
-    case ParquetColumnSchemaKind::STRUCT: {
-        if (column_schema.type != nullptr && column_schema.type->is_nullable()) {
-            return Status::NotSupported(
-                    "Nullable parquet STRUCT reader is not implemented for column {}",
-                    column_schema.name);
-        }
-        std::vector<std::unique_ptr<ParquetColumnReader>> child_readers;
-        child_readers.reserve(column_schema.children.size());
-        for (const auto& child_schema : column_schema.children) {
-            std::unique_ptr<ParquetColumnReader> child_reader;
-            RETURN_IF_ERROR(create_parquet_column_reader(*child_schema, arrow_readers,
-                                                         &child_reader));
-            child_readers.push_back(std::move(child_reader));
-        }
-        *reader = std::make_unique<StructColumnReader>(column_schema, std::move(child_readers));
-        return Status::OK();
-    }
+    case ParquetColumnSchemaKind::PRIMITIVE:
+        return create_primitive(column_schema, reader);
+    case ParquetColumnSchemaKind::STRUCT:
+        return create_struct(column_schema, reader);
     case ParquetColumnSchemaKind::LIST:
         return Status::NotSupported("Parquet LIST reader is not implemented for column {}",
                                     column_schema.name);
