@@ -4946,6 +4946,10 @@ int InstanceRecycler::recycle_rowsets() {
         std::string key;
         doris::RowsetMetaCloudPB meta;
     };
+    struct RecycleRowsetDeleteJob {
+        std::vector<std::string> keys;
+        std::map<std::string, doris::RowsetMetaCloudPB> rowsets;
+    };
     // Store the scanned recycle key with rowset meta. The scanned key is the actual KV key to delete.
     std::vector<RecycleRowsetEntry> rowsets;
     int64_t current_tablet_id = -1;
@@ -4998,6 +5002,9 @@ int InstanceRecycler::recycle_rowsets() {
     auto worker_pool = std::make_unique<SimpleThreadPool>(
             config::instance_recycler_worker_pool_size, "recycle_rowsets");
     worker_pool->start();
+    auto mark_abort_worker_pool = std::make_unique<SimpleThreadPool>(
+            config::instance_recycler_worker_pool_size, "recycle_rs_mark_abort");
+    mark_abort_worker_pool->start();
     // TODO bacth delete
     auto delete_versioned_delete_bitmap_kvs = [&](int64_t tablet_id, const std::string& rowset_id) {
         std::string dbm_start_key =
@@ -5165,7 +5172,11 @@ int InstanceRecycler::recycle_rowsets() {
         if (rowset.type() == RecycleRowsetPB::PREPARE) {
             // unable to calculate file path, can only be deleted by rowset id prefix
             num_prepare += 1;
-            prepare_rowset_keys_to_delete.emplace_back(k);
+            if (delete_rowset_data_by_prefix(std::string(k), rowset_meta->resource_id(),
+                                             rowset_meta->tablet_id(),
+                                             rowset_meta->rowset_id_v2()) != 0) {
+                return -1;
+            }
         } else {
             num_compacted += rowset.type() == RecycleRowsetPB::COMPACT;
             if (rowset_meta->num_segments() > 0) { // Skip empty rowset
@@ -5202,11 +5213,54 @@ int InstanceRecycler::recycle_rowsets() {
         });
     };
 
+    auto submit_mark_abort_rowset_job = [&](std::vector<std::string> rowset_keys_to_mark,
+                                            std::vector<std::string> rowset_keys_to_abort) {
+        if (rowset_keys_to_mark.empty() && rowset_keys_to_abort.empty()) {
+            return;
+        }
+        mark_abort_worker_pool->submit([&, rowset_keys_to_mark = std::move(rowset_keys_to_mark),
+                                        rowset_keys_to_abort =
+                                                std::move(rowset_keys_to_abort)]() mutable {
+            auto start = steady_clock::now();
+            DORIS_CLOUD_DEFER {
+                auto cost = duration_cast<milliseconds>(steady_clock::now() - start).count();
+                LOG(INFO) << "finish mark and abort rowset job, instance_id=" << instance_id_ << ' '
+                          << "cost_ms=" << cost << ' '
+                          << "rowset_keys_to_mark.size()=" << rowset_keys_to_mark.size() << ' '
+                          << "rowset_keys_to_abort.size()=" << rowset_keys_to_abort.size();
+            };
+            if (!rowset_keys_to_mark.empty() &&
+                batch_mark_rowsets_as_recycled<RecycleRowsetPB>(txn_kv_.get(), instance_id_,
+                                                                rowset_keys_to_mark) != 0) {
+                LOG(WARNING) << "failed to batch mark rowsets as recycled, instance_id="
+                             << instance_id_ << ' '
+                             << "rowset_keys_to_mark.size()=" << rowset_keys_to_mark.size();
+                return;
+            }
+            if (!rowset_keys_to_abort.empty() &&
+                batch_abort_txn_or_job_for_recycle<RecycleRowsetPB>(rowset_keys_to_abort, true) !=
+                        0) {
+                LOG(WARNING) << "failed to batch abort txn or job for related rowset, "
+                                "instance_id="
+                             << instance_id_ << ' '
+                             << "rowset_keys_to_abort.size()=" << rowset_keys_to_abort.size();
+                return;
+            }
+        });
+    };
+
     bool scan_finished = false;
     auto loop_done = [&]() -> int {
+        std::vector<std::string> mark_keys_to_process;
+        std::vector<std::string> abort_keys_to_process;
+        mark_keys_to_process.swap(rowset_keys_to_mark_recycled);
+        abort_keys_to_process.swap(rowset_keys_to_abort);
+        submit_mark_abort_rowset_job(std::move(mark_keys_to_process),
+                                     std::move(abort_keys_to_process));
         if (!scan_finished && rowsets.size() < delete_rowset_batch_size) {
             return 0;
         }
+
         DORIS_CLOUD_DEFER {
             // if return -1 in loop done, rowset info in memory is not cleared,
             // it can lead to memory accumulation
@@ -5270,6 +5324,7 @@ int InstanceRecycler::recycle_rowsets() {
         ret = -1;
     }
 
+    mark_abort_worker_pool->stop();
     worker_pool->stop();
 
     if (!async_recycled_rowset_keys.empty()) {
@@ -5288,25 +5343,6 @@ int InstanceRecycler::recycle_rowsets() {
     return ret;
 }
 
-static int decode_recycle_rowset_tablet_id(std::string_view key, int64_t* tablet_id) {
-    DCHECK(tablet_id != nullptr);
-    std::string_view key_without_prefix = key;
-    key_without_prefix.remove_prefix(1);
-    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
-    if (decode_key(&key_without_prefix, &out) != 0) {
-        return -1;
-    }
-    if (out.size() < 5) {
-        return -1;
-    }
-    try {
-        *tablet_id = std::get<int64_t>(std::get<0>(out[3]));
-    } catch (const std::bad_variant_access&) {
-        return -1;
-    }
-    return 0;
-}
-
 int InstanceRecycler::next_recycle_rowset_tablet_key(const std::string& instance_id,
                                                      int64_t tablet_id, std::string* next_key) {
     DCHECK(next_key != nullptr);
@@ -5315,105 +5351,6 @@ int InstanceRecycler::next_recycle_rowset_tablet_key(const std::string& instance
     }
     *next_key = recycle_rowset_key({instance_id, tablet_id + 1, ""});
     return 0;
-}
-
-int InstanceRecycler::scan_recycle_rowsets_by_tablet(
-        std::string begin, std::string_view end,
-        std::function<int(std::string_view k, std::string_view v)> recycle_func,
-        std::function<int()> loop_done) {
-    LOG(INFO) << "begin scan_recycle_rowsets_by_tablet key_range=[" << hex(begin) << "," << hex(end)
-              << ")";
-    int ret = 0;
-    int64_t cnt = 0;
-    int64_t num_skip_tablets = 0;
-    int get_range_retried = 0;
-    std::string err;
-    DORIS_CLOUD_DEFER_COPY(begin, end) {
-        LOG(INFO) << "finish scan_recycle_rowsets_by_tablet key_range=[" << hex(begin) << ","
-                  << hex(end) << ") num_scanned=" << cnt << " num_skip_tablets=" << num_skip_tablets
-                  << " get_range_retried=" << get_range_retried << " ret=" << ret << " err=" << err;
-    };
-
-    const size_t max_rowsets_per_tablet =
-            std::max<int32_t>(1, config::max_recycle_rowsets_per_tablet_batch);
-    std::unique_ptr<RangeGetIterator> it;
-    int64_t tablet_id = -1;
-    size_t num_tablet_rowsets = 0;
-    while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
-        if (get_range_retried > 1000) {
-            err = "txn_get exceeds max retry(1000), may not scan all keys";
-            ret = -3;
-            return ret;
-        }
-        int get_ret = txn_get(txn_kv_.get(), begin, end, it);
-        if (get_ret != 0) {
-            LOG(WARNING) << "failed to get kv, range=[" << hex(begin) << "," << hex(end)
-                         << ") num_scanned=" << cnt << " txn_get_ret=" << get_ret
-                         << " get_range_retried=" << get_range_retried;
-            ++get_range_retried;
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
-            continue;
-        }
-        if (!it->has_next()) {
-            LOG(INFO) << "no keys in the given range=[" << hex(begin) << "," << hex(end) << ")";
-            break;
-        }
-
-        bool begin_updated = false;
-        while (it->has_next()) {
-            ++cnt;
-            auto [k, v] = it->next();
-            int64_t key_tablet_id = -1;
-            if (decode_recycle_rowset_tablet_id(k, &key_tablet_id) != 0) {
-                LOG_WARNING("failed to decode recycle rowset key").tag("key", hex(k));
-                err = "decode recycle rowset key error";
-                ret = -1;
-            }
-
-            if (tablet_id < 0) {
-                tablet_id = key_tablet_id;
-            } else if (key_tablet_id != tablet_id) {
-                tablet_id = key_tablet_id;
-                num_tablet_rowsets = 0;
-            }
-
-            if (ret == 0) {
-                // FIXME(gavin): if we want to continue scanning, the recycle_func should not return non-zero
-                if (recycle_func(k, v) != 0) {
-                    err = "recycle_func error";
-                    ret = -1;
-                }
-            }
-
-            if (++num_tablet_rowsets >= max_rowsets_per_tablet) {
-                if (next_recycle_rowset_tablet_key(instance_id_, key_tablet_id, &begin) != 0) {
-                    begin = k;
-                    begin.push_back('\x00');
-                } else {
-                    ++num_skip_tablets;
-                }
-                begin_updated = true;
-                break;
-            }
-
-            if (!it->has_next()) {
-                begin = k;
-                VLOG_DEBUG << "iterator has no more kvs. key=" << hex(k);
-            }
-        }
-        if (ret != 0) {
-            break;
-        }
-        if (!begin_updated) {
-            begin.push_back('\x00');
-        }
-        // FIXME(gavin): if we want to continue scanning, the loop_done should not return non-zero
-        if (loop_done && loop_done() != 0) {
-            err = "loop_done error";
-            ret = -1;
-        }
-    }
-    return ret;
 }
 
 int InstanceRecycler::recycle_restore_jobs() {
