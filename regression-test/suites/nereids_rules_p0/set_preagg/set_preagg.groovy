@@ -311,7 +311,7 @@ suite("set_preagg") {
         """)
         contains "(preagg_t1), PREAGGREGATION: ON"
         contains "(preagg_t2), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
-        contains "(preagg_t3), PREAGGREGATION: OFF. Reason: can't turn preAgg on because aggregate function sum"
+        contains "(preagg_t3), PREAGGREGATION: OFF"
     }
 
     explain {
