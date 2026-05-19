@@ -22,6 +22,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.JoinOperator;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.thrift.TEqJoinCondition;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TGroupJoinNode;
@@ -52,6 +53,8 @@ public class GroupJoinNode extends JoinNodeBase {
         this.otherJoinConjunct = otherJoinConjunct;
         this.groupByExprs = groupByExprs;
         this.aggregateFunctions = aggregateFunctions;
+        this.tupleIds.addAll(probeChild.getOutputTupleIds());
+        this.tupleIds.addAll(buildChild.getOutputTupleIds());
         this.children.add(probeChild);
         this.children.add(buildChild);
     }
@@ -88,6 +91,11 @@ public class GroupJoinNode extends JoinNodeBase {
         }
         msg.hash_join_node.is_broadcast_join = false;
         msg.hash_join_node.dist_type = TJoinDistributionType.PARTITIONED;
+        if (vIntermediateTupleDescList != null) {
+            for (TupleDescriptor tupleDescriptor : vIntermediateTupleDescList) {
+                msg.hash_join_node.addToVintermediateTupleIdList(tupleDescriptor.getId().asInt());
+            }
+        }
     }
 
     @Override

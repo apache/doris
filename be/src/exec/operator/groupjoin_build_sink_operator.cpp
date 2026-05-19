@@ -32,7 +32,7 @@ Status GroupJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* s
         for (const auto& agg_expr : tnode.group_join_node.aggregate_functions) {
             AggFnEvaluator* evaluator = nullptr;
             RETURN_IF_ERROR(AggFnEvaluator::create(state->obj_pool(), agg_expr, TSortInfo(), false,
-                                                     false, &evaluator));
+                                                   false, &evaluator));
             _aggregate_evaluators.push_back(evaluator);
         }
     }
@@ -77,10 +77,10 @@ Status GroupJoinBuildSinkOperatorX::setup_local_state(RuntimeState* state,
     return Status::OK();
 }
 
-Status GroupJoinBuildSinkOperatorX::_on_build_complete(
-        RuntimeState* state, HashJoinBuildSinkLocalState& local_state) {
-    return static_cast<GroupJoinBuildSinkLocalState&>(local_state)._compute_group_join_aggregates(
-            state);
+Status GroupJoinBuildSinkOperatorX::_on_build_complete(RuntimeState* state,
+                                                       HashJoinBuildSinkLocalState& local_state) {
+    return static_cast<GroupJoinBuildSinkLocalState&>(local_state)
+            ._compute_group_join_aggregates(state);
 }
 
 Status GroupJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
@@ -116,50 +116,58 @@ Status GroupJoinBuildSinkLocalState::_compute_group_join_aggregates(RuntimeState
     auto& build_block = *_shared_state->build_block;
     uint32_t build_rows = static_cast<uint32_t>(build_block.rows());
 
-    // Step 1: Traverse hash table to find unique keys and build row_to_group mapping.
+    // Step 1: Traverse hash table to find unique keys, prune duplicate build rows from hash
+    // chains, and build row_to_group mapping.
     // The hash table stores 1-based row indices (0 is end-of-chain marker).
     // Row 0 in the block is the mocked row and is not in the hash table.
     std::vector<uint32_t> row_to_group(build_rows, 0);
     std::vector<uint32_t> group_representatives;
 
     std::visit(
-            Overload {
-                    [&](std::monostate&) {},
-                    [&](auto&& hash_table_ctx) {
-                        auto* hash_table = hash_table_ctx.hash_table.get();
-                        uint32_t bucket_size = hash_table->get_bucket_size();
-                        const uint32_t* first = hash_table->get_first().data();
-                        const uint32_t* next = hash_table->get_next().data();
-                        const auto* build_keys = hash_table->get_build_keys();
-                        using KeyType =
-                                std::remove_const_t<std::remove_pointer_t<decltype(build_keys)>>;
+            Overload {[&](std::monostate&) {},
+                      [&](auto&& hash_table_ctx) {
+                          auto* hash_table = hash_table_ctx.hash_table.get();
+                          uint32_t bucket_size = hash_table->get_bucket_size();
+                          auto& first = hash_table->get_first();
+                          auto& next = hash_table->get_next();
+                          const auto* build_keys = hash_table->get_build_keys();
+                          using KeyType =
+                                  std::remove_const_t<std::remove_pointer_t<decltype(build_keys)>>;
 
-                        for (uint32_t bucket = 0; bucket <= bucket_size; ++bucket) {
-                            uint32_t row = first[bucket];
-                            if (row == 0) {
-                                continue;
-                            }
+                          for (uint32_t bucket = 0; bucket <= bucket_size; ++bucket) {
+                              uint32_t row = first[bucket];
+                              uint32_t previous_row = 0;
+                              if (row == 0) {
+                                  continue;
+                              }
 
-                            std::vector<std::pair<KeyType, uint32_t>> bucket_keys;
-                            while (row != 0) {
-                                const auto& key = build_keys[row];
-                                uint32_t group_id = 0;
-                                for (const auto& [k, gid] : bucket_keys) {
-                                    if (k == key) {
-                                        group_id = gid;
-                                        break;
-                                    }
-                                }
-                                if (group_id == 0) {
-                                    group_id = static_cast<uint32_t>(group_representatives.size() + 1);
-                                    bucket_keys.emplace_back(key, group_id);
-                                    group_representatives.push_back(row);
-                                }
-                                row_to_group[row] = group_id;
-                                row = next[row];
-                            }
-                        }
-                    }},
+                              std::vector<std::pair<KeyType, uint32_t>> bucket_keys;
+                              while (row != 0) {
+                                  uint32_t next_row = next[row];
+                                  const auto& key = build_keys[row];
+                                  uint32_t group_id = 0;
+                                  for (const auto& [k, gid] : bucket_keys) {
+                                      if (k == key) {
+                                          group_id = gid;
+                                          break;
+                                      }
+                                  }
+                                  if (group_id == 0) {
+                                      group_id = static_cast<uint32_t>(
+                                              group_representatives.size() + 1);
+                                      bucket_keys.emplace_back(key, group_id);
+                                      group_representatives.push_back(row);
+                                      previous_row = row;
+                                  } else if (previous_row == 0) {
+                                      first[bucket] = next_row;
+                                  } else {
+                                      next[previous_row] = next_row;
+                                  }
+                                  row_to_group[row] = group_id;
+                                  row = next_row;
+                              }
+                          }
+                      }},
             _shared_state->hash_table_variant_vector.front()->method_variant);
 
     int num_groups = static_cast<int>(group_representatives.size());
@@ -193,23 +201,23 @@ Status GroupJoinBuildSinkLocalState::_compute_group_join_aggregates(RuntimeState
 
     // Step 4: Execute batch add for each aggregate evaluator.
     for (size_t i = 0; i < _aggregate_evaluators.size(); i++) {
-        RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_batch_add(
-                &build_block, 0, places.data(), *_agg_arena, true));
+        RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_batch_add(&build_block, 0, places.data(),
+                                                                    *_agg_arena, true));
     }
 
-    // Reset dummy state so row 0 gets a clean serialized value.
+    // Reset dummy state so unmatched outer-join rows get a clean aggregate result.
     for (size_t j = 0; j < p._aggregate_evaluators.size(); j++) {
         p._aggregate_evaluators[j]->reset(dummy_state + p._offsets_of_aggregate_states[j]);
     }
 
-    // Step 5: Serialize aggregate states to columns and append to build block.
+    // Step 5: Finalize aggregate states to columns and append to build block.
     for (size_t i = 0; i < p._aggregate_evaluators.size(); i++) {
-        auto serialized_type = p._aggregate_evaluators[i]->function()->get_serialized_type();
-        MutableColumnPtr agg_column = serialized_type->create_column();
-        p._aggregate_evaluators[i]->function()->serialize_to_column(
-                places, p._offsets_of_aggregate_states[i], agg_column, build_rows);
-        build_block.insert({std::move(agg_column), serialized_type,
-                            p._aggregate_evaluators[i]->debug_string()});
+        auto result_type = p._aggregate_evaluators[i]->function()->get_return_type();
+        MutableColumnPtr agg_column = result_type->create_column();
+        _aggregate_evaluators[i]->insert_result_info_vec(places, p._offsets_of_aggregate_states[i],
+                                                         agg_column.get(), build_rows);
+        build_block.insert(
+                {std::move(agg_column), result_type, p._aggregate_evaluators[i]->debug_string()});
     }
 
     return Status::OK();

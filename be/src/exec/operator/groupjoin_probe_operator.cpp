@@ -33,7 +33,7 @@ Status GroupJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state
         for (const auto& agg_expr : tnode.group_join_node.aggregate_functions) {
             AggFnEvaluator* evaluator = nullptr;
             RETURN_IF_ERROR(AggFnEvaluator::create(state->obj_pool(), agg_expr, TSortInfo(), false,
-                                                     false, &evaluator));
+                                                   false, &evaluator));
             _aggregate_evaluators.push_back(evaluator);
         }
     }
@@ -58,7 +58,7 @@ Status GroupJoinProbeOperatorX::prepare(RuntimeState* state) {
 
     RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, _child->row_desc()));
 
-    // Prepare aggregate evaluators to obtain their serialized types.
+    // Prepare aggregate evaluators to obtain their final result types.
     if (!_aggregate_evaluators.empty()) {
         const SlotDescriptor* dummy_slot = nullptr;
         if (!_build_side_child->row_desc().tuple_descriptors().empty() &&
@@ -67,9 +67,9 @@ Status GroupJoinProbeOperatorX::prepare(RuntimeState* state) {
         }
         for (auto* evaluator : _aggregate_evaluators) {
             RETURN_IF_ERROR(evaluator->prepare(state, _build_side_child->row_desc(), dummy_slot,
-                                                 dummy_slot));
+                                               dummy_slot));
             RETURN_IF_ERROR(evaluator->open(state));
-            _aggregate_data_types.push_back(evaluator->function()->get_serialized_type());
+            _aggregate_data_types.push_back(evaluator->function()->get_return_type());
             _aggregate_column_names.push_back(evaluator->debug_string());
         }
     }
@@ -79,19 +79,20 @@ Status GroupJoinProbeOperatorX::prepare(RuntimeState* state) {
     _left_table_data_types = VectorizedUtils::get_data_types(_child->row_desc());
     _right_table_column_names = VectorizedUtils::get_column_names(_build_side_child->row_desc());
 
+    _left_output_slot_flags.assign(_left_table_data_types.size(), true);
+    _right_output_slot_flags.assign(_right_table_data_types.size(), false);
+
     // Append aggregate types and column names.
     for (size_t i = 0; i < _aggregate_data_types.size(); i++) {
         _right_table_data_types.push_back(_aggregate_data_types[i]);
         _right_table_column_names.push_back(_aggregate_column_names[i]);
+        _right_output_slot_flags.push_back(true);
     }
 
     _right_col_idx = (_is_right_semi_anti && !_have_other_join_conjunct &&
                       (!_is_mark_join || _mark_join_conjuncts.empty()))
                              ? 0
                              : _left_table_data_types.size();
-
-    // Leave _right_output_slot_flags empty so that ProcessHashTableProbe outputs all
-    // build columns including the appended aggregate columns.
 
     _build_side_child.reset();
 
@@ -119,12 +120,12 @@ Status GroupJoinProbeLocalState::open(RuntimeState* state) {
     auto& p = _parent->cast<GroupJoinProbeOperatorX>();
     _join_block.clear();
     for (size_t i = 0; i < p._left_table_data_types.size(); i++) {
-        _join_block.insert({p._left_table_data_types[i]->create_column(), p._left_table_data_types[i],
-                            ""});
+        _join_block.insert(
+                {p._left_table_data_types[i]->create_column(), p._left_table_data_types[i], ""});
     }
     for (size_t i = 0; i < p._right_table_data_types.size(); i++) {
-        _join_block.insert({p._right_table_data_types[i]->create_column(),
-                            p._right_table_data_types[i], ""});
+        _join_block.insert(
+                {p._right_table_data_types[i]->create_column(), p._right_table_data_types[i], ""});
     }
 
     return HashJoinProbeLocalState::open(state);

@@ -105,8 +105,7 @@ protected:
     RuntimeProfile::Counter* _asof_index_group_timer = nullptr;
 };
 
-class HashJoinBuildSinkOperatorX
-        : public JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState> {
+class HashJoinBuildSinkOperatorX : public JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState> {
 public:
     HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
                                const TPlanNode& tnode, const DescriptorTbl& descs);
@@ -170,7 +169,8 @@ public:
     }
 
 protected:
-    virtual Status _on_build_complete(RuntimeState* state, HashJoinBuildSinkLocalState& local_state) {
+    virtual Status _on_build_complete(RuntimeState* state,
+                                      HashJoinBuildSinkLocalState& local_state) {
         return Status::OK();
     }
 

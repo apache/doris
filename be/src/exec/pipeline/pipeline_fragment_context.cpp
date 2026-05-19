@@ -1348,8 +1348,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
 
             std::shared_ptr<HashJoinBuildSinkOperatorX> inner_sink_operator;
             if (is_group_join) {
-                inner_sink_operator =
-                        std::make_shared<GroupJoinBuildSinkOperatorX>(pool, 0, 0, join_tnode, descs);
+                inner_sink_operator = std::make_shared<GroupJoinBuildSinkOperatorX>(
+                        pool, 0, 0, join_tnode, descs);
             } else {
                 inner_sink_operator =
                         std::make_shared<HashJoinBuildSinkOperatorX>(pool, 0, 0, join_tnode, descs);

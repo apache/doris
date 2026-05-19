@@ -124,8 +124,7 @@ private:
     RuntimeProfile::Counter* _asof_probe_search_timer = nullptr;
 };
 
-class HashJoinProbeOperatorX
-        : public JoinProbeOperatorX<HashJoinProbeLocalState> {
+class HashJoinProbeOperatorX : public JoinProbeOperatorX<HashJoinProbeLocalState> {
 public:
     HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                            const DescriptorTbl& descs);
