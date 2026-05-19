@@ -129,6 +129,15 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
             + "SELECT 1 FROM cte_alias_shadow_inner_nested b "
             + "WHERE b.probe = s.v.x)";
 
+    private final String currentScopeNestedFieldShouldShadowUnusableOuterPrefixSql = "WITH seed AS ("
+            + "SELECT id, v FROM cte_alias_shadow_outer_prefix_only "
+            + "UNION ALL "
+            + "SELECT id, v FROM cte_alias_shadow_outer_prefix_only WHERE 1 = 0) "
+            + "SELECT id FROM seed s "
+            + "WHERE EXISTS ("
+            + "SELECT 1 FROM cte_alias_shadow_inner_local_nested b "
+            + "WHERE b.probe = s.v.x)";
+
     private final List<String> testSqls = ImmutableList.of(
             multiCte, cteWithColumnAlias, cteConsumerInSubQuery, cteConsumerJoin, cteReferToAnotherOne, cteJoinSelf,
             cteNested, cteInTheMiddle, cteWithDiffRelationId
@@ -163,6 +172,16 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
                         + "(grp int, probe int, s struct<v:struct<x:int>>)\n"
                         + "duplicate key(grp, probe)\n"
                         + "distributed by hash(grp) buckets 1\n"
+                        + "properties('replication_num' = '1');",
+                "create table test.cte_alias_shadow_outer_prefix_only\n"
+                        + "(id int, v int)\n"
+                        + "duplicate key(id)\n"
+                        + "distributed by hash(id) buckets 1\n"
+                        + "properties('replication_num' = '1');",
+                "create table test.cte_alias_shadow_inner_local_nested\n"
+                        + "(probe int, s struct<v:struct<x:int>>)\n"
+                        + "duplicate key(probe)\n"
+                        + "distributed by hash(probe) buckets 1\n"
                         + "properties('replication_num' = '1');"
         );
     }
@@ -294,6 +313,17 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
 
         Assertions.assertEquals(1, applyNodes.size());
         Assertions.assertTrue(((LogicalApply<?, ?>) applyNodes.iterator().next()).isCorrelated());
+    }
+
+    @Test
+    public void testCurrentScopeNestedFieldShadowsUnusableOuterPrefix() {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze(currentScopeNestedFieldShouldShadowUnusableOuterPrefixSql)
+                .getPlan();
+        Set<Plan> applyNodes = plan.collect(LogicalApply.class::isInstance);
+
+        Assertions.assertEquals(1, applyNodes.size());
+        Assertions.assertFalse(((LogicalApply<?, ?>) applyNodes.iterator().next()).isCorrelated());
     }
 
     @Test

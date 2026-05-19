@@ -329,10 +329,16 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 bounded = bindSlotByScope(unboundSlot, outerScope.get());
             } else if (unboundSlot.getNameParts().size() > 1
                     && getExactSlotPrefixLength(unboundSlot, outerScope.get()) > thisScopeExactPrefixLength) {
-                // Current-scope nested-field fallback should not shadow a correlated table alias,
-                // e.g. inner column `s` must not block outer reference `s.grp`.
-                bounded = bindSlotByScope(unboundSlot, outerScope.get());
-                foundInThisScope = false;
+                // Prefer the outer scope only after it can bind the full multipart reference.
+                // A longer outer prefix alone is not enough because the local scope may still be the
+                // only scope that can bind the nested-field path successfully.
+                try {
+                    bounded = bindSlotByScope(unboundSlot, outerScope.get());
+                    foundInThisScope = false;
+                } catch (AnalysisException e) {
+                    // Keep the current-scope binding when the outer scope only matches a longer prefix
+                    // but cannot bind the remaining nested fields.
+                }
             }
         }
         if (!foundInThisScope && bounded.isEmpty() && thisScopeBindException != null) {
