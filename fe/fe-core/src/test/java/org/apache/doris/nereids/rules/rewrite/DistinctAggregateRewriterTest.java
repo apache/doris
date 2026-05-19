@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
@@ -35,15 +38,21 @@ import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class DistinctAggregateRewriterTest extends TestWithFeService implements MemoPatternMatchSupported {
     @Override
@@ -70,6 +79,10 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
                 + "PROPERTIES (\n"
                 + "    \"replication_num\" = \"1\"\n"
                 + ");");
+        createTable("create table test.distinct_agg_hash_ab(a int null, b int not null, c int null, d int null)\n"
+                + "distributed by hash(a, b) properties('replication_num' = '1');");
+        createTable("create table test.distinct_agg_hash_abcd(a int null, b int not null, c int null, d int null)\n"
+                + "distributed by hash(a, b, c, d) properties('replication_num' = '1');");
         connectContext.setDatabase("test");
         SessionVariable spySessionVariable = Mockito.spy(connectContext.getSessionVariable());
         Mockito.doReturn(24).when(spySessionVariable).getParallelExecInstanceNum(Mockito.anyString());
@@ -287,6 +300,48 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
         Assertions.assertTrue(rewriter.shouldUseMultiDistinct(aggregate));
     }
 
+    @Test
+    void testResolveDistinctDistributionInfoWithProjectAndFilter() throws Exception {
+        LogicalAggregate<? extends Plan> aggregate = getLogicalAggregate(
+                "select bb, count(distinct aa) from "
+                        + "(select a as aa, b as bb from test.distinct_agg_hash_ab where c > 1) t "
+                        + "group by bb"
+        );
+
+        Object info = invokeResolveDistinctDistributionInfo(aggregate);
+        Assertions.assertNotNull(info);
+
+        List<String> distinctSlotNames = getDistinctSlots(info).stream()
+                .map(SlotReference::getName)
+                .collect(Collectors.toList());
+        Assertions.assertEquals(ImmutableList.of("a"), distinctSlotNames);
+
+        DistributionInfo distributionInfo = getDistributionInfo(info);
+        Assertions.assertTrue(distributionInfo instanceof HashDistributionInfo);
+        List<String> distributionColumnNames = ((HashDistributionInfo) distributionInfo).getDistributionColumns().stream()
+                .map(column -> column.getName().toLowerCase())
+                .collect(Collectors.toList());
+        Assertions.assertEquals(ImmutableList.of("a", "b"), distributionColumnNames);
+    }
+
+    @Test
+    void testIsDistinctKeySatisfyDistributionWhenDistinctContainsDistributionColumns() throws Exception {
+        LogicalAggregate<? extends Plan> aggregate = getLogicalAggregate(
+                "select d, count(distinct a, b, c) from test.distinct_agg_hash_ab group by d"
+        );
+
+        Assertions.assertTrue(invokeIsDistinctKeySatisfyDistribution(aggregate));
+    }
+
+    @Test
+    void testIsDistinctKeySatisfyDistributionWhenDistributionHasExtraColumns() throws Exception {
+        LogicalAggregate<? extends Plan> aggregate = getLogicalAggregate(
+                "select d, count(distinct a, b, c) from test.distinct_agg_hash_abcd group by d"
+        );
+
+        Assertions.assertFalse(invokeIsDistinctKeySatisfyDistribution(aggregate));
+    }
+
     private LogicalAggregate<? extends Plan> getLogicalAggregate(String sql) {
         Plan plan = PlanChecker.from(connectContext)
                 .analyze(sql)
@@ -308,6 +363,33 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
             }
         }
         return Optional.empty();
+    }
+
+    private Object invokeResolveDistinctDistributionInfo(LogicalAggregate<? extends Plan> aggregate) throws Exception {
+        Method method = DistinctAggregateRewriter.class.getDeclaredMethod(
+                "resolveDistinctDistributionInfo", LogicalAggregate.class);
+        method.setAccessible(true);
+        return method.invoke(DistinctAggregateRewriter.INSTANCE, aggregate);
+    }
+
+    private boolean invokeIsDistinctKeySatisfyDistribution(LogicalAggregate<? extends Plan> aggregate) throws Exception {
+        Method method = DistinctAggregateRewriter.class.getDeclaredMethod(
+                "isDistinctKeySatisfyDistribution", LogicalAggregate.class);
+        method.setAccessible(true);
+        return (boolean) method.invoke(DistinctAggregateRewriter.INSTANCE, aggregate);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Set<SlotReference> getDistinctSlots(Object info) throws Exception {
+        Field field = info.getClass().getDeclaredField("distinctSlots");
+        field.setAccessible(true);
+        return (Set<SlotReference>) field.get(info);
+    }
+
+    private DistributionInfo getDistributionInfo(Object info) throws Exception {
+        Field field = info.getClass().getDeclaredField("distributionInfo");
+        field.setAccessible(true);
+        return (DistributionInfo) field.get(info);
     }
 
     private ColumnStatistic unknownColumnStats() {
