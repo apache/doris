@@ -12,6 +12,8 @@ When working in worktree mode, all operations must be confined to the current wo
 
 Assert correctness only—never use defensive programming with `if` or similar constructs. Any `if` check for errors must have a clearly known inevitable failure path (not speculation). If no such scenario is found, strictly avoid using `if(valid)` checks. However, you may use the `DORIS_CHECK` macro for precondition assertions (if inside performance-sensitive areas like loops, it can only be `DCHECK`). For example, if logically A=true should always imply B=true, then strictly avoid `if (A && B)` and instead use `if (A) { DORIS_CHECK(B); ... }`. In short, the principle is: upon discovering errors or unexpected situations, report errors or crash—never allow the process to continue.
 
+For `PaddedPODArray` and its peripheral packaging types, such as some certain Column, negative alignment allows the use of -1 as a valid index. No additional special handling is needed when the index may be -1.
+
 When adding code, strictly follow existing similar code in similar contexts, including interface usage, error handling, and locking patterns. When adding any code, first try to reference existing functionality. Second, examine the relevant context paragraphs to fully understand the logic.
 
 After adding code, conduct self-review and refactoring attempts to ensure good abstraction and reuse as much as possible.
