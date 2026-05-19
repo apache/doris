@@ -1588,8 +1588,6 @@ DEFINE_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
 
 DEFINE_mBool(ignore_schema_change_check, "false");
 
-DEFINE_mInt64(string_overflow_size, "4294967295"); // std::numic_limits<uint32_t>::max()
-
 // The min thread num for BufferedReaderPrefetchThreadPool
 DEFINE_Int64(num_buffered_reader_prefetch_thread_pool_min_thread, "16");
 // The max thread num for BufferedReaderPrefetchThreadPool
