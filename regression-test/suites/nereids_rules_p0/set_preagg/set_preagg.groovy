@@ -269,7 +269,6 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        notContains "PREAGGREGATION: OFF"
         contains "(preagg_t1), PREAGGREGATION: ON"
         contains "(preagg_t2), PREAGGREGATION: ON"
         contains "(preagg_t3), PREAGGREGATION: OFF"
@@ -290,7 +289,6 @@ suite("set_preagg") {
             group by preagg_t3.k2, t12.k2
             order by 1, 2;
         """)
-        notContains "PREAGGREGATION: OFF"
         contains "(preagg_t1), PREAGGREGATION: ON"
         contains "(preagg_t2), PREAGGREGATION: ON"
         contains "(preagg_t3), PREAGGREGATION: OFF"
