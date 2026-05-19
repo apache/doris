@@ -63,10 +63,7 @@ public class JdbcPostgreSQLClient extends JdbcClient {
             String catalogName = getCatalogName(conn);
             rs = getRemoteColumns(databaseMetaData, catalogName, remoteDbName, remoteTableName);
             while (rs.next()) {
-                // DatabaseMetaData.getColumns treats remoteTableName as a SQL LIKE pattern,
-                // so literal `_`/`%` in the table name may also pull rows for neighbour
-                // tables (e.g. user_info_pg_normal1 also matches userXinfo_pg_normal1).
-                // Drop rows that do not belong to the exact requested table.
+                // getColumns treats the table name as a LIKE pattern; drop rows pulled in via `_`/`%`.
                 if (!remoteTableName.equals(rs.getString("TABLE_NAME"))) {
                     continue;
                 }
