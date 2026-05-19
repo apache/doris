@@ -223,11 +223,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             // If the first block is full, then it is true. Or the first block + second block
             // exceeds the row/byte budget.
             bool has_first_full_block = false;
-            // RuntimeState::preferred_block_size_bytes() returns a legal max budget when
-            // adaptive batch size is disabled. Use 0 as the local disabled sentinel so the
-            // merge path preserves the old row-budget-only behavior in that mode.
-            const size_t preferred_block_size_bytes =
-                    config::enable_adaptive_batch_size ? state->preferred_block_size_bytes() : 0;
+            const size_t preferred_block_size_bytes = state->preferred_block_size_bytes();
 
             // During low memory mode, every scan task will return at most 2 block to reduce memory usage.
             while (!eos && raw_bytes_read < raw_bytes_threshold &&
@@ -294,11 +290,11 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                         return false;
                     }
 
-                    const auto free_block_data_bytes = free_block->bytes();
-                    const bool within_byte_budget = preferred_block_size_bytes == 0 ||
-                                                    last_block->bytes() + free_block_data_bytes <=
-                                                            preferred_block_size_bytes;
-                    return within_byte_budget;
+                    if (!config::enable_adaptive_batch_size) {
+                        return true;
+                    }
+
+                    return last_block->bytes() + free_block->bytes() <= preferred_block_size_bytes;
                 }();
 
                 if (can_merge_to_last_block) {
