@@ -31,7 +31,7 @@ struct IOContext;
 
 namespace doris::parquet {
 
-struct ParquetFileState;
+struct ParquetReaderScanState;
 
 // ParquetReader 的 file-local scan 请求。
 // 当前没有新增 Parquet-only 字段，但保留独立类型，便于后续加入 row group/page index
@@ -70,7 +70,7 @@ public:
     Status init(const reader::FileScanRequest& request) override;
 
 private:
-    std::unique_ptr<ParquetFileState> _state;
+    std::unique_ptr<ParquetReaderScanState> _state;
 };
 
 } // namespace doris::parquet

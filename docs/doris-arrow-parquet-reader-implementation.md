@@ -107,9 +107,10 @@ Parquet schema、filter、projection 或 table-level 语义。
 - 不实现 Doris scan 逻辑。
 - 不暴露到 table reader 层。
 
-### ParquetFileState
+### ParquetReaderScanState
 
-建议作为 `ParquetReader` 内部状态，负责保存：
+作为 `ParquetReader` 内部 scan 状态，当前直接定义在
+`be/src/format/new_parquet/parquet_reader.cpp` 中，不单独拆文件。它负责保存：
 
 - `std::shared_ptr<arrow::io::RandomAccessFile>`；
 - `std::unique_ptr<parquet::ParquetFileReader>`；
@@ -122,6 +123,8 @@ Parquet schema、filter、projection 或 table-level 语义。
 - 当前 row group 的 column readers。
 
 该状态不应暴露到 `FileReader` 基类，也不应暴露到 `IcebergTableReader`。
+命名对齐 DuckDB 的 `ParquetReaderScanState`，但内部仍然使用 Arrow Parquet core
+reader 作为物理列读取实现。
 
 ### ParquetColumnReaderState
 
@@ -142,6 +145,32 @@ Parquet schema、filter、projection 或 table-level 语义。
 
 第一阶段可以只支持 flat columns，即 `max_repetition_level == 0`。复杂列需要额外的
 row boundary 状态。
+
+实际代码文件：
+
+```text
+be/src/format/new_parquet/column_reader.h
+be/src/format/new_parquet/column_reader.cpp
+```
+
+该模块对齐 DuckDB 的 `column_reader.*` 命名，但职责不同：DuckDB 的
+`ColumnReader` 自己处理 page/encoding/definition/repetition 解码；Doris 新实现中，
+底层解码由 Arrow Parquet core `TypedColumnReader` 完成，`column_reader.*` 只负责
+把 Arrow 读出的 file-local values 转换成 Doris-owned column。
+
+### ParquetStatistics
+
+实际代码文件：
+
+```text
+be/src/format/new_parquet/parquet_statistics.h
+be/src/format/new_parquet/parquet_statistics.cpp
+```
+
+该模块对齐 DuckDB 的 `parquet_statistics.*` 命名，作为 row group statistics、page
+index、bloom filter pruning 的统一入口。当前阶段实现保守返回全部 row group，后续
+所有基于 Parquet metadata 的 pruning 都应放在这里，避免把 stats/bloom filter 逻辑塞回
+`ParquetReader` 的 scan 调度代码。
 
 ## 方法设计
 
@@ -464,7 +493,20 @@ Arrow Parquet `ReadBatch` 返回两类数量：
 
 - 支持 BYTE_ARRAY / FIXED_LEN_BYTE_ARRAY string/binary。
 - 支持 decimal physical representation。
-- 支持 INT96 和 logical timestamp。
+- 支持 INT64 physical 的 logical / converted timestamp。
+- INT96 和 TIMESTAMPTZ 作为后续兼容性子任务。
+
+当前实现说明：
+
+- 已支持 `BYTE_ARRAY` / `FIXED_LEN_BYTE_ARRAY` 到 Doris `String`，读取时会复制
+  Parquet page buffer 中的字节到 Doris column。
+- 已支持 precision <= 38 的 decimal，物理类型覆盖 `INT32`、`INT64`、`BYTE_ARRAY` 和
+  `FIXED_LEN_BYTE_ARRAY`，byte array 按 Parquet 规范的 big-endian two's complement
+  unscaled value 解码到 `DECIMAL128I`。
+- 已支持 INT64 physical 的 logical / converted timestamp millis 和 micros，输出
+  `DateTimeV2`，当前使用 UTC 做基础转换。
+- 暂未支持 `INT96`、`TIMESTAMPTZ`、nanosecond timestamp 和 `DECIMAL256`。这些路径需要
+  明确 timezone、兼容性和溢出策略后单独实现。
 
 验收：
 

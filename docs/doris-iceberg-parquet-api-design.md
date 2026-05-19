@@ -278,7 +278,7 @@ public:
 实际 API 文件：
 
 ```text
-be/src/format/parquet/parquet_reader.h
+be/src/format/new_parquet/parquet_reader.h
 ```
 
 实际命名空间：
