@@ -20,25 +20,28 @@ package org.apache.doris.nereids.processor.post;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGroupJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalGroupJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import org.apache.doris.nereids.util.ExpressionUtils;
 
 /**
  * Post-Process processor that fuses PhysicalHashAggregate(PhysicalHashJoin)
@@ -52,25 +55,26 @@ public class GroupJoinFusePostProcessor extends PlanPostProcessor {
     @Override
     public Plan visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> agg, CascadesContext ctx) {
         agg = (PhysicalHashAggregate<? extends Plan>) super.visit(agg, ctx);
-        if (!canFuse(agg, ctx)) {
+        Optional<FusionContext> fusionContext = tryCreateFusionContext(agg, ctx);
+        if (!fusionContext.isPresent()) {
             return agg;
         }
-        PhysicalHashJoin<? extends Plan, ? extends Plan> join =
-                (PhysicalHashJoin<? extends Plan, ? extends Plan>) agg.child();
+        FusionContext context = fusionContext.get();
+        PhysicalHashJoin<? extends Plan, ? extends Plan> join = context.join;
 
         PhysicalGroupJoin<Plan, Plan> groupJoin = new PhysicalGroupJoin<>(
                 join.getJoinType(),
                 join.getHashJoinConjuncts(),
                 join.getOtherJoinConjuncts(),
                 join.getDistributeHint(),
-                agg.getGroupByExpressions(),
-                agg.getOutputExpressions(),
-                agg.getPartitionExpressions().orElse(ImmutableList.of()),
+                context.groupByExpressions,
+                context.outputExpressions,
+                context.partitionExpressions,
                 agg.getLogicalProperties(),
-                join.child(0),
-                join.child(1));
+                context.probeChild,
+                context.buildChild);
 
-        Statistics newStats = deriveGroupJoinStats(groupJoin, agg, join);
+        Statistics newStats = deriveGroupJoinStats(groupJoin);
         if (newStats != null) {
             groupJoin = groupJoin.withPhysicalPropertiesAndStats(
                     groupJoin.getPhysicalProperties(), newStats);
@@ -81,42 +85,76 @@ public class GroupJoinFusePostProcessor extends PlanPostProcessor {
         return groupJoin;
     }
 
-    private boolean canFuse(PhysicalHashAggregate<? extends Plan> agg, CascadesContext ctx) {
+    private Optional<FusionContext> tryCreateFusionContext(
+            PhysicalHashAggregate<? extends Plan> agg, CascadesContext ctx) {
         if (!ctx.getConnectContext().getSessionVariable().enableGroupJoin) {
-            return false;
+            return Optional.empty();
         }
         Plan child = agg.child();
+        Map<Slot, Expression> projectReplaceMap = Collections.emptyMap();
+        if (child instanceof PhysicalProject) {
+            PhysicalProject<? extends Plan> project = (PhysicalProject<? extends Plan>) child;
+            projectReplaceMap = ExpressionUtils.generateReplaceMap(project.getProjects());
+            child = project.child();
+        }
         if (!(child instanceof PhysicalHashJoin)) {
-            return false;
+            return Optional.empty();
         }
         PhysicalHashJoin<? extends Plan, ? extends Plan> join =
                 (PhysicalHashJoin<? extends Plan, ? extends Plan>) child;
         JoinType joinType = join.getJoinType();
         if (joinType != JoinType.INNER_JOIN && joinType != JoinType.LEFT_OUTER_JOIN) {
-            return false;
+            return Optional.empty();
         }
-        Set<Expression> joinEqKeys = new HashSet<>();
-        for (Expression conjunct : join.getHashJoinConjuncts()) {
-            joinEqKeys.addAll(conjunct.getInputSlots());
-        }
-        for (Expression groupBy : agg.getGroupByExpressions()) {
-            if (!joinEqKeys.containsAll(groupBy.getInputSlots())) {
-                return false;
+        List<Expression> groupByExpressions = ExpressionUtils.replace(
+                agg.getGroupByExpressions(), projectReplaceMap);
+        List<NamedExpression> outputExpressions = ExpressionUtils.replaceNamedExpressions(
+                agg.getOutputExpressions(), projectReplaceMap);
+        List<Expression> partitionExpressions = ExpressionUtils.replace(
+                agg.getPartitionExpressions().orElse(ImmutableList.of()), projectReplaceMap);
+        for (Expression groupBy : groupByExpressions) {
+            if (!join.getOutputSet().containsAll(groupBy.getInputSlots())) {
+                return Optional.empty();
             }
         }
-        for (NamedExpression expr : agg.getOutputExpressions()) {
+        for (NamedExpression expr : outputExpressions) {
             if (containsDistinctAggregation(expr)) {
-                return false;
+                return Optional.empty();
             }
             if (!isSupportedAggregateFunction(expr)) {
-                return false;
+                return Optional.empty();
             }
         }
-        AggMode aggMode = agg.getAggMode();
-        if (aggMode != AggMode.INPUT_TO_BUFFER) {
-            return false;
+        return chooseChildren(join, outputExpressions)
+                .map(children -> new FusionContext(join, groupByExpressions, outputExpressions,
+                        partitionExpressions, children.probeChild, children.buildChild));
+    }
+
+    private Optional<GroupJoinChildren> chooseChildren(
+            PhysicalHashJoin<? extends Plan, ? extends Plan> join, List<NamedExpression> outputExpressions) {
+        Set<Slot> aggregateInputSlots = collectAggregateInputSlots(outputExpressions);
+        if (aggregateInputSlots.isEmpty()) {
+            return Optional.of(new GroupJoinChildren(join.child(0), join.child(1)));
         }
-        return true;
+        boolean fromLeft = join.left().getOutputSet().containsAll(aggregateInputSlots);
+        boolean fromRight = join.right().getOutputSet().containsAll(aggregateInputSlots);
+        if (fromRight) {
+            return Optional.of(new GroupJoinChildren(join.child(0), join.child(1)));
+        }
+        if (fromLeft && join.getJoinType() == JoinType.INNER_JOIN) {
+            return Optional.of(new GroupJoinChildren(join.child(1), join.child(0)));
+        }
+        return Optional.empty();
+    }
+
+    private Set<Slot> collectAggregateInputSlots(List<NamedExpression> outputExpressions) {
+        Set<Slot> inputSlots = new HashSet<>();
+        for (NamedExpression expr : outputExpressions) {
+            ExpressionUtils.collect(ImmutableList.of(expr),
+                    e -> e instanceof AggregateFunction)
+                    .forEach(agg -> inputSlots.addAll(((Expression) agg).getInputSlots()));
+        }
+        return inputSlots;
     }
 
     private boolean containsDistinctAggregation(Expression expr) {
@@ -135,15 +173,13 @@ public class GroupJoinFusePostProcessor extends PlanPostProcessor {
         });
     }
 
-    private Statistics deriveGroupJoinStats(PhysicalGroupJoin<Plan, Plan> groupJoin,
-                                            PhysicalHashAggregate<? extends Plan> agg,
-                                            PhysicalHashJoin<? extends Plan, ? extends Plan> join) {
-        Statistics buildStats = join.child(1).getStats();
+    private Statistics deriveGroupJoinStats(PhysicalGroupJoin<Plan, Plan> groupJoin) {
+        Statistics buildStats = groupJoin.right().getStats();
         if (buildStats == null) {
             return null;
         }
         double estimatedGroupCount = buildStats.getRowCount();
-        for (Expression groupBy : agg.getGroupByExpressions()) {
+        for (Expression groupBy : groupJoin.getGroupByExpressions()) {
             if (groupBy instanceof SlotReference) {
                 SlotReference slot = (SlotReference) groupBy;
                 ColumnStatistic colStats = buildStats.columnStatistics().get(slot);
@@ -153,8 +189,8 @@ public class GroupJoinFusePostProcessor extends PlanPostProcessor {
             }
         }
         double outputRowCount;
-        Statistics probeStats = join.child(0).getStats();
-        if (join.getJoinType() == JoinType.LEFT_OUTER_JOIN && probeStats != null) {
+        Statistics probeStats = groupJoin.left().getStats();
+        if (groupJoin.getJoinType() == JoinType.LEFT_OUTER_JOIN && probeStats != null) {
             outputRowCount = probeStats.getRowCount();
         } else if (probeStats != null) {
             double matchRate = estimatedGroupCount / Math.max(1.0, probeStats.getRowCount());
@@ -164,5 +200,35 @@ public class GroupJoinFusePostProcessor extends PlanPostProcessor {
             outputRowCount = estimatedGroupCount;
         }
         return new Statistics(outputRowCount, buildStats.columnStatistics());
+    }
+
+    private static class FusionContext {
+        private final PhysicalHashJoin<? extends Plan, ? extends Plan> join;
+        private final List<Expression> groupByExpressions;
+        private final List<NamedExpression> outputExpressions;
+        private final List<Expression> partitionExpressions;
+        private final Plan probeChild;
+        private final Plan buildChild;
+
+        private FusionContext(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
+                List<Expression> groupByExpressions, List<NamedExpression> outputExpressions,
+                List<Expression> partitionExpressions, Plan probeChild, Plan buildChild) {
+            this.join = join;
+            this.groupByExpressions = groupByExpressions;
+            this.outputExpressions = outputExpressions;
+            this.partitionExpressions = partitionExpressions;
+            this.probeChild = probeChild;
+            this.buildChild = buildChild;
+        }
+    }
+
+    private static class GroupJoinChildren {
+        private final Plan probeChild;
+        private final Plan buildChild;
+
+        private GroupJoinChildren(Plan probeChild, Plan buildChild) {
+            this.probeChild = probeChild;
+            this.buildChild = buildChild;
+        }
     }
 }
