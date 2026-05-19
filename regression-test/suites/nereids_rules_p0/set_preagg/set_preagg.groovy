@@ -270,6 +270,9 @@ suite("set_preagg") {
             order by 1, 2;
         """)
         notContains "PREAGGREGATION: OFF"
+        contains "(preagg_t1), PREAGGREGATION: ON"
+        contains "(preagg_t2), PREAGGREGATION: ON"
+        contains "(preagg_t3), PREAGGREGATION: OFF"
     }
 
     explain {
@@ -288,6 +291,9 @@ suite("set_preagg") {
             order by 1, 2;
         """)
         notContains "PREAGGREGATION: OFF"
+        contains "(preagg_t1), PREAGGREGATION: ON"
+        contains "(preagg_t2), PREAGGREGATION: ON"
+        contains "(preagg_t3), PREAGGREGATION: OFF"
     }
 
     explain {
