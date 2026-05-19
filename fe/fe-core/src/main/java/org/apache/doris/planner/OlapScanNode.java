@@ -218,8 +218,16 @@ public class OlapScanNode extends ScanNode {
 
     private Column globalRowIdColumn;
 
+    private final boolean incrementalScan;
+
     // Constructs node to scan given data files of table 'tbl'.
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, ScanContext scanContext) {
+        this (id, desc, planNodeName, scanContext, false);
+    }
+
+    // Constructs node to scan given data files of table 'tbl'.
+    public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, ScanContext scanContext,
+                        boolean incrementalScan) {
         super(id, desc, planNodeName, scanContext);
         olapTable = (OlapTable) desc.getTable();
         tableNameInPlan = olapTable.getName();
@@ -238,6 +246,7 @@ public class OlapScanNode extends ScanNode {
                 columnId++;
             }
         }
+        this.incrementalScan = incrementalScan;
     }
 
 
@@ -527,6 +536,12 @@ public class OlapScanNode extends ScanNode {
             );
             paloRange.setVersionHash("");
             paloRange.setTabletId(tabletId);
+            if (incrementalScan) {
+                paloRange.setStartTso(((RowBinlogTableWrapper) olapTable)
+                        .getParent().getStreamUpdate(partition.getId()).first);
+                paloRange.setEndTso(((RowBinlogTableWrapper) olapTable)
+                        .getParent().getStreamUpdate(partition.getId()).second);
+            }
 
             // random shuffle List && only collect one copy
             //

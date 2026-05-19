@@ -17,6 +17,8 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
+
 import com.google.common.base.Preconditions;
 
 /**
@@ -25,6 +27,7 @@ import com.google.common.base.Preconditions;
 public class RowBinlogTableWrapper extends OlapTableWrapper {
 
     private final MaterializedIndexMeta rowBinlogMeta;
+    private OlapTableStreamWrapper parent;
 
     public RowBinlogTableWrapper(OlapTable originTable) {
         super(originTable, originTable.getName(), originTable.getRowBinlogMeta().getSchema(), KeysType.DUP_KEYS);
@@ -55,5 +58,13 @@ public class RowBinlogTableWrapper extends OlapTableWrapper {
             return partition.getIndex(originTable.getBaseIndexId());
         }
         return null;
+    }
+
+    public void setParent(OlapTableStreamWrapper parent) {
+        this.parent = parent;
+    }
+
+    public OlapTableStreamWrapper getParent() {
+        return parent;
     }
 }

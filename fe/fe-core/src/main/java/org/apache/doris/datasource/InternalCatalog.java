@@ -3995,6 +3995,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             BaseTableStream newStream;
             TableIf baseTable = baseCatalog.getDbOrDdlException(createStreamInfo.getBaseTableName().getDb())
                     .getTableOrDdlException(createStreamInfo.getBaseTableName().getTbl());
+            // check base table type is supported for stream
+            checkBaseTableAvailable(baseTable);
             // lock base table for stream init
             baseTable.readLock();
             try {
@@ -4023,6 +4025,20 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
             Env.getCurrentEnv().getTableStreamManager().addTableStream(newStream);
             LOG.info("successfully create stream[{}]", streamName);
+        }
+    }
+
+    void checkBaseTableAvailable(TableIf tableIf) throws DdlException {
+        if (!BaseTableStream.isTableTypeSupported(tableIf)) {
+            throw new DdlException("Base table type " + tableIf.getType()
+                    + " is not supported for create table stream");
+        }
+        if (tableIf instanceof OlapTable) {
+            OlapTable olapTable = (OlapTable) tableIf;
+            if (!olapTable.needRowBinlog()) {
+                throw new DdlException("Base Olap table " + olapTable.getQualifiedName()
+                        + " need to enable row binlog for table stream");
+            }
         }
     }
 }

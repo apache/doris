@@ -1096,4 +1096,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
     public boolean supportPruneNestedColumn() {
         return true;
     }
+
+    public boolean isIncrementalScan() {
+        return false;
+    }
 }

@@ -173,6 +173,10 @@ public class OlapTableStream extends BaseTableStream {
                 && partition.hasData();
     }
 
+    public boolean hasHistoricalData(long partitionId) {
+        return historicalPartitionOffset.containsKey(partitionId);
+    }
+
     public Pair<Long, Long> getStreamUpdate(Long partitionId) {
         Long next = null;
         Long prev = null;
