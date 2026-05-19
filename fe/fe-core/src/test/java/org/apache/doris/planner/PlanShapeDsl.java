@@ -91,6 +91,10 @@ public interface PlanShapeDsl {
         return PlanShape.olapScan(tableName, children);
     }
 
+    default PlanShape<OlapScanNode> olapScan() {
+        return PlanShape.olapScan();
+    }
+
     default PlanShape<ExchangeNode> exchange(PlanShape<?>... children) {
         return PlanShape.exchange(children);
     }
@@ -111,6 +115,14 @@ public interface PlanShapeDsl {
         return PlanShape.union(children);
     }
 
+    default PlanShape<NestedLoopJoinNode> nestedLoopJoin(PlanShape<?>... children) {
+        return PlanShape.nestedLoopJoin(children);
+    }
+
+    default PlanShape<PartitionSortNode> partitionSort(PlanShape<?>... children) {
+        return PlanShape.partitionSort(children);
+    }
+
     // ---- assertion entry points ----
 
     default void assertMatches(PlanNode root, PlanShape<?> shape) {
@@ -119,5 +131,18 @@ public interface PlanShapeDsl {
 
     default void assertMatchesAnyFragment(List<PlanFragment> fragments, PlanShape<?> shape) {
         PlanShape.assertMatchesAnyFragment(fragments, shape);
+    }
+
+    /**
+     * Print all fragments' plan trees to stderr.  Useful for one-off debugging
+     * when writing a new shape assertion: print first, copy the structure into a
+     * {@link PlanShape} pattern, then remove the call.  Not intended to be left
+     * in committed tests.
+     */
+    default void printFragmentPlans(List<PlanFragment> fragments) {
+        for (PlanFragment f : fragments) {
+            System.err.println("=== fragment " + f.getFragmentId() + " ===");
+            System.err.println(PlanShape.prettyPrint(f.getPlanRoot()));
+        }
     }
 }
