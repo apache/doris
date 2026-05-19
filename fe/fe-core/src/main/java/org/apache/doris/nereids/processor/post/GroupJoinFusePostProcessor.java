@@ -125,26 +125,20 @@ public class GroupJoinFusePostProcessor extends PlanPostProcessor {
                 return Optional.empty();
             }
         }
-        return chooseChildren(join, outputExpressions)
-                .map(children -> new FusionContext(join, groupByExpressions, outputExpressions,
-                        partitionExpressions, children.probeChild, children.buildChild));
+        if (!canUseOriginalChildren(join, outputExpressions)) {
+            return Optional.empty();
+        }
+        return Optional.of(new FusionContext(join, groupByExpressions, outputExpressions,
+                partitionExpressions, join.child(0), join.child(1)));
     }
 
-    private Optional<GroupJoinChildren> chooseChildren(
+    private boolean canUseOriginalChildren(
             PhysicalHashJoin<? extends Plan, ? extends Plan> join, List<NamedExpression> outputExpressions) {
         Set<Slot> aggregateInputSlots = collectAggregateInputSlots(outputExpressions);
         if (aggregateInputSlots.isEmpty()) {
-            return Optional.of(new GroupJoinChildren(join.child(0), join.child(1)));
+            return true;
         }
-        boolean fromLeft = join.left().getOutputSet().containsAll(aggregateInputSlots);
-        boolean fromRight = join.right().getOutputSet().containsAll(aggregateInputSlots);
-        if (fromRight) {
-            return Optional.of(new GroupJoinChildren(join.child(0), join.child(1)));
-        }
-        if (fromLeft && join.getJoinType() == JoinType.INNER_JOIN) {
-            return Optional.of(new GroupJoinChildren(join.child(1), join.child(0)));
-        }
-        return Optional.empty();
+        return join.right().getOutputSet().containsAll(aggregateInputSlots);
     }
 
     private Set<Slot> collectAggregateInputSlots(List<NamedExpression> outputExpressions) {
@@ -222,13 +216,4 @@ public class GroupJoinFusePostProcessor extends PlanPostProcessor {
         }
     }
 
-    private static class GroupJoinChildren {
-        private final Plan probeChild;
-        private final Plan buildChild;
-
-        private GroupJoinChildren(Plan probeChild, Plan buildChild) {
-            this.probeChild = probeChild;
-            this.buildChild = buildChild;
-        }
-    }
 }
