@@ -270,7 +270,7 @@ public:
     // modify the expiration time about the key
     void modify_expiration_time(const UInt128Wrapper& key, uint64_t new_expiration_time);
 
-    // Shrink the block size. old_size is always larged than new_size.
+    // Reset the block size and keep FileBlock, LRU queue, and cache counters consistent.
     void reset_range(const UInt128Wrapper&, size_t offset, size_t old_size, size_t new_size,
                      std::lock_guard<std::mutex>& cache_lock);
 
