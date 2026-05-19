@@ -117,7 +117,8 @@ Parquet schema、filter、projection 或 table-level 语义。
 - `std::shared_ptr<parquet::FileMetaData>`；
 - `const parquet::SchemaDescriptor*`；
 - row group 总数、当前 row group 下标；
-- projected column ordinals；
+- projected top-level file field ids；
+- required leaf column ordinals；
 - selected row groups；
 - 当前 row group 的 `parquet::RowGroupReader`；
 - 当前 row group 的 column readers。
@@ -128,7 +129,7 @@ reader 作为物理列读取实现。
 
 ### ParquetColumnReader
 
-为每个 projected leaf column 维护一个 `ParquetColumnReader` 对象。这个对象是 Doris
+为每个 projected file field 维护一个 `ParquetColumnReader` 对象。这个对象是 Doris
 自己的 file-local column reader 抽象，当前内部包装 Arrow Parquet core
 `parquet::ColumnReader`，后续可以在同一抽象下扩展 `skip`、selective read、cache/reuse
 和复杂类型递归读取。
@@ -240,8 +241,8 @@ index、bloom filter pruning 的统一入口。当前阶段实现保守返回全
 职责：
 
 - 保存 scan request。
-- 校验 projected file columns 是否存在于 Parquet schema。
-- 将 `projected_file_columns` 转成 Parquet leaf column ordinal。
+- 校验 projected file columns 是否存在于 top-level Parquet file schema。
+- 将 projected top-level fields 展开成实际需要打开的 Parquet leaf column ordinals。
 - 根据 `local_filters` 执行 row group pruning。
 - 生成 selected row group 列表。
 - 初始化 row group 游标。
@@ -271,7 +272,8 @@ index、bloom filter pruning 的统一入口。当前阶段实现保守返回全
 职责：
 
 - 如果当前 row group 没有打开，打开下一个 selected row group。
-- 通过 `ParquetColumnReaderFactory` 为当前 row group 创建 projected column readers。
+- 只为 required leaf columns 创建 Arrow Parquet core `ColumnReader`。
+- 通过 `ParquetColumnReaderFactory` 为 projected top-level fields 创建 Doris column readers。
 - 按 batch size 读取一批 file-local rows。
 - 将 decoded values 写入 Doris columns。
 - 当前 row group 读完后切换到下一个 selected row group。
@@ -311,6 +313,15 @@ index、bloom filter pruning 的统一入口。当前阶段实现保守返回全
 
 `ParquetReader` 输出的是 file-local block。block 列顺序应与 `FileScanRequest` 中的
 `projected_file_columns` 一致。
+
+当前列裁剪语义：
+
+- `FileScanRequest::projected_file_columns` 表示输出 block 需要的 top-level file fields。
+- `ParquetReader` 会把这些 top-level fields 展开成 `required_leaf_columns`。
+- 打开 row group 时，只对 `required_leaf_columns` 调用 Arrow
+  `RowGroupReader::Column(leaf_column_id)`。
+- required struct 会展开读取其全部 child leaves；struct 内部字段级裁剪不是当前阶段能力。
+- 空 projection 不创建任何 Arrow column reader，只推进 row group 行游标并返回行数。
 
 建议流程：
 

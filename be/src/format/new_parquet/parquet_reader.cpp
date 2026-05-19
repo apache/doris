@@ -148,9 +148,11 @@ struct ParquetReaderScanState {
     const ::parquet::SchemaDescriptor* schema = nullptr;
     std::vector<std::unique_ptr<ParquetColumnSchema>> file_schema;
 
-    // 当前 scan 的 top-level file-local projection 和 row group 列表。阶段一先保守选择全部 row
-    // groups；后续 row group/page/bloom pruning 只消费 FileLocalFilter。
+    // 当前 scan 的 top-level file-local projection、物理需要打开的 leaf columns 和 row
+    // group 列表。projected_fields 决定输出 block；required_leaf_columns 决定实际向 Arrow
+    // Parquet core 请求哪些 leaf column reader。
     std::vector<int> projected_fields;
+    std::vector<int> required_leaf_columns;
     std::vector<int> selected_row_groups;
     size_t next_row_group_idx = 0;
     std::shared_ptr<::parquet::RowGroupReader> current_row_group;
@@ -194,6 +196,36 @@ void fill_schema_field(const ParquetColumnSchema& column_schema, reader::SchemaF
     }
 }
 
+void mark_required_leaf_columns(const ParquetColumnSchema& column_schema,
+                                std::vector<bool>* required_leaf_columns) {
+    if (column_schema.kind == ParquetColumnSchemaKind::PRIMITIVE) {
+        if (column_schema.leaf_column_id >= 0 &&
+            column_schema.leaf_column_id < static_cast<int>(required_leaf_columns->size())) {
+            (*required_leaf_columns)[column_schema.leaf_column_id] = true;
+        }
+        return;
+    }
+    for (const auto& child : column_schema.children) {
+        mark_required_leaf_columns(*child, required_leaf_columns);
+    }
+}
+
+void collect_required_leaf_columns(const std::vector<std::unique_ptr<ParquetColumnSchema>>& fields,
+                                   const std::vector<int>& projected_fields, int num_leaf_columns,
+                                   std::vector<int>* required_leaf_columns) {
+    required_leaf_columns->clear();
+    std::vector<bool> required(static_cast<size_t>(num_leaf_columns), false);
+    for (int field_id : projected_fields) {
+        mark_required_leaf_columns(*fields[field_id], &required);
+    }
+    required_leaf_columns->reserve(projected_fields.size());
+    for (int leaf_column_id = 0; leaf_column_id < num_leaf_columns; ++leaf_column_id) {
+        if (required[leaf_column_id]) {
+            required_leaf_columns->push_back(leaf_column_id);
+        }
+    }
+}
+
 Status open_next_row_group(ParquetReaderScanState* state, bool* has_row_group) {
     *has_row_group = false;
     while (state->next_row_group_idx < state->selected_row_groups.size()) {
@@ -221,8 +253,7 @@ Status open_next_row_group(ParquetReaderScanState* state, bool* has_row_group) {
 
         std::vector<std::shared_ptr<::parquet::ColumnReader>> arrow_readers(
                 state->schema->num_columns());
-        for (int leaf_column_id = 0; leaf_column_id < state->schema->num_columns();
-             ++leaf_column_id) {
+        for (int leaf_column_id : state->required_leaf_columns) {
             arrow_readers[leaf_column_id] = state->current_row_group->Column(leaf_column_id);
             if (arrow_readers[leaf_column_id] == nullptr) {
                 return Status::Corruption(
@@ -345,6 +376,8 @@ Status ParquetReader::init(const reader::FileScanRequest& request) {
         }
         _state->projected_fields.push_back(column_id);
     }
+    collect_required_leaf_columns(_state->file_schema, _state->projected_fields,
+                                  _state->schema->num_columns(), &_state->required_leaf_columns);
 
     RETURN_IF_ERROR(select_row_groups_by_statistics(*_state->metadata, request,
                                                     &_state->selected_row_groups));
