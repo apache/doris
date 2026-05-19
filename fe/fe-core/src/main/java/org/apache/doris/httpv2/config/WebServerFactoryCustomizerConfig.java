@@ -40,6 +40,25 @@ public class WebServerFactoryCustomizerConfig implements WebServerFactoryCustomi
             );
         }
 
+        if (Config.jetty_server_max_unconsumed_request_content_reads == 0) {
+            if (Config.enable_https) {
+                factory.addServerCustomizers(
+                        server -> {
+                            HttpConfiguration httpConfiguration = new HttpConfiguration();
+                            httpConfiguration.setSecurePort(Config.https_port);
+                            httpConfiguration.setSecureScheme("https");
+
+                            ServerConnector connector = new ServerConnector(server);
+                            connector.addConnectionFactory(new HttpConnectionFactory(httpConfiguration));
+                            connector.setPort(Config.http_port);
+
+                            server.addConnector(connector);
+                        }
+                );
+            }
+            return;
+        }
+
         factory.addServerCustomizers(
                 server -> {
                     if (Config.enable_https) {
