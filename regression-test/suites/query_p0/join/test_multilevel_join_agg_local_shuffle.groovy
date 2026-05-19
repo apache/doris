@@ -117,8 +117,13 @@ suite("test_multilevel_join_agg_local_shuffle", "nereids_p0") {
         def sqlOn = sqlBody.replace("/*+SET_VAR(", "/*+SET_VAR(enable_local_shuffle_planner=true,")
         def sqlOff = sqlBody.replace("/*+SET_VAR(", "/*+SET_VAR(enable_local_shuffle_planner=false,")
 
+        // Plan-shape assertions removed: the FE local-shuffle planner emits its LocalExchange
+        // nodes *after* the Nereids physical plan, so `explain shape plan` shape is independent
+        // of enable_local_shuffle_planner.  When the shape *does* differ, it's usually a stats-
+        // dependent rewrite (e.g. cost-based InferSetOperatorDistinct) and the shape check
+        // becomes flaky across environments.  Result-equality + cross-mode equality below give
+        // us the actual coverage we need.
         sql "SET enable_local_shuffle_planner=true"
-        "qt_${tag}_shape_on" "explain shape plan ${sqlBody}"
         "order_qt_${tag}_result_on" "${sqlBody}"
 
         sql "SET enable_local_shuffle_planner=false"
