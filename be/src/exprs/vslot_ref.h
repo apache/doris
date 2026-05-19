@@ -73,6 +73,10 @@ public:
 
     double execute_cost() const override { return 0.0; }
 
+protected:
+    VSlotRef(int slot_id, int column_id, int column_uniq_id)
+            : _slot_id(slot_id), _column_id(column_id), _column_uniq_id(column_uniq_id) {}
+
 private:
     int _slot_id;
     int _column_id;

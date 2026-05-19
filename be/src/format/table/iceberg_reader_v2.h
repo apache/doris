@@ -60,27 +60,7 @@ struct IcebergScanTask final : public reader::ScanTask {
 // FileReader 完成 data file 物理读取，不继承具体文件格式 reader。
 class IcebergTableReader : public reader::TableReader {
 public:
-    IcebergTableReader() = default;
-
     ~IcebergTableReader() override = default;
-
-    // 初始化一次 Iceberg table scan。
-    // options 必须一次性提供 schema、projection/filter 和 scan tasks，避免暴露
-    // bind/set_tasks 等半初始化阶段。
-    Status init(reader::TableReadOptions options) override {
-        // 一次性保存 Iceberg table scan 所需输入。TableReader 负责 reader 切换流程；
-        // IcebergTableReader 只提供后续要打开的 task 以及 table/file schema 映射语义。
-        return reader::TableReader::init(std::move(options));
-    }
-
-    // 关闭当前 Iceberg scan。
-    // 先让 TableReader 关闭当前 task reader，再释放 IcebergTableReader 持有的底层
-    // FileReader。
-    Status close() override {
-        RETURN_IF_ERROR(reader::TableReader::close());
-        _data_reader.reset();
-        return Status::OK();
-    }
 
 protected:
     // 将 file-local block 转换为 table/global schema block。

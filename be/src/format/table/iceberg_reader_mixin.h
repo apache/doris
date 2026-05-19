@@ -341,9 +341,6 @@ protected:
     // id -> block column name
     std::unordered_map<int, std::string> _id_to_block_column_name;
 
-    // File column names used during init
-    std::vector<std::string> _file_col_names;
-
     std::function<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>()>
             _create_topn_row_id_column_iterator;
 
