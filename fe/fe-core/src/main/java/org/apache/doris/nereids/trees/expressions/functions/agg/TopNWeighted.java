@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
@@ -202,6 +203,19 @@ public class TopNWeighted extends NullableAggregateFunction
         if (arity() == 4 && !getArgument(3).isConstant()) {
             throw new AnalysisException(
                     "topn_weighted requires fourth parameter must be a constant: "
+                            + this.toSql());
+        }
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        Expression topNCount = getArgument(2);
+        if (topNCount.isNullLiteral()) {
+            return;
+        }
+        if (!(topNCount instanceof Literal) || ((Literal) topNCount).getDouble() <= 0) {
+            throw new AnalysisException(
+                    "topn_weighted requires third parameter must be a constant positive integer: "
                             + this.toSql());
         }
     }
