@@ -99,6 +99,8 @@ public:
 
     bool is_udf_function() const override { return true; }
 
+    bool is_python_udf_function() const override { return true; }
+
 private:
     const TFunction& _fn;
     const DataTypes _argument_types;

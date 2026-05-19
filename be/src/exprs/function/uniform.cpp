@@ -78,7 +78,8 @@ struct UniformIntImpl {
 
         for (int i = 0; i < input_rows_count; i++) {
             // Use gen value as seed for each row
-            auto seed = (*gen_column)[i].get<TYPE_BIGINT>();
+            const size_t seed_index = gen_column->size() == 1 ? 0 : i;
+            auto seed = (*gen_column)[seed_index].get<TYPE_BIGINT>();
             std::mt19937_64 generator(seed);
             std::uniform_int_distribution<int64_t> distribution(min, max);
             res_data[i] = distribution(generator);
@@ -126,7 +127,8 @@ struct UniformDoubleImpl {
 
         for (int i = 0; i < input_rows_count; i++) {
             // Use gen value as seed for each row
-            auto seed = (*gen_column)[i].get<TYPE_BIGINT>();
+            const size_t seed_index = gen_column->size() == 1 ? 0 : i;
+            auto seed = (*gen_column)[seed_index].get<TYPE_BIGINT>();
             std::mt19937_64 generator(seed);
             std::uniform_real_distribution<double> distribution(min, max);
             res_data[i] = distribution(generator);
@@ -156,6 +158,8 @@ public:
     DataTypes get_variadic_argument_types_impl() const override {
         return Impl::get_variadic_argument_types();
     }
+
+    ColumnNumbers get_arguments_that_are_always_constant() const override { return {0, 1}; }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         // init_function_context do set_constant_cols for FRAGMENT_LOCAL scope
