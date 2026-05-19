@@ -66,10 +66,10 @@ public:
         _need_historical_value = need_historical_value;
     }
 
-    bool isCCRBinlogFormat() const {
+    bool is_ccr_binlog_format() const {
         return _binlog_format == BinlogFormatPB::STATEMENT_AND_SNAPSHOT;
     }
-    bool isRowBinlogFormat() const { return _binlog_format == BinlogFormatPB::ROW; }
+    bool is_row_binlog_format() const { return _binlog_format == BinlogFormatPB::ROW; }
 
     BinlogConfig& operator=(const TBinlogConfig& config);
     BinlogConfig& operator=(const BinlogConfigPB& config);

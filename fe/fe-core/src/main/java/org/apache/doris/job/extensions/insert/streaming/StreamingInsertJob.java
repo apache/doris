@@ -94,6 +94,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -174,6 +175,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @SerializedName("ccn")
     private volatile String cloudCluster;
 
+    /** Source tables this job syncs. */
+    @Getter
+    @SerializedName("st")
+    private List<String> syncTables;
+
     // The sampling window starts at the beginning of the sampling window.
     // If the error rate exceeds `max_filter_ratio` within the window, the sampling fails.
     @Setter
@@ -238,6 +244,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             init();
             checkRequiredSourceProperties();
             List<String> createTbls = createTableIfNotExists();
+            this.syncTables = createTbls;
             if (sourceProperties.get(DataSourceConfigKeys.INCLUDE_TABLES) == null) {
                 // cdc need the final includeTables
                 String includeTables = String.join(",", createTbls);
@@ -246,8 +253,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             StreamingJobUtils.resolveAndValidateSource(
                     dataSourceType, sourceProperties, String.valueOf(getJobId()), createTbls);
             this.offsetProvider = createOffsetProvider(getConvertedSourceProperties());
-            JdbcSourceOffsetProvider rdsOffsetProvider = (JdbcSourceOffsetProvider) this.offsetProvider;
-            rdsOffsetProvider.splitChunks(createTbls);
+            this.offsetProvider.initOnCreate(this.syncTables);
         } catch (Exception ex) {
             log.warn("init streaming job for {} failed", dataSourceType, ex);
             throw new RuntimeException(ex.getMessage());
@@ -396,10 +402,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.originTvfProps = currentTvf.getProperties().getMap();
             this.offsetProvider = createOffsetProvider(sourceProperties);
             this.offsetProvider.ensureInitialized(getJobId(), originTvfProps);
+            // cdc_stream TVF has TABLE; S3 TVF doesn't, so syncTables stays null there.
+            String tvfTable = originTvfProps.get(DataSourceConfigKeys.TABLE);
+            this.syncTables = tvfTable == null ? null : Collections.singletonList(tvfTable);
             // Validate source-side resources (e.g. PG slot/publication ownership) once at job
             // creation so conflicts fail fast. No-op for standalone cdc_stream TVF (no job).
             StreamingJobUtils.validateTvfSource(tvfType, originTvfProps, String.valueOf(getJobId()));
-            this.offsetProvider.initOnCreate();
+            this.offsetProvider.initOnCreate(this.syncTables);
             // validate offset props, only for s3 cause s3 tvf no offset prop
             if (jobProperties.getOffsetProperty() != null
                     && S3TableValuedFunction.NAME.equalsIgnoreCase(tvfType)) {
@@ -714,6 +723,28 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_STREAMING_JOB_GET_META_LANTENCY.increase(end - start);
                 MetricRepo.COUNTER_STREAMING_JOB_GET_META_COUNT.increase(1L);
+            }
+        }
+    }
+
+    /**
+     * Advance one batch of split fetching if there are still tables to split.
+     * Called by scheduler each tick (PENDING/RUNNING). Mirrors fetchMeta error handling.
+     */
+    public void advanceSplitsIfNeed() throws JobException {
+        if (offsetProvider.noMoreSplits()) {
+            return;
+        }
+        try {
+            offsetProvider.advanceSplits();
+        } catch (Exception ex) {
+            log.warn("advance splits failed, job id: {}", getJobId(), ex);
+            if (this.getFailureReason() == null
+                    || !InternalErrorCode.MANUAL_PAUSE_ERR.equals(this.getFailureReason().getCode())) {
+                this.setFailureReason(new FailureReason(
+                        InternalErrorCode.GET_REMOTE_DATA_ERROR,
+                        "Failed to advance splits, " + ex.getMessage()));
+                this.updateJobStatus(JobStatus.PAUSED);
             }
         }
     }
@@ -1487,6 +1518,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     public void replayOffsetProviderIfNeed() throws JobException {
         if (offsetProvider != null) {
+            // when fe restart, offsetProvider.jobId/sourceProperties may be null
+            offsetProvider.ensureInitialized(getJobId(), getProviderProps());
             offsetProvider.replayIfNeed(this);
         }
     }

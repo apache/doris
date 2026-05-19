@@ -22,6 +22,7 @@
 #pragma once
 
 #include <mutex>
+#include <shared_mutex>
 
 #ifdef BE_TEST
 namespace doris {
@@ -93,6 +94,27 @@ private:
     std::mutex _mutex;
 };
 
+// Annotated shared mutex wrapper for use with Clang thread safety analysis.
+// Wraps std::shared_mutex and provides both exclusive and shared capability
+// operations so GUARDED_BY / REQUIRES_SHARED / etc. can reference it.
+class CAPABILITY("mutex") AnnotatedSharedMutex {
+public:
+    void lock() ACQUIRE() { _mutex.lock(); }
+    void unlock() RELEASE() { _mutex.unlock(); }
+    bool try_lock() TRY_ACQUIRE(true) { return _mutex.try_lock(); }
+
+    void lock_shared() ACQUIRE_SHARED() { _mutex.lock_shared(); }
+    void unlock_shared() RELEASE_SHARED() { _mutex.unlock_shared(); }
+    bool try_lock_shared() TRY_ACQUIRE_SHARED(true) { return _mutex.try_lock_shared(); }
+
+    // Access the underlying std::shared_mutex (e.g., for std::condition_variable_any).
+    // Use with care — this bypasses thread safety annotations.
+    std::shared_mutex& native_handle() { return _mutex; }
+
+private:
+    std::shared_mutex _mutex;
+};
+
 // RAII scoped lock guard annotated for thread safety analysis.
 // In BE_TEST builds, injects a random sleep before acquiring and after
 // releasing the lock to exercise concurrent code paths.
@@ -114,6 +136,32 @@ public:
 
     LockGuard(const LockGuard&) = delete;
     LockGuard& operator=(const LockGuard&) = delete;
+
+private:
+    MutexType& _mu;
+};
+
+// RAII scoped shared lock guard annotated for thread safety analysis.
+// In BE_TEST builds, injects a random sleep before acquiring and after
+// releasing the lock to exercise concurrent code paths.
+template <typename MutexType>
+class SCOPED_CAPABILITY SharedLockGuard {
+public:
+    explicit SharedLockGuard(MutexType& mu) ACQUIRE_SHARED(mu) : _mu(mu) {
+#ifdef BE_TEST
+        doris::mock_random_sleep();
+#endif
+        _mu.lock_shared();
+    }
+    ~SharedLockGuard() RELEASE() {
+        _mu.unlock_shared();
+#ifdef BE_TEST
+        doris::mock_random_sleep();
+#endif
+    }
+
+    SharedLockGuard(const SharedLockGuard&) = delete;
+    SharedLockGuard& operator=(const SharedLockGuard&) = delete;
 
 private:
     MutexType& _mu;

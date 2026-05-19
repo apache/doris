@@ -74,6 +74,8 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
           _key_ranges(std::move(params.key_ranges)),
           _tablet_reader_params({.tablet = std::move(params.tablet),
                                  .tablet_schema {},
+                                 .reader_type = params.read_row_binlog ? ReaderType::READER_BINLOG
+                                                                       : ReaderType::READER_QUERY,
                                  .aggregation = params.aggregation,
                                  .version = {0, params.version},
                                  .start_key {},
@@ -170,10 +172,13 @@ Status OlapScanner::_prepare_impl() {
     _tablet_reader->set_preferred_block_size_bytes(_state->preferred_block_size_bytes());
     {
         TOlapScanNode& olap_scan_node = local_state->olap_scan_node();
+        TabletSchemaSPtr source_tablet_schema =
+                _tablet_reader_params.reader_type == ReaderType::READER_BINLOG
+                        ? tablet->row_binlog_tablet_schema()
+                        : tablet->tablet_schema();
 
-        // Each scanner builds its own TabletSchema to avoid concurrent modification.
         tablet_schema = std::make_shared<TabletSchema>();
-        tablet_schema->copy_from(*tablet->tablet_schema());
+        tablet_schema->copy_from(*source_tablet_schema);
         if (olap_scan_node.__isset.columns_desc && !olap_scan_node.columns_desc.empty() &&
             olap_scan_node.columns_desc[0].col_unique_id >= 0) {
             tablet_schema->clear_columns();
@@ -206,6 +211,8 @@ Status OlapScanner::_prepare_impl() {
                             .skip_missing_versions = _state->skip_missing_version(),
                             .enable_fetch_rowsets_from_peers =
                                     config::enable_fetch_rowsets_from_peer_replicas,
+                            .capture_row_binlog =
+                                    _tablet_reader_params.reader_type == ReaderType::READER_BINLOG,
                             .enable_prefer_cached_rowset =
                                     config::is_cloud_mode() ? _state->enable_prefer_cached_rowset()
                                                             : false,
@@ -217,7 +224,6 @@ Status OlapScanner::_prepare_impl() {
                 LOG(WARNING) << "fail to init reader. res=" << maybe_read_source.error();
                 return maybe_read_source.error();
             }
-
             read_source = std::move(maybe_read_source.value());
 
             if (config::enable_mow_verbose_log && tablet->enable_unique_key_merge_on_write()) {
@@ -248,7 +254,7 @@ Status OlapScanner::_prepare_impl() {
         _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>();
 
         io::IOContext io_ctx {
-                .reader_type = ReaderType::READER_QUERY,
+                .reader_type = _tablet_reader_params.reader_type,
                 .expiration_time = tablet->ttl_seconds(),
                 .query_id = &_state->query_id(),
                 .file_cache_stats = &_tablet_reader->mutable_stats()->file_cache_stats,
@@ -308,7 +314,6 @@ Status OlapScanner::_init_tablet_reader_params(
     RETURN_IF_ERROR(_init_variant_columns());
     RETURN_IF_ERROR(_init_return_columns());
 
-    _tablet_reader_params.reader_type = ReaderType::READER_QUERY;
     _tablet_reader_params.push_down_agg_type_opt = _local_state->get_push_down_agg_type();
 
     // TODO: If a new runtime filter arrives after `_conjuncts` move to `_common_expr_ctxs_push_down`,

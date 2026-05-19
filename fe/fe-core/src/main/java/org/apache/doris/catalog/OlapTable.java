@@ -1510,6 +1510,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return partition;
     }
 
+    /**
+     * Get the materialized index for scan planning.
+     *
+     * <p>Default behavior is equivalent to {@link Partition#getIndex(long)}.
+     * Wrapper tables may override this to redirect index selection (e.g. row-binlog wrapper
+     * uses the base index's tablets while keeping a different schema/index meta).
+     */
+    public MaterializedIndex getPartitionIndex(Partition partition, long indexId) {
+        return partition.getIndex(indexId);
+    }
+
     public PartitionItem getPartitionItemOrAnalysisException(String partitionName) throws AnalysisException {
         Partition partition = nameToPartition.get(partitionName);
         if (partition == null) {
@@ -2344,7 +2355,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return getBinlogConfig().isEnableForStreaming();
     }
 
-    public void createNewRowBinlogMeta(IdGeneratorBuffer idGeneratorBuffer) {
+    public void createNewRowBinlogMeta(IdGeneratorBuffer idGeneratorBuffer, long dbId)
+            throws DdlException {
         writeLock();
         try {
             List<Column> schema = generateTableRowBinlogSchema();
@@ -2356,6 +2368,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             rowBinlogMeta.initSchemaColumnUniqueId();
             rowBinlogMeta.setRowBinlogIndexId(indexId);
             this.setRowBinlogMeta(rowBinlogMeta, BinlogUtils.wrapBinlogName(this.name));
+
+            // todo: support multi column for autoIncrementGenerator
+            if (autoIncrementGenerator != null) {
+                throw new DdlException("enable binlog isn't allowed on the table with auto-increment column");
+            }
         } finally {
             writeUnlock();
         }
@@ -3311,6 +3328,15 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 autoIncrementGenerator.setEditLog(Env.getCurrentEnv().getEditLog());
                 break;
             }
+        }
+
+        if (needRowBinlog()) {
+            // use auto-increment allocator to improve locality of Binlog LSN.
+            Preconditions.checkState(autoIncrementGenerator == null);
+            MaterializedIndexMeta rowBinlogMeta = getRowBinlogMeta();
+            Preconditions.checkNotNull(rowBinlogMeta);
+            autoIncrementGenerator = new AutoIncrementGenerator(dbId, id, Column.BINLOG_LSN_AUTO_INC_ID, 1L);
+            autoIncrementGenerator.setEditLog(Env.getCurrentEnv().getEditLog());
         }
     }
 
