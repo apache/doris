@@ -104,7 +104,7 @@ public class PushProjectIntoUnion extends OneRewriteRuleFactory {
             Set<Slot> uniqueFunctionSlots = Sets.newHashSet();
             for (int i = 0; i < constExprs.size(); i++) {
                 NamedExpression ne = constExprs.get(i);
-                if (ne.containsUniqueFunction()) {
+                if (ne.containsVolatileExpression()) {
                     uniqueFunctionSlots.add(union.getOutput().get(i));
                 }
             }

@@ -208,7 +208,7 @@ public class PhysicalBucketedHashAggregate<CHILD_TYPE extends Plan> extends Phys
     public void computeUnique(DataTrait.Builder builder) {
         DataTrait childFd = child(0).getLogicalProperties().getTrait();
 
-        if (groupByExpressions.stream().anyMatch(Expression::containsUniqueFunction)) {
+        if (groupByExpressions.stream().anyMatch(Expression::containsVolatileExpression)) {
             return;
         }
 
@@ -240,7 +240,7 @@ public class PhysicalBucketedHashAggregate<CHILD_TYPE extends Plan> extends Phys
         DataTrait childFd = child(0).getLogicalProperties().getTrait();
         builder.addUniformSlot(childFd);
 
-        if (groupByExpressions.stream().anyMatch(Expression::containsUniqueFunction)) {
+        if (groupByExpressions.stream().anyMatch(Expression::containsVolatileExpression)) {
             return;
         }
 

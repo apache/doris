@@ -60,7 +60,7 @@ public class PythonUdfBuilder extends UdfBuilder {
 
     @Override
     public Class<? extends BoundFunction> functionClass() {
-        return JavaUdf.class;
+        return PythonUdf.class;
     }
 
     @Override
@@ -88,7 +88,7 @@ public class PythonUdfBuilder extends UdfBuilder {
         for (int i = 0; i < exprs.size(); ++i) {
             processedExprs.add(TypeCoercionUtils.castIfNotSameType(exprs.get(i), argTypes.get(i)));
         }
-        return Pair.ofSame(udf.withChildren(processedExprs));
+        return Pair.ofSame(udf.withFreshVolatileIdentity().withChildren(processedExprs));
     }
 
     @Override
