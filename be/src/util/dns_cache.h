@@ -19,6 +19,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <iostream>
 #include <shared_mutex>
 #include <string>
@@ -33,7 +34,14 @@ namespace doris {
 // fe/fe-core/src/main/java/org/apache/doris/common/DNSCache.java
 class DNSCache {
 public:
+    using Resolver = std::function<Status(const std::string&, std::string&, bool)>;
+
     DNSCache();
+
+    // Test-only constructor: uses a custom resolver and does NOT start the
+    // background refresh thread.  Call refresh_for_test() to drive one cycle.
+    explicit DNSCache(Resolver resolver);
+
     ~DNSCache();
 
     // get ip by hostname
@@ -44,6 +52,16 @@ public:
         std::shared_lock<std::shared_mutex> lock(mutex);
         return cache.size();
     }
+
+    uint32_t failure_count_for_test(const std::string& hostname) const {
+        std::shared_lock<std::shared_mutex> lock(mutex);
+        auto it = failure_count.find(hostname);
+        return it != failure_count.end() ? it->second : 0;
+    }
+
+    // Run one refresh cycle synchronously (no sleep).  Only meaningful when
+    // the object was constructed with the test constructor (no background thread).
+    void refresh_for_test() { _refresh_once(); }
 
 private:
     // Resolve hostname to IP address.
@@ -57,11 +75,15 @@ private:
     // erase a hostname from cache (with unique_lock)
     void _erase(const std::string& hostname);
 
+    // one refresh cycle: update every cached hostname and evict if needed
+    void _refresh_once();
+
     // a function for refresh daemon thread
     // update cache at fix internal
     void _refresh_cache();
 
 private:
+    Resolver _resolver; // null → use global hostname_to_ip
     // hostname -> ip
     std::unordered_map<std::string, std::string> cache;
     // hostname -> consecutive resolution failure count
@@ -70,5 +92,7 @@ private:
     std::thread refresh_thread;
     bool stop_refresh = false;
 };
+
+} // end of namespace doris
 
 } // end of namespace doris
