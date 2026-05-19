@@ -31,7 +31,10 @@ import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
 import org.apache.doris.nereids.rules.rewrite.UnCorrelatedApplyFilter;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -45,6 +48,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Set;
 
 public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatchSupported {
 
@@ -87,6 +91,53 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
 
     private final String cteWithDiffRelationId = "with s as (select * from supplier) select * from s as s1, s as s2";
 
+    private final List<String> correlatedSubqueryWithCteSqls = ImmutableList.of(
+            "SELECT * FROM supplier outer_s WHERE EXISTS ("
+                    + "WITH picked AS (SELECT s_suppkey, s_region FROM supplier) "
+                    + "SELECT 1 FROM picked WHERE picked.s_region = outer_s.s_region)",
+            "SELECT * FROM supplier outer_s WHERE outer_s.s_suppkey IN ("
+                    + "WITH picked AS (SELECT s_suppkey, s_region FROM supplier) "
+                    + "SELECT picked.s_suppkey FROM picked WHERE picked.s_region = outer_s.s_region)"
+    );
+
+    private final String scalarSubqueryWithCteSql = "SELECT * FROM supplier outer_s WHERE outer_s.s_suppkey = ("
+            + "WITH picked AS (SELECT s_suppkey FROM supplier WHERE s_nation = 'PERU') "
+            + "SELECT min(picked.s_suppkey) FROM picked)";
+
+    private final String correlatedSlotUnderCteProducerSql = "SELECT * FROM supplier outer_s WHERE EXISTS ("
+            + "WITH picked AS (SELECT s_suppkey FROM supplier WHERE s_region = outer_s.s_region) "
+            + "SELECT 1 FROM picked)";
+
+    private final String correlatedOuterCteAliasShadowSql = "WITH seed AS ("
+            + "SELECT id, grp, dt, ts6, ts3_n, i_nn, i_n, j_nn FROM cte_alias_shadow_outer "
+            + "UNION ALL "
+            + "SELECT id, grp, dt, ts6, ts3_n, i_nn, i_n, j_nn "
+            + "FROM cte_alias_shadow_outer WHERE 1 = 0) "
+            + "SELECT id FROM seed s "
+            + "WHERE s.i_nn IN ("
+            + "SELECT CASE WHEN b.i_n IS NULL THEN b.j_nn ELSE b.i_nn END "
+            + "FROM cte_alias_shadow_inner b "
+            + "WHERE b.grp = s.grp "
+            + "AND (DATE(b.ts6) = s.dt OR b.ts3_n <=> s.ts3_n))";
+
+    private final String correlatedOuterCteAliasNestedShadowSql = "WITH seed AS ("
+            + "SELECT id, grp, v FROM cte_alias_shadow_outer_nested "
+            + "UNION ALL "
+            + "SELECT id, grp, v FROM cte_alias_shadow_outer_nested WHERE 1 = 0) "
+            + "SELECT id FROM seed s "
+            + "WHERE EXISTS ("
+            + "SELECT 1 FROM cte_alias_shadow_inner_nested b "
+            + "WHERE b.probe = s.v.x)";
+
+    private final String currentScopeNestedFieldShouldShadowUnusableOuterPrefixSql = "WITH seed AS ("
+            + "SELECT id, v FROM cte_alias_shadow_outer_prefix_only "
+            + "UNION ALL "
+            + "SELECT id, v FROM cte_alias_shadow_outer_prefix_only WHERE 1 = 0) "
+            + "SELECT id FROM seed s "
+            + "WHERE EXISTS ("
+            + "SELECT 1 FROM cte_alias_shadow_inner_local_nested b "
+            + "WHERE b.probe = s.v.x)";
+
     private final List<String> testSqls = ImmutableList.of(
             multiCte, cteWithColumnAlias, cteConsumerInSubQuery, cteConsumerJoin, cteReferToAnotherOne, cteJoinSelf,
             cteNested, cteInTheMiddle, cteWithDiffRelationId
@@ -99,6 +150,40 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
         SSBUtils.createTables(this);
         createView("CREATE VIEW V1 AS SELECT * FROM part");
         createView("CREATE VIEW V2 AS SELECT * FROM part");
+        createTables(
+                "create table test.cte_alias_shadow_outer\n"
+                        + "(id int, grp int, dt date, ts6 datetimev2(6) not null, ts3_n datetimev2(3) null, "
+                        + "i_nn int not null, i_n int null, j_nn int not null)\n"
+                        + "duplicate key(id, grp, dt)\n"
+                        + "distributed by hash(id) buckets 1\n"
+                        + "properties('replication_num' = '1');",
+                "create table test.cte_alias_shadow_inner\n"
+                        + "(id int, grp int, dt date, ts6 datetimev2(6) not null, ts3_n datetimev2(3) null, "
+                        + "i_nn int not null, i_n int null, j_nn int not null, s varchar(32) null)\n"
+                        + "duplicate key(id, grp, dt)\n"
+                        + "distributed by hash(id) buckets 1\n"
+                        + "properties('replication_num' = '1');",
+                "create table test.cte_alias_shadow_outer_nested\n"
+                        + "(id int, grp int, v struct<x:int>)\n"
+                        + "duplicate key(id, grp)\n"
+                        + "distributed by hash(id) buckets 1\n"
+                        + "properties('replication_num' = '1');",
+                "create table test.cte_alias_shadow_inner_nested\n"
+                        + "(grp int, probe int, s struct<v:struct<x:int>>)\n"
+                        + "duplicate key(grp, probe)\n"
+                        + "distributed by hash(grp) buckets 1\n"
+                        + "properties('replication_num' = '1');",
+                "create table test.cte_alias_shadow_outer_prefix_only\n"
+                        + "(id int, v int)\n"
+                        + "duplicate key(id)\n"
+                        + "distributed by hash(id) buckets 1\n"
+                        + "properties('replication_num' = '1');",
+                "create table test.cte_alias_shadow_inner_local_nested\n"
+                        + "(probe int, s struct<v:struct<x:int>>)\n"
+                        + "duplicate key(probe)\n"
+                        + "distributed by hash(probe) buckets 1\n"
+                        + "properties('replication_num' = '1');"
+        );
     }
 
     @Override
@@ -172,6 +257,73 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
                                 )
                         )
                 );
+    }
+
+    @Test
+    public void testCorrelatedSubqueryWithCte() throws Exception {
+        for (String sql : correlatedSubqueryWithCteSqls) {
+            StatementScopeIdGenerator.clear();
+            Plan plan = PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .getPlan();
+            Set<Plan> applyNodes = plan.collect(LogicalApply.class::isInstance);
+
+            Assertions.assertEquals(1, applyNodes.size(), sql);
+            LogicalApply<?, ?> apply = (LogicalApply<?, ?>) applyNodes.iterator().next();
+            Assertions.assertTrue(apply.isCorrelated(), sql);
+            Assertions.assertTrue(apply.child(1).anyMatch(LogicalCTEAnchor.class::isInstance), sql);
+        }
+    }
+
+    @Test
+    public void testScalarSubqueryWithCte() throws Exception {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze(scalarSubqueryWithCteSql)
+                .getPlan();
+        Set<Plan> cteAnchors = plan.collect(LogicalCTEAnchor.class::isInstance);
+
+        Assertions.assertFalse(cteAnchors.isEmpty());
+    }
+
+    @Test
+    public void testCorrelatedSlotUnderCteProducerInSubquery() {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(correlatedSlotUnderCteProducerSql),
+                "Not throw expected exception.");
+        Assertions.assertTrue(exception.getMessage().contains("Unsupported correlated subquery in cte"));
+    }
+
+    @Test
+    public void testCorrelatedOuterCteAliasNotShadowedByInnerColumn() {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze(correlatedOuterCteAliasShadowSql)
+                .getPlan();
+        Set<Plan> applyNodes = plan.collect(LogicalApply.class::isInstance);
+
+        Assertions.assertEquals(1, applyNodes.size());
+        Assertions.assertTrue(((LogicalApply<?, ?>) applyNodes.iterator().next()).isCorrelated());
+    }
+
+    @Test
+    public void testCorrelatedOuterCteAliasNestedReferenceNotShadowedByInnerColumn() {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze(correlatedOuterCteAliasNestedShadowSql)
+                .getPlan();
+        Set<Plan> applyNodes = plan.collect(LogicalApply.class::isInstance);
+
+        Assertions.assertEquals(1, applyNodes.size());
+        Assertions.assertTrue(((LogicalApply<?, ?>) applyNodes.iterator().next()).isCorrelated());
+    }
+
+    @Test
+    public void testCurrentScopeNestedFieldShadowsUnusableOuterPrefix() {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze(currentScopeNestedFieldShouldShadowUnusableOuterPrefixSql)
+                .getPlan();
+        Set<Plan> applyNodes = plan.collect(LogicalApply.class::isInstance);
+
+        Assertions.assertEquals(1, applyNodes.size());
+        Assertions.assertFalse(((LogicalApply<?, ?>) applyNodes.iterator().next()).isCorrelated());
     }
 
     @Test

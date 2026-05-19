@@ -306,14 +306,45 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     @Override
     public Expression visitUnboundSlot(UnboundSlot unboundSlot, ExpressionRewriteContext context) {
         Optional<Scope> outerScope = getScope().getOuterScope();
-        Optional<List<? extends Expression>> boundedOpt = Optional.of(bindSlotByThisScope(unboundSlot));
-        boolean foundInThisScope = !boundedOpt.get().isEmpty();
+        AnalysisException thisScopeBindException = null;
+        List<? extends Expression> bounded;
+        int thisScopeExactPrefixLength = 0;
+        try {
+            bounded = bindSlotByThisScope(unboundSlot);
+            if (!bounded.isEmpty()) {
+                thisScopeExactPrefixLength = getExactSlotPrefixLength(unboundSlot, getScope());
+            }
+        } catch (AnalysisException e) {
+            if (bindSlotInOuterScope && outerScope.isPresent() && unboundSlot.getNameParts().size() > 1) {
+                bounded = ImmutableList.of();
+                thisScopeBindException = e;
+            } else {
+                throw e;
+            }
+        }
+        boolean foundInThisScope = !bounded.isEmpty();
         // Currently only looking for symbols on the previous level.
-        if (bindSlotInOuterScope && !foundInThisScope && outerScope.isPresent()) {
-            boundedOpt = Optional.of(bindSlotByScope(unboundSlot, outerScope.get()));
+        if (bindSlotInOuterScope && outerScope.isPresent()) {
+            if (!foundInThisScope) {
+                bounded = bindSlotByScope(unboundSlot, outerScope.get());
+            } else if (unboundSlot.getNameParts().size() > 1
+                    && getExactSlotPrefixLength(unboundSlot, outerScope.get()) > thisScopeExactPrefixLength) {
+                // Prefer the outer scope only after it can bind the full multipart reference.
+                // A longer outer prefix alone is not enough because the local scope may still be the
+                // only scope that can bind the nested-field path successfully.
+                try {
+                    bounded = bindSlotByScope(unboundSlot, outerScope.get());
+                    foundInThisScope = false;
+                } catch (AnalysisException e) {
+                    // Keep the current-scope binding when the outer scope only matches a longer prefix
+                    // but cannot bind the remaining nested fields.
+                }
+            }
+        }
+        if (!foundInThisScope && bounded.isEmpty() && thisScopeBindException != null) {
+            throw thisScopeBindException;
         }
         // it is heavy to deduplicate slots in scope. So we deduplicates bounded here
-        List<? extends Expression> bounded = boundedOpt.get();
         if (bounded.size() > 1) {
             bounded = bounded.stream().distinct().collect(Collectors.toList());
         }
@@ -327,14 +358,18 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 return unboundSlot;
             case 1:
                 Expression firstBound = bounded.get(0);
-                if (!foundInThisScope && firstBound instanceof Slot
-                        && !outerScope.get().getCorrelatedSlots().contains(firstBound)) {
-                    if (currentPlan instanceof LogicalJoin) {
-                        throw new AnalysisException(
-                                "Unsupported correlated subquery with correlated slot in join conjuncts "
-                                        + currentPlan);
+                if (!foundInThisScope) {
+                    for (Slot correlatedSlot : firstBound.getInputSlots()) {
+                        if (outerScope.get().getCorrelatedSlots().contains(correlatedSlot)) {
+                            continue;
+                        }
+                        if (currentPlan instanceof LogicalJoin) {
+                            throw new AnalysisException(
+                                    "Unsupported correlated subquery with correlated slot in join conjuncts "
+                                            + currentPlan);
+                        }
+                        outerScope.get().getCorrelatedSlots().add(correlatedSlot);
                     }
-                    outerScope.get().getCorrelatedSlots().add((Slot) firstBound);
                 }
                 if (firstBound.getDataType() instanceof NestedColumnPrunable
                         || firstBound.getDataType().isVariantType()) {
@@ -1116,15 +1151,45 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
     protected List<Expression> bindExactSlotsByThisScope(UnboundSlot unboundSlot, Scope scope) {
         List<Expression> candidates = bindSlotByScope(unboundSlot, scope);
-        if (candidates.size() == 1) {
+        if (candidates.size() <= 1) {
             return candidates;
         }
-        List<Expression> extractSlots = Utils.filterImmutableList(candidates, bound ->
-                bound instanceof Slot && unboundSlot.getNameParts().size() == ((Slot) bound).getQualifier().size() + 1
-        );
-        // we should return origin candidates slots if extract slots is empty,
-        // and then throw an ambiguous exception
-        return !extractSlots.isEmpty() ? extractSlots : candidates;
+        int exactPrefixLength = getExactSlotPrefixLength(unboundSlot, scope);
+        if (exactPrefixLength == 0) {
+            return candidates;
+        }
+        List<Expression> exactCandidates = Utils.filterImmutableList(candidates,
+                bound -> getBoundExpressionExactPrefixLength(bound) == exactPrefixLength);
+        return !exactCandidates.isEmpty() ? exactCandidates : candidates;
+    }
+
+    protected int getExactSlotPrefixLength(UnboundSlot unboundSlot, Scope scope) {
+        List<String> nameParts = unboundSlot.getNameParts();
+        if (nameParts.size() >= 4 && !bindSingleSlotByCatalog(
+                nameParts.get(0), nameParts.get(1), nameParts.get(2), nameParts.get(3), scope).isEmpty()) {
+            return 4;
+        }
+        if (nameParts.size() >= 3 && !bindSingleSlotByDb(
+                nameParts.get(0), nameParts.get(1), nameParts.get(2), scope).isEmpty()) {
+            return 3;
+        }
+        if (nameParts.size() >= 2 && !bindSingleSlotByTable(nameParts.get(0), nameParts.get(1), scope).isEmpty()) {
+            return 2;
+        }
+        if (!bindSingleSlotByName(nameParts.get(0), scope).isEmpty()) {
+            return 1;
+        }
+        return 0;
+    }
+
+    private int getBoundExpressionExactPrefixLength(Expression bound) {
+        if (bound instanceof Slot) {
+            return ((Slot) bound).getQualifier().size() + 1;
+        }
+        if (bound instanceof Alias) {
+            return ((Alias) bound).getQualifier().size() + 1;
+        }
+        return 0;
     }
 
     private List<Slot> addSqlIndexInfo(List<Slot> slots, Optional<Pair<Integer, Integer>> indexInSql) {

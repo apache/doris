@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -33,6 +34,8 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
@@ -234,8 +237,16 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
                 getScope().getSlots(), getScope().getAsteriskSlots());
         subqueryContext.setOuterScope(subqueryScope);
         subqueryContext.newAnalyzer().analyze();
-        return new AnalyzedResult((LogicalPlan) subqueryContext.getRewritePlan(),
+        StatementContext statementContext = cascadesContext.getStatementContext();
+        subqueryContext.getRewritePlan().collect(LogicalCTEAnchor.class::isInstance).stream()
+                .forEach(cteAnchor -> statementContext.addToMustLineCTEs(((LogicalCTEAnchor) cteAnchor).getCteId()));
+        AnalyzedResult analyzedResult = new AnalyzedResult((LogicalPlan) subqueryContext.getRewritePlan(),
                 subqueryScope.getCorrelatedSlots());
+        if (analyzedResult.hasCorrelatedSlotsUnderCteProducer()) {
+            throw new AnalysisException(
+                    "Unsupported correlated subquery in cte " + analyzedResult.getLogicalPlan());
+        }
+        return analyzedResult;
     }
 
     public Scope getScope() {
@@ -271,6 +282,12 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             return correlatedSlots.isEmpty() ? false
                     : hasCorrelatedSlotsUnderNode(logicalPlan,
                             ImmutableSet.copyOf(correlatedSlots), LogicalAggregate.class);
+        }
+
+        public boolean hasCorrelatedSlotsUnderCteProducer() {
+            return correlatedSlots.isEmpty() ? false
+                    : hasCorrelatedSlotsUnderNode(logicalPlan,
+                            ImmutableSet.copyOf(correlatedSlots), LogicalCTEProducer.class);
         }
 
         private static <T> boolean hasCorrelatedSlotsUnderNode(Plan rootPlan,

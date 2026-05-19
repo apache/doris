@@ -466,6 +466,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     ),
                     // query rewrite support window, so add this rule here
                     custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION, AggScalarSubQueryToWindowFunction::new),
+                    // Pull CTE anchors out of the Apply subtree and inline CTEs when possible before
+                    // subquery unnesting, so the later Apply rewrite rules do not need to match CTE-specific nodes
+                    // inside the subquery.
+                    custom(RuleType.PULL_UP_CTE_ANCHOR, PullUpCteAnchor::new),
+                    custom(RuleType.CTE_INLINE, CTEInline::new),
                     bottomUp(
                             new EliminateUselessPlanUnderApply(),
                             // CorrelateApplyToUnCorrelateApply and ApplyToJoin
