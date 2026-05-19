@@ -25,6 +25,11 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
     def currentDb = (sql "select database()")[0][0]
     def table1 = "user_info_pg_normal1"
     def table2 = "user_info_pg_normal2"
+    // Decoy tables: PG `LIKE 'user_info_pg_normal1'` matches these because `_`
+    // is a single-char wildcard. Doris FE uses exact match so they MUST NOT
+    // appear in Doris. Guards FLINK-38965-class regressions in cdc-client.
+    def decoyTable1 = "userXinfo_pg_normal1"
+    def decoyTable2 = "user_info_pgXnormal1"
     def pgDB = "postgres"
     def pgSchema = "cdc_test"
     def pgUser = "postgres"
@@ -33,6 +38,8 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
     sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
     sql """drop table if exists ${currentDb}.${table1} force"""
     sql """drop table if exists ${currentDb}.${table2} force"""
+    sql """drop table if exists ${currentDb}.${decoyTable1} force"""
+    sql """drop table if exists ${currentDb}.${decoyTable2} force"""
 
     // Pre-create table2
     sql """
@@ -59,6 +66,8 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
             // sql """CREATE SCHEMA IF NOT EXISTS ${pgSchema}"""
             sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.${table1}"""
             sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.${table2}"""
+            sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.${decoyTable1}"""
+            sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.${decoyTable2}"""
             sql """CREATE TABLE ${pgDB}.${pgSchema}.${table1} (
                   "name" varchar(200),
                   "age" int2,
@@ -74,6 +83,20 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
             // mock snapshot data
             sql """INSERT INTO ${pgDB}.${pgSchema}.${table2} (name, age) VALUES ('A2', 1);"""
             sql """INSERT INTO ${pgDB}.${pgSchema}.${table2} (name, age) VALUES ('B2', 2);"""
+
+            // Rows prefixed 'DECOY_' must never reach Doris.
+            sql """CREATE TABLE ${pgDB}.${pgSchema}.${decoyTable1} (
+                  "name" varchar(200),
+                  "age" int2,
+                  PRIMARY KEY ("name")
+                )"""
+            sql """INSERT INTO ${pgDB}.${pgSchema}.${decoyTable1} (name, age) VALUES ('DECOY_X1', 91);"""
+            sql """CREATE TABLE ${pgDB}.${pgSchema}.${decoyTable2} (
+                  "name" varchar(200),
+                  "age" int2,
+                  PRIMARY KEY ("name")
+                )"""
+            sql """INSERT INTO ${pgDB}.${pgSchema}.${decoyTable2} (name, age) VALUES ('DECOY_X2', 92);"""
         }
 
         sql """CREATE JOB ${jobName}
@@ -100,6 +123,11 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
         assert showTables.size() == 1
         def showTables2 = sql """ show tables from ${currentDb} like '${table2}'; """
         assert showTables2.size() == 1
+        // Decoy tables must NOT be created in Doris.
+        def showDecoy1 = sql """ show tables from ${currentDb} like '${decoyTable1}'; """
+        assert showDecoy1.size() == 0
+        def showDecoy2 = sql """ show tables from ${currentDb} like '${decoyTable2}'; """
+        assert showDecoy2.size() == 0
 
         // check table schema correct
         def showTbl1 = sql """show create table ${currentDb}.${table1}"""
@@ -139,12 +167,19 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
             log.info("xminResult: " + xminResult)
             sql """UPDATE ${pgDB}.${pgSchema}.${table1} SET age = 10 WHERE name = 'B1';"""
             sql """DELETE FROM ${pgDB}.${pgSchema}.${table1} WHERE name = 'A1';"""
+            // DML on decoys; rows must not leak into Doris.
+            sql """INSERT INTO ${pgDB}.${pgSchema}.${decoyTable1} (name,age) VALUES ('DECOY_X1_incr',93);"""
+            sql """INSERT INTO ${pgDB}.${pgSchema}.${decoyTable2} (name,age) VALUES ('DECOY_X2_incr',94);"""
         }
 
         sleep(60000); // wait for cdc incremental data
 
         // check incremental data
         qt_select_binlog_table1 """ SELECT * FROM ${table1} order by name asc """
+
+        // No decoy rows must leak into table1.
+        def decoyLeak = sql """ SELECT count(1) FROM ${table1} WHERE name LIKE 'DECOY_%' """
+        assert decoyLeak.get(0).get(0) == 0
 
         def jobInfo = sql """
         select loadStatistic, status from jobs("type"="insert") where Name='${jobName}'
