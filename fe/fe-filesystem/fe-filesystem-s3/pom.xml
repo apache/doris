@@ -96,14 +96,6 @@ under the License.
     <build>
         <finalName>doris-fe-filesystem-s3</finalName>
         <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <configuration>
-                    <!-- Allow reflective access to ByteArrayOutputStream.count in S3OutputStreamTest -->
-                    <argLine>--add-opens=java.base/java.io=ALL-UNNAMED</argLine>
-                </configuration>
-            </plugin>
             <!-- Bind the JAR packaging to prepare-package (earlier than the default 'package')
                  so dependent modules' assembly plugins resolve the reactor artifact as a real
                  file rather than target/classes, avoiding "isn't a file" in parallel builds. -->

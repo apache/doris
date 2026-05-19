@@ -17,16 +17,33 @@
 
 package org.apache.doris.filesystem.oss;
 
+import org.apache.doris.filesystem.spi.RemoteObject;
+import org.apache.doris.filesystem.spi.RemoteObjects;
+import org.apache.doris.filesystem.spi.RequestBody;
+
 import com.aliyun.oss.OSS;
+import com.aliyun.oss.model.CopyObjectRequest;
+import com.aliyun.oss.model.DeleteObjectsRequest;
+import com.aliyun.oss.model.DeleteObjectsResult;
 import com.aliyun.oss.model.GeneratePresignedUrlRequest;
+import com.aliyun.oss.model.ListObjectsRequest;
+import com.aliyun.oss.model.OSSObjectSummary;
+import com.aliyun.oss.model.ObjectListing;
+import com.aliyun.oss.model.ObjectMetadata;
+import com.aliyun.oss.model.PutObjectRequest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -147,6 +164,29 @@ class OssObjStorageTest {
     }
 
     @Test
+    void constructor_extractsRegionFromStandardOssEndpoint() {
+        OSS mockOss = Mockito.mock(OSS.class);
+        Map<String, String> props = buildBasicProps();
+        props.remove("OSS_REGION");
+
+        OssObjStorage storage = new TestableOssObjStorage(props, mockOss);
+
+        Assertions.assertEquals("cn-hangzhou", storage.getProperties().get("OSS_REGION"));
+    }
+
+    @Test
+    void constructor_buildsEndpointFromRegionWhenEndpointMissing() {
+        OSS mockOss = Mockito.mock(OSS.class);
+        Map<String, String> props = buildBasicProps();
+        props.remove("OSS_ENDPOINT");
+
+        OssObjStorage storage = new TestableOssObjStorage(props, mockOss);
+
+        Assertions.assertEquals("oss-cn-hangzhou-internal.aliyuncs.com",
+                storage.getProperties().get("OSS_ENDPOINT"));
+    }
+
+    @Test
     void getPresignedUrl_expiryInFuture() throws Exception {
         long beforeMs = System.currentTimeMillis();
         OSS mockOss = Mockito.mock(OSS.class);
@@ -163,6 +203,116 @@ class OssObjStorageTest {
 
         OssObjStorage storage = new TestableOssObjStorage(buildBasicProps(), mockOss);
         storage.getPresignedUrl("key");
+    }
+
+    @Test
+    void getClient_returnsOssClient() throws Exception {
+        OSS mockOss = Mockito.mock(OSS.class);
+        OssObjStorage storage = new TestableOssObjStorage(buildBasicProps(), mockOss);
+
+        Assertions.assertSame(mockOss, storage.getClient());
+    }
+
+    @Test
+    void listObjects_usesOssNativeClientAndMapsResult() throws Exception {
+        OSS mockOss = Mockito.mock(OSS.class);
+        OSSObjectSummary summary = new OSSObjectSummary();
+        summary.setKey("stage/f1.parquet");
+        summary.setETag("etag-1");
+        summary.setSize(12L);
+        summary.setLastModified(new Date(123456789L));
+        ObjectListing listing = new ObjectListing();
+        listing.setObjectSummaries(Collections.singletonList(summary));
+        listing.setTruncated(true);
+        listing.setNextMarker("next-marker");
+        Mockito.when(mockOss.listObjects(Mockito.any(ListObjectsRequest.class)))
+                .thenReturn(listing);
+
+        OssObjStorage storage = new TestableOssObjStorage(buildBasicProps(), mockOss);
+
+        RemoteObjects result = storage.listObjects("oss://my-bucket/stage/", "marker-1");
+
+        Assertions.assertTrue(result.isTruncated());
+        Assertions.assertEquals("next-marker", result.getContinuationToken());
+        RemoteObject file = result.getObjectList().get(0);
+        Assertions.assertEquals("stage/f1.parquet", file.getKey());
+        Assertions.assertEquals("f1.parquet", file.getRelativePath());
+        Assertions.assertEquals("etag-1", file.getEtag());
+        Assertions.assertEquals(12L, file.getSize());
+        Assertions.assertEquals(123456789L, file.getModificationTime());
+        ArgumentCaptor<ListObjectsRequest> captor = ArgumentCaptor.forClass(ListObjectsRequest.class);
+        Mockito.verify(mockOss).listObjects(captor.capture());
+        Assertions.assertEquals("my-bucket", captor.getValue().getBucketName());
+        Assertions.assertEquals("stage/", captor.getValue().getPrefix());
+        Assertions.assertEquals("marker-1", captor.getValue().getMarker());
+    }
+
+    @Test
+    void headObject_usesOssNativeClientAndMapsMetadata() throws Exception {
+        OSS mockOss = Mockito.mock(OSS.class);
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(34L);
+        metadata.setHeader("ETag", "etag-head");
+        metadata.setLastModified(new Date(22334455L));
+        Mockito.when(mockOss.getObjectMetadata("my-bucket", "stage/f2.parquet"))
+                .thenReturn(metadata);
+
+        OssObjStorage storage = new TestableOssObjStorage(buildBasicProps(), mockOss);
+
+        RemoteObject result = storage.headObject("oss://my-bucket/stage/f2.parquet");
+
+        Assertions.assertEquals("stage/f2.parquet", result.getKey());
+        Assertions.assertEquals("stage/f2.parquet", result.getRelativePath());
+        Assertions.assertEquals("etag-head", result.getEtag());
+        Assertions.assertEquals(34L, result.getSize());
+        Assertions.assertEquals(22334455L, result.getModificationTime());
+    }
+
+    @Test
+    void putObject_usesOssNativeClientWithRequestBody() throws Exception {
+        OSS mockOss = Mockito.mock(OSS.class);
+        byte[] content = "hello oss".getBytes(StandardCharsets.UTF_8);
+        OssObjStorage storage = new TestableOssObjStorage(buildBasicProps(), mockOss);
+
+        storage.putObject("oss://my-bucket/stage/f3.txt",
+                RequestBody.of(new ByteArrayInputStream(content), content.length));
+
+        ArgumentCaptor<PutObjectRequest> captor = ArgumentCaptor.forClass(PutObjectRequest.class);
+        Mockito.verify(mockOss).putObject(captor.capture());
+        Assertions.assertEquals("my-bucket", captor.getValue().getBucketName());
+        Assertions.assertEquals("stage/f3.txt", captor.getValue().getKey());
+        Assertions.assertEquals(content.length, captor.getValue().getMetadata().getContentLength());
+    }
+
+    @Test
+    void copyObject_usesOssNativeClient() throws Exception {
+        OSS mockOss = Mockito.mock(OSS.class);
+        OssObjStorage storage = new TestableOssObjStorage(buildBasicProps(), mockOss);
+
+        storage.copyObject("oss://my-bucket/src.txt", "oss://my-bucket/dst.txt");
+
+        ArgumentCaptor<CopyObjectRequest> captor = ArgumentCaptor.forClass(CopyObjectRequest.class);
+        Mockito.verify(mockOss).copyObject(captor.capture());
+        Assertions.assertEquals("my-bucket", captor.getValue().getSourceBucketName());
+        Assertions.assertEquals("src.txt", captor.getValue().getSourceKey());
+        Assertions.assertEquals("my-bucket", captor.getValue().getDestinationBucketName());
+        Assertions.assertEquals("dst.txt", captor.getValue().getDestinationKey());
+    }
+
+    @Test
+    void deleteObjectsByKeys_usesOssNativeBatchDelete() throws Exception {
+        OSS mockOss = Mockito.mock(OSS.class);
+        Mockito.when(mockOss.deleteObjects(Mockito.any(DeleteObjectsRequest.class)))
+                .thenReturn(new DeleteObjectsResult(Collections.emptyList()));
+        OssObjStorage storage = new TestableOssObjStorage(buildBasicProps(), mockOss);
+
+        storage.deleteObjectsByKeys("my-bucket", List.of("a.txt", "b.txt"));
+
+        ArgumentCaptor<DeleteObjectsRequest> captor = ArgumentCaptor.forClass(DeleteObjectsRequest.class);
+        Mockito.verify(mockOss).deleteObjects(captor.capture());
+        Assertions.assertEquals("my-bucket", captor.getValue().getBucketName());
+        Assertions.assertTrue(captor.getValue().isQuiet());
+        Assertions.assertEquals(List.of("a.txt", "b.txt"), captor.getValue().getKeys());
     }
 
     // ------------------------------------------------------------------

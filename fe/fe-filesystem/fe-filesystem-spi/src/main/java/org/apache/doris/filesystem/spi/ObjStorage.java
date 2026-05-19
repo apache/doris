@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.spi;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.List;
 import java.util.Map;
 
@@ -110,6 +111,21 @@ public interface ObjStorage<C> extends AutoCloseable {
 
     RemoteObjects listObjects(String remotePath, String continuationToken) throws IOException;
 
+    default RemoteObjects listObjectsWithOptions(String remotePath, ObjectListOptions options) throws IOException {
+        if (options == null) {
+            return listObjects(remotePath, (String) null);
+        }
+        if (hasText(options.startAfter()) || options.maxKeys() > 0 || hasText(options.delimiter())) {
+            throw new UnsupportedOperationException(
+                    "listObjects with extended options not supported by " + getClass().getSimpleName());
+        }
+        return listObjects(remotePath, options.continuationToken());
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isEmpty();
+    }
+
     RemoteObject headObject(String remotePath) throws IOException;
 
     void putObject(String remotePath, RequestBody requestBody) throws IOException;
@@ -127,6 +143,15 @@ public interface ObjStorage<C> extends AutoCloseable {
             List<UploadPartResult> parts) throws IOException;
 
     void abortMultipartUpload(String remotePath, String uploadId) throws IOException;
+
+    default InputStream openInputStreamAt(String remotePath, long fromByte) throws IOException {
+        throw new UnsupportedOperationException(
+                "openInputStreamAt not supported by " + getClass().getSimpleName());
+    }
+
+    default long headObjectLastModified(String remotePath) throws IOException {
+        return headObject(remotePath).getModificationTime();
+    }
 
     Map<String, String> getProperties();
 

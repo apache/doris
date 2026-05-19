@@ -383,7 +383,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     /**
      * Opens an InputStream starting at {@code fromByte} using an HTTP Range request.
      */
-    InputStream openInputStreamAt(String remotePath, long fromByte) throws IOException {
+    @Override
+    public InputStream openInputStreamAt(String remotePath, long fromByte) throws IOException {
         try {
             AzureUri uri = AzureUri.parse(remotePath);
             BlobClient blobClient = getClient().getBlobContainerClient(uri.container())
@@ -403,7 +404,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     /**
      * Returns the last-modified time of the blob in milliseconds since epoch.
      */
-    long headObjectLastModified(String remotePath) throws IOException {
+    @Override
+    public long headObjectLastModified(String remotePath) throws IOException {
         try {
             AzureUri uri = AzureUri.parse(remotePath);
             BlobProperties props = getClient().getBlobContainerClient(uri.container())

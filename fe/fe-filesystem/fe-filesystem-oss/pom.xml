@@ -32,12 +32,12 @@ under the License.
     <artifactId>fe-filesystem-oss</artifactId>
     <packaging>jar</packaging>
     <name>Doris FE Filesystem - OSS</name>
-    <description>Alibaba Cloud OSS filesystem provider for Doris FE (delegates to S3FileSystem).</description>
+    <description>Alibaba Cloud OSS filesystem provider for Doris FE using the native OSS SDK.</description>
 
     <dependencies>
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>fe-filesystem-s3</artifactId>
+            <artifactId>fe-filesystem-spi</artifactId>
             <version>${revision}</version>
         </dependency>
         <!-- Alibaba Cloud OSS native SDK (presigned URL + transitively includes aliyun-java-sdk-core/sts) -->

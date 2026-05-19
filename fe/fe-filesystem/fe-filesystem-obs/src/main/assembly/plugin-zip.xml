@@ -24,8 +24,7 @@ under the License.
       *.jar           (all runtime deps: direct + transitive)
 
   The plugin jar is placed at root via <files> so that service-discovery scans
-  only root-level jars. All dependencies (including intra-doris modules such as
-  fe-filesystem-s3 inside fe-filesystem-cos) land in lib/ and are available for
+  only root-level jars. Provider runtime dependencies land in lib/ and are available for
   class loading but are NOT scanned for FileSystemProvider registrations.
 
   Jars already present in fe-core classpath are excluded from lib/:

@@ -18,11 +18,11 @@
 package org.apache.doris.filesystem.obs;
 
 import org.apache.doris.filesystem.FileSystem;
-import org.apache.doris.filesystem.s3.S3FileSystem;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
+import org.apache.commons.lang3.StringUtils;
+
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -30,43 +30,60 @@ import java.util.Map;
  *
  * <p>Registered via META-INF/services/org.apache.doris.filesystem.spi.FileSystemProvider.
  *
- * <p>Identified by an endpoint containing {@code myhuaweicloud.com}. Translates OBS-specific
- * property keys to S3-compatible keys and delegates core I/O to {@link S3FileSystem},
- * while {@link ObsObjStorage} overrides cloud-specific operations (presigned URL, STS)
- * using the Huawei Cloud native SDK.
+ * <p>Identified by an endpoint containing {@code myhuaweicloud.com}. OBS-specific property
+ * keys are consumed by {@link ObsObjStorage}, which uses the Huawei Cloud native SDK.
  */
-public class ObsFileSystemProvider implements FileSystemProvider {
+public class ObsFileSystemProvider implements FileSystemProvider<ObsFileSystemProperties> {
+
+    private static final String STORAGE_TYPE_KEY = "_STORAGE_TYPE_";
+    private static final String STORAGE_TYPE_OBS = "OBS";
+    private static final String PROVIDER_KEY = "provider";
+    private static final String FS_OBS_SUPPORT = "fs.obs.support";
+    private static final String[] ENDPOINT_NAMES = {
+            ObsFileSystemProperties.ENDPOINT, "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT",
+            "OBS_ENDPOINT"};
 
     @Override
     public boolean supports(Map<String, String> properties) {
-        if ("OBS".equals(properties.get("_STORAGE_TYPE_"))) {
+        if (isExplicitObs(properties)) {
             return true;
         }
-        String endpoint = properties.get("OBS_ENDPOINT");
-        if (endpoint == null) {
-            endpoint = properties.get("AWS_ENDPOINT");
-        }
+        String endpoint = firstPresent(properties, ENDPOINT_NAMES);
         return endpoint != null && endpoint.contains("myhuaweicloud.com");
     }
 
     @Override
+    public ObsFileSystemProperties bind(Map<String, String> properties) {
+        return ObsFileSystemProperties.of(properties);
+    }
+
+    @Override
+    public FileSystem create(ObsFileSystemProperties properties) throws IOException {
+        return new ObsFileSystem(new ObsObjStorage(properties));
+    }
+
+    @Override
     public FileSystem create(Map<String, String> properties) throws IOException {
-        Map<String, String> props = new HashMap<>(properties);
-        if (properties.containsKey("OBS_ENDPOINT")) {
-            props.put("AWS_ENDPOINT", properties.get("OBS_ENDPOINT"));
-        }
-        if (properties.containsKey("OBS_ACCESS_KEY")) {
-            props.put("AWS_ACCESS_KEY", properties.get("OBS_ACCESS_KEY"));
-        }
-        if (properties.containsKey("OBS_SECRET_KEY")) {
-            props.put("AWS_SECRET_KEY", properties.get("OBS_SECRET_KEY"));
-        }
-        props.put("use_path_style", "false");
-        return new S3FileSystem(new ObsObjStorage(props));
+        return create(bind(properties));
     }
 
     @Override
     public String name() {
         return "OBS";
+    }
+
+    private boolean isExplicitObs(Map<String, String> properties) {
+        return STORAGE_TYPE_OBS.equalsIgnoreCase(properties.get(STORAGE_TYPE_KEY))
+                || STORAGE_TYPE_OBS.equalsIgnoreCase(properties.get(PROVIDER_KEY))
+                || Boolean.parseBoolean(properties.getOrDefault(FS_OBS_SUPPORT, "false"));
+    }
+
+    private String firstPresent(Map<String, String> properties, String[] names) {
+        for (String name : names) {
+            if (StringUtils.isNotBlank(properties.get(name))) {
+                return properties.get(name);
+            }
+        }
+        return null;
     }
 }

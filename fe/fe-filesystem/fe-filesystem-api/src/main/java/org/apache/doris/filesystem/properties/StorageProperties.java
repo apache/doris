@@ -23,18 +23,16 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Parsed and validated FileSystem properties owned by a specific provider.
+ * FE-facing storage parameter model for creating file systems.
  *
- * <p>The API layer exposes this interface so framework code can pass typed
- * configuration between filesystem modules without depending on provider
- * implementations. Each provider is responsible for binding raw key-value
- * properties, validating them, and converting them to the formats required by
- * runtime clients, BE RPC adapters, or Hadoop clients.</p>
+ * <p>This API is the common contract for all storage providers. Implementations
+ * own raw parameter binding, validation, redaction metadata, and conversion to
+ * runtime-specific configuration maps.</p>
  */
-public interface FileSystemProperties extends StorageProperties {
+public interface StorageProperties {
 
     /**
-     * Returns the provider name, such as S3, OSS, COS, or OBS.
+     * Returns the provider name, such as S3, HDFS, Broker, Local, or OBS.
      */
     String providerName();
 
@@ -49,32 +47,32 @@ public interface FileSystemProperties extends StorageProperties {
     FileSystemType type();
 
     /**
-     * Returns the original raw properties passed to FileSystemProvider.bind().
-     *
-     * <p>The returned map is intended for diagnostics and compatibility paths.
-     * Callers should prefer typed accessors or conversion methods for runtime
-     * behavior.</p>
+     * Validates the already-bound property model.
+     */
+    default void validate() {
+    }
+
+    /**
+     * Returns the original raw properties passed to the provider.
      */
     Map<String, String> rawProperties();
 
     /**
      * Returns raw key-value pairs that matched provider-declared property aliases during binding.
-     *
-     * <p>If a provider accepts multiple aliases for the same setting, this map
-     * records which input keys were actually consumed. This is useful for auditing
-     * and for detecting unused or misspelled options without exposing provider
-     * implementation details.</p>
      */
     Map<String, String> matchedProperties();
 
     /**
      * Converts to the legacy key-value format used by existing FileSystem implementations.
-     *
-     * <p>This method exists as a migration bridge. New provider code should use
-     * typed accessors internally, while callers that still depend on the old map
-     * contract can continue to consume this representation.</p>
      */
     Map<String, String> toFileSystemKv();
+
+    /**
+     * Compatibility name for existing map-based filesystem creation paths.
+     */
+    default Map<String, String> toLegacyFileSystemKv() {
+        return toFileSystemKv();
+    }
 
     /**
      * Converts to backend storage properties if this provider supports BE access.

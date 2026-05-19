@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.azure;
 
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
@@ -34,7 +35,7 @@ import java.util.Map;
  * or an endpoint that contains a known Azure Blob Storage host suffix from one of the
  * sovereign clouds.
  */
-public class AzureFileSystemProvider implements FileSystemProvider {
+public class AzureFileSystemProvider implements FileSystemProvider<FileSystemProperties> {
 
     /**
      * Recognised Azure Blob Storage host suffixes across sovereign clouds.

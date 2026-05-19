@@ -22,6 +22,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -29,6 +31,28 @@ import java.util.Set;
  * All methods throw IOException (not UserException or checked vendor exceptions).
  */
 public interface FileSystem extends AutoCloseable {
+
+    /**
+     * Returns a provider-specific optional capability exposed through a stable API type.
+     *
+     * <p>Core filesystem operations must remain on {@link FileSystem}. Optional operations
+     * such as presigned URLs or temporary credentials should be exposed as capability
+     * interfaces so callers do not depend on concrete filesystem implementations.
+     */
+    default <T> Optional<T> capability(Class<T> capabilityType) {
+        Objects.requireNonNull(capabilityType, "capabilityType");
+        return Optional.empty();
+    }
+
+    /**
+     * Returns the requested capability or throws a clear error if the filesystem does not
+     * expose it.
+     */
+    default <T> T requireCapability(Class<T> capabilityType) {
+        Objects.requireNonNull(capabilityType, "capabilityType");
+        return capability(capabilityType).orElseThrow(() -> new UnsupportedOperationException(
+                getClass().getSimpleName() + " does not support " + capabilityType.getSimpleName()));
+    }
 
     boolean exists(Location location) throws IOException;
 

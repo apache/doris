@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.s3;
 
 import org.apache.doris.filesystem.spi.ObjStorage;
+import org.apache.doris.filesystem.spi.ObjectListOptions;
 import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.filesystem.spi.RemoteObjects;
 import org.apache.doris.filesystem.spi.StsCredentials;
@@ -194,12 +195,29 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     @Override
     public RemoteObjects listObjects(String remotePath, String continuationToken) throws IOException {
+        return listObjectsWithOptions(remotePath, ObjectListOptions.builder()
+                .continuationToken(continuationToken)
+                .build());
+    }
+
+    @Override
+    public RemoteObjects listObjectsWithOptions(String remotePath, ObjectListOptions options) throws IOException {
         S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
         ListObjectsV2Request.Builder builder = ListObjectsV2Request.builder()
                 .bucket(uri.bucket())
                 .prefix(uri.key());
-        if (StringUtils.isNotBlank(continuationToken)) {
-            builder.continuationToken(continuationToken);
+        if (options != null) {
+            if (StringUtils.isNotBlank(options.continuationToken())) {
+                builder.continuationToken(options.continuationToken());
+            } else if (StringUtils.isNotBlank(options.startAfter())) {
+                builder.startAfter(options.startAfter());
+            }
+            if (options.maxKeys() > 0) {
+                builder.maxKeys(options.maxKeys());
+            }
+            if (StringUtils.isNotBlank(options.delimiter())) {
+                builder.delimiter(options.delimiter());
+            }
         }
         try {
             ListObjectsV2Response response = getClient().listObjectsV2(builder.build());
@@ -242,31 +260,10 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
      */
     public RemoteObjects listObjects(String remotePath, String continuationToken, int maxKeys)
             throws IOException {
-        S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
-        ListObjectsV2Request.Builder builder = ListObjectsV2Request.builder()
-                .bucket(uri.bucket())
-                .prefix(uri.key());
-        if (maxKeys > 0) {
-            builder.maxKeys(maxKeys);
-        }
-        if (StringUtils.isNotBlank(continuationToken)) {
-            builder.continuationToken(continuationToken);
-        }
-        try {
-            ListObjectsV2Response response = getClient().listObjectsV2(builder.build());
-            List<org.apache.doris.filesystem.spi.RemoteObject> objects = response.contents().stream()
-                    .map(s3Obj -> new org.apache.doris.filesystem.spi.RemoteObject(
-                            s3Obj.key(),
-                            getRelativePath(uri.key(), s3Obj.key()),
-                            s3Obj.eTag(),
-                            s3Obj.size(),
-                            s3Obj.lastModified() != null ? s3Obj.lastModified().toEpochMilli() : 0L))
-                    .collect(Collectors.toList());
-            return new RemoteObjects(objects, response.isTruncated(),
-                    response.nextContinuationToken());
-        } catch (SdkException e) {
-            throw new IOException("Failed to list objects at " + remotePath + ": " + e.getMessage(), e);
-        }
+        return listObjectsWithOptions(remotePath, ObjectListOptions.builder()
+                .continuationToken(continuationToken)
+                .maxKeys(maxKeys)
+                .build());
     }
 
     /**
@@ -278,29 +275,10 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
      */
     public RemoteObjects listObjectsNonRecursive(String remotePath, String continuationToken)
             throws IOException {
-        S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
-        ListObjectsV2Request.Builder builder = ListObjectsV2Request.builder()
-                .bucket(uri.bucket())
-                .prefix(uri.key())
-                .delimiter("/");
-        if (StringUtils.isNotBlank(continuationToken)) {
-            builder.continuationToken(continuationToken);
-        }
-        try {
-            ListObjectsV2Response response = getClient().listObjectsV2(builder.build());
-            List<org.apache.doris.filesystem.spi.RemoteObject> objects = response.contents().stream()
-                    .map(s3Obj -> new org.apache.doris.filesystem.spi.RemoteObject(
-                            s3Obj.key(),
-                            getRelativePath(uri.key(), s3Obj.key()),
-                            s3Obj.eTag(),
-                            s3Obj.size(),
-                            s3Obj.lastModified() != null ? s3Obj.lastModified().toEpochMilli() : 0L))
-                    .collect(Collectors.toList());
-            return new RemoteObjects(objects, response.isTruncated(),
-                    response.nextContinuationToken());
-        } catch (SdkException e) {
-            throw new IOException("Failed to list objects at " + remotePath + ": " + e.getMessage(), e);
-        }
+        return listObjectsWithOptions(remotePath, ObjectListOptions.builder()
+                .continuationToken(continuationToken)
+                .delimiter("/")
+                .build());
     }
 
     @Override
@@ -458,7 +436,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     /**
      * Open an InputStream for reading an S3 object starting at a byte offset (HTTP Range request).
      */
-    InputStream openInputStreamAt(String remotePath, long fromByte) throws IOException {
+    @Override
+    public InputStream openInputStreamAt(String remotePath, long fromByte) throws IOException {
         S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
         try {
             GetObjectRequest.Builder req = GetObjectRequest.builder()
@@ -477,7 +456,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     /**
      * Returns the last-modified time of an S3 object in milliseconds since epoch.
      */
-    long headObjectLastModified(String remotePath) throws IOException {
+    @Override
+    public long headObjectLastModified(String remotePath) throws IOException {
         S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
         try {
             HeadObjectResponse resp = getClient().headObject(

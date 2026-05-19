@@ -38,7 +38,7 @@ import java.util.Map;
  * 2. Register in META-INF/services/org.apache.doris.filesystem.spi.FileSystemProvider.
  * 3. Have NO dependency on fe-core, fe-common, or fe-catalog.
  */
-public interface FileSystemProvider extends PluginFactory {
+public interface FileSystemProvider<P extends FileSystemProperties> extends PluginFactory {
 
     /**
      * Returns true if this provider can handle the given properties.
@@ -56,7 +56,7 @@ public interface FileSystemProvider extends PluginFactory {
      * return a validated immutable properties object. Legacy providers can continue to implement
      * {@link #create(Map)} directly during the migration period.
      */
-    default FileSystemProperties bind(Map<String, String> properties) {
+    default P bind(Map<String, String> properties) {
         throw new UnsupportedOperationException(
                 name() + " does not support typed FileSystemProperties binding yet.");
     }
@@ -67,8 +67,17 @@ public interface FileSystemProvider extends PluginFactory {
      * <p>The default implementation preserves compatibility for providers whose typed
      * properties can still be represented as legacy FileSystem key-value pairs.
      */
-    default FileSystem create(FileSystemProperties properties) throws IOException {
+    default FileSystem create(P properties) throws IOException {
         return create(properties.toFileSystemKv());
+    }
+
+    /**
+     * Creates a FileSystem instance from a properties object whose static type is not known
+     * at the registry or factory call site.
+     */
+    @SuppressWarnings("unchecked")
+    default FileSystem createUntyped(FileSystemProperties properties) throws IOException {
+        return create((P) properties);
     }
 
     /**

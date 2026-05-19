@@ -195,7 +195,8 @@ public final class S3FileSystemProperties
         return props;
     }
 
-    private void validate() {
+    @Override
+    public void validate() {
         new ParamRules()
                 .requireTogether(new String[] {accessKey, secretKey},
                         "s3.access_key and s3.secret_key must be set together")

@@ -32,13 +32,22 @@ under the License.
     <artifactId>fe-filesystem-obs</artifactId>
     <packaging>jar</packaging>
     <name>Doris FE Filesystem - OBS</name>
-    <description>Huawei Cloud OBS filesystem provider for Doris FE (delegates to S3FileSystem).</description>
+    <description>Huawei Cloud OBS filesystem provider for Doris FE using the native OBS SDK.</description>
 
     <dependencies>
         <dependency>
             <groupId>org.apache.doris</groupId>
-            <artifactId>fe-filesystem-s3</artifactId>
+            <artifactId>fe-filesystem-spi</artifactId>
             <version>${revision}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-foundation</artifactId>
+            <version>${revision}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
         </dependency>
         <!-- Huawei Cloud OBS native SDK (presigned URL via TemporarySignature) -->
         <dependency>

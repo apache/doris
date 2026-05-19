@@ -17,17 +17,33 @@
 
 package org.apache.doris.filesystem.cos;
 
+import org.apache.doris.filesystem.spi.RemoteObject;
+import org.apache.doris.filesystem.spi.RemoteObjects;
+import org.apache.doris.filesystem.spi.RequestBody;
+
 import com.qcloud.cos.COSClient;
 import com.qcloud.cos.http.HttpMethodName;
+import com.qcloud.cos.model.COSObjectSummary;
+import com.qcloud.cos.model.CopyObjectRequest;
+import com.qcloud.cos.model.DeleteObjectsRequest;
+import com.qcloud.cos.model.DeleteObjectsResult;
+import com.qcloud.cos.model.ListObjectsRequest;
+import com.qcloud.cos.model.ObjectListing;
+import com.qcloud.cos.model.ObjectMetadata;
+import com.qcloud.cos.model.PutObjectRequest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -152,8 +168,35 @@ class CosObjStorageTest {
         IllegalArgumentException exception = Assertions.assertThrows(
                 IllegalArgumentException.class, () -> new TestableCosObjStorage(props, mockCos));
 
-        Assertions.assertTrue(exception.getMessage().contains("Invalid S3 filesystem properties"));
+        Assertions.assertTrue(exception.getMessage().contains("Invalid COS filesystem properties"));
         Assertions.assertTrue(exception.getMessage().contains("Region is not set"));
+    }
+
+    @Test
+    void constructor_extractsRegionFromStandardCosEndpoint() throws Exception {
+        COSClient mockCos = Mockito.mock(COSClient.class);
+        Map<String, String> props = buildBasicProps();
+        props.remove("COS_REGION");
+
+        TestableCosObjStorage storage = new TestableCosObjStorage(props, mockCos);
+
+        Assertions.assertSame(mockCos, storage.getClient());
+        Assertions.assertEquals("ap-guangzhou", storage.getBuiltRegion());
+        Assertions.assertEquals("ap-guangzhou", storage.getProperties().get("COS_REGION"));
+    }
+
+    @Test
+    void constructor_acceptsLegacyAwsPropertiesForExistingCosCallers() throws Exception {
+        COSClient mockCos = Mockito.mock(COSClient.class);
+        TestableCosObjStorage storage = new TestableCosObjStorage(buildBasicAwsProps(), mockCos);
+
+        Assertions.assertSame(mockCos, storage.getClient());
+        Assertions.assertEquals("ap-guangzhou", storage.getBuiltRegion());
+        Assertions.assertEquals("https://cos.ap-guangzhou.myqcloud.com",
+                storage.getProperties().get("COS_ENDPOINT"));
+        Assertions.assertEquals("legacy-ak", storage.getProperties().get("COS_ACCESS_KEY"));
+        Assertions.assertEquals("legacy-bucket", storage.getProperties().get("COS_BUCKET"));
+        Assertions.assertEquals("legacy-ak", storage.getProperties().get("AWS_ACCESS_KEY"));
     }
 
     @Test
@@ -177,6 +220,118 @@ class CosObjStorageTest {
         storage.getPresignedUrl("key");
     }
 
+    @Test
+    void getClient_returnsCosClient() throws Exception {
+        COSClient mockCos = Mockito.mock(COSClient.class);
+        CosObjStorage storage = new TestableCosObjStorage(buildBasicProps(), mockCos);
+
+        Assertions.assertSame(mockCos, storage.getClient());
+    }
+
+    @Test
+    void listObjects_usesCosNativeClientAndMapsResult() throws Exception {
+        COSClient mockCos = Mockito.mock(COSClient.class);
+        COSObjectSummary summary = new COSObjectSummary();
+        summary.setKey("stage/f1.parquet");
+        summary.setETag("etag-1");
+        summary.setSize(12L);
+        summary.setLastModified(new Date(123456789L));
+        ObjectListing listing = new ObjectListing();
+        listing.getObjectSummaries().add(summary);
+        listing.setTruncated(true);
+        listing.setNextMarker("next-marker");
+        Mockito.when(mockCos.listObjects(Mockito.any(ListObjectsRequest.class)))
+                .thenReturn(listing);
+
+        CosObjStorage storage = new TestableCosObjStorage(buildBasicProps(), mockCos);
+
+        RemoteObjects result = storage.listObjects("cos://my-bucket-1234/stage/", "marker-1");
+
+        Assertions.assertTrue(result.isTruncated());
+        Assertions.assertEquals("next-marker", result.getContinuationToken());
+        RemoteObject file = result.getObjectList().get(0);
+        Assertions.assertEquals("stage/f1.parquet", file.getKey());
+        Assertions.assertEquals("f1.parquet", file.getRelativePath());
+        Assertions.assertEquals("etag-1", file.getEtag());
+        Assertions.assertEquals(12L, file.getSize());
+        Assertions.assertEquals(123456789L, file.getModificationTime());
+        ArgumentCaptor<ListObjectsRequest> captor = ArgumentCaptor.forClass(ListObjectsRequest.class);
+        Mockito.verify(mockCos).listObjects(captor.capture());
+        Assertions.assertEquals("my-bucket-1234", captor.getValue().getBucketName());
+        Assertions.assertEquals("stage/", captor.getValue().getPrefix());
+        Assertions.assertEquals("marker-1", captor.getValue().getMarker());
+    }
+
+    @Test
+    void headObject_usesCosNativeClientAndMapsMetadata() throws Exception {
+        COSClient mockCos = Mockito.mock(COSClient.class);
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(34L);
+        metadata.setETag("etag-head");
+        metadata.setLastModified(new Date(22334455L));
+        Mockito.when(mockCos.getObjectMetadata("my-bucket-1234", "stage/f2.parquet"))
+                .thenReturn(metadata);
+
+        CosObjStorage storage = new TestableCosObjStorage(buildBasicProps(), mockCos);
+
+        RemoteObject result = storage.headObject("cos://my-bucket-1234/stage/f2.parquet");
+
+        Assertions.assertEquals("stage/f2.parquet", result.getKey());
+        Assertions.assertEquals("stage/f2.parquet", result.getRelativePath());
+        Assertions.assertEquals("etag-head", result.getEtag());
+        Assertions.assertEquals(34L, result.getSize());
+        Assertions.assertEquals(22334455L, result.getModificationTime());
+    }
+
+    @Test
+    void putObject_usesCosNativeClientWithRequestBody() throws Exception {
+        COSClient mockCos = Mockito.mock(COSClient.class);
+        byte[] content = "hello cos".getBytes(StandardCharsets.UTF_8);
+        CosObjStorage storage = new TestableCosObjStorage(buildBasicProps(), mockCos);
+
+        storage.putObject("cos://my-bucket-1234/stage/f3.txt",
+                RequestBody.of(new ByteArrayInputStream(content), content.length));
+
+        ArgumentCaptor<PutObjectRequest> captor = ArgumentCaptor.forClass(PutObjectRequest.class);
+        Mockito.verify(mockCos).putObject(captor.capture());
+        Assertions.assertEquals("my-bucket-1234", captor.getValue().getBucketName());
+        Assertions.assertEquals("stage/f3.txt", captor.getValue().getKey());
+        Assertions.assertEquals(content.length, captor.getValue().getMetadata().getContentLength());
+    }
+
+    @Test
+    void copyObject_usesCosNativeClient() throws Exception {
+        COSClient mockCos = Mockito.mock(COSClient.class);
+        CosObjStorage storage = new TestableCosObjStorage(buildBasicProps(), mockCos);
+
+        storage.copyObject("cos://my-bucket-1234/src.txt", "cos://my-bucket-1234/dst.txt");
+
+        ArgumentCaptor<CopyObjectRequest> captor = ArgumentCaptor.forClass(CopyObjectRequest.class);
+        Mockito.verify(mockCos).copyObject(captor.capture());
+        Assertions.assertEquals("my-bucket-1234", captor.getValue().getSourceBucketName());
+        Assertions.assertEquals("src.txt", captor.getValue().getSourceKey());
+        Assertions.assertEquals("my-bucket-1234", captor.getValue().getDestinationBucketName());
+        Assertions.assertEquals("dst.txt", captor.getValue().getDestinationKey());
+    }
+
+    @Test
+    void deleteObjectsByKeys_usesCosNativeBatchDelete() throws Exception {
+        COSClient mockCos = Mockito.mock(COSClient.class);
+        Mockito.when(mockCos.deleteObjects(Mockito.any(DeleteObjectsRequest.class)))
+                .thenReturn(new DeleteObjectsResult(Collections.emptyList()));
+        CosObjStorage storage = new TestableCosObjStorage(buildBasicProps(), mockCos);
+
+        storage.deleteObjectsByKeys("my-bucket-1234", List.of("a.txt", "b.txt"));
+
+        ArgumentCaptor<DeleteObjectsRequest> captor = ArgumentCaptor.forClass(DeleteObjectsRequest.class);
+        Mockito.verify(mockCos).deleteObjects(captor.capture());
+        Assertions.assertEquals("my-bucket-1234", captor.getValue().getBucketName());
+        Assertions.assertTrue(captor.getValue().getQuiet());
+        Assertions.assertEquals(2, captor.getValue().getKeys().size());
+        Assertions.assertEquals("a.txt", captor.getValue().getKeys().get(0).getKey());
+        Assertions.assertEquals("b.txt", captor.getValue().getKeys().get(1).getKey());
+    }
+
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
@@ -191,9 +346,19 @@ class CosObjStorageTest {
         return props;
     }
 
+    private Map<String, String> buildBasicAwsProps() {
+        Map<String, String> props = new HashMap<>();
+        props.put("AWS_ENDPOINT", "https://cos.ap-guangzhou.myqcloud.com");
+        props.put("AWS_ACCESS_KEY", "legacy-ak");
+        props.put("AWS_SECRET_KEY", "legacy-sk");
+        props.put("AWS_BUCKET", "legacy-bucket");
+        return props;
+    }
+
     /** Subclass that injects a mock COSClient, bypassing real credential requirements. */
     private static class TestableCosObjStorage extends CosObjStorage {
         private final COSClient mockCos;
+        private String builtRegion;
 
         TestableCosObjStorage(Map<String, String> props, COSClient mockCos) {
             super(props);
@@ -202,7 +367,12 @@ class CosObjStorageTest {
 
         @Override
         protected COSClient buildCosClient(String region) {
+            this.builtRegion = region;
             return mockCos;
+        }
+
+        private String getBuiltRegion() {
+            return builtRegion;
         }
     }
 }
