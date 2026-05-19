@@ -95,11 +95,7 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
         super();
     }
 
-    /**
-     * Initializes provider state and fetches snapshot splits from BE.
-     * splitChunks is called here (rather than in StreamingInsertJob) to keep
-     * all cdc_stream-specific init logic inside the provider.
-     */
+    /** Initializes provider state from TVF properties; called every schedule tick. */
     @Override
     public void ensureInitialized(Long jobId, Map<String, String> originTvfProps) throws JobException {
         String type = originTvfProps.get(DataSourceConfigKeys.TYPE);
@@ -123,16 +119,6 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
         this.sourceType = resolvedType;
         String table = originTvfProps.get(DataSourceConfigKeys.TABLE);
         Preconditions.checkArgument(table != null, "table is required for cdc_stream TVF");
-    }
-
-    /**
-     * Called once on fresh job creation (not on FE restart).
-     * Fetches snapshot splits from BE and persists them to the meta table.
-     */
-    @Override
-    public void initOnCreate() throws JobException {
-        String table = sourceProperties.get(DataSourceConfigKeys.TABLE);
-        splitChunks(Collections.singletonList(table));
     }
 
     /**
@@ -281,23 +267,25 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
     public void updateOffset(Offset offset) {
         this.currentOffset = (JdbcOffset) offset;
         if (currentOffset.snapshotSplit()) {
-            for (AbstractSourceSplit split : currentOffset.getSplits()) {
-                SnapshotSplit ss = (SnapshotSplit) split;
-                boolean removed = remainingSplits.removeIf(v -> {
-                    if (v.getSplitId().equals(ss.getSplitId())) {
-                        ss.setTableId(v.getTableId());
-                        ss.setSplitKey(v.getSplitKey());
-                        ss.setSplitStart(v.getSplitStart());
-                        ss.setSplitEnd(v.getSplitEnd());
-                        return true;
+            synchronized (splitsLock) {
+                for (AbstractSourceSplit split : currentOffset.getSplits()) {
+                    SnapshotSplit ss = (SnapshotSplit) split;
+                    boolean removed = remainingSplits.removeIf(v -> {
+                        if (v.getSplitId().equals(ss.getSplitId())) {
+                            ss.setTableId(v.getTableId());
+                            ss.setSplitKey(v.getSplitKey());
+                            ss.setSplitStart(v.getSplitStart());
+                            ss.setSplitEnd(v.getSplitEnd());
+                            return true;
+                        }
+                        return false;
+                    });
+                    if (removed) {
+                        finishedSplits.add(ss);
                     }
-                    return false;
-                });
-                if (removed) {
-                    finishedSplits.add(ss);
+                    chunkHighWatermarkMap.computeIfAbsent(buildTableKey(), k -> new HashMap<>())
+                            .put(ss.getSplitId(), ss.getHighWatermark());
                 }
-                chunkHighWatermarkMap.computeIfAbsent(buildTableKey(), k -> new HashMap<>())
-                        .put(ss.getSplitId(), ss.getHighWatermark());
             }
         } else {
             // Mirror binlog offset into bop so it survives FE checkpoint
@@ -320,6 +308,9 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
      */
     @Override
     public void replayIfNeed(StreamingInsertJob job) throws JobException {
+        synchronized (splitsLock) {
+            this.cachedSyncTables = job.getSyncTables();
+        }
         if (currentOffset == null) {
             // Post-checkpoint binlog: rebuild from bop persisted in image
             if (MapUtils.isNotEmpty(binlogOffsetPersist)) {
@@ -339,6 +330,7 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
                                 ? remapChunkHighWatermarkMap(snapshotSplits)
                                 : new HashMap<>();
                 recalculateRemainingSplits(effective, snapshotSplits);
+                resumeCdcSplitProgressFromSplits();
                 log.info("Replaying TVF offset provider for job {}: no current offset,"
                         + " restored {} remaining splits from meta (chw size={})",
                         job.getJobId(), remainingSplits.size(),
@@ -347,9 +339,7 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
                 log.info("Replaying TVF offset provider for job {}: no committed txn,"
                         + " no snapshot splits in meta", job.getJobId());
             }
-            return;
-        }
-        if (currentOffset.snapshotSplit()) {
+        } else if (currentOffset.snapshotSplit()) {
             log.info("Replaying TVF offset provider for job {}: restoring snapshot state from txn replay",
                     job.getJobId());
             Map<String, List<SnapshotSplit>> snapshotSplits = StreamingJobUtils.restoreSplitsToJob(job.getJobId());
@@ -361,10 +351,12 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
                         remapChunkHighWatermarkMap(snapshotSplits);
                 List<SnapshotSplit> lastSnapshotSplits =
                         recalculateRemainingSplits(effectiveMap, snapshotSplits);
+                // Rebuild first so noMoreSplits() can read splitter state from last.splitEnd.
+                resumeCdcSplitProgressFromSplits();
                 if (remainingSplits.isEmpty()) {
                     if (!lastSnapshotSplits.isEmpty()) {
                         currentOffset = new JdbcOffset(lastSnapshotSplits);
-                    } else if (!isSnapshotOnlyMode()) {
+                    } else if (!isSnapshotOnlyMode() && noMoreSplits()) {
                         BinlogSplit binlogSplit = new BinlogSplit();
                         binlogSplit.setFinishedSplits(finishedSplits);
                         currentOffset = new JdbcOffset(Collections.singletonList(binlogSplit));
