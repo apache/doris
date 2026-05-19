@@ -133,6 +133,10 @@ public final class PlanShape<T extends PlanNode> {
                 "OlapScan(" + tableName + ")");
     }
 
+    public static PlanShape<OlapScanNode> olapScan() {
+        return node(OlapScanNode.class);
+    }
+
     public static PlanShape<ExchangeNode> exchange(PlanShape<?>... children) {
         return node(ExchangeNode.class, children);
     }
@@ -151,6 +155,14 @@ public final class PlanShape<T extends PlanNode> {
 
     public static PlanShape<UnionNode> union(PlanShape<?>... children) {
         return node(UnionNode.class, children);
+    }
+
+    public static PlanShape<NestedLoopJoinNode> nestedLoopJoin(PlanShape<?>... children) {
+        return node(NestedLoopJoinNode.class, children);
+    }
+
+    public static PlanShape<PartitionSortNode> partitionSort(PlanShape<?>... children) {
+        return node(PartitionSortNode.class, children);
     }
 
     // ---- chained predicate ----
@@ -263,6 +275,15 @@ public final class PlanShape<T extends PlanNode> {
             sb.append(")");
         }
         return sb.toString();
+    }
+
+    /**
+     * Render a plan tree as a text outline (one node per line, indented by depth).
+     * Useful for debugging when writing new shape assertions — print the actual
+     * plan, then copy the structure into a {@code PlanShape} pattern.
+     */
+    public static String prettyPrint(PlanNode root) {
+        return dumpTree(root);
     }
 
     private static String dumpTree(PlanNode root) {
