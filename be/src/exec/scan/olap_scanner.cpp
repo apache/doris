@@ -38,6 +38,7 @@
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "core/block/block.h"
+#include "core/data_type/data_type_number.h"
 #include "exec/common/variant_util.h"
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/scan/scan_node.h"
@@ -51,12 +52,14 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
+#include "storage/binlog.h"
 #include "storage/id_manager.h"
 #include "storage/index/inverted/inverted_index_profile.h"
 #include "storage/iterator/block_reader.h"
 #include "storage/olap_common.h"
 #include "storage/olap_tuple.h"
 #include "storage/olap_utils.h"
+#include "storage/predicate/predicate_creator.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema.h"
 #ifndef NDEBUG
@@ -98,7 +101,10 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .score_runtime {},
                                  .collection_statistics {},
                                  .ann_topn_runtime {},
-                                 .condition_cache_digest = parent->get_condition_cache_digest()}) {
+                                 .condition_cache_digest = parent->get_condition_cache_digest(),
+                                 .binlog_scan_type = params.binlog_scan_type}),
+          _start_tso(params.start_tso),
+          _end_tso(params.end_tso) {
     _tablet_reader_params.set_read_source(std::move(params.read_source),
                                           _state->skip_delete_bitmap());
     _has_prepared = false;
@@ -307,6 +313,48 @@ Status OlapScanner::_open_impl(RuntimeState* state) {
     return Status::OK();
 }
 
+Status OlapScanner::_init_row_binlog_tso_predicates() {
+    if (_tablet_reader_params.reader_type != ReaderType::READER_BINLOG) {
+        return Status::OK();
+    }
+
+    if (!_start_tso.has_value() && !_end_tso.has_value()) {
+        return Status::OK();
+    }
+
+    auto& tablet_schema = _tablet_reader_params.tablet_schema;
+    int32_t tso_index = tablet_schema->field_index(std::string(kRowBinlogTimestampColName));
+    if (tso_index < 0) {
+        auto source_tablet_schema = _tablet_reader_params.tablet->row_binlog_tablet_schema();
+        const int32_t source_tso_index =
+                source_tablet_schema->field_index(std::string(kRowBinlogTimestampColName));
+        if (source_tso_index < 0) {
+            return Status::InternalError("Column {} not found in tablet schema",
+                                         std::string(kRowBinlogTimestampColName));
+        }
+        tablet_schema->append_column(TabletColumn(source_tablet_schema->column(source_tso_index)));
+        tso_index = tablet_schema->field_index(std::string(kRowBinlogTimestampColName));
+    }
+    if (tso_index < 0) {
+        return Status::InternalError("Column {} not found in tablet schema after append",
+                                     std::string(kRowBinlogTimestampColName));
+    }
+
+    auto data_type = std::make_shared<DataTypeInt64>();
+    if (_start_tso.has_value()) {
+        Field start_value = Field::create_field<TYPE_BIGINT>(*_start_tso);
+        _tablet_reader_params.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
+                tso_index, std::string(kRowBinlogTimestampColName), data_type, start_value, false));
+    }
+    if (_end_tso.has_value()) {
+        Field end_value = Field::create_field<TYPE_BIGINT>(*_end_tso);
+        _tablet_reader_params.predicates.push_back(create_comparison_predicate<PredicateType::LE>(
+                tso_index, std::string(kRowBinlogTimestampColName), data_type, end_value, false));
+    }
+
+    return Status::OK();
+}
+
 // it will be called under tablet read lock because capture rs readers need
 Status OlapScanner::_init_tablet_reader_params(
         const phmap::flat_hash_map<int, SlotDescriptor*>& slot_id_to_slot_desc,
@@ -334,6 +382,19 @@ Status OlapScanner::_init_tablet_reader_params(
     RETURN_IF_ERROR(_init_return_columns());
 
     _tablet_reader_params.push_down_agg_type_opt = _local_state->get_push_down_agg_type();
+
+    // Binlog DETAIL/MIN_DELTA scans widen `return_columns` with key/op/lsn/before
+    // columns to drive the row-level merge in BlockReader. The storage-layer
+    // statistics fast path (VStatisticsIterator, picked when push_down_agg_type
+    // is COUNT/MINMAX) bypasses SegmentIterator entirely, returning raw segment
+    // row counts without binlog op filtering and with a schema that does not
+    // match the widened read schema. The result is both wrong (raw segment
+    // count != binlog row count) and unsafe (column-count DCHECK fires inside
+    // VStatisticsIterator::next_batch). Disable the fast path for these scans.
+    if (_tablet_reader_params.binlog_scan_type == TBinlogScanType::DETAIL ||
+        _tablet_reader_params.binlog_scan_type == TBinlogScanType::MIN_DELTA) {
+        _tablet_reader_params.push_down_agg_type_opt = TPushAggOp::NONE;
+    }
 
     _tablet_reader_params.common_expr_ctxs_push_down = _common_expr_ctxs_push_down;
     _tablet_reader_params.virtual_column_exprs = _virtual_column_exprs;
@@ -391,7 +452,48 @@ Status OlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.origin_return_columns = &_return_columns;
     _tablet_reader_params.tablet_columns_convert_to_null_set = &_tablet_columns_convert_to_null_set;
 
-    if (_tablet_reader_params.direct_mode) {
+    auto add_return_column_if_absent = [&](uint32_t cid) {
+        if (std::find(_tablet_reader_params.return_columns.begin(),
+                      _tablet_reader_params.return_columns.end(),
+                      cid) == _tablet_reader_params.return_columns.end()) {
+            _tablet_reader_params.return_columns.push_back(cid);
+        }
+    };
+
+    const bool need_before_columns =
+            _tablet_reader_params.binlog_scan_type == TBinlogScanType::MIN_DELTA ||
+            _tablet_reader_params.binlog_scan_type == TBinlogScanType::DETAIL;
+    if (need_before_columns) {
+        for (size_t i = 0; i < tablet_schema->num_key_columns(); ++i) {
+            add_return_column_if_absent(static_cast<uint32_t>(i));
+        }
+        for (auto cid : _return_columns) {
+            add_return_column_if_absent(cid);
+        }
+
+        if (int32_t op_idx = tablet_schema->field_index(std::string(kRowBinlogOpColName));
+            op_idx >= 0) {
+            add_return_column_if_absent(static_cast<uint32_t>(op_idx));
+        }
+        if (int32_t lsn_idx = tablet_schema->field_index(std::string(kRowBinlogLsnColName));
+            lsn_idx >= 0) {
+            add_return_column_if_absent(static_cast<uint32_t>(lsn_idx));
+        }
+
+        for (auto cid : _return_columns) {
+            if (cid >= tablet_schema->num_key_columns()) {
+                const auto& col_name = tablet_schema->column(cid).name();
+                std::string before_col_name;
+                before_col_name.append("__BEFORE__");
+                before_col_name.append(col_name);
+                before_col_name.append("__");
+                if (int32_t before_idx = tablet_schema->field_index(before_col_name);
+                    before_idx >= 0) {
+                    add_return_column_if_absent(static_cast<uint32_t>(before_idx));
+                }
+            }
+        }
+    } else if (_tablet_reader_params.direct_mode) {
         _tablet_reader_params.return_columns = _return_columns;
     } else {
         // we need to fetch all key columns to do the right aggregation on storage engine side.
@@ -442,6 +544,17 @@ Status OlapScanner::_init_tablet_reader_params(
                         std::begin(return_seq_columns), std::end(return_seq_columns));
             }
         }
+    }
+
+    RETURN_IF_ERROR(_init_row_binlog_tso_predicates());
+
+    if (_tablet_reader_params.binlog_scan_type != TBinlogScanType::NONE) {
+        _tablet_reader_params.read_orderby_key = true;
+        _tablet_reader_params.read_orderby_key_reverse = false;
+        _tablet_reader_params.read_orderby_key_num_prefix_columns = 0;
+        _tablet_reader_params.read_orderby_key_limit = 0;
+        _tablet_reader_params.force_key_ordered_read = true;
+        _tablet_reader_params.topn_filter_source_node_ids.clear();
     }
 
     _tablet_reader_params.use_page_cache = _state->enable_page_cache();

@@ -294,6 +294,10 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    // change scan consistency and wait options.
+    public static final String ENABLE_EVENTUAL_CONSISTENT_CHANGE = "enable_eventual_consistent_change";
+    public static final String CHANGE_VISIBLE_TIMEOUT_MS = "change_visible_timeout_ms";
+
     public static final String DELETE_WITHOUT_PARTITION = "delete_without_partition";
 
     public static final String ENABLE_VARIANT_ACCESS_IN_ORIGINAL_PLANNER = "enable_variant_access_in_original_planner";
@@ -324,6 +328,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_INFER_PREDICATE = "enable_infer_predicate";
 
     public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 60_000;
+    public static final long DEFAULT_CHANGE_VISIBLE_TIMEOUT_MS = 10_000;
 
     public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
 
@@ -331,6 +336,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // If user set a very small value, use this value instead.
     public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000;
+    public static final long MIN_CHANGE_VISIBLE_TIMEOUT_MS = 1000;
 
     public static final String ENABLE_PIPELINE_ENGINE = "enable_pipeline_engine";
 
@@ -1132,6 +1138,17 @@ public class SessionVariable implements Serializable, Writable {
                             + "while waiting for publish visibility."},
             options = {INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED, INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR})
     public String insertVisibleTimeoutReturnMode = INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED;
+
+    @VarAttrDef.VarAttr(name = ENABLE_EVENTUAL_CONSISTENT_CHANGE, needForward = true,
+            description = {"是否允许在 CHANGES/快照类时间查询中使用最终一致语义（不等待事务发布）。开启后可能返回不包含最新 commit 的结果。",
+                    "Whether to allow eventual consistent semantics for time-based CHANGES/snapshot queries. "
+                            + "If true, query may return results without waiting committed txns to be visible."})
+    public boolean enableEventualConsistentChange = false;
+
+    @VarAttrDef.VarAttr(name = CHANGE_VISIBLE_TIMEOUT_MS, needForward = true,
+            description = {"时间范围 CHANGES/快照查询等待 COMMITTED 事务发布为 VISIBLE 的最长时间（毫秒）。",
+                    "Max time in ms to wait committed txns become visible for time-based CHANGES/snapshot queries."})
+    public long changeVisibleTimeoutMs = DEFAULT_CHANGE_VISIBLE_TIMEOUT_MS;
 
     // max memory used on every backend. Default value to 100G.
     @VarAttrDef.VarAttr(name = EXEC_MEM_LIMIT, needForward = true)
@@ -4986,6 +5003,30 @@ public class SessionVariable implements Serializable, Writable {
     public void setInsertVisibleTimeoutReturnMode(String insertVisibleTimeoutReturnMode) {
         this.insertVisibleTimeoutReturnMode = parseInsertVisibleTimeoutReturnMode(insertVisibleTimeoutReturnMode)
                 .getOption();
+    }
+    
+    public boolean isEnableEventualConsistentChange() {
+        return enableEventualConsistentChange;
+    }
+
+    public void setEnableEventualConsistentChange(boolean enableEventualConsistentChange) {
+        this.enableEventualConsistentChange = enableEventualConsistentChange;
+    }
+
+    public long getChangeVisibleTimeoutMs() {
+        if (changeVisibleTimeoutMs < MIN_CHANGE_VISIBLE_TIMEOUT_MS) {
+            return MIN_CHANGE_VISIBLE_TIMEOUT_MS;
+        } else {
+            return changeVisibleTimeoutMs;
+        }
+    }
+
+    public void setChangeVisibleTimeoutMs(long changeVisibleTimeoutMs) {
+        if (changeVisibleTimeoutMs < MIN_CHANGE_VISIBLE_TIMEOUT_MS) {
+            this.changeVisibleTimeoutMs = MIN_CHANGE_VISIBLE_TIMEOUT_MS;
+        } else {
+            this.changeVisibleTimeoutMs = changeVisibleTimeoutMs;
+        }
     }
 
     public boolean getIsSingleSetVar() {

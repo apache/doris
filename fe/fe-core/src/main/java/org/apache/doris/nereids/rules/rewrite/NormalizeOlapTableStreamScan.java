@@ -21,12 +21,15 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
@@ -42,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -56,10 +60,26 @@ import java.util.stream.Collectors;
  * 2. add delete sign column if unique base table
  */
 public class NormalizeOlapTableStreamScan implements CustomRewriter {
+    private static final long ROW_BINLOG_APPEND = 0;
+    private static final long ROW_BINLOG_DELETE = 1;
+    private static final long ROW_BINLOG_UPDATE_BEFORE = 2;
+    private static final long ROW_BINLOG_UPDATE_AFTER = 3;
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         return plan.accept(OlapTableStreamScanReplacer.INSTANCE, null);
+    }
+
+    private static Expression buildChangeTypeExpr(Slot opSlot) {
+        return new CaseWhen(ImmutableList.of(
+                new WhenClause(new EqualTo(opSlot, new BigIntLiteral(ROW_BINLOG_APPEND)),
+                        new VarcharLiteral("APPEND")),
+                new WhenClause(new EqualTo(opSlot, new BigIntLiteral(ROW_BINLOG_DELETE)),
+                        new VarcharLiteral("DELETE")),
+                new WhenClause(new EqualTo(opSlot, new BigIntLiteral(ROW_BINLOG_UPDATE_BEFORE)),
+                        new VarcharLiteral("UPDATE_BEFORE")),
+                new WhenClause(new EqualTo(opSlot, new BigIntLiteral(ROW_BINLOG_UPDATE_AFTER)),
+                        new VarcharLiteral("UPDATE_AFTER"))), new VarcharLiteral("UNKNOWN"));
     }
 
     private static class OlapTableStreamScanReplacer extends DefaultPlanRewriter<Void> {
@@ -68,6 +88,10 @@ public class NormalizeOlapTableStreamScan implements CustomRewriter {
         @Override
         public Plan visitLogicalOlapTableStreamScan(LogicalOlapTableStreamScan scan, Void context) {
             if (scan.isNormalized()) {
+                return scan;
+            }
+            if (scan.getChangeScanInfo().isPresent()) {
+                // change scan, do not use stream scan rules to rewrite.
                 return scan;
             }
             List<Long> selectedPartitionIds = scan.getSelectedPartitionIds();
@@ -81,7 +105,7 @@ public class NormalizeOlapTableStreamScan implements CustomRewriter {
             Plan historyPlan = null;
             Plan incrementalPlan = null;
             List<Slot> originSlots = scan.getLogicalProperties().getOutput();
-            List<Slot> newSlots = originSlots.stream()
+            List<Slot> newSlots = ImmutableList.copyOf(originSlots.stream()
                     .filter(slot -> !(slot instanceof SlotReference
                             && ((SlotReference) slot).getOriginalColumn().isPresent()
                             && ((SlotReference) slot).getOriginalColumn().get()
@@ -90,91 +114,94 @@ public class NormalizeOlapTableStreamScan implements CustomRewriter {
                             && ((SlotReference) slot).getOriginalColumn().isPresent()
                             && ((SlotReference) slot).getOriginalColumn().get()
                             .equals(Column.STREAM_SEQ_VIRTUAL_COLUMN)))
-                    .collect(Collectors.toList());
+                    .collect(Collectors.toList()));
 
             // history plan
             if (!historicalPartitionIds.isEmpty()) {
+                List<Slot> scanSlots = new ArrayList<>(newSlots);
                 // add delete sign column if unique base table
                 Slot deleteSlot = null;
                 for (Column column : scan.getTable().getBaseSchema(true)) {
                     if (column.getName().equals(Column.DELETE_SIGN)) {
                         deleteSlot = SlotReference.fromColumn(StatementScopeIdGenerator.newExprId(), scan.getTable(),
                                 column, scan.qualified());
-                        newSlots.add(deleteSlot);
+                        scanSlots.add(deleteSlot);
                         break;
                     }
                 }
-                Plan plan = scan.withSelectedPartitionIds(historicalPartitionIds, true)
-                                .withCachedOutput(new ArrayList<>(newSlots))
+                LogicalOlapTableStreamScan newScan = scan.withSelectedPartitionIds(historicalPartitionIds, true)
+                                .withCachedOutput(new ArrayList<>(scanSlots))
                                 .withNormalized(true);
+                Plan plan = newScan;
                 if (deleteSlot != null) {
                     Expression conjunct = new EqualTo(deleteSlot, new TinyIntLiteral((byte) 0));
                     if (!scan.getTable().getEnableUniqueKeyMergeOnWrite()) {
-                        plan = scan.withPreAggStatus(PreAggStatus.off(
+                        newScan = newScan.withPreAggStatus(PreAggStatus.off(
                                 Column.DELETE_SIGN + " is used as conjuncts."));
                     }
-                    plan = new LogicalFilter<>(ImmutableSet.of(conjunct), plan);
+                    plan = new LogicalFilter<>(ImmutableSet.of(conjunct), newScan);
                 }
                 // replace virtual column with constant projection
-                List<NamedExpression> newProject = newSlots.stream()
+                List<NamedExpression> project = newSlots.stream()
                         .map(NamedExpression.class::cast).collect(Collectors.toList());
                 for (Slot slot : originSlots) {
                     if (slot instanceof SlotReference
                             && ((SlotReference) slot).getOriginalColumn().isPresent()
                             && ((SlotReference) slot).getOriginalColumn().get()
                             .equals(Column.STREAM_CHANGE_TYPE_VIRTUAL_COLUMN)) {
-                        newProject.add(new Alias(slot.getExprId(), new VarcharLiteral("APPEND"),
+                        project.add(new Alias(slot.getExprId(), new VarcharLiteral("APPEND"),
                                 Column.STREAM_CHANGE_TYPE_COL));
                     }
                     if (slot instanceof SlotReference
                             && ((SlotReference) slot).getOriginalColumn().isPresent()
                             && ((SlotReference) slot).getOriginalColumn().get()
                             .equals(Column.STREAM_SEQ_VIRTUAL_COLUMN)) {
-                        newProject.add(new Alias(slot.getExprId(), new BigIntLiteral(-1), Column.STREAM_SEQ_COL));
+                        project.add(new Alias(slot.getExprId(), new Nullable(new BigIntLiteral(-1)),
+                                Column.STREAM_SEQ_COL));
                     }
                 }
-                historyPlan = new LogicalProject<>(newProject, plan);
+                historyPlan = new LogicalProject<>(project, plan);
             }
 
             // incremental plan
             if (!incrementalPartitionIds.isEmpty()) {
-                List<NamedExpression> newProject = newSlots.stream()
-                        .map(NamedExpression.class::cast).collect(Collectors.toList());
+                List<Slot> scanSlots = new ArrayList<>(newSlots);
                 // add slot from binlog
                 Slot opSlot = null;
                 Slot seqSlot = null;
                 for (Column column : ((OlapTableStreamWrapper) scan.getTable()).getRowBinlogSchema()) {
-                    if (column.getName().equals(Column.BINLOG_LSN_COL)) {
+                    if (column.getName().equals(Column.BINLOG_TIMESTAMP_COL)) {
                         seqSlot = SlotReference.fromColumn(StatementScopeIdGenerator.newExprId(), scan.getTable(),
                                 column, scan.qualified());
-                        newSlots.add(seqSlot);
-                    }
-                    if (column.getName().equals(Column.BINLOG_OPERATION_COL)) {
+                        scanSlots.add(seqSlot);
+                    } else if (column.getName().equals(Column.BINLOG_OPERATION_COL)) {
                         opSlot = SlotReference.fromColumn(StatementScopeIdGenerator.newExprId(), scan.getTable(),
                                 column, scan.qualified());
-                        newSlots.add(opSlot);
+                        scanSlots.add(opSlot);
                     }
                 }
                 Plan plan = scan.withSelectedPartitionIds(incrementalPartitionIds, true)
-                        .withCachedOutput(new ArrayList<>(newSlots))
+                        .withCachedOutput(new ArrayList<>(scanSlots))
                         .withIncrementalScan(true)
                         .withNormalized(true);
+                // replace virtual column with alias slot reference
+                List<NamedExpression> project = newSlots.stream()
+                        .map(NamedExpression.class::cast).collect(Collectors.toList());
                 for (Slot slot : originSlots) {
                     if (slot instanceof SlotReference
                             && ((SlotReference) slot).getOriginalColumn().isPresent()
                             && ((SlotReference) slot).getOriginalColumn().get()
                             .equals(Column.STREAM_CHANGE_TYPE_VIRTUAL_COLUMN)) {
-                        newProject.add(new Alias(slot.getExprId(), opSlot,
+                        project.add(new Alias(slot.getExprId(), buildChangeTypeExpr(opSlot),
                                 Column.STREAM_CHANGE_TYPE_COL));
-                    }
-                    if (slot instanceof SlotReference
+                    } else if (slot instanceof SlotReference
                             && ((SlotReference) slot).getOriginalColumn().isPresent()
                             && ((SlotReference) slot).getOriginalColumn().get()
                             .equals(Column.STREAM_SEQ_VIRTUAL_COLUMN)) {
-                        newProject.add(new Alias(slot.getExprId(), seqSlot, Column.STREAM_SEQ_COL));
+                        project.add(new Alias(slot.getExprId(), seqSlot, Column.STREAM_SEQ_COL));
                     }
                 }
-                incrementalPlan = new LogicalProject<>(newProject, plan);
+                incrementalPlan = new LogicalProject<>(project, plan);
             }
 
             if (historyPlan == null && incrementalPlan == null) {
@@ -185,6 +212,8 @@ public class NormalizeOlapTableStreamScan implements CustomRewriter {
             } else if (incrementalPlan == null) {
                 return historyPlan;
             }
+            historyPlan = refreshUnionChildOutputExprIds(historyPlan, originSlots);
+            incrementalPlan = refreshUnionChildOutputExprIds(incrementalPlan, originSlots);
             // return union plan
             List<Plan> children = Lists.newArrayList(historyPlan, incrementalPlan);
             return new LogicalUnion(Qualifier.ALL,
@@ -197,6 +226,17 @@ public class NormalizeOlapTableStreamScan implements CustomRewriter {
                     ImmutableList.of(),
                     false,
                     children);
+        }
+
+        private Plan refreshUnionChildOutputExprIds(Plan plan, List<Slot> unionOutputs) {
+            Preconditions.checkState(plan.getOutput().size() == unionOutputs.size(),
+                    "Union child output size %s does not match union output size %s",
+                    plan.getOutput().size(), unionOutputs.size());
+            List<NamedExpression> project = new ArrayList<>(plan.getOutput().size());
+            for (int i = 0; i < plan.getOutput().size(); i++) {
+                project.add(new Alias(plan.getOutput().get(i), unionOutputs.get(i).getName()));
+            }
+            return new LogicalProject<>(project, plan);
         }
     }
 }

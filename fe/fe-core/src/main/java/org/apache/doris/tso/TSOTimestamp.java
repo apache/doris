@@ -197,6 +197,11 @@ public final class TSOTimestamp implements Writable, Comparable<TSOTimestamp> {
             | (logical);
     }
 
+    public static long extractTimestamp(long tso) {
+        //  extract physical time from TSO timestamp by remove Lower 18 bits logical counter bits
+        return (tso >> PHYSICAL_SHIFT);
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();

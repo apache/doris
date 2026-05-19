@@ -17,9 +17,12 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.pattern.GeneratedPlanPatterns;
 import org.apache.doris.nereids.rules.RulePromise;
+import org.apache.doris.nereids.trees.ChangeScanInfo;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -36,11 +39,14 @@ import org.apache.doris.nereids.util.PlanRewriter;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -166,6 +172,69 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
                                 }
                             }
                         });
+    }
+
+    @Test
+    void testIncrParamsMapToInformationKindAndDefaultPosition() throws Exception {
+        BindRelation bindRelation = new BindRelation();
+        Method method = BindRelation.class.getDeclaredMethod("buildChangeScanInfo", TableScanParams.class);
+        method.setAccessible(true);
+
+        String startTimestamp = "2026-05-25 20:51:28";
+        String endTimestamp = "2026-05-25 20:54:00";
+        long startTimestampMillis = TimeUtils.timeStringToLong(startTimestamp);
+        long endTimestampMillis = TimeUtils.timeStringToLong(endTimestamp);
+
+        ChangeScanInfo changeScanInfo = (ChangeScanInfo) method.invoke(bindRelation,
+                new TableScanParams("incr",
+                        ImmutableMap.of("incrementType", "MIN_DELTA",
+                                "startTimestamp", startTimestamp,
+                                "endTimestamp", endTimestamp), null));
+        Assertions.assertEquals(ChangeScanInfo.InformationKind.MIN_DELTA, changeScanInfo.getInformationKind());
+        Assertions.assertEquals(ChangeScanInfo.Position.forTimestamp(startTimestampMillis), changeScanInfo.getAt());
+        Assertions.assertEquals(Optional.of(ChangeScanInfo.Position.forTimestamp(endTimestampMillis)),
+                changeScanInfo.getEnd());
+
+        changeScanInfo = (ChangeScanInfo) method.invoke(bindRelation,
+                new TableScanParams("incr",
+                        ImmutableMap.of("incrementType", "APPEND_ONLY",
+                                "startTimestamp", startTimestamp,
+                                "endTimestamp", endTimestamp), null));
+        Assertions.assertEquals(ChangeScanInfo.InformationKind.APPEND_ONLY, changeScanInfo.getInformationKind());
+        Assertions.assertEquals(ChangeScanInfo.Position.forTimestamp(startTimestampMillis), changeScanInfo.getAt());
+        Assertions.assertEquals(Optional.of(ChangeScanInfo.Position.forTimestamp(endTimestampMillis)),
+                changeScanInfo.getEnd());
+
+        changeScanInfo = (ChangeScanInfo) method.invoke(bindRelation,
+                new TableScanParams("incr",
+                        ImmutableMap.of("incrementType", "DETAIL",
+                                "startTimestamp", startTimestamp,
+                                "endTimestamp", endTimestamp), null));
+        Assertions.assertEquals(ChangeScanInfo.InformationKind.DETAIL, changeScanInfo.getInformationKind());
+        Assertions.assertEquals(ChangeScanInfo.Position.forTimestamp(startTimestampMillis), changeScanInfo.getAt());
+        Assertions.assertEquals(Optional.of(ChangeScanInfo.Position.forTimestamp(endTimestampMillis)),
+                changeScanInfo.getEnd());
+
+        changeScanInfo = (ChangeScanInfo) method.invoke(bindRelation,
+                new TableScanParams("incr",
+                        ImmutableMap.of("incrementType", "DETAIL",
+                                "startTimestamp", startTimestamp), null));
+        Assertions.assertEquals(ChangeScanInfo.InformationKind.DETAIL, changeScanInfo.getInformationKind());
+        Assertions.assertEquals(ChangeScanInfo.Position.forTimestamp(startTimestampMillis), changeScanInfo.getAt());
+        Assertions.assertEquals(Optional.empty(), changeScanInfo.getEnd());
+
+        changeScanInfo = (ChangeScanInfo) method.invoke(bindRelation,
+                new TableScanParams("incr",
+                        ImmutableMap.of("incrementType", "DETAIL"), null));
+        Assertions.assertEquals(ChangeScanInfo.InformationKind.DETAIL, changeScanInfo.getInformationKind());
+        Assertions.assertEquals(ChangeScanInfo.Position.forTimestamp(0L), changeScanInfo.getAt());
+        Assertions.assertEquals(Optional.empty(), changeScanInfo.getEnd());
+
+        changeScanInfo = (ChangeScanInfo) method.invoke(bindRelation,
+                new TableScanParams("incr", ImmutableMap.of(), null));
+        Assertions.assertEquals(ChangeScanInfo.InformationKind.DETAIL, changeScanInfo.getInformationKind());
+        Assertions.assertEquals(ChangeScanInfo.Position.forTimestamp(0L), changeScanInfo.getAt());
+        Assertions.assertEquals(Optional.empty(), changeScanInfo.getEnd());
     }
 
     @Override

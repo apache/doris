@@ -36,6 +36,14 @@ public class RowBinlogTableWrapper extends OlapTableWrapper {
         this.setBaseIndexId(rowBinlogMeta.getIndexId());
     }
 
+    public RowBinlogTableWrapper(OlapTable originTable, OlapTableStreamWrapper parent) {
+        super(originTable, originTable.getName(), originTable.getRowBinlogMeta().getSchema(), KeysType.DUP_KEYS);
+        this.rowBinlogMeta = originTable.getRowBinlogMeta();
+        Preconditions.checkNotNull(rowBinlogMeta, "row binlog meta is null, table=%s", originTable.getName());
+        this.setBaseIndexId(rowBinlogMeta.getIndexId());
+        this.parent = parent;
+    }
+
     @Override
     public long getBaseIndexId() {
         return rowBinlogMeta.getIndexId();
@@ -60,11 +68,12 @@ public class RowBinlogTableWrapper extends OlapTableWrapper {
         return null;
     }
 
-    public void setParent(OlapTableStreamWrapper parent) {
-        this.parent = parent;
-    }
-
     public OlapTableStreamWrapper getParent() {
         return parent;
+    }
+
+    @Override
+    public KeysType getKeysType() {
+        return KeysType.DUP_KEYS;
     }
 }

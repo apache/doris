@@ -24,6 +24,7 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.ChangeScanInfo;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -34,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
+import org.apache.doris.nereids.trees.plans.PartitionPrunablePredicate;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.ScoreRangeInfo;
@@ -86,6 +88,7 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                                       Optional<GroupExpression> groupExpression,
                                       Optional<LogicalProperties> logicalProperties,
                                       List<Long> selectedPartitionIds, boolean partitionPruned,
+                                      boolean hasPartitionPredicate,
                                       List<Long> selectedTabletIds, long selectedIndexId, boolean indexSelected,
                                       PreAggStatus preAggStatus, List<Long> specifiedPartitions,
                                       List<String> hints, Map<Pair<Long, String>, Slot> cacheSlotWithSlotName,
@@ -96,12 +99,15 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                                       List<OrderKey> scoreOrderKeys, Optional<Long> scoreLimit,
                                       Optional<ScoreRangeInfo> scoreRangeInfo,
                                       List<OrderKey> annOrderKeys, Optional<Long> annLimit, String tableAlias,
+                                      Optional<PartitionPrunablePredicate> partitionPrunablePredicates,
+                                      Optional<ChangeScanInfo> changeScanInfo,
                                       Boolean isNormalized, boolean isIncrementalScan) {
         super(id, table, qualifier, groupExpression, logicalProperties,
-                selectedPartitionIds, partitionPruned, selectedTabletIds, selectedIndexId, indexSelected,
-                preAggStatus, specifiedPartitions, hints, cacheSlotWithSlotName, cachedOutput, tableSample,
-                directMvScan, colToSubPathsMap, specifiedTabletIds, operativeSlots, virtualColumns,
-                scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias);
+                selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds, selectedIndexId,
+                indexSelected, preAggStatus, specifiedPartitions, hints, cacheSlotWithSlotName, cachedOutput,
+                tableSample, directMvScan, colToSubPathsMap, specifiedTabletIds, operativeSlots, virtualColumns,
+                scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
+                partitionPrunablePredicates, changeScanInfo);
         this.isNormalized = isNormalized;
         this.isIncrementalScan = isIncrementalScan;
     }
@@ -111,12 +117,12 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapTableStreamScan(relationId, (Table) table, qualifier,
                         Optional.empty(), Optional.of(getLogicalProperties()),
-                        selectedPartitionIds, partitionPruned, selectedTabletIds,
+                        selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
                         selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                         hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                         colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                         scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                        isNormalized, isIncrementalScan));
+                        partitionPrunablePredicates, changeScanInfo, isNormalized, isIncrementalScan));
     }
 
     @Override
@@ -124,8 +130,6 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
         if (cachedOutput.isPresent()) {
             return cachedOutput.get();
         }
-        // we need to create slots vectorized for stream scan, no need for invisible column
-        // todo(TsukiokaKogane): support compute binlog-based schema
         List<Column> baseSchema = table.getBaseSchema(false);
         List<SlotReference> slotFromColumn = createSlotsVectorized(baseSchema);
 
@@ -150,12 +154,15 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                 }
             }
         }
-        // inject virtual stream hidden columns
-        SlotReference seqColRef = (SlotReference) new Alias(new BigIntLiteral(-1L), Column.STREAM_SEQ_COL).toSlot();
-        slots.add(seqColRef.withColumn(Column.STREAM_SEQ_VIRTUAL_COLUMN));
-        SlotReference changeTypeColRef = (SlotReference) new Alias(new VarcharLiteral("APPEND"),
-                Column.STREAM_CHANGE_TYPE_COL).toSlot();
-        slots.add(changeTypeColRef.withColumn(Column.STREAM_CHANGE_TYPE_VIRTUAL_COLUMN));
+        if (!changeScanInfo.isPresent()) {
+            // Only stream queries expose stream virtual columns.
+            SlotReference seqColRef = (SlotReference) new Alias(new BigIntLiteral(-1L), Column.STREAM_SEQ_COL)
+                    .toSlot().withNullable(true);
+            slots.add(seqColRef.withColumn(Column.STREAM_SEQ_VIRTUAL_COLUMN));
+            SlotReference changeTypeColRef = (SlotReference) new Alias(new VarcharLiteral("APPEND"),
+                    Column.STREAM_CHANGE_TYPE_COL).toSlot();
+            slots.add(changeTypeColRef.withColumn(Column.STREAM_CHANGE_TYPE_VIRTUAL_COLUMN));
+        }
 
         for (NamedExpression virtualColumn : virtualColumns) {
             slots.add(virtualColumn.toSlot());
@@ -171,11 +178,12 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapTableStreamScan(relationId, (Table) table, qualifier,
                         Optional.empty(), Optional.of(getLogicalProperties()),
-                        selectedPartitionIds, partitionPruned, selectedTabletIds,
+                        selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
                         selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                         hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
                         manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
-                        scoreRangeInfo, annOrderKeys, annLimit, tableAlias, isNormalized, isIncrementalScan));
+                        scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates,
+                        changeScanInfo, isNormalized, isIncrementalScan));
     }
 
     /** withCachedOutput */
@@ -184,11 +192,12 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapTableStreamScan(relationId, (Table) table, qualifier,
                         groupExpression, Optional.empty(),
-                        selectedPartitionIds, partitionPruned, selectedTabletIds,
+                        selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
                         selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions, hints,
                         cacheSlotWithSlotName, Optional.of(outputSlots), tableSample, directMvScan, colToSubPathsMap,
                         manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
-                        scoreRangeInfo, annOrderKeys, annLimit, tableAlias, isNormalized, isIncrementalScan));
+                        scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates,
+                        changeScanInfo, isNormalized, isIncrementalScan));
     }
 
     @Override
@@ -196,16 +205,16 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapTableStreamScan(relationId, (Table) table, qualifier,
                         groupExpression, Optional.of(getLogicalProperties()),
-                        selectedPartitionIds, partitionPruned, selectedTabletIds,
+                        selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
                         selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                         hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
                         manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
-                        scoreRangeInfo, annOrderKeys, annLimit, tableAlias, isNormalized, isIncrementalScan));
+                        scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates,
+                        changeScanInfo, isNormalized, isIncrementalScan));
     }
 
     @Override
     public List<Slot> getOutputByIndex(long indexId) {
-        // we need to create slots vectorized for stream scan, no need for invisible column
         OlapTable olapTable = (OlapTable) table;
         // PhysicalStorageLayerAggregateTest has no visible index
         // when we have a partitioned table without any partition, visible index is
@@ -218,9 +227,11 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                     olapTable, c, indexId == ((OlapTable) table).getBaseIndexId(), indexId, exprIdGenerator
             ));
         }
-        // add virtual slots, TODO: maybe wrong, should test virtual column + sync mv
-        for (NamedExpression virtualColumn : virtualColumns) {
-            slots.add(virtualColumn.toSlot());
+        if (!changeScanInfo.isPresent()) {
+            // add virtual slots, TODO: maybe wrong, should test virtual column + sync mv
+            for (NamedExpression virtualColumn : virtualColumns) {
+                slots.add(virtualColumn.toSlot());
+            }
         }
         return slots;
     }
@@ -233,12 +244,12 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapTableStreamScan(relationId, (Table) table, qualifier,
                         Optional.empty(), Optional.of(getLogicalProperties()),
-                        selectedPartitionIds, partitionPruned, selectedTabletIds,
+                        selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
                         selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                         hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                         colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                         scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                        isNormalized, isIncrementalScan));
+                        partitionPrunablePredicates, changeScanInfo, isNormalized, isIncrementalScan));
     }
 
     /**
@@ -249,12 +260,12 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapTableStreamScan(relationId, (Table) table, qualifier,
                         groupExpression, Optional.of(getLogicalProperties()),
-                        selectedPartitionIds, partitionPruned, selectedTabletIds,
+                        selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
                         selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                         hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                         colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                         scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                        isNormalized, isIncrementalScan));
+                        partitionPrunablePredicates, changeScanInfo, isNormalized, isIncrementalScan));
     }
 
     /**
@@ -264,12 +275,12 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapTableStreamScan(relationId, (Table) table, qualifier,
                         groupExpression, Optional.of(getLogicalProperties()),
-                        selectedPartitionIds, partitionPruned, selectedTabletIds,
+                        selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
                         selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                         hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                         colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                         scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                        isNormalized, isIncrementalScan));
+                        partitionPrunablePredicates, changeScanInfo, isNormalized, isIncrementalScan));
     }
 
     /**
@@ -279,12 +290,12 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapTableStreamScan(relationId, (Table) table, qualifier,
                         groupExpression, Optional.of(getLogicalProperties()),
-                        selectedPartitionIds, partitionPruned, selectedTabletIds,
+                        selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
                         selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                         hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                         colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                         scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                        isNormalized, isIncrementalScan));
+                        partitionPrunablePredicates, changeScanInfo, isNormalized, isIncrementalScan));
     }
 
     @Override
@@ -313,12 +324,32 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapTableStreamScan(relationId, (Table) table, qualifier,
                         groupExpression, Optional.of(getLogicalProperties()),
-                        selectedPartitionIds, isPartitionPruned, selectedTabletIds,
+                        selectedPartitionIds, isPartitionPruned, hasPartitionPredicate, selectedTabletIds,
                         selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                         hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                         colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                         scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
-                        isNormalized, isIncrementalScan));
+                        partitionPrunablePredicates, changeScanInfo, isNormalized, isIncrementalScan));
+    }
+
+    /**
+     * Returns a new {@code LogicalOlapScan} carrying the supplied
+     * {@link PartitionPrunablePredicate}. It is preserved across all other
+     * {@code with*} builders so partition-derived conjuncts can be removed
+     * safely after MV rewrite has had a chance to match the plan.
+     */
+    @Override
+    public LogicalOlapTableStreamScan withPartitionPrunablePredicates(
+            Optional<PartitionPrunablePredicate> partitionPrunablePredicates) {
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalOlapTableStreamScan(relationId, (Table) table, qualifier,
+                        groupExpression, Optional.of(getLogicalProperties()),
+                        selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
+                        selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
+                        hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
+                        colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
+                        scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
+                        partitionPrunablePredicates, changeScanInfo, isNormalized, isIncrementalScan));
     }
 
     @Override

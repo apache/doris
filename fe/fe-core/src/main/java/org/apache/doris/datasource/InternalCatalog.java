@@ -84,6 +84,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.catalog.stream.BaseTableStream.StreamScanType;
 import org.apache.doris.catalog.stream.TableStreamBuildFactory;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.cloud.catalog.CloudEnv;
@@ -1017,7 +1018,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             Env.getCurrentEnv().getMtmvService().dropTable(table);
         }
         if (table instanceof BaseTableStream) {
-            Env.getCurrentEnv().getTableStreamManager().removeTableStream((BaseTableStream) table);
+            Env.getCurrentEnv().getTableStreamManager().removeStaleDbAndStream((BaseTableStream) table);
         }
         if (Config.isCloudMode()) {
             ((CloudGlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr()).afterDropTable(db.getId(),
@@ -1048,7 +1049,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             Env.getCurrentEnv().getMtmvService().dropView(new BaseTableInfo(table));
         }
         if (table instanceof BaseTableStream) {
-            Env.getCurrentEnv().getTableStreamManager().removeTableStream((BaseTableStream) table);
+            Env.getCurrentEnv().getTableStreamManager().removeStaleDbAndStream((BaseTableStream) table);
         }
         Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         Env.getCurrentEnv().getDictionaryManager().dropTableDictionaries(db.getName(), table.getName());
@@ -1563,10 +1564,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED,
                         olapTable.variantEnableFlattenNested().toString());
-            }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_TSO)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_TSO,
-                        olapTable.enableTso().toString());
             }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN,
@@ -2676,14 +2673,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                 + " property is only supported for unique merge-on-write table");
         }
         olapTable.setEnableMowLightDelete(enableDeleteOnDeletePredicate);
-
-        boolean enableTso = false;
-        try {
-            enableTso = PropertyAnalyzer.analyzeEnableTso(properties);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        }
-        olapTable.setEnableTso(enableTso);
 
         if (Config.isCloudMode() && ((CloudEnv) env).getEnableStorageVault()) {
             // <storageVaultName, storageVaultId>
@@ -4012,6 +4001,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 } catch (AnalysisException e) {
                     throw new DdlException(e.getMessage(), e);
                 }
+                if (baseTable instanceof OlapTable) {
+                    checkBaseTableAvailableForStreamType((OlapTable) baseTable, newStream.getConsumeType());
+                }
                 if (properties != null && !properties.isEmpty()) {
                     // before here, all properties should be checked
                     throw new DdlException("Unknown properties: " + properties);
@@ -4039,6 +4031,18 @@ public class InternalCatalog implements CatalogIf<Database> {
                 throw new DdlException("Base Olap table " + olapTable.getQualifiedName()
                         + " need to enable row binlog for table stream");
             }
+        }
+    }
+
+    void checkBaseTableAvailableForStreamType(OlapTable olapTable, StreamScanType streamScanType)
+            throws DdlException {
+        if (streamScanType.equals(StreamScanType.MIN_DELTA)
+                && (olapTable.getKeysType().equals(KeysType.PRIMARY_KEYS)
+                || (olapTable.getKeysType().equals(KeysType.UNIQUE_KEYS)))
+                && (!olapTable.getBinlogConfig().getNeedHistoricalValue() || !olapTable.isUniqKeyMergeOnWrite())) {
+            throw new DdlException("MIN_DELTA table stream requires base mow table to enable "
+                    + "binlog.need_historical_value=true. Table " + olapTable.getQualifiedName()
+                    + " doesn't enable historical value in row binlog.");
         }
     }
 }

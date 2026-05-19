@@ -31,19 +31,27 @@ public class PartitionCommitInfo {
     private long versionTime;
     @SerializedName(value = "isTempPartition")
     private boolean isTempPartition;
+    @SerializedName(value = "tso")
+    private long tso;
 
     public PartitionCommitInfo() {
 
     }
 
     public PartitionCommitInfo(long partitionId, String partitionRange, long version, long visibleTime,
-            boolean isTempPartition) {
+                               boolean isTempPartition) {
+        this(partitionId, partitionRange, version, visibleTime, isTempPartition, -1);
+    }
+
+    public PartitionCommitInfo(long partitionId, String partitionRange, long version, long visibleTime,
+            boolean isTempPartition, long tso) {
         super();
         this.partitionId = partitionId;
         this.range = partitionRange;
         this.version = version;
         this.versionTime = visibleTime;
         this.isTempPartition = isTempPartition;
+        this.tso = tso;
     }
 
     public long getPartitionId() {
@@ -68,6 +76,10 @@ public class PartitionCommitInfo {
 
     public void setVersionTime(long versionTime) {
         this.versionTime = versionTime;
+    }
+
+    public long getTso() {
+        return tso;
     }
 
     public boolean isTempPartition() {

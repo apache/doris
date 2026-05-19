@@ -53,6 +53,8 @@ constexpr std::string_view kBinlogDataPrefix = "binlog_data_";
 constexpr std::string_view kRowBinlogPrefix = "binlog_row_";
 constexpr std::string_view kRowBinlogLsnColName = "__DORIS_BINLOG_LSN__";
 constexpr std::string_view kRowBinlogTimestampColName = "__DORIS_BINLOG_TIMESTAMP__";
+constexpr std::string_view kRowBinlogOpColName = "__DORIS_BINLOG_OP__";
+
 constexpr int64_t kBinlogLsnAutoIncId = -1;
 // used in file directory
 constexpr std::string_view FDRowBinlogSuffix = "_row_binlog";

@@ -2802,18 +2802,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return baseIndexMeta.getSchemaVersion();
     }
 
-    public void setEnableTso(boolean enableTso) {
-        if (tableProperty == null) {
-            tableProperty = new TableProperty(new HashMap<>());
-        }
-        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_ENABLE_TSO,
-                Boolean.valueOf(enableTso).toString());
-        tableProperty.buildEnableTso();
-    }
-
+    /**
+     * Returns whether table-level TSO is enabled by row binlog format.
+     */
     public Boolean enableTso() {
         if (tableProperty != null) {
-            return tableProperty.enableTso();
+            return getBinlogConfig().isRowFormat();
         }
         return false;
     }

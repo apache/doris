@@ -3052,6 +3052,11 @@ public class Config extends ConfigBase {
             varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_table_stream = false;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "The interval at which FE cleans stale partition offset state from table streams, in seconds."},
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public static int table_stream_partition_offset_cleanup_interval_second = 3600;
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
@@ -3517,10 +3522,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long mow_get_ms_lock_retry_backoff_interval = 80;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Whether to enable TSO."}, varType = VariableAnnotation.EXPERIMENTAL)
-    public static boolean enable_tso_feature = false;
-
     @ConfField(mutable = false, masterOnly = true, description = {
             "TSO service update interval in milliseconds. Default is 50, which means the TSO service "
                     + "will perform timestamp update checks every 50 milliseconds."})
@@ -3550,16 +3551,6 @@ public class Config extends ConfigBase {
             "TSO service time offset in milliseconds. Only for test. Default is 0, which means the TSO service "
                     + "timestamp offset is 0 milliseconds."})
     public static int tso_time_offset_debug_mode = 0;
-
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Whether to enable persisting TSO window end into edit log. Enabling emits new op code, "
-                    + "which may break rollback to older versions."})
-    public static boolean enable_tso_persist_journal = false;
-
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "Whether to include TSO info as an image module in checkpoint. Older versions may need to ignore "
-                    + "unknown modules when reading new images."})
-    public static boolean enable_tso_checkpoint_module = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "Whether to forward TSO 1ms when logical counter is nearly full. Default is true."})

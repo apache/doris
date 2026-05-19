@@ -160,6 +160,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
             read_params.use_insert_order_when_same ||
             read_params.reader_type == ReaderType::READER_BINLOG ||
             read_params.reader_type == ReaderType::READER_BINLOG_COMPACTION;
+    _reader_context.force_key_ordered_read = read_params.force_key_ordered_read;
     _reader_context.read_orderby_key_limit = read_params.read_orderby_key_limit;
     _reader_context.return_columns = &_return_columns;
     _reader_context.read_orderby_key_columns =

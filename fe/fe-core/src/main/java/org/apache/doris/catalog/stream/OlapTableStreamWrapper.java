@@ -18,10 +18,10 @@
 package org.apache.doris.catalog.stream;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.thrift.TColumn;
@@ -39,16 +39,21 @@ import java.util.stream.Collectors;
 public class OlapTableStreamWrapper extends OlapTable {
     private OlapTableStream stream;
     private OlapTable baseTable;
-    private RowBinlogTableWrapper rowBinlogTableWrapper;
     protected Map<Long, Pair<Long, Long>> outputUpdateMap = Maps.newHashMap();
+    private final KeysType keysType;
 
     public OlapTableStreamWrapper(OlapTableStream stream, OlapTable baseTable) {
         super(stream.getId(), stream.getName(), stream.getFullSchema(), baseTable.getKeysType(),
                 baseTable.getPartitionInfo(), baseTable.getDefaultDistributionInfo());
+        // Inherit base table's qualifiedDbName so that wrapper.getDatabase() can resolve the
+        // owning Database via Env.getCurrentInternalCatalog().getDbNullable(qualifiedDbName).
+        // Otherwise downstream consumers (e.g. QueryPartitionCollector, partition routing,
+        // MV partition compensation) treat the wrapper as having no database and silently
+        // fall back to empty results when scanning the stream.
+        setQualifiedDbName(baseTable.getQualifiedDbName());
         this.stream = stream;
         this.baseTable = baseTable;
-        this.rowBinlogTableWrapper = new RowBinlogTableWrapper(baseTable);
-        this.rowBinlogTableWrapper.setParent(this);
+        this.keysType = baseTable.getKeysType();
         this.getOrCreatTableProperty().setEnableUniqueKeyMergeOnWrite(baseTable.getEnableUniqueKeyMergeOnWrite());
     }
 
@@ -190,7 +195,10 @@ public class OlapTableStreamWrapper extends OlapTable {
         return baseTable;
     }
 
-    public RowBinlogTableWrapper getRowBinlogTableWrapper() {
-        return rowBinlogTableWrapper;
+    public BaseTableStream.StreamScanType getConsumeType() {
+        if (keysType == KeysType.DUP_KEYS) {
+            return BaseTableStream.StreamScanType.APPEND_ONLY;
+        }
+        return stream.getConsumeType();
     }
 }

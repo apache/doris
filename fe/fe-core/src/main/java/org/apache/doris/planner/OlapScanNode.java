@@ -52,6 +52,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.cloud.qe.ComputeGroupException;
@@ -64,6 +65,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.trees.ChangeScanInfo;
 import org.apache.doris.nereids.trees.plans.ScoreRangeInfo;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.planner.normalize.PartitionRangePredicateNormalizer;
@@ -71,6 +73,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TAggregationType;
+import org.apache.doris.thrift.TBinlogScanType;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
@@ -89,6 +92,7 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSortInfo;
+import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -219,6 +223,17 @@ public class OlapScanNode extends ScanNode {
     private Column globalRowIdColumn;
 
     private final boolean incrementalScan;
+
+    // single-table CHANGES scan on base table
+    private boolean hasChangeScan = false;
+    private long changeStartTimestamp = -1L;
+    private boolean hasChangeEndTimestamp = false;
+    private long changeEndTimestamp = -1L;
+    private ChangeScanInfo.InformationKind informationKind = ChangeScanInfo.InformationKind.DETAIL;
+
+    private static long decodeTsoToTimestamp(long tso) {
+        return tso <= 0 ? 0 : TSOTimestamp.extractTimestamp(tso);
+    }
 
     // Constructs node to scan given data files of table 'tbl'.
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, ScanContext scanContext) {
@@ -477,11 +492,9 @@ public class OlapScanNode extends ScanNode {
         if (!(Config.isCloudMode() && Config.enable_cloud_snapshot_version)) {
             visibleVersion = partition.getVisibleVersion();
         }
-        // if partition offset is set, use the next offset to set the visible version
         if (olapTable instanceof OlapTableStreamWrapper) {
             visibleVersion = ((OlapTableStreamWrapper) olapTable).getStreamUpdate(partition.getId()).second;
         }
-        // for non-cloud mode. for cloud mode see `updateScanRangeVersions`
         maxVersion = Math.max(maxVersion, visibleVersion);
 
         int useFixReplica = -1;
@@ -536,11 +549,28 @@ public class OlapScanNode extends ScanNode {
             );
             paloRange.setVersionHash("");
             paloRange.setTabletId(tabletId);
-            if (incrementalScan) {
-                paloRange.setStartTso(((RowBinlogTableWrapper) olapTable)
-                        .getParent().getStreamUpdate(partition.getId()).first);
-                paloRange.setEndTso(((RowBinlogTableWrapper) olapTable)
-                        .getParent().getStreamUpdate(partition.getId()).second);
+            if (hasChangeScan) {
+                Preconditions.checkState(olapTable instanceof RowBinlogTableWrapper);
+                paloRange.setStartTso(changeStartTimestamp);
+                if (hasChangeEndTimestamp) {
+                    paloRange.setEndTso(changeEndTimestamp);
+                }
+                if (incrementalScan) {
+                    paloRange.setBinlogScanType(informationKindToSchemaScanType(informationKind));
+                }
+            } else if (incrementalScan) {
+                Preconditions.checkState(olapTable instanceof RowBinlogTableWrapper);
+                RowBinlogTableWrapper binlogWrapper = ((RowBinlogTableWrapper) olapTable);
+                Pair<Long, Long> update = getStreamUpdate(partition.getId());
+                if (update.first != null) {
+                    paloRange.setStartTso(decodeTsoToTimestamp(update.first));
+                }
+                if (update.second != null) {
+                    paloRange.setEndTso(decodeTsoToTimestamp(update.second));
+                }
+                TBinlogScanType streamScanType =
+                        BaseTableStream.StreamScanType.toThrift(binlogWrapper.getParent().getConsumeType());
+                paloRange.setBinlogScanType(streamScanType);
             }
 
             // random shuffle List && only collect one copy
@@ -1279,7 +1309,8 @@ public class OlapScanNode extends ScanNode {
 
         msg.olap_scan_node.setDistributeColumnIds(new ArrayList<>(distributionColumnIds));
 
-        if (selectedIndexId != -1 && olapTable.getIndexMetaByIndexId(selectedIndexId).isRowBinlogIndex()) {
+        if (hasChangeScan
+                || (selectedIndexId != -1 && olapTable.getIndexMetaByIndexId(selectedIndexId).isRowBinlogIndex())) {
             msg.olap_scan_node.setReadRowBinlog(true);
         }
 
@@ -1644,13 +1675,67 @@ public class OlapScanNode extends ScanNode {
         Map<Long, Long> prev = Maps.newHashMap();
         Map<Long, Long> next = Maps.newHashMap();
         for (Long partitionId : getSelectedPartitionIds()) {
-            Pair<Long, Long> streamUpdate = ((OlapTableStreamWrapper) olapTable).getStreamUpdate(partitionId);
+            Pair<Long, Long> streamUpdate = getStreamUpdate(partitionId);
             if (streamUpdate.first != null) {
-                // prev could be null, ignore
+                // prev could be null, in case of historical scan
                 prev.put(partitionId, streamUpdate.first);
             }
-            next.put(partitionId, streamUpdate.second);
+            if (streamUpdate.second != null) {
+                next.put(partitionId, streamUpdate.second);
+            } else {
+                // next could be null, in case of incremental scan
+                next.put(partitionId, olapTable.getPartition(partitionId).getTso());
+            }
         }
         return new OlapTableStreamUpdate(prev, next);
+    }
+
+    private Pair<Long, Long> getStreamUpdate(Long partitionId) {
+        // unprotected assume partitionId is in SelectedPartitionIds
+        Pair<Long, Long> streamUpdate;
+        if (olapTable instanceof RowBinlogTableWrapper) {
+            streamUpdate = ((RowBinlogTableWrapper) olapTable).getParent().getStreamUpdate(partitionId);
+        } else {
+            streamUpdate = ((OlapTableStreamWrapper) olapTable).getStreamUpdate(partitionId);
+        }
+        return streamUpdate;
+    }
+
+    public boolean isIncrementalScan() {
+        return incrementalScan;
+    }
+
+    public void enableTimestampChangeScan(
+            long startTimestamp, Long endTimestamp, ChangeScanInfo.InformationKind informationKind) {
+        this.hasChangeScan = true;
+        this.changeStartTimestamp = startTimestamp;
+        this.hasChangeEndTimestamp = endTimestamp != null;
+        this.changeEndTimestamp = endTimestamp != null ? endTimestamp : -1L;
+        this.informationKind = informationKind;
+    }
+
+    public boolean hasChangeScan() {
+        return hasChangeScan;
+    }
+
+    public boolean hasChangeEndTimestamp() {
+        return hasChangeEndTimestamp;
+    }
+
+    public long getChangeEndTimestamp() {
+        return changeEndTimestamp;
+    }
+
+    TBinlogScanType informationKindToSchemaScanType(ChangeScanInfo.InformationKind informationKind) {
+        switch (informationKind) {
+            case MIN_DELTA:
+                return TBinlogScanType.MIN_DELTA;
+            case APPEND_ONLY:
+                return TBinlogScanType.APPEND_ONLY;
+            case DETAIL:
+                return TBinlogScanType.DETAIL;
+            default:
+                return TBinlogScanType.NONE;
+        }
     }
 }

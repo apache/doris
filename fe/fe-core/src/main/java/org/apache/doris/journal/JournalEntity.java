@@ -113,6 +113,7 @@ import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.persist.PrivInfo;
+import org.apache.doris.persist.PruneTableStreamPartitionOffsetInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.RefreshExternalTableInfo;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
@@ -963,6 +964,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_LOG_NEW_PARTITION_LOADED: {
                 data = NewPartitionLoadedEvent.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_PRUNE_TABLE_STREAM_PARTITION_OFFSETS: {
+                data = PruneTableStreamPartitionOffsetInfo.read(in);
                 isRead = true;
                 break;
             }

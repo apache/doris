@@ -2775,10 +2775,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         TableSample tableSample = ctx.sample() == null ? null : (TableSample) visit(ctx.sample());
-        UnboundRelation relation = new UnboundRelation(
-                StatementScopeIdGenerator.newRelationId(),
-                nameParts, partitionNames, isTempPart, tabletIdLists, relationHints,
-                Optional.ofNullable(tableSample), indexName, scanParams, Optional.ofNullable(tableSnapshot));
+        UnboundRelation relation = new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
+                nameParts, isTempPart, partitionNames, tabletIdLists, relationHints,
+                Optional.ofNullable(tableSample), indexName, scanParams, Optional.ofNullable(tableSnapshot),
+                Optional.empty());
 
         LogicalPlan checkedRelation = LogicalPlanBuilderAssistant.withCheckPolicy(relation);
         LogicalPlan plan = withTableAlias(checkedRelation, ctx.tableAlias());

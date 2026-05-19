@@ -72,7 +72,8 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                         olapScan.getAnnLimit(),
                         olapScan.getTableAlias(),
                         olapScan.getPartitionPrunablePredicates(),
-                        olapScan.isIncrementalScan())
+                        olapScan.isIncrementalScan(),
+                        olapScan.getChangeScanInfo())
         ).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
     }
 

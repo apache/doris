@@ -168,8 +168,6 @@ public class PropertyAnalyzer {
     @Deprecated
     public static final String PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED = "deprecated_variant_enable_flatten_nested";
 
-    public static final String PROPERTIES_ENABLE_TSO = "enable_tso";
-
     public static final String PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP =
             "vertical_compaction_num_columns_per_group";
 
@@ -849,27 +847,6 @@ public class PropertyAnalyzer {
         }
         throw new AnalysisException(PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED
                 + " must be `true` or `false`");
-    }
-
-    public static Boolean analyzeEnableTso(Map<String, String> properties) throws AnalysisException {
-        if (properties == null || properties.isEmpty()) {
-            return false;
-        }
-        String value = properties.get(PROPERTIES_ENABLE_TSO);
-        if (null == value) {
-            return false;
-        }
-        properties.remove(PROPERTIES_ENABLE_TSO);
-        if (value.equalsIgnoreCase("true")) {
-            if (!Config.enable_tso_feature) {
-                throw new AnalysisException(PROPERTIES_ENABLE_TSO
-                        + " can not be enabled when experimental_enable_tso_feature is disabled");
-            }
-            return true;
-        } else if (value.equalsIgnoreCase("false")) {
-            return false;
-        }
-        throw new AnalysisException(PROPERTIES_ENABLE_TSO + " must be `true` or `false`");
     }
 
     public static Boolean analyzeEnableDuplicateWithoutKeysByDefault(Map<String, String> properties)
@@ -2317,18 +2294,18 @@ public class PropertyAnalyzer {
         }
     }
 
-    public static BaseTableStream.StreamConsumeType analyzeStreamType(Map<String, String> properties)
+    public static BaseTableStream.StreamScanType analyzeStreamType(Map<String, String> properties)
             throws AnalysisException {
         if (properties != null && properties.containsKey(PROPERTIES_STREAM_TYPE)) {
             String value = properties.get(PROPERTIES_STREAM_TYPE);
-            BaseTableStream.StreamConsumeType type = BaseTableStream.StreamConsumeType.getType(value);
-            if (type.equals(BaseTableStream.StreamConsumeType.UNKNOWN)) {
+            BaseTableStream.StreamScanType type = BaseTableStream.StreamScanType.getType(value);
+            if (type.equals(BaseTableStream.StreamScanType.UNKNOWN)) {
                 throw new AnalysisException("not supported " + PropertyAnalyzer.PROPERTIES_STREAM_TYPE
                         +  ": " + value);
             }
             properties.remove(PROPERTIES_STREAM_TYPE);
             return type;
         }
-        return BaseTableStream.StreamConsumeType.DEFAULT;
+        return BaseTableStream.StreamScanType.MIN_DELTA;
     }
 }

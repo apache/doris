@@ -34,6 +34,7 @@
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
+#include "storage/binlog.h"
 #include "storage/delete/delete_handler.h"
 #include "storage/iterator/vgeneric_iterators.h"
 #include "storage/olap_define.h"
@@ -135,14 +136,31 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     std::vector<uint32_t> read_columns;
     std::set<uint32_t> read_columns_set;
     std::set<uint32_t> delete_columns_set;
+    auto add_read_column_if_absent = [&](uint32_t cid) {
+        if (read_columns_set.insert(cid).second) {
+            read_columns.push_back(cid);
+        }
+    };
     for (int i = 0; i < _read_context->return_columns->size(); ++i) {
-        read_columns.push_back(_read_context->return_columns->at(i));
-        read_columns_set.insert(_read_context->return_columns->at(i));
+        add_read_column_if_absent(_read_context->return_columns->at(i));
     }
     _read_options.delete_condition_predicates->get_all_column_ids(delete_columns_set);
     for (auto cid : delete_columns_set) {
-        if (read_columns_set.find(cid) == read_columns_set.end()) {
-            read_columns.push_back(cid);
+        add_read_column_if_absent(cid);
+    }
+    if (_read_context->predicates != nullptr) {
+        for (auto pred : *(_read_context->predicates)) {
+            add_read_column_if_absent(pred->column_id());
+        }
+    }
+    if (_should_push_down_value_predicates()) {
+        // sequence mapping currently only support merge on read, so can not push down value
+        // predicates
+        if (_read_context->value_predicates != nullptr &&
+            !read_context->tablet_schema->has_seq_map()) {
+            for (auto pred : *(_read_context->value_predicates)) {
+                add_read_column_if_absent(pred->column_id());
+            }
         }
     }
     // disable condition cache if you have delete condition
@@ -214,6 +232,16 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.topn_filter_target_node_id = _read_context->topn_filter_target_node_id;
     _read_options.read_orderby_key_reverse = _read_context->read_orderby_key_reverse;
     _read_options.use_insert_order_when_same = _read_context->use_insert_order_when_same;
+    int32_t lsn_col_id =
+            _read_context->tablet_schema->field_index(std::string(kRowBinlogLsnColName));
+    if (lsn_col_id >= 0) {
+        for (size_t i = 0; i < _read_context->return_columns->size(); ++i) {
+            if (_read_context->return_columns->at(i) == static_cast<uint32_t>(lsn_col_id)) {
+                _read_options.binlog_lsn_idx = static_cast<int>(i);
+                break;
+            }
+        }
+    }
     _read_options.read_orderby_key_columns = _read_context->read_orderby_key_columns;
     _read_options.io_ctx.reader_type = _read_context->reader_type;
     _read_options.io_ctx.file_cache_stats = &_stats->file_cache_stats;
@@ -332,9 +360,13 @@ Status BetaRowsetReader::_init_iterator() {
                 }
             }
         }
+        if (_read_options.binlog_lsn_idx != -1) {
+            sequence_loc = _read_options.binlog_lsn_idx;
+        }
         _iterator = new_merge_iterator(std::move(iterators), sequence_loc, _read_context->is_unique,
                                        _read_context->read_orderby_key_reverse,
-                                       _read_context->merged_rows, _output_schema);
+                                       _read_context->merged_rows, _output_schema,
+                                       _read_options.binlog_lsn_idx != -1);
     } else {
         if (_read_context->read_orderby_key_reverse) {
             // reverse iterators to read backward for ORDER BY key DESC

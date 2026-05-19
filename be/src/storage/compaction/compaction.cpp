@@ -757,7 +757,8 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
     RETURN_IF_ERROR(modify_rowsets());
 
     auto* cumu_policy = tablet()->cumulative_compaction_policy();
-    DCHECK(cumu_policy);
+    bool is_binlog_compaction = compaction_type() == ReaderType::READER_BINLOG_COMPACTION;
+    DCHECK(is_binlog_compaction || cumu_policy);
     LOG(INFO) << "succeed to do " << compaction_name() << " is_vertical=" << _is_vertical
               << ". tablet=" << _tablet->tablet_id() << ", output_version=" << _output_version
               << ", current_max_version=" << tablet()->max_version().second
@@ -779,7 +780,8 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
               << ", filtered_row_num=" << _stats.filtered_rows
               << ", merged_row_num=" << _stats.merged_rows
               << ". elapsed time=" << watch.get_elapse_second()
-              << "s. cumulative_compaction_policy=" << cumu_policy->name()
+              << "s. cumulative_compaction_policy="
+              << (is_binlog_compaction ? std::string_view {"binlog"} : cumu_policy->name())
               << ", compact_row_per_second="
               << cast_set<double>(_input_row_num) / watch.get_elapse_second();
 

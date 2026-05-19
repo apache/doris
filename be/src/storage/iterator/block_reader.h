@@ -75,6 +75,24 @@ private:
     // to minimize the comparison time in merge heap.
     Status _unique_key_next_block(Block* block, bool* eof);
 
+    Status _min_delta_next_block(Block* block, bool* eof);
+
+    Status _detail_change_next_block(Block* block, bool* eof);
+
+    Status _ensure_binlog_column_pos(const Block& src_block);
+
+    int64_t _read_binlog_op(const IColumn& col, size_t row) const;
+
+    Status _write_binlog_op(IColumn& col, int64_t op) const;
+
+    bool _is_binlog_meta_column(int idx) const;
+
+    int _resolve_source_column_index(int idx, bool use_before) const;
+
+    void _init_pending_row_columns(const Block& block);
+
+    bool _emit_pending_row(MutableColumns& target_columns, size_t& output_row_count);
+
     Status _replace_key_next_block(Block* block, bool* eof);
 
     Status _init_collect_iter(const ReaderParams& read_params);
@@ -99,6 +117,11 @@ private:
 
     void _update_agg_value(MutableColumns& columns, int begin, int end, bool is_close = true);
 
+    Status _append_change_row(MutableColumns& target_columns, const Block& src_block,
+                              size_t row_pos, int64_t output_op, bool use_before);
+
+    bool _get_next_row_same();
+
     // return false if keys of rowsets are mono ascending and disjoint
     bool _rowsets_not_mono_asc_disjoint(const ReaderParams& read_params);
 
@@ -121,6 +144,9 @@ private:
     std::vector<bool> _stored_has_null_tag;
     std::vector<bool> _stored_has_variable_length_tag;
 
+    MutableColumns _pending_row_columns;
+    bool _has_pending_row = false;
+
     phmap::flat_hash_map<const Block*, std::vector<std::pair<int, int>>> _temp_ref_map;
 
     bool _eof = false;
@@ -133,6 +159,11 @@ private:
 
     bool _is_rowsets_overlapping = true;
 
+    int _binlog_op_pos = -1;
+    int _binlog_lsn_pos = -1;
+    int _binlog_timestamp_pos = -1;
+    bool _binlog_column_pos_inited = false;
+
     bool _has_seq_map = false;
     // for check multi seq
     std::unordered_map<uint32_t, MutableColumnPtr> _seq_columns;
@@ -140,7 +171,8 @@ private:
     // seq in return_columns, val pos in _normal_columns_idx
     std::unordered_map<uint32_t, std::vector<uint32_t>> _seq_map_in_origin_block;
     std::unordered_map<uint32_t, std::vector<uint32_t>> _seq_map_not_in_origin_block;
-
+    // from binlog before column mapping
+    std::vector<int> _before_column_idx;
     Arena _arena;
 };
 
