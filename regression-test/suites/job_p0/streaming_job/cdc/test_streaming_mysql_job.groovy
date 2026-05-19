@@ -79,6 +79,17 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
                   `age` int DEFAULT NULL,
                   PRIMARY KEY (`name`)
                 ) ENGINE=InnoDB"""
+
+            // Decoy table whose name differs from table1 by a single char that JDBC LIKE
+            // matches via `_`. Different column shape (weight) so any schema leak surfaces
+            // as a Duplicate-column error on CREATE TABLE or as a stray `weight` column.
+            sql """DROP TABLE IF EXISTS ${mysqlDb}.userXinfo_normal1"""
+            sql """CREATE TABLE ${mysqlDb}.userXinfo_normal1 (
+                  `name` varchar(200) NOT NULL,
+                  `weight` double DEFAULT NULL,
+                  PRIMARY KEY (`name`)
+                ) ENGINE=InnoDB"""
+            sql """INSERT INTO ${mysqlDb}.userXinfo_normal1 VALUES ('decoy1', 1.5);"""
         }
 
         sql """CREATE JOB ${jobName}
@@ -114,6 +125,8 @@ suite("test_streaming_mysql_job", "p0,external,mysql,external_docker,external_do
         assert createTalInfo.contains("`age` int");
         assert createTalInfo.contains("UNIQUE KEY(`name`)");
         assert createTalInfo.contains("DISTRIBUTED BY HASH(`name`) BUCKETS AUTO");
+        // Guard: decoy table userXinfo_normal1 must not leak its `weight` column.
+        assert !createTalInfo.contains("`weight`");
 
         // check job running
         try {

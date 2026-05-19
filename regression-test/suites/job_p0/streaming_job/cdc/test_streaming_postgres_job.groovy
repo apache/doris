@@ -74,6 +74,17 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
             // mock snapshot data
             sql """INSERT INTO ${pgDB}.${pgSchema}.${table2} (name, age) VALUES ('A2', 1);"""
             sql """INSERT INTO ${pgDB}.${pgSchema}.${table2} (name, age) VALUES ('B2', 2);"""
+
+            // Decoy table whose name differs from table1 by a single char that JDBC LIKE
+            // matches via `_`. Different column shape (weight) so any schema leak surfaces
+            // as a Duplicate-column error on CREATE TABLE or a stray `weight` column.
+            sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.userXinfo_pg_normal1"""
+            sql """CREATE TABLE ${pgDB}.${pgSchema}.userXinfo_pg_normal1 (
+                  "name" varchar(200),
+                  "weight" float8,
+                  PRIMARY KEY ("name")
+                )"""
+            sql """INSERT INTO ${pgDB}.${pgSchema}.userXinfo_pg_normal1 (name, weight) VALUES ('decoy1', 1.5);"""
         }
 
         sql """CREATE JOB ${jobName}
@@ -108,6 +119,8 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
         assert createTalInfo.contains("`age` smallint");
         assert createTalInfo.contains("UNIQUE KEY(`name`)");
         assert createTalInfo.contains("DISTRIBUTED BY HASH(`name`) BUCKETS AUTO");
+        // Guard: decoy table userXinfo_pg_normal1 must not leak its `weight` column.
+        assert !createTalInfo.contains("`weight`");
 
         // check job running
         try {
