@@ -32,7 +32,7 @@
 namespace doris {
 
 struct AggregateFunctionMapAggDataV2 {
-    using Map = phmap::flat_hash_map<Field, int64_t>;
+    using Map = doris::flat_hash_map<Field, int64_t>;
 
     AggregateFunctionMapAggDataV2() {
         throw Exception(Status::FatalError("__builtin_unreachable"));
