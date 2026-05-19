@@ -113,13 +113,16 @@ TEST(FunctionJsonbTEST, JsonbParseTest) {
             {{STRING("null")}, STRING("null")},
             {{STRING("true")}, STRING("true")},
             {{STRING("false")}, STRING("false")},
-            {{STRING("100")}, STRING("100")},                                 //int8
-            {{STRING("10000")}, STRING("10000")},                             // int16
-            {{STRING("1000000000")}, STRING("1000000000")},                   // int32
-            {{STRING("1152921504606846976")}, STRING("1152921504606846976")}, // int64
-            {{STRING("6.18")}, STRING("6.18")},                               // double
-            {{STRING(R"("abcd")")}, STRING(R"("abcd")")},                     // string
-            {{STRING("{}")}, STRING("{}")},                                   // empty object
+            {{STRING("100")}, STRING("100")},                                   //int8
+            {{STRING("10000")}, STRING("10000")},                               // int16
+            {{STRING("1000000000")}, STRING("1000000000")},                     // int32
+            {{STRING("1152921504606846976")}, STRING("1152921504606846976")},   // int64
+            {{STRING("18446744073709551616")}, STRING("18446744073709551616")}, // int128
+            {{STRING("12345678901234567890123456789012345678901234567890")},
+             STRING("1.2345678901234567e+49")},           // double fallback
+            {{STRING("6.18")}, STRING("6.18")},           // double
+            {{STRING(R"("abcd")")}, STRING(R"("abcd")")}, // string
+            {{STRING("{}")}, STRING("{}")},               // empty object
             {{STRING(R"({"k1":"v31", "k2": 300})")}, STRING(R"({"k1":"v31","k2":300})")}, // object
             {{STRING("[]")}, STRING("[]")},                              // empty array
             {{STRING("[123, 456]")}, STRING("[123,456]")},               // int array
@@ -146,6 +149,12 @@ TEST(FunctionJsonbTEST, JsonbParseTest) {
 
     data_set_invalid = {
             {{STRING("100x")}, Null()}, // invalid int
+    };
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
+
+    data_set_invalid = {
+            {{STRING("18446744073709551616x")}, Null()}, // invalid int with trailing content
     };
     static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
                                                           -1, -1, true));
