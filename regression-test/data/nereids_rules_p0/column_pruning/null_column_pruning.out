@@ -3,6 +3,8 @@
 
 -- !2 --
 
+-- !string_full_access_strips_null --
+
 -- !3 --
 1
 
@@ -14,7 +16,11 @@
 
 -- !6 --
 
+-- !array_full_access_strips_null --
+
 -- !7 --
+
+-- !map_full_access_strips_null --
 
 -- !8 --
 
