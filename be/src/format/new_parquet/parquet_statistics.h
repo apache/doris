@@ -17,22 +17,84 @@
 
 #pragma once
 
+#include <memory>
 #include <vector>
 
 #include "common/status.h"
+#include "core/field.h"
 #include "format/reader/file_reader.h"
 
 namespace parquet {
 class FileMetaData;
+class RowGroupMetaData;
+class Statistics;
 } // namespace parquet
+
+namespace doris {
+class ColumnPredicate;
+} // namespace doris
 
 namespace doris::parquet {
 
+struct ParquetColumnSchema;
+
+// 已经编译到 Parquet file-local schema 的单列谓词计划。
+// 这对应 DuckDB Parquet reader 中“local filter + column reader/statistics”的组合：
+// 只包含 file-local top-level column id、leaf column ordinal 和 Doris ColumnPredicate。
+struct ParquetColumnPredicate {
+    reader::ColumnId file_column_id = -1;
+    int leaf_column_id = -1;
+    const ParquetColumnSchema* column_schema = nullptr;
+    std::vector<std::shared_ptr<ColumnPredicate>> predicates;
+};
+
+// Parquet row group column statistics 转换后的 Doris 统计视图。
+// DuckDB 会把 Parquet stats 转换成 BaseStatistics，然后让 TableFilter 自己判断；
+// Doris 新 reader 先保存 file-local min/max/null 信息，再交给 ColumnPredicate 判断。
+struct ParquetColumnStatistics {
+    Field min_value;
+    Field max_value;
+    bool has_null = false;
+    bool has_not_null = false;
+    bool has_null_count = false;
+    bool has_min_max = false;
+
+    bool has_any_statistics() const { return has_null_count || has_min_max; }
+};
+
+// Parquet file-local statistics/page index/bloom filter 工具类。
+// 结构参考 DuckDB ParquetStatisticsUtils：先把 Parquet metadata 转成统一统计对象，
+// 再由 filter/predicate 判断是否可以裁剪。这里不理解 table/global schema。
+struct ParquetStatisticsUtils {
+    static std::vector<ParquetColumnPredicate> BuildColumnPredicates(
+            const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+            const reader::FileScanRequest& request);
+
+    static ParquetColumnStatistics TransformColumnStatistics(
+            const ParquetColumnSchema& column_schema,
+            const std::shared_ptr<::parquet::Statistics>& statistics);
+
+    static bool CheckStatistics(const ParquetColumnPredicate& predicate,
+                                const ParquetColumnStatistics& statistics);
+
+    static bool RowGroupExcludes(const ::parquet::RowGroupMetaData& row_group,
+                                 const ParquetColumnPredicate& predicate);
+
+    static Status SelectRowGroups(
+            const ::parquet::FileMetaData& metadata,
+            const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+            const reader::FileScanRequest& request, std::vector<int>* selected_row_groups);
+
+    static bool BloomFilterSupported(const ParquetColumnSchema& column_schema);
+};
+
 // Parquet file-local statistics/page index/bloom filter 裁剪入口。
-// 当前阶段保守返回全部 row group；后续所有基于 Parquet metadata 的 pruning 都放在这里，
-// 避免污染 ParquetReader 的 scan 调度代码。
-Status select_row_groups_by_statistics(const ::parquet::FileMetaData& metadata,
-                                       const reader::FileScanRequest& request,
-                                       std::vector<int>* selected_row_groups);
+// 这里只消费已经 localize 到 file schema 的 FileScanRequest，不理解 table/global schema。
+// 后续 page index、dictionary、bloom filter 等文件格式优化也应继续收敛在这一层，避免污染
+// ParquetReader 的 scan 调度代码。
+Status select_row_groups_by_statistics(
+        const ::parquet::FileMetaData& metadata,
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const reader::FileScanRequest& request, std::vector<int>* selected_row_groups);
 
 } // namespace doris::parquet

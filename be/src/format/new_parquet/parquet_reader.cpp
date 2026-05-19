@@ -211,14 +211,21 @@ void mark_required_leaf_columns(const ParquetColumnSchema& column_schema,
 }
 
 void collect_required_leaf_columns(const std::vector<std::unique_ptr<ParquetColumnSchema>>& fields,
-                                   const std::vector<int>& projected_fields, int num_leaf_columns,
-                                   std::vector<int>* required_leaf_columns) {
+                                   const std::vector<int>& projected_fields,
+                                   const std::vector<reader::FileLocalFilter>& local_filters,
+                                   int num_leaf_columns, std::vector<int>* required_leaf_columns) {
     required_leaf_columns->clear();
     std::vector<bool> required(static_cast<size_t>(num_leaf_columns), false);
     for (int field_id : projected_fields) {
         mark_required_leaf_columns(*fields[field_id], &required);
     }
-    required_leaf_columns->reserve(projected_fields.size());
+    for (const auto& local_filter : local_filters) {
+        const int field_id = local_filter.file_column_id;
+        if (field_id >= 0 && field_id < static_cast<int>(fields.size())) {
+            mark_required_leaf_columns(*fields[field_id], &required);
+        }
+    }
+    required_leaf_columns->reserve(num_leaf_columns);
     for (int leaf_column_id = 0; leaf_column_id < num_leaf_columns; ++leaf_column_id) {
         if (required[leaf_column_id]) {
             required_leaf_columns->push_back(leaf_column_id);
@@ -321,9 +328,8 @@ Status ParquetReader::open(io::FileReaderSPtr file, io::IOContext* io_ctx) {
     _state->arrow_file = std::make_shared<DorisRandomAccessFile>(_file, _io_ctx);
 
     try {
-        _state->parquet_reader =
-                ::parquet::ParquetFileReader::Open(_state->arrow_file,
-                                                   ::parquet::default_reader_properties());
+        _state->parquet_reader = ::parquet::ParquetFileReader::Open(
+                _state->arrow_file, ::parquet::default_reader_properties());
         _state->metadata = _state->parquet_reader->metadata();
         _state->schema = _state->metadata != nullptr ? _state->metadata->schema() : nullptr;
     } catch (const ::parquet::ParquetException& e) {
@@ -376,10 +382,17 @@ Status ParquetReader::init(const reader::FileScanRequest& request) {
         }
         _state->projected_fields.push_back(column_id);
     }
+    for (const auto& local_filter : request.local_filters) {
+        if (local_filter.file_column_id < 0 || local_filter.file_column_id >= num_fields) {
+            return Status::InvalidArgument("Invalid parquet filter top-level field id {}",
+                                           local_filter.file_column_id);
+        }
+    }
     collect_required_leaf_columns(_state->file_schema, _state->projected_fields,
-                                  _state->schema->num_columns(), &_state->required_leaf_columns);
+                                  request.local_filters, _state->schema->num_columns(),
+                                  &_state->required_leaf_columns);
 
-    RETURN_IF_ERROR(select_row_groups_by_statistics(*_state->metadata, request,
+    RETURN_IF_ERROR(select_row_groups_by_statistics(*_state->metadata, _state->file_schema, request,
                                                     &_state->selected_row_groups));
     RETURN_IF_ERROR(reset_reader_position(_state.get()));
     _eof = _state->selected_row_groups.empty();
@@ -423,8 +436,8 @@ Status ParquetReader::next(Block* file_block, size_t* rows, bool* eof) {
             continue;
         }
 
-        const int64_t batch_rows = std::min<int64_t>(DEFAULT_PARQUET_READ_BATCH_SIZE,
-                                                     remaining_rows);
+        const int64_t batch_rows =
+                std::min<int64_t>(DEFAULT_PARQUET_READ_BATCH_SIZE, remaining_rows);
         RETURN_IF_ERROR(read_current_row_group_batch(_state.get(), batch_rows, file_block, rows));
         if (*rows == 0) {
             return Status::Corruption("Parquet row group returned zero rows before EOF");
