@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.StatsDerive.DeriveContext;
@@ -80,7 +79,6 @@ import java.util.Set;
  */
 public class DistinctAggregateRewriter implements RewriteRuleFactory {
     public static final DistinctAggregateRewriter INSTANCE = new DistinctAggregateRewriter();
-    private static final double MULTI_DISTINCT_GBY_PER_INSTANCE_THRESHOLD = 30.0;
     // TODO: add other functions
     private static final Set<Class<? extends AggregateFunction>> supportSplitOtherFunctions = ImmutableSet.of(
             Sum.class, Min.class, Max.class, Count.class, Sum0.class, AnyValue.class);
@@ -151,12 +149,9 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
         }
         Set<String> distinctColumnNames = new HashSet<>();
         for (SlotReference slot : info.distinctSlots) {
-            if (!slot.getOriginalColumn().isPresent()) {
-                return false;
-            }
-            distinctColumnNames.add(slot.getOriginalColumn().get().getName().toLowerCase());
+            distinctColumnNames.add(slot.getName().toLowerCase());
         }
-        DistributionInfo distributionInfo = info.table.getDefaultDistributionInfo();
+        DistributionInfo distributionInfo = info.distributionInfo;
         if (!(distributionInfo instanceof HashDistributionInfo)) {
             return false;
         }
@@ -172,6 +167,15 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
         return true;
     }
 
+    /** This function get the DistinctDistributionInfo from aggregate,
+     * and can handle such scenarios: aggregate's child is filter or project, or both of them:
+     * agg(count(distinct a), group by b)
+     *   ->project()
+     *     ->filter()
+     *       ->scan(distributed by hash(a))
+     * @return Table DistributionInfo and the slots of the base table
+     *         referenced by the distinct column of the aggregate function.
+     */
     private DistinctDistributionInfo resolveDistinctDistributionInfo(LogicalAggregate<? extends Plan> aggregate) {
         Set<Expression> distinctArgs = aggregate.getDistinctArguments();
         if (distinctArgs.isEmpty()) {
@@ -218,8 +222,8 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
         if (olapTable == null) {
             return null;
         }
-        if (olapTable.getPartitionInfo().getType() != PartitionType.UNPARTITIONED
-                && scan.getSelectedPartitionIds().size() > 1) {
+        if (!Utils.isSelectUnpartition(olapTable, scan.getSelectedPartitionIds())
+                && !Utils.isBelongStableCG(olapTable)) {
             return null;
         }
         for (SlotReference slot : distinctSlots) {
@@ -228,15 +232,15 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
                 return null;
             }
         }
-        return new DistinctDistributionInfo(olapTable, distinctSlots);
+        return new DistinctDistributionInfo(olapTable.getDefaultDistributionInfo(), distinctSlots);
     }
 
     private static class DistinctDistributionInfo {
-        private final OlapTable table;
+        private final DistributionInfo distributionInfo;
         private final Set<SlotReference> distinctSlots;
 
-        private DistinctDistributionInfo(OlapTable table, Set<SlotReference> distinctSlots) {
-            this.table = table;
+        private DistinctDistributionInfo(DistributionInfo distributionInfo, Set<SlotReference> distinctSlots) {
+            this.distributionInfo = distributionInfo;
             this.distinctSlots = distinctSlots;
         }
     }
