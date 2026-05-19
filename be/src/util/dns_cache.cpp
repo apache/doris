@@ -140,6 +140,14 @@ void DNSCache::_refresh_once() {
     for (auto& key : keys) {
         Status st = _update(key);
         if (!st.ok()) {
+            // _update only returns an error when _resolve_hostname returns an
+            // empty string, which happens only if the hostname has never been
+            // successfully resolved (no cached IP to fall back to).  Keys in
+            // the refresh loop come from `cache`, so they all have a prior IP;
+            // during DNS failure _resolve_hostname returns that cached IP and
+            // _update returns OK.  This branch is therefore effectively dead
+            // under normal refresh semantics — the eviction logic below handles
+            // the long-running failure case instead.
             LOG(WARNING) << "Failed to update DNS cache for hostname " << key << ": "
                          << st.to_string();
         }

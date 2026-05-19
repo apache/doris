@@ -47,22 +47,6 @@ public:
     // get ip by hostname
     Status get(const std::string& hostname, std::string* ip);
 
-    // visible for testing
-    size_t size_for_test() const {
-        std::shared_lock<std::shared_mutex> lock(mutex);
-        return cache.size();
-    }
-
-    uint32_t failure_count_for_test(const std::string& hostname) const {
-        std::shared_lock<std::shared_mutex> lock(mutex);
-        auto it = failure_count.find(hostname);
-        return it != failure_count.end() ? it->second : 0;
-    }
-
-    // Run one refresh cycle synchronously (no sleep).  Only meaningful when
-    // the object was constructed with the test constructor (no background thread).
-    void refresh_for_test() { _refresh_once(); }
-
 private:
     // Resolve hostname to IP address.
     // If resolution fails, falls back to cached IP if available.
@@ -82,6 +66,24 @@ private:
     // update cache at fix internal
     void _refresh_cache();
 
+    // ── test helpers (accessible via friend class DNSCacheTest) ──────────────
+    size_t size_for_test() const {
+        std::shared_lock<std::shared_mutex> lock(mutex);
+        return cache.size();
+    }
+
+    uint32_t failure_count_for_test(const std::string& hostname) const {
+        std::shared_lock<std::shared_mutex> lock(mutex);
+        auto it = failure_count.find(hostname);
+        return it != failure_count.end() ? it->second : 0;
+    }
+
+    // Run one refresh cycle synchronously (no sleep).  Only meaningful when
+    // the object was constructed with the test constructor (no background thread).
+    void refresh_for_test() { _refresh_once(); }
+
+    friend class DNSCacheTest;
+
 private:
     Resolver _resolver; // null → use global hostname_to_ip
     // hostname -> ip
@@ -92,7 +94,5 @@ private:
     std::thread refresh_thread;
     bool stop_refresh = false;
 };
-
-} // end of namespace doris
 
 } // end of namespace doris
