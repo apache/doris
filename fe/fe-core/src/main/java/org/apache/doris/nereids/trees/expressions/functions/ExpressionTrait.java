@@ -21,8 +21,8 @@ import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.VolatileExpression;
 import org.apache.doris.nereids.trees.expressions.Variable;
+import org.apache.doris.nereids.trees.expressions.VolatileExpression;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.ImmutableList;
