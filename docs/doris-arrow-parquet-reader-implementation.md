@@ -126,25 +126,22 @@ Parquet schema、filter、projection 或 table-level 语义。
 命名对齐 DuckDB 的 `ParquetReaderScanState`，但内部仍然使用 Arrow Parquet core
 reader 作为物理列读取实现。
 
-### ParquetColumnReaderState
+### ParquetColumnReader
 
-建议为每个 projected leaf column 维护一个状态对象：
+为每个 projected leaf column 维护一个 `ParquetColumnReader` 对象。这个对象是 Doris
+自己的 file-local column reader 抽象，当前内部包装 Arrow Parquet core
+`parquet::ColumnReader`，后续可以在同一抽象下扩展 `skip`、selective read、cache/reuse
+和复杂类型递归读取。
 
-- file-local column id；
-- Parquet leaf column ordinal；
-- `parquet::ColumnDescriptor`；
-- `std::shared_ptr<parquet::ColumnReader>`；
-- physical type；
-- max definition level；
-- max repetition level；
-- 临时 values buffer；
-- definition levels buffer；
-- repetition levels buffer；
-- 是否参与谓词第一阶段；
-- 是否需要缓存给 projection 复用。
+当前阶段有 `PrimitiveColumnReader` 和第一版 `StructColumnReader`：
 
-第一阶段可以只支持 flat columns，即 `max_repetition_level == 0`。复杂列需要额外的
-row boundary 状态。
+- `PrimitiveColumnReader` 支持 `max_repetition_level == 0` 的 primitive、string、
+  decimal 和 int64 timestamp。
+- `StructColumnReader` 支持 required struct，并递归读取 child reader 后组装
+  `ColumnStruct`。
+
+list/map 和 nullable struct 仍需要完整 Dremel definition/repetition level assembler，
+当前不会伪装支持。
 
 实际代码文件：
 

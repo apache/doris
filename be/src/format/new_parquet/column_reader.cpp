@@ -25,16 +25,23 @@
 #include <cstdint>
 #include <exception>
 #include <memory>
+#include <string>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "core/column/column.h"
 #include "core/column/column_decimal.h"
+#include "core/column/column_struct.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/value/vdatetime_value.h"
+#include "format/new_parquet/parquet_column_schema.h"
 
 namespace doris::parquet {
 namespace {
@@ -221,14 +228,73 @@ void insert_physical_value(IColumn& column, const ParquetValueType& value) {
     column.insert_data(reinterpret_cast<const char*>(&doris_value), sizeof(DorisCppType));
 }
 
+class PrimitiveColumnReader final : public ParquetColumnReader {
+public:
+    PrimitiveColumnReader(int file_column_id, const ::parquet::ColumnDescriptor* descriptor,
+                          DataTypePtr type, std::string name,
+                          std::shared_ptr<::parquet::ColumnReader> arrow_reader)
+            : _file_column_id(file_column_id),
+              _parquet_column_ordinal(file_column_id),
+              _descriptor(descriptor),
+              _type(std::move(type)),
+              _name(std::move(name)),
+              _arrow_reader(std::move(arrow_reader)) {}
+
+    int file_column_id() const override { return _file_column_id; }
+    int parquet_column_ordinal() const override { return _parquet_column_ordinal; }
+    const DataTypePtr& type() const override { return _type; }
+    const std::string& name() const override { return _name; }
+
+    Status read_batch(int64_t batch_rows, MutableColumnPtr* result_column,
+                      int64_t* rows_read) override;
+
+    const ::parquet::ColumnDescriptor* descriptor() const { return _descriptor; }
+    const std::shared_ptr<::parquet::ColumnReader>& arrow_reader() const {
+        return _arrow_reader;
+    }
+
+private:
+    int _file_column_id = -1;
+    int _parquet_column_ordinal = -1;
+    const ::parquet::ColumnDescriptor* _descriptor = nullptr;
+    DataTypePtr _type;
+    std::string _name;
+    std::shared_ptr<::parquet::ColumnReader> _arrow_reader;
+};
+
+class StructColumnReader final : public ParquetColumnReader {
+public:
+    StructColumnReader(const ParquetColumnSchema& schema,
+                       std::vector<std::unique_ptr<ParquetColumnReader>> children)
+            : _field_id(schema.field_id),
+              _type(schema.type),
+              _name(schema.name),
+              _children(std::move(children)) {}
+
+    int file_column_id() const override { return _field_id; }
+    int parquet_column_ordinal() const override { return -1; }
+    const DataTypePtr& type() const override { return _type; }
+    const std::string& name() const override { return _name; }
+
+    Status read_batch(int64_t batch_rows, MutableColumnPtr* result_column,
+                      int64_t* rows_read) override;
+
+private:
+    int _field_id = -1;
+    DataTypePtr _type;
+    std::string _name;
+    std::vector<std::unique_ptr<ParquetColumnReader>> _children;
+};
+
 template <typename ParquetReaderType, typename InsertValue>
-Status read_typed_column_values(ParquetColumnReaderState& column_state, int64_t batch_rows,
+Status read_typed_column_values(ParquetColumnReader& column_reader, int64_t batch_rows,
                                 MutableColumnPtr* result_column, int64_t* rows_read,
                                 InsertValue&& insert_value) {
-    auto* typed_reader = dynamic_cast<ParquetReaderType*>(column_state.reader.get());
+    auto& primitive_reader = static_cast<PrimitiveColumnReader&>(column_reader);
+    auto* typed_reader = dynamic_cast<ParquetReaderType*>(primitive_reader.arrow_reader().get());
     if (typed_reader == nullptr) {
         return Status::InternalError("Unexpected parquet column reader type for column {}",
-                                     column_state.name);
+                                     column_reader.name());
     }
 
     using ParquetValueType = typename ParquetReaderType::T;
@@ -236,7 +302,7 @@ Status read_typed_column_values(ParquetColumnReaderState& column_state, int64_t 
     auto values = std::make_unique<ParquetValueType[]>(batch_size);
     std::vector<int16_t> def_levels;
     int16_t* def_levels_ptr = nullptr;
-    if (column_state.descriptor->max_definition_level() > 0) {
+    if (primitive_reader.descriptor()->max_definition_level() > 0) {
         def_levels.resize(batch_size);
         def_levels_ptr = def_levels.data();
     }
@@ -247,24 +313,24 @@ Status read_typed_column_values(ParquetColumnReaderState& column_state, int64_t 
         levels_read = typed_reader->ReadBatch(batch_rows, def_levels_ptr, nullptr, values.get(),
                                               &values_read);
     } catch (const ::parquet::ParquetException& e) {
-        return Status::Corruption("Failed to read parquet column {}: {}", column_state.name,
+        return Status::Corruption("Failed to read parquet column {}: {}", column_reader.name(),
                                   e.what());
     } catch (const std::exception& e) {
-        return Status::InternalError("Failed to read parquet column {}: {}", column_state.name,
+        return Status::InternalError("Failed to read parquet column {}: {}", column_reader.name(),
                                      e.what());
     }
 
     if (levels_read < 0 || values_read < 0 || levels_read > batch_rows || values_read > batch_rows) {
-        return Status::Corruption("Invalid parquet read result for column {}", column_state.name);
+        return Status::Corruption("Invalid parquet read result for column {}", column_reader.name());
     }
 
-    auto column = column_state.type->create_column();
-    if (column_state.descriptor->max_definition_level() == 0) {
+    auto column = column_reader.type()->create_column();
+    if (primitive_reader.descriptor()->max_definition_level() == 0) {
         if (values_read != levels_read) {
             return Status::Corruption(
                     "Invalid required parquet column read result for column {}: levels={}, "
                     "values={}",
-                    column_state.name, levels_read, values_read);
+                    column_reader.name(), levels_read, values_read);
         }
         const size_t level_count = static_cast<size_t>(levels_read);
         for (size_t i = 0; i < level_count; ++i) {
@@ -274,13 +340,13 @@ Status read_typed_column_values(ParquetColumnReaderState& column_state, int64_t 
         size_t value_idx = 0;
         const size_t value_count = static_cast<size_t>(values_read);
         const size_t level_count = static_cast<size_t>(levels_read);
-        const int16_t max_definition_level = column_state.descriptor->max_definition_level();
+        const int16_t max_definition_level = primitive_reader.descriptor()->max_definition_level();
         for (size_t i = 0; i < level_count; ++i) {
             if (def_levels[i] == max_definition_level) {
                 if (value_idx >= value_count) {
                     return Status::Corruption(
                             "Parquet definition levels exceed values for column {}",
-                            column_state.name);
+                            column_reader.name());
                 }
                 RETURN_IF_ERROR(insert_value(*column, values[value_idx++]));
             } else {
@@ -291,7 +357,7 @@ Status read_typed_column_values(ParquetColumnReaderState& column_state, int64_t 
             return Status::Corruption(
                     "Parquet values exceed definition levels for column {}: consumed={}, "
                     "values={}",
-                    column_state.name, value_idx, values_read);
+                    column_reader.name(), value_idx, values_read);
         }
     }
 
@@ -301,10 +367,10 @@ Status read_typed_column_values(ParquetColumnReaderState& column_state, int64_t 
 }
 
 template <typename ParquetReaderType, PrimitiveType DorisType>
-Status read_flat_primitive_column(ParquetColumnReaderState& column_state, int64_t batch_rows,
+Status read_flat_primitive_column(ParquetColumnReader& column_reader, int64_t batch_rows,
                                   MutableColumnPtr* result_column, int64_t* rows_read) {
     return read_typed_column_values<ParquetReaderType>(
-            column_state, batch_rows, result_column, rows_read,
+            column_reader, batch_rows, result_column, rows_read,
             [](IColumn& column, const typename ParquetReaderType::T& value) {
                 insert_physical_value<DorisType>(column, value);
                 return Status::OK();
@@ -491,80 +557,187 @@ DataTypePtr supported_flat_column_type(const ::parquet::ColumnDescriptor* column
     return nullptr;
 }
 
-Status read_column_batch(ParquetColumnReaderState& column_state, int64_t batch_rows,
-                         MutableColumnPtr* result_column, int64_t* rows_read) {
-    if (is_decimal_column(column_state.descriptor)) {
-        switch (column_state.descriptor->physical_type()) {
+Status PrimitiveColumnReader::read_batch(int64_t batch_rows, MutableColumnPtr* result_column,
+                                         int64_t* rows_read) {
+    if (is_decimal_column(_descriptor)) {
+        switch (_descriptor->physical_type()) {
         case ::parquet::Type::INT32:
             return read_typed_column_values<::parquet::Int32Reader>(
-                    column_state, batch_rows, result_column, rows_read,
+                    *this, batch_rows, result_column, rows_read,
                     [](IColumn& column, int32_t value) { return insert_int32_decimal(column, value); });
         case ::parquet::Type::INT64:
             return read_typed_column_values<::parquet::Int64Reader>(
-                    column_state, batch_rows, result_column, rows_read,
+                    *this, batch_rows, result_column, rows_read,
                     [](IColumn& column, int64_t value) { return insert_int64_decimal(column, value); });
         case ::parquet::Type::BYTE_ARRAY:
             return read_typed_column_values<::parquet::ByteArrayReader>(
-                    column_state, batch_rows, result_column, rows_read,
+                    *this, batch_rows, result_column, rows_read,
                     [](IColumn& column, const ::parquet::ByteArray& value) {
                         return insert_decimal_from_byte_array(column, value);
                     });
         case ::parquet::Type::FIXED_LEN_BYTE_ARRAY:
             return read_typed_column_values<::parquet::FixedLenByteArrayReader>(
-                    column_state, batch_rows, result_column, rows_read,
-                    [&column_state](IColumn& column, const ::parquet::FixedLenByteArray& value) {
+                    *this, batch_rows, result_column, rows_read,
+                    [this](IColumn& column, const ::parquet::FixedLenByteArray& value) {
                         return insert_decimal_from_fixed_len_byte_array(
-                                column, value, column_state.descriptor->type_length());
+                                column, value, _descriptor->type_length());
                     });
         default:
             return Status::NotSupported("Unsupported parquet decimal physical type for column {}",
-                                        column_state.name);
+                                        _name);
         }
     }
-    if (is_timestamp_column(column_state.descriptor) &&
-        column_state.descriptor->physical_type() == ::parquet::Type::INT64) {
+    if (is_timestamp_column(_descriptor) &&
+        _descriptor->physical_type() == ::parquet::Type::INT64) {
         return read_typed_column_values<::parquet::Int64Reader>(
-                column_state, batch_rows, result_column, rows_read,
-                [&column_state](IColumn& column, int64_t value) {
-                    return insert_int64_timestamp(column, value, column_state.descriptor);
+                *this, batch_rows, result_column, rows_read,
+                [this](IColumn& column, int64_t value) {
+                    return insert_int64_timestamp(column, value, _descriptor);
                 });
     }
-    if (is_string_like_column(column_state.descriptor)) {
-        if (column_state.descriptor->physical_type() == ::parquet::Type::BYTE_ARRAY) {
+    if (is_string_like_column(_descriptor)) {
+        if (_descriptor->physical_type() == ::parquet::Type::BYTE_ARRAY) {
             return read_typed_column_values<::parquet::ByteArrayReader>(
-                    column_state, batch_rows, result_column, rows_read,
+                    *this, batch_rows, result_column, rows_read,
                     [](IColumn& column, const ::parquet::ByteArray& value) {
                         return insert_byte_array_value(column, value);
                     });
         }
         return read_typed_column_values<::parquet::FixedLenByteArrayReader>(
-                column_state, batch_rows, result_column, rows_read,
-                [&column_state](IColumn& column, const ::parquet::FixedLenByteArray& value) {
+                *this, batch_rows, result_column, rows_read,
+                [this](IColumn& column, const ::parquet::FixedLenByteArray& value) {
                     return insert_fixed_len_byte_array_value(
-                            column, value, column_state.descriptor->type_length());
+                            column, value, _descriptor->type_length());
                 });
     }
 
-    switch (column_state.descriptor->physical_type()) {
+    switch (_descriptor->physical_type()) {
     case ::parquet::Type::BOOLEAN:
         return read_flat_primitive_column<::parquet::BoolReader, TYPE_BOOLEAN>(
-                column_state, batch_rows, result_column, rows_read);
+                *this, batch_rows, result_column, rows_read);
     case ::parquet::Type::INT32:
         return read_flat_primitive_column<::parquet::Int32Reader, TYPE_INT>(
-                column_state, batch_rows, result_column, rows_read);
+                *this, batch_rows, result_column, rows_read);
     case ::parquet::Type::INT64:
         return read_flat_primitive_column<::parquet::Int64Reader, TYPE_BIGINT>(
-                column_state, batch_rows, result_column, rows_read);
+                *this, batch_rows, result_column, rows_read);
     case ::parquet::Type::FLOAT:
         return read_flat_primitive_column<::parquet::FloatReader, TYPE_FLOAT>(
-                column_state, batch_rows, result_column, rows_read);
+                *this, batch_rows, result_column, rows_read);
     case ::parquet::Type::DOUBLE:
         return read_flat_primitive_column<::parquet::DoubleReader, TYPE_DOUBLE>(
-                column_state, batch_rows, result_column, rows_read);
+                *this, batch_rows, result_column, rows_read);
     default:
-        return Status::NotSupported("Unsupported parquet physical type for column {}",
-                                    column_state.name);
+        return Status::NotSupported("Unsupported parquet physical type for column {}", _name);
     }
+}
+
+Status StructColumnReader::read_batch(int64_t batch_rows, MutableColumnPtr* result_column,
+                                      int64_t* rows_read) {
+    if (_children.empty()) {
+        auto column = _type->create_column();
+        column->resize(static_cast<size_t>(batch_rows));
+        *result_column = std::move(column);
+        *rows_read = batch_rows;
+        return Status::OK();
+    }
+
+    MutableColumns child_columns;
+    child_columns.reserve(_children.size());
+    int64_t expected_rows = -1;
+    for (auto& child_reader : _children) {
+        MutableColumnPtr child_column;
+        int64_t child_rows = 0;
+        RETURN_IF_ERROR(child_reader->read_batch(batch_rows, &child_column, &child_rows));
+        if (expected_rows < 0) {
+            expected_rows = child_rows;
+        } else if (child_rows != expected_rows) {
+            return Status::Corruption(
+                    "Parquet struct children returned different row counts in column {}: {} vs {}",
+                    _name, expected_rows, child_rows);
+        }
+        child_columns.push_back(std::move(child_column));
+    }
+
+    *rows_read = std::max<int64_t>(expected_rows, 0);
+    *result_column = ColumnStruct::create(std::move(child_columns));
+    return Status::OK();
+}
+
+Status ParquetColumnReader::skip(int64_t rows) {
+    return Status::NotSupported("Parquet column skip is not implemented, rows={}", rows);
+}
+
+Status create_parquet_column_reader(int file_column_id,
+                                    const ::parquet::ColumnDescriptor* descriptor,
+                                    DataTypePtr type, std::string name,
+                                    std::shared_ptr<::parquet::ColumnReader> arrow_reader,
+                                    std::unique_ptr<ParquetColumnReader>* reader) {
+    if (reader == nullptr) {
+        return Status::InvalidArgument("reader is null");
+    }
+    if (descriptor == nullptr || type == nullptr || arrow_reader == nullptr) {
+        return Status::InvalidArgument("Invalid parquet column reader arguments for column {}",
+                                       name);
+    }
+    *reader = std::make_unique<PrimitiveColumnReader>(file_column_id, descriptor, std::move(type),
+                                                      std::move(name), std::move(arrow_reader));
+    return Status::OK();
+}
+
+Status create_parquet_column_reader(
+        const ParquetColumnSchema& column_schema,
+        const std::vector<std::shared_ptr<::parquet::ColumnReader>>& arrow_readers,
+        std::unique_ptr<ParquetColumnReader>* reader) {
+    if (reader == nullptr) {
+        return Status::InvalidArgument("reader is null");
+    }
+    switch (column_schema.kind) {
+    case ParquetColumnSchemaKind::PRIMITIVE: {
+        if (column_schema.leaf_column_id < 0 ||
+            column_schema.leaf_column_id >= static_cast<int>(arrow_readers.size())) {
+            return Status::InvalidArgument("Invalid parquet leaf column id {} for column {}",
+                                           column_schema.leaf_column_id, column_schema.name);
+        }
+        if (supported_flat_column_type(column_schema.descriptor) == nullptr) {
+            return Status::NotSupported(
+                    "Current parquet reader only supports primitive columns without repetition; "
+                    "column {} is not supported",
+                    column_schema.name);
+        }
+        return create_parquet_column_reader(column_schema.leaf_column_id,
+                                            column_schema.descriptor,
+                                            column_schema.type,
+                                            column_schema.name,
+                                            arrow_readers[column_schema.leaf_column_id],
+                                            reader);
+    }
+    case ParquetColumnSchemaKind::STRUCT: {
+        if (column_schema.type != nullptr && column_schema.type->is_nullable()) {
+            return Status::NotSupported(
+                    "Nullable parquet STRUCT reader is not implemented for column {}",
+                    column_schema.name);
+        }
+        std::vector<std::unique_ptr<ParquetColumnReader>> child_readers;
+        child_readers.reserve(column_schema.children.size());
+        for (const auto& child_schema : column_schema.children) {
+            std::unique_ptr<ParquetColumnReader> child_reader;
+            RETURN_IF_ERROR(create_parquet_column_reader(*child_schema, arrow_readers,
+                                                         &child_reader));
+            child_readers.push_back(std::move(child_reader));
+        }
+        *reader = std::make_unique<StructColumnReader>(column_schema, std::move(child_readers));
+        return Status::OK();
+    }
+    case ParquetColumnSchemaKind::LIST:
+        return Status::NotSupported("Parquet LIST reader is not implemented for column {}",
+                                    column_schema.name);
+    case ParquetColumnSchemaKind::MAP:
+        return Status::NotSupported("Parquet MAP reader is not implemented for column {}",
+                                    column_schema.name);
+    }
+    return Status::NotSupported("Unsupported parquet column schema kind for column {}",
+                                column_schema.name);
 }
 
 } // namespace doris::parquet

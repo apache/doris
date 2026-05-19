@@ -32,6 +32,7 @@
 #include "common/exception.h"
 #include "core/block/block.h"
 #include "format/new_parquet/column_reader.h"
+#include "format/new_parquet/parquet_column_schema.h"
 #include "format/new_parquet/parquet_statistics.h"
 #include "io/fs/file_reader.h"
 #include "util/slice.h"
@@ -145,14 +146,15 @@ struct ParquetReaderScanState {
     std::unique_ptr<::parquet::ParquetFileReader> parquet_reader;
     std::shared_ptr<::parquet::FileMetaData> metadata;
     const ::parquet::SchemaDescriptor* schema = nullptr;
+    std::vector<std::unique_ptr<ParquetColumnSchema>> file_schema;
 
-    // 当前 scan 的 file-local projection 和 row group 列表。阶段一先保守选择全部 row
+    // 当前 scan 的 top-level file-local projection 和 row group 列表。阶段一先保守选择全部 row
     // groups；后续 row group/page/bloom pruning 只消费 FileLocalFilter。
-    std::vector<int> projected_columns;
+    std::vector<int> projected_fields;
     std::vector<int> selected_row_groups;
     size_t next_row_group_idx = 0;
     std::shared_ptr<::parquet::RowGroupReader> current_row_group;
-    std::vector<ParquetColumnReaderState> current_columns;
+    std::vector<std::unique_ptr<ParquetColumnReader>> current_columns;
     int64_t current_row_group_rows = 0;
     int64_t current_row_group_rows_read = 0;
 };
@@ -178,6 +180,20 @@ void reset_current_row_group(ParquetReaderScanState* state) {
     state->current_row_group_rows_read = 0;
 }
 
+void fill_schema_field(const ParquetColumnSchema& column_schema, reader::SchemaField* field) {
+    field->id = column_schema.leaf_column_id >= 0 ? column_schema.leaf_column_id
+                                                  : column_schema.field_id;
+    field->name = column_schema.name;
+    field->type = column_schema.type;
+    field->children.clear();
+    field->children.reserve(column_schema.children.size());
+    for (const auto& child : column_schema.children) {
+        reader::SchemaField child_field;
+        fill_schema_field(*child, &child_field);
+        field->children.push_back(std::move(child_field));
+    }
+}
+
 Status open_next_row_group(ParquetReaderScanState* state, bool* has_row_group) {
     *has_row_group = false;
     while (state->next_row_group_idx < state->selected_row_groups.size()) {
@@ -201,31 +217,26 @@ Status open_next_row_group(ParquetReaderScanState* state, bool* has_row_group) {
         }
         state->current_row_group_rows_read = 0;
         state->current_columns.clear();
-        state->current_columns.reserve(state->projected_columns.size());
+        state->current_columns.reserve(state->projected_fields.size());
 
-        for (int file_column_id : state->projected_columns) {
-            const auto* descriptor = state->schema->Column(file_column_id);
-            DataTypePtr type = supported_flat_column_type(descriptor);
-            if (type == nullptr) {
-                return Status::NotSupported(
-                        "Current parquet reader only supports flat primitive, string, decimal "
-                        "and int64 timestamp columns; "
-                        "column {} is not supported",
-                        column_name(descriptor));
+        std::vector<std::shared_ptr<::parquet::ColumnReader>> arrow_readers(
+                state->schema->num_columns());
+        for (int leaf_column_id = 0; leaf_column_id < state->schema->num_columns();
+             ++leaf_column_id) {
+            arrow_readers[leaf_column_id] = state->current_row_group->Column(leaf_column_id);
+            if (arrow_readers[leaf_column_id] == nullptr) {
+                return Status::Corruption(
+                        "Failed to create parquet column reader for leaf column {}",
+                        leaf_column_id);
             }
+        }
 
-            ParquetColumnReaderState column_state;
-            column_state.file_column_id = file_column_id;
-            column_state.parquet_column_ordinal = file_column_id;
-            column_state.descriptor = descriptor;
-            column_state.type = std::move(type);
-            column_state.name = column_name(descriptor);
-            column_state.reader = state->current_row_group->Column(file_column_id);
-            if (column_state.reader == nullptr) {
-                return Status::Corruption("Failed to create parquet column reader for column {}",
-                                          column_state.name);
-            }
-            state->current_columns.push_back(std::move(column_state));
+        for (int file_field_id : state->projected_fields) {
+            const auto& column_schema = state->file_schema[file_field_id];
+            std::unique_ptr<ParquetColumnReader> column_reader;
+            RETURN_IF_ERROR(create_parquet_column_reader(*column_schema, arrow_readers,
+                                                         &column_reader));
+            state->current_columns.push_back(std::move(column_reader));
         }
 
         if (state->current_row_group_rows == 0) {
@@ -248,10 +259,10 @@ Status read_current_row_group_batch(ParquetReaderScanState* state, int64_t batch
     }
 
     int64_t expected_rows = -1;
-    for (auto& column_state : state->current_columns) {
+    for (auto& column_reader : state->current_columns) {
         MutableColumnPtr column;
         int64_t column_rows = 0;
-        RETURN_IF_ERROR(read_column_batch(column_state, batch_rows, &column, &column_rows));
+        RETURN_IF_ERROR(column_reader->read_batch(batch_rows, &column, &column_rows));
         if (expected_rows < 0) {
             expected_rows = column_rows;
         } else if (column_rows != expected_rows) {
@@ -259,8 +270,8 @@ Status read_current_row_group_batch(ParquetReaderScanState* state, int64_t batch
                     "Parquet columns returned different row counts in the same batch: {} vs {}",
                     expected_rows, column_rows);
         }
-        file_block->insert(ColumnWithTypeAndName {std::move(column), column_state.type,
-                                                  column_state.name});
+        file_block->insert(ColumnWithTypeAndName {std::move(column), column_reader->type(),
+                                                  column_reader->name()});
     }
 
     *rows = static_cast<size_t>(std::max<int64_t>(expected_rows, 0));
@@ -293,6 +304,7 @@ Status ParquetReader::open(io::FileReaderSPtr file, io::IOContext* io_ctx) {
     if (_state->metadata == nullptr || _state->schema == nullptr) {
         return Status::Corruption("Failed to read parquet metadata");
     }
+    RETURN_IF_ERROR(build_parquet_column_schema(*_state->schema, &_state->file_schema));
     return Status::OK();
 }
 
@@ -305,18 +317,11 @@ Status ParquetReader::get_schema(std::vector<reader::SchemaField>* file_schema) 
         return Status::Uninitialized("ParquetReader is not open");
     }
 
-    const int num_columns = _state->schema->num_columns();
-    file_schema->reserve(num_columns);
-    for (int column_idx = 0; column_idx < num_columns; ++column_idx) {
-        const auto* column = _state->schema->Column(column_idx);
+    file_schema->reserve(_state->file_schema.size());
+    for (size_t column_idx = 0; column_idx < _state->file_schema.size(); ++column_idx) {
         reader::SchemaField field;
-        field.id = column_idx;
-        field.name = column_name(column);
-        field.type = parquet_column_to_doris_type(column);
-        if (field.type == nullptr) {
-            return Status::NotSupported("Unsupported parquet column type for column {}",
-                                        field.name);
-        }
+        fill_schema_field(*_state->file_schema[column_idx], &field);
+        field.id = static_cast<reader::ColumnId>(column_idx);
         file_schema->push_back(std::move(field));
     }
     return Status::OK();
@@ -332,13 +337,13 @@ Status ParquetReader::init(const reader::FileScanRequest& request) {
     }
     RETURN_IF_ERROR(reader::FileReader::init(request));
 
-    _state->projected_columns.clear();
-    const int num_columns = _state->schema->num_columns();
+    _state->projected_fields.clear();
+    const int num_fields = static_cast<int>(_state->file_schema.size());
     for (auto column_id : request.projected_file_columns) {
-        if (column_id < 0 || column_id >= num_columns) {
-            return Status::InvalidArgument("Invalid parquet column id {}", column_id);
+        if (column_id < 0 || column_id >= num_fields) {
+            return Status::InvalidArgument("Invalid parquet top-level field id {}", column_id);
         }
-        _state->projected_columns.push_back(column_id);
+        _state->projected_fields.push_back(column_id);
     }
 
     RETURN_IF_ERROR(select_row_groups_by_statistics(*_state->metadata, request,
