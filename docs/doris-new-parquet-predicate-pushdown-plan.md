@@ -334,8 +334,27 @@ struct ParquetRowGroupScanPlan {
 6. 读取 output-only columns 时按 selection 输出。
 7. filter column 同时是 projection column 时，复用第一次读取结果，不重复物化。
 
-当前 `ParquetColumnReader` 还只有 `read_batch()` 和未实现的 `skip()`。为支持这一阶段，
-需要补充：
+当前已经落地第一版 decoded filtering / 延时物化骨架：
+
+- `ParquetReaderScanState` 将当前 row group 的 reader 分成 filter columns 和 output
+  columns；
+- batch 开始先读取 filter columns，并用 `ColumnPredicate::evaluate(...)` 生成 selection；
+- 如果 selection 为空，output-only columns 通过 `ParquetColumnReader::skip(...)` 推进；
+- 如果 filter column 同时也是 projection column，输出阶段复用第一次解码出的列；
+- output-only columns 当前仍按整批读取，再用 selection 过滤成输出 block。
+
+这个版本只处理 `FileLocalFilter::predicates`。`FileLocalFilter::conjunct` 和
+`reader_expression_map` fallback 后续需要在 filter columns 之后、output columns 之前执行，
+继续收窄 selection。
+
+当前 `ParquetColumnReader::skip(...)` 的策略：
+
+- required flat primitive 列直接调用 Arrow Parquet `TypedColumnReader::Skip(...)`；
+- nullable、string、decimal、timestamp 和 struct 暂时退化为 read-and-discard；
+- nested repetition 场景后续需要基于 record boundary 的 skip/selective read，不能直接用
+  Arrow value-level `Skip(...)` 表示行级跳过。
+
+后续如果要进一步接近 DuckDB 的 selective read，需要补充：
 
 - `read_filter_batch(...)`
 - `read_selective_batch(...)`

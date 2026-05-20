@@ -66,7 +66,9 @@ public:
     virtual Status read_batch(int64_t batch_rows, MutableColumnPtr* result_column,
                               int64_t* rows_read) = 0;
 
-    // 跳过指定行数。阶段一暂未实现，接口先保留给延时物化和复杂类型读取。
+    // 跳过指定行数。延时物化在谓词过滤后，如果某个 projection-only 列整批都不需要输出，
+    // 会通过该接口推进物理 reader。对于 nullable/nested 等 Arrow Skip 不能表达“行”的场景，
+    // 实现必须退化成 read-and-discard，保证 reader 位置正确。
     virtual Status skip(int64_t rows);
 };
 
@@ -92,8 +94,8 @@ private:
                          std::unique_ptr<ParquetColumnReader>* reader) const;
 
     Status create_primitive_reader(int file_column_id,
-                                   const ::parquet::ColumnDescriptor* descriptor,
-                                   DataTypePtr type, std::string name,
+                                   const ::parquet::ColumnDescriptor* descriptor, DataTypePtr type,
+                                   std::string name,
                                    std::shared_ptr<::parquet::ColumnReader> arrow_reader,
                                    std::unique_ptr<ParquetColumnReader>* reader) const;
 
