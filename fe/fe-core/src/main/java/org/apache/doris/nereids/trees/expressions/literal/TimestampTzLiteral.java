@@ -23,6 +23,7 @@ import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
+import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -45,7 +46,8 @@ public class TimestampTzLiteral extends DateTimeLiteral {
     }
 
     public TimestampTzLiteral(TimeStampTzType dateType, String s) {
-        super(dateType, s);
+        super(dateType);
+        init(dateType, s);
         roundMicroSecond(dateType.getScale());
     }
 
@@ -62,6 +64,31 @@ public class TimestampTzLiteral extends DateTimeLiteral {
             long year, long month, long day, long hour, long minute, long second, long microSecond) {
         super(dateType, year, month, day, hour, minute, second, microSecond);
         roundMicroSecond(dateType.getScale());
+    }
+
+    private void init(TimeStampTzType dateType, String s) {
+        if (DateTimeChecker.hasTimeZone(s)) {
+            super.init(s);
+            return;
+        }
+
+        DateTimeV2Literal literal = new DateTimeV2Literal(s);
+        DateTimeV2Literal dtV2Lit = (DateTimeV2Literal) DateTimeExtractAndTransform.convertTz(
+                literal,
+                new StringLiteral(getSessionTimeZone()),
+                new StringLiteral("UTC"));
+        this.year = dtV2Lit.year;
+        this.month = dtV2Lit.month;
+        this.day = dtV2Lit.day;
+        this.hour = dtV2Lit.hour;
+        this.minute = dtV2Lit.minute;
+        this.second = dtV2Lit.second;
+        this.microSecond = dtV2Lit.microSecond;
+    }
+
+    private static String getSessionTimeZone() {
+        ConnectContext context = ConnectContext.get();
+        return context == null ? "UTC" : context.getSessionVariable().timeZone;
     }
 
     @Override

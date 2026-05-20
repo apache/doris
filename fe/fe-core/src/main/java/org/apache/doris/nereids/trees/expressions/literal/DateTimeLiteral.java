@@ -63,6 +63,10 @@ public class DateTimeLiteral extends DateLiteral {
         this(DateTimeType.INSTANCE, s);
     }
 
+    protected DateTimeLiteral(DateLikeType dataType) {
+        super(dataType);
+    }
+
     protected DateTimeLiteral(DateLikeType dataType, String s) {
         super(dataType);
         init(s);
