@@ -380,7 +380,7 @@ public class Config extends ConfigBase {
     @ConfField(description = {"The maximum HTTP POST size of Jetty, in bytes, the default value is 100MB."})
     public static int jetty_server_max_http_post_size = 100 * 1024 * 1024;
 
-    @ConfField(mutable = true, description = {
+    @ConfField(description = {
             "Jetty 在应用未消费完请求体时，额外尝试读取剩余内容的最大次数。"
                     + "-1 表示不限制，0 表示不额外读取，正数表示最大读取次数。",
             "The maximum number of extra reads Jetty performs for unconsumed request content. "

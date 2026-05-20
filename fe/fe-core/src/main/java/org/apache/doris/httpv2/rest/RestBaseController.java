@@ -94,25 +94,25 @@ public class RestBaseController extends BaseController {
 
     protected String buildRedirectUrl(HttpServletRequest request, TNetworkAddress addr, String requestPath,
             String queryString) {
-        URI resultUriObj = null;
         String userInfo = null;
         if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
             ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
             userInfo = authInfo.fullUserName + ":" + authInfo.password;
         }
         try {
-            resultUriObj = new URI(request.getScheme(), userInfo, addr.getHostname(),
-                    addr.getPort(), requestPath, null, null);
+            // Preserve the original request path to avoid re-encoding an already encoded URI path.
+            URI authorityUri = new URI(request.getScheme(), userInfo, addr.getHostname(),
+                    addr.getPort(), null, null, null);
+            String redirectUrl = authorityUri.toASCIIString() + requestPath;
+            if (!Strings.isNullOrEmpty(queryString)) {
+                redirectUrl += "?" + queryString;
+            }
+            LOG.info("Redirect url: {}", request.getScheme() + "://" + addr.getHostname() + ":"
+                    + addr.getPort() + requestPath);
+            return redirectUrl;
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
-        String redirectUrl = resultUriObj.toASCIIString();
-        if (!Strings.isNullOrEmpty(queryString)) {
-            redirectUrl += "?" + queryString;
-        }
-        LOG.info("Redirect url: {}", request.getScheme() + "://" + addr.getHostname() + ":"
-                + addr.getPort() + requestPath);
-        return redirectUrl;
     }
 
     protected void writeTemporaryRedirect(HttpServletResponse response, String redirectUrl) throws IOException {
