@@ -350,7 +350,7 @@ IColumn::Filter selection_to_filter(const std::vector<uint16_t>& selection, uint
 
 Status append_decoded_column(Block* file_block, int file_field_id, ColumnPtr column,
                              const ParquetColumnReader& column_reader) {
-    if (column == nullptr) {
+    if (!column) {
         return Status::InternalError("Parquet decoded column is null for field {}", file_field_id);
     }
     file_block->insert(

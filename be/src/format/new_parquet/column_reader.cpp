@@ -487,8 +487,9 @@ Status read_record_primitive_column(PrimitiveColumnReader& column_reader, int64_
         return Status::Corruption("Invalid parquet record read result for column {}: {}",
                                   column_reader.name(), records_read);
     }
-    RETURN_IF_ERROR(append_record_reader_values<DorisType, ParquetValueType>(
-            column_reader, *record_reader, records_read, result_column));
+    Status append_status = append_record_reader_values<DorisType, ParquetValueType>(
+            column_reader, *record_reader, records_read, result_column);
+    RETURN_IF_ERROR(append_status);
     *rows_read = records_read;
     return Status::OK();
 }
@@ -522,7 +523,7 @@ std::vector<RowRange> selection_to_ranges(const std::vector<uint16_t>& selection
 }
 
 Status append_rows(MutableColumnPtr* dst, MutableColumnPtr src) {
-    if (*dst == nullptr) {
+    if (!*dst) {
         *dst = std::move(src);
         return Status::OK();
     }
@@ -558,8 +559,9 @@ Status read_selected_record_primitive_column(PrimitiveColumnReader& column_reade
 
         MutableColumnPtr range_column;
         int64_t rows_read = 0;
-        RETURN_IF_ERROR(read_record_primitive_column<DorisType, ParquetValueType>(
-                column_reader, range.length, &range_column, &rows_read));
+        Status read_status = read_record_primitive_column<DorisType, ParquetValueType>(
+                column_reader, range.length, &range_column, &rows_read);
+        RETURN_IF_ERROR(read_status);
         if (rows_read != range.length) {
             return Status::Corruption(
                     "Parquet selected read returned {} rows, expected {} rows for column {}",
@@ -571,7 +573,7 @@ Status read_selected_record_primitive_column(PrimitiveColumnReader& column_reade
     record_reader->Reset();
     RETURN_IF_ERROR(column_reader.skip(batch_rows - cursor));
 
-    if (*result_column == nullptr) {
+    if (!*result_column) {
         *result_column = column_reader.type()->create_column();
     }
     return Status::OK();
@@ -1031,7 +1033,7 @@ Status ParquetColumnReader::read_selected(const std::vector<uint16_t>& selection
     }
     ColumnPtr filtered_column;
     RETURN_IF_CATCH_EXCEPTION(filtered_column = column->filter(filter, selected_rows));
-    *result_column = filtered_column->clone();
+    *result_column = filtered_column->assume_mutable();
     return Status::OK();
 }
 
