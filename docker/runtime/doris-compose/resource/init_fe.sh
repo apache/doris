@@ -97,9 +97,34 @@ run_fe() {
 }
 
 start_cloud_fe() {
-    if [ -f "$REGISTER_FILE" ]; then
+    RECOVERY_SCRIPT="${DORIS_HOME}/conf/restore_snapshot.sh"
+    RECOVERY_ARGS=""
+    if [ -f "$RECOVERY_SCRIPT" ]; then
+        JOURNAL_ID=$(grep '^JOURNAL_ID=' "$RECOVERY_SCRIPT" | head -1 | cut -d= -f2)
+        if [ -z "$JOURNAL_ID" ]; then
+            health_log "ERROR: Could not extract JOURNAL_ID from recovery script"
+            exit 1
+        fi
+        health_log "Found recovery script with JOURNAL_ID=$JOURNAL_ID, executing..."
+        bash "$RECOVERY_SCRIPT"
+        RECOVERY_RES=$?
+        if [ $RECOVERY_RES -ne 0 ]; then
+            health_log "ERROR: Recovery script failed with exit code $RECOVERY_RES"
+            exit $RECOVERY_RES
+        fi
+        mv "$RECOVERY_SCRIPT" "${RECOVERY_SCRIPT}.bak"
+        MV_RES=$?
+        if [ $MV_RES -ne 0 ]; then
+            health_log "ERROR: Failed to rename recovery script to ${RECOVERY_SCRIPT}.bak"
+            exit $MV_RES
+        fi
+        health_log "Recovery script executed and renamed to ${RECOVERY_SCRIPT}.bak"
+        RECOVERY_ARGS="--metadata_failure_recovery --recovery_journal_id $JOURNAL_ID"
+    fi
+
+    if [ -f "$REGISTER_FILE" ] || [ -n "$RECOVERY_ARGS" ]; then
         fe_daemon &
-        run_fe
+        run_fe $RECOVERY_ARGS
         return
     fi
 
