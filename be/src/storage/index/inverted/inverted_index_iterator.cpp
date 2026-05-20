@@ -135,7 +135,7 @@ Result<bool> InvertedIndexIterator::has_null() {
 
 Status InvertedIndexIterator::try_read_from_inverted_index(const InvertedIndexReaderPtr& reader,
                                                            const std::string& column_name,
-                                                           const void* query_value,
+                                                           const Field& query_value,
                                                            InvertedIndexQueryType query_type,
                                                            size_t* count) {
     // NOTE: only bkd index support try read now.

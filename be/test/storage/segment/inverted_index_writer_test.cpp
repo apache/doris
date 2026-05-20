@@ -33,6 +33,7 @@
 
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
+#include "core/field.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/runtime_state.h"
 #include "storage/field.h"
@@ -176,7 +177,8 @@ public:
             context->stats = &stats;
             context->runtime_state = &runtime_state;
 
-            auto status = bkd_reader->query(context, "c1", &values[i],
+            Field qp = Field::create_field<TYPE_INT>(values[i]);
+            auto status = bkd_reader->query(context, "c1", qp,
                                             doris::segment_v2::InvertedIndexQueryType::EQUAL_QUERY,
                                             bitmap);
             EXPECT_TRUE(status.ok()) << status;
@@ -202,7 +204,8 @@ public:
         context->stats = &stats;
         context->runtime_state = &runtime_state;
 
-        auto status = bkd_reader->query(context, "c1", &test_value,
+        Field test_qp = Field::create_field<TYPE_INT>(test_value);
+        auto status = bkd_reader->query(context, "c1", test_qp,
                                         doris::segment_v2::InvertedIndexQueryType::LESS_THAN_QUERY,
                                         less_than_bitmap);
         EXPECT_TRUE(status.ok()) << status;
@@ -221,7 +224,7 @@ public:
         // Test GREATER_THAN query
         std::shared_ptr<roaring::Roaring> greater_than_bitmap =
                 std::make_shared<roaring::Roaring>();
-        status = bkd_reader->query(context, "c1", &test_value,
+        status = bkd_reader->query(context, "c1", test_qp,
                                    doris::segment_v2::InvertedIndexQueryType::GREATER_THAN_QUERY,
                                    greater_than_bitmap);
         EXPECT_TRUE(status.ok()) << status;
@@ -620,7 +623,8 @@ public:
             context->stats = &stats;
             context->runtime_state = &runtime_state;
 
-            auto query_status = inverted_reader->query(context, field_name, &str_ref,
+            Field qp = Field::create_field<TYPE_VARCHAR>(std::string(str_ref.data, str_ref.size));
+            auto query_status = inverted_reader->query(context, field_name, qp,
                                                        InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(query_status.ok()) << query_status;
             // For regular strings, both should work the same
@@ -826,13 +830,13 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
         context->stats = &stats;
         context->runtime_state = &runtime_state;
 
-        auto query_status_enabled =
-                inverted_reader_enabled->query(context, field_name, &values[i],
-                                               InvertedIndexQueryType::EQUAL_QUERY, bitmap_enabled);
+        StringRef str_ref(values[i].data, values[i].size);
+        Field qp = Field::create_field<TYPE_VARCHAR>(std::string(str_ref.data, str_ref.size));
+        auto query_status_enabled = inverted_reader_enabled->query(
+                context, field_name, qp, InvertedIndexQueryType::EQUAL_QUERY, bitmap_enabled);
 
         auto query_status_disabled = inverted_reader_disabled->query(
-                context, field_name, &values[i], InvertedIndexQueryType::EQUAL_QUERY,
-                bitmap_disabled);
+                context, field_name, qp, InvertedIndexQueryType::EQUAL_QUERY, bitmap_disabled);
 
         EXPECT_TRUE(query_status_enabled.ok()) << query_status_enabled;
         EXPECT_TRUE(query_status_disabled.ok()) << query_status_disabled;
