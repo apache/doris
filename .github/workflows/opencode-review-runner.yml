@@ -240,8 +240,14 @@ jobs:
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
           OSS_AUTH_OBJECT: oss://doris-community-ci/auth.json
         run: |
-          test -s ~/.local/share/opencode/auth.json
-          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f ~/.local/share/opencode/auth.json "$OSS_AUTH_OBJECT"
+          if [ ! -s ~/.local/share/opencode/auth.json ]; then
+            echo "::warning::OpenCode auth file is missing or empty; skip OSS auth persistence."
+            exit 0
+          fi
+
+          if ! ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f ~/.local/share/opencode/auth.json "$OSS_AUTH_OBJECT"; then
+            echo "::warning::Failed to persist OpenCode auth to OSS; continue because review already finished."
+          fi
 
       - name: Comment PR on review failure
         if: ${{ always() && steps.review.outcome != 'success' }}
