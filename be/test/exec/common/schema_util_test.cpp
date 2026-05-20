@@ -791,9 +791,7 @@ TEST_F(SchemaUtilTest, TestCastColumnEdgeCases) {
     auto variant_type = std::make_shared<DataTypeVariant>(10, false);
     auto nullable_array_type =
             make_nullable(std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>()));
-    auto array_column =
-            ColumnArray::create(ColumnInt32::create(), ColumnArray::ColumnOffsets::create());
-    auto nullable_array_column = make_nullable(array_column->get_ptr());
+    ColumnPtr nullable_array_column = nullable_array_type->create_column()->get_ptr();
 
     ColumnWithTypeAndName array_col;
     array_col.type = nullable_array_type;

@@ -20,6 +20,7 @@
 #include "common/status.h"
 #include "core/column/column_array.h"
 #include "core/column/column_decimal.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_variant.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_decimal.h"
@@ -132,15 +133,10 @@ TEST(FunctionVariantCast, CastToVariant) {
     {
         auto array_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
         auto variant_type = std::make_shared<DataTypeVariant>();
-        auto array_col =
-                ColumnArray::create(ColumnInt32::create(), ColumnArray::ColumnOffsets::create());
-        auto& data = assert_cast<ColumnInt32&>(array_col->get_data());
-        auto& offsets = array_col->get_offsets();
-
-        data.insert(Field::create_field<TYPE_INT>(1));
-        data.insert(Field::create_field<TYPE_INT>(2));
-        data.insert(Field::create_field<TYPE_INT>(3));
-        offsets.push_back(3);
+        auto array_col = array_type->create_column();
+        array_col->insert(Field::create_field<TYPE_ARRAY>(
+                Array {Field::create_field<TYPE_INT>(1), Field::create_field<TYPE_INT>(2),
+                       Field::create_field<TYPE_INT>(3)}));
 
         ColumnsWithTypeAndName arguments {{array_col->get_ptr(), array_type, "array_col"},
                                           {nullptr, variant_type, "variant_type"}};
@@ -248,9 +244,7 @@ TEST(FunctionVariantCast, CastFromVariant) {
         auto variant_col = ColumnVariant::create(0, false);
 
         // Create a variant column with array values
-        variant_col->create_root(
-                array_type,
-                ColumnArray::create(ColumnInt32::create(), ColumnArray::ColumnOffsets::create()));
+        variant_col->create_root(array_type, array_type->create_column());
         MutableColumnPtr data = variant_col->get_root();
 
         Field a = Field::create_field<TYPE_ARRAY>(Array {Field::create_field<TYPE_INT>(1),
@@ -279,11 +273,14 @@ TEST(FunctionVariantCast, CastFromVariant) {
         const auto* array_result =
                 assert_cast<const ColumnArray*>(remove_nullable(result_col).get());
         ASSERT_EQ(array_result->size(), 1);
-        const auto& result_data = assert_cast<const ColumnInt32&>(array_result->get_data());
+        const auto& result_nullable = assert_cast<const ColumnNullable&>(array_result->get_data());
+        const auto& result_data =
+                assert_cast<const ColumnInt32&>(result_nullable.get_nested_column());
         ASSERT_EQ(result_data.size(), 3);
         ASSERT_EQ(result_data.get_element(0), 1);
         ASSERT_EQ(result_data.get_element(1), 2);
         ASSERT_EQ(result_data.get_element(2), 3);
+        ASSERT_FALSE(result_nullable.has_null());
     }
 }
 

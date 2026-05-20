@@ -150,9 +150,13 @@ TEST_F(AggregateFunctionArrayAggTest, test_array_agg_astr_foreach) {
     auto array_array_data_type = std::make_shared<DataTypeArray>(array_data_type);
     auto array_array_off_column = ColumnOffset64::create();
     array_array_off_column->insert_value(4);
+    auto nested_array_column = ColumnArray::create(data_column->clone(), off_column2->clone());
+    auto nested_array_size = nested_array_column->size();
     auto array_array_column =
-            ColumnArray::create(ColumnArray::create(data_column->clone(), off_column2->clone()),
+            ColumnArray::create(ColumnNullable::create(std::move(nested_array_column),
+                                                       ColumnUInt8::create(nested_array_size, 0)),
                                 array_array_off_column->clone());
+    ASSERT_TRUE(array_array_data_type->check_column(*array_array_column).ok());
 
     execute(Block({ColumnWithTypeAndName(array_column->clone(), array_data_type, "")}),
             ColumnWithTypeAndName(std::move(array_array_column), array_array_data_type, "column"));
@@ -185,9 +189,13 @@ TEST_F(AggregateFunctionArrayAggTest, test_array_agg_aint64_foreach) {
     auto array_array_data_type = std::make_shared<DataTypeArray>(array_data_type);
     auto array_array_off_column = ColumnOffset64::create();
     array_array_off_column->insert_value(4);
+    auto nested_array_column = ColumnArray::create(data_column->clone(), off_column2->clone());
+    auto nested_array_size = nested_array_column->size();
     auto array_array_column =
-            ColumnArray::create(ColumnArray::create(data_column->clone(), off_column2->clone()),
+            ColumnArray::create(ColumnNullable::create(std::move(nested_array_column),
+                                                       ColumnUInt8::create(nested_array_size, 0)),
                                 array_array_off_column->clone());
+    ASSERT_TRUE(array_array_data_type->check_column(*array_array_column).ok());
 
     execute(Block({ColumnWithTypeAndName(array_column->clone(), array_data_type, "")}),
             ColumnWithTypeAndName(std::move(array_array_column), array_array_data_type, "column"));
