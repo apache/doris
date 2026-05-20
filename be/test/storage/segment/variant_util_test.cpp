@@ -73,8 +73,6 @@ TEST(VariantUtilTest, ParseDocValueToSubcolumns_FillsDefaultsAndValues) {
     cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
     parse_json_to_variant(*variant, *json_col, cfg);
 
-    EXPECT_TRUE(variant->is_doc_mode());
-
     auto subcolumns = materialize_docs_to_subcolumns_map(*variant);
     ASSERT_TRUE(subcolumns.contains("a"));
     ASSERT_TRUE(subcolumns.contains("b"));
@@ -125,8 +123,6 @@ TEST(VariantUtilTest, MaterializeDocsToSubcolumnsMap_ExpectedUniquePathsPreserve
     cfg.deprecated_enable_flatten_nested = false;
     cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
     parse_json_to_variant(*variant, *json_col, cfg);
-
-    EXPECT_TRUE(variant->is_doc_mode());
 
     auto default_subcolumns = materialize_docs_to_subcolumns_map(*variant);
     auto subcolumns = materialize_docs_to_subcolumns_map(*variant, 3);
@@ -185,8 +181,6 @@ TEST(VariantUtilTest, ParseOnlyDocValueColumn_SerializesMixedTypes) {
     cfg.deprecated_enable_flatten_nested = false;
     cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
     parse_json_to_variant(*variant, *json_col, cfg);
-
-    EXPECT_TRUE(variant->is_doc_mode());
 
     auto subcolumns = materialize_docs_to_subcolumns_map(*variant);
     ASSERT_TRUE(subcolumns.contains("b"));
@@ -492,8 +486,6 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeBinaryToSubcolumns) {
     cfg.deprecated_enable_flatten_nested = false;
     cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
     parse_json_to_variant(*variant, *json_col, cfg);
-    ASSERT_TRUE(variant->is_doc_mode());
-
     Block block;
     block.insert({variant->get_ptr(), std::make_shared<DataTypeVariant>(0, true), "v"});
 
@@ -505,8 +497,6 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeBinaryToSubcolumns) {
     EXPECT_TRUE(st.ok()) << st.to_string();
 
     const auto& out = assert_cast<const ColumnVariant&>(*block.get_by_position(0).column);
-    EXPECT_TRUE(out.is_doc_mode());
-
     const auto* sub_a = out.get_subcolumn(PathInData("a"));
     const auto* sub_b = out.get_subcolumn(PathInData("b"));
     ASSERT_TRUE(sub_a == nullptr);
@@ -545,8 +535,6 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeRejectOnlySubcolumnsConfig) {
     cfg.deprecated_enable_flatten_nested = false;
     cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
     parse_json_to_variant(*variant, *json_col, cfg);
-    ASSERT_TRUE(variant->is_doc_mode());
-
     Block block;
     block.insert({variant->get_ptr(), std::make_shared<DataTypeVariant>(0, true), "v"});
 

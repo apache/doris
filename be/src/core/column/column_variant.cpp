@@ -343,16 +343,6 @@ ColumnVariant::Subcolumn ColumnVariant::Subcolumn::clone_with_default_values(
     return new_subcolumn;
 }
 
-Field ColumnVariant::Subcolumn::get_last_field() const {
-    if (data.empty()) {
-        return Field();
-    }
-
-    const auto& last_part = data.back();
-    assert(!last_part->empty());
-    return (*last_part)[last_part->size() - 1];
-}
-
 void ColumnVariant::Subcolumn::insert_range_from(const Subcolumn& src, size_t start,
                                                  size_t length) {
     if (start + length > src.size()) {
@@ -2804,11 +2794,5 @@ MutableColumnPtr ColumnVariant::clone() const {
     return res;
 }
 
-bool ColumnVariant::is_doc_mode() const {
-    const auto& offset = serialized_doc_value_column_offsets();
-    return subcolumns.size() == 1 && offset[num_rows - 1] != 0;
-}
-
 #include "common/compile_check_end.h"
-
 } // namespace doris

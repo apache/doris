@@ -41,8 +41,6 @@ public:
         return this->_has_null && this->_values[index] == nullptr;
     }
 
-    void shallow_copy(const StructValue* other);
-
     const void** values() const { return const_cast<const void**>(_values); }
     void** mutable_values() { return _values; }
     void set_values(void** values) { _values = values; }

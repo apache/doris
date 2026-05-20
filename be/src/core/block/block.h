@@ -191,9 +191,6 @@ public:
     /// and is the metric used by adaptive batch size byte budgets.
     size_t bytes() const;
 
-    /// Returns per-column byte sizes as a comma-separated string (for debugging).
-    std::string columns_bytes() const;
-
     /// Approximate number of allocated (reserved) bytes in memory.
     /// This may be larger than bytes() due to pre-allocated capacity in vectors/arenas.
     /// Used for memory tracking and profiling.
@@ -223,8 +220,6 @@ public:
 
     /** Replace columns in a block */
     void set_columns(MutableColumns&& columns);
-    Block clone_with_columns(MutableColumns&& columns) const;
-
     void clear();
     void swap(Block& other) noexcept;
     void swap(Block&& other) noexcept;

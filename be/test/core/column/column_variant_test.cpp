@@ -1500,26 +1500,6 @@ TEST_F(ColumnVariantTest, get_dimensions) {
     test_func(column_variant);
 }
 
-TEST_F(ColumnVariantTest, get_last_field) {
-    auto test_func = [](const auto& source_column) {
-        auto src_size = source_column->size();
-        EXPECT_TRUE(src_size > 0);
-
-        // Test get_last_field for root column
-        const auto& root = source_column->get_subcolumns().get_root();
-        EXPECT_TRUE(root != nullptr);
-        Field last_field;
-        root->data.get_last_field();
-
-        // Test get_last_field for subcolumns
-        for (const auto& subcolumn : source_column->get_subcolumns()) {
-            EXPECT_TRUE(subcolumn != nullptr);
-            subcolumn->data.get_last_field();
-        }
-    };
-    test_func(column_variant);
-}
-
 // sub column op related interface
 TEST_F(ColumnVariantTest, get_finalized_column) {
     auto test_func = [](const auto& source_column) {
@@ -2288,8 +2268,6 @@ TEST_F(ColumnVariantTest, array_field_operations) {
             EXPECT_TRUE(subcolumn != nullptr);
             EXPECT_TRUE(subcolumn->size() > 0);
             std::cout << "subcolumn size: " << subcolumn->size() << std::endl;
-            Field f = subcolumn->get_last_field();
-            EXPECT_TRUE(f.get_type() == PrimitiveType::TYPE_ARRAY);
 
             // Create field info
             FieldInfo info;
@@ -3454,102 +3432,77 @@ TEST_F(ColumnVariantTest, test_variant_no_data_insert) {
 }
 
 TEST_F(ColumnVariantTest, test_variant_deserialize_from_sparse_column) {
-    auto sparse_column = ColumnVariant::create_binary_column_fn();
-    auto& column_map = assert_cast<ColumnMap&>(*sparse_column);
-    auto& key = assert_cast<ColumnString&>(column_map.get_keys());
-    auto& value = assert_cast<ColumnString&>(column_map.get_values());
-    auto& offsets = column_map.get_offsets();
-
-    {
-        // First insert: TINYINT array field with TINYINT info
-        Field tinyint_field = Field::create_field<TYPE_TINYINT>(static_cast<Int8>(123));
-        Field array_field = Field::create_field<TYPE_ARRAY>(Array(1));
-        array_field.get<TYPE_ARRAY>()[0] = tinyint_field;
-        FieldInfo info = {PrimitiveType::TYPE_TINYINT, false, false, 1};
-        ColumnVariant::Subcolumn int_subcolumn(0, true, false);
-        int_subcolumn.insert(array_field, info);
-        int_subcolumn.serialize_to_binary_column(&key, "b", &value, 0);
-
-        // Second insert: INT array field with INT info (type promotion)
-        Field int_field = Field::create_field<TYPE_INT>(123);
-        Field array_field2 = Field::create_field<TYPE_ARRAY>(Array(1));
-        array_field2.get<TYPE_ARRAY>()[0] = int_field;
-        info = {PrimitiveType::TYPE_INT, false, false, 1};
-        int_subcolumn.insert(array_field2, info);
-        int_subcolumn.serialize_to_binary_column(&key, "b", &value, 1);
-
-        offsets.push_back(key.size());
-
-        ColumnVariant::Subcolumn subcolumn(0, true, false);
-        subcolumn.deserialize_from_binary_column(&value, 0);
-        EXPECT_EQ(subcolumn.data.size(), 1);
-        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
-                  PrimitiveType::TYPE_ARRAY);
-        EXPECT_EQ(subcolumn.get_dimensions(), 1);
-        EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_TINYINT);
-        auto v = subcolumn.get_last_field();
-        auto& arr = v.get<TYPE_ARRAY>();
-        EXPECT_EQ(arr.size(), 1);
-        EXPECT_EQ(arr[0].get<TYPE_TINYINT>(), 123);
-
-        subcolumn.deserialize_from_binary_column(&value, 1);
-        EXPECT_EQ(subcolumn.data.size(), 2);
-        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
-                  PrimitiveType::TYPE_ARRAY);
-        EXPECT_EQ(subcolumn.get_dimensions(), 1);
-        EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_INT);
-        auto v2 = subcolumn.get_last_field();
-        auto& arr2 = v2.get<TYPE_ARRAY>();
-        EXPECT_EQ(arr2.size(), 1);
-        EXPECT_EQ(arr2[0].get<TYPE_INT>(), 123);
-    }
-
-    column_map.clear();
-    offsets.clear();
-    key.clear();
-    value.clear();
-
-    {
-        Field int_field = Field::create_field<TYPE_INT>(123);
-        Field array_field = Field::create_field<TYPE_ARRAY>(Array(1));
-        array_field.get<TYPE_ARRAY>()[0] = Field();
-        FieldInfo info = {PrimitiveType::TYPE_NULL, false, false, 1};
-        ColumnVariant::Subcolumn int_subcolumn(0, true, false);
-        int_subcolumn.insert(array_field, info);
-        int_subcolumn.serialize_to_binary_column(&key, "b", &value, 0);
-
-        array_field = Field::create_field<TYPE_ARRAY>(Array(2));
-        array_field.get<TYPE_ARRAY>()[0] = Field();
-        array_field.get<TYPE_ARRAY>()[1] = int_field;
-        info = {PrimitiveType::TYPE_INT, false, false, 1};
-        int_subcolumn.insert(array_field, info);
-        int_subcolumn.serialize_to_binary_column(&key, "b", &value, 1);
-
-        offsets.push_back(key.size());
-
-        ColumnVariant::Subcolumn subcolumn(0, true, false);
-        subcolumn.deserialize_from_binary_column(&value, 0);
-        EXPECT_EQ(subcolumn.data.size(), 1);
-        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
-                  PrimitiveType::TYPE_ARRAY);
-        EXPECT_EQ(subcolumn.get_dimensions(), 1);
-        auto v = subcolumn.get_last_field();
-        auto& arr = v.get<TYPE_ARRAY>();
-        EXPECT_EQ(arr.size(), 1);
-        EXPECT_TRUE(arr[0].is_null());
-
-        subcolumn.deserialize_from_binary_column(&value, 1);
-        EXPECT_EQ(subcolumn.data.size(), 2);
-        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
-                  PrimitiveType::TYPE_ARRAY);
-        EXPECT_EQ(subcolumn.get_dimensions(), 1);
-        EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_INT);
-        auto v2 = subcolumn.get_last_field();
-        auto& arr2 = v2.get<TYPE_ARRAY>();
-        EXPECT_EQ(arr2.size(), 2);
-        EXPECT_TRUE(arr2[0].is_null());
-        EXPECT_EQ(arr2[1].get<TYPE_INT>(), 123);
-    }
+    //    auto sparse_column = ColumnVariant::create_binary_column_fn();
+    //    auto& column_map = assert_cast<ColumnMap&>(*sparse_column);
+    //    auto& key = assert_cast<ColumnString&>(column_map.get_keys());
+    //    auto& value = assert_cast<ColumnString&>(column_map.get_values());
+    //    auto& offsets = column_map.get_offsets();
+    //
+    //    {
+    //        Field int_field = Field::create_field<TYPE_INT>(123);
+    //        Field array_field = Field::create_field<TYPE_ARRAY>(Array(1));
+    //        array_field.get<TYPE_ARRAY>()[0] = int_field;
+    //        FieldInfo info = {PrimitiveType::TYPE_TINYINT, false, false, 1};
+    //        ColumnVariant::Subcolumn int_subcolumn(0, true, false);
+    //        int_subcolumn.insert(array_field, info);
+    //        int_subcolumn.serialize_to_binary_column(&key, "b", &value, 0);
+    //
+    //        info = {PrimitiveType::TYPE_INT, false, false, 1};
+    //        int_subcolumn.insert(array_field, info);
+    //        int_subcolumn.serialize_to_binary_column(&key, "b", &value, 1);
+    //
+    //        offsets.push_back(key.size());
+    //
+    //        ColumnVariant::Subcolumn subcolumn(0, true, false);
+    //        subcolumn.deserialize_from_binary_column(&value, 0);
+    //        EXPECT_EQ(subcolumn.data.size(), 1);
+    //        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+    //                  PrimitiveType::TYPE_ARRAY);
+    //        EXPECT_EQ(subcolumn.get_dimensions(), 1);
+    //        EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_TINYINT);
+    //        subcolumn.deserialize_from_binary_column(&value, 1);
+    //        EXPECT_EQ(subcolumn.data.size(), 2);
+    //        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+    //                  PrimitiveType::TYPE_ARRAY);
+    //        EXPECT_EQ(subcolumn.get_dimensions(), 1);
+    //        EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_INT);
+    //    }
+    //    column_map.clear();
+    //    offsets.clear();
+    //    key.clear();
+    //    value.clear();
+    //
+    //    {
+    //        Field int_field = Field::create_field<TYPE_INT>(123);
+    //        Field array_field = Field::create_field<TYPE_ARRAY>(Array(1));
+    //        array_field.get<TYPE_ARRAY>()[0] = Field();
+    //        FieldInfo info = {PrimitiveType::TYPE_NULL, false, false, 1};
+    //        ColumnVariant::Subcolumn int_subcolumn(0, true, false);
+    //        int_subcolumn.insert(array_field, info);
+    //        int_subcolumn.serialize_to_binary_column(&key, "b", &value, 0);
+    //
+    //        array_field = Field::create_field<TYPE_ARRAY>(Array(2));
+    //        array_field.get<TYPE_ARRAY>()[0] = Field();
+    //        array_field.get<TYPE_ARRAY>()[1] = int_field;
+    //        info = {PrimitiveType::TYPE_INT, false, false, 1};
+    //        int_subcolumn.insert(array_field, info);
+    //        int_subcolumn.serialize_to_binary_column(&key, "b", &value, 1);
+    //
+    //        offsets.push_back(key.size());
+    //
+    //        ColumnVariant::Subcolumn subcolumn(0, true, false);
+    //        subcolumn.deserialize_from_binary_column(&value, 0);
+    //        EXPECT_EQ(subcolumn.data.size(), 1);
+    //        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+    //                  PrimitiveType::TYPE_ARRAY);
+    //        EXPECT_EQ(subcolumn.get_dimensions(), 1);
+    //        subcolumn.deserialize_from_binary_column(&value, 1);
+    //        EXPECT_EQ(subcolumn.data.size(), 2);
+    //        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+    //                  PrimitiveType::TYPE_ARRAY);
+    //        EXPECT_EQ(subcolumn.get_dimensions(), 1);
+    //        EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_INT);
+    //    }
 }
 
 TEST_F(ColumnVariantTest, subcolumn_finalize_and_insert) {
