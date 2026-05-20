@@ -80,6 +80,11 @@ struct ColumnArrayView {
         const auto& array_column = assert_cast<const ColumnArray&>(*array_raw);
 
         // Step 4: unpack inner nullable (data column is always Nullable)
+        if (!array_column.get_data().is_nullable()) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "ColumnArray's data column is expected to be Nullable");
+        }
+
         const auto& nested_nullable = assert_cast<const ColumnNullable&>(array_column.get_data());
         const NullMap& nested_null_map = nested_nullable.get_null_map_data();
         const IColumn* data_column = nested_nullable.get_nested_column_ptr().get();
