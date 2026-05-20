@@ -18,7 +18,7 @@
 suite("test_ivm_outer_join_1") {
 
     // =========================================================
-    // Part 1: MOW x MOW left outer join - preserved-side delta and nullable-side pad-null repair
+    // Part 1: MOW x MOW left outer join - retained-side delta and null-side row repair
     // =========================================================
     sql """drop materialized view if exists test_ivm_outer_join_1_mv;"""
     sql """drop table if exists test_ivm_outer_join_1_t1;"""
@@ -102,7 +102,7 @@ suite("test_ivm_outer_join_1") {
 
     // TODO: Refresh this expected result after the real binlog delta scan is available.
     // The current mock delta scan reads the full current base table and derives dml_factor = +1
-    // for ordinary tables, so it cannot produce the deleted right row needed to repair pad-null.
+    // for ordinary tables, so it cannot produce the deleted right row needed to repair the null-side row.
     sql """DELETE FROM test_ivm_outer_join_1_t2 WHERE k1 = 1;"""
     sql """REFRESH MATERIALIZED VIEW test_ivm_outer_join_1_mv INCREMENTAL"""
     waitingMTMVTaskFinishedByMvName("test_ivm_outer_join_1_mv")
@@ -112,10 +112,10 @@ suite("test_ivm_outer_join_1") {
         ORDER BY k1, left_v1, right_v2
     """
 
-    // TODO: Add nullable-side inner-join runtime regression after subquery alias is supported.
+    // TODO: Add null-side inner-join runtime regression after subquery alias is supported.
 
     // =========================================================
-    // Part 2: nullable-side delta with pure hash conjuncts uses right-event rewrite
+    // Part 2: null-side delta with pure hash conjuncts uses right-event rewrite
     // =========================================================
     sql """drop materialized view if exists test_ivm_outer_join_1_event_mv;"""
     sql """drop table if exists test_ivm_outer_join_1_event_l;"""
@@ -189,7 +189,7 @@ suite("test_ivm_outer_join_1") {
     """
 
     // =========================================================
-    // Part 3: nullable-side delta with a non-hash other conjunct uses three repair branches
+    // Part 3: null-side delta with a non-hash other conjunct uses three repair branches
     // =========================================================
     sql """drop materialized view if exists test_ivm_outer_join_1_repair_mv;"""
     sql """drop table if exists test_ivm_outer_join_1_repair_l;"""

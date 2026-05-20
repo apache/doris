@@ -145,7 +145,7 @@ class IvmLinearDeltaHandler {
         if (leftResult.dmlFactorSlot == null && rightResult.dmlFactorSlot == null) {
             return new IvmDeltaRewriteResult(newJoin, null);
         } else {
-            return helper.addNonDetGuardForJoinDelta(new JoinAdapter(newJoin), leftResult, rightResult, ctx);
+            return helper.addNonDetGuardForJoinDelta(newJoin, leftResult, rightResult, ctx);
         }
     }
 
@@ -192,31 +192,4 @@ class IvmLinearDeltaHandler {
         return new IvmDeltaRewriteResult(mappedProject, newDmlFactor);
     }
 
-    private static class JoinAdapter implements IvmDeltaRewriteHelper.JoinPlanView {
-        private final LogicalJoin<Plan, Plan> join;
-
-        private JoinAdapter(LogicalJoin<Plan, Plan> join) {
-            this.join = join;
-        }
-
-        @Override
-        public Plan plan() {
-            return join;
-        }
-
-        @Override
-        public Plan left() {
-            return join.left();
-        }
-
-        @Override
-        public Plan right() {
-            return join.right();
-        }
-
-        @Override
-        public JoinType joinType() {
-            return join.getJoinType();
-        }
-    }
 }

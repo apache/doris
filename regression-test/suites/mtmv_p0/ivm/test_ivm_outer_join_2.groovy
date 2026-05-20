@@ -19,7 +19,7 @@ suite("test_ivm_outer_join_2") {
 
     // =========================================================
     // Part 1: O2 left-deep LEFT OUTER JOIN chain.
-    // The lower LEFT JOIN is on the preserved side of the upper LEFT JOIN, so this shape is allowed.
+    // The lower LEFT JOIN is on the retained side of the upper LEFT JOIN, so this shape is allowed.
     // =========================================================
     sql """drop materialized view if exists test_ivm_outer_join_2_chain_mv;"""
     sql """drop table if exists test_ivm_outer_join_2_chain_a;"""

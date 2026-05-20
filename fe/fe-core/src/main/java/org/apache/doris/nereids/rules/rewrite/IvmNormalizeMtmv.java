@@ -128,15 +128,15 @@ import java.util.stream.Collectors;
  * </ul>
  *
  * <p>IVM row-id invariant: every row that really exists in a normalized child plan must have
- * a non-null {@code __DORIS_IVM_ROW_ID_COL__}. Outer join null-padding is the only place where
+ * a non-null {@code __DORIS_IVM_ROW_ID_COL__}. Outer join null-side filling is the only place where
  * a child row-id slot may become NULL, and that NULL means the corresponding side has no
  * matching row. This lets outer join compose the MV row-id as
- * {@code hash(left_row_id, right_row_id)} and use the nullable-side row-id as NULL for padded rows
+ * {@code hash(left_row_id, right_row_id)} and use the null-side row-id as NULL for unmatched rows
  * without confusing them with real rows.
  *
  * <h3>Supported plan nodes</h3>
- * OlapScan, filter, project, aggregate, inner/cross join, left/right outer join chain whose
- * nullable side does not contain another outer join, UNION ALL, result sink, logical olap table sink.
+ * OlapScan, filter, project, aggregate, inner/cross join, left/right/full outer join chain whose
+ * null side does not contain another outer join, UNION ALL, result sink, logical olap table sink.
  */
 public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.NormalizeContext>
         implements CustomRewriter {
@@ -148,12 +148,12 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
         private static final NormalizeContext ROOT = new NormalizeContext(true, false, false);
 
         private final boolean isFirstNonSink;
-        private final boolean isOuterJoinNullableSide;
+        private final boolean isOuterJoinNullSide;
         private final boolean isInsideUnion;
 
-        private NormalizeContext(boolean isFirstNonSink, boolean isOuterJoinNullableSide, boolean isInsideUnion) {
+        private NormalizeContext(boolean isFirstNonSink, boolean isOuterJoinNullSide, boolean isInsideUnion) {
             this.isFirstNonSink = isFirstNonSink;
-            this.isOuterJoinNullableSide = isOuterJoinNullableSide;
+            this.isOuterJoinNullSide = isOuterJoinNullSide;
             this.isInsideUnion = isInsideUnion;
         }
 
@@ -161,11 +161,11 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
             if (!isFirstNonSink) {
                 return this;
             }
-            return new NormalizeContext(false, isOuterJoinNullableSide, isInsideUnion);
+            return new NormalizeContext(false, isOuterJoinNullSide, isInsideUnion);
         }
 
-        private NormalizeContext enterOuterJoinNullableSide() {
-            if (isOuterJoinNullableSide) {
+        private NormalizeContext enterOuterJoinNullSide() {
+            if (isOuterJoinNullSide) {
                 return this;
             }
             return new NormalizeContext(isFirstNonSink, true, isInsideUnion);
@@ -175,7 +175,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
             if (isInsideUnion) {
                 return this;
             }
-            return new NormalizeContext(isFirstNonSink, isOuterJoinNullableSide, true);
+            return new NormalizeContext(isFirstNonSink, isOuterJoinNullSide, true);
         }
     }
 
@@ -209,9 +209,9 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
     // whitelisted: only OlapScan — inject IVM row-id at index 0
     @Override
     public Plan visitLogicalOlapScan(LogicalOlapScan scan, NormalizeContext context) {
-        if (context.isOuterJoinNullableSide && context.isInsideUnion && !isExcludedTriggerTable(scan)) {
+        if (context.isOuterJoinNullSide && context.isInsideUnion && !isExcludedTriggerTable(scan)) {
             throw new IvmException(IvmFailureReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED,
-                    "IVM OUTER JOIN does not support UNION ALL with OlapScan on nullable side");
+                    "IVM OUTER JOIN does not support UNION ALL with OlapScan on null side");
         }
         OlapTable table = scan.getTable();
         Pair<Expression, Boolean> rowId = buildRowId(table, scan);
@@ -243,11 +243,11 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
     }
 
     /**
-     * Handles inner join / cross join / left/right outer join normalization.
+     * Handles inner join / cross join / left/right/full outer join normalization.
      *
      * <ol>
-     *   <li>Validates join type is INNER_JOIN, CROSS_JOIN, LEFT_OUTER_JOIN, or RIGHT_OUTER_JOIN</li>
-     *   <li>Rejects an outer join below another outer join nullable side</li>
+     *   <li>Validates join type is INNER_JOIN, CROSS_JOIN, LEFT/RIGHT/FULL_OUTER_JOIN</li>
+     *   <li>Rejects an outer join below another outer join null side</li>
      *   <li>Normalizes both children (first non-sink = false)</li>
      *   <li>Composes a single row_id = hash(left_row_id, right_row_id)</li>
      *   <li>Wraps with Project that replaces child row_id slots with the composed one</li>
@@ -262,28 +262,28 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, NormalizeContext context) {
         JoinType joinType = join.getJoinType();
-        if (joinType != JoinType.INNER_JOIN && joinType != JoinType.CROSS_JOIN
-                && !isSupportedOuterJoin(joinType)) {
-            throw new IvmException(IvmFailureReason.OUTER_JOIN_RETRACTION_UNSUPPORTED,
+        if (!joinType.isInnerOrCrossJoin() && !joinType.isOuterJoin()) {
+            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                     "IVM does not support join type: " + joinType
-                            + ". Only INNER_JOIN, CROSS_JOIN, LEFT_OUTER_JOIN and RIGHT_OUTER_JOIN are supported.");
+                            + ". Only INNER_JOIN, CROSS_JOIN, LEFT_OUTER_JOIN, RIGHT_OUTER_JOIN"
+                            + " and FULL_OUTER_JOIN are supported.");
         }
         if (join.isMarkJoin()) {
             throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                     "IVM does not support mark join (subquery with disjunction).");
         }
         if (joinType.isOuterJoin()) {
-            if (context.isOuterJoinNullableSide) {
-                throw new IvmException(IvmFailureReason.OUTER_JOIN_RETRACTION_UNSUPPORTED,
-                        "IVM OUTER JOIN nullable side must not contain another outer join");
+            if (context.isOuterJoinNullSide) {
+                throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                        "IVM OUTER JOIN null side must not contain another outer join");
             }
         }
 
         NormalizeContext childContext = context.afterNonSink();
-        NormalizeContext leftChildContext = isNullableOnLeft(joinType)
-                ? childContext.enterOuterJoinNullableSide() : childContext;
-        NormalizeContext rightChildContext = isNullableOnRight(joinType)
-                ? childContext.enterOuterJoinNullableSide() : childContext;
+        NormalizeContext leftChildContext = isNullSideOnLeft(joinType)
+                ? childContext.enterOuterJoinNullSide() : childContext;
+        NormalizeContext rightChildContext = isNullSideOnRight(joinType)
+                ? childContext.enterOuterJoinNullSide() : childContext;
         Plan newLeft = join.left().accept(this, leftChildContext);
         Plan newRight = join.right().accept(this, rightChildContext);
         LogicalJoin<Plan, Plan> newJoin = (LogicalJoin<Plan, Plan>) join.withChildren(newLeft, newRight);
@@ -295,17 +295,16 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
         // Look up each child's row_id determinism from the accumulated map
         boolean leftDet = normalizeResult.isDeterministic(leftRowIdSlot);
         boolean rightDet = normalizeResult.isDeterministic(rightRowIdSlot);
-        if (joinType.isOuterJoin() && !(isPreservedOnLeft(joinType) ? leftDet : rightDet)) {
-            // Nullable-side deltas may emit +1/-1 pad-null repair rows keyed by
-            // hash(preserved_row_id, NULL). A non-deterministic preserved-side row_id cannot
-            // be reproduced across refreshes, so OUTER JOIN IVM cannot maintain it.
-            throw new IvmException(IvmFailureReason.NON_DETERMINISTIC_ROW_ID,
-                    "IVM OUTER JOIN requires deterministic row_id on preserved side");
+        if (joinType.isOuterJoin()) {
+            // If one side may be filled as NULL by an outer join, null-side repair rows
+            // are keyed by the opposite side row_id plus NULL. That opposite row_id must be stable
+            // across refreshes. FULL OUTER JOIN applies this rule to both sides.
+            checkOuterJoinDeterministicRowId(joinType, leftDet, rightDet);
         }
 
         // Compose join row_id = hash(left_row_id, right_row_id).
         // Valid child row_ids are non-null by the normalize invariant above. For OUTER JOIN,
-        // a NULL nullable-side row_id can only come from join null-padding and means no matching row.
+        // a NULL row_id on a null side can only come from outer join null-side filling and means no matching row.
         Expression joinRowIdExpr = IvmUtil.buildRowIdHash(ImmutableList.of(leftRowIdSlot, rightRowIdSlot));
         Alias joinRowIdAlias = new Alias(joinRowIdExpr, Column.IVM_ROW_ID_COL);
 
@@ -500,28 +499,27 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
         return new LogicalProject<>(projectOutputs.build(), newAgg);
     }
 
-    private boolean isSupportedOuterJoin(JoinType joinType) {
-        return joinType == JoinType.LEFT_OUTER_JOIN || joinType == JoinType.RIGHT_OUTER_JOIN;
-    }
-
-    private boolean isPreservedOnLeft(JoinType joinType) {
-        checkSupportedOuterJoin(joinType);
-        return joinType == JoinType.LEFT_OUTER_JOIN;
-    }
-
-    private boolean isNullableOnLeft(JoinType joinType) {
-        return joinType == JoinType.RIGHT_OUTER_JOIN;
-    }
-
-    private boolean isNullableOnRight(JoinType joinType) {
-        return joinType == JoinType.LEFT_OUTER_JOIN;
-    }
-
-    private void checkSupportedOuterJoin(JoinType joinType) {
-        if (!isSupportedOuterJoin(joinType)) {
-            throw new IvmException(IvmFailureReason.OUTER_JOIN_RETRACTION_UNSUPPORTED,
-                    "IVM does not support join type as outer join: " + joinType);
+    private void checkOuterJoinDeterministicRowId(JoinType joinType, boolean leftDet, boolean rightDet) {
+        if (isNullSideOnLeft(joinType) && !rightDet) {
+            throwNonDeterministicOuterJoinRowId("right", "left");
         }
+        if (isNullSideOnRight(joinType) && !leftDet) {
+            throwNonDeterministicOuterJoinRowId("left", "right");
+        }
+    }
+
+    private void throwNonDeterministicOuterJoinRowId(String requiredSide, String nullSide) {
+        throw new IvmException(IvmFailureReason.NON_DETERMINISTIC_ROW_ID,
+                "IVM OUTER JOIN requires deterministic row_id on retained side (" + requiredSide
+                        + " side) because " + nullSide + " side may be filled as NULL");
+    }
+
+    private boolean isNullSideOnLeft(JoinType joinType) {
+        return joinType == JoinType.RIGHT_OUTER_JOIN || joinType == JoinType.FULL_OUTER_JOIN;
+    }
+
+    private boolean isNullSideOnRight(JoinType joinType) {
+        return joinType == JoinType.LEFT_OUTER_JOIN || joinType == JoinType.FULL_OUTER_JOIN;
     }
 
     /**
@@ -673,7 +671,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
         }
 
         // Outputs already contain some hidden columns (e.g. BindSink placeholders).
-        // Replace hidden outputs in-place to preserve positions and ExprIds.
+        // Replace hidden outputs in-place to retain positions and ExprIds.
         for (NamedExpression output : outputs) {
             if (IvmUtil.isIvmHiddenColumn(output.getName())) {
                 rewrittenOutputs.add(rewriteIvmHiddenOutput(output, ivmHiddenSlotsByName));

@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
@@ -78,7 +79,7 @@ class IvmDeltaRewriteHelper {
         throw new AnalysisException("IVM failed to find slot: " + name);
     }
 
-    IvmDeltaRewriteResult addNonDetGuardForJoinDelta(JoinPlanView join,
+    IvmDeltaRewriteResult addNonDetGuardForJoinDelta(LogicalJoin<Plan, Plan> join,
             IvmDeltaRewriteResult leftResult, IvmDeltaRewriteResult rightResult, IvmRefreshContext ctx) {
         boolean deltaOnLeft = leftResult.dmlFactorSlot != null;
         Slot dmlFactorSlot = deltaOnLeft ? leftResult.dmlFactorSlot : rightResult.dmlFactorSlot;
@@ -86,9 +87,9 @@ class IvmDeltaRewriteHelper {
 
         if (needNonDetGuard(snapshotSidePlan, ctx)) {
             return wrapDmlFactorWithNonDetGuard(
-                    new IvmDeltaRewriteResult(join.plan(), dmlFactorSlot), join.joinType());
+                    new IvmDeltaRewriteResult(join, dmlFactorSlot), join.getJoinType());
         }
-        return new IvmDeltaRewriteResult(join.plan(), dmlFactorSlot);
+        return new IvmDeltaRewriteResult(join, dmlFactorSlot);
     }
 
     /**
@@ -298,13 +299,4 @@ class IvmDeltaRewriteHelper {
         return false;
     }
 
-    interface JoinPlanView {
-        Plan plan();
-
-        Plan left();
-
-        Plan right();
-
-        JoinType joinType();
-    }
 }
