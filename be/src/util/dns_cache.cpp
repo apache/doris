@@ -73,8 +73,9 @@ std::string DNSCache::_resolve_hostname(const std::string& hostname) {
 
     // Try to resolve hostname
     std::string resolved_ip;
-    Status status = _resolver ? _resolver(hostname, resolved_ip, BackendOptions::is_bind_ipv6())
-                              : hostname_to_ip(hostname, resolved_ip, BackendOptions::is_bind_ipv6());
+    Status status = _resolver
+                            ? _resolver(hostname, resolved_ip, BackendOptions::is_bind_ipv6())
+                            : hostname_to_ip(hostname, resolved_ip, BackendOptions::is_bind_ipv6());
 
     if (!status.ok() || resolved_ip.empty()) {
         if (!cached_ip.empty()) {

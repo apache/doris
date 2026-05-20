@@ -42,8 +42,7 @@ protected:
     }
 
     // Build a resolver whose failure behaviour can be flipped at runtime.
-    static DNSCache::Resolver make_resolver(bool* should_fail,
-                                            const std::string& ip = "1.2.3.4") {
+    static DNSCache::Resolver make_resolver(bool* should_fail, const std::string& ip = "1.2.3.4") {
         return [should_fail, ip](const std::string&, std::string& out, bool) -> Status {
             if (*should_fail) {
                 return Status::InternalError("mock failure");
