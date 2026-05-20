@@ -153,13 +153,6 @@ Status PartitionedAggSourceOperatorX::prepare(RuntimeState* state) {
 Status PartitionedAggSourceOperatorX::close(RuntimeState* state) {
     RETURN_IF_ERROR(OperatorXBase::close(state));
 
-    // Centralize shared_state cleanup here so resources are released when
-    // the pipeline task finishes, matching the Sort operator pattern.
-    auto& local_state = get_local_state(state);
-    if (local_state._shared_state) {
-        local_state._shared_state->close();
-    }
-
     return _agg_source_operator->close(state);
 }
 

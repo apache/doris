@@ -428,7 +428,7 @@ struct PartitionedAggSharedState : public BasicSharedState,
     ENABLE_FACTORY_CREATOR(PartitionedAggSharedState)
 
     PartitionedAggSharedState() = default;
-    ~PartitionedAggSharedState() override = default;
+    ~PartitionedAggSharedState() override { close(); }
 
     void close();
 
@@ -437,6 +437,10 @@ struct PartitionedAggSharedState : public BasicSharedState,
 
     // partition count is no longer stored in shared state; operators maintain their own
     std::atomic<bool> _is_spilled = false;
+    // This state is shared by the partitioned agg sink and source pipelines. Spill files left
+    // here are owned by the shared state until the source moves them into its local queue, so the
+    // cleanup must be tied to the shared state's lifetime and must be idempotent.
+    std::atomic_bool is_closed = false;
     std::deque<SpillFileSPtr> _spill_partitions;
 };
 
