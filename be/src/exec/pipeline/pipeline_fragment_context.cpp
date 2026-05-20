@@ -718,19 +718,7 @@ Status PipelineFragmentContext::_build_pipelines(ObjectPool* pool, const Descrip
 
 Status PipelineFragmentContext::_create_deferred_local_exchangers() {
     for (auto& info : _deferred_exchangers) {
-        // sender_count = total number of sink instances that will call sub_running_sink_operators
-        // on this exchanger's shared_state.  shared_state is shared across all `_num_instances`
-        // fragment instances on this BE — each instance contributes `upstream_pipe->num_tasks()`
-        // sink tasks.  When the upstream pipeline has a serial source (e.g. POOLING OlapScan,
-        // serial Exchange), `num_tasks()` stays at 1 and `_propagate_local_exchange_num_tasks`
-        // Pass 1 deliberately does not raise it, so the close-count is `_num_instances`, not 1.
-        // Without the max(_, _num_instances), sub_running_sink_operators decrements past zero,
-        // the exchanger never sees `_running_sink_operators == 0`, downstream sources block
-        // forever on SHUFFLE_DATA_DEPENDENCY, and the query hangs — eventually triggering a
-        // mem-tracker leak FATAL on the leftover blocks the exchanger still holds.
-        // Mirrors BE-planned `_add_local_exchange_impl` (line ~1023) which already uses
-        // `std::max(cur_pipe->num_tasks(), _num_instances)`.
-        const int sender_count = std::max(info.upstream_pipe->num_tasks(), _num_instances);
+        const int sender_count = info.upstream_pipe->num_tasks();
         switch (info.partition_type) {
         case TLocalPartitionType::LOCAL_EXECUTION_HASH_SHUFFLE:
         case TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE:
