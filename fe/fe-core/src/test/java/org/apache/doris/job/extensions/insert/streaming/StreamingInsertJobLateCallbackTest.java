@@ -26,15 +26,15 @@ import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.HashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class StreamingInsertJobLateCallbackTest {
 
     private static StreamingMultiTblTask newTask(long taskId, TaskStatus initialStatus) {
-        StreamingMultiTblTask task = Deencapsulation.newInstance(StreamingMultiTblTask.class);
-        Deencapsulation.setField(task, "taskId", taskId);
-        Deencapsulation.setField(task, "isCanceled", new AtomicBoolean(false));
+        StreamingJobProperties jobProps = new StreamingJobProperties(new HashMap<>());
+        StreamingMultiTblTask task = new StreamingMultiTblTask(
+                0L, taskId, null, null, null, null, null, jobProps, null, null);
         Deencapsulation.setField(task, "status", initialStatus);
         return task;
     }
