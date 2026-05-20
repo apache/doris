@@ -29,6 +29,7 @@
 #include "util/jsonb_writer.h"
 
 namespace doris {
+
 class JsonbDocumentTest : public testing::Test {
 protected:
     void SetUp() override {}
@@ -40,27 +41,27 @@ TEST_F(JsonbDocumentTest, writer) {
     JsonbWriter writer;
     writer.writeStartObject();
 
-    writer.writeKey("key_null");
+    writer.writeKey("key_null", static_cast<uint8_t>(sizeof("key_null") - 1));
     writer.writeNull();
 
-    writer.writeKey("key_true");
+    writer.writeKey("key_true", static_cast<uint8_t>(sizeof("key_true") - 1));
     writer.writeBool(true);
 
-    writer.writeKey("key_false");
+    writer.writeKey("key_false", static_cast<uint8_t>(sizeof("key_false") - 1));
     writer.writeBool(false);
 
-    writer.writeKey("key_int");
+    writer.writeKey("key_int", static_cast<uint8_t>(sizeof("key_int") - 1));
     writer.writeInt(12345);
 
-    writer.writeKey("key_float");
+    writer.writeKey("key_float", static_cast<uint8_t>(sizeof("key_float") - 1));
     writer.writeFloat(123.456);
 
-    writer.writeKey("key_string");
+    writer.writeKey("key_string", static_cast<uint8_t>(sizeof("key_string") - 1));
     writer.writeStartString();
     writer.writeString("hello world");
     writer.writeEndString();
 
-    writer.writeKey("key_array");
+    writer.writeKey("key_array", static_cast<uint8_t>(sizeof("key_array") - 1));
 
     writer.writeStartArray();
     writer.writeInt(1);
@@ -69,24 +70,24 @@ TEST_F(JsonbDocumentTest, writer) {
     writer.writeEndString();
     writer.writeEndArray();
 
-    writer.writeKey("key_int128");
+    writer.writeKey("key_int128", static_cast<uint8_t>(sizeof("key_int128") - 1));
 
     __int128_t int128_value = __int128_t(std::numeric_limits<uint64_t>::max()) + 1;
     writer.writeInt128(int128_value);
 
-    writer.writeKey("key_decimal32");
+    writer.writeKey("key_decimal32", static_cast<uint8_t>(sizeof("key_decimal32") - 1));
     Decimal32 decimal_value32(int32_t(99999999));
     writer.writeDecimal(decimal_value32, 9, 4);
 
-    writer.writeKey("key_decimal64");
+    writer.writeKey("key_decimal64", static_cast<uint8_t>(sizeof("key_decimal64") - 1));
     Decimal64 decimal_value64(int64_t(999999999999999999ULL));
     writer.writeDecimal(decimal_value64, 18, 4);
 
-    writer.writeKey("key_decimal128");
+    writer.writeKey("key_decimal128", static_cast<uint8_t>(sizeof("key_decimal128") - 1));
     Decimal128V3 decimal_value((__int128_t(std::numeric_limits<uint64_t>::max())));
     writer.writeDecimal(decimal_value, 30, 8);
 
-    writer.writeKey("key_decimal256");
+    writer.writeKey("key_decimal256", static_cast<uint8_t>(sizeof("key_decimal256") - 1));
     wide::Int256 int256_value(wide::Int256(std::numeric_limits<__int128_t>::max()) * 2);
     Decimal256 decimal256_value(int256_value);
     writer.writeDecimal(decimal256_value, 40, 8);
@@ -218,21 +219,21 @@ TEST_F(JsonbDocumentTest, forobject) {
     JsonbWriter writer;
     writer.writeStartObject();
 
-    writer.writeKey("key_null");
+    writer.writeKey("key_null", static_cast<uint8_t>(sizeof("key_null") - 1));
     writer.writeNull();
 
-    writer.writeKey("key_true");
+    writer.writeKey("key_true", static_cast<uint8_t>(sizeof("key_true") - 1));
     writer.writeBool(true);
 
-    writer.writeKey("key_false");
+    writer.writeKey("key_false", static_cast<uint8_t>(sizeof("key_false") - 1));
     writer.writeBool(false);
 
-    writer.writeKey("key_int");
+    writer.writeKey("key_int", static_cast<uint8_t>(sizeof("key_int") - 1));
     writer.writeInt(12345);
 
     // writer array
 
-    writer.writeKey("key_array");
+    writer.writeKey("key_array", static_cast<uint8_t>(sizeof("key_array") - 1));
     writer.writeStartArray();
     writer.writeInt(1);
     writer.writeStartString();
