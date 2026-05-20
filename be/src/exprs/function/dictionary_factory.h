@@ -41,7 +41,8 @@ public:
         }
         auto version_iter = _dict_id_to_version_id_map.find(dict_id);
         // dict_id and version_id must match
-        if (version_iter != _dict_id_to_version_id_map.end() && version_iter->second == version_id) {
+        if (version_iter != _dict_id_to_version_id_map.end() &&
+            version_iter->second == version_id) {
             return dict_iter->second;
         }
         return nullptr;
@@ -139,12 +140,34 @@ public:
     void get_dictionary_status(std::vector<TDictionaryStatus>& result,
                                std::vector<int64_t> dict_ids);
 
+#ifdef BE_TEST
+    bool get_refreshing_version_for_test(int64_t dict_id, int64_t* version_id) {
+        SharedLockGuard lock(_mutex);
+        auto iter = _refreshing_dict_map.find(dict_id);
+        if (iter == _refreshing_dict_map.end()) {
+            return false;
+        }
+        *version_id = iter->second.first;
+        return true;
+    }
+
+    bool get_committed_version_for_test(int64_t dict_id, int64_t* version_id) {
+        SharedLockGuard lock(_mutex);
+        auto iter = _dict_id_to_version_id_map.find(dict_id);
+        if (iter == _dict_id_to_version_id_map.end()) {
+            return false;
+        }
+        *version_id = iter->second;
+        return true;
+    }
+#endif
+
 private:
     std::map<int64_t, DictionaryPtr> _dict_id_to_dict_map GUARDED_BY(_mutex);
     std::map<int64_t, int64_t> _dict_id_to_version_id_map GUARDED_BY(_mutex);
 
-    std::map<int64_t, std::pair<int64_t, DictionaryPtr>>
-            _refreshing_dict_map GUARDED_BY(_mutex); // dict_id -> (version_id, dict)
+    std::map<int64_t, std::pair<int64_t, DictionaryPtr>> _refreshing_dict_map
+            GUARDED_BY(_mutex); // dict_id -> (version_id, dict)
 
     AnnotatedSharedMutex _mutex;
 

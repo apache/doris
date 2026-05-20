@@ -304,7 +304,6 @@ TEST_F(BetaRowsetTest, ReadTest) {
     ASSERT_TRUE(res.has_value()) << res.error();
     auto fs = res.value();
     StorageResource storage_resource(fs);
-    auto& client = fs->client_holder()->_client;
     // failed to head object
     {
         Aws::Auth::AWSCredentials aws_cred("ak", "sk");
@@ -313,7 +312,8 @@ TEST_F(BetaRowsetTest, ReadTest) {
                 aws_cred, aws_config, Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
                 true);
 
-        client.reset(new io::S3ObjStorageClient(std::move(s3_client)));
+        fs->client_holder()->set_client_for_test(
+                std::make_shared<io::S3ObjStorageClient>(std::move(s3_client)));
 
         rowset.rowset_meta()->set_num_segments(1);
         rowset.rowset_meta()->set_remote_storage_resource(storage_resource);
@@ -327,7 +327,7 @@ TEST_F(BetaRowsetTest, ReadTest) {
     {
         Aws::Auth::AWSCredentials aws_cred("ak", "sk");
         Aws::Client::ClientConfiguration aws_config;
-        client.reset(new io::S3ObjStorageClient(
+        fs->client_holder()->set_client_for_test(std::make_shared<io::S3ObjStorageClient>(
                 std::make_shared<Aws::S3::S3Client>(S3ClientMockGetError())));
 
         rowset.rowset_meta()->set_num_segments(1);
@@ -342,7 +342,7 @@ TEST_F(BetaRowsetTest, ReadTest) {
     {
         Aws::Auth::AWSCredentials aws_cred("ak", "sk");
         Aws::Client::ClientConfiguration aws_config;
-        client.reset(new io::S3ObjStorageClient(
+        fs->client_holder()->set_client_for_test(std::make_shared<io::S3ObjStorageClient>(
                 std::make_shared<Aws::S3::S3Client>(S3ClientMockGetErrorData())));
 
         rowset.rowset_meta()->set_num_segments(1);

@@ -34,6 +34,7 @@ DictionaryFactory::~DictionaryFactory() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     _dict_id_to_dict_map.clear();
     _dict_id_to_version_id_map.clear();
+    _refreshing_dict_map.clear();
 }
 
 void DictionaryFactory::get_dictionary_status(std::vector<TDictionaryStatus>& result,

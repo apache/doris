@@ -23,8 +23,8 @@
 #include <utility>
 #include <vector>
 
-#include "common/thread_safety_annotations.h"
 #include "common/status.h"
+#include "common/thread_safety_annotations.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
@@ -57,6 +57,13 @@ public:
     static std::pair<size_t, size_t> s_align_size(size_t offset, size_t size, size_t length);
 
     int64_t mtime() const override { return _remote_file_reader->mtime(); }
+
+#ifdef BE_TEST
+    size_t cache_file_reader_count_for_test() {
+        SharedLockGuard lock(_mtx);
+        return _cache_file_readers.size();
+    }
+#endif
 
     // Asynchronously prefetch a range of file cache blocks.
     // This method triggers read file cache in dryrun mode to warm up the cache

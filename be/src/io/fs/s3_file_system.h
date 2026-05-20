@@ -23,8 +23,8 @@
 #include <utility>
 #include <vector>
 
-#include "common/thread_safety_annotations.h"
 #include "common/status.h"
+#include "common/thread_safety_annotations.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
@@ -63,6 +63,13 @@ public:
     std::string full_s3_path(std::string_view bucket, std::string_view key) const;
 
     const S3ClientConf& s3_client_conf() { return _conf; }
+
+#ifdef BE_TEST
+    void set_client_for_test(std::shared_ptr<ObjStorageClient> client) {
+        LockGuard lock(_mtx);
+        _client = std::move(client);
+    }
+#endif
 
 private:
     mutable AnnotatedSharedMutex _mtx;

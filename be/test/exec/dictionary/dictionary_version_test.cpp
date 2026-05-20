@@ -29,6 +29,7 @@ namespace doris {
 
 TEST(DictionaryVersionTest, refresh_dict) {
     auto dict_factory = std::make_shared<DictionaryFactory>();
+    int64_t version_id = 0;
 
     auto dict = create_complex_hash_map_dict_from_column(
             "ip dict",
@@ -39,17 +40,21 @@ TEST(DictionaryVersionTest, refresh_dict) {
                                            std::make_shared<DataTypeInt32>(), ""},
             });
     EXPECT_TRUE(dict_factory->refresh_dict(1, 1, dict));
-    EXPECT_EQ(dict_factory->_refreshing_dict_map[1].first, 1);
+    EXPECT_TRUE(dict_factory->get_refreshing_version_for_test(1, &version_id));
+    EXPECT_EQ(version_id, 1);
 
     EXPECT_TRUE(dict_factory->refresh_dict(1, 114, dict));
-    EXPECT_EQ(dict_factory->_refreshing_dict_map[1].first, 114);
+    EXPECT_TRUE(dict_factory->get_refreshing_version_for_test(1, &version_id));
+    EXPECT_EQ(version_id, 114);
 
     EXPECT_TRUE(dict_factory->refresh_dict(2, 114, dict));
-    EXPECT_EQ(dict_factory->_refreshing_dict_map[2].first, 114);
+    EXPECT_TRUE(dict_factory->get_refreshing_version_for_test(2, &version_id));
+    EXPECT_EQ(version_id, 114);
 }
 
 TEST(DictionaryVersionTest, abort_refresh_dict) {
     auto dict_factory = std::make_shared<DictionaryFactory>();
+    int64_t version_id = 0;
 
     auto dict = create_complex_hash_map_dict_from_column(
             "ip dict",
@@ -60,7 +65,8 @@ TEST(DictionaryVersionTest, abort_refresh_dict) {
                                            std::make_shared<DataTypeInt32>(), ""},
             });
     EXPECT_TRUE(dict_factory->refresh_dict(3, 5, dict));
-    EXPECT_EQ(dict_factory->_refreshing_dict_map[3].first, 5);
+    EXPECT_TRUE(dict_factory->get_refreshing_version_for_test(3, &version_id));
+    EXPECT_EQ(version_id, 5);
 
     {
         auto status = dict_factory->abort_refresh_dict(2, 5);
@@ -76,12 +82,13 @@ TEST(DictionaryVersionTest, abort_refresh_dict) {
     {
         auto status = dict_factory->abort_refresh_dict(3, 5);
         EXPECT_TRUE(status.ok());
-        EXPECT_TRUE(!dict_factory->_refreshing_dict_map.contains(3));
+        EXPECT_FALSE(dict_factory->get_refreshing_version_for_test(3, &version_id));
     }
 }
 
 TEST(DictionaryVersionTest, commit_dict) {
     auto dict_factory = std::make_shared<DictionaryFactory>();
+    int64_t version_id = 0;
 
     auto dict = create_complex_hash_map_dict_from_column(
             "ip dict",
@@ -92,28 +99,31 @@ TEST(DictionaryVersionTest, commit_dict) {
                                            std::make_shared<DataTypeInt32>(), ""},
             });
     EXPECT_TRUE(dict_factory->refresh_dict(3, 5, dict));
-    EXPECT_EQ(dict_factory->_refreshing_dict_map[3].first, 5);
+    EXPECT_TRUE(dict_factory->get_refreshing_version_for_test(3, &version_id));
+    EXPECT_EQ(version_id, 5);
 
     {
         auto status = dict_factory->commit_refresh_dict(2, 5);
         EXPECT_FALSE(status.ok());
         std::cout << status.msg() << std::endl;
-        EXPECT_EQ(dict_factory->_refreshing_dict_map[3].first, 5);
+        EXPECT_TRUE(dict_factory->get_refreshing_version_for_test(3, &version_id));
+        EXPECT_EQ(version_id, 5);
     }
 
     {
         auto status = dict_factory->commit_refresh_dict(3, 6);
         EXPECT_FALSE(status.ok());
         std::cout << status.msg() << std::endl;
-        EXPECT_EQ(dict_factory->_refreshing_dict_map[3].first, 5);
+        EXPECT_TRUE(dict_factory->get_refreshing_version_for_test(3, &version_id));
+        EXPECT_EQ(version_id, 5);
     }
 
     {
         auto status = dict_factory->commit_refresh_dict(3, 5);
         EXPECT_TRUE(status.ok());
-        EXPECT_TRUE(!dict_factory->_refreshing_dict_map.contains(3));
-        EXPECT_TRUE(dict_factory->_dict_id_to_dict_map.contains(3));
-        EXPECT_EQ(dict_factory->_dict_id_to_version_id_map[3], 5);
+        EXPECT_FALSE(dict_factory->get_refreshing_version_for_test(3, &version_id));
+        EXPECT_TRUE(dict_factory->get_committed_version_for_test(3, &version_id));
+        EXPECT_EQ(version_id, 5);
     }
 
     auto dict2 = create_complex_hash_map_dict_from_column(
@@ -125,7 +135,8 @@ TEST(DictionaryVersionTest, commit_dict) {
                                            std::make_shared<DataTypeInt32>(), ""},
             });
     EXPECT_TRUE(dict_factory->refresh_dict(3, 6, dict));
-    EXPECT_TRUE(dict_factory->_refreshing_dict_map.contains(3));
+    EXPECT_TRUE(dict_factory->get_refreshing_version_for_test(3, &version_id));
+    EXPECT_EQ(version_id, 6);
 
     {
         auto status = dict_factory->commit_refresh_dict(3, 5);
@@ -135,9 +146,9 @@ TEST(DictionaryVersionTest, commit_dict) {
     {
         auto status = dict_factory->commit_refresh_dict(3, 6);
         EXPECT_TRUE(status.ok());
-        EXPECT_TRUE(!dict_factory->_refreshing_dict_map.contains(3));
-        EXPECT_TRUE(dict_factory->_dict_id_to_dict_map.contains(3));
-        EXPECT_EQ(dict_factory->_dict_id_to_version_id_map[3], 6);
+        EXPECT_FALSE(dict_factory->get_refreshing_version_for_test(3, &version_id));
+        EXPECT_TRUE(dict_factory->get_committed_version_for_test(3, &version_id));
+        EXPECT_EQ(version_id, 6);
     }
 
     auto dict3 = create_complex_hash_map_dict_from_column(
@@ -149,7 +160,8 @@ TEST(DictionaryVersionTest, commit_dict) {
                                            std::make_shared<DataTypeInt32>(), ""},
             });
     EXPECT_TRUE(dict_factory->refresh_dict(3, 4, dict));
-    EXPECT_TRUE(dict_factory->_refreshing_dict_map.contains(3));
+    EXPECT_TRUE(dict_factory->get_refreshing_version_for_test(3, &version_id));
+    EXPECT_EQ(version_id, 4);
 
     {
         auto status = dict_factory->commit_refresh_dict(3, 4);
