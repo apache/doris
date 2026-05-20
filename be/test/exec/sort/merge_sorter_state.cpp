@@ -158,5 +158,14 @@ TEST_F(MergeSorterStateTest, whole_block_fast_path_allows_smaller_than_batch) {
                 block, ColumnHelper::create_block<DataTypeInt64>({4, 5, 6})));
         EXPECT_EQ(block.get_by_position(0).column.get(), second_column.get());
     }
+
+    {
+        Block block;
+        bool eos = false;
+        Status status = state->merge_sort_read(&block, 4, &eos);
+        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(eos);
+        EXPECT_EQ(block.rows(), 0);
+    }
 }
 } // namespace doris
