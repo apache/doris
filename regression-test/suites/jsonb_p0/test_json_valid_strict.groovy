@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_json_valid_strict") {
-    def jsonValid = sql """
+    qt_json_valid_strict """
         select
             json_valid('not json'),
             json_valid('not'),
@@ -24,11 +24,15 @@ suite("test_json_valid_strict") {
             json_valid('{"a":1} junk'),
             json_valid('{"a":1}')
         from (select 1) t
-        order by 1
     """
-    assertEquals(0, jsonValid[0][0])
-    assertEquals(0, jsonValid[0][1])
-    assertEquals(0, jsonValid[0][2])
-    assertEquals(0, jsonValid[0][3])
-    assertEquals(1, jsonValid[0][4])
+
+    sql "set debug_skip_fold_constant = true"
+
+    order_qt_json_extract_const_const_multi_row """
+        select number, json_extract_isnull(cast('{"a":null}' as json), '$.a')
+        from numbers("number" = "3")
+        order by number
+    """
+
+    sql "set debug_skip_fold_constant = false"
 }

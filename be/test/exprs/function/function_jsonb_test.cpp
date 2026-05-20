@@ -118,6 +118,8 @@ TEST(FunctionJsonbTEST, JsonbParseTest) {
             {{STRING("1000000000")}, STRING("1000000000")},                     // int32
             {{STRING("1152921504606846976")}, STRING("1152921504606846976")},   // int64
             {{STRING("18446744073709551616")}, STRING("18446744073709551616")}, // int128
+            {{STRING(" 18446744073709551616 ")},
+             STRING("18446744073709551616")}, // int128 with surrounding whitespace
             {{STRING("12345678901234567890123456789012345678901234567890")},
              STRING("1.2345678901234567e+49")},           // double fallback
             {{STRING("6.18")}, STRING("6.18")},           // double
@@ -167,6 +169,13 @@ TEST(FunctionJsonbTEST, JsonbParseTest) {
 
     data_set_invalid = {
             {{STRING("{x")}, Null()}, // invalid object
+    };
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
+
+    data_set_invalid = {
+            {{STRING(R"({"k1":"v31"} trailing)")}, Null()}, // invalid object trailing content
+            {{STRING("[123] trailing")}, Null()},           // invalid array trailing content
     };
     static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
                                                           -1, -1, true));
