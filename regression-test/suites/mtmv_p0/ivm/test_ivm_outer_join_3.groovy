@@ -18,7 +18,7 @@
 suite("test_ivm_outer_join_3") {
 
     // =========================================================
-    // Part 1: RIGHT OUTER JOIN nullable-side delta with pure hash conjuncts.
+    // Part 1: RIGHT OUTER JOIN null-side delta with pure hash conjuncts.
     // =========================================================
     sql """drop materialized view if exists test_ivm_outer_join_3_right_event_mv;"""
     sql """drop table if exists test_ivm_outer_join_3_right_event_l;"""
@@ -101,7 +101,7 @@ suite("test_ivm_outer_join_3") {
     """
 
     // =========================================================
-    // Part 2: RIGHT OUTER JOIN nullable-side delta with a non-hash other conjunct.
+    // Part 2: RIGHT OUTER JOIN null-side delta with a non-hash other conjunct.
     // =========================================================
     sql """drop materialized view if exists test_ivm_outer_join_3_right_repair_mv;"""
     sql """drop table if exists test_ivm_outer_join_3_right_repair_l;"""

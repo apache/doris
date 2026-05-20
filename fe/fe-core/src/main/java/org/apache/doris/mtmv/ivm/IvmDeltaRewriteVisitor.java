@@ -82,7 +82,7 @@ class IvmDeltaRewriteVisitor extends PlanVisitor<IvmDeltaRewriteResult, IvmRefre
     @Override
     public IvmDeltaRewriteResult visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
             IvmRefreshContext ctx) {
-        if (outerJoinHandler.supports(join.getJoinType())) {
+        if (join.getJoinType().isOuterJoin()) {
             return outerJoinHandler.rewrite(join, this, ctx);
         } else {
             return linearHandler.rewriteJoin(join, this, ctx);
