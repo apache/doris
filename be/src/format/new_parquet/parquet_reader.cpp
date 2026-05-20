@@ -695,7 +695,7 @@ Status ParquetReader::init(const reader::FileScanRequest& request) {
     _state->filter_fields.clear();
     _state->local_filters = request.local_filters;
     const int num_fields = static_cast<int>(_state->file_schema.size());
-    for (auto column_id : request.projected_file_columns) {
+    for (auto column_id : request.projected_columns) {
         if (column_id < 0 || column_id >= num_fields) {
             return Status::InvalidArgument("Invalid parquet top-level field id {}", column_id);
         }
