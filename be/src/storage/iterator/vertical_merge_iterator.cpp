@@ -70,8 +70,14 @@ uint16_t RowSource::data() const {
 Status RowSourcesBuffer::append(const std::vector<RowSource>& row_sources) {
     if (_buffer.allocated_bytes() + row_sources.size() * sizeof(UInt16) >
         config::vertical_compaction_max_row_source_memory_mb * 1024 * 1024) {
-        if (_buffer.allocated_bytes() - _buffer.size() * sizeof(UInt16) <
-            row_sources.size() * sizeof(UInt16)) {
+        // Use capacity() - size() to get the truly available element slots.
+        // Note: PODArrayBase::allocated_bytes() includes pad_left and pad_right,
+        // which are NOT usable for storing elements. Using allocated_bytes() here
+        // would over-estimate the available space and lead to a missed spill,
+        // causing _buffer to grow beyond the configured memory limit when
+        // push_back triggers reallocation below.
+        size_t available_slots = _buffer.capacity() - _buffer.size();
+        if (available_slots < row_sources.size()) {
             VLOG_NOTICE << "RowSourceBuffer is too large, serialize and reset buffer: "
                         << _buffer.allocated_bytes() << ", total size: " << _total_size;
             // serialize current buffer
