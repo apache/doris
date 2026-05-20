@@ -29,11 +29,11 @@
 #include <functional>
 #include <memory>
 #include <mutex>
-#include <shared_mutex>
 #include <thread>
 #include <unordered_set>
 #include <vector>
 
+#include "common/thread_safety_annotations.h"
 #include "io/cache/cache_block_meta_store.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/file_cache_storage.h"
@@ -58,10 +58,11 @@ public:
     size_t file_reader_cache_size();
 
 private:
-    std::list<std::pair<AccessKeyAndOffset, std::shared_ptr<FileReader>>> _file_reader_list;
+    std::list<std::pair<AccessKeyAndOffset, std::shared_ptr<FileReader>>> _file_reader_list
+        GUARDED_BY(_mtx);
     std::unordered_map<AccessKeyAndOffset, decltype(_file_reader_list.begin()), KeyAndOffsetHash>
-            _file_name_to_reader;
-    mutable std::shared_mutex _mtx;
+        _file_name_to_reader GUARDED_BY(_mtx);
+    mutable AnnotatedSharedMutex _mtx;
 };
 
 class FSFileCacheStorage : public FileCacheStorage {
@@ -190,8 +191,9 @@ private:
     std::mutex _leak_cleaner_mutex;
     const std::shared_ptr<LocalFileSystem>& fs = global_local_filesystem();
     // TODO(Lchangliang): use a more efficient data structure
-    std::mutex _mtx;
-    std::unordered_map<FileWriterMapKey, FileWriterPtr, FileWriterMapKeyHash> _key_to_writer;
+        AnnotatedMutex _mtx;
+        std::unordered_map<FileWriterMapKey, FileWriterPtr, FileWriterMapKeyHash> _key_to_writer
+            GUARDED_BY(_mtx);
     std::shared_ptr<bvar::LatencyRecorder> _iterator_dir_retry_cnt;
     std::shared_ptr<bvar::Adder<size_t>> _leak_scan_removed_files;
     std::unique_ptr<CacheBlockMetaStore> _meta_store;

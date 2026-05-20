@@ -17,10 +17,9 @@
 
 #include <gen_cpp/BackendService_types.h>
 
-#include <mutex>
-
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/thread_safety_annotations.h"
 #include "exprs/function/dictionary.h"
 
 namespace doris {
@@ -35,11 +34,15 @@ public:
 
     // Returns nullptr if failed
     std::shared_ptr<const IDictionary> get(int64_t dict_id, int64_t version_id) {
-        std::unique_lock lc(_mutex);
+        SharedLockGuard lock(_mutex);
+        auto dict_iter = _dict_id_to_dict_map.find(dict_id);
+        if (dict_iter == _dict_id_to_dict_map.end()) {
+            return nullptr;
+        }
+        auto version_iter = _dict_id_to_version_id_map.find(dict_id);
         // dict_id and version_id must match
-        if (_dict_id_to_dict_map.contains(dict_id) &&
-            _dict_id_to_version_id_map[dict_id] == version_id) {
-            return _dict_id_to_dict_map[dict_id];
+        if (version_iter != _dict_id_to_version_id_map.end() && version_iter->second == version_id) {
+            return dict_iter->second;
         }
         return nullptr;
     }
@@ -48,7 +51,7 @@ public:
         VLOG_DEBUG << "DictionaryFactory refresh dictionary"
                    << " dict_id: " << dict_id << " version_id: " << version_id
                    << " dict name: " << dict->dict_name();
-        std::unique_lock lc(_mutex);
+        UniqueLock lock(_mutex);
         dict->_mem_tracker = _mem_tracker;
         _refreshing_dict_map[dict_id] = std::make_pair(version_id, dict);
         // Set the mem tracker for the dictionary
@@ -58,7 +61,7 @@ public:
     Status abort_refresh_dict(int64_t dict_id, int64_t version_id) {
         VLOG_DEBUG << "DictionaryFactory abort refresh dictionary"
                    << " dict_id: " << dict_id << " version_id: " << version_id;
-        std::unique_lock lc(_mutex);
+        UniqueLock lock(_mutex);
         if (!_refreshing_dict_map.contains(dict_id)) {
             // FE will abort all, including succeed and failed.
             return Status::OK();
@@ -76,7 +79,7 @@ public:
     Status commit_refresh_dict(int64_t dict_id, int64_t version_id) {
         VLOG_DEBUG << "DictionaryFactory commit refresh dictionary"
                    << " dict_id: " << dict_id << " version_id: " << version_id;
-        std::unique_lock lc(_mutex);
+        UniqueLock lock(_mutex);
         if (!_refreshing_dict_map.contains(dict_id)) {
             return Status::InvalidArgument("Dictionary is not refreshing dict_id: {}", dict_id);
         }
@@ -117,7 +120,7 @@ public:
 
     Status delete_dict(int64_t dict_id) {
         VLOG_DEBUG << "DictionaryFactory delete dictionary, dict_id: " << dict_id;
-        std::unique_lock lc(_mutex);
+        UniqueLock lock(_mutex);
         if (!_dict_id_to_dict_map.contains(dict_id)) {
             LOG_WARNING("DictionaryFactory Failed to delete dictionary").tag("dict_id", dict_id);
             return Status::OK();
@@ -137,13 +140,13 @@ public:
                                std::vector<int64_t> dict_ids);
 
 private:
-    std::map<int64_t, DictionaryPtr> _dict_id_to_dict_map;
-    std::map<int64_t, int64_t> _dict_id_to_version_id_map;
+    std::map<int64_t, DictionaryPtr> _dict_id_to_dict_map GUARDED_BY(_mutex);
+    std::map<int64_t, int64_t> _dict_id_to_version_id_map GUARDED_BY(_mutex);
 
     std::map<int64_t, std::pair<int64_t, DictionaryPtr>>
-            _refreshing_dict_map; // dict_id -> (version_id, dict)
+            _refreshing_dict_map GUARDED_BY(_mutex); // dict_id -> (version_id, dict)
 
-    std::shared_mutex _mutex;
+    AnnotatedSharedMutex _mutex;
 
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 };

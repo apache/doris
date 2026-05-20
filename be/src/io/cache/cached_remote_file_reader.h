@@ -20,10 +20,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
-#include <shared_mutex>
 #include <utility>
 #include <vector>
 
+#include "common/thread_safety_annotations.h"
 #include "common/status.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_block.h"
@@ -90,8 +90,8 @@ private:
     FileReaderSPtr _remote_file_reader;
     UInt128Wrapper _cache_hash;
     BlockFileCache* _cache;
-    std::shared_mutex _mtx;
-    std::map<size_t, FileBlockSPtr> _cache_file_readers;
+    AnnotatedSharedMutex _mtx;
+    std::map<size_t, FileBlockSPtr> _cache_file_readers GUARDED_BY(_mtx);
 };
 
 } // namespace doris::io

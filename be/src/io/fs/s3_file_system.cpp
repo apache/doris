@@ -75,10 +75,13 @@ ObjClientHolder::ObjClientHolder(S3ClientConf conf) : _conf(std::move(conf)) {}
 ObjClientHolder::~ObjClientHolder() = default;
 
 Status ObjClientHolder::init() {
-    _client = S3ClientFactory::instance().create(_conf);
-    if (!_client) {
+    auto client = S3ClientFactory::instance().create(_conf);
+    if (!client) {
         return Status::InvalidArgument("failed to init s3 client with conf {}", _conf.to_string());
     }
+
+    LockGuard lock(_mtx);
+    _client = std::move(client);
 
     return Status::OK();
 }
@@ -86,7 +89,7 @@ Status ObjClientHolder::init() {
 Status ObjClientHolder::reset(const S3ClientConf& conf) {
     S3ClientConf reset_conf;
     {
-        std::shared_lock lock(_mtx);
+        SharedLockGuard lock(_mtx);
         if (conf.get_hash() == _conf.get_hash()) {
             return Status::OK(); // Same conf
         }
@@ -115,7 +118,7 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
     LOG(WARNING) << "reset s3 client with new conf: " << conf.to_string();
 
     {
-        std::lock_guard lock(_mtx);
+        LockGuard lock(_mtx);
         _client = std::move(client);
         _conf = std::move(reset_conf);
     }

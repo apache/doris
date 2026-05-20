@@ -46,6 +46,7 @@
 #include "common/status.h"
 #include "cpp/sync_point.h"
 #include "exec/common/hex.h"
+#include "common/thread_safety_annotations.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
@@ -94,7 +95,7 @@ std::shared_ptr<FileReader> FDCache::get_file_reader(const AccessKeyAndOffset& k
         return nullptr;
     }
     DCHECK(ExecEnv::GetInstance());
-    std::shared_lock rlock(_mtx);
+    SharedLockGuard rlock(_mtx);
     if (auto iter = _file_name_to_reader.find(key); iter != _file_name_to_reader.end()) {
         return iter->second->second;
     }
@@ -106,7 +107,7 @@ void FDCache::insert_file_reader(const AccessKeyAndOffset& key,
     if (config::file_cache_max_file_reader_cache_size == 0) [[unlikely]] {
         return;
     }
-    std::lock_guard wlock(_mtx);
+    LockGuard wlock(_mtx);
 
     if (auto iter = _file_name_to_reader.find(key); iter == _file_name_to_reader.end()) {
         if (config::file_cache_max_file_reader_cache_size == _file_reader_list.size()) {
@@ -123,7 +124,7 @@ void FDCache::remove_file_reader(const AccessKeyAndOffset& key) {
         return;
     }
     DCHECK(ExecEnv::GetInstance());
-    std::lock_guard wlock(_mtx);
+    LockGuard wlock(_mtx);
     if (auto iter = _file_name_to_reader.find(key); iter != _file_name_to_reader.end()) {
         _file_reader_list.erase(iter->second);
         _file_name_to_reader.erase(key);
@@ -131,12 +132,12 @@ void FDCache::remove_file_reader(const AccessKeyAndOffset& key) {
 }
 
 bool FDCache::contains_file_reader(const AccessKeyAndOffset& key) {
-    std::shared_lock rlock(_mtx);
+    SharedLockGuard rlock(_mtx);
     return _file_name_to_reader.contains(key);
 }
 
 size_t FDCache::file_reader_cache_size() {
-    std::shared_lock rlock(_mtx);
+    SharedLockGuard rlock(_mtx);
     return _file_reader_list.size();
 }
 
@@ -188,7 +189,7 @@ Status FSFileCacheStorage::init(BlockFileCache* mgr) {
 Status FSFileCacheStorage::append(const FileCacheKey& key, const Slice& value) {
     FileWriter* writer = nullptr;
     {
-        std::lock_guard lock(_mtx);
+        LockGuard lock(_mtx);
         auto file_writer_map_key = std::make_pair(key.hash, key.offset);
         if (auto iter = _key_to_writer.find(file_writer_map_key); iter != _key_to_writer.end()) {
             writer = iter->second.get();
@@ -213,7 +214,7 @@ Status FSFileCacheStorage::append(const FileCacheKey& key, const Slice& value) {
 Status FSFileCacheStorage::finalize(const FileCacheKey& key, const size_t size) {
     FileWriterPtr file_writer;
     {
-        std::lock_guard lock(_mtx);
+        LockGuard lock(_mtx);
         auto file_writer_map_key = std::make_pair(key.hash, key.offset);
         auto iter = _key_to_writer.find(file_writer_map_key);
         if (iter == _key_to_writer.end()) {

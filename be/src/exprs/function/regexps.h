@@ -25,13 +25,13 @@
 
 #include <boost/container_hash/hash.hpp>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "common/exception.h"
+#include "common/thread_safety_annotations.h"
 #include "core/string_ref.h"
 
 namespace doris::multiregexps {
@@ -73,7 +73,7 @@ public:
             : constructor(std::move(constructor_)) {}
 
     Regexps* get() {
-        std::lock_guard lock(mutex);
+        LockGuard lock(mutex);
         if (regexps) {
             return &*regexps;
         }
@@ -82,9 +82,9 @@ public:
     }
 
 private:
-    std::mutex mutex;
+    AnnotatedMutex mutex;
     std::function<Regexps()> constructor;
-    std::optional<Regexps> regexps;
+    std::optional<Regexps> regexps GUARDED_BY(mutex);
 };
 
 using DeferredConstructedRegexpsPtr = std::shared_ptr<DeferredConstructedRegexps>;
@@ -204,8 +204,8 @@ struct GlobalCacheTable {
         DeferredConstructedRegexpsPtr regexps; /// value
     };
 
-    std::mutex mutex;
-    std::array<Bucket, CACHE_SIZE> known_regexps;
+    AnnotatedMutex mutex;
+    std::array<Bucket, CACHE_SIZE> known_regexps GUARDED_BY(mutex);
 
     static size_t getBucketIndexFor(const std::vector<String> patterns,
                                     std::optional<UInt32> edit_distance) {
@@ -235,7 +235,7 @@ DeferredConstructedRegexpsPtr getOrSet(const std::vector<StringRef>& patterns,
     size_t bucket_idx = GlobalCacheTable::getBucketIndexFor(str_patterns, edit_distance);
 
     /// Lock cache to find compiled regexp for given pattern vector + edit distance.
-    std::lock_guard lock(pool.mutex);
+    LockGuard lock(pool.mutex);
 
     GlobalCacheTable::Bucket& bucket = pool.known_regexps[bucket_idx];
 
