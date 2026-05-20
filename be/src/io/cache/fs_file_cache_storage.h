@@ -59,9 +59,9 @@ public:
 
 private:
     std::list<std::pair<AccessKeyAndOffset, std::shared_ptr<FileReader>>> _file_reader_list
-        GUARDED_BY(_mtx);
+            GUARDED_BY(_mtx);
     std::unordered_map<AccessKeyAndOffset, decltype(_file_reader_list.begin()), KeyAndOffsetHash>
-        _file_name_to_reader GUARDED_BY(_mtx);
+            _file_name_to_reader GUARDED_BY(_mtx);
     mutable AnnotatedSharedMutex _mtx;
 };
 
@@ -191,8 +191,8 @@ private:
     std::mutex _leak_cleaner_mutex;
     const std::shared_ptr<LocalFileSystem>& fs = global_local_filesystem();
     // TODO(Lchangliang): use a more efficient data structure
-        AnnotatedMutex _mtx;
-        std::unordered_map<FileWriterMapKey, FileWriterPtr, FileWriterMapKeyHash> _key_to_writer
+    AnnotatedMutex _mtx;
+    std::unordered_map<FileWriterMapKey, FileWriterPtr, FileWriterMapKeyHash> _key_to_writer
             GUARDED_BY(_mtx);
     std::shared_ptr<bvar::LatencyRecorder> _iterator_dir_retry_cnt;
     std::shared_ptr<bvar::Adder<size_t>> _leak_scan_removed_files;
