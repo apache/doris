@@ -556,7 +556,7 @@ Status PointQueryExecutor::_lookup_row_data() {
             const auto& segment = *it;
             for (int cid : _reusable->missing_col_uids()) {
                 int pos = _reusable->get_col_uid_to_idx().at(cid);
-                auto row_id = static_cast<segment_v2::rowid_t>(row_loc.row_id);
+                std::vector<uint32_t> row_ids {cast_set<uint32_t>(row_loc.row_id)};
                 MutableColumnPtr column =
                         _result_block->get_by_position(pos).column->assume_mutable();
                 std::unique_ptr<ColumnIterator> iter;
@@ -565,7 +565,7 @@ Status PointQueryExecutor::_lookup_row_data() {
                 storage_read_options.stats = &_read_stats;
                 storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
                 RETURN_IF_ERROR(segment->seek_and_read_by_rowid(*_tablet->tablet_schema(), slot,
-                                                                row_id, column,
+                                                                row_ids, column,
                                                                 storage_read_options, iter));
                 if (_tablet->tablet_schema()
                             ->column_by_uid(slot->col_unique_id())
