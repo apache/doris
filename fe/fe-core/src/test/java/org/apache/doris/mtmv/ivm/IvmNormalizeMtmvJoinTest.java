@@ -290,7 +290,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testNormalizeLeftOuterJoinWithNonDetPreservedSideThrows() {
+    void testNormalizeLeftOuterJoinWithNonDetRetainedSideThrows() {
         LogicalOlapScan scanA = buildDupScan(1, "a");
         LogicalOlapScan scanB = buildMowScan(2, "b");
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
@@ -298,12 +298,12 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
 
         IvmException ex = Assertions.assertThrows(IvmException.class, () -> normalizeJoinPlan(join));
         Assertions.assertEquals(IvmFailureReason.NON_DETERMINISTIC_ROW_ID, ex.getFailureReason());
-        Assertions.assertTrue(ex.getMessage().contains("preserved side"),
+        Assertions.assertTrue(ex.getMessage().contains("retained side"),
                 "unexpected message: " + ex.getMessage());
     }
 
     @Test
-    void testNormalizeLeftOuterJoinWithNullableSideUnionAllThrows() {
+    void testNormalizeLeftOuterJoinWithNullSideUnionAllThrows() {
         LogicalOlapScan scanA = buildMowScan(1, "a");
         LogicalOlapScan scanB = buildMowScan(2, "b");
         LogicalOlapScan scanC = buildMowScan(3, "c");
@@ -316,7 +316,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testNormalizeLeftOuterJoinWithNullableSideUnionDistinctThrowsPlanPattern() {
+    void testNormalizeLeftOuterJoinWithNullSideUnionDistinctThrowsPlanPattern() {
         LogicalOlapScan scanA = buildMowScan(1, "a");
         LogicalOlapScan scanB = buildMowScan(2, "b");
         LogicalOlapScan scanC = buildMowScan(3, "c");
@@ -329,7 +329,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testNormalizeLeftOuterJoinWithNullableSideUnionAllProjectScanThrows() {
+    void testNormalizeLeftOuterJoinWithNullSideUnionAllProjectScanThrows() {
         LogicalOlapScan scanA = buildMowScan(1, "a");
         LogicalOlapScan scanB = buildMowScan(2, "b");
         LogicalOlapScan scanC = buildMowScan(3, "c");
@@ -343,7 +343,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testNormalizeLeftOuterJoinWithNullableSideExcludedUnionAll() {
+    void testNormalizeLeftOuterJoinWithNullSideExcludedUnionAll() {
         LogicalOlapScan scanA = buildMowScan(1, "a");
         LogicalOlapScan scanB = buildMowScan(2, "b");
         LogicalOlapScan scanC = buildMowScan(3, "c");
@@ -355,7 +355,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
                 ImmutableSet.of(new TableNameInfo("test_db", "b"), new TableNameInfo("test_db", "c")));
 
         Assertions.assertNotNull(result.getNormalizedPlan(),
-                "Nullable-side UNION ALL should be allowed when all OlapScans are excluded trigger tables");
+                "Null-side UNION ALL should be allowed when all OlapScans are excluded trigger tables");
     }
 
     @Test
@@ -375,7 +375,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testNormalizeRightOuterJoinWithNonDetPreservedSideThrows() {
+    void testNormalizeRightOuterJoinWithNonDetRetainedSideThrows() {
         LogicalOlapScan scanA = buildMowScan(1, "a");
         LogicalOlapScan scanB = buildDupScan(2, "b");
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.RIGHT_OUTER_JOIN,
@@ -383,12 +383,12 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
 
         IvmException ex = Assertions.assertThrows(IvmException.class, () -> normalizeJoinPlan(join));
         Assertions.assertEquals(IvmFailureReason.NON_DETERMINISTIC_ROW_ID, ex.getFailureReason());
-        Assertions.assertTrue(ex.getMessage().contains("preserved side"),
+        Assertions.assertTrue(ex.getMessage().contains("retained side"),
                 "unexpected message: " + ex.getMessage());
     }
 
     @Test
-    void testNormalizeRightOuterJoinWithNullableSideUnionAllThrows() {
+    void testNormalizeRightOuterJoinWithNullSideUnionAllThrows() {
         LogicalOlapScan scanA = buildMowScan(1, "a");
         LogicalOlapScan scanB = buildMowScan(2, "b");
         LogicalOlapScan scanC = buildMowScan(3, "c");
@@ -401,7 +401,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testNormalizeRightOuterJoinWithPreservedSideUnionAll() {
+    void testNormalizeRightOuterJoinWithRetainedSideUnionAll() {
         LogicalOlapScan scanA = buildMowScan(1, "a");
         LogicalOlapScan scanB = buildMowScan(2, "b");
         LogicalOlapScan scanC = buildMowScan(3, "c");
@@ -412,7 +412,94 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         IvmNormalizeResult result = getNormalizeResult(join);
 
         Assertions.assertNotNull(result.getNormalizedPlan(),
-                "RIGHT_OUTER_JOIN should allow UNION ALL on preserved side");
+                "RIGHT_OUTER_JOIN should allow UNION ALL on retained side");
+    }
+
+    @Test
+    void testNormalizeFullOuterJoin() {
+        LogicalOlapScan scanA = buildMowScan(1, "a");
+        LogicalOlapScan scanB = buildMowScan(2, "b");
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.FULL_OUTER_JOIN,
+                ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
+
+        IvmNormalizeResult result = getNormalizeResult(join);
+        Plan normalized = result.getNormalizedPlan();
+
+        long rowIdCount = normalized.getOutput().stream()
+                .filter(s -> Column.IVM_ROW_ID_COL.equals(s.getName()))
+                .count();
+        Assertions.assertEquals(1, rowIdCount, "Full outer join should have one composed row_id");
+    }
+
+    @Test
+    void testNormalizeFullOuterJoinRequiresBothSidesDeterministic() {
+        LogicalOlapScan scanA = buildDupScan(1, "a");
+        LogicalOlapScan scanB = buildMowScan(2, "b");
+        LogicalJoin<?, ?> leftNonDetJoin = new LogicalJoin<>(JoinType.FULL_OUTER_JOIN,
+                ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
+
+        IvmException leftEx = Assertions.assertThrows(IvmException.class, () -> normalizeJoinPlan(leftNonDetJoin));
+        Assertions.assertEquals(IvmFailureReason.NON_DETERMINISTIC_ROW_ID, leftEx.getFailureReason());
+        Assertions.assertTrue(leftEx.getMessage().contains("left side"),
+                "unexpected message: " + leftEx.getMessage());
+
+        LogicalOlapScan scanC = buildMowScan(3, "c");
+        LogicalOlapScan scanD = buildDupScan(4, "d");
+        LogicalJoin<?, ?> rightNonDetJoin = new LogicalJoin<>(JoinType.FULL_OUTER_JOIN,
+                ImmutableList.of(), scanC, scanD, JoinReorderContext.EMPTY);
+
+        IvmException rightEx = Assertions.assertThrows(IvmException.class, () -> normalizeJoinPlan(rightNonDetJoin));
+        Assertions.assertEquals(IvmFailureReason.NON_DETERMINISTIC_ROW_ID, rightEx.getFailureReason());
+        Assertions.assertTrue(rightEx.getMessage().contains("right side"),
+                "unexpected message: " + rightEx.getMessage());
+    }
+
+    @Test
+    void testNormalizeFullOuterJoinWithUnionAllOnEitherSideThrows() {
+        LogicalOlapScan scanA = buildMowScan(1, "a");
+        LogicalOlapScan scanB = buildMowScan(2, "b");
+        LogicalOlapScan scanC = buildMowScan(3, "c");
+        LogicalUnion leftUnion = buildUnionAll(scanA, scanB);
+        LogicalJoin<?, ?> leftUnionJoin = new LogicalJoin<>(JoinType.FULL_OUTER_JOIN,
+                ImmutableList.of(), leftUnion, scanC, JoinReorderContext.EMPTY);
+
+        assertIvmException(IvmFailureReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED,
+                () -> normalizeJoinPlan(leftUnionJoin));
+
+        LogicalOlapScan scanD = buildMowScan(4, "d");
+        LogicalOlapScan scanE = buildMowScan(5, "e");
+        LogicalOlapScan scanF = buildMowScan(6, "f");
+        LogicalUnion rightUnion = buildUnionAll(scanE, scanF);
+        LogicalJoin<?, ?> rightUnionJoin = new LogicalJoin<>(JoinType.FULL_OUTER_JOIN,
+                ImmutableList.of(), scanD, rightUnion, JoinReorderContext.EMPTY);
+
+        assertIvmException(IvmFailureReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED,
+                () -> normalizeJoinPlan(rightUnionJoin));
+    }
+
+    @Test
+    void testNormalizeFullOuterJoinWithOuterJoinOnEitherSideThrows() {
+        LogicalOlapScan scanA = buildMowScan(1, "a");
+        LogicalOlapScan scanB = buildMowScan(2, "b");
+        LogicalOlapScan scanC = buildMowScan(3, "c");
+        LogicalJoin<?, ?> leftChildOuterJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
+        LogicalJoin<?, ?> leftNestedJoin = new LogicalJoin<>(JoinType.FULL_OUTER_JOIN,
+                ImmutableList.of(), leftChildOuterJoin, scanC, JoinReorderContext.EMPTY);
+
+        assertIvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                () -> normalizeJoinPlan(leftNestedJoin));
+
+        LogicalOlapScan scanD = buildMowScan(4, "d");
+        LogicalOlapScan scanE = buildMowScan(5, "e");
+        LogicalOlapScan scanF = buildMowScan(6, "f");
+        LogicalJoin<?, ?> rightChildOuterJoin = new LogicalJoin<>(JoinType.RIGHT_OUTER_JOIN,
+                ImmutableList.of(), scanE, scanF, JoinReorderContext.EMPTY);
+        LogicalJoin<?, ?> rightNestedJoin = new LogicalJoin<>(JoinType.FULL_OUTER_JOIN,
+                ImmutableList.of(), scanD, rightChildOuterJoin, JoinReorderContext.EMPTY);
+
+        assertIvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                () -> normalizeJoinPlan(rightNestedJoin));
     }
 
     @Test
@@ -427,7 +514,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         IvmNormalizeResult result = getNormalizeResult(filter);
 
         Assertions.assertNotNull(result.getNormalizedPlan(),
-                "Filter above LEFT_OUTER_JOIN should preserve outer join IVM routing");
+                "Filter above LEFT_OUTER_JOIN should keep outer join IVM routing");
     }
 
     @Test
@@ -459,7 +546,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         IvmNormalizeResult result = getNormalizeResult(secondOuterJoin);
 
         Assertions.assertNotNull(result.getNormalizedPlan(),
-                "LEFT_OUTER_JOIN chain on preserved side should be normalized");
+                "LEFT_OUTER_JOIN chain on retained side should be normalized");
     }
 
     @Test
@@ -477,58 +564,58 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         IvmNormalizeResult result = getNormalizeResult(secondOuterJoin);
 
         Assertions.assertNotNull(result.getNormalizedPlan(),
-                "LEFT_OUTER_JOIN chain should allow projects on the preserved-side path");
+                "LEFT_OUTER_JOIN chain should allow projects on the retained-side path");
     }
 
     @Test
-    void testNormalizeLeftOuterJoinOnNullableSideThrows() {
+    void testNormalizeLeftOuterJoinOnNullSideThrows() {
         LogicalOlapScan scanA = buildMowScan(1, "a");
         LogicalOlapScan scanB = buildMowScan(2, "b");
         LogicalOlapScan scanC = buildMowScan(3, "c");
-        LogicalJoin<?, ?> nullableOuterJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+        LogicalJoin<?, ?> nullSideOuterJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
                 ImmutableList.of(), scanB, scanC, JoinReorderContext.EMPTY);
         LogicalJoin<?, ?> rootOuterJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
-                ImmutableList.of(), scanA, nullableOuterJoin, JoinReorderContext.EMPTY);
+                ImmutableList.of(), scanA, nullSideOuterJoin, JoinReorderContext.EMPTY);
 
         IvmException ex = Assertions.assertThrows(IvmException.class, () -> normalizeJoinPlan(rootOuterJoin));
-        Assertions.assertEquals(IvmFailureReason.OUTER_JOIN_RETRACTION_UNSUPPORTED, ex.getFailureReason());
-        Assertions.assertTrue(ex.getMessage().contains("nullable side"),
+        Assertions.assertEquals(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED, ex.getFailureReason());
+        Assertions.assertTrue(ex.getMessage().contains("null side"),
                 "unexpected message: " + ex.getMessage());
     }
 
     @Test
-    void testNormalizeProjectedLeftOuterJoinOnNullableSideThrows() {
+    void testNormalizeProjectedLeftOuterJoinOnNullSideThrows() {
         LogicalOlapScan scanA = buildMowScan(1, "a");
         LogicalOlapScan scanB = buildMowScan(2, "b");
         LogicalOlapScan scanC = buildMowScan(3, "c");
-        LogicalJoin<?, ?> nullableOuterJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+        LogicalJoin<?, ?> nullSideOuterJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
                 ImmutableList.of(), scanB, scanC, JoinReorderContext.EMPTY);
-        LogicalProject<?> projectedNullableSide = new LogicalProject<>(
-                ImmutableList.copyOf(nullableOuterJoin.getOutput()), nullableOuterJoin);
+        LogicalProject<?> projectedNullSide = new LogicalProject<>(
+                ImmutableList.copyOf(nullSideOuterJoin.getOutput()), nullSideOuterJoin);
         LogicalJoin<?, ?> rootOuterJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
-                ImmutableList.of(), scanA, projectedNullableSide, JoinReorderContext.EMPTY);
+                ImmutableList.of(), scanA, projectedNullSide, JoinReorderContext.EMPTY);
 
         IvmException ex = Assertions.assertThrows(IvmException.class, () -> normalizeJoinPlan(rootOuterJoin));
-        Assertions.assertEquals(IvmFailureReason.OUTER_JOIN_RETRACTION_UNSUPPORTED, ex.getFailureReason());
-        Assertions.assertTrue(ex.getMessage().contains("nullable side"),
+        Assertions.assertEquals(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED, ex.getFailureReason());
+        Assertions.assertTrue(ex.getMessage().contains("null side"),
                 "unexpected message: " + ex.getMessage());
     }
 
     @Test
-    void testNormalizeFilteredLeftOuterJoinOnNullableSideThrows() {
+    void testNormalizeFilteredLeftOuterJoinOnNullSideThrows() {
         LogicalOlapScan scanA = buildMowScan(1, "a");
         LogicalOlapScan scanB = buildMowScan(2, "b");
         LogicalOlapScan scanC = buildMowScan(3, "c");
-        LogicalJoin<?, ?> nullableOuterJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+        LogicalJoin<?, ?> nullSideOuterJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
                 ImmutableList.of(), scanB, scanC, JoinReorderContext.EMPTY);
-        LogicalFilter<?> filteredNullableSide = new LogicalFilter<>(ImmutableSet.of(new EqualTo(
-                nullableOuterJoin.getOutput().get(0), nullableOuterJoin.getOutput().get(0))), nullableOuterJoin);
+        LogicalFilter<?> filteredNullSide = new LogicalFilter<>(ImmutableSet.of(new EqualTo(
+                nullSideOuterJoin.getOutput().get(0), nullSideOuterJoin.getOutput().get(0))), nullSideOuterJoin);
         LogicalJoin<?, ?> rootOuterJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
-                ImmutableList.of(), scanA, filteredNullableSide, JoinReorderContext.EMPTY);
+                ImmutableList.of(), scanA, filteredNullSide, JoinReorderContext.EMPTY);
 
         IvmException ex = Assertions.assertThrows(IvmException.class, () -> normalizeJoinPlan(rootOuterJoin));
-        Assertions.assertEquals(IvmFailureReason.OUTER_JOIN_RETRACTION_UNSUPPORTED, ex.getFailureReason());
-        Assertions.assertTrue(ex.getMessage().contains("nullable side"),
+        Assertions.assertEquals(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED, ex.getFailureReason());
+        Assertions.assertTrue(ex.getMessage().contains("null side"),
                 "unexpected message: " + ex.getMessage());
     }
 
@@ -561,6 +648,18 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         // 2 scan entries + 1 composed join entry = 3
         Assertions.assertEquals(3, rowIdDet.size(),
                 "After join normalization, map should have scan entries + composed entry");
+    }
+
+    @Test
+    void testNormalizeUnsupportedJoinTypeThrowsPlanPattern() {
+        LogicalOlapScan scanA = buildMowScan(1, "a");
+        LogicalOlapScan scanB = buildMowScan(2, "b");
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN,
+                ImmutableList.of(new EqualTo(scanA.getOutput().get(0), scanB.getOutput().get(0))),
+                scanA, scanB, JoinReorderContext.EMPTY);
+
+        assertIvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
+                () -> normalizeJoinPlan(join));
     }
 
     @Test

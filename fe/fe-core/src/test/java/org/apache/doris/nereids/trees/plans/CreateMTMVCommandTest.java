@@ -250,6 +250,27 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         ((CreateMTMVCommand) logicalPlan).run(connectContext, null);
     }
 
+    private void assertCreateMtmvFails(String sql, String expectedMessage) {
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class, () -> createMtmv(sql));
+        Assertions.assertTrue(ex.getMessage().contains(expectedMessage),
+                "unexpected message: " + ex.getMessage());
+    }
+
+    private void createIvmMowTable(String tableName) throws Exception {
+        createTable("create table test." + tableName + " (k1 int, v1 int)\n"
+                + "unique key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW');");
+    }
+
+    private void createIvmDupTable(String tableName) throws Exception {
+        createTable("create table test." + tableName + " (k1 int, v1 int)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW');");
+    }
+
     private void alterMtmv(String sql) throws Exception {
         resetStatementContext(sql);
         LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
@@ -1034,7 +1055,89 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         Assertions.assertTrue(info.isEnableIvm());
     }
 
-    // TODO: Add CREATE MV coverage for nullable-side UNION ALL after subquery alias is supported by IVM.
+    @Test
+    public void testCreateIncrementalMVRejectsLeftOuterJoinWithOuterJoinOnNullSide() throws Exception {
+        createIvmMowTable("ivm_loj_null_nested_l");
+        createIvmMowTable("ivm_loj_null_nested_r");
+        createIvmMowTable("ivm_loj_null_nested_n");
+
+        assertCreateMtmvFails("CREATE MATERIALIZED VIEW ivm_loj_null_nested_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT ivm_loj_null_nested_l.k1, ivm_loj_null_nested_l.v1,"
+                + " ivm_loj_null_nested_r.v1 AS rv1, ivm_loj_null_nested_n.v1 AS nv1\n"
+                + " FROM ivm_loj_null_nested_l\n"
+                + " LEFT OUTER JOIN (ivm_loj_null_nested_r\n"
+                + "     LEFT OUTER JOIN ivm_loj_null_nested_n"
+                + " ON ivm_loj_null_nested_r.k1 = ivm_loj_null_nested_n.k1)\n"
+                + " ON ivm_loj_null_nested_l.k1 = ivm_loj_null_nested_r.k1;",
+                "null side must not contain another outer join");
+    }
+
+    @Test
+    public void testCreateIncrementalMVRejectsFullOuterJoinWithOuterJoinOnEitherNullSide() throws Exception {
+        createIvmMowTable("ivm_foj_left_null_nested_l");
+        createIvmMowTable("ivm_foj_left_null_nested_r");
+        createIvmMowTable("ivm_foj_left_null_nested_n");
+        createIvmMowTable("ivm_foj_right_null_nested_l");
+        createIvmMowTable("ivm_foj_right_null_nested_r");
+        createIvmMowTable("ivm_foj_right_null_nested_n");
+
+        assertCreateMtmvFails("CREATE MATERIALIZED VIEW ivm_foj_left_null_nested_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT ivm_foj_left_null_nested_l.k1, ivm_foj_left_null_nested_l.v1,"
+                + " ivm_foj_left_null_nested_r.v1 AS rv1, ivm_foj_left_null_nested_n.v1 AS nv1\n"
+                + " FROM (ivm_foj_left_null_nested_l\n"
+                + "     LEFT OUTER JOIN ivm_foj_left_null_nested_r"
+                + " ON ivm_foj_left_null_nested_l.k1 = ivm_foj_left_null_nested_r.k1)\n"
+                + " FULL OUTER JOIN ivm_foj_left_null_nested_n"
+                + " ON ivm_foj_left_null_nested_l.k1 = ivm_foj_left_null_nested_n.k1;",
+                "null side must not contain another outer join");
+
+        assertCreateMtmvFails("CREATE MATERIALIZED VIEW ivm_foj_right_null_nested_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT ivm_foj_right_null_nested_l.k1, ivm_foj_right_null_nested_l.v1,"
+                + " ivm_foj_right_null_nested_r.v1 AS rv1, ivm_foj_right_null_nested_n.v1 AS nv1\n"
+                + " FROM ivm_foj_right_null_nested_l\n"
+                + " FULL OUTER JOIN (ivm_foj_right_null_nested_r\n"
+                + "     LEFT OUTER JOIN ivm_foj_right_null_nested_n"
+                + " ON ivm_foj_right_null_nested_r.k1 = ivm_foj_right_null_nested_n.k1)\n"
+                + " ON ivm_foj_right_null_nested_l.k1 = ivm_foj_right_null_nested_r.k1;",
+                "null side must not contain another outer join");
+    }
+
+    @Test
+    public void testCreateIncrementalMVRejectsOuterJoinWithNonDeterministicRequiredRowId() throws Exception {
+        createIvmDupTable("ivm_loj_nondet_l");
+        createIvmMowTable("ivm_loj_nondet_r");
+        createIvmMowTable("ivm_foj_nondet_l");
+        createIvmDupTable("ivm_foj_nondet_r");
+
+        assertCreateMtmvFails("CREATE MATERIALIZED VIEW ivm_loj_nondet_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT ivm_loj_nondet_l.k1, ivm_loj_nondet_l.v1, ivm_loj_nondet_r.v1 AS rv1\n"
+                + " FROM ivm_loj_nondet_l\n"
+                + " LEFT OUTER JOIN ivm_loj_nondet_r ON ivm_loj_nondet_l.k1 = ivm_loj_nondet_r.k1;",
+                "requires deterministic row_id on retained side (left side)");
+
+        assertCreateMtmvFails("CREATE MATERIALIZED VIEW ivm_foj_nondet_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT ivm_foj_nondet_l.k1, ivm_foj_nondet_l.v1, ivm_foj_nondet_r.v1 AS rv1\n"
+                + " FROM ivm_foj_nondet_l\n"
+                + " FULL OUTER JOIN ivm_foj_nondet_r ON ivm_foj_nondet_l.k1 = ivm_foj_nondet_r.k1;",
+                "requires deterministic row_id on retained side (right side)");
+    }
+
+    // TODO: Add CREATE MV coverage for null-side UNION ALL after subquery alias is supported by IVM.
 
     @Test
     public void testAlterExcludedTriggerTablesRejectsShrinkingCoverage() throws Exception {
