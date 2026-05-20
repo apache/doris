@@ -178,6 +178,9 @@ public:
 
     int32_t allocate_segment_id() { return _next_segment_id.fetch_add(1); }
 
+    // Return the next segment id to be allocated without advancing internal state.
+    int32_t get_allocated_segment_id() const { return _next_segment_id.load(); }
+
     int32_t next_segment_id() const { return _next_segment_id.load(); }
 
     int64_t num_rows_written() const { return _segment_flusher.num_rows_written(); }

@@ -32,6 +32,15 @@
 #include "util/uid_util.h"
 
 namespace doris {
+namespace {
+bool hash_table_built(const HashJoinSharedState* shared_state) {
+    DORIS_CHECK(shared_state != nullptr);
+    DORIS_CHECK(!shared_state->hash_table_variant_vector.empty());
+    return !std::holds_alternative<std::monostate>(
+            shared_state->hash_table_variant_vector.front()->method_variant);
+}
+} // namespace
+
 HashJoinBuildSinkLocalState::HashJoinBuildSinkLocalState(DataSinkOperatorXBase* parent,
                                                          RuntimeState* state)
         : JoinBuildSinkLocalState(parent, state) {
@@ -243,16 +252,9 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
 
         if (p._use_shared_hash_table) {
             LockGuard lock(p._mutex);
-            // Only signal non-builder tasks when the builder actually built the hash table.
-            // When the builder is terminated (woken up early because the probe side finished
-            // first), it never called process_build_block() so the hash table variant is still
-            // monostate. Setting _signaled=true in that case would cause non-builder tasks to
-            // enter std::visit on monostate and crash with "Hash table type mismatch".
-            //
-            // _terminated is reliably true here when the task was woken up early, because
-            // operator terminate() is called from the execute() Defer in PipelineTask
-            // before close() is invoked.
-            if (!_terminated) {
+            // Do not wake non-builders into a monostate hash table after early termination/errors.
+            const auto should_signal = !_terminated && hash_table_built(_shared_state);
+            if (should_signal) {
                 p._signaled = true;
             }
             for (auto& dep : _shared_state->sink_deps) {

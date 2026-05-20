@@ -667,6 +667,17 @@ public class StatementContext implements Closeable {
         return rewrittenCteConsumer;
     }
 
+    /** Clear CTE-related rewrite and memo state before rebuilding it from a new plan tree. */
+    public void clearCteEnvironment() {
+        cteIdToConsumers.clear();
+        cteIdToOutputIds.clear();
+        cteIdToProducer.clear();
+        consumerIdToFilters.clear();
+        cteIdToConsumerGroup.clear();
+        rewrittenCteProducer.clear();
+        rewrittenCteConsumer.clear();
+    }
+
     /**
      * Snapshot current CTE-related environment for temporary rewrite/optimization.
      */
