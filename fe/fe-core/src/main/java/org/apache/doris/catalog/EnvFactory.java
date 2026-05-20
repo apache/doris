@@ -145,7 +145,7 @@ public class EnvFactory {
 
     public Coordinator createCoordinator(ConnectContext context, Planner planner,
                                          StatsErrorEstimator statsErrorEstimator) {
-        if (planner instanceof NereidsPlanner && SessionVariable.canUseNereidsDistributePlanner()) {
+        if (planner instanceof NereidsPlanner && SessionVariable.canUseNereidsDistributePlanner(context)) {
             return new NereidsCoordinator(context, (NereidsPlanner) planner, statsErrorEstimator);
         }
         return new Coordinator(context, planner, statsErrorEstimator);
@@ -153,7 +153,7 @@ public class EnvFactory {
 
     public Coordinator createCoordinator(ConnectContext context, Planner planner,
                                          StatsErrorEstimator statsErrorEstimator, long jobId) {
-        if (planner instanceof NereidsPlanner && SessionVariable.canUseNereidsDistributePlanner()) {
+        if (planner instanceof NereidsPlanner && SessionVariable.canUseNereidsDistributePlanner(context)) {
             return new NereidsCoordinator(context, (NereidsPlanner) planner, statsErrorEstimator, jobId);
         }
         return new Coordinator(context, planner, statsErrorEstimator);
