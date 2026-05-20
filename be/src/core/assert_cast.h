@@ -50,7 +50,7 @@ using AssertCastClassType_t = std::remove_pointer_t<AssertCastNormalizedType_t<T
   * The exact match of the type is checked. That is, cast to the ancestor will be unsuccessful.
   */
 template <typename To, TypeCheckOnRelease check = TypeCheckOnRelease::ENABLE, typename From>
-PURE To assert_cast(From&& from) {
+To assert_cast(From&& from) {
     static_assert(!std::is_same_v<AssertCastNormalizedType_t<To>, AssertCastNormalizedType_t<From>>,
                   "assert_cast is redundant for the same type after removing cv/ref qualifiers");
     static_assert(std::is_class_v<AssertCastClassType_t<To>> &&
