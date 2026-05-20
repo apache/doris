@@ -61,7 +61,9 @@ ColumnPtr IDataType::create_column_const(size_t size, const Field& field) const 
 }
 
 ColumnPtr IDataType::create_column_const_with_default_value(size_t size) const {
-    return create_column_const(size, get_default());
+    auto column = create_column();
+    column->insert_default();
+    return ColumnConst::create(std::move(column), size);
 }
 
 size_t IDataType::get_size_of_value_in_memory() const {

@@ -125,15 +125,6 @@ Status DataTypeStruct::check_column(const IColumn& column) const {
     return Status::OK();
 }
 
-Field DataTypeStruct::get_default() const {
-    size_t size = elems.size();
-    Tuple t;
-    for (size_t i = 0; i < size; ++i) {
-        t.push_back(elems[i]->get_default());
-    }
-    return Field::create_field<TYPE_STRUCT>(t);
-}
-
 bool DataTypeStruct::equals(const IDataType& rhs) const {
     if (typeid(rhs) != typeid(*this)) {
         return false;

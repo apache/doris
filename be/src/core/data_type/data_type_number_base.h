@@ -120,8 +120,6 @@ public:
         throw Exception(Status::FatalError("__builtin_unreachable"));
     }
 
-    Field get_default() const override;
-
     Field get_field(const TExprNode& node) const override;
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,

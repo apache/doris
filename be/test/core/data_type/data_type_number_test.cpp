@@ -149,13 +149,6 @@ TEST_F(DataTypeNumberTest, get_storage_field_type) {
 
     EXPECT_EQ(dt_uint8.get_storage_field_type(), doris::FieldType::OLAP_FIELD_TYPE_BOOL);
 }
-TEST_F(DataTypeNumberTest, get_default) {
-    EXPECT_EQ(dt_int8.get_default(), Field::create_field<TYPE_TINYINT>(0));
-    EXPECT_EQ(dt_int16.get_default(), Field::create_field<TYPE_SMALLINT>(0));
-    EXPECT_EQ(dt_int32.get_default(), Field::create_field<TYPE_INT>(0));
-    EXPECT_EQ(dt_int64.get_default(), Field::create_field<TYPE_BIGINT>(0));
-    EXPECT_EQ(dt_int128.get_default(), Field::create_field<TYPE_LARGEINT>(Int128(0)));
-}
 template <PrimitiveType T>
 void test_int_field(const typename PrimitiveTypeTraits<T>::DataType& dt) {
     TExprNode expr_node;

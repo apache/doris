@@ -59,12 +59,6 @@ Status DataTypeArray::check_column(const IColumn& column) const {
     return nested->check_column(column_array->get_data());
 }
 
-Field DataTypeArray::get_default() const {
-    Array a;
-    a.push_back(nested->get_default());
-    return Field::create_field<TYPE_ARRAY>(a);
-}
-
 bool DataTypeArray::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this) &&
            nested->equals(*static_cast<const DataTypeArray&>(rhs).nested);

@@ -260,11 +260,6 @@ void DataTypeDecimal<T>::to_pb_column_meta(PColumnMeta* col_meta) const {
 }
 
 template <PrimitiveType T>
-Field DataTypeDecimal<T>::get_default() const {
-    return Field::create_field<T>(typename PrimitiveTypeTraits<T>::CppType());
-}
-
-template <PrimitiveType T>
 MutableColumnPtr DataTypeDecimal<T>::create_column() const {
     return ColumnType::create(0, scale);
 }

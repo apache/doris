@@ -66,8 +66,6 @@ public:
     MutableColumnPtr create_column() const override;
     Status check_column(const IColumn& column) const override;
 
-    Field get_default() const override;
-
     Field get_field(const TExprNode& node) const override {
         DCHECK_EQ(node.node_type, TExprNodeType::VARBINARY_LITERAL);
         DCHECK(node.__isset.varbinary_literal);
