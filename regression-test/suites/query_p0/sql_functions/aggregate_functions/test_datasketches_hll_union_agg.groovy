@@ -18,6 +18,7 @@
 suite("test_datasketches_hll_union_agg") {
     def tableName = "test_datasketches_hll_union_agg_tbl"
     def emptyTableName = "test_datasketches_hll_union_agg_empty_tbl"
+    def badTableName = "test_datasketches_hll_union_agg_bad_tbl"
 
     // sk = new HllSketch(8, HLL_8); for (int i = 0; i < 7; i++) sk.update(i);
     def sk1Base64 = "AgEHCAMIBwjL18IEK/L7BoYv+Q11gWYHgbxdBntl5gj8LUIK"
@@ -43,12 +44,6 @@ suite("test_datasketches_hll_union_agg") {
             (2, from_base64('${sk2Base64}')),
             (3, NULL)
     """
-
-    // Empty string is invalid serialized DataSketches HLL sketch and should throw.
-    test {
-        sql """INSERT INTO ${tableName} VALUES (4, '')"""
-        exception "CORRUPTION"
-    }
 
     // 1) Basic union: {0..6} U {20..29} => 17 distinct values
     qt_basic_union """SELECT datasketches_hll_union_agg(sk) FROM ${tableName}"""
@@ -105,6 +100,26 @@ suite("test_datasketches_hll_union_agg") {
         exception "CORRUPTION"
     }
 
+    // Empty string is a valid STRING value, but it is an invalid serialized DataSketches HLL sketch.
+    // It should not fail at INSERT time; it should fail when the aggregate function reads it.
+    sql "DROP TABLE IF EXISTS ${badTableName}"
+    sql """
+        CREATE TABLE ${badTableName} (
+            id INT,
+            sk STRING
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        )
+    """
+    sql """INSERT INTO ${badTableName} VALUES (1, '')"""
+    test {
+        sql """SELECT datasketches_hll_union_agg(sk) FROM ${badTableName}"""
+        exception "CORRUPTION"
+    }
+
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql "DROP TABLE IF EXISTS ${emptyTableName}"
+    sql "DROP TABLE IF EXISTS ${badTableName}"
 }
