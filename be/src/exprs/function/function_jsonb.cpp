@@ -570,7 +570,7 @@ private:
                                                r_raw_ref.to_string());
             }
 
-            if (const_path.is_wildcard()) {
+            if (const_path.is_wildcard() || const_path.is_supper_wildcard()) {
                 return Status::InvalidJsonPath(
                         "In this situation, path expressions may not contain the * and ** tokens "
                         "or an array range.");
@@ -612,7 +612,7 @@ private:
                                 std::string_view(data.data, data.size), i);
                     }
 
-                    if (path.is_wildcard()) {
+                    if (path.is_wildcard() || path.is_supper_wildcard()) {
                         return Status::InvalidJsonPath(
                                 "In this situation, path expressions may not contain the * and ** "
                                 "tokens "
