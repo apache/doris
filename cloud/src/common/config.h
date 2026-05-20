@@ -443,4 +443,6 @@ CONF_Bool(enable_instance_update_watcher, "true");
 CONF_mBool(advance_txn_lazy_commit_during_reads, "true");
 CONF_mBool(wait_txn_lazy_commit_during_reads, "true");
 
+// Whether to enable recycler. If false, the recycler will skip scanning instances to pending queue.
+CONF_mBool(enable_recycler, "true");
 } // namespace doris::cloud::config

@@ -360,10 +360,10 @@ Status InvertedIndexReader::match_index_search(
             query->search(*term_match_bitmap);
         }
     } catch (const CLuceneError& e) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occured: {}",
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occurred: {}",
                                                                       e.what());
     } catch (const Exception& e) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("Exception occured: {}",
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("Exception occurred: {}",
                                                                       e.what());
     }
     return Status::OK();
@@ -480,7 +480,7 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
         return Status::OK();
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                "CLuceneError occured, error msg: {}", e.what());
+                "CLuceneError occurred, error msg: {}", e.what());
     }
 }
 

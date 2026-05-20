@@ -31,6 +31,7 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "io/io_common.h"
 #include "runtime/thread_context.h"
+#include "storage/binlog.h"
 #include "storage/field.h"
 #include "storage/olap_common.h"
 #include "storage/tablet/tablet_schema.h"
@@ -75,6 +76,12 @@ public:
             if (column.name() == VERSION_COL) {
                 _version_col_idx = cid;
             }
+            if (column.name() == std::string(kRowBinlogLsnColName)) {
+                _lsn_col_idx = cid;
+            }
+            if (column.name() == std::string(kRowBinlogTimestampColName)) {
+                _tso_col_idx = cid;
+            }
             columns.push_back(std::make_shared<TabletColumn>(column));
         }
         _delete_sign_idx = tablet_schema->delete_sign_idx();
@@ -101,6 +108,12 @@ public:
             }
             if (columns[i]->name() == VERSION_COL) {
                 _version_col_idx = i;
+            }
+            if (columns[i]->name() == std::string(kRowBinlogLsnColName)) {
+                _lsn_col_idx = i;
+            }
+            if (columns[i]->name() == std::string(kRowBinlogTimestampColName)) {
+                _tso_col_idx = i;
             }
             _unique_ids[i] = columns[i]->unique_id();
         }
@@ -146,6 +159,8 @@ public:
     bool has_sequence_col() const { return _has_sequence_col; }
     int32_t rowid_col_idx() const { return _rowid_col_idx; }
     int32_t version_col_idx() const { return _version_col_idx; }
+    int32_t lsn_col_idx() const { return _lsn_col_idx; }
+    int32_t tso_col_idx() const { return _tso_col_idx; }
     // Don't use.
     // TODO: memory size of Schema cannot be accurately tracked.
     // In some places, temporarily use num_columns() as Schema size.
@@ -170,6 +185,8 @@ private:
     bool _has_sequence_col = false;
     int32_t _rowid_col_idx = -1;
     int32_t _version_col_idx = -1;
+    int32_t _lsn_col_idx = -1;
+    int32_t _tso_col_idx = -1;
     int64_t _mem_size = 0;
 };
 

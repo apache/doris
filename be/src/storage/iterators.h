@@ -132,6 +132,7 @@ public:
     RuntimeState* runtime_state = nullptr;
     RowsetId rowset_id;
     Version version;
+    TsoRange commit_tso;
     int64_t tablet_id = 0;
     // slots that cast may be eliminated in storage layer
     std::map<std::string, DataTypePtr> target_cast_type_for_variants;
