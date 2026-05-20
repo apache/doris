@@ -140,7 +140,7 @@ class CosObjStorageTest {
     }
 
     @Test
-    void getPresignedUrl_missingRegionThrowsIOException() {
+    void constructor_missingRegionFailsTypedValidation() {
         COSClient mockCos = Mockito.mock(COSClient.class);
         Map<String, String> props = new HashMap<>();
         props.put("COS_ENDPOINT", "https://cos.myqcloud.com");
@@ -149,10 +149,11 @@ class CosObjStorageTest {
         props.put("COS_BUCKET", "my-bucket-1234");
         // no region
 
-        CosObjStorage storage = new TestableCosObjStorage(props, mockCos);
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class, () -> new TestableCosObjStorage(props, mockCos));
 
-        Assertions.assertThrows(IOException.class, () -> storage.getPresignedUrl("some/key"),
-                "Should throw when region is missing");
+        Assertions.assertTrue(exception.getMessage().contains("Invalid S3 filesystem properties"));
+        Assertions.assertTrue(exception.getMessage().contains("Region is not set"));
     }
 
     @Test

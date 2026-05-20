@@ -643,11 +643,11 @@ public class ExpressionUtils {
     }
 
     /**
-     * set ignore unique id for unique functions
+     * Set ignore unique id for volatile expressions.
      */
-    public static Expression setIgnoreUniqueIdForUniqueFunc(Expression expression, boolean ignoreUniqueId) {
+    public static Expression setIgnoreUniqueIdForVolatileExpression(Expression expression, boolean ignoreUniqueId) {
         return expression.rewriteDownShortCircuit(e ->
-                e instanceof VolatileExpression && ((VolatileExpression) e).isVolatile()
+                e.isVolatile()
                         ? ((VolatileExpression) e).withIgnoreUniqueId(ignoreUniqueId) : e);
     }
 
@@ -1344,15 +1344,13 @@ public class ExpressionUtils {
     }
 
     /**
-     * check if the expressions contain a unique function which exists multiple times
+     * check if the expressions contain a volatile expression which exists multiple times
      */
-    public static boolean containUniqueFunctionExistMultiple(Collection<? extends Expression> expressions) {
+    public static boolean containVolatileExpressionExistMultiple(Collection<? extends Expression> expressions) {
         Set<Expression> counterSet = Sets.newHashSet();
         for (Expression expression : expressions) {
             if (expression.anyMatch(
-                    expr -> expr instanceof VolatileExpression
-                            && ((VolatileExpression) expr).isVolatile()
-                            && !counterSet.add((Expression) expr))) {
+                    expr -> ((Expression) expr).isVolatile() && !counterSet.add((Expression) expr))) {
                 return true;
             }
         }
