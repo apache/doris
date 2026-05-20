@@ -211,7 +211,10 @@ jobs:
           status=${PIPESTATUS[0]}
           set -e
 
-          last_log_line=$(awk 'NF { line = $0 } END { print line }' "$REVIEW_CONTEXT_DIR/opencode-review.log")
+          last_log_line=$(
+            awk 'NF { line = $0 } END { print line }' "$REVIEW_CONTEXT_DIR/opencode-review.log" \
+              | perl -pe 's/\e\[[0-9;?]*[ -\/]*[@-~]//g'
+          )
 
           failure_reason=""
           if printf '%s\n' "$last_log_line" | rg -q -i '^Error:|SSE read timed out'; then
