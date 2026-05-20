@@ -332,7 +332,7 @@ public class Predicates {
                 queryStructInfo.getSplitPredicate().getResidualPredicateMap().keySet());
         Map<Expression, ExpressionInfo> residualCandidates = new LinkedHashMap<>();
         for (Expression expression : expressions) {
-            if (expression.anyMatch(AggregateFunction.class::isInstance)) {
+            if (ExpressionUtils.hasNonWindowAggregateFunction(expression)) {
                 // Aggregate functions in residual predicates are not safe for detail-MV compensation.
                 return null;
             }
