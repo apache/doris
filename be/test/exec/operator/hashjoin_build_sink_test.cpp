@@ -540,6 +540,32 @@ TEST_F(SharedHashTableSignalTest, BuilderTerminatedDoesNotSignal) {
     ASSERT_TRUE(st.ok()) << st.to_string();
 }
 
+TEST_F(SharedHashTableSignalTest, UnbuiltHashTableDoesNotSignal) {
+    auto setup = setup_broadcast_join(2);
+    auto* builder_local_state =
+            assert_cast<HashJoinBuildSinkLocalState*>(setup.builder_state->get_sink_local_state());
+
+    ASSERT_FALSE(builder_local_state->_terminated);
+    ASSERT_TRUE(
+            std::holds_alternative<std::monostate>(setup.shared_state->cast<HashJoinSharedState>()
+                                                           ->hash_table_variant_vector.front()
+                                                           ->method_variant));
+
+    auto st = setup.sink_op->close(setup.builder_state, Status::OK());
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_FALSE(setup.sink_op->_signaled)
+            << "_signaled should NOT be set when build failed before hash table was built";
+
+    auto* non_builder_state = setup.non_builder_states[0].get();
+    Block empty_block;
+    st = setup.sink_op->sink(non_builder_state, &empty_block, true);
+    ASSERT_TRUE(st.is<ErrorCode::END_OF_FILE>())
+            << "Non-builder should return EOF after builder failure, got: " << st.to_string();
+
+    st = setup.sink_op->close(non_builder_state, Status::OK());
+    ASSERT_TRUE(st.ok()) << st.to_string();
+}
+
 // Test the normal path: when the builder completes normally (not terminated),
 // close() should set _signaled=true, and non-builder tasks should proceed
 // to share the hash table successfully.
