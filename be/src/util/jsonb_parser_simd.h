@@ -279,6 +279,10 @@ private:
                                                    std::string(raw_string));
                 }
             }
+            if (!std::isfinite(number)) {
+                return Status::InvalidArgument("invalid number, raw string is: " +
+                                               std::string(raw_string));
+            }
 
             if (writer.writeDouble(number) == 0) {
                 return Status::InvalidArgument("writeDouble failed");
@@ -428,7 +432,7 @@ private:
         // between different systems may inherently cause precision loss.
         double double_val = StringParser::string_to_float<double>(raw_number.data(),
                                                                   raw_number.size(), &result);
-        if (result != StringParser::PARSE_SUCCESS) {
+        if (result != StringParser::PARSE_SUCCESS || !std::isfinite(double_val)) {
             return Status::InvalidArgument("invalid number, raw string is: " +
                                            std::string(raw_number));
         }

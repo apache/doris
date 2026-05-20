@@ -279,6 +279,7 @@ TEST(FunctionJsonbTEST, JsonbKeysRejectSuperWildcardPath) {
 TEST(FunctionJsonbTEST, JsonValidStrictTest) {
     std::string func_name = "json_valid";
     InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_VARCHAR}};
+    const std::string huge_integer(400, '9');
 
     DataSet data_set = {
             {{Null()}, Null()},
@@ -286,6 +287,8 @@ TEST(FunctionJsonbTEST, JsonValidStrictTest) {
             {{STRING("not json")}, INT(0)},
             {{STRING("null junk")}, INT(0)},
             {{STRING(R"({"a":1} junk)")}, INT(0)},
+            {{STRING("1e9999")}, INT(0)},
+            {{STRING(huge_integer)}, INT(0)},
             {{STRING("null")}, INT(1)},
             {{STRING("true")}, INT(1)},
             {{STRING(R"({"a":1})")}, INT(1)},
