@@ -23,7 +23,7 @@ final String BACKEND_CONFIG_CHECK_FAILED_PREFIX = "Backend configuration check f
 final String FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX = "File cache features check failed: "
 
 // Stable replacement for the muted query limit regression case in GitHub CI.
-suite("test_file_cache_query_limit_stable", "p0,external") {
+suite("test_file_cache_query_limit_stable", "p0,external,nonConcurrent") {
     String enableHiveTest = context.config.otherConfigs.get("enableHiveTest")
     if (enableHiveTest == null || !enableHiveTest.equalsIgnoreCase("true")) {
         logger.info("disable hive test.")
