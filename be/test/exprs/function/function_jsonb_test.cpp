@@ -485,7 +485,7 @@ TEST(FunctionJsonbTEST, JsonExtractConstConstMultiRow) {
 
     JsonbWriter writer;
     ASSERT_TRUE(writer.writeStartObject());
-    ASSERT_TRUE(writer.writeKey("a"));
+    ASSERT_TRUE(writer.writeKey("a", 1));
     ASSERT_TRUE(writer.writeNull());
     ASSERT_TRUE(writer.writeEndObject());
 
