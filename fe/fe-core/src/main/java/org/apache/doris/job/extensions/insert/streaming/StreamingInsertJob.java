@@ -1437,6 +1437,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         try {
             if (this.runningStreamTask != null
                     && this.runningStreamTask instanceof StreamingMultiTblTask) {
+                if (this.runningStreamTask.getIsCanceled().get()) {
+                    log.info("Streaming multi table job {} skip late commit offset on canceled task {}",
+                            getJobId(), offsetRequest.getTaskId());
+                    return;
+                }
                 if (this.runningStreamTask.getTaskId() != offsetRequest.getTaskId()) {
                     throw new JobException("Task id mismatch when commit offset. expected: "
                             + this.runningStreamTask.getTaskId() + ", actual: " + offsetRequest.getTaskId());
