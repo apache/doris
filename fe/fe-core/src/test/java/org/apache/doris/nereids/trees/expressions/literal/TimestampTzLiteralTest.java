@@ -79,12 +79,13 @@ class TimestampTzLiteralTest {
     }
 
     @Test
-    void testTypedConstructorUsesSessionTimezoneWithoutExplicitOffset() {
+    void testFromSessionTimeZoneWithoutExplicitOffset() {
         ConnectContext context = new ConnectContext();
         context.getSessionVariable().setTimeZone("America/New_York");
         context.setThreadLocalInfo();
         try {
-            TimestampTzLiteral literal = new TimestampTzLiteral(TimeStampTzType.of(6), "2024-01-15 12:00:00");
+            TimestampTzLiteral literal = TimestampTzLiteral.fromSessionTimeZone(
+                    TimeStampTzType.of(6), "2024-01-15 12:00:00");
 
             Assertions.assertEquals(2024, literal.year);
             Assertions.assertEquals(1, literal.month);

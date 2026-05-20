@@ -150,7 +150,7 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             if (timeStampTzType.getScale() < 0) {
                 timeStampTzType = TimeStampTzType.forTypeFromString(value);
             }
-            return new TimestampTzLiteral(timeStampTzType, value);
+            return TimestampTzLiteral.fromSessionTimeZone(timeStampTzType, value);
         } else if (targetType.isDateTimeV2Type()) {
             return castToDateTime(targetType, strictCast, true);
         } else if (targetType.isFloatType()) {

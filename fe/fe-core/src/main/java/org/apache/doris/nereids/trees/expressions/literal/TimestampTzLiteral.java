@@ -46,8 +46,7 @@ public class TimestampTzLiteral extends DateTimeLiteral {
     }
 
     public TimestampTzLiteral(TimeStampTzType dateType, String s) {
-        super(dateType);
-        init(dateType, s);
+        super(dateType, s);
         roundMicroSecond(dateType.getScale());
     }
 
@@ -66,24 +65,29 @@ public class TimestampTzLiteral extends DateTimeLiteral {
         roundMicroSecond(dateType.getScale());
     }
 
-    private void init(TimeStampTzType dateType, String s) {
+    /**
+     * Build a TIMESTAMPTZ literal from a session-local datetime string.
+     * Strings with an explicit zone/offset keep their own timezone semantics;
+     * strings without one are interpreted in the current session timezone and converted to UTC.
+     */
+    public static TimestampTzLiteral fromSessionTimeZone(TimeStampTzType dateType, String s) {
         if (DateTimeChecker.hasTimeZone(s)) {
-            super.init(s);
-            return;
+            return new TimestampTzLiteral(dateType, s);
         }
 
         DateTimeV2Literal literal = new DateTimeV2Literal(s);
-        DateTimeV2Literal dtV2Lit = (DateTimeV2Literal) DateTimeExtractAndTransform.convertTz(
+        DateTimeV2Literal utcLiteral = (DateTimeV2Literal) DateTimeExtractAndTransform.convertTz(
                 literal,
                 new StringLiteral(getSessionTimeZone()),
                 new StringLiteral("UTC"));
-        this.year = dtV2Lit.year;
-        this.month = dtV2Lit.month;
-        this.day = dtV2Lit.day;
-        this.hour = dtV2Lit.hour;
-        this.minute = dtV2Lit.minute;
-        this.second = dtV2Lit.second;
-        this.microSecond = dtV2Lit.microSecond;
+        return new TimestampTzLiteral(dateType,
+                utcLiteral.year,
+                utcLiteral.month,
+                utcLiteral.day,
+                utcLiteral.hour,
+                utcLiteral.minute,
+                utcLiteral.second,
+                utcLiteral.microSecond);
     }
 
     private static String getSessionTimeZone() {

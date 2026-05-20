@@ -144,7 +144,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             } else if (type.isDatetimeV2()) {
                 return new DateTimeV2Literal(value);
             } else if (type.isTimeStampTz()) {
-                return new TimestampTzLiteral((TimeStampTzType) DataType.fromCatalogType(type), value);
+                return TimestampTzLiteral.fromSessionTimeZone((TimeStampTzType) DataType.fromCatalogType(type), value);
 
             }
         } catch (Exception e) {

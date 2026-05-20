@@ -658,8 +658,10 @@ public class TypeCoercionUtils {
                 TimeStampTzType timeStampTzType = (TimeStampTzType) dataType;
                 if (timeStampTzType.getScale() < 0) {
                     timeStampTzType = TimeStampTzType.forTypeFromString(value);
+                } else if (dataType == TimeStampTzType.MAX && !DateTimeChecker.hasTimeZone(value)) {
+                    timeStampTzType = TimeStampTzType.forTypeFromString(value);
                 }
-                ret = new TimestampTzLiteral(timeStampTzType, value);
+                ret = TimestampTzLiteral.fromSessionTimeZone(timeStampTzType, value);
             } else if ((dataType.isDateV2Type() || dataType.isDateType()) && DateTimeChecker.isValidDateTime(value)) {
                 Result<DateLiteral, AnalysisException> parseResult = DateV2Literal.parseDateLiteral(value, true);
                 if (parseResult.isOk()) {
