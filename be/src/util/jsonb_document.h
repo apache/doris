@@ -67,6 +67,7 @@
 #define JSONB_JSONBDOCUMENT_H
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <charconv>
 #include <cmath>
@@ -1072,12 +1073,18 @@ inline bool scaled_decimal_equal_integer(const JsonbScaledDecimal& decimal, int1
            decimal.value / scale_multiplier == integer_value;
 }
 
-inline wide::Int256 power_of_five(uint32_t exponent) {
-    wide::Int256 result = 1;
-    for (uint32_t i = 0; i < exponent; ++i) {
-        result *= 5;
+inline constexpr auto kPowersOfFive = [] {
+    std::array<wide::Int256, BeConsts::MAX_DECIMALV3_SCALE + 1> powers {};
+    powers[0] = 1;
+    for (size_t i = 1; i < powers.size(); ++i) {
+        powers[i] = powers[i - 1] * 5;
     }
-    return result;
+    return powers;
+}();
+
+inline wide::Int256 power_of_five(uint32_t exponent) {
+    DCHECK_LE(exponent, static_cast<uint32_t>(BeConsts::MAX_DECIMALV3_SCALE));
+    return kPowersOfFive[exponent];
 }
 
 inline bool scaled_binary_equal(wide::Int256 value, int exponent, wide::Int256 significand) {
@@ -1089,7 +1096,9 @@ inline bool scaled_binary_equal(wide::Int256 value, int exponent, wide::Int256 s
         const auto divisor = wide::Int256(1) << divisor_exponent;
         return significand % divisor == 0 && value == significand / divisor;
     }
-    if (exponent >= 255) {
+    constexpr int max_positive_int256_shift = std::numeric_limits<wide::Int256>::digits;
+    // wide::Int256 is signed, so shifting 1 by 255 reaches the sign bit.
+    if (exponent >= max_positive_int256_shift) {
         return false;
     }
     const auto multiplier = wide::Int256(1) << exponent;
