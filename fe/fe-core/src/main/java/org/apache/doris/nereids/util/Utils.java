@@ -18,6 +18,10 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -174,6 +178,18 @@ public class Utils {
             qualifierWithBackquote.add('`' + escapeQualifier + '`');
         }
         return StringUtils.join(qualifierWithBackquote, ".");
+    }
+
+    public static boolean isBelongStableCG(OlapTable olapTable) {
+        ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
+        return colocateTableIndex.isColocateTable(olapTable.getId())
+                && !colocateTableIndex.isGroupUnstable(colocateTableIndex.getGroup(olapTable.getId()))
+                && olapTable.getCatalogId() == Env.getCurrentInternalCatalog().getId();
+    }
+
+    public static boolean isSelectUnpartition(OlapTable olapTable, Collection<Long> selectedPartitionIds) {
+        return olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED
+                || selectedPartitionIds.size() == 1;
     }
 
     /**
