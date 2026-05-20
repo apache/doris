@@ -24,6 +24,7 @@
 #include "core/column/column.h"
 #include "core/column/column_string.h"
 #include "core/column/column_varbinary.h"
+#include "core/custom_allocator.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
@@ -302,6 +303,45 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testReset) {
     agg_func->destroy(place);
 }
 
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testResetThenAddReinitializesState) {
+    DataTypePtr input_type = std::make_shared<DataTypeString>();
+    DataTypes argument_types = {input_type};
+
+    auto agg_func = std::make_shared<AggregateFunctionDataSketchesHllUnionAgg<
+            TYPE_STRING, AggregateFunctionHllSketchData<TYPE_STRING>>>(argument_types);
+
+    datasketches::hll_sketch sketch1(8, datasketches::HLL_8);
+    for (int i = 0; i < 7; ++i) {
+        sketch1.update(i);
+    }
+    const auto ser1 = sketch1.serialize_compact();
+
+    datasketches::hll_sketch sketch2(8, datasketches::HLL_8);
+    for (int i = 10; i < 17; ++i) {
+        sketch2.update(i);
+    }
+    const auto ser2 = sketch2.serialize_compact();
+
+    auto column_string = ColumnString::create();
+    column_string->insert_data((const char*)ser1.data(), ser1.size());
+    column_string->insert_data((const char*)ser2.data(), ser2.size());
+    const IColumn* columns[1] = {column_string.get()};
+
+    AggregateDataPtr place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(place);
+
+    agg_func->add(place, columns, 0, *arena);
+    agg_func->reset(place);
+    agg_func->add(place, columns, 1, *arena);
+
+    ColumnInt64 result;
+    agg_func->insert_result_into(place, result);
+    EXPECT_EQ(result.get_data()[0], static_cast<int64_t>(sketch2.get_estimate()));
+
+    agg_func->destroy(place);
+}
+
 TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testFactoryCreateAndAliases) {
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_datasketches_HLL_union_agg(factory);
@@ -531,6 +571,38 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testCorruptedInputThrows) {
     } catch (const doris::Exception& e) {
         EXPECT_EQ(e.code(), doris::ErrorCode::CORRUPTION);
     }
+
+    agg_func->destroy(place);
+}
+
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testAllocatorAwareSketchInput) {
+    DataTypes argument_types = {std::make_shared<DataTypeString>()};
+    auto agg_func = std::make_shared<AggregateFunctionDataSketchesHllUnionAgg<
+            TYPE_STRING, AggregateFunctionHllSketchData<TYPE_STRING>>;
+    auto agg_func = std::make_shared<AggFunc>(argument_types);
+
+    using Alloc = doris::CustomStdAllocator<uint8_t>;
+    using Sketch = datasketches::hll_sketch_alloc<Alloc>;
+
+    Sketch sketch(8, datasketches::HLL_8, false, Alloc());
+    for (int i = 0; i < 7; ++i) {
+        sketch.update(i);
+    }
+    const auto ser = sketch.serialize_compact();
+
+    auto column_string = ColumnString::create();
+    column_string->insert_data((const char*)ser.data(), ser.size());
+    const IColumn* columns[1] = {column_string.get()};
+
+    AggregateDataPtr place =
+            arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
+    agg_func->create(place);
+
+    agg_func->add(place, columns, 0, *arena);
+
+    ColumnInt64 result;
+    agg_func->insert_result_into(place, result);
+    EXPECT_EQ(result.get_data()[0], static_cast<int64_t>(sketch.get_estimate()));
 
     agg_func->destroy(place);
 }

@@ -21,6 +21,7 @@
 #include <DataSketches/hll.hpp>
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
+#include <optional>
 #include <type_traits>
 #include <vector>
 
@@ -28,6 +29,7 @@
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_vector.h"
+#include "core/custom_allocator.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
@@ -54,12 +56,17 @@ struct AggregateFunctionHllSketchData {
       * (https://datasketches.apache.org/docs/HLL/HllPerformance.html)
       */
     static const uint8_t DEFAULT_LOG_K = 12;
-    std::unique_ptr<datasketches::hll_union> hll_union_data;
+    using Alloc = CustomStdAllocator<uint8_t>;
+    using Sketch = datasketches::hll_sketch_alloc<Alloc>;
+    using Union = datasketches::hll_union_alloc<Alloc>;
+
+    std::optional<Union> hll_union_data;
+
     static String get_name() { return "datasketches_hll_union_agg"; }
-    void merge(const datasketches::hll_sketch& sketch_data) {
-        if (hll_union_data == nullptr) {
-            hll_union_data =
-                    std::make_unique<datasketches::hll_union>(sketch_data.get_lg_config_k());
+
+    void merge(const Sketch& sketch_data) {
+        if (!hll_union_data.has_value()) {
+            hll_union_data.emplace(sketch_data.get_lg_config_k(), Alloc());
         }
         try {
             hll_union_data->update(sketch_data);
@@ -69,22 +76,23 @@ struct AggregateFunctionHllSketchData {
         }
     }
     void reset() {
-        if (hll_union_data != nullptr) {
+        if (hll_union_data.has_value()) {
             hll_union_data->reset();
         }
-        hll_union_data = nullptr;
+        hll_union_data.reset();
     }
-    void write_sketch(BufferWritable& buf, const datasketches::hll_sketch& sk) const {
+
+    void write_sketch(BufferWritable& buf, const Sketch& sk) const {
         auto serialized_bytes = sk.serialize_compact();
         StringRef d(serialized_bytes.data(), serialized_bytes.size());
         buf.write_binary(d);
     }
     void write(BufferWritable& buf) const {
-        if (hll_union_data == nullptr) {
+        if (!hll_union_data.has_value()) {
             /** Using DEFAULT_LOG_K(12) here is surely sufficient,
               * because in this case the union that actually needs to be serialized should contain no data.
               */
-            datasketches::hll_union u(DEFAULT_LOG_K);
+            Union u(DEFAULT_LOG_K, Alloc());
             write_sketch(buf, u.get_result());
             return;
         }
@@ -100,14 +108,14 @@ struct AggregateFunctionHllSketchData {
         StringRef d;
         buf.read_binary(d);
         try {
-            auto cache = datasketches::hll_sketch::deserialize(d.data, d.size);
+            auto cache = Sketch::deserialize(d.data, d.size, Alloc());
             merge(cache);
         } catch (...) {
             throw Exception(ErrorCode::CORRUPTION, "HLL sketch data corrupted when read.");
         }
     }
     int64_t get_result() const {
-        if (hll_union_data != nullptr) {
+        if (hll_union_data.has_value()) {
             try {
                 return static_cast<int64_t>(hll_union_data->get_estimate());
             } catch (...) {
@@ -131,8 +139,9 @@ struct OneAdder {
                 return;
             }
             try {
-                datasketches::hll_sketch sketch_data =
-                        datasketches::hll_sketch::deserialize(value.begin(), value.size);
+                using Sketch = typename Data::Sketch;
+                using Alloc = typename Data::Alloc;
+                Sketch sketch_data = Sketch::deserialize(value.begin(), value.size, Alloc());
                 data.merge(sketch_data);
             } catch (...) {
                 throw Exception(ErrorCode::CORRUPTION, "HLL sketch data corrupted when add.");
@@ -162,7 +171,7 @@ public:
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena&) const override {
         const auto& rhs_data = this->data(rhs);
-        if (rhs_data.hll_union_data == nullptr) {
+        if (!rhs_data.hll_union_data.has_value()) {
             return;
         }
         this->data(place).merge(rhs_data.hll_union_data->get_result(datasketches::HLL_8));
