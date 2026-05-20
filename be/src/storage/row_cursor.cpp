@@ -200,6 +200,17 @@ void RowCursor::_encode_field(const StorageField* storage_field, const Field& f,
     }
 }
 
+// Encodes the first `num_keys` key columns as a memcomparable byte string.
+// Each slot is [marker][value bytes]. The marker sits at a position that
+// real entries fill with KEY_NORMAL_MARKER (0x02), so any byte > 0x02 there
+// sorts strictly after every real entry — independent of the value bytes.
+//
+// Examples — PK (a STRING, b STRING), stored entry (foo, bar) encodes as
+// `02 foo | 02 bar`. Calls with num_keys=2 and only partial key "foo":
+//
+//   padding_minimal=true                  -> 02 foo | 00          (MINIMAL)
+//   padding_minimal=false, is_mow=false   -> 02 foo | FF          (MAXIMAL)
+//   padding_minimal=false, is_mow=true    -> 02 foo | 03      (NORMAL_NEXT)
 template <bool is_mow>
 void RowCursor::encode_key_with_padding(std::string* buf, size_t num_keys,
                                         bool padding_minimal) const {
