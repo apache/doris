@@ -21,6 +21,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -150,7 +151,11 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             if (timeStampTzType.getScale() < 0) {
                 timeStampTzType = TimeStampTzType.forTypeFromString(value);
             }
-            return TimestampTzLiteral.fromSessionTimeZone(timeStampTzType, value);
+            if (DateTimeChecker.hasTimeZone(value)) {
+                return new TimestampTzLiteral(timeStampTzType, value);
+            }
+            DateTimeV2Literal datetime = castToDateTime(DateTimeV2Type.MAX, strictCast, true);
+            return TimestampTzLiteral.fromSessionTimeZone(timeStampTzType, datetime);
         } else if (targetType.isDateTimeV2Type()) {
             return castToDateTime(targetType, strictCast, true);
         } else if (targetType.isFloatType()) {

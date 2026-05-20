@@ -75,7 +75,13 @@ public class TimestampTzLiteral extends DateTimeLiteral {
             return new TimestampTzLiteral(dateType, s);
         }
 
-        DateTimeV2Literal literal = new DateTimeV2Literal(s);
+        return fromSessionTimeZone(dateType, new DateTimeV2Literal(s));
+    }
+
+    /**
+     * fromSessionTimeZone
+     */
+    public static TimestampTzLiteral fromSessionTimeZone(TimeStampTzType dateType, DateTimeV2Literal literal) {
         DateTimeV2Literal utcLiteral = (DateTimeV2Literal) DateTimeExtractAndTransform.convertTz(
                 literal,
                 new StringLiteral(getSessionTimeZone()),

@@ -24,9 +24,14 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 public class StringLikeLiteralTest {
     @Test
@@ -197,5 +202,41 @@ public class StringLikeLiteralTest {
         StringLiteral finalS2 = s;
         Assertions.assertThrows(CastException.class, () -> finalS2.uncheckedCastTo(DecimalV3Type.createDecimalV3Type(6, 2)));
 
+    }
+
+    @Test
+    void testUncheckedCastToTimeStampTzRejectsUnstrictNoOffsetInStrictMode() {
+        try (MockedStatic<SessionVariable> mockedSessionVariable = Mockito.mockStatic(SessionVariable.class)) {
+            mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(true);
+
+            StringLiteral literal = new StringLiteral("2020-02-01 00-00-00");
+            Assertions.assertThrows(CastException.class,
+                    () -> literal.uncheckedCastTo(TimeStampTzType.SYSTEM_DEFAULT));
+        }
+    }
+
+    @Test
+    void testUncheckedCastToTimeStampTzUsesSessionTimeZoneWithoutOffset() {
+        try (MockedStatic<SessionVariable> mockedSessionVariable = Mockito.mockStatic(SessionVariable.class)) {
+            mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);
+
+            ConnectContext context = new ConnectContext();
+            context.getSessionVariable().setTimeZone("America/New_York");
+            context.setThreadLocalInfo();
+            try {
+                TimestampTzLiteral literal = (TimestampTzLiteral) new StringLiteral("2024-01-15 12:00:00")
+                        .uncheckedCastTo(TimeStampTzType.of(6));
+
+                Assertions.assertEquals(2024, literal.year);
+                Assertions.assertEquals(1, literal.month);
+                Assertions.assertEquals(15, literal.day);
+                Assertions.assertEquals(17, literal.hour);
+                Assertions.assertEquals(0, literal.minute);
+                Assertions.assertEquals(0, literal.second);
+                Assertions.assertEquals(0, literal.microSecond);
+            } finally {
+                ConnectContext.remove();
+            }
+        }
     }
 }
