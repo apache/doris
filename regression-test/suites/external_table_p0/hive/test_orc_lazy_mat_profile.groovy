@@ -104,6 +104,7 @@ suite("test_orc_lazy_mat_profile", "p0,external,hive,external_docker,external_do
     sql " set parallel_pipeline_task_num = 1;"
     sql " set file_split_size = 10000000;"
     sql """set max_file_scanners_concurrency =  1; """
+    sql """set enable_condition_cache = false; """
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (!"true".equalsIgnoreCase(enabled)) {
