@@ -23,9 +23,11 @@
 #include <mutex>
 #include <shared_mutex>
 #include <string>
+#include <vector>
 
 #include "common/metrics/metrics.h"
 #include "common/status.h"
+#include "core/column/column_string.h"
 #include "io/io_common.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
@@ -161,9 +163,10 @@ public:
     std::vector<RowsetSharedPtr> get_rowset_by_ids(
             const RowsetIdUnorderedSet* specified_rowset_ids);
 
-    // Lookup a row with TupleDescriptor and fill Block
-    Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
-                           RowsetSharedPtr rowset, OlapReaderStatistics& stats, std::string& values,
+    // Lookup rows from the row-store column in a segment.
+    Status lookup_row_data(const Slice& encoded_key, uint32_t segment_id,
+                           const std::vector<uint32_t>& row_ids, RowsetSharedPtr rowset,
+                           OlapReaderStatistics& stats, ColumnString& values,
                            bool write_to_cache = false);
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
     // NOTE: the method only works in unique key model with primary key index, you will got a

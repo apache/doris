@@ -83,8 +83,6 @@ private:
 };
 
 struct RowStoreReadStruct {
-    RowStoreReadStruct(std::string& buffer) : row_store_buffer(buffer) {};
-    std::string& row_store_buffer;
     DataTypeSerDeSPtrs serdes;
     std::unordered_map<uint32_t, uint32_t> col_uid_to_idx;
     std::vector<std::string> default_values;

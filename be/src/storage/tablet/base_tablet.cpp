@@ -414,16 +414,26 @@ std::vector<RowsetSharedPtr> BaseTablet::get_rowset_by_ids(
     return rowsets;
 }
 
-Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
+Status BaseTablet::lookup_row_data(const Slice& encoded_key, uint32_t segment_id,
+                                   const std::vector<uint32_t>& row_ids,
                                    RowsetSharedPtr input_rowset, OlapReaderStatistics& stats,
-                                   std::string& values, bool write_to_cache) {
+                                   ColumnString& values, bool write_to_cache) {
     MonotonicStopWatch watch;
-    size_t row_size = 1;
+    size_t row_batch_size = row_ids.size();
+    if (row_batch_size == 0) {
+        return Status::OK();
+    }
     watch.start();
     Defer _defer([&]() {
-        LOG_EVERY_N(INFO, 500) << "get a single_row, cost(us):" << watch.elapsed_time() / 1000
-                               << ", row_size:" << row_size;
+        LOG_EVERY_N(INFO, 500) << "get row batch, cost(us):" << watch.elapsed_time() / 1000
+                               << ", row_batch_size:" << row_batch_size;
     });
+
+    values.clear();
+    if (write_to_cache && row_ids.size() != 1) {
+        return Status::InvalidArgument("row cache only supports single row lookup, row_count={}",
+                                       row_ids.size());
+    }
 
     BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(input_rowset);
     CHECK(rowset);
@@ -431,17 +441,15 @@ Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& 
     SegmentCacheHandle segment_cache_handle;
     std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
     const auto& column = *DORIS_TRY(tablet_schema->column(BeConsts::ROW_STORE_COL));
-    RETURN_IF_ERROR(_get_segment_column_iterator(rowset, row_location.segment_id, column,
-                                                 &segment_cache_handle, &column_iterator, &stats));
-    // get and parse tuple row
-    MutableColumnPtr column_ptr = ColumnString::create();
-    std::vector<segment_v2::rowid_t> rowids {static_cast<segment_v2::rowid_t>(row_location.row_id)};
-    RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), 1, column_ptr));
-    assert(column_ptr->size() == 1);
-    auto* string_column = static_cast<ColumnString*>(column_ptr.get());
-    StringRef value = string_column->get_data_at(0);
-    values = value.to_string();
+    RETURN_IF_ERROR(_get_segment_column_iterator(rowset, segment_id, column, &segment_cache_handle,
+                                                 &column_iterator, &stats));
+
+    MutableColumnPtr column_ptr = values.get_ptr();
+    RETURN_IF_ERROR(column_iterator->read_by_rowids(row_ids.data(), row_ids.size(), column_ptr));
+    assert(column_ptr->size() == row_ids.size());
+    // only point query need write to cache
     if (write_to_cache) {
+        StringRef value = values.get_data_at(0);
         RowCache::instance()->insert({tablet_id(), encoded_key}, Slice {value.data, value.size});
     }
     return Status::OK();
