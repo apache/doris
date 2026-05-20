@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -53,12 +52,12 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 
-/** extract unique function expression which exist multiple times, and add them to a new project child.
+/** extract volatile expression which exist multiple times, and add them to a new project child.
  * for example:
  * before rewrite:  filter(random() >= 5 and random() <= 10), suppose the two random have the same unique expr id.
  * after rewrite: filter(k >= 5 and k <= 10) -> project(random() as k)
  */
-public class AddProjectForUniqueFunction implements RewriteRuleFactory {
+public class AddProjectForVolatileExpression implements RewriteRuleFactory {
 
     @Override
     public List<Rule> buildRules() {
@@ -86,7 +85,7 @@ public class AddProjectForUniqueFunction implements RewriteRuleFactory {
                 } else {
                     return generate;
                 }
-            }).toRule(RuleType.ADD_PROJECT_FOR_UNIQUE_FUNCTION);
+            }).toRule(RuleType.ADD_PROJECT_FOR_VOLATILE_EXPRESSION);
         }
     }
 
@@ -95,13 +94,14 @@ public class AddProjectForUniqueFunction implements RewriteRuleFactory {
         public Rule build() {
             return logicalOneRowRelation().thenApply(ctx -> {
                 LogicalOneRowRelation oneRowRelation = ctx.root;
-                List<NamedExpression> uniqueFunctionAlias = tryGenUniqueFunctionAlias(oneRowRelation.getProjects());
-                if (uniqueFunctionAlias.isEmpty()) {
+                List<NamedExpression> volatileExpressionAlias =
+                        tryGenVolatileExpressionAlias(oneRowRelation.getProjects());
+                if (volatileExpressionAlias.isEmpty()) {
                     return oneRowRelation;
                 }
 
                 Map<Expression, Slot> replaceMap = Maps.newHashMap();
-                for (NamedExpression alias : uniqueFunctionAlias) {
+                for (NamedExpression alias : volatileExpressionAlias) {
                     replaceMap.put(alias.child(0), alias.toSlot());
                 }
                 ImmutableList.Builder<NamedExpression> newProjectBuilder
@@ -111,8 +111,8 @@ public class AddProjectForUniqueFunction implements RewriteRuleFactory {
                 }
                 return new LogicalProject<>(
                         newProjectBuilder.build(),
-                        oneRowRelation.withProjects(uniqueFunctionAlias));
-            }).toRule(RuleType.ADD_PROJECT_FOR_UNIQUE_FUNCTION);
+                        oneRowRelation.withProjects(volatileExpressionAlias));
+            }).toRule(RuleType.ADD_PROJECT_FOR_VOLATILE_EXPRESSION);
         }
     }
 
@@ -128,7 +128,7 @@ public class AddProjectForUniqueFunction implements RewriteRuleFactory {
                 } else {
                     return project;
                 }
-            }).toRule(RuleType.ADD_PROJECT_FOR_UNIQUE_FUNCTION);
+            }).toRule(RuleType.ADD_PROJECT_FOR_VOLATILE_EXPRESSION);
         }
     }
 
@@ -146,7 +146,7 @@ public class AddProjectForUniqueFunction implements RewriteRuleFactory {
                 } else {
                     return filter;
                 }
-            }).toRule(RuleType.ADD_PROJECT_FOR_UNIQUE_FUNCTION);
+            }).toRule(RuleType.ADD_PROJECT_FOR_VOLATILE_EXPRESSION);
         }
     }
 
@@ -163,7 +163,7 @@ public class AddProjectForUniqueFunction implements RewriteRuleFactory {
                 } else {
                     return having;
                 }
-            }).toRule(RuleType.ADD_PROJECT_FOR_UNIQUE_FUNCTION);
+            }).toRule(RuleType.ADD_PROJECT_FOR_VOLATILE_EXPRESSION);
         }
     }
 
@@ -192,7 +192,7 @@ public class AddProjectForUniqueFunction implements RewriteRuleFactory {
                     newOutputBuilder.add((NamedExpression) newTargets.get(i));
                 }
                 return aggregate.withChildGroupByAndOutput(newGroupBy, newOutputBuilder.build(), newChild);
-            }).toRule(RuleType.ADD_PROJECT_FOR_UNIQUE_FUNCTION);
+            }).toRule(RuleType.ADD_PROJECT_FOR_VOLATILE_EXPRESSION);
         }
     }
 
@@ -235,30 +235,30 @@ public class AddProjectForUniqueFunction implements RewriteRuleFactory {
                         join.getMarkJoinSlotReference(),
                         ImmutableList.of(newLeftChild, join.right()),
                         join.getJoinReorderContext());
-            }).toRule(RuleType.ADD_PROJECT_FOR_UNIQUE_FUNCTION);
+            }).toRule(RuleType.ADD_PROJECT_FOR_VOLATILE_EXPRESSION);
         }
     }
 
     /**
-     * extract unique function which exist multiple times from targets,
-     * then alias the unique function and put them into a child project,
+     * extract volatile expression which exist multiple times from targets,
+     * then alias the volatile expression and put them into a child project,
      * then rewrite targets with the alias names.
      */
     @VisibleForTesting
     public <T extends Expression> Optional<Pair<List<T>, LogicalProject<Plan>>> rewriteExpressions(
             LogicalPlan plan, Collection<T> targets) {
-        List<NamedExpression> uniqueFunctionAlias = tryGenUniqueFunctionAlias(targets);
-        if (uniqueFunctionAlias.isEmpty()) {
+        List<NamedExpression> volatileExpressionAlias = tryGenVolatileExpressionAlias(targets);
+        if (volatileExpressionAlias.isEmpty()) {
             return Optional.empty();
         }
 
         List<NamedExpression> projects = ImmutableList.<NamedExpression>builder()
                 .addAll(plan.child(0).getOutputSet())
-                .addAll(uniqueFunctionAlias)
+                .addAll(volatileExpressionAlias)
                 .build();
 
         Map<Expression, Slot> replaceMap = Maps.newHashMap();
-        for (NamedExpression alias : uniqueFunctionAlias) {
+        for (NamedExpression alias : volatileExpressionAlias) {
             replaceMap.put(alias.child(0), alias.toSlot());
         }
         ImmutableList.Builder<T> newTargetsBuilder = ImmutableList.builderWithExpectedSize(targets.size());
@@ -270,23 +270,23 @@ public class AddProjectForUniqueFunction implements RewriteRuleFactory {
     }
 
     /**
-     * if a unique function exists multiple times in the targets, then add a project to alias it.
+     * if a volatile expression exists multiple times in the targets, then add a project to alias it.
      */
     @VisibleForTesting
-    public List<NamedExpression> tryGenUniqueFunctionAlias(Collection<? extends Expression> targets) {
-        Map<Expression, Integer> unqiueFunctionCounter = Maps.newLinkedHashMap();
+    public List<NamedExpression> tryGenVolatileExpressionAlias(Collection<? extends Expression> targets) {
+        Map<Expression, Integer> volatileExpressionCounter = Maps.newLinkedHashMap();
         for (Expression target : targets) {
             target.foreach(e -> {
                 Expression expr = (Expression) e;
-                if (expr instanceof UniqueFunction) {
-                    unqiueFunctionCounter.merge((UniqueFunction) expr, 1, Integer::sum);
+                if (expr.isVolatile()) {
+                    volatileExpressionCounter.merge(expr, 1, Integer::sum);
                 }
             });
         }
 
         ImmutableList.Builder<NamedExpression> builder
-                = ImmutableList.builderWithExpectedSize(unqiueFunctionCounter.size());
-        for (Entry<Expression, Integer> entry : unqiueFunctionCounter.entrySet()) {
+                = ImmutableList.builderWithExpectedSize(volatileExpressionCounter.size());
+        for (Entry<Expression, Integer> entry : volatileExpressionCounter.entrySet()) {
             if (entry.getValue() > 1) {
                 ExprId exprId = StatementScopeIdGenerator.newExprId();
                 String functionName = entry.getKey() instanceof Function
