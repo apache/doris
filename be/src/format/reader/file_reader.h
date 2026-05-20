@@ -62,6 +62,8 @@ struct FileLocalFilter {
     // 表达式过滤。适合 cast、复杂表达式或 reader_expression_map 生成的临时列过滤。
     // 它通常不能直接驱动 row group stats、page index、dictionary、bloom filter。
     VExprContextSPtr conjunct;
+    // DeletePredicate
+    VExprContextSPtr delete_conjunct;
 
     // 结构化列谓词。适合文件层 pruning，例如 min/max、page index、dictionary、
     // bloom filter 等只理解单列谓词的优化。
