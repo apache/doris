@@ -564,8 +564,9 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testCorruptedInputThrows) {
 
 TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testAllocatorAwareSketchInput) {
     DataTypes argument_types = {std::make_shared<DataTypeString>()};
-    auto agg_func = std::make_shared<AggregateFunctionDataSketchesHllUnionAgg<
-            TYPE_STRING, AggregateFunctionHllSketchData<TYPE_STRING>>;
+    using AggFunc =
+                AggregateFunctionDataSketchesHllUnionAgg<TYPE_STRING,
+                                                         AggregateFunctionHllSketchData<TYPE_STRING>>;
     auto agg_func = std::make_shared<AggFunc>(argument_types);
 
     using Alloc = doris::CustomStdAllocator<uint8_t>;
