@@ -506,7 +506,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         if (filter.child() instanceof LogicalRelation) {
             return genAggregate(filter, context);
         }
-        if (filter.getConjuncts().stream().anyMatch(Expression::containsUniqueFunction)) {
+        if (filter.getConjuncts().stream().anyMatch(Expression::containsVolatileExpression)) {
             return genAggregate(filter, context);
         }
         List<SlotReference> filterInputSlots = filter.getInputSlots().stream()

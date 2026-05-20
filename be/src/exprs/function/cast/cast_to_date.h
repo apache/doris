@@ -49,7 +49,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count,
                         const NullMap::value_type* null_map = nullptr) const override {
-        const auto* col_from = check_and_get_column<DataTypeString::ColumnType>(
+        const auto* col_from = assert_cast<const DataTypeString::ColumnType*>(
                 block.get_by_position(arguments[0]).column.get());
 
         auto to_type = block.get_by_position(result).type;
@@ -84,7 +84,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count,
                         const NullMap::value_type* null_map = nullptr) const override {
-        const auto* col_from = check_and_get_column<typename FromDataType::ColumnType>(
+        const auto* col_from = assert_cast<const typename FromDataType::ColumnType*>(
                 block.get_by_position(arguments[0]).column.get());
         auto to_type = block.get_by_position(result).type;
         auto concrete_serde = std::dynamic_pointer_cast<typename ToDataType::SerDeType>(
@@ -141,7 +141,7 @@ public:
         constexpr bool Nullable = std::is_same_v<FromDataType, ToDataType> &&
                                   (IsTimeV2Type<FromDataType> || IsDateTimeV2Type<FromDataType>);
 
-        const auto* col_from = check_and_get_column<typename FromDataType::ColumnType>(
+        const auto* col_from = assert_cast<const typename FromDataType::ColumnType*>(
                 block.get_by_position(arguments[0]).column.get());
         auto col_to = ToDataType::ColumnType::create(input_rows_count);
         ColumnUInt8::MutablePtr col_nullmap;

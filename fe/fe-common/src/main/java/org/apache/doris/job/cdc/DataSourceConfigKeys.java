@@ -40,6 +40,10 @@ public class DataSourceConfigKeys {
     public static final String SNAPSHOT_PARALLELISM_DEFAULT = "1";
     public static final String SSL_MODE = "ssl_mode";
     public static final String SSL_ROOTCERT = "ssl_rootcert";
+    // PG-style spelling; MySQL normalizes to underscore form.
+    public static final String SSL_MODE_DISABLE = "disable";
+    public static final String SSL_MODE_REQUIRE = "require";
+    public static final String SSL_MODE_VERIFY_CA = "verify-ca";
 
     // PostgreSQL replication slot and publication config
     public static final String SLOT_NAME = "slot_name";

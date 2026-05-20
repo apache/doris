@@ -29,6 +29,12 @@ class TupleDescriptor;
 class SlotDescriptor;
 class OlapTableSchemaParam;
 
+enum class WriteRequestType {
+    DATA = 0,       // data write
+    ROW_BINLOG = 1, // row binlog write
+    GROUP = 2,      // group write for data and binlog<row>
+};
+
 struct WriteRequest {
     int64_t tablet_id = 0;
     int32_t schema_hash = 0;
@@ -43,6 +49,7 @@ struct WriteRequest {
     std::shared_ptr<OlapTableSchemaParam> table_schema_param = nullptr;
     bool is_high_priority = false;
     bool write_file_cache = false;
+    WriteRequestType write_req_type = WriteRequestType::DATA;
     std::string storage_vault_id;
     bool enable_low_memory_load = false;
 };

@@ -55,6 +55,12 @@ public class ModifyTableCommentOp extends AlterTableOp {
     }
 
     @Override
+    public boolean allowOpRowBinlog() {
+        // Modifying table comment does not change schema, allow on row binlog tables.
+        return true;
+    }
+
+    @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("MODIFY COMMENT ");

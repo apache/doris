@@ -42,6 +42,8 @@ import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
+import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.InfoSchemaDb;
@@ -113,6 +115,7 @@ import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.stats.SimpleAggCacheMgr;
 import org.apache.doris.nereids.trees.plans.commands.CreateStreamCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionLikeOp;
@@ -537,6 +540,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             // 3. remove db from catalog
             idToDb.remove(db.getId());
             fullNameToDb.remove(db.getFullName());
+            Env.getCurrentEnv().getFunctionRegistry().dropUdfByDb(db.getFullName());
             DropDbInfo info = new DropDbInfo(dbName, force, recycleTime);
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(), db.getId());
             Env.getCurrentEnv().getDictionaryManager().dropDbDictionaries(dbName);
@@ -595,6 +599,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             fullNameToDb.remove(dbName);
             idToDb.remove(db.getId());
+            Env.getCurrentEnv().getFunctionRegistry().dropUdfByDb(dbName);
         } finally {
             unlock();
         }
@@ -644,6 +649,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L, newDbName, "", "", "", "");
             Env.getCurrentEnv().getEditLog().logRecoverDb(recoverInfo);
             db.unmarkDropped();
+            registerDbFunctionsToNereids(db);
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
             db.writeUnlock();
@@ -726,7 +732,15 @@ public class InternalCatalog implements CatalogIf<Database> {
         // add db to catalog
         replayCreateDb(db, newDbName);
         db.unmarkDropped();
+        registerDbFunctionsToNereids(db);
         LOG.info("replay recover db[{}]", dbId);
+    }
+
+    private void registerDbFunctionsToNereids(Database db) {
+        // A recovered database reuses catalog Function objects, so rebuild their Nereids builders.
+        for (Function function : db.getFunctions()) {
+            FunctionUtil.translateToNereids(db.getFullName(), function);
+        }
     }
 
     public void alterDatabaseQuota(String dbName, QuotaType quotaType, long quotaValue) throws DdlException {
@@ -1998,6 +2012,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 olapTable.updateVisibleVersionAndTime(version, versionTime);
             }
         }
+        if (partition != null && !isTempPartition) {
+            SimpleAggCacheMgr.internalInstance().invalidateTable(olapTable.getId());
+        }
 
         // Here, we only wait for the EventProcessor to finish processing the event,
         // but regardless of the success or failure of the result,
@@ -2029,14 +2046,17 @@ public class InternalCatalog implements CatalogIf<Database> {
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
+            Partition partition = null;
             if (info.isTempPartition()) {
                 olapTable.dropTempPartition(info.getPartitionName(), true);
             } else {
-                Partition partition = olapTable.dropPartition(info.getDbId(), info.getPartitionName(),
-                        info.isForceDrop());
+                partition = olapTable.dropPartition(info.getDbId(), info.getPartitionName(), info.isForceDrop());
                 if (!info.isForceDrop() && partition != null && info.getRecycleTime() != 0) {
                     Env.getCurrentRecycleBin().setRecycleTimeByIdForReplay(partition.getId(), info.getRecycleTime());
                 }
+            }
+            if (partition != null && !info.isTempPartition()) {
+                SimpleAggCacheMgr.internalInstance().invalidateTable(olapTable.getId());
             }
             olapTable.updateVisibleVersionAndTime(info.getVersion(), info.getVersionTime());
             // Replay set new partition loaded flag to true for auto analyze.
@@ -2150,6 +2170,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                     long backendId = replica.getBackendIdWithoutException();
                     long replicaId = replica.getId();
                     countDownLatch.addMark(backendId, tabletId);
+                    MaterializedIndexMeta rowBinlogIndexMeta = null;
+                    if (tbl.needRowBinlog() && indexId == tbl.getBaseIndexId()) {
+                        rowBinlogIndexMeta = tbl.getRowBinlogMeta();
+                    }
                     CreateReplicaTask task = new CreateReplicaTask(backendId, dbId, tbl.getId(), partitionId, indexId,
                             tabletId, replicaId, shortKeyColumnCount, schemaHash, version, keysType, storageType,
                             realStorageMedium, schema, bfColumns, tbl.getBfFpp(), countDownLatch,
@@ -2169,7 +2193,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.storagePageSize(), tbl.getTDEAlgorithm(),
                             tbl.storageDictPageSize(),
                             tbl.getColumnSeqMapping(),
-                            tbl.getVerticalCompactionNumColumnsPerGroup());
+                            tbl.getVerticalCompactionNumColumnsPerGroup(),
+                            rowBinlogIndexMeta);
 
                     task.setStorageFormat(tbl.getStorageFormat());
                     task.setInvertedIndexFileStorageFormat(tbl.getInvertedIndexFileStorageFormat());
@@ -2305,10 +2330,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         BinlogConfig createTableBinlogConfig = new BinlogConfig(dbBinlogConfig);
         createTableBinlogConfig.mergeFromProperties(createTableInfo.getProperties());
-        if (dbBinlogConfig.isEnable() && !createTableBinlogConfig.isEnable() && !createTableInfo.isTemp()) {
+        if (dbBinlogConfig.getEnable() && !createTableBinlogConfig.isEnableForCCR() && !createTableInfo.isTemp()) {
             throw new DdlException("Cannot create table with binlog disabled when database binlog enable");
         }
-        if (createTableInfo.isTemp() && createTableBinlogConfig.isEnable()) {
+        if (createTableInfo.isTemp() && createTableBinlogConfig.isEnableForCCR()) {
             throw new DdlException("Cannot create temporary table with binlog enable");
         }
         createTableInfo.getProperties().putAll(createTableBinlogConfig.toProperties());
@@ -2850,6 +2875,27 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (binlogConfigMap != null) {
                 BinlogConfig binlogConfig = new BinlogConfig();
                 binlogConfig.mergeFromProperties(binlogConfigMap);
+                if (binlogConfig.isEnableForStreaming()) {
+                    if (!(keysType == KeysType.DUP_KEYS
+                            || (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite))) {
+                        throw new AnalysisException("Only duplicate and mow table model support binlog<Row>, "
+                                + "if you want to use mor or aggregate table model, "
+                                + "please use binlog with snapshot");
+                    }
+                    if (Config.isCloudMode()) {
+                        throw new AnalysisException("Binlog<Row> is not supported in the cloud mode yet");
+                    }
+                    if (keysType == KeysType.DUP_KEYS && binlogConfig.getNeedHistoricalValue()) {
+                        throw new AnalysisException("Duplicate table model don't support record historical value");
+                    }
+                    for (Column column : baseSchema) {
+                        if (column.isAutoInc()) {
+                            throw new AnalysisException("auto-inc column can't be created on table with binlog<Row>");
+                        } else if (column.getDataType().isVariantType()) {
+                            throw new AnalysisException("variant column can't be created on table with binlog<Row>");
+                        }
+                    }
+                }
                 olapTable.setBinlogConfig(binlogConfig);
             }
         } catch (AnalysisException e) {
@@ -2954,6 +3000,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         int schemaHash = Util.generateSchemaHash();
         olapTable.setIndexMeta(baseIndexId, tableName, baseSchema, schemaVersion, schemaHash, shortKeyColumnCount,
                 baseIndexStorageType, keysType, olapTable.getIndexes());
+
+        if (olapTable.getBinlogConfig().isEnableForStreaming()) {
+            olapTable.createNewRowBinlogMeta(idGeneratorBuffer, db.getId());
+        }
 
         for (AlterOp alterOp : createTableInfo.getAddRollupOps()) {
             if (olapTable.isDuplicateWithoutKey()) {

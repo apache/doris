@@ -439,6 +439,7 @@ public class OlapTableSink extends DataSink {
             }
             TOlapTableIndexSchema indexSchema = new TOlapTableIndexSchema(pair.getKey(), columns,
                     indexMeta.getSchemaHash());
+            indexSchema.setRowBinlogId(indexMeta.getRowBinlogIndexId());
             Expr whereClause = indexMeta.getWhereClause();
             if (whereClause != null) {
                 Expr expr = syncMvWhereClauses.getOrDefault(pair.getKey(), null);
@@ -452,6 +453,22 @@ public class OlapTableSink extends DataSink {
             indexSchema.setIndexesDesc(indexDesc);
             schemaParam.addToIndexes(indexSchema);
         }
+
+        if (table.needRowBinlog()) {
+            MaterializedIndexMeta rowBinlogMeta = table.getRowBinlogMeta();
+            List<String> binlogColumns = Lists.newArrayList();
+            List<TColumn> binlogColumnsDesc = Lists.newArrayList();
+            for (Column column : rowBinlogMeta.getSchema(true)) {
+                TColumn tColumn = ColumnToThrift.toThrift(column);
+                binlogColumnsDesc.add(tColumn);
+                binlogColumns.add(column.getName());
+            }
+            TOlapTableIndexSchema rowBinlogIndexSchema = new TOlapTableIndexSchema(
+                    rowBinlogMeta.getIndexId(), binlogColumns, rowBinlogMeta.getSchemaHash());
+            rowBinlogIndexSchema.setColumnsDesc(binlogColumnsDesc);
+            schemaParam.setRowBinlogIndexSchema(rowBinlogIndexSchema);
+        }
+
         setPartialUpdateInfoForParam(schemaParam, table, uniqueKeyUpdateMode);
         schemaParam.setInvertedIndexFileStorageFormat(table.getInvertedIndexFileStorageFormat());
         return schemaParam;

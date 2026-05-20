@@ -37,13 +37,17 @@ struct Transformer {
         vec_to.resize(size);
 
         for (size_t i = 0; i < size; ++i) {
-            //FIXME: seems external table still generates invalid date/datetime. but where?
+            // Only check in debug mode. for external table there's risk to write an invalid datetime. use this to find it.
+            // Not checked in RELEASE mode for performance considerations
+#ifndef NDEBUG
             if (!vec_from[i].is_valid_date()) [[unlikely]] {
                 char buf[64];
                 vec_from[i].to_string(buf);
                 throw Exception(ErrorCode::INVALID_ARGUMENT, "Operation {} meets invalid data: {}",
                                 Transform::name, buf);
             }
+#endif
+
             auto res = Transform::execute(vec_from[i]);
             if constexpr (is_date_type(ToPType) || ToPType == TYPE_TIMESTAMPTZ) {
                 vec_to[i] = res;

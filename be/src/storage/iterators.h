@@ -132,11 +132,17 @@ public:
     RuntimeState* runtime_state = nullptr;
     RowsetId rowset_id;
     Version version;
+    TsoRange commit_tso;
     int64_t tablet_id = 0;
     // slots that cast may be eliminated in storage layer
     std::map<std::string, DataTypePtr> target_cast_type_for_variants;
     RowRanges row_ranges;
-    size_t topn_limit = 0;
+
+    // Per-segment row budget pushed down from the scanner (topn or general
+    // limit). SegmentIterator applies it after predicate/common-expr filtering;
+    // _can_opt_limit_reads() only decides whether the pre-filter read can also
+    // be capped. 0 disables the optimization.
+    size_t read_limit = 0;
 
     std::map<ColumnId, VExprContextSPtr> virtual_column_exprs;
     std::shared_ptr<segment_v2::AnnTopNRuntime> ann_topn_runtime;

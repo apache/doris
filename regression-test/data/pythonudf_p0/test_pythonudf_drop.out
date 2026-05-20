@@ -8,3 +8,9 @@
 -- !py_udf_drop_3 --
 8
 
+-- !py_udf_drop_4 --
+32
+
+-- !py_udf_drop_5 --
+33
+

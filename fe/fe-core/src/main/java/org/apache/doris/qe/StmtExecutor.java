@@ -62,6 +62,7 @@ import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.UniqueIdUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileScanNode;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
@@ -166,7 +167,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
@@ -561,8 +561,7 @@ public class StmtExecutor {
 
     // query with a random sql
     public void execute() throws Exception {
-        UUID uuid = UUID.randomUUID();
-        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        TUniqueId queryId = UniqueIdUtils.fastUniqueId();
         if (Config.enable_print_request_before_execution) {
             LOG.info("begin to execute query {} {}",
                     DebugUtil.printId(queryId), originStmt == null ? "null" : originStmt.originStmt);
@@ -572,7 +571,6 @@ public class StmtExecutor {
 
     public void queryRetry(TUniqueId queryId) throws Exception {
         TUniqueId firstQueryId = queryId;
-        UUID uuid;
         int retryTime = Config.max_query_retry_time;
         retryTime = retryTime <= 0 ? 1 : retryTime + 1;
         // If the query is an `outfile` statement,
@@ -595,8 +593,7 @@ public class StmtExecutor {
                     throw e;
                 }
                 TUniqueId lastQueryId = queryId;
-                uuid = UUID.randomUUID();
-                queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+                queryId = UniqueIdUtils.fastUniqueId();
                 int randomMillis = 10 + (int) (Math.random() * 10);
                 if (i > retryTime / 2) {
                     randomMillis = 20 + (int) (Math.random() * 10);
@@ -680,6 +677,8 @@ public class StmtExecutor {
                         scanNode.getSelectedPartitionNum(),
                         scanNode.getSelectedSplitNum(),
                         scanNode.getCardinality(),
+                        scanNode.isPartitionedTable(),
+                        scanNode.hasPartitionPredicate(),
                         context.getQualifiedUser());
 
             }
@@ -969,9 +968,7 @@ public class StmtExecutor {
             try {
                 // reset query id for each retry
                 if (i > 0) {
-                    UUID uuid = UUID.randomUUID();
-                    TUniqueId newQueryId = new TUniqueId(uuid.getMostSignificantBits(),
-                            uuid.getLeastSignificantBits());
+                    TUniqueId newQueryId = UniqueIdUtils.fastUniqueId();
                     AuditLog.getQueryAudit().log("Query {} {} times with new query id: {}",
                             DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
                     context.setQueryId(newQueryId);
@@ -1862,6 +1859,9 @@ public class StmtExecutor {
                 if (item != null && !item.equals(FeConstants.null_string)) {
                     Column col = metaData.getColumn(i);
                     switch (col.getType().getPrimitiveType()) {
+                        case BOOLEAN:
+                            serializer.writeInt1(parseBooleanResultValue(item));
+                            break;
                         case INT:
                             serializer.writeInt4(Integer.parseInt(item));
                             break;
@@ -1870,7 +1870,6 @@ public class StmtExecutor {
                             break;
                         case DATETIME:
                         case DATETIMEV2:
-                        case TIMESTAMPTZ:
                             DateTimeV2Literal datetime = new DateTimeV2Literal(item);
                             long microSecond = datetime.getMicroSecond();
                             // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_query_response_text_resultset.html
@@ -1893,6 +1892,16 @@ public class StmtExecutor {
             }
             context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
+    }
+
+    private static int parseBooleanResultValue(String item) {
+        if ("1".equals(item) || "true".equalsIgnoreCase(item)) {
+            return 1;
+        }
+        if ("0".equals(item) || "false".equalsIgnoreCase(item)) {
+            return 0;
+        }
+        throw new IllegalArgumentException("Invalid boolean result value: " + item);
     }
 
     public void handleExplainPlanProcessStmt(List<PlanProcess> result) throws IOException {
@@ -2007,8 +2016,7 @@ public class StmtExecutor {
         if (LOG.isDebugEnabled()) {
             LOG.debug("INTERNAL QUERY: {}", originStmt.toString());
         }
-        UUID uuid = UUID.randomUUID();
-        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        TUniqueId queryId = UniqueIdUtils.fastUniqueId();
         context.setQueryId(queryId);
         if (originStmt.originStmt != null) {
             context.setSqlHash(DigestUtils.md5Hex(originStmt.originStmt));

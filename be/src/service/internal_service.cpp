@@ -963,6 +963,9 @@ Status PInternalService::_tablet_fetch_data(const PTabletKeyLookupRequest* reque
                                             PTabletKeyLookupResponse* response) {
     PointQueryExecutor executor;
     RETURN_IF_ERROR(executor.init(request, response));
+    if (response->has_need_resend_query_context() && response->need_resend_query_context()) {
+        return Status::OK();
+    }
     RETURN_IF_ERROR(executor.lookup_up());
     executor.print_profile();
     return Status::OK();
@@ -1427,6 +1430,19 @@ void PInternalService::get_info(google::protobuf::RpcController* controller,
                 st.to_protobuf(response->mutable_status());
                 return;
             }
+        }
+        if (request->has_kinesis_meta_request()) {
+            std::vector<std::string> shard_ids;
+            Status st = _exec_env->routine_load_task_executor()->get_kinesis_shard_meta(
+                    request->kinesis_meta_request(), &shard_ids);
+            if (st.ok()) {
+                PKinesisMetaProxyResult* kinesis_result = response->mutable_kinesis_meta_result();
+                for (const auto& shard_id : shard_ids) {
+                    kinesis_result->add_shard_ids(shard_id);
+                }
+            }
+            st.to_protobuf(response->mutable_status());
+            return;
         }
         Status::OK().to_protobuf(response->mutable_status());
     });

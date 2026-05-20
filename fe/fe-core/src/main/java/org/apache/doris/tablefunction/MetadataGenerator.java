@@ -737,6 +737,7 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setLongVal(sqlBlockRule.getCardinality()));
             trow.addToColumnValue(new TCell().setBoolVal(sqlBlockRule.getGlobal()));
             trow.addToColumnValue(new TCell().setBoolVal(sqlBlockRule.getEnable()));
+            trow.addToColumnValue(new TCell().setBoolVal(sqlBlockRule.getRequirePartitionFilter()));
             trow.addToColumnValue(new TCell().setLongVal(sqlBlockRule.getBlockCount().getValue()));
             Snapshot snapshot = sqlBlockRule.getTryBlockHistogram().getSnapshot();
             trow.addToColumnValue(new TCell().setLongVal((long) snapshot.getMean()));

@@ -71,11 +71,6 @@ std::string DataTypeNumberBase<T>::to_string(
 #endif
 
 template <PrimitiveType T>
-Field DataTypeNumberBase<T>::get_default() const {
-    return Field::create_field<T>(typename PrimitiveTypeTraits<T>::CppType());
-}
-
-template <PrimitiveType T>
 Field DataTypeNumberBase<T>::get_field(const TExprNode& node) const {
     if constexpr (T == TYPE_BOOLEAN) {
         return Field::create_field<TYPE_BOOLEAN>(UInt8(node.bool_literal.value));

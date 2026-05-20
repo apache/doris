@@ -20,6 +20,7 @@ package org.apache.doris.common.util;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DateLiteralUtils;
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
@@ -203,13 +204,14 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_IS_BEING_SYNCED = "is_being_synced";
 
-    // binlog.enable, binlog.ttl_seconds, binlog.max_bytes, binlog.max_history_nums
+    // binlog.*
     public static final String PROPERTIES_BINLOG_PREFIX = "binlog.";
     public static final String PROPERTIES_BINLOG_ENABLE = "binlog.enable";
     public static final String PROPERTIES_BINLOG_TTL_SECONDS = "binlog.ttl_seconds";
     public static final String PROPERTIES_BINLOG_MAX_BYTES = "binlog.max_bytes";
     public static final String PROPERTIES_BINLOG_MAX_HISTORY_NUMS = "binlog.max_history_nums";
-
+    public static final String PROPERTIES_BINLOG_FORMAT = "binlog.format";
+    public static final String PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE = "binlog.need_historical_value";
     public static final String PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT =
             "enable_duplicate_without_keys_by_default";
     public static final String PROPERTIES_GRACE_PERIOD = "grace_period";
@@ -1560,6 +1562,30 @@ public class PropertyAnalyzer {
             }
         }
 
+        // check PROPERTIES_BINLOG_FORMAT = "binlog.format";
+        if (properties.containsKey(PROPERTIES_BINLOG_FORMAT)) {
+            String format = properties.get(PROPERTIES_BINLOG_FORMAT);
+            try {
+                BinlogConfig.BinlogFormat.valueOf(format);
+                binlogConfigMap.put(PROPERTIES_BINLOG_FORMAT, format);
+                properties.remove(PROPERTIES_BINLOG_FORMAT);
+            } catch (Exception e) {
+                throw new AnalysisException("Invalid binlog format value: " + format);
+            }
+        }
+
+        // check PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE = "binlog.need_historical_value"
+        if (properties.containsKey(PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE)) {
+            String needHistoricalValue = properties.get(PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE);
+            if (!StringUtils.equalsAnyIgnoreCase(needHistoricalValue, "true", "false")) {
+                throw new AnalysisException("Invalid binlog need_historical_value value: " + needHistoricalValue);
+            }
+            binlogConfigMap.put(PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE,
+                    String.valueOf(Boolean.parseBoolean(needHistoricalValue)));
+            properties.remove(PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE);
+        }
+
+
         return binlogConfigMap;
     }
 
@@ -2176,8 +2202,8 @@ public class PropertyAnalyzer {
             String bucketNumStr = properties.get(PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT);
             try {
                 bucketNum = Integer.parseInt(bucketNumStr);
-                if (bucketNum < 1 || bucketNum > 1024) {
-                    throw new AnalysisException("variant_sparse_hash_shard_count must between 1 and 1024 ");
+                if (bucketNum < 0 || bucketNum > 1024) {
+                    throw new AnalysisException("variant_sparse_hash_shard_count must between 0 and 1024 ");
                 }
             } catch (Exception e) {
                 throw new AnalysisException("variant_sparse_hash_shard_count format error:" + e.getMessage());

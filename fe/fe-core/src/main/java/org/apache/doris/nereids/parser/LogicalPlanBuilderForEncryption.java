@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.nereids.DorisParser;
@@ -83,6 +84,15 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
     public SetVarOp visitSetPassword(DorisParser.SetPasswordContext ctx) {
         encryptPassword(ctx.pwd.getStartIndex(), ctx.pwd.getStopIndex());
         return super.visitSetPassword(ctx);
+    }
+
+    // grant user identity clause
+    @Override
+    public UserDesc visitGrantUserIdentify(DorisParser.GrantUserIdentifyContext ctx) {
+        if (ctx.pwd != null) {
+            encryptPassword(ctx.pwd.getStartIndex(), ctx.pwd.getStopIndex());
+        }
+        return super.visitGrantUserIdentify(ctx);
     }
 
     // set ldap password clause

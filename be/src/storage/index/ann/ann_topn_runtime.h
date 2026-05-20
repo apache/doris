@@ -35,6 +35,9 @@
 
 #pragma once
 
+#include <memory>
+#include <vector>
+
 #include "core/column/column.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/vectorized_fn_call.h"
@@ -116,8 +119,8 @@ public:
      */
     Status evaluate_vector_ann_search(segment_v2::AnnIndexIterator* ann_index_iterator,
                                       roaring::Roaring* row_bitmap, size_t rows_of_segment,
-                                      IColumn::MutablePtr& result_column,
-                                      std::unique_ptr<std::vector<uint64_t>>& row_ids,
+                                      bool enable_result_cache, IColumn::MutablePtr& result_column,
+                                      std::shared_ptr<std::vector<uint64_t>>& row_ids,
                                       segment_v2::AnnIndexStats& ann_index_stats);
 
     /**

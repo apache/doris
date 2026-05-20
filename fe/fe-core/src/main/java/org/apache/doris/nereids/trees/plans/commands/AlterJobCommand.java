@@ -200,6 +200,13 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                     "The database property cannot be modified in ALTER JOB");
         }
 
+        if (sourceProperties.containsKey(DataSourceConfigKeys.SCHEMA)) {
+            Preconditions.checkArgument(Objects.equals(
+                    originSourceProperties.get(DataSourceConfigKeys.SCHEMA),
+                    sourceProperties.get(DataSourceConfigKeys.SCHEMA)),
+                    "The schema property cannot be modified in ALTER JOB");
+        }
+
         if (sourceProperties.containsKey(DataSourceConfigKeys.INCLUDE_TABLES)) {
             Preconditions.checkArgument(Objects.equals(
                     originSourceProperties.get(DataSourceConfigKeys.INCLUDE_TABLES),
@@ -301,7 +308,8 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                         "The uri property cannot be modified in ALTER JOB");
                 break;
             case "cdc_stream":
-                // type, jdbc_url, database, schema, table identify the source and cannot be changed.
+                // type, jdbc_url, database, schema, and table identify the source and cannot be changed.
+                // snapshot_* are materialized into split metadata on first fetch and never re-read.
                 // slot_name / publication_name are fixed at create time to keep ownership stable.
                 // user, password, driver_url, driver_class, etc. are modifiable (credential rotation).
                 for (String unmodifiable : new String[] {
@@ -310,6 +318,9 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                         DataSourceConfigKeys.DATABASE,
                         DataSourceConfigKeys.SCHEMA,
                         DataSourceConfigKeys.TABLE,
+                        DataSourceConfigKeys.SNAPSHOT_SPLIT_KEY,
+                        DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE,
+                        DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
                         DataSourceConfigKeys.SLOT_NAME,
                         DataSourceConfigKeys.PUBLICATION_NAME}) {
                     Preconditions.checkArgument(

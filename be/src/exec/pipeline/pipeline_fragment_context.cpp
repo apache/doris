@@ -601,6 +601,8 @@ Status PipelineFragmentContext::_build_pipeline_tasks(ThreadPool* thread_pool) {
     }
     _pipeline_parent_map.clear();
     _op_id_to_shared_state.clear();
+    // Record task cardinality once when this fragment context finishes task initialization.
+    _query_ctx->add_total_task_num(_total_tasks.load(std::memory_order_relaxed));
 
     return Status::OK();
 }
@@ -1095,7 +1097,7 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
         int child_node_id = pipeline->operators().back()->node_id();
         if (state->query_options().enable_memtable_on_sink_node &&
             !_has_inverted_index_v1_or_partial_update(thrift_sink.olap_table_sink) &&
-            !config::is_cloud_mode()) {
+            !_has_row_binlog(thrift_sink.olap_table_sink) && !config::is_cloud_mode()) {
             _sink = std::make_shared<OlapTableSinkV2OperatorX>(
                     pool, next_sink_operator_id(), child_node_id + 1, row_desc, output_exprs);
         } else {
@@ -1971,6 +1973,8 @@ void PipelineFragmentContext::decrement_running_task(PipelineId pipeline_id) {
     {
         std::lock_guard<std::mutex> l(_task_mutex);
         ++_closed_tasks;
+        // Update query-level finished task progress in real time.
+        _query_ctx->inc_finished_task_num();
         if (_closed_tasks >= _total_tasks) {
             need_remove = _close_fragment_instance();
         }

@@ -249,6 +249,16 @@ struct Version {
     std::string to_string() const { return fmt::format("[{}-{}]", first, second); }
 };
 
+struct TsoRange : public Version {
+    TsoRange() : Version(-1, -1) {}
+    TsoRange(int64_t start_tso, int64_t end_tso) : Version(start_tso, end_tso) {}
+
+    int64_t start_tso() const { return first; }
+    int64_t end_tso() const { return second; }
+
+    bool contains(const TsoRange& other) const { return Version::contains(other); }
+};
+
 using Versions = std::vector<Version>;
 
 inline std::ostream& operator<<(std::ostream& os, const Version& version) {
@@ -382,6 +392,7 @@ struct OlapReaderStatistics {
     int64_t ann_ivf_on_disk_load_ns = 0;
     int64_t ann_ivf_on_disk_cache_hit_cnt = 0;
     int64_t ann_ivf_on_disk_cache_miss_cnt = 0;
+    int64_t ann_index_cache_hits = 0;
 
     // Detailed timing for ANN operations
     int64_t ann_index_topn_engine_search_ns = 0;  // time spent in engine for range search
@@ -400,6 +411,7 @@ struct OlapReaderStatistics {
     int64_t ann_range_result_convert_ns = 0; // time spent processing range results
     int64_t ann_range_engine_convert_ns = 0; // time spent on FAISS-side conversions (Range)
     int64_t rows_ann_index_range_filtered = 0;
+    int64_t ann_index_range_cache_hits = 0;
     int64_t ann_fall_back_brute_force_cnt = 0;
 
     int64_t output_index_result_column_timer = 0;

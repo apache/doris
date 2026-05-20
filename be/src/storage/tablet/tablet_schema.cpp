@@ -551,7 +551,7 @@ TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType type) {
 TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable) {
     _aggregation = agg;
     _type = filed_type;
-    _length = cast_set<int32_t>(get_scalar_type_info(filed_type)->size());
+    _length = cast_set<int32_t>(field_type_size(filed_type));
     _is_nullable = is_nullable;
 }
 

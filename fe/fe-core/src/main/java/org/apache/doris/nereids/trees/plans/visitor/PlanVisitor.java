@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
-import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
@@ -66,7 +65,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
@@ -298,10 +296,6 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
         return visit(topN, context);
     }
 
-    public R visitLogicalDeferMaterializeTopN(LogicalDeferMaterializeTopN<? extends Plan> topN, C context) {
-        return visit(topN, context);
-    }
-
     public R visitPhysicalLazyMaterialize(PhysicalLazyMaterialize<? extends Plan> materialize, C context) {
         return visit(materialize, context);
     }
@@ -432,10 +426,6 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
     }
 
     public R visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, C context) {
-        return visitAbstractPhysicalSort(topN, context);
-    }
-
-    public R visitPhysicalDeferMaterializeTopN(PhysicalDeferMaterializeTopN<? extends Plan> topN, C context) {
         return visitAbstractPhysicalSort(topN, context);
     }
 

@@ -56,7 +56,8 @@ suite("test_javaudf_float") {
         sql """ CREATE FUNCTION java_udf_float_test(FLOAT,FLOAT) RETURNS FLOAT PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.FloatTest",
-            "type"="JAVA_UDF"
+            "type"="JAVA_UDF",
+            "volatility"="immutable"
         ); """
 
         qt_select """ SELECT java_udf_float_test(cast(2.83645 as float),cast(111.1111111 as float)) as result; """

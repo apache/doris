@@ -74,9 +74,6 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
             RuleType.PUSH_DOWN_PROJECT_THROUGH_PARTITION_TOP_N.build(
                 logicalProject(logicalPartitionTopN()).thenApply(this::defaultPushDownProject)
             ),
-            // RuleType.PUSH_DOWN_PROJECT_THROUGH_DEFER_MATERIALIZE_TOP_N.build(
-            //     logicalProject(logicalDeferMaterializeTopN()).thenApply(this::defaultPushDownProject)
-            // ),
             RuleType.PUSH_DOWN_PROJECT_THROUGH_UNION.build(
                 logicalProject(
                         logicalUnion().when(u -> u.getQualifier() == Qualifier.ALL)

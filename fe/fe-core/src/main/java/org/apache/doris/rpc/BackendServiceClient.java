@@ -227,6 +227,11 @@ public class BackendServiceClient {
         return stub.requestCdcClient(request);
     }
 
+    public Future<InternalService.PRequestCdcClientResult> requestCdcClient(
+            InternalService.PRequestCdcClientRequest request, int timeoutSec) {
+        return stub.withDeadlineAfter(timeoutSec, TimeUnit.SECONDS).requestCdcClient(request);
+    }
+
     public void shutdown() {
         ConnectivityState state = channel.getState(false);
         LOG.warn("shut down backend service client: {}, channel state: {}", address, state);

@@ -146,7 +146,7 @@ public:
         }
     }
 
-    static void set_query_context(QueryContext* context) { _ctx = context; }
+    void set_query_context(QueryContext* context) { _ctx = context; }
 
     const std::string& get_task() const { return _task; }
 
@@ -197,7 +197,7 @@ private:
         process_current_context();
     }
 
-    static size_t get_ai_context_window_size() {
+    size_t get_ai_context_window_size() const {
         DORIS_CHECK(_ctx);
 
         return static_cast<size_t>(_ctx->query_options().ai_context_window_size);
@@ -247,7 +247,7 @@ private:
         inited = !data.empty();
     }
 
-    static QueryContext* _ctx;
+    QueryContext* _ctx = nullptr;
     AIResource _ai_config;
     std::shared_ptr<AIAdapter> _ai_adapter;
     std::string _task;
@@ -264,7 +264,7 @@ public:
 
     void set_query_context(QueryContext* context) override {
         if (context) {
-            AggregateFunctionAIAggData::set_query_context(context);
+            _ctx = context;
         }
     }
 
@@ -273,6 +273,11 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
 
     bool is_blockable() const override { return true; }
+
+    void create(AggregateDataPtr __restrict place) const override {
+        new (place) AggregateFunctionAIAggData;
+        data(place).set_query_context(_ctx);
+    }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
@@ -303,7 +308,10 @@ public:
         }
     }
 
-    void reset(AggregateDataPtr place) const override { data(place).reset(); }
+    void reset(AggregateDataPtr place) const override {
+        data(place).reset();
+        data(place).set_query_context(_ctx);
+    }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena&) const override {
@@ -317,6 +325,7 @@ public:
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena&) const override {
         data(place).read(buf);
+        data(place).set_query_context(_ctx);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
@@ -324,6 +333,9 @@ public:
         DCHECK(!result.empty()) << "AI returns an empty result";
         assert_cast<ColumnString&>(to).insert_data(result.data(), result.size());
     }
+
+private:
+    QueryContext* _ctx = nullptr;
 };
 
 } // namespace doris

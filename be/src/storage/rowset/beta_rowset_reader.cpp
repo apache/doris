@@ -113,8 +113,9 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.collection_statistics = _read_context->collection_statistics;
     _read_options.rowset_id = _rowset->rowset_id();
     _read_options.version = _rowset->version();
+    _read_options.commit_tso = _rowset->rowset_meta()->commit_tso();
     _read_options.tablet_id = _rowset->rowset_meta()->tablet_id();
-    _read_options.topn_limit = _topn_limit;
+    _read_options.read_limit = _topn_limit;
     if (_read_context->lower_bound_keys != nullptr) {
         for (int i = 0; i < _read_context->lower_bound_keys->size(); ++i) {
             _read_options.key_ranges.emplace_back(&_read_context->lower_bound_keys->at(i),

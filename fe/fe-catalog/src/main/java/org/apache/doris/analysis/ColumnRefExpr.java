@@ -17,8 +17,12 @@
 
 package org.apache.doris.analysis;
 
+import com.google.gson.annotations.SerializedName;
+
 public class ColumnRefExpr extends Expr {
+    @SerializedName("cn")
     private String columnName;
+    @SerializedName("ci")
     private int columnId;
 
     public ColumnRefExpr(boolean nullable) {

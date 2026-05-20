@@ -26,3 +26,10 @@ condition = "AND"
 regexTarget = "line"
 paths = ['''^fe/fe-filesystem/fe-filesystem-s3/src/test/java/org/apache/doris/filesystem/s3/S3ObjStorageTest\.java$''']
 regexes = ['''(access_key|secret_key).*"(ak-|sk-|canonical|sess-tok)''']
+
+[[rules]]
+id = "private-key"
+
+[[rules.allowlists]]
+description = "Ignore test-only TLS private key used by MySQL docker-compose fixtures"
+paths = ['''^docker/thirdparties/docker-compose/mysql/certs/server\.key$''']

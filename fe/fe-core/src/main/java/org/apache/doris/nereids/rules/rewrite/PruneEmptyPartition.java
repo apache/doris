@@ -40,6 +40,12 @@ public class PruneEmptyPartition extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalOlapScan().thenApply(ctx -> {
+            // We still want to keep LogicalOlapScan even if partitions are empty,
+            // so that the planner can build a scan node and the PreparedStatement can cache ShortCircuitQueryContext.
+            if (ctx.connectContext != null && ctx.connectContext.getStatementContext() != null
+                    && ctx.connectContext.getStatementContext().isShortCircuitQuery()) {
+                return null;
+            }
             LogicalOlapScan scan = ctx.root;
             OlapTable table = scan.getTable();
             List<Long> partitionIdsToPrune = scan.getSelectedPartitionIds();

@@ -511,6 +511,20 @@ public class CloudWarmUpJob implements Writable {
     }
 
     public void initClients() throws Exception {
+        prepareClients();
+        if (beToClient.isEmpty()) {
+            try {
+                for (Map.Entry<Long, String> entry : beToThriftAddress.entrySet()) {
+                    initClient(entry.getKey(), entry.getValue());
+                }
+            } catch (Exception e) {
+                releaseClients();
+                throw new RuntimeException(e);
+            }
+        }
+    }
+
+    private void prepareClients() {
         if (beToThriftAddress == null || beToThriftAddress.isEmpty()) {
             fetchBeToThriftAddress();
         }
@@ -518,25 +532,36 @@ public class CloudWarmUpJob implements Writable {
             beToClient = new HashMap<>();
             beToAddr = new HashMap<>();
         }
+    }
+
+    private void initClient(long beId, String thriftAddress) throws Exception {
+        boolean ok = false;
+        TNetworkAddress address = null;
+        Client client = null;
+        try {
+            String[] ipPort = thriftAddress.split(":");
+            address = new TNetworkAddress(ipPort[0], Integer.parseInt(ipPort[1]));
+            beToAddr.put(beId, address);
+            client = ClientPool.backendPool.borrowObject(address);
+            beToClient.put(beId, client);
+            ok = true;
+        } finally {
+            if (!ok) {
+                ClientPool.backendPool.invalidateObject(address, client);
+                beToAddr.remove(beId);
+            }
+        }
+    }
+
+    private void initClientsForClearJob() {
+        prepareClients();
         if (beToClient.isEmpty()) {
             for (Map.Entry<Long, String> entry : beToThriftAddress.entrySet()) {
-                boolean ok = false;
-                TNetworkAddress address = null;
-                Client client = null;
                 try {
-                    String[] ipPort = entry.getValue().split(":");
-                    address = new TNetworkAddress(ipPort[0], Integer.parseInt(ipPort[1]));
-                    beToAddr.put(entry.getKey(), address);
-                    client = ClientPool.backendPool.borrowObject(address);
-                    beToClient.put(entry.getKey(), client);
-                    ok = true;
+                    initClient(entry.getKey(), entry.getValue());
                 } catch (Exception e) {
-                    throw new RuntimeException(e);
-                } finally {
-                    if (!ok) {
-                        ClientPool.backendPool.invalidateObject(address, client);
-                        releaseClients();
-                    }
+                    LOG.warn("init client for BE {} ({}) failed when clearing warm up job {}: {}",
+                            entry.getKey(), entry.getValue(), jobId, e.getMessage());
                 }
             }
         }
@@ -575,7 +600,7 @@ public class CloudWarmUpJob implements Writable {
 
     private final void clearJobOnBEs() {
         try {
-            initClients();
+            initClientsForClearJob();
             // Iterate with explicit iterator so we can remove invalidated clients during iteration.
             Iterator<Map.Entry<Long, Client>> iter = beToClient.entrySet().iterator();
             while (iter.hasNext()) {

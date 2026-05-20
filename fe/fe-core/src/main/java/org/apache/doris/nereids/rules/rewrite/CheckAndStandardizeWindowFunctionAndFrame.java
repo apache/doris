@@ -39,12 +39,11 @@ public class CheckAndStandardizeWindowFunctionAndFrame extends OneRewriteRuleFac
     @Override
     public Rule build() {
         return RuleType.CHECK_AND_STANDARDIZE_WINDOW_FUNCTION_AND_FRAME.build(
-            logicalWindow().whenNot(LogicalWindow::isChecked).then(logicalWindow ->
-                checkAndStandardize(logicalWindow))
+            logicalWindow().whenNot(LogicalWindow::isChecked).then(this::checkAndStandardize)
         );
     }
 
-    private LogicalWindow checkAndStandardize(LogicalWindow<Plan> logicalWindow) {
+    private LogicalWindow<?> checkAndStandardize(LogicalWindow<Plan> logicalWindow) {
 
         List<NamedExpression> newOutputExpressions = logicalWindow.getWindowExpressions().stream()
                 .map(expr -> {

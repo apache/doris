@@ -85,7 +85,8 @@ static void fill_block_with_array_int(Block& block) {
         data_column->insert_data((const char*)(&v), 0);
     }
 
-    auto column_array_ptr = ColumnArray::create(std::move(data_column), std::move(off_column));
+    auto column_array_ptr =
+            ColumnArray::create(make_nullable(std::move(data_column)), std::move(off_column));
     DataTypePtr nested_type(std::make_shared<DataTypeInt32>());
     DataTypePtr array_type(std::make_shared<DataTypeArray>(nested_type));
     ColumnWithTypeAndName test_array_int(std::move(column_array_ptr), array_type, "test_array_int");
@@ -105,7 +106,8 @@ static void fill_block_with_array_string(Block& block) {
         data_column->insert_data(v.data(), v.size());
     }
 
-    auto column_array_ptr = ColumnArray::create(std::move(data_column), std::move(off_column));
+    auto column_array_ptr =
+            ColumnArray::create(make_nullable(std::move(data_column)), std::move(off_column));
     DataTypePtr nested_type(std::make_shared<DataTypeString>());
     DataTypePtr array_type(std::make_shared<DataTypeArray>(nested_type));
     ColumnWithTypeAndName test_array_string(std::move(column_array_ptr), array_type,
@@ -288,7 +290,7 @@ TEST(BlockSerializeTest, Struct) {
         DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt128>());
         DataTypePtr m = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
         DataTypePtr st = std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {s, d, m});
-        Tuple t1, t2;
+        Struct t1, t2;
         t1.push_back(Field::create_field<TYPE_STRING>(String("amory cute")));
         t1.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(37)));
         t1.push_back(Field::create_field<TYPE_BOOLEAN>(true));

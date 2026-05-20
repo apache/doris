@@ -25,6 +25,7 @@
 #include <boost/algorithm/string/trim.hpp>
 #include <fstream>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "common/logging.h"
@@ -147,12 +148,12 @@ Status TabletMetaManager::traverse_headers(
 
 Status TabletMetaManager::load_json_meta(DataDir* store, const std::string& meta_path) {
     std::ifstream infile(meta_path);
-    char buffer[102400];
-    std::string json_meta;
-    while (!infile.eof()) {
-        infile.getline(buffer, 102400);
-        json_meta = json_meta + buffer;
+    if (!infile.is_open()) {
+        return Status::InternalError("Failed to open file {}", meta_path);
     }
+
+    std::string json_meta((std::istreambuf_iterator<char>(infile)),
+                          std::istreambuf_iterator<char>());
     boost::algorithm::trim(json_meta);
     TabletMetaPB tablet_meta_pb;
     std::string error;
@@ -234,21 +235,48 @@ void NO_SANITIZE_UNDEFINED TabletMetaManager::decode_delete_bitmap_key(std::stri
 
 Status TabletMetaManager::save_delete_bitmap(DataDir* store, TTabletId tablet_id,
                                              DeleteBitmapPtr delete_bitmap, int64_t version) {
+    return save_delete_bitmap(store, tablet_id, std::move(delete_bitmap), nullptr, version);
+}
+
+Status TabletMetaManager::save_delete_bitmap(DataDir* store, TTabletId tablet_id,
+                                             DeleteBitmapPtr delete_bitmap,
+                                             DeleteBitmapPtr binlog_delvec, int64_t version) {
     VLOG_NOTICE << "save delete bitmap, tablet_id:" << tablet_id << ", version: " << version;
-    if (delete_bitmap->delete_bitmap.empty()) {
+    if ((delete_bitmap == nullptr || delete_bitmap->delete_bitmap.empty()) &&
+        (binlog_delvec == nullptr || binlog_delvec->delete_bitmap.empty())) {
         return Status::OK();
     }
     OlapMeta* meta = store->get_meta();
     DeleteBitmapPB delete_bitmap_pb;
-    for (auto& [id, bitmap] : delete_bitmap->delete_bitmap) {
-        auto& rowset_id = std::get<0>(id);
-        auto segment_id = std::get<1>(id);
-        delete_bitmap_pb.add_rowset_ids(rowset_id.to_string());
-        delete_bitmap_pb.add_segment_ids(segment_id);
-        std::string bitmap_data(bitmap.getSizeInBytes(), '\0');
-        bitmap.write(bitmap_data.data());
-        *(delete_bitmap_pb.add_segment_delete_bitmaps()) = std::move(bitmap_data);
+
+    // Normal delete bitmap.
+    if (delete_bitmap != nullptr) {
+        for (auto& [id, bitmap] : delete_bitmap->delete_bitmap) {
+            auto& rowset_id = std::get<0>(id);
+            auto segment_id = std::get<1>(id);
+            delete_bitmap_pb.add_rowset_ids(rowset_id.to_string());
+            delete_bitmap_pb.add_segment_ids(segment_id);
+            std::string bitmap_data(bitmap.getSizeInBytes(), '\0');
+            bitmap.write(bitmap_data.data());
+            *(delete_bitmap_pb.add_segment_delete_bitmaps()) = std::move(bitmap_data);
+            delete_bitmap_pb.add_is_binlog_delvec(false);
+        }
     }
+
+    // Binlog delvec.
+    if (binlog_delvec != nullptr) {
+        for (auto& [id, bitmap] : binlog_delvec->delete_bitmap) {
+            auto& rowset_id = std::get<0>(id);
+            auto segment_id = std::get<1>(id);
+            delete_bitmap_pb.add_rowset_ids(rowset_id.to_string());
+            delete_bitmap_pb.add_segment_ids(segment_id);
+            std::string bitmap_data(bitmap.getSizeInBytes(), '\0');
+            bitmap.write(bitmap_data.data());
+            *(delete_bitmap_pb.add_segment_delete_bitmaps()) = std::move(bitmap_data);
+            delete_bitmap_pb.add_is_binlog_delvec(true);
+        }
+    }
+
     std::string key = encode_delete_bitmap_key(tablet_id, version);
     std::string val;
     bool ok = delete_bitmap_pb.SerializeToString(&val);
