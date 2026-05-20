@@ -33,15 +33,19 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
 #include "format/reader/column_mapper.h"
+#include "format/reader/expr/delete_predicate.h"
 #include "format/reader/expr/literal.h"
 #include "format/reader/file_reader.h"
 
 namespace doris {
 class Block;
 class ColumnPredicate;
+struct DeleteFileDesc;
 } // namespace doris
 
 namespace doris::reader {
+
+using DeleteRows = std::vector<int64_t>;
 
 // table/global schema 中的列视图。
 // Iceberg 场景下，id 默认对应 Iceberg field id。该结构不描述文件中的物理列。
@@ -90,13 +94,21 @@ struct ScanTask {
     std::unique_ptr<BaseDataFile> data_file;
 };
 
-struct ReadProfile {};
+struct ReadProfile {
+    RuntimeProfile::Counter* num_delete_files;
+    RuntimeProfile::Counter* num_delete_rows;
+    RuntimeProfile::Counter* parse_delete_file_time;
+};
 
 struct TableReadOptions {
     const std::vector<TableColumn> projected_columns;
     // All conjuncts from scan operator
     const VExprContext conjuncts;
     const FileFormat format;
+    TFileScanRangeParams* scan_params;
+    io::IOContext* io_ctx;
+    RuntimeState* runtime_state;
+    RuntimeProfile* scanner_profile;
     // Each task denotes a descriptor of a single file to read, along with file-level metadata such as stats and delete files.
     std::vector<std::unique_ptr<ScanTask>> scan_tasks;
 
@@ -105,6 +117,8 @@ struct TableReadOptions {
 
 struct SplitReadOptions {
     std::map<std::string, Field> partition_values;
+    ShardedKVCache* cache;
+    TFileRangeDesc current_range;
 };
 
 // table-level reader 基类。
@@ -117,6 +131,11 @@ public:
     // 初始化 table reader 的通用运行参数。
     // 子类可以在自己的 init(options) 中调用该方法；这里不接收具体表格式 schema/task。
     virtual Status init(TableReadOptions options) {
+        _scan_params = options.scan_params;
+        _format = options.format;
+        _io_ctx = options.io_ctx;
+        _runtime_state = options.runtime_state;
+        _scanner_profile = options.scanner_profile;
         _scan_tasks = std::move(_options.scan_tasks);
         _next_task_idx = 0;
         _profile = std::move(options.profile);
@@ -129,10 +148,7 @@ public:
     }
 
     // 读取当前 split/partition 之前初始化。
-    virtual Status prepare_split(SplitReadOptions options) {
-        _partition_values = std::move(options.partition_values);
-        return Status::OK();
-    }
+    virtual Status prepare_split(const SplitReadOptions& options);
 
     // table-level 动态过滤入口。
     // 该方法用于根据 split、partition value 或文件级统计判断是否可以跳过后续 reader。
@@ -193,6 +209,9 @@ public:
     }
 
 protected:
+    virtual bool _parse_delete_file(const TTableFormatFileDesc& t_desc, DeleteFileDesc& desc) {
+        return false;
+    }
     // 切换到下一个 reader 的通用流程。
     // 该方法先关闭当前 reader，再打开下一个具体 reader；子类不应重复实现这个循环。
     Status create_next_reader(bool* eos) {
@@ -262,6 +281,16 @@ protected:
     size_t _next_task_idx = 0;
     std::map<int32_t, TableFilter> _table_filters;
     std::unique_ptr<ReadProfile> _profile;
+    // Parsed from DELETION_VECTOR in Iceberg and Paimon
+    DeleteRows* _delete_rows;
+    TFileScanRangeParams* _scan_params;
+    io::IOContext* _io_ctx;
+    RuntimeState* _runtime_state;
+    RuntimeProfile* _scanner_profile;
+    FileFormat _format;
+
+private:
+    Status _parse_delete_predicates(const SplitReadOptions& options);
 };
 
 } // namespace doris::reader

@@ -36,6 +36,16 @@ struct IOContext;
 } // namespace io
 
 namespace doris {
+struct DeleteFileDesc {
+    std::string key = "";
+    std::string path = "";
+    std::string fs_name = "";
+    int64_t start_offset = 0;
+    int64_t size = 0;
+    int64_t file_size = -1;
+    int64_t modification_time = 0;
+};
+
 class DeletionVectorReader {
     ENABLE_FACTORY_CREATOR(DeletionVectorReader);
 
@@ -43,7 +53,22 @@ public:
     DeletionVectorReader(RuntimeState* state, RuntimeProfile* profile,
                          const TFileScanRangeParams& params, const TFileRangeDesc& range,
                          io::IOContext* io_ctx)
-            : _state(state), _profile(profile), _range(range), _params(params), _io_ctx(io_ctx) {}
+            : _state(state), _profile(profile), _params(params), _io_ctx(io_ctx) {
+        _desc = DeleteFileDesc {
+                .key = "",
+                .path = range.path,
+                .fs_name = range.__isset.fs_name ? range.fs_name : "",
+                .start_offset = range.start_offset,
+                .size = range.size,
+                .file_size = range.__isset.file_size ? range.file_size : -1,
+                .modification_time = range.__isset.modification_time ? range.modification_time : 0};
+    }
+    DeletionVectorReader(RuntimeState* state, RuntimeProfile* profile,
+                         const TFileScanRangeParams& params, const DeleteFileDesc& desc,
+                         io::IOContext* io_ctx)
+            : _state(state), _profile(profile), _params(params), _io_ctx(io_ctx) {
+        _desc = desc;
+    }
     ~DeletionVectorReader() = default;
     Status open();
     Status read_at(size_t offset, Slice result);
@@ -56,7 +81,7 @@ private:
 private:
     RuntimeState* _state = nullptr;
     RuntimeProfile* _profile = nullptr;
-    const TFileRangeDesc& _range;
+    DeleteFileDesc _desc;
     const TFileScanRangeParams& _params;
     io::IOContext* _io_ctx = nullptr;
 

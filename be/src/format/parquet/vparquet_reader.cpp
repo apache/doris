@@ -311,7 +311,7 @@ Status ParquetReader::_open_file() {
         _file_description.mtime =
                 _scan_range.__isset.modification_time ? _scan_range.modification_time : 0;
         io::FileReaderOptions reader_options =
-                FileFactory::get_reader_options(_state, _file_description);
+                FileFactory::get_reader_options(_state->query_options(), _file_description);
         _file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
                 _profile, _system_properties, _file_description, reader_options,
                 io::DelegateReader::AccessMode::RANDOM, _io_ctx));

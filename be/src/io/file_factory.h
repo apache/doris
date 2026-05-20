@@ -16,6 +16,7 @@
 // under the License.
 #pragma once
 
+#include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
@@ -83,7 +84,7 @@ class FileFactory {
     ENABLE_FACTORY_CREATOR(FileFactory);
 
 public:
-    static io::FileReaderOptions get_reader_options(RuntimeState* state,
+    static io::FileReaderOptions get_reader_options(const TQueryOptions& option,
                                                     const io::FileDescription& fd);
 
     /// Create a temporary FileSystem for accessing file corresponding to `file_description`
