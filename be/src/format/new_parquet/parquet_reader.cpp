@@ -380,6 +380,55 @@ void mark_required_leaf_columns(const ParquetColumnSchema& column_schema,
     }
 }
 
+bool leaf_can_use_record_reader(const ParquetColumnSchema& column_schema) {
+    const auto* descriptor = column_schema.descriptor;
+    if (descriptor == nullptr || descriptor->max_repetition_level() != 0) {
+        return false;
+    }
+    const auto& logical_type = descriptor->logical_type();
+    const bool has_logical_or_converted_type =
+            descriptor->converted_type() != ::parquet::ConvertedType::NONE ||
+            (logical_type != nullptr && logical_type->is_valid() && !logical_type->is_none());
+    if (has_logical_or_converted_type) {
+        return false;
+    }
+    switch (descriptor->physical_type()) {
+    case ::parquet::Type::BOOLEAN:
+    case ::parquet::Type::INT32:
+    case ::parquet::Type::INT64:
+    case ::parquet::Type::FLOAT:
+    case ::parquet::Type::DOUBLE:
+        return column_schema.type != nullptr &&
+               remove_nullable(column_schema.type)->get_primitive_type() != INVALID_TYPE;
+    default:
+        return false;
+    }
+}
+
+const ParquetColumnSchema* find_leaf_schema(
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& fields, int leaf_column_id) {
+    for (const auto& field : fields) {
+        if (field == nullptr) {
+            continue;
+        }
+        std::vector<const ParquetColumnSchema*> stack;
+        stack.push_back(field.get());
+        while (!stack.empty()) {
+            const auto* current = stack.back();
+            stack.pop_back();
+            if (current->leaf_column_id == leaf_column_id) {
+                return current;
+            }
+            for (const auto& child : current->children) {
+                if (child != nullptr) {
+                    stack.push_back(child.get());
+                }
+            }
+        }
+    }
+    return nullptr;
+}
+
 void collect_required_leaf_columns(const std::vector<std::unique_ptr<ParquetColumnSchema>>& fields,
                                    const std::vector<int>& projected_fields,
                                    const std::vector<reader::FileLocalFilter>& local_filters,
@@ -435,6 +484,8 @@ Status open_next_row_group(ParquetReaderScanState* state, bool* has_row_group) {
 
         std::vector<std::shared_ptr<::parquet::ColumnReader>> arrow_readers(
                 state->schema->num_columns());
+        std::vector<std::shared_ptr<::parquet::internal::RecordReader>> record_readers(
+                state->schema->num_columns());
         for (int leaf_column_id : state->required_leaf_columns) {
             arrow_readers[leaf_column_id] = state->current_row_group->Column(leaf_column_id);
             if (arrow_readers[leaf_column_id] == nullptr) {
@@ -442,9 +493,19 @@ Status open_next_row_group(ParquetReaderScanState* state, bool* has_row_group) {
                         "Failed to create parquet column reader for leaf column {}",
                         leaf_column_id);
             }
+            const auto* leaf_schema = find_leaf_schema(state->file_schema, leaf_column_id);
+            if (leaf_schema != nullptr && leaf_can_use_record_reader(*leaf_schema)) {
+                record_readers[leaf_column_id] = state->current_row_group->RecordReader(
+                        leaf_column_id, /*read_dictionary=*/false);
+                if (record_readers[leaf_column_id] == nullptr) {
+                    return Status::Corruption(
+                            "Failed to create parquet record reader for leaf column {}",
+                            leaf_column_id);
+                }
+            }
         }
 
-        ParquetColumnReaderFactory column_reader_factory(arrow_readers);
+        ParquetColumnReaderFactory column_reader_factory(arrow_readers, record_readers);
         for (int file_field_id : state->filter_fields) {
             const auto& column_schema = state->file_schema[file_field_id];
             std::unique_ptr<ParquetColumnReader> column_reader;
@@ -514,11 +575,22 @@ Status read_current_row_group_batch(ParquetReaderScanState* state, int64_t batch
     for (size_t output_idx = 0; output_idx < state->current_output_columns.size(); ++output_idx) {
         auto& column_reader = state->current_output_columns[output_idx];
         MutableColumnPtr column;
-        int64_t column_rows = 0;
-        RETURN_IF_ERROR(column_reader->read_batch(batch_rows, &column, &column_rows));
-        if (column_rows != batch_rows) {
-            return Status::Corruption("Parquet output column {} returned {} rows, expected {} rows",
-                                      column_reader->name(), column_rows, batch_rows);
+        if (need_filter_output) {
+            RETURN_IF_ERROR(
+                    column_reader->read_selected(selection, selected_rows, batch_rows, &column));
+            if (column->size() != selected_rows) {
+                return Status::Corruption(
+                        "Parquet selected output column {} returned {} rows, expected {} rows",
+                        column_reader->name(), column->size(), selected_rows);
+            }
+        } else {
+            int64_t column_rows = 0;
+            RETURN_IF_ERROR(column_reader->read_batch(batch_rows, &column, &column_rows));
+            if (column_rows != batch_rows) {
+                return Status::Corruption(
+                        "Parquet output column {} returned {} rows, expected {} rows",
+                        column_reader->name(), column_rows, batch_rows);
+            }
         }
         decoded_output_columns[state->current_output_fields[output_idx]] = std::move(column);
     }

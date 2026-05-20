@@ -349,8 +349,12 @@ struct ParquetRowGroupScanPlan {
 
 当前 `ParquetColumnReader::skip(...)` 的策略：
 
-- required flat primitive 列直接调用 Arrow Parquet `TypedColumnReader::Skip(...)`；
-- nullable、string、decimal、timestamp 和 struct 暂时退化为 read-and-discard；
+- 无逻辑注解的基础物理 primitive 列优先调用 Arrow Parquet
+  `RecordReader::SkipRecords(...)`，保证 nullable primitive 也按 row/record 语义跳过；
+- 无逻辑注解的基础物理 primitive 列在 selection 非空时会通过
+  `ParquetColumnReader::read_selected(...)` 执行 row-range 级 selective materialization；
+- 尚未迁移到 `RecordReader` 的 string、decimal、timestamp 和 struct 暂时退化为
+  read-and-discard；
 - nested repetition 场景后续需要基于 record boundary 的 skip/selective read，不能直接用
   Arrow value-level `Skip(...)` 表示行级跳过。
 

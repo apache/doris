@@ -28,6 +28,10 @@
 namespace parquet {
 class ColumnDescriptor;
 class ColumnReader;
+
+namespace internal {
+class RecordReader;
+} // namespace internal
 } // namespace parquet
 
 namespace doris {
@@ -44,8 +48,9 @@ std::string column_name(const ::parquet::ColumnDescriptor* column);
 // 层处理。
 DataTypePtr parquet_column_to_doris_type(const ::parquet::ColumnDescriptor* column);
 
-// 判断当前阶段是否可以直接通过 Arrow Parquet core ColumnReader 读取该列。
-// 阶段一只支持 flat primitive/string/decimal/timestamp。
+// 判断当前阶段是否可以通过 Arrow Parquet core reader 读取该列。
+// 当前支持 flat primitive/string/decimal/timestamp；其中基础物理 primitive 会优先走
+// RecordReader，string/decimal/timestamp 暂时保留 TypedColumnReader 路径。
 DataTypePtr supported_flat_column_type(const ::parquet::ColumnDescriptor* column);
 
 // Doris 的 Parquet column reader 抽象。
@@ -70,16 +75,24 @@ public:
     // 会通过该接口推进物理 reader。对于 nullable/nested 等 Arrow Skip 不能表达“行”的场景，
     // 实现必须退化成 read-and-discard，保证 reader 位置正确。
     virtual Status skip(int64_t rows);
+
+    // 按 selection 读取当前 batch 中需要输出的行，并在末尾跳过 batch 内剩余行。
+    // selection 保存的是当前 batch 内的 row offset，必须单调递增。默认实现退化为整批
+    // read_batch + filter；RecordReader-backed primitive reader 会覆盖为真正的
+    // SkipRecords/ReadRecords 交替执行。
+    virtual Status read_selected(const std::vector<uint16_t>& selection, uint16_t selected_rows,
+                                 int64_t batch_rows, MutableColumnPtr* result_column);
 };
 
 // Parquet column reader 工厂。
-// 工厂绑定当前 row group 的 Arrow Parquet core ColumnReader 列表，并根据 file-local
-// schema tree 创建 Doris 自己的 column reader。后续 reader options、Dremel assembler、
-// 延时物化 cache/skip 策略都应挂在该工厂上下文里，而不是继续扩展自由函数参数。
+// 工厂绑定当前 row group 的 Arrow Parquet core reader 列表，并根据 file-local schema
+// tree 创建 Doris 自己的 column reader。后续 reader options、Dremel assembler、延时物化
+// cache/skip 策略都应挂在该工厂上下文里，而不是继续扩展自由函数参数。
 class ParquetColumnReaderFactory {
 public:
     explicit ParquetColumnReaderFactory(
-            const std::vector<std::shared_ptr<::parquet::ColumnReader>>& arrow_readers);
+            const std::vector<std::shared_ptr<::parquet::ColumnReader>>& arrow_readers,
+            const std::vector<std::shared_ptr<::parquet::internal::RecordReader>>& record_readers);
 
     // 根据 file-local schema tree 创建 column reader。复杂类型会在这里递归创建
     // children。该入口只理解 Parquet file schema，不处理 table/global schema。
@@ -97,9 +110,11 @@ private:
                                    const ::parquet::ColumnDescriptor* descriptor, DataTypePtr type,
                                    std::string name,
                                    std::shared_ptr<::parquet::ColumnReader> arrow_reader,
+                                   std::shared_ptr<::parquet::internal::RecordReader> record_reader,
                                    std::unique_ptr<ParquetColumnReader>* reader) const;
 
     const std::vector<std::shared_ptr<::parquet::ColumnReader>>& _arrow_readers;
+    const std::vector<std::shared_ptr<::parquet::internal::RecordReader>>& _record_readers;
 };
 
 } // namespace parquet
