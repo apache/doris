@@ -390,7 +390,7 @@ TEST_F(ConvertFieldToTypeTest, ConvertFieldToType_ToJsonb) {
     {
         JsonbWriter test_writer;
         test_writer.writeStartObject();
-        test_writer.writeKey("key");
+        test_writer.writeKey("key", static_cast<uint8_t>(sizeof("key") - 1));
         test_writer.writeString("value");
         test_writer.writeEndObject();
 
