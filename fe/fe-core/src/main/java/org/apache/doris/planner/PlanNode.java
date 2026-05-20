@@ -1174,7 +1174,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         // 5. Resolve exchange type and create LE node
         LocalExchangeType preferType = AddLocalExchange.resolveExchangeType(
                 require, translatorContext, this, childOutput.first);
-        List<Expr> distributeExprs = getChildDistributeExprList(childIndex);
+        List<Expr> distributeExprs = getLocalExchangeDistributeExprs(childIndex, selfOrInheritedShuffled);
         PlanNode leNode = createLocalExchange(translatorContext, childOutput.first, preferType, distributeExprs);
         return Pair.of(leNode, preferType);
     }
@@ -1218,6 +1218,28 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         } else {
             return childrenDistributeExprLists.get(childIndex);
         }
+    }
+
+    /**
+     * Return distribute exprs used as the hash key when {@link #enforceRequire} inserts a
+     * LocalExchange between this node and {@code child[childIndex]}.  Default returns the
+     * child's output distribution ({@code childrenDistributeExprLists[childIndex]}).
+     *
+     * <p>Subclasses override this to mirror BE-specific {@code _partition_exprs} logic.  For
+     * example BE's {@code AggSinkOperatorX::update_operator} picks
+     * {@code grouping_exprs} when {@code !_followed_by_shuffled_operator && !has_distinct},
+     * even though the child outputs a different (hash) distribution — and the LE inserted
+     * before the streaming preagg must partition by {@code grouping_exprs} so a local
+     * partial reduce actually collapses same-key rows.  Using the default (child
+     * distribution) here would scatter same-group rows across instances and degrade the
+     * preagg to a no-op, also breaking row-arrival order at downstream merge-finalize.
+     *
+     * @param childIndex which child
+     * @param followedByShuffled whether the chain at this node is followed by a shuffled
+     *        operator (mirrors BE's {@code _followed_by_shuffled_operator})
+     */
+    protected List<Expr> getLocalExchangeDistributeExprs(int childIndex, boolean followedByShuffled) {
+        return getChildDistributeExprList(childIndex);
     }
 
     /**

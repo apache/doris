@@ -450,6 +450,43 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
     }
 
     @Test
+    public void testStreamingAggHashShuffleUsesGroupingExprs() throws Exception {
+        // Regression for: FE-planned LE(LOCAL_HASH) under a streaming partial agg used
+        // the child's table distribution (e.g. `k1`) instead of the grouping keys
+        // (e.g. `k2`).  BE's AggSinkOperatorX/StreamingAggOperatorX::update_operator
+        // picks `_partition_exprs = grouping_exprs` when the chain is NOT followed by
+        // a shuffled operator (the common case where the streaming preagg sits at
+        // fragment root with only a cross-fragment HASH ExchangeSink above).  Using
+        // child distribution instead scatters same-group rows across N instances,
+        // turning the partial preagg into a no-op and corrupting row-arrival order at
+        // downstream merge-finalize (manifests as e.g. non-deterministic
+        // group_concat / py_json_array_agg output).
+        //
+        // Table t1 is DISTRIBUTED BY HASH(k1).  GROUP BY k2 forces a cross-fragment
+        // exchange (and thus a two-phase aggregation): the streaming partial agg lives
+        // in the lower fragment, with an FE-inserted LE(LOCAL_HASH) below it.  The fix
+        // makes that LE carry [k2] (the grouping key) rather than [k1] (the child
+        // table distribution).
+        setupLocalShuffleSession(null);
+        assertPlanShape(
+                "select k2, count(*) from test.t1 group by k2",
+                anyTree(
+                        agg(
+                                localExchange(LOCAL_HASH,
+                                        localExchange(PT, olapScan("t1")))
+                                        .where(le -> {
+                                            List<org.apache.doris.analysis.Expr> exprs =
+                                                    le.getDistributeExprLists();
+                                            if (exprs == null || exprs.size() != 1) {
+                                                return false;
+                                            }
+                                            org.apache.doris.analysis.Expr e = exprs.get(0);
+                                            return e instanceof org.apache.doris.analysis.SlotRef
+                                                    && "k2".equals(((org.apache.doris.analysis.SlotRef) e).getCol());
+                                        }))));
+    }
+
+    @Test
     public void testRequireHashSatisfyAllHashShuffleTypes() {
         LocalExchangeNode.LocalExchangeTypeRequire requireHash = LocalExchangeNode.LocalExchangeTypeRequire.requireHash();
         Assertions.assertTrue(requireHash.satisfy(LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE));
