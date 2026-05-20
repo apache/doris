@@ -22,7 +22,7 @@ import org.awaitility.Awaitility
 final String BACKEND_CONFIG_CHECK_FAILED_PREFIX = "Backend configuration check failed: "
 final String FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX = "File cache features check failed: "
 
-suite("test_file_cache_query_limit", "p0,external,nonConcurrent") {
+suite("test_file_cache_query_limit", "p0,external") {
     String enableHiveTest = context.config.otherConfigs.get("enableHiveTest")
     if (enableHiveTest == null || !enableHiveTest.equalsIgnoreCase("true")) {
         logger.info("disable hive test.")
