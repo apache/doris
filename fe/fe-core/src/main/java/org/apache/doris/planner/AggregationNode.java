@@ -373,6 +373,28 @@ public class AggregationNode extends PlanNode {
     }
 
     @Override
+    protected List<Expr> getLocalExchangeDistributeExprs(int childIndex, boolean followedByShuffled) {
+        // Mirror BE AggSinkOperatorX::update_operator / StreamingAggOperatorX::update_operator:
+        //   _partition_exprs = (distribute_expr_lists set && (followed_by_shuffled || has_distinct))
+        //                      ? distribute_expr_lists[0] : grouping_exprs
+        // The HASH LocalExchange must partition by _partition_exprs so a streaming partial preagg
+        // locally collapses same-key rows.  Using child distribution (default) for a non-shuffled
+        // chain scatters same-group rows across N instances, leaving partial_preagg essentially a
+        // no-op and breaking row-arrival order at downstream merge-finalize (e.g. group_concat).
+        List<Expr> childDist = getChildDistributeExprList(childIndex);
+        boolean hasDistinct = aggInfo.getAggregateExprs().stream()
+                .map(FunctionCallExpr::getFnName)
+                .filter(name -> name != null)
+                .map(name -> name.getFunction())
+                .filter(name -> name != null)
+                .anyMatch(name -> name.startsWith("multi_distinct_"));
+        if (childDist != null && !childDist.isEmpty() && (followedByShuffled || hasDistinct)) {
+            return childDist;
+        }
+        return Lists.newArrayList(aggInfo.getGroupingExprs());
+    }
+
+    @Override
     public boolean requiresShuffleForCorrectness() {
         // Mirrors BE's AggSinkOperatorX::is_shuffled_operator() exactly:
         //   finalize agg with group keys needs hash-distributed input for correctness.
