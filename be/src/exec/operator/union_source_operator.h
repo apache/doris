@@ -36,7 +36,7 @@ public:
     ENABLE_FACTORY_CREATOR(UnionSourceLocalState);
     using Base = PipelineXLocalState<UnionSharedState>;
     using Parent = UnionSourceOperatorX;
-    UnionSourceLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {};
+    UnionSourceLocalState(RuntimeState* state, OperatorXBase* parent);
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;

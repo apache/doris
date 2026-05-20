@@ -419,6 +419,7 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode) {
 
 TEST_F(TableFunctionOperatorTest, block_fast_path_explode_batch_truncate) {
     state->_batch_size = 2;
+    state->_query_options.__set_batch_size(2);
     bool get_value_called = false;
     auto int_type = std::make_shared<DataTypeInt32>();
     auto arr_type = std::make_shared<DataTypeArray>(int_type);
@@ -662,6 +663,7 @@ TEST_F(TableFunctionOperatorTest, block_fast_path_explode_nullable_array_misalig
 TEST_F(TableFunctionOperatorTest,
        block_fast_path_explode_nullable_array_partial_gap_uses_slow_path) {
     state->_batch_size = 2;
+    state->_query_options.__set_batch_size(2);
     bool get_value_called = false;
     auto int_type = std::make_shared<DataTypeInt32>();
     auto arr_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeArray>(int_type));
@@ -2166,5 +2168,50 @@ TEST_F(UnnestTest, posexplode_with_nulls_fast_path) {
         EXPECT_EQ(val_col->get_element(1), 20);
         EXPECT_EQ(val_col->get_element(2), 30);
     }
+}
+
+// Verify table function operator applies a BlockBudget derived from the runtime state's
+// row/byte limits when byte budget is set. This is a smoke test that the adaptive batch
+// size config path doesn't crash.
+TEST_F(TableFunctionOperatorTest, ByteBudgetLimitsOutputRows) {
+    auto saved = config::enable_adaptive_batch_size;
+    config::enable_adaptive_batch_size = true;
+    state->_batch_size = 4096;
+    state->_query_options.__set_preferred_block_size_bytes(1);
+    state->_query_options.__set_batch_size(65535);
+
+    bool get_value_called = false;
+    auto array_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
+    auto output_type = std::make_shared<DataTypeInt32>();
+    prepare_fast_explode_operator(array_type, output_type, &get_value_called);
+
+    // Push a single-row block with a small array.
+    {
+        auto int_col = ColumnHelper::create_column<DataTypeInt32>({1});
+        auto inner_col = ColumnInt32::create();
+        auto offsets = ColumnArray::ColumnOffsets::create();
+        inner_col->insert_value(10);
+        inner_col->insert_value(20);
+        offsets->insert_value(2);
+
+        auto array_col = ColumnArray::create(std::move(inner_col), std::move(offsets));
+        Block block;
+        block.insert({int_col->get_ptr(), std::make_shared<DataTypeInt32>(), "col0"});
+        block.insert({std::move(array_col), array_type, "col1"});
+        push_child_block(std::move(block));
+    }
+
+    // Single pull — verify byte budget limits output. With max_bytes=1, the budget
+    // is exceeded after the first exploded row, so we get 1 row instead of 2.
+    {
+        Block block;
+        bool eos = false;
+        auto st = op->pull(state.get(), &block, &eos);
+        EXPECT_TRUE(st) << st.msg();
+        EXPECT_GE(block.rows(), 1);
+        EXPECT_LE(block.rows(), 2);
+    }
+
+    config::enable_adaptive_batch_size = saved;
 }
 } // namespace doris

@@ -25,7 +25,6 @@
 #include "core/column/column.h"
 #include "core/column/column_filter_helper.h"
 #include "exec/operator/operator.h"
-
 namespace doris {
 class RuntimeState;
 } // namespace doris
@@ -193,7 +192,9 @@ void NestedLoopJoinProbeLocalState::_generate_block_base_probe(RuntimeState* sta
         return build_blocks[_current_build_pos].rows();
     };
 
-    while (_join_block.rows() + add_rows() <= state->batch_size()) {
+    size_t effective_max_rows = _budget.max_rows;
+    bool bytes_estimated = false;
+    while (_join_block.rows() + add_rows() <= effective_max_rows) {
         while (_current_build_pos == _shared_state->build_blocks.size() ||
                _probe_block_pos == probe_block->rows()) {
             // if probe block is empty(), do not need disprocess the probe block rows
@@ -229,11 +230,19 @@ void NestedLoopJoinProbeLocalState::_generate_block_base_probe(RuntimeState* sta
         SCOPED_TIMER(_output_temp_blocks_timer);
         process_probe_block(_probe_block_pos, _join_block, *probe_block, p._num_probe_side_columns,
                             now_process_build_block, p._num_build_side_columns);
+
+        // Refine row limit based on actual bytes per row after first data-producing iteration
+        if (!bytes_estimated && _join_block.rows() > 0) {
+            bytes_estimated = true;
+            size_t bytes_per_row = _join_block.bytes() / _join_block.rows();
+            if (bytes_per_row > 0) {
+                effective_max_rows = _budget.effective_max_rows(bytes_per_row);
+            }
+        }
     }
 
-    DCHECK_LE(_join_block.rows(), state->batch_size())
-            << "join block rows:" << _join_block.rows()
-            << ", state batch size:" << state->batch_size()
+    DCHECK_LE(_join_block.rows(), _budget.max_rows)
+            << "join block rows:" << _join_block.rows() << ", state batch size:" << _budget.max_rows
             << "probe_block rows:" << probe_block->rows()
             << " build blocks size:" << _shared_state->build_blocks.size();
 }
@@ -268,7 +277,9 @@ void NestedLoopJoinProbeLocalState::_generate_block_base_build(RuntimeState* sta
         return;
     }
 
-    while (_join_block.rows() + probe_rows <= state->batch_size()) {
+    size_t effective_max_rows = _budget.max_rows;
+    bool bytes_estimated = false;
+    while (_join_block.rows() + probe_rows <= effective_max_rows) {
         // The current build row has processed the entire probe block; move to the next build row
         if (_probe_block_pos == probe_rows) {
             // Move to the next build row and reset the probe position
@@ -300,11 +311,17 @@ void NestedLoopJoinProbeLocalState::_generate_block_base_build(RuntimeState* sta
 
         // Mark the current probe block as processed; the next loop will move to the next build row
         _probe_block_pos = probe_rows;
+
+        // Refine row limit based on actual bytes per row after first data-producing iteration
+        if (!bytes_estimated && _join_block.rows() > 0) {
+            bytes_estimated = true;
+            effective_max_rows =
+                    _budget.effective_max_rows(_join_block.bytes() / _join_block.rows());
+        }
     }
 
-    DCHECK_LE(_join_block.rows(), state->batch_size())
-            << "join block rows:" << _join_block.rows()
-            << ", state batch size:" << state->batch_size()
+    DCHECK_LE(_join_block.rows(), _budget.max_rows)
+            << "join block rows:" << _join_block.rows() << ", state batch size:" << _budget.max_rows
             << "probe_block rows:" << probe_block->rows()
             << "build block rows:" << build_block.rows();
 }
@@ -367,7 +384,7 @@ Status NestedLoopJoinProbeLocalState::generate_other_join_block_data(RuntimeStat
                 // probe row with null from build side.
                 if (_probe_side_process_count) {
                     _finalize_current_phase<false, JoinOpType::value == TJoinOp::LEFT_SEMI_JOIN>(
-                            _join_block, state->batch_size());
+                            _join_block);
                 }
             } else if (_probe_side_process_count && p._is_mark_join &&
                        _shared_state->build_blocks.empty()) {
@@ -387,23 +404,29 @@ Status NestedLoopJoinProbeLocalState::generate_other_join_block_data(RuntimeStat
         if (_matched_rows_done &&
             _output_null_idx_build_side < _shared_state->build_blocks.size()) {
             _finalize_current_phase<true, JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN>(
-                    _join_block, state->batch_size());
+                    _join_block);
         }
     }
     return Status::OK();
 }
 
 template <bool BuildSide, bool IsSemi>
-void NestedLoopJoinProbeLocalState::_finalize_current_phase(Block& block, size_t batch_size) {
+void NestedLoopJoinProbeLocalState::_finalize_current_phase(Block& block) {
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
     auto dst_columns = block.mutate_columns();
     DCHECK_GT(dst_columns.size(), 0);
-    auto column_size = dst_columns[0]->size();
+    auto current_row_count = dst_columns[0]->size();
+    // Precompute effective batch size from estimated bytes per row to avoid per-iteration byte sum
+    size_t effective_batch_size = _budget.max_rows;
+    if (current_row_count > 0) {
+        const size_t current_bytes = Block::columns_byte_size(dst_columns);
+        effective_batch_size = _budget.effective_max_rows(current_bytes / current_row_count);
+    }
     if constexpr (BuildSide) {
         DCHECK(!p._is_mark_join);
         auto build_block_sz = _shared_state->build_blocks.size();
         size_t i = _output_null_idx_build_side;
-        for (; i < build_block_sz && column_size < batch_size; i++) {
+        for (; i < build_block_sz && current_row_count < effective_batch_size; i++) {
             const auto& cur_block = _shared_state->build_blocks[i];
             const auto* __restrict cur_visited_flags =
                     assert_cast<ColumnUInt8*>(_shared_state->build_side_visited_flags[i].get())
@@ -425,7 +448,7 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(Block& block, size_t
                 }
             }
 
-            column_size += selector_idx;
+            current_row_count += selector_idx;
             for (size_t j = 0; j < p._num_probe_side_columns; ++j) {
                 DCHECK(p._join_op == TJoinOp::RIGHT_OUTER_JOIN ||
                        p._join_op == TJoinOp::FULL_OUTER_JOIN ||
@@ -445,7 +468,7 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(Block& block, size_t
                     assert_cast<ColumnNullable*>(dst_columns[p._num_probe_side_columns + j].get())
                             ->get_null_map_column()
                             .get_data()
-                            .resize_fill(column_size, 0);
+                            .resize_fill(current_row_count, 0);
                 } else {
                     dst_columns[p._num_probe_side_columns + j]->insert_indices_from(
                             *src_column.column.get(), selector.data(),
@@ -456,7 +479,7 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(Block& block, size_t
         _output_null_idx_build_side = i;
     } else {
         if (!p._is_mark_join) {
-            auto new_size = column_size;
+            auto new_size = current_row_count;
             DCHECK_LE(_probe_block_start_pos + _probe_side_process_count, _child_block->rows());
             for (int j = _probe_block_start_pos;
                  j < _probe_block_start_pos + _probe_side_process_count; ++j) {
@@ -479,10 +502,10 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(Block& block, size_t
                     }
                 }
             }
-            if (new_size > column_size) {
+            if (new_size > current_row_count) {
                 for (size_t i = 0; i < p._num_build_side_columns; ++i) {
-                    dst_columns[p._num_probe_side_columns + i]->insert_many_defaults(new_size -
-                                                                                     column_size);
+                    dst_columns[p._num_probe_side_columns + i]->insert_many_defaults(
+                            new_size - current_row_count);
                 }
             }
         } else {

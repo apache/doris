@@ -35,6 +35,8 @@ struct DistinctStreamingAggOperatorTest : public ::testing::Test {
         mock_op = std::make_shared<MockOperatorX>();
         state = std::make_shared<MockRuntimeState>();
         state->_batch_size = 10;
+        state->_query_options.__set_batch_size(10);
+        state->_query_options.__set_batch_size(10);
         op->_child = mock_op;
     }
 
@@ -192,6 +194,41 @@ TEST_F(DistinctStreamingAggOperatorTest, test3) {
         EXPECT_EQ(local_state->_aggregated_block->rows(), 0);
     }
     { EXPECT_TRUE(op->close(state.get())); }
+}
+
+// Verify byte budget limits the output block size in distinct streaming aggregation.
+TEST_F(DistinctStreamingAggOperatorTest, ByteBudgetLimitsOutputBlock) {
+    auto saved = config::enable_adaptive_batch_size;
+    config::enable_adaptive_batch_size = true;
+    state->_batch_size = 4096;
+    state->_query_options.__set_batch_size(4096);
+    state->_query_options.__set_preferred_block_size_bytes(1);
+    state->_query_options.__set_batch_size(65535);
+
+    op->_is_streaming_preagg = false;
+    create_op({std::make_shared<DataTypeInt64>()}, {std::make_shared<DataTypeInt64>()});
+
+    // Push data. With tiny byte budget, need_more_input_data should return false
+    // quickly since within_budget(rows, bytes) will become false when bytes >= 1.
+    {
+        auto block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
+        EXPECT_TRUE(op->push(state.get(), &block, false));
+    }
+
+    // After push of 10 distinct values, need_more_input_data should be false
+    // because the aggregated block bytes exceed the tiny budget.
+    EXPECT_FALSE(op->need_more_input_data(state.get()));
+
+    // Pull should return the aggregated block.
+    {
+        Block block;
+        bool eos = false;
+        EXPECT_TRUE(op->pull(state.get(), &block, &eos));
+        EXPECT_EQ(block.rows(), 10);
+    }
+
+    EXPECT_TRUE(op->close(state.get()));
+    config::enable_adaptive_batch_size = saved;
 }
 
 } // namespace doris

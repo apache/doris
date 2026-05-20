@@ -427,13 +427,13 @@ VDataStreamRecvr::~VDataStreamRecvr() {
 Status VDataStreamRecvr::create_merger(const VExprContextSPtrs& ordering_expr,
                                        const std::vector<bool>& is_asc_order,
                                        const std::vector<bool>& nulls_first, size_t batch_size,
-                                       int64_t limit, size_t offset) {
+                                       int64_t limit, size_t offset, size_t block_max_bytes) {
     DCHECK(_is_merging);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     std::vector<BlockSupplier> child_block_suppliers;
     // Create the merger that will a single stream of sorted rows.
     _merger.reset(new VSortedRunMerger(ordering_expr, is_asc_order, nulls_first, batch_size, limit,
-                                       offset, _profile));
+                                       offset, _profile, block_max_bytes));
 
     for (int i = 0; i < _sender_queues.size(); ++i) {
         child_block_suppliers.emplace_back(std::bind(std::mem_fn(&SenderQueue::get_batch),

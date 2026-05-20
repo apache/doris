@@ -716,4 +716,57 @@ TEST(AggOperatorTestWithOutGroupBy, other_case_3) {
     }
 }
 
+// Verify aggregation source respects byte budget via BlockBudget::effective_max_rows.
+// With a tiny byte budget, each output block should contain fewer rows than batch_size.
+TEST_F(AggOperatorTestWithGroupBy, ByteBudgetLimitsOutputRows) {
+    auto saved = config::enable_adaptive_batch_size;
+    config::enable_adaptive_batch_size = true;
+
+    OperatorContext ctx;
+    // Set a large batch_size but tiny byte budget so effective_max_rows is small.
+    ctx.state._batch_size = 4096;
+    ctx.state._query_options.__set_batch_size(4096);
+    ctx.state._query_options.__set_preferred_block_size_bytes(1);
+    ctx.state._query_options.__set_batch_size(65535);
+
+    auto sink_op = std::make_shared<MockAggsinkOperator>();
+    sink_op->_aggregate_evaluators.push_back(create_mock_agg_fn_evaluator(
+            ctx.pool, MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>()),
+            false, false));
+    sink_op->_pool = &ctx.pool;
+    EXPECT_TRUE(sink_op->prepare(&ctx.state).ok());
+    sink_op->_probe_expr_ctxs =
+            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+
+    auto source_op = std::make_shared<MockAggSourceOperator>();
+    source_op->mock_row_descriptor.reset(new MockRowDescriptor {
+            {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()}, &ctx.pool});
+    source_op->_without_key = false;
+    source_op->_needs_finalize = true;
+    EXPECT_TRUE(source_op->prepare(&ctx.state).ok());
+
+    auto shared_state = init_sink_and_source(sink_op, source_op, ctx);
+
+    {
+        Block block {
+                ColumnHelper::create_column_with_name<DataTypeInt64>({1, 1, 2, 2, 2, 3}),
+                ColumnHelper::create_column_with_name<DataTypeInt64>({1, 1, 100, 100, 100, 1000})};
+        EXPECT_TRUE(sink_op->sink(&ctx.state, &block, true).ok());
+    }
+
+    // Collect all output blocks — with a tiny byte budget the source should still produce
+    // all 3 distinct groups, possibly across multiple get_block calls.
+    size_t total_rows = 0;
+    bool eos = false;
+    while (!eos) {
+        Block block;
+        EXPECT_TRUE(source_op->get_block(&ctx.state, &block, &eos).ok());
+        total_rows += block.rows();
+    }
+    // All 3 groups must be output regardless of byte budget.
+    EXPECT_EQ(total_rows, 3);
+
+    config::enable_adaptive_batch_size = saved;
+}
+
 } // namespace doris

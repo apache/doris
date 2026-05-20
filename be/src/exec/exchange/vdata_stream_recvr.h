@@ -78,7 +78,7 @@ public:
     MOCK_FUNCTION Status create_merger(const VExprContextSPtrs& ordering_expr,
                                        const std::vector<bool>& is_asc_order,
                                        const std::vector<bool>& nulls_first, size_t batch_size,
-                                       int64_t limit, size_t offset);
+                                       int64_t limit, size_t offset, size_t block_max_bytes);
 
     std::vector<SenderQueue*> sender_queues() const { return _sender_queues; }
 

@@ -21,6 +21,10 @@
 
 namespace doris {
 
+LocalExchangeSourceLocalState::LocalExchangeSourceLocalState(RuntimeState* state,
+                                                             OperatorXBase* parent)
+        : Base(state, parent) {}
+
 Status LocalExchangeSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());

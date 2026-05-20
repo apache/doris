@@ -34,20 +34,24 @@ namespace doris {
 VSortedRunMerger::VSortedRunMerger(const VExprContextSPtrs& ordering_expr,
                                    const std::vector<bool>& is_asc_order,
                                    const std::vector<bool>& nulls_first, const size_t batch_size,
-                                   int64_t limit, size_t offset, RuntimeProfile* profile)
+                                   int64_t limit, size_t offset, RuntimeProfile* profile,
+                                   size_t block_max_bytes)
         : _ordering_expr(ordering_expr),
           _is_asc_order(is_asc_order),
           _nulls_first(nulls_first),
           _batch_size(batch_size),
+          _block_max_bytes(block_max_bytes),
           _limit(limit),
           _offset(offset) {
     init_timers(profile);
 }
 
 VSortedRunMerger::VSortedRunMerger(const SortDescription& desc, const size_t batch_size,
-                                   int64_t limit, size_t offset, RuntimeProfile* profile)
+                                   int64_t limit, size_t offset, RuntimeProfile* profile,
+                                   size_t block_max_bytes)
         : _desc(desc),
           _batch_size(batch_size),
+          _block_max_bytes(block_max_bytes),
           _use_sort_desc(true),
           _limit(limit),
           _offset(offset),
@@ -114,6 +118,8 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
         *eos = true;
         return Status::OK();
     } else if (_priority_queue.size() == 1) {
+        // Single-run fast path: cut/swap the supplier block into output.
+        // Uses column->cut() which is O(columns) instead of row-by-row merge O(rows*columns).
         auto current = _priority_queue.top();
         DCHECK(!current->eof());
         DCHECK(current->block_ptr() != nullptr);
@@ -132,21 +138,46 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
             }
         }
 
-        if (!current->is_first()) {
-            for (int i = 0; i < current->block->columns(); i++) {
-                auto& column_with_type = current->block_ptr()->get_by_position(i);
-                column_with_type.column =
-                        column_with_type.column->cut(current->pos, current->rows - current->pos);
+        size_t remaining = current->rows - current->pos;
+        size_t output_rows = std::min(remaining, _batch_size);
+
+        // Apply byte budget: estimate rows that fit within _block_max_bytes.
+        // _block_max_bytes == 0 means no byte budget (e.g., iceberg sort writer).
+        if (_block_max_bytes > 0 && remaining > 1 && current->block_ptr()->bytes() > 0) {
+            size_t bytes_per_row = current->block_ptr()->bytes() / current->rows;
+            if (bytes_per_row > 0) {
+                size_t byte_limited = _block_max_bytes / bytes_per_row;
+                output_rows = std::min(output_rows, std::max(size_t(1), byte_limited));
             }
         }
-        current->block_ptr()->swap(*output_block);
-        current->next(current->rows - current->pos);
-        if (current->eof()) {
-            *eos = true;
+
+        if (current->is_first() && output_rows == remaining) {
+            // Entire block fits — zero-copy swap.
+            current->block_ptr()->swap(*output_block);
         } else {
-            _pending_cursor = current.impl;
+            // Build output block from cut columns without modifying the supplier block.
+            // The cursor (and its underlying block) is intentionally left in the priority
+            // queue so that the next get_next() call can continue slicing the remaining
+            // rows. MergeSortBlockCursor wraps a shared impl pointer, so advancing the
+            // cursor below via current->next(output_rows) updates the queue's view of
+            // the same cursor in place.
+            auto* src_block = current->block_ptr();
+            output_block->clear();
+            for (int i = 0; i < src_block->columns(); i++) {
+                auto col_with_type = src_block->get_by_position(i);
+                col_with_type.column = col_with_type.column->cut(current->pos, output_rows);
+                output_block->insert(std::move(col_with_type));
+            }
         }
-        _priority_queue.pop();
+        current->next(output_rows);
+        if (output_rows >= remaining) {
+            _priority_queue.pop();
+            if (current->eof()) {
+                *eos = true;
+            } else {
+                _pending_cursor = current.impl;
+            }
+        }
         return Status::OK();
     } else {
         size_t num_columns = _priority_queue.top().impl->block->columns();
@@ -195,6 +226,14 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
             if (_need_more_data(current)) {
                 do_insert();
                 return Status::OK();
+            }
+
+            if (merged_rows > 0 && (merged_rows & 255) == 0 && !_indexs.empty()) {
+                do_insert();
+                // _block_max_bytes == 0 means no byte budget.
+                if (_block_max_bytes > 0 && m_block.bytes() >= _block_max_bytes) {
+                    break;
+                }
             }
         }
         do_insert();

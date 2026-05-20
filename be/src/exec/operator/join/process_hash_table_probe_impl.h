@@ -66,10 +66,12 @@ static void mock_column_size(auto& col, size_t size) {
 
 template <int JoinOpType>
 ProcessHashTableProbe<JoinOpType>::ProcessHashTableProbe(HashJoinProbeLocalState* parent,
-                                                         int batch_size)
+                                                         int batch_size, size_t block_max_bytes)
         : _parent(parent),
           _parent_operator(&parent->_parent->template cast<HashJoinProbeOperatorX>()),
           _batch_size(batch_size),
+          _initial_batch_size(batch_size),
+          _block_max_bytes(block_max_bytes),
           _build_block(parent->build_block()),
           _have_other_join_conjunct(_parent_operator->_have_other_join_conjunct),
           _left_output_slot_flags(_parent_operator->_left_output_slot_flags),
@@ -185,13 +187,13 @@ template <int JoinOpType>
 template <typename HashTableType>
 typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_side(
         HashTableType& hash_table_ctx, uint32_t probe_rows, const uint8_t* null_map) {
-    // may over batch size 1 for some outer join case
-    _probe_indexs.resize(_batch_size + 1);
-    _build_indexs.resize(_batch_size + 1);
+    // Use _initial_batch_size for buffer sizing to ensure find_batch has enough space.
+    _probe_indexs.resize(_initial_batch_size + 1);
+    _build_indexs.resize(_initial_batch_size + 1);
     if ((JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
          JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) &&
         _have_other_join_conjunct) {
-        _null_flags.resize(_batch_size + 1);
+        _null_flags.resize(_initial_batch_size + 1);
     }
 
     if (!_parent->_ready_probe) {
@@ -210,6 +212,35 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_sid
         int64_t arena_memory_usage = hash_table_ctx.serialized_keys_size(false);
         COUNTER_SET(_parent->_probe_arena_memory_usage, arena_memory_usage);
         COUNTER_UPDATE(_parent->_memory_used_counter, arena_memory_usage);
+
+        // Pre-estimate bytes per row to limit batch size. Only include sides that
+        // actually contribute columns to the output: left-semi/anti joins do not
+        // output build columns, right-semi/anti joins do not output probe columns.
+        // Without this filtering, the first batch can be substantially smaller than
+        // _block_max_bytes allows. Subsequent batches are further adjusted by
+        // process() based on the observed output bytes-per-row.
+        {
+            constexpr bool outputs_build_side = JoinOpType != TJoinOp::LEFT_SEMI_JOIN &&
+                                                JoinOpType != TJoinOp::LEFT_ANTI_JOIN &&
+                                                JoinOpType != TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN &&
+                                                JoinOpType != TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN;
+            constexpr bool outputs_probe_side = JoinOpType != TJoinOp::RIGHT_SEMI_JOIN &&
+                                                JoinOpType != TJoinOp::RIGHT_ANTI_JOIN;
+            size_t total_bytes_per_row = 0;
+            if (outputs_build_side && _build_block && _build_block->rows() > 0) {
+                total_bytes_per_row += _build_block->bytes() / _build_block->rows();
+            }
+            auto& probe_block = _parent->_probe_block;
+            if (outputs_probe_side && probe_block.rows() > 0) {
+                total_bytes_per_row += probe_block.bytes() / probe_block.rows();
+            }
+            if (total_bytes_per_row > 0) {
+                int bytes_limited = std::max(
+                        1, static_cast<int>(std::min(_block_max_bytes / total_bytes_per_row,
+                                                     static_cast<size_t>(INT_MAX))));
+                _batch_size = std::min(_batch_size, bytes_limited);
+            }
+        }
     }
 
     return typename HashTableType::State(_parent->_probe_columns);
@@ -514,7 +545,7 @@ Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
                             hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(), probe_index,
                             build_index, probe_rows, _probe_indexs.get_data().data(),
                             _build_indexs.get_data().data(), _null_flags.data(), _picking_null_keys,
-                            null_map);
+                            null_map, _batch_size);
             probe_index = new_probe_idx;
             build_index = new_build_idx;
             current_offset = new_current_offset;
@@ -539,7 +570,7 @@ Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
                         build_index, cast_set<int32_t>(probe_rows), _probe_indexs.get_data().data(),
                         _probe_visited, _build_indexs.get_data().data(), null_map,
                         _have_other_join_conjunct, is_mark_join,
-                        !_parent->_mark_join_conjuncts.empty());
+                        !_parent->_mark_join_conjuncts.empty(), _batch_size);
         probe_index = new_probe_idx;
         build_index = new_build_idx;
         current_offset = new_current_offset;
@@ -559,6 +590,18 @@ Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
     output_block->swap(mutable_block.to_block());
     DCHECK_EQ(current_offset, output_block->rows());
     COUNTER_UPDATE(_parent->_intermediate_rows_counter, current_offset);
+
+    // Adaptively adjust batch size based on output block bytes.
+    if (current_offset > 0) {
+        size_t block_bytes = output_block->bytes();
+        size_t bytes_per_row = block_bytes / current_offset;
+        if (bytes_per_row > 0) {
+            int new_batch_size =
+                    std::max(1, static_cast<int>(std::min(_block_max_bytes / bytes_per_row,
+                                                          static_cast<size_t>(INT_MAX))));
+            _batch_size = std::min(_initial_batch_size, new_batch_size);
+        }
+    }
 
     // For ASOF JOIN, skip conjuncts filtering since we already found best match
     if constexpr (is_asof_join) {
@@ -974,11 +1017,11 @@ Status ProcessHashTableProbe<
     if (is_mark_join) {
         std::unique_ptr<ColumnFilterHelper> mark_column =
                 std::make_unique<ColumnFilterHelper>(*mcol[mcol.size() - 1]);
-        *eos = hash_table_ctx.hash_table->template iterate_map<JoinOpType, true>(_build_indexs,
-                                                                                 mark_column.get());
+        *eos = hash_table_ctx.hash_table->template iterate_map<JoinOpType, true>(
+                _build_indexs, mark_column.get(), _batch_size);
     } else {
-        *eos = hash_table_ctx.hash_table->template iterate_map<JoinOpType, false>(_build_indexs,
-                                                                                  nullptr);
+        *eos = hash_table_ctx.hash_table->template iterate_map<JoinOpType, false>(
+                _build_indexs, nullptr, _batch_size);
     }
 
     auto block_size = _build_indexs.size();
@@ -1039,7 +1082,19 @@ Status ProcessHashTableProbe<
             }
         }
         output_block->swap(mutable_block.to_block(0));
-        DCHECK(block_size <= _batch_size);
+
+        // Adaptively adjust batch size based on output block bytes.
+        if (block_size > 0) {
+            size_t block_bytes = output_block->bytes();
+            size_t bytes_per_row = block_bytes / block_size;
+            if (bytes_per_row > 0) {
+                int new_batch_size =
+                        std::max(1, static_cast<int>(std::min(_block_max_bytes / bytes_per_row,
+                                                              static_cast<size_t>(INT_MAX))));
+                _batch_size = std::min(_initial_batch_size, new_batch_size);
+            }
+        }
+        DCHECK(block_size <= _initial_batch_size);
     }
     return Status::OK();
 }
