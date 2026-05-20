@@ -544,7 +544,7 @@ class IvmOuterJoinDeltaHandler {
             EqualTo equalTo = (EqualTo) conjunct;
             Expression left = equalTo.left();
             Expression right = equalTo.right();
-            if (left.containsUniqueFunction() || right.containsUniqueFunction()) {
+            if (left.containsVolatileExpression() || right.containsVolatileExpression()) {
                 return null;
             }
             if (isBoundBy(left, leftExprIds) && isBoundBy(right, rightExprIds)) {
