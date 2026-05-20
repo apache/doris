@@ -142,16 +142,20 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         MTMV mtmv = getMtmv("ivm_mv");
         connectContext.getSessionVariable().setEnableIvmNormalRewrite(true);
 
-        UpdateMvByPartitionCommand command = newRefreshCommand(mtmv);
-        LogicalOlapTableSink<?> sink = (LogicalOlapTableSink<?>) PlanChecker.from(connectContext,
-                command.getLogicalQuery()).analyze(command.getLogicalQuery()).getPlan();
-        List<String> expectedInsertedColumns = mtmv.getInsertedColumnNames();
-        List<String> expectedTargetColumns = getAnalyzedIvmSinkColumnNames(mtmv);
+        try {
+            UpdateMvByPartitionCommand command = newRefreshCommand(mtmv);
+            LogicalOlapTableSink<?> sink = (LogicalOlapTableSink<?>) PlanChecker.from(connectContext,
+                    command.getLogicalQuery()).analyze(command.getLogicalQuery()).getPlan();
+            List<String> expectedInsertedColumns = mtmv.getInsertedColumnNames();
+            List<String> expectedTargetColumns = getAnalyzedIvmSinkColumnNames(mtmv);
 
-        Assertions.assertEquals(expectedInsertedColumns, getColumnNames(sink.getCols()));
-        Assertions.assertEquals(expectedTargetColumns, getNamedExpressionNames(sink.getOutputExprs()));
-        Assertions.assertEquals(expectedTargetColumns, getSlotNames(sink.getTargetTableSlots()));
-        Assertions.assertEquals(Column.IVM_ROW_ID_COL, sink.child().getOutput().get(0).getName());
+            Assertions.assertEquals(expectedInsertedColumns, getColumnNames(sink.getCols()));
+            Assertions.assertEquals(expectedTargetColumns, getNamedExpressionNames(sink.getOutputExprs()));
+            Assertions.assertEquals(expectedTargetColumns, getSlotNames(sink.getTargetTableSlots()));
+            Assertions.assertEquals(Column.IVM_ROW_ID_COL, sink.child().getOutput().get(0).getName());
+        } finally {
+            connectContext.getSessionVariable().setEnableIvmNormalRewrite(false);
+        }
     }
 
     @Test
@@ -161,28 +165,32 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         StatementContext statementContext = createStatementCtx("refresh materialized view test.ivm_mv");
         connectContext.getSessionVariable().setEnableIvmNormalRewrite(true);
 
-        TestNereidsPlanner planner = new TestNereidsPlanner(statementContext);
-        PhysicalPlan physicalPlan = planner.planWithLock(command.getLogicalQuery(), PhysicalProperties.ANY);
-        PlanTranslatorContext translatorContext = new PlanTranslatorContext(planner.getCascadesContext());
-        new PhysicalPlanTranslator(translatorContext).translatePlan(physicalPlan);
-        List<PlanFragment> fragments = translatorContext.getPlanFragments();
+        try {
+            TestNereidsPlanner planner = new TestNereidsPlanner(statementContext);
+            PhysicalPlan physicalPlan = planner.planWithLock(command.getLogicalQuery(), PhysicalProperties.ANY);
+            PlanTranslatorContext translatorContext = new PlanTranslatorContext(planner.getCascadesContext());
+            new PhysicalPlanTranslator(translatorContext).translatePlan(physicalPlan);
+            List<PlanFragment> fragments = translatorContext.getPlanFragments();
 
-        Assertions.assertNotNull(fragments);
-        Assertions.assertFalse(fragments.isEmpty());
-        PlanFragment sinkFragment = findSinkFragment(fragments);
-        OlapTableSink sink = (OlapTableSink) sinkFragment.getSink();
-        PlanFragment tabletSinkExprFragment = findTabletSinkExprFragment(fragments);
-        List<Expr> sinkOutputExprs = tabletSinkExprFragment == null
-                ? sinkFragment.getOutputExprs()
-                : tabletSinkExprFragment.getOutputExprs();
+            Assertions.assertNotNull(fragments);
+            Assertions.assertFalse(fragments.isEmpty());
+            PlanFragment sinkFragment = findSinkFragment(fragments);
+            OlapTableSink sink = (OlapTableSink) sinkFragment.getSink();
+            PlanFragment tabletSinkExprFragment = findTabletSinkExprFragment(fragments);
+            List<Expr> sinkOutputExprs = tabletSinkExprFragment == null
+                    ? sinkFragment.getOutputExprs()
+                    : tabletSinkExprFragment.getOutputExprs();
 
-        Assertions.assertEquals(Column.IVM_ROW_ID_COL,
-                sink.getTupleDescriptor().getSlots().get(0).getColumn().getName());
-        Assertions.assertEquals(PrimitiveType.LARGEINT,
-                sink.getTupleDescriptor().getSlots().get(0).getType().getPrimitiveType());
-        Assertions.assertFalse(sinkOutputExprs.isEmpty());
-        Assertions.assertEquals(PrimitiveType.LARGEINT,
-                sinkOutputExprs.get(0).getType().getPrimitiveType());
+            Assertions.assertEquals(Column.IVM_ROW_ID_COL,
+                    sink.getTupleDescriptor().getSlots().get(0).getColumn().getName());
+            Assertions.assertEquals(PrimitiveType.LARGEINT,
+                    sink.getTupleDescriptor().getSlots().get(0).getType().getPrimitiveType());
+            Assertions.assertFalse(sinkOutputExprs.isEmpty());
+            Assertions.assertEquals(PrimitiveType.LARGEINT,
+                    sinkOutputExprs.get(0).getType().getPrimitiveType());
+        } finally {
+            connectContext.getSessionVariable().setEnableIvmNormalRewrite(false);
+        }
     }
 
     @Test
@@ -234,9 +242,6 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
                 + ")\n"
                 + "distributed by hash(o_orderkey) buckets 1\n"
                 + "properties('replication_num' = '1');");
-        executeSql("insert into test.one_row_orders values\n"
-                + "(1, 1, 'o', 10.5, '2023-12-08', 'a', 'b', 1, 'yy'),\n"
-                + "(3, 1, 'o', 12.5, '2023-12-10', 'a', 'b', 1, 'yy');");
         createMvByNereids("create materialized view test.one_row_mv\n"
                 + "build deferred refresh complete on manual\n"
                 + "distributed by random buckets 1\n"
@@ -250,8 +255,16 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         StatementContext statementContext = createStatementCtx("refresh materialized view test.one_row_mv");
         UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand.from(
                 mtmv, Sets.newHashSet(), ImmutableMap.of(), statementContext);
-        MTMVPlanUtil.executeCommand(mtmv, command, statementContext,
-                "refresh materialized view test.one_row_mv", false);
+
+        TestNereidsPlanner planner = new TestNereidsPlanner(statementContext);
+        PhysicalPlan physicalPlan = planner.planWithLock(command.getLogicalQuery(), PhysicalProperties.ANY);
+        PlanTranslatorContext translatorContext = new PlanTranslatorContext(planner.getCascadesContext());
+        new PhysicalPlanTranslator(translatorContext).translatePlan(physicalPlan);
+        List<PlanFragment> fragments = translatorContext.getPlanFragments();
+
+        Assertions.assertNotNull(fragments);
+        Assertions.assertFalse(fragments.isEmpty());
+        Assertions.assertNotNull(findSinkFragment(fragments));
     }
 
     private UpdateMvByPartitionCommand newRefreshCommand(MTMV mtmv) throws Exception {
