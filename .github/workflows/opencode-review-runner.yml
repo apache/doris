@@ -32,10 +32,10 @@ jobs:
         with:
           ref: ${{ inputs.head_sha }}
 
-      - name: Install ripgrep
+      - name: Install runner utilities
         run: |
           sudo apt-get update
-          sudo apt-get install -y ripgrep
+          sudo apt-get install -y ripgrep unzip
 
       - name: Install OpenCode
         run: |
@@ -50,24 +50,26 @@ jobs:
           echo "All install attempts failed"
           exit 1
 
+      - name: Install ossutil
+        run: |
+          tmp_dir="$(mktemp -d)"
+          trap 'rm -rf "$tmp_dir"' EXIT
+          curl -fsSL -o "$tmp_dir/ossutil.zip" https://gosspublic.alicdn.com/ossutil/1.7.19/ossutil-v1.7.19-linux-amd64.zip
+          unzip -q "$tmp_dir/ossutil.zip" -d "$tmp_dir"
+          sudo install -m 0755 "$tmp_dir/ossutil-v1.7.19-linux-amd64/ossutil" /usr/local/bin/ossutil
+
       - name: Configure OpenCode auth
+        id: configure-auth
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          OSS_AUTH_OBJECT: oss://doris-community-ci/auth.json
         run: |
           mkdir -p ~/.local/share/opencode
-          cat > ~/.local/share/opencode/auth.json <<EOF
-          {
-            "openai": {
-              "type": "oauth",
-              "access": "${CODE_REVIEW_ZCLLL_OPENAI_ACCESS_KEY}",
-              "refresh": "${CODE_REVIEW_ZCLLL_OPENAI_REFRESH_KEY}",
-              "expires": 1779122093655,
-              "accountId": "${CODE_REVIEW_ZCLLL_OPENAI_ACCOUNT_ID}"
-            }
-          }
-          EOF
-        env:
-          CODE_REVIEW_ZCLLL_OPENAI_ACCESS_KEY: ${{ secrets.CODE_REVIEW_ZCLLL_OPENAI_ACCESS_KEY }}
-          CODE_REVIEW_ZCLLL_OPENAI_REFRESH_KEY: ${{ secrets.CODE_REVIEW_ZCLLL_OPENAI_REFRESH_KEY }}
-          CODE_REVIEW_ZCLLL_OPENAI_ACCOUNT_ID: ${{ secrets.CODE_REVIEW_ZCLLL_OPENAI_ACCOUNT_ID }}
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$OSS_AUTH_OBJECT" ~/.local/share/opencode/auth.json
+          chmod 600 ~/.local/share/opencode/auth.json
+          test -s ~/.local/share/opencode/auth.json
 
       - name: Prepare review context directory
         run: |
@@ -226,6 +228,17 @@ jobs:
             } >> "$GITHUB_OUTPUT"
             exit 1
           fi
+
+      - name: Persist OpenCode auth
+        if: ${{ always() && steps.configure-auth.outcome == 'success' }}
+        env:
+          OSS_AK: ${{ secrets.OSS_AK }}
+          OSS_SK: ${{ secrets.OSS_SK }}
+          OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
+          OSS_AUTH_OBJECT: oss://doris-community-ci/auth.json
+        run: |
+          test -s ~/.local/share/opencode/auth.json
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f ~/.local/share/opencode/auth.json "$OSS_AUTH_OBJECT"
 
       - name: Comment PR on review failure
         if: ${{ always() && steps.review.outcome != 'success' }}
