@@ -27,6 +27,7 @@ import org.apache.flink.shaded.guava31.com.google.common.util.concurrent.ThreadF
 
 import io.debezium.connector.base.ChangeEventQueue;
 import io.debezium.pipeline.DataChangeEvent;
+import io.debezium.relational.TableId;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.source.SourceRecord;
 import org.slf4j.Logger;
