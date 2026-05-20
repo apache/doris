@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 
+#include "common/thread_safety_annotations.h"
 #include "core/block/block.h"
 #include "exec/exchange/vdata_stream_sender.h"
 #include "exec/pipeline/dependency.h"
@@ -100,16 +101,16 @@ private:
     Status _copy_block(RuntimeState* state, int32_t sender_idx, Block* block,
                        MultiCastBlock& multi_cast_block);
 
-    Status _start_spill_task(RuntimeState* state, SpillFileSPtr spill_file);
+    Status _start_spill_task(RuntimeState* state, SpillFileSPtr spill_file) REQUIRES(_mutex);
 
-    Status _trigger_spill_if_need(RuntimeState* state, bool* triggered);
+    Status _trigger_spill_if_need(RuntimeState* state, bool* triggered) REQUIRES(_mutex);
 
     RuntimeProfile* _profile = nullptr;
-    std::list<MultiCastBlock> _multi_cast_blocks;
-    std::vector<std::vector<Block>> _cached_blocks;
-    std::vector<std::list<MultiCastBlock>::iterator> _sender_pos_to_read;
-    std::mutex _mutex;
-    bool _eos = false;
+    std::list<MultiCastBlock> _multi_cast_blocks GUARDED_BY(_mutex);
+    std::vector<std::vector<Block>> _cached_blocks GUARDED_BY(_mutex);
+    std::vector<std::list<MultiCastBlock>::iterator> _sender_pos_to_read GUARDED_BY(_mutex);
+    AnnotatedMutex _mutex;
+    bool _eos GUARDED_BY(_mutex) = false;
     int _cast_sender_count = 0;
     int _node_id;
     std::atomic_int64_t _cumulative_mem_size = 0;
@@ -120,9 +121,9 @@ private:
     Dependency* _write_dependency;
     std::vector<Dependency*> _dependencies;
 
-    BlockUPtr _pending_block;
+    BlockUPtr _pending_block GUARDED_BY(_mutex);
 
-    std::vector<std::vector<std::shared_ptr<SpillingReader>>> _spill_readers;
+    std::vector<std::vector<std::shared_ptr<SpillingReader>>> _spill_readers GUARDED_BY(_mutex);
 
     RuntimeProfile* _sink_operator_profile;
     // operator_profile of each source operator
