@@ -27,6 +27,7 @@
 #include "core/column/column.h"
 #include "core/column/column_array.h"
 #include "core/column/column_map.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
@@ -108,23 +109,30 @@ TEST(ComplexTypeTest, DeserializeArrayWritesBackSharedNestedColumn) {
     src_column->insert(Field::create_field<TYPE_ARRAY>(Array {Field::create_field<TYPE_INT>(3)}));
     auto buf = serialize_column(array_type, src_column->get_ptr());
 
-    ColumnPtr shared_nested_column = ColumnInt32::create();
+    ColumnPtr shared_nested_data_column = ColumnInt32::create();
+    ColumnPtr shared_nested_null_map_column = ColumnUInt8::create();
+    ColumnPtr shared_nested_column =
+            ColumnNullable::create(shared_nested_data_column, shared_nested_null_map_column);
     ColumnPtr shared_offsets_column = ColumnArray::ColumnOffsets::create();
     MutableColumnPtr dst_column = ColumnArray::create(shared_nested_column, shared_offsets_column);
     deserialize_column(array_type, buf, &dst_column);
 
     const auto& array_column = assert_cast<const ColumnArray&>(*dst_column);
     EXPECT_EQ(2, array_column.size());
-    EXPECT_EQ(0, shared_nested_column->size());
+    EXPECT_EQ(0, shared_nested_data_column->size());
+    EXPECT_EQ(0, shared_nested_null_map_column->size());
     EXPECT_EQ(0, shared_offsets_column->size());
     EXPECT_EQ(3, array_column.get_data().size());
     EXPECT_EQ(2, array_column.get_offsets()[0]);
     EXPECT_EQ(3, array_column.get_offsets()[1]);
 
-    const auto& data = assert_cast<const ColumnInt32&>(array_column.get_data()).get_data();
+    const auto& nullable_data = assert_cast<const ColumnNullable&>(array_column.get_data());
+    const auto& data =
+            assert_cast<const ColumnInt32&>(nullable_data.get_nested_column()).get_data();
     EXPECT_EQ(1, data[0]);
     EXPECT_EQ(2, data[1]);
     EXPECT_EQ(3, data[2]);
+    EXPECT_FALSE(nullable_data.has_null());
 }
 
 TEST(ComplexTypeTest, DeserializeMapWritesBackSharedKeyAndValueColumns) {

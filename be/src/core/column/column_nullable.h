@@ -270,6 +270,8 @@ public:
     // used in schema change
     void change_nested_column(ColumnPtr& other) { ((ColumnPtr&)_nested_column) = other; }
 
+    void replace_columns(ColumnPtr nested_column, ColumnPtr null_map);
+
     /// Return the column that represents values.
     IColumn& get_nested_column() { return *_nested_column; }
     const IColumn& get_nested_column() const { return *_nested_column; }

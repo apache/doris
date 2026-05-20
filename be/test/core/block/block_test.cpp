@@ -1003,26 +1003,18 @@ TEST(BlockTest, clear_blocks) {
     }
 }
 
-TEST(BlockTest, merge_returns_error_when_checked_string_append_exceeds_limit) {
+TEST(BlockTest, merge_returns_error_and_restores_output_block) {
     auto input_block =
             ColumnHelper::create_block<DataTypeString>(std::vector<std::string> {"abcde", "fghij"});
+    input_block.insert(ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2}));
     auto output_block = ColumnHelper::create_block<DataTypeString>(std::vector<std::string> {});
-
-    const auto origin_enable_debug_points = config::enable_debug_points;
-    config::enable_debug_points = true;
-    DebugPoints::instance()->add_with_params(CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT,
-                                             {{"max_string_size", "9"}});
-    Defer defer([origin_enable_debug_points]() {
-        DebugPoints::instance()->remove(CONVERT_COLUMN_IF_OVERFLOW_DEBUG_POINT);
-        config::enable_debug_points = origin_enable_debug_points;
-    });
 
     auto status = [&]() {
         ScopedMutableBlock scoped_mutable_block(&output_block);
         return scoped_mutable_block.mutable_block().merge(input_block);
     }();
     ASSERT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("string column length is too large"), std::string::npos)
+    EXPECT_NE(status.to_string().find("Merge block not match"), std::string::npos)
             << status.to_string();
 
     ASSERT_EQ(output_block.rows(), 0);

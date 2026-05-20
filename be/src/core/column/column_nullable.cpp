@@ -98,6 +98,13 @@ ColumnNullable::ColumnNullable(SharedTag, ColumnPtr nested_column_, ColumnPtr nu
                          *static_cast<const IColumn::Ptr&>(_null_map));
 }
 
+void ColumnNullable::replace_columns(ColumnPtr nested_column, ColumnPtr null_map) {
+    check_nullable_sizes(*nested_column, *null_map);
+    static_cast<IColumn::Ptr&>(_nested_column) = std::move(nested_column);
+    static_cast<IColumn::Ptr&>(_null_map) = std::move(null_map);
+    check_const_only_in_top_level();
+}
+
 void ColumnNullable::shrink_padding_chars() {
     get_nested_column_ptr()->shrink_padding_chars();
 }
