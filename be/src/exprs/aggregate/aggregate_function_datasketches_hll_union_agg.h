@@ -136,7 +136,8 @@ struct OneAdder {
         if constexpr (is_string_type(T) || is_varbinary(T)) {
             StringRef value = column.get_data_at(row_num);
             if (value.empty()) {
-                return;
+                throw Exception(ErrorCode::CORRUPTION,
+                                "HLL sketch data corrupted when add: empty input.");
             }
             try {
                 using Sketch = typename Data::Sketch;

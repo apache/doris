@@ -180,17 +180,8 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testMergeEmptyStateDoesNotC
     agg_func->insert_result_into(place_with_data, result);
     EXPECT_EQ(result.get_data()[0], static_cast<int64_t>(sketch.get_estimate()));
 
-    // Covers the "empty string" path: add() gets called but ignores the row and keeps rhs empty.
-    auto empty_string_column = ColumnString::create();
-    empty_string_column->insert_data("", 0);
-    const IColumn* empty_columns[1] = {empty_string_column.get()};
-    EXPECT_NO_THROW(agg_func->add(empty_rhs_place, empty_columns, 0, *arena));
-    EXPECT_NO_THROW(agg_func->merge(place_with_data, empty_rhs_place, *arena));
-
-    ColumnInt64 result_after_empty_string_rhs;
-    agg_func->insert_result_into(place_with_data, result_after_empty_string_rhs);
-    EXPECT_EQ(result_after_empty_string_rhs.get_data()[0],
-              static_cast<int64_t>(sketch.get_estimate()));
+    // Empty string is invalid serialized sketch and should be rejected by add().
+    // Merge-empty-state coverage is handled by the "never saw add()" path above.
 
     AggregateDataPtr empty_lhs_place =
             arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
@@ -434,30 +425,26 @@ TEST_F(AggregateFunctionDataSketchesHllUnionAggTest,
     EXPECT_EQ(fn_unsupported, nullptr);
 }
 
-TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testAddEmptyStringIsIgnored) {
+TEST_F(AggregateFunctionDataSketchesHllUnionAggTest, testAddEmptyStringThrows) {
     DataTypes argument_types = {std::make_shared<DataTypeString>()};
     auto agg_func = std::make_shared<AggregateFunctionDataSketchesHllUnionAgg<
             TYPE_STRING, AggregateFunctionHllSketchData<TYPE_STRING>>>(argument_types);
 
-    datasketches::hll_sketch sketch(8, datasketches::HLL_8);
-    for (int i = 0; i < 7; ++i) sketch.update(i);
-    const auto ser = sketch.serialize_compact();
-
     auto column_string = ColumnString::create();
-    column_string->insert_data("", 0); // cover value.empty() branch
-    column_string->insert_data((const char*)ser.data(), ser.size());
+    column_string->insert_data("", 0);
 
     AggregateDataPtr place =
             arena->aligned_alloc(agg_func->size_of_data(), agg_func->align_of_data());
     agg_func->create(place);
 
     const IColumn* columns[1] = {column_string.get()};
-    EXPECT_NO_THROW(agg_func->add(place, columns, 0, *arena));
-    agg_func->add(place, columns, 1, *arena);
 
-    ColumnInt64 result;
-    agg_func->insert_result_into(place, result);
-    EXPECT_EQ(result.get_data()[0], static_cast<int64_t>(sketch.get_estimate()));
+    try {
+        agg_func->add(place, columns, 0, *arena);
+        FAIL() << "Expected doris::Exception";
+    } catch (const doris::Exception& e) {
+        EXPECT_EQ(e.code(), doris::ErrorCode::CORRUPTION);
+    }
 
     agg_func->destroy(place);
 }

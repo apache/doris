@@ -41,9 +41,14 @@ suite("test_datasketches_hll_union_agg") {
         INSERT INTO ${tableName} VALUES
             (1, from_base64('${sk1Base64}')),
             (2, from_base64('${sk2Base64}')),
-            (3, NULL),
-            (4, '')
+            (3, NULL)
     """
+
+    // Empty string is invalid serialized DataSketches HLL sketch and should throw.
+    test {
+        sql """INSERT INTO ${tableName} VALUES (4, '')"""
+        exception "CORRUPTION"
+    }
 
     // 1) Basic union: {0..6} U {20..29} => 17 distinct values
     qt_basic_union """SELECT datasketches_hll_union_agg(sk) FROM ${tableName}"""
