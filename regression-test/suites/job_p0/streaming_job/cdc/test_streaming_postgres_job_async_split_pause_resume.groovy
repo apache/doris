@@ -114,19 +114,32 @@ suite("test_streaming_postgres_job_async_split_pause_resume",
             throw ex
         }
 
-        // Capture state, sleep, recapture — succeedTaskCount must not grow while paused.
+        // PAUSE is best-effort on the FE side: it stops new chunk dispatch, but any chunk
+        // already in flight on cdc_client keeps running until its stream load commits. Wait
+        // for the in-flight chunk(s) to settle (row count stable across two samples) before
+        // sampling, otherwise the post-PAUSE row count would still be growing under us.
+        long lastRows = -1L
+        Awaitility.await().atMost(60, SECONDS).pollInterval(3, SECONDS).until({
+            long cur = sql("""SELECT COUNT(*) FROM ${currentDb}.${table1}""").get(0).get(0) as long
+            boolean stable = cur == lastRows
+            lastRows = cur
+            stable
+        })
+
+        // Capture state, sleep, recapture — succeedTaskCount must not grow while paused,
+        // and row count must not grow once the in-flight chunk has settled.
         def succeedAtPause = sql("""select SucceedTaskCount from jobs("type"="insert") where Name='${jobName}'""")
                 .get(0).get(0).toString()
-        def rowsAtPause = sql("""SELECT COUNT(*) FROM ${currentDb}.${table1}""").get(0).get(0) as int
+        def rowsAtPause = lastRows
         sleep(15000)
         def succeedAfterSleep = sql("""select SucceedTaskCount from jobs("type"="insert") where Name='${jobName}'""")
                 .get(0).get(0).toString()
-        def rowsAfterSleep = sql("""SELECT COUNT(*) FROM ${currentDb}.${table1}""").get(0).get(0) as int
+        def rowsAfterSleep = sql("""SELECT COUNT(*) FROM ${currentDb}.${table1}""").get(0).get(0) as long
         log.info("paused: succeed ${succeedAtPause}->${succeedAfterSleep} rows ${rowsAtPause}->${rowsAfterSleep}")
         assert succeedAfterSleep == succeedAtPause :
                 "SucceedTaskCount grew while paused (${succeedAtPause} -> ${succeedAfterSleep}) — splitter not stopped"
         assert rowsAfterSleep == rowsAtPause :
-                "row count grew while paused (${rowsAtPause} -> ${rowsAfterSleep}) — tasks still running"
+                "row count grew after PAUSE settled (${rowsAtPause} -> ${rowsAfterSleep}) — new tasks dispatched while paused"
 
         def pausedStatus = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
         assert pausedStatus.get(0).get(0) == "PAUSED" : "job didn't stay PAUSED"
