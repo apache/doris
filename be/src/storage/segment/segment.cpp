@@ -963,6 +963,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
                                      .file_cache_stats =
                                              &storage_read_options.stats->file_cache_stats},
     };
+
     if (!slot->column_paths().empty()) {
         // here need create column readers to make sure column reader is created before seek_and_read_by_rowid
         // if segment cache miss, column reader will be created to make sure the variant column result not coredump

@@ -556,7 +556,8 @@ Status PointQueryExecutor::_lookup_row_data() {
             const auto& segment = *it;
             for (int cid : _reusable->missing_col_uids()) {
                 int pos = _reusable->get_col_uid_to_idx().at(cid);
-                std::vector<uint32_t> row_ids {cast_set<uint32_t>(row_loc.row_id)};
+                std::vector<segment_v2::rowid_t> row_ids {
+                        static_cast<segment_v2::rowid_t>(row_loc.row_id)};
                 MutableColumnPtr column =
                         _result_block->get_by_position(pos).column->assume_mutable();
                 std::unique_ptr<ColumnIterator> iter;

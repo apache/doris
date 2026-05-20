@@ -366,6 +366,27 @@ struct DorisFormatReadBatch {
     std::vector<std::pair<segment_v2::rowid_t, size_t>> row_ids_with_positions;
 };
 
+static void scatter_scan_blocks_to_result_block(
+        const std::vector<std::pair<size_t, size_t>>& row_id_block_idx,
+        std::vector<Block>& scan_blocks, Block& result_block) {
+    for (size_t column_id = 0; column_id < result_block.columns(); ++column_id) {
+        auto dst_col = const_cast<IColumn*>(result_block.get_by_position(column_id).column.get());
+
+        std::vector<const IColumn*> scan_src_columns;
+        scan_src_columns.reserve(row_id_block_idx.size());
+        std::vector<size_t> scan_positions;
+        scan_positions.reserve(row_id_block_idx.size());
+        for (const auto& [pos_block, block_idx] : row_id_block_idx) {
+            DCHECK(scan_blocks.size() > pos_block);
+            DCHECK(scan_blocks[pos_block].columns() > column_id);
+            scan_src_columns.emplace_back(
+                    scan_blocks[pos_block].get_by_position(column_id).column.get());
+            scan_positions.emplace_back(block_idx);
+        }
+        dst_col->insert_from_multi_column(scan_src_columns, scan_positions);
+    }
+}
+
 Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
                                           PMultiGetResponse* response) {
     // read from storage engine row id by row id
@@ -469,7 +490,8 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
                                   row_location.row_location.segment_id,
                                   row_location.row_location.row_id);
         for (int x = 0; x < slots.size(); ++x) {
-            std::vector<uint32_t> row_ids {cast_set<uint32_t>(row_loc.ordinal_id())};
+            std::vector<segment_v2::rowid_t> row_ids {
+                    static_cast<segment_v2::rowid_t>(row_loc.ordinal_id())};
             MutableColumnPtr column = result_block.get_by_position(x).column->assume_mutable();
             IteratorKey iterator_key {.tablet_id = tablet->tablet_id(),
                                       .rowset_id = rowset_id,
@@ -729,26 +751,7 @@ Status RowIdStorageReader::read_batch_doris_format_row(
                                               iterator_map, scan_blocks[batch_idx]));
     }
 
-    // Phase 3: Scatter rows from per-segment blocks back to the original request order.
-    // For each column, gather corresponding source columns and positions from all scan_blocks,
-    // then use insert_from_multi_column to place each row at its original position.
-    for (size_t column_id = 0; column_id < result_block.get_columns().size(); ++column_id) {
-        auto dst_col = const_cast<IColumn*>(result_block.get_columns()[column_id].get());
-
-        std::vector<const IColumn*> scan_src_columns;
-        scan_src_columns.reserve(row_id_block_idx.size());
-        std::vector<size_t> scan_positions;
-        scan_positions.reserve(row_id_block_idx.size());
-        for (const auto& [pos_block, block_idx] : row_id_block_idx) {
-            DCHECK(scan_blocks.size() > pos_block);
-            DCHECK(scan_blocks[pos_block].get_columns().size() > column_id);
-            // Gather the source column pointer and the row position within that batch.
-            scan_src_columns.emplace_back(scan_blocks[pos_block].get_columns()[column_id].get());
-            scan_positions.emplace_back(block_idx);
-        }
-        // Scatter all rows for this column into the result block in a single call.
-        dst_col->insert_from_multi_column(scan_src_columns, scan_positions);
-    }
+    scatter_scan_blocks_to_result_block(row_id_block_idx, scan_blocks, result_block);
 
     return Status::OK();
 }
@@ -993,24 +996,7 @@ Status RowIdStorageReader::read_batch_external_row(
             },
             &scan_running_time));
 
-    // Insert the read data into result_block.
-    for (size_t column_id = 0; column_id < result_block.get_columns().size(); column_id++) {
-        // The non-const Block(result_block) is passed in read_by_rowids, but columns[i] in get_columns
-        // is at bottom an immutable_ptr of Cow<IColumn>, so use const_cast
-        auto dst_col = const_cast<IColumn*>(result_block.get_columns()[column_id].get());
-
-        std::vector<const IColumn*> scan_src_columns;
-        scan_src_columns.reserve(row_id_block_idx.size());
-        std::vector<size_t> scan_positions;
-        scan_positions.reserve(row_id_block_idx.size());
-        for (const auto& [pos_block, block_idx] : row_id_block_idx) {
-            DCHECK(scan_blocks.size() > pos_block);
-            DCHECK(scan_blocks[pos_block].get_columns().size() > column_id);
-            scan_src_columns.emplace_back(scan_blocks[pos_block].get_columns()[column_id].get());
-            scan_positions.emplace_back(block_idx);
-        }
-        dst_col->insert_from_multi_column(scan_src_columns, scan_positions);
-    }
+    scatter_scan_blocks_to_result_block(row_id_block_idx, scan_blocks, result_block);
 
     // Statistical runtime profile information.
     std::unique_ptr<RuntimeProfile> runtime_profile =
