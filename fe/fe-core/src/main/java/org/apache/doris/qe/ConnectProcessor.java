@@ -843,12 +843,14 @@ public abstract class ConnectProcessor {
         if (!request.isSetDelegatedCredentialToken()) {
             return;
         }
+        Preconditions.checkState(request.isSetDelegatedCredentialType(),
+                "delegated credential type is required");
+        Preconditions.checkState(request.isSetDelegatedCredentialSessionId(),
+                "delegated credential session id is required");
         OptionalLong expiresAtMillis = request.isSetDelegatedCredentialExpiresAtMillis()
                 ? OptionalLong.of(request.getDelegatedCredentialExpiresAtMillis())
                 : OptionalLong.empty();
-        String sessionId = request.isSetDelegatedCredentialSessionId()
-                ? request.getDelegatedCredentialSessionId()
-                : UUID.randomUUID().toString();
+        String sessionId = request.getDelegatedCredentialSessionId();
         context.setSessionContext(SessionContext.of(sessionId, new DelegatedCredential(
                 DelegatedCredential.Type.valueOf(request.getDelegatedCredentialType()),
                 request.getDelegatedCredentialToken(),

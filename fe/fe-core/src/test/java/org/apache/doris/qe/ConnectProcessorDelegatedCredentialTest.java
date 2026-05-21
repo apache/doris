@@ -85,6 +85,26 @@ class ConnectProcessorDelegatedCredentialTest {
         Assertions.assertEquals(12345L, credential.getExpiresAtMillis().getAsLong());
     }
 
+    @Test
+    void testRestoreForwardedDelegatedCredentialRequiresType() {
+        TMasterOpRequest request = new TMasterOpRequest();
+        request.setDelegatedCredentialSessionId("forwarded-session-id");
+        request.setDelegatedCredentialToken("forwarded-access-token");
+
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> ConnectProcessor.restoreForwardedSessionContext(new ConnectContext(), request));
+    }
+
+    @Test
+    void testRestoreForwardedDelegatedCredentialRequiresSessionId() {
+        TMasterOpRequest request = new TMasterOpRequest();
+        request.setDelegatedCredentialType(DelegatedCredential.Type.ACCESS_TOKEN.name());
+        request.setDelegatedCredentialToken("forwarded-access-token");
+
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> ConnectProcessor.restoreForwardedSessionContext(new ConnectContext(), request));
+    }
+
     private static class RecordingConnectProcessor extends ConnectProcessor {
         private boolean executed;
 
