@@ -23,6 +23,7 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/segment_v2.pb.h>
 
+#include <algorithm>
 #include <cstring>
 #include <memory>
 #include <sstream>
@@ -944,9 +945,17 @@ Status Segment::read_key_by_rowid(uint32_t row_id, std::string* key) {
 }
 
 Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescriptor* slot,
-                                       uint32_t row_id, MutableColumnPtr& result,
+                                       const std::vector<uint32_t>& row_ids,
+                                       MutableColumnPtr& result,
                                        StorageReadOptions& storage_read_options,
                                        std::unique_ptr<ColumnIterator>& iterator_hint) {
+    if (row_ids.empty()) {
+        return Status::OK();
+    }
+    DORIS_CHECK(std::is_sorted(row_ids.begin(), row_ids.end()));
+    DORIS_CHECK(std::adjacent_find(row_ids.begin(), row_ids.end()) == row_ids.end());
+    // ColumnIterator::seek_and_read expects monotonically increasing row_ids without
+    // duplicates for correct ordinal scanning. Enforce this contract at the entry point.
     segment_v2::ColumnIteratorOptions opt {
             .use_page_cache = !config::disable_storage_page_cache,
             .file_reader = file_reader().get(),
@@ -956,7 +965,6 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
                                              &storage_read_options.stats->file_cache_stats},
     };
 
-    std::vector<segment_v2::rowid_t> single_row_loc {row_id};
     if (!slot->column_paths().empty()) {
         // here need create column readers to make sure column reader is created before seek_and_read_by_rowid
         // if segment cache miss, column reader will be created to make sure the variant column result not coredump
@@ -977,13 +985,13 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
             RETURN_IF_ERROR(iterator_hint->init(opt));
         }
         RETURN_IF_ERROR(
-                iterator_hint->read_by_rowids(single_row_loc.data(), 1, file_storage_column));
+                iterator_hint->read_by_rowids(row_ids.data(), row_ids.size(), file_storage_column));
         ColumnPtr source_ptr;
         // storage may have different type with schema, so we need to cast the column
         RETURN_IF_ERROR(variant_util::cast_column(
                 ColumnWithTypeAndName(file_storage_column->get_ptr(), storage_type, column.name()),
                 slot->type(), &source_ptr));
-        RETURN_IF_CATCH_EXCEPTION(result->insert_range_from(*source_ptr, 0, 1));
+        RETURN_IF_CATCH_EXCEPTION(result->insert_range_from(*source_ptr, 0, row_ids.size()));
     } else {
         int index = (slot->col_unique_id() >= 0) ? schema.field_index(slot->col_unique_id())
                                                  : schema.field_index(slot->col_name());
@@ -998,7 +1006,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
                                                 &storage_read_options));
             RETURN_IF_ERROR(iterator_hint->init(opt));
         }
-        RETURN_IF_ERROR(iterator_hint->read_by_rowids(single_row_loc.data(), 1, result));
+        RETURN_IF_ERROR(iterator_hint->read_by_rowids(row_ids.data(), row_ids.size(), result));
     }
     return Status::OK();
 }
