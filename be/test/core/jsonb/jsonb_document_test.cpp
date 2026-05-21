@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <string>
@@ -36,6 +37,10 @@ protected:
 
     void TearDown() override {}
 };
+
+static const JsonbValue* jsonb_value(JsonbWriter& writer) {
+    return writer.getDocument()->getValue();
+}
 
 TEST_F(JsonbDocumentTest, writer) {
     JsonbWriter writer;
@@ -293,6 +298,73 @@ TEST_F(JsonbDocumentTest, invaild_jsonb_document) {
 
     std::string json_string = JsonbToJson::jsonb_to_json_string(nullptr, 0);
     EXPECT_EQ(json_null, json_string);
+}
+
+TEST_F(JsonbDocumentTest, contains_numeric_equality) {
+    JsonbWriter int_writer;
+    ASSERT_TRUE(int_writer.writeInt(1));
+
+    JsonbWriter double_writer;
+    ASSERT_TRUE(double_writer.writeDouble(1.0));
+
+    JsonbWriter non_integer_double_writer;
+    ASSERT_TRUE(non_integer_double_writer.writeDouble(1.5));
+
+    JsonbWriter decimal32_writer;
+    ASSERT_TRUE(decimal32_writer.writeDecimal(Decimal32(int32_t(100)), 3, 2));
+
+    JsonbWriter decimal32_scale1_writer;
+    ASSERT_TRUE(decimal32_scale1_writer.writeDecimal(Decimal32(int32_t(10)), 2, 1));
+
+    JsonbWriter decimal64_writer;
+    ASSERT_TRUE(decimal64_writer.writeDecimal(Decimal64(int64_t(1000)), 4, 3));
+
+    JsonbWriter decimal128_non_integer_writer;
+    ASSERT_TRUE(decimal128_non_integer_writer.writeDecimal(Decimal128V3(int128_t(150)), 3, 2));
+
+    JsonbWriter large_int128_writer;
+    ASSERT_TRUE(large_int128_writer.writeInt128((int128_t(1) << 100) + 1));
+
+    JsonbWriter large_decimal128_writer;
+    ASSERT_TRUE(
+            large_decimal128_writer.writeDecimal(Decimal128V3((int128_t(1) << 100) + 1), 31, 0));
+
+    JsonbWriter large_double_writer;
+    ASSERT_TRUE(large_double_writer.writeDouble(std::ldexp(1.0, 100)));
+
+    EXPECT_TRUE(jsonb_value(int_writer)->contains(jsonb_value(double_writer)));
+    EXPECT_TRUE(jsonb_value(double_writer)->contains(jsonb_value(int_writer)));
+    EXPECT_FALSE(jsonb_value(int_writer)->contains(jsonb_value(non_integer_double_writer)));
+    EXPECT_FALSE(jsonb_value(large_int128_writer)->contains(jsonb_value(large_double_writer)));
+    EXPECT_FALSE(jsonb_value(large_decimal128_writer)->contains(jsonb_value(large_double_writer)));
+    EXPECT_FALSE(jsonb_value(large_double_writer)->contains(jsonb_value(large_decimal128_writer)));
+
+    EXPECT_TRUE(jsonb_value(decimal32_writer)->contains(jsonb_value(decimal32_scale1_writer)));
+    EXPECT_TRUE(jsonb_value(decimal32_scale1_writer)->contains(jsonb_value(decimal32_writer)));
+    EXPECT_TRUE(jsonb_value(decimal32_writer)->contains(jsonb_value(decimal64_writer)));
+    EXPECT_TRUE(jsonb_value(decimal64_writer)->contains(jsonb_value(decimal32_writer)));
+    EXPECT_TRUE(jsonb_value(decimal32_writer)->contains(jsonb_value(int_writer)));
+    EXPECT_TRUE(jsonb_value(int_writer)->contains(jsonb_value(decimal32_writer)));
+    EXPECT_TRUE(jsonb_value(decimal32_writer)->contains(jsonb_value(double_writer)));
+    EXPECT_TRUE(jsonb_value(double_writer)->contains(jsonb_value(decimal32_writer)));
+    EXPECT_FALSE(jsonb_value(decimal128_non_integer_writer)->contains(jsonb_value(int_writer)));
+    EXPECT_FALSE(jsonb_value(int_writer)->contains(jsonb_value(decimal128_non_integer_writer)));
+    EXPECT_FALSE(jsonb_value(decimal128_non_integer_writer)->contains(jsonb_value(double_writer)));
+    EXPECT_FALSE(jsonb_value(double_writer)->contains(jsonb_value(decimal128_non_integer_writer)));
+}
+
+TEST_F(JsonbDocumentTest, contains_invalid_decimal_scale) {
+    JsonbWriter invalid_decimal_writer;
+    ASSERT_TRUE(invalid_decimal_writer.writeDecimal(
+            Decimal32(int32_t(100)), 2, static_cast<uint32_t>(BeConsts::MAX_DECIMALV3_SCALE) + 1));
+
+    JsonbWriter double_writer;
+    ASSERT_TRUE(double_writer.writeDouble(1.0));
+
+    EXPECT_THROW(jsonb_value(invalid_decimal_writer)->contains(jsonb_value(double_writer)),
+                 Exception);
+    EXPECT_THROW(jsonb_value(double_writer)->contains(jsonb_value(invalid_decimal_writer)),
+                 Exception);
 }
 
 } // namespace doris
