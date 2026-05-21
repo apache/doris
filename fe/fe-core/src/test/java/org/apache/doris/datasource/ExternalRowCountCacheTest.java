@@ -21,13 +21,12 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.util.concurrent.MoreExecutors;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
-
-import com.google.common.util.concurrent.MoreExecutors;
 
 import java.util.Optional;
 import java.util.concurrent.ThreadPoolExecutor;
