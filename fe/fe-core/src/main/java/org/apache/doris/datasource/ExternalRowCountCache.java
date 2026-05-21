@@ -83,40 +83,49 @@ public class ExternalRowCountCache {
     public static class RowCountCacheLoader extends BasicAsyncCacheLoader<RowCountKey, Optional<Long>> {
         @Override
         protected Optional<Long> doLoad(RowCountKey rowCountKey) {
-            try {
-                TableIf table = StatisticsUtil.findTable(rowCountKey.catalogId, rowCountKey.dbId, rowCountKey.tableId);
-                return Optional.of(table.fetchRowCount());
-            } catch (Exception e) {
-                String message = String.format("Failed to get table row count with catalogId %s, dbId %s, tableId %s. "
-                                + "Reason %s",
-                        rowCountKey.catalogId, rowCountKey.dbId, rowCountKey.tableId, e.getMessage());
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug(message, e);
-                } else {
-                    LOG.warn(message);
-                }
+            return loadRowCount(rowCountKey, false);
+        }
+    }
 
-                // Return Optional.empty() will cache this empty value in memory,
-                // so we can't try to load the row count until the cache expire.
-                // Throw an exception here will cause too much stack log in fe.out.
-                // So we return null when exception happen.
-                // Null may raise NPE in caller, but that is expected.
-                // We catch that NPE and return a default value -1 without keep the value in cache,
-                // so we can trigger the load function to fetch row count again next time in this exception case.
-                return null;
+    static Optional<Long> loadRowCount(RowCountKey rowCountKey, boolean fillMetaCache) {
+        try {
+            ExternalTable table = (ExternalTable) StatisticsUtil.findTable(
+                    rowCountKey.catalogId, rowCountKey.dbId, rowCountKey.tableId);
+            return Optional.of(table.fetchRowCountWithMetaCache(fillMetaCache));
+        } catch (Exception e) {
+            String message = String.format("Failed to get table row count with catalogId %s, dbId %s, tableId %s. "
+                            + "Reason %s",
+                    rowCountKey.catalogId, rowCountKey.dbId, rowCountKey.tableId, e.getMessage());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(message, e);
+            } else {
+                LOG.warn(message);
             }
+
+            // Return Optional.empty() will cache this empty value in memory,
+            // so we can't try to load the row count until the cache expire.
+            // Throw an exception here will cause too much stack log in fe.out.
+            // So we return null when exception happen.
+            // Null may raise NPE in caller, but that is expected.
+            // We catch that NPE and return a default value -1 without keep the value in cache,
+            // so we can trigger the load function to fetch row count again next time in this exception case.
+            return null;
         }
     }
 
     /**
      * Get cached row count for the given table. Return -1 if cached not loaded or table not exists.
      * Cached will be loaded async.
+     * @param fillMetaCache whether loading the row count may fill external metadata caches
      * @return Cached row count or -1 if not exist
      */
-    public long getCachedRowCount(long catalogId, long dbId, long tableId) {
+    public long getCachedRowCount(long catalogId, long dbId, long tableId, boolean fillMetaCache) {
         RowCountKey key = new RowCountKey(catalogId, dbId, tableId);
         try {
-            CompletableFuture<Optional<Long>> f = rowCountCache.get(key);
+            CompletableFuture<Optional<Long>> f = fillMetaCache
+                    ? rowCountCache.get(key, (rowCountKey, executor) -> CompletableFuture.supplyAsync(
+                            () -> loadRowCount(rowCountKey, true), executor))
+                    : rowCountCache.get(key);
             // Get row count synchronously by default.
             if (ConnectContext.get() == null
                     || ConnectContext.get().getSessionVariable().fetchHiveRowCountSync) {
