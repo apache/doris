@@ -80,18 +80,21 @@ public class ExponentialMovingAverage extends NullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        String functionName = getName();
+        if (!getArgument(0).isConstant()) {
+            throw new AnalysisException("The half_decay argument of "
+                    + getName() + " must be a constant");
+        }
         if (!getArgumentType(0).isNumericType()) {
-            throw new AnalysisException("The half_decay argument of " + functionName
-                    + " must be numeric");
+            throw new AnalysisException("The half_decay argument of "
+                    + getName() + " must be numeric");
         }
         if (!getArgumentType(1).isNumericType()) {
-            throw new AnalysisException("The value argument of " + functionName
-                    + " must be numeric");
+            throw new AnalysisException("The value argument of "
+                    + getName() + " must be numeric");
         }
         if (!getArgumentType(2).isNumericType()) {
-            throw new AnalysisException("The timeunit argument of " + functionName
-                    + " must be numeric");
+            throw new AnalysisException("The timeunit argument of "
+                    + getName() + " must be numeric");
         }
     }
 
