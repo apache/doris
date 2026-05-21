@@ -669,6 +669,13 @@ public class LoadAction extends RestBaseController {
             return redirectTo(request, redirectAddr);
         }
         writeTemporaryRedirect(response, redirectUrl);
+        DrainDecision drainDecision = decideDrainDecisionForStreamLoadRedirect(request);
+        if (drainDecision != DrainDecision.DRAIN) {
+            LOG.info("skip bounded drain after stream load redirect, target: {}, db: {}, tbl: {}, label: {},"
+                            + " reason: {}",
+                    redirectAddr, dbName, tableName, label, drainDecision);
+            return null;
+        }
         drainStreamLoadRequestBodyAfterRedirect(request, redirectAddr.toString(), dbName, tableName, label);
         return null;
     }
@@ -680,12 +687,32 @@ public class LoadAction extends RestBaseController {
             return redirectView;
         }
         writeTemporaryRedirect(response, redirectView.getUrl());
+        DrainDecision drainDecision = decideDrainDecisionForStreamLoadRedirect(request);
+        if (drainDecision != DrainDecision.DRAIN) {
+            LOG.info("skip bounded drain after stream load redirect, target: {}, db: {}, tbl: {}, label: {},"
+                            + " reason: {}",
+                    redirectView.getUrl(), dbName, tableName, label, drainDecision);
+            return null;
+        }
         drainStreamLoadRequestBodyAfterRedirect(request, redirectView.getUrl(), dbName, tableName, label);
         return null;
     }
 
     private boolean shouldUseBoundedDrainForStreamLoad(boolean isStreamLoad) {
         return isStreamLoad && Config.stream_load_redirect_bounded_drain_max_bytes > 0;
+    }
+
+    // Skip the bounded drain for header-only probes and oversized fixed-length bodies.
+    private DrainDecision decideDrainDecisionForStreamLoadRedirect(HttpServletRequest request) {
+        long contentLength = request.getContentLengthLong();
+        String transferEncoding = request.getHeader(HttpHeaderNames.TRANSFER_ENCODING.toString());
+        if (contentLength <= 0 && Strings.isNullOrEmpty(transferEncoding)) {
+            return DrainDecision.SKIP_NO_REQUEST_BODY;
+        }
+        if (contentLength > Config.stream_load_redirect_bounded_drain_max_bytes) {
+            return DrainDecision.SKIP_CONTENT_LENGTH_EXCEEDS_MAX_BYTES;
+        }
+        return DrainDecision.DRAIN;
     }
 
     private void drainStreamLoadRequestBodyAfterRedirect(HttpServletRequest request, String redirectTarget,
@@ -700,6 +727,12 @@ public class LoadAction extends RestBaseController {
                         + " drained_bytes: {}, elapsed_ms: {}, exit_reason: {}",
                 redirectTarget, dbName, tableName, label, drainResult.getDrainedBytes(),
                 drainResult.getElapsedMillis(), drainResult.getExitReason());
+    }
+
+    private enum DrainDecision {
+        SKIP_NO_REQUEST_BODY,
+        SKIP_CONTENT_LENGTH_EXCEEDS_MAX_BYTES,
+        DRAIN
     }
 
     private boolean isSensitiveHeader(String headerName) {

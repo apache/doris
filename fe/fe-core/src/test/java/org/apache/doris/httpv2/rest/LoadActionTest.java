@@ -63,9 +63,9 @@ public class LoadActionTest {
     @Test
     public void testCreateRedirectResponseWrites307WhenBoundedDrainEnabled() throws Exception {
         Config.stream_load_redirect_bounded_drain_max_bytes = 8;
-        Config.stream_load_redirect_bounded_drain_max_idle_time_ms = 100;
+        Config.stream_load_redirect_bounded_drain_max_idle_time_ms = 0;
         LoadAction loadAction = new LoadAction();
-        HttpServletRequest request = mockStreamLoadRequest();
+        HttpServletRequest request = mockStreamLoadRequest(-1, "chunked", true);
         HttpServletResponse response = Mockito.mock(HttpServletResponse.class);
 
         Object result = invokeCreateRedirectResponse(loadAction, request, response,
@@ -76,6 +76,64 @@ public class LoadActionTest {
         Mockito.verify(response).setStatus(HttpStatus.TEMPORARY_REDIRECT.value());
         Mockito.verify(response).setHeader("Location", "http://be-host:8040/api/db1/tbl1/_stream_load?foo=bar");
         Mockito.verify(response).flushBuffer();
+        Mockito.verify(request).getInputStream();
+    }
+
+    @Test
+    public void testCreateRedirectResponseSkipsDrainWithoutRequestBody() throws Exception {
+        Config.stream_load_redirect_bounded_drain_max_bytes = 8;
+        Config.stream_load_redirect_bounded_drain_max_idle_time_ms = 0;
+        LoadAction loadAction = new LoadAction();
+        HttpServletRequest request = mockStreamLoadRequest(-1, null, false);
+        HttpServletResponse response = Mockito.mock(HttpServletResponse.class);
+
+        Object result = invokeCreateRedirectResponse(loadAction, request, response,
+                new TNetworkAddress("be-host", 8040), true, "db1", "tbl1", "label1");
+
+        Assertions.assertNull(result);
+        Mockito.verify(response).setContentType("text/html;charset=utf-8");
+        Mockito.verify(response).setStatus(HttpStatus.TEMPORARY_REDIRECT.value());
+        Mockito.verify(response).setHeader("Location", "http://be-host:8040/api/db1/tbl1/_stream_load?foo=bar");
+        Mockito.verify(response).flushBuffer();
+        Mockito.verify(request, Mockito.never()).getInputStream();
+    }
+
+    @Test
+    public void testCreateRedirectResponseSkipsDrainWhenContentLengthIsZero() throws Exception {
+        Config.stream_load_redirect_bounded_drain_max_bytes = 8;
+        Config.stream_load_redirect_bounded_drain_max_idle_time_ms = 0;
+        LoadAction loadAction = new LoadAction();
+        HttpServletRequest request = mockStreamLoadRequest(0, null, false);
+        HttpServletResponse response = Mockito.mock(HttpServletResponse.class);
+
+        Object result = invokeCreateRedirectResponse(loadAction, request, response,
+                new TNetworkAddress("be-host", 8040), true, "db1", "tbl1", "label1");
+
+        Assertions.assertNull(result);
+        Mockito.verify(response).setContentType("text/html;charset=utf-8");
+        Mockito.verify(response).setStatus(HttpStatus.TEMPORARY_REDIRECT.value());
+        Mockito.verify(response).setHeader("Location", "http://be-host:8040/api/db1/tbl1/_stream_load?foo=bar");
+        Mockito.verify(response).flushBuffer();
+        Mockito.verify(request, Mockito.never()).getInputStream();
+    }
+
+    @Test
+    public void testCreateRedirectResponseSkipsDrainWhenContentLengthExceedsLimit() throws Exception {
+        Config.stream_load_redirect_bounded_drain_max_bytes = 8;
+        Config.stream_load_redirect_bounded_drain_max_idle_time_ms = 0;
+        LoadAction loadAction = new LoadAction();
+        HttpServletRequest request = mockStreamLoadRequest(16, null, false);
+        HttpServletResponse response = Mockito.mock(HttpServletResponse.class);
+
+        Object result = invokeCreateRedirectResponse(loadAction, request, response,
+                new TNetworkAddress("be-host", 8040), true, "db1", "tbl1", "label1");
+
+        Assertions.assertNull(result);
+        Mockito.verify(response).setContentType("text/html;charset=utf-8");
+        Mockito.verify(response).setStatus(HttpStatus.TEMPORARY_REDIRECT.value());
+        Mockito.verify(response).setHeader("Location", "http://be-host:8040/api/db1/tbl1/_stream_load?foo=bar");
+        Mockito.verify(response).flushBuffer();
+        Mockito.verify(request, Mockito.never()).getInputStream();
     }
 
     @Test
@@ -123,12 +181,22 @@ public class LoadActionTest {
     }
 
     private HttpServletRequest mockStreamLoadRequest() throws Exception {
+        return mockStreamLoadRequest(-1, null, true);
+    }
+
+    // Provide explicit request body metadata so the drain decision can be verified in isolation.
+    private HttpServletRequest mockStreamLoadRequest(long contentLength, String transferEncoding,
+            boolean stubInputStream) throws Exception {
         HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
         Mockito.when(request.getScheme()).thenReturn("http");
         Mockito.when(request.getRequestURI()).thenReturn("/api/db1/tbl1/_stream_load");
         Mockito.when(request.getQueryString()).thenReturn("foo=bar");
         Mockito.when(request.getHeader("Authorization")).thenReturn(null);
-        Mockito.when(request.getInputStream()).thenReturn(new IdleServletInputStream());
+        Mockito.when(request.getContentLengthLong()).thenReturn(contentLength);
+        Mockito.when(request.getHeader("Transfer-Encoding")).thenReturn(transferEncoding);
+        if (stubInputStream) {
+            Mockito.when(request.getInputStream()).thenReturn(new IdleServletInputStream());
+        }
         return request;
     }
 
