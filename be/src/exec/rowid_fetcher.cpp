@@ -378,6 +378,31 @@ struct SegItem {
     SegmentSharedPtr segment;
 };
 
+// Groups all row_ids belonging to the same segment for batched reading.
+// Position index tracks where each row_id originated in the original request,
+// so results can be scattered back to the correct output positions.
+struct DorisFormatReadBatch {
+    std::shared_ptr<FileMapping> file_mapping;
+    // (row_id, index_in_request) pairs for all rows in this segment.
+    std::vector<std::pair<segment_v2::rowid_t, size_t>> row_ids_with_positions;
+};
+
+static void scatter_scan_blocks_to_result_block(
+        const std::vector<std::pair<size_t, size_t>>& row_id_block_idx,
+        std::vector<Block>& scan_blocks, Block& result_block) {
+    for (size_t column_id = 0; column_id < result_block.columns(); ++column_id) {
+        auto column_guard = result_block.mutate_column_scoped(column_id);
+        MutableColumnPtr& dst_col = column_guard.mutable_column();
+        for (const auto& [pos_block, block_idx] : row_id_block_idx) {
+            DCHECK(scan_blocks.size() > pos_block);
+            DCHECK(scan_blocks[pos_block].columns() > column_id);
+            const auto& src_col = *scan_blocks[pos_block].get_by_position(column_id).column;
+            uint32_t scan_position = cast_set<uint32_t>(block_idx);
+            dst_col->insert_indices_from(src_col, &scan_position, &scan_position + 1);
+        }
+    }
+}
+
 Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
                                           PMultiGetResponse* response) {
     // read from storage engine row id by row id
@@ -481,7 +506,8 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
                                   row_location.row_location.segment_id,
                                   row_location.row_location.row_id);
         for (int x = 0; x < slots.size(); ++x) {
-            auto row_id = static_cast<segment_v2::rowid_t>(row_loc.ordinal_id());
+            std::vector<segment_v2::rowid_t> row_ids {
+                    static_cast<segment_v2::rowid_t>(row_loc.ordinal_id())};
             // The scoped mutation republishes a potentially replaced V2 column when the reader
             // transfers ownership of its first assembled batch.
             auto column_guard = result_block.mutate_column_scoped(x);
@@ -500,8 +526,8 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
             segment = iterator_item.segment;
             set_slot_access_paths(slots[x], full_read_schema, iterator_item.storage_read_options);
             RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
-                    full_read_schema, &slots[x], row_id, column, iterator_item.storage_read_options,
-                    iterator_item.iterator));
+                    full_read_schema, &slots[x], row_ids, column,
+                    iterator_item.storage_read_options, iterator_item.iterator));
         }
     }
     // serialize block if not empty
@@ -705,44 +731,75 @@ Status RowIdStorageReader::read_batch_doris_format_row(
         }
     }
 
-    std::vector<uint32_t> row_ids;
-    int k = 1;
-    auto max_k = 0;
-    for (int j = 0; j < request_block_desc.row_id_size();) {
+    // Phase 1: Group all row_ids by their (tablet_id, rowset_id, segment_id) key.
+    // Unlike the old code which only batched adjacent rows with the same file_id,
+    // this merges non-contiguous same-segment requests into a single batch,
+    // maximizing the number of rows read per seek_and_read_by_rowid call.
+    std::vector<DorisFormatReadBatch> scan_batches;
+    std::unordered_map<SegKey, size_t, HashOfSegKey> batch_idx_by_seg;
+    // (batch_idx, position_in_batch) for each row in the original request.
+    std::vector<std::pair<size_t, size_t>> row_id_block_idx(request_block_desc.row_id_size());
+    for (int j = 0; j < request_block_desc.row_id_size(); ++j) {
         auto file_id = request_block_desc.file_id(j);
         const auto row_id = request_block_desc.row_id(j);
         if (row_id > std::numeric_limits<uint32_t>::max()) {
             return Status::InvalidArgument("internal row id exceeds uint32 range: {}", row_id);
         }
-        row_ids.emplace_back(static_cast<uint32_t>(row_id));
         auto file_mapping = id_file_map->get_file_mapping(file_id);
         if (!file_mapping) {
             return Status::InternalError(
                     "Backend:{} file_mapping not found, query_id: {}, file_id: {}",
                     BackendOptions::get_localhost(), print_id(query_id), file_id);
         }
-        for (k = 1; j + k < request_block_desc.row_id_size(); ++k) {
-            if (request_block_desc.file_id(j + k) == file_id) {
-                const auto next_row_id = request_block_desc.row_id(j + k);
-                if (next_row_id > std::numeric_limits<uint32_t>::max()) {
-                    return Status::InvalidArgument("internal row id exceeds uint32 range: {}",
-                                                   next_row_id);
-                }
-                row_ids.emplace_back(static_cast<uint32_t>(next_row_id));
-            } else {
-                break;
+
+        // Derive segment key and group by it — rows from the same segment are batched together
+        // even if they are interleaved with rows from other segments in the request.
+        auto [tablet_id, rowset_id, segment_id] = file_mapping->get_doris_format_info();
+        SegKey seg_key {.tablet_id = tablet_id, .rowset_id = rowset_id, .segment_id = segment_id};
+        auto [it, inserted] = batch_idx_by_seg.emplace(seg_key, scan_batches.size());
+        if (inserted) {
+            // First time seeing this segment, create a new batch for it.
+            scan_batches.emplace_back();
+            scan_batches.back().file_mapping = file_mapping;
+        }
+        // Record (row_id, original_request_index) for later sorting and scattering.
+        scan_batches[it->second].row_ids_with_positions.emplace_back(static_cast<uint32_t>(row_id),
+                                                                     j);
+    }
+
+    // Phase 2: For each segment, sort row_ids ascending (required by ColumnIterator),
+    // deduplicate, then read all rows in a single batch call.
+    std::vector<Block> scan_blocks(scan_batches.size());
+    for (size_t batch_idx = 0; batch_idx < scan_batches.size(); ++batch_idx) {
+        auto& scan_batch = scan_batches[batch_idx];
+        auto& row_ids_with_positions = scan_batch.row_ids_with_positions;
+        std::sort(row_ids_with_positions.begin(), row_ids_with_positions.end(),
+                  [](const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
+
+        // Column iterators read rowids monotonically. Deduplicate consecutive identical row_ids
+        // (different file_ids may map to the same row), then scatter rows back to their original
+        // request positions.
+        std::vector<uint32_t> row_ids;
+        row_ids.reserve(row_ids_with_positions.size());
+
+        // Also builds the scatter map: row_id_block_idx[original_request_idx] ->
+        // (batch_idx, deduplicated_position_in_batch).
+        for (const auto& [row_id, result_idx] : row_ids_with_positions) {
+            if (row_ids.empty() || row_ids.back() != row_id) {
+                row_ids.emplace_back(row_id);
             }
+            row_id_block_idx[result_idx] = std::make_pair(batch_idx, row_ids.size() - 1);
         }
 
+        scan_blocks[batch_idx] = Block(slots, row_ids.size());
         RETURN_IF_ERROR(read_doris_format_row(
-                id_file_map, file_mapping, row_ids, slots, full_read_schema, row_store_read_struct,
-                stats, acquire_tablet_ms, acquire_rowsets_ms, acquire_segments_ms,
-                lookup_row_data_ms, seg_map, iterator_map, file_cache_miss_policy, result_block));
-
-        j += k;
-        max_k = std::max(max_k, k);
-        row_ids.clear();
+                id_file_map, scan_batch.file_mapping, row_ids, slots, full_read_schema,
+                row_store_read_struct, stats, acquire_tablet_ms, acquire_rowsets_ms,
+                acquire_segments_ms, lookup_row_data_ms, seg_map, iterator_map,
+                file_cache_miss_policy, scan_blocks[batch_idx]));
     }
+
+    scatter_scan_blocks_to_result_block(row_id_block_idx, scan_blocks, result_block);
 
     return Status::OK();
 }
@@ -1509,11 +1566,9 @@ Status RowIdStorageReader::read_doris_format_row(
                         file_cache_miss_policy;
             }
             set_slot_access_paths(slots[x], full_read_schema, iterator_item.storage_read_options);
-            for (auto row_id : row_ids) {
-                RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
-                        full_read_schema, &slots[x], row_id, column,
-                        iterator_item.storage_read_options, iterator_item.iterator));
-            }
+            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
+                    full_read_schema, &slots[x], row_ids, column,
+                    iterator_item.storage_read_options, iterator_item.iterator));
         }
     }
     return Status::OK();
