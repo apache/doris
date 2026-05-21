@@ -18,7 +18,6 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.common.ErrorCode;
 import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.proto.Data;
@@ -38,7 +37,7 @@ class ConnectProcessorDelegatedCredentialTest {
     }
 
     @Test
-    void testHandleQueryRejectsExpiredDelegatedCredential() throws Exception {
+    void testHandleQueryAllowsExpiredDelegatedCredential() throws Exception {
         ConnectContext context = new ConnectContext();
         context.setThreadLocalInfo();
         context.setSessionContext(SessionContext.of(new DelegatedCredential(DelegatedCredential.Type.ID_TOKEN,
@@ -47,10 +46,8 @@ class ConnectProcessorDelegatedCredentialTest {
 
         processor.handle("select 1");
 
-        Assertions.assertFalse(processor.executed);
-        Assertions.assertEquals(QueryState.MysqlStateType.ERR, context.getState().getStateType());
-        Assertions.assertEquals(ErrorCode.ERR_ACCESS_DENIED_ERROR, context.getState().getErrorCode());
-        Assertions.assertTrue(context.getState().getErrorMessage().contains("expired"));
+        Assertions.assertTrue(processor.executed);
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, context.getState().getStateType());
     }
 
     @Test

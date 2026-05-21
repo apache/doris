@@ -81,6 +81,25 @@ public class IcebergSessionCatalogAdapterTest {
     }
 
     @Test
+    public void testJwtAndSamlUseTokenExchangeCredentialsWhenConfigured() {
+        SessionContext jwtContext = SessionContext.of(new DelegatedCredential(
+                DelegatedCredential.Type.JWT, "jwt-token"));
+        SessionContext samlContext = SessionContext.of(new DelegatedCredential(
+                DelegatedCredential.Type.SAML, "saml-assertion"));
+
+        org.apache.iceberg.catalog.SessionCatalog.SessionContext icebergJwtContext =
+                IcebergSessionCatalogAdapter.toIcebergSessionContext(jwtContext, DelegatedTokenMode.TOKEN_EXCHANGE);
+        org.apache.iceberg.catalog.SessionCatalog.SessionContext icebergSamlContext =
+                IcebergSessionCatalogAdapter.toIcebergSessionContext(samlContext, DelegatedTokenMode.TOKEN_EXCHANGE);
+
+        Assertions.assertEquals("jwt-token", icebergJwtContext.credentials().get(OAuth2Properties.JWT_TOKEN_TYPE));
+        Assertions.assertEquals("saml-assertion",
+                icebergSamlContext.credentials().get(OAuth2Properties.SAML2_TOKEN_TYPE));
+        Assertions.assertEquals(1, icebergJwtContext.credentials().size());
+        Assertions.assertEquals(1, icebergSamlContext.credentials().size());
+    }
+
+    @Test
     public void testDelegatedCatalogUsesIcebergSessionCredentials() {
         RecordingSessionCatalog sessionCatalog = new RecordingSessionCatalog();
         SessionBackedCatalog catalog = new SessionBackedCatalog(sessionCatalog);

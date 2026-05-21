@@ -1243,6 +1243,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         return Optional.of((ViewCatalog) catalog);
     }
 
+    /**
+     * Iceberg REST user-session auth needs both Doris user credential material and an Iceberg SessionCatalog.
+     * The delegated credential provides the user token; the SessionCatalog is the Iceberg API that attaches it
+     * to metadata requests.
+     */
     private boolean useSessionCatalog(SessionContext ctx) {
         return ctx != null && ctx.hasDelegatedCredential() && isIcebergRestUserSessionEnabled();
     }

@@ -217,24 +217,11 @@ public abstract class ConnectProcessor {
         ctx.setWorkloadGroupName(groupName);
     }
 
-    protected boolean rejectExpiredDelegatedCredential(String originStmt) {
-        if (!ctx.getSessionContext().isDelegatedCredentialExpired(System.currentTimeMillis())) {
-            return false;
-        }
-        ctx.getState().setError(ErrorCode.ERR_ACCESS_DENIED_ERROR,
-                "Authentication token has expired; reconnect to refresh credentials");
-        auditAfterExec(originStmt, null, null, true);
-        return true;
-    }
-
     // only throw an exception when there is a problem interacting with the requesting client
     protected void handleQuery(String originStmt) throws ConnectionException {
         // Before executing the query, the queryId should be set to empty.
         // Otherwise, if SQL parsing fails, the audit log will record the queryId from the previous query.
         ctx.resetQueryId();
-        if (rejectExpiredDelegatedCredential(originStmt)) {
-            return;
-        }
         if (Config.isCloudMode()) {
             if (!ctx.getCurrentUserIdentity().isRootUser()
                     && ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getInstanceStatus()
@@ -574,9 +561,6 @@ public abstract class ConnectProcessor {
     @SuppressWarnings("rawtypes")
     protected void handleFieldList(String tableName) throws ConnectionException {
         // Already get command code.
-        if (rejectExpiredDelegatedCredential(tableName)) {
-            return;
-        }
         if (Strings.isNullOrEmpty(tableName)) {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Empty tableName");
             return;

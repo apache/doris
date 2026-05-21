@@ -17,8 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.iceberg.rest.auth.OAuth2Properties;
-
 import java.util.Objects;
 import java.util.OptionalLong;
 
@@ -46,10 +44,6 @@ public class DelegatedCredential {
         return token;
     }
 
-    public String getIcebergCredentialKey() {
-        return type.getIcebergCredentialKey();
-    }
-
     public OptionalLong getExpiresAtMillis() {
         return expiresAtMillis == null ? OptionalLong.empty() : OptionalLong.of(expiresAtMillis);
     }
@@ -68,19 +62,9 @@ public class DelegatedCredential {
     }
 
     public enum Type {
-        ACCESS_TOKEN(OAuth2Properties.TOKEN),
-        ID_TOKEN(OAuth2Properties.ID_TOKEN_TYPE),
-        JWT(OAuth2Properties.JWT_TOKEN_TYPE),
-        SAML(OAuth2Properties.SAML2_TOKEN_TYPE);
-
-        private final String icebergCredentialKey;
-
-        Type(String icebergCredentialKey) {
-            this.icebergCredentialKey = icebergCredentialKey;
-        }
-
-        public String getIcebergCredentialKey() {
-            return icebergCredentialKey;
-        }
+        ACCESS_TOKEN,
+        ID_TOKEN,
+        JWT,
+        SAML
     }
 }

@@ -34,6 +34,13 @@ import java.lang.reflect.Field;
 import java.util.Map;
 import java.util.Optional;
 
+/**
+ * Adapts Doris session-scoped delegated credentials to Iceberg REST {@link BaseSessionCatalog} calls.
+ *
+ * <p>When Doris has a delegated credential in {@link SessionContext}, Iceberg REST user-session mode requires the
+ * request to use a session-bound {@link Catalog} or {@link ViewCatalog}. This adapter keeps the plain catalog path for
+ * requests without delegated credentials and switches to Iceberg's session catalog only for user-session requests.
+ */
 class IcebergSessionCatalogAdapter {
     private static final String SESSION_CATALOG_FIELD = "sessionCatalog";
 
@@ -150,7 +157,8 @@ class IcebergSessionCatalogAdapter {
         if (delegatedTokenMode == DelegatedTokenMode.ACCESS_TOKEN) {
             return ImmutableMap.of(OAuth2Properties.TOKEN, credential.getToken());
         }
-        return ImmutableMap.of(credential.getIcebergCredentialKey(), credential.getToken());
+        return ImmutableMap.of(IcebergDelegatedCredentialUtils.credentialKey(credential.getType()),
+                credential.getToken());
     }
 
     private static boolean hasDelegatedCredential(SessionContext context) {

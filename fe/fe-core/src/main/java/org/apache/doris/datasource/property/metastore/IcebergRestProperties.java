@@ -19,6 +19,7 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.iceberg.IcebergDelegatedCredentialUtils;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.doris.datasource.property.common.IcebergAwsClientCredentialsProperties;
@@ -414,7 +415,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             catalogProperties.remove(OAuth2Properties.TOKEN_REFRESH_ENABLED);
             catalogProperties.put(OAuth2Properties.TOKEN, credential.getToken());
         } else {
-            catalogProperties.put(credential.getIcebergCredentialKey(), credential.getToken());
+            catalogProperties.put(IcebergDelegatedCredentialUtils.credentialKey(credential.getType()),
+                    credential.getToken());
         }
         return Collections.unmodifiableMap(catalogProperties);
     }
