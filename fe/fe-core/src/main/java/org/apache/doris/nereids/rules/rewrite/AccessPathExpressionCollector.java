@@ -114,6 +114,10 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     @Override
     public Void visitSlotReference(SlotReference slotReference, CollectorContext context) {
         DataType dataType = slotReference.getDataType();
+        if (isFunctionNullCheckPath(context.accessPathBuilder.getPathList())
+                && !isPhysicalNullable(slotReference)) {
+            return null;
+        }
         if (dataType instanceof VariantType
                 && (slotReference.hasSubColPath() || !context.accessPathBuilder.isEmpty())) {
             List<String> path = new ArrayList<>();
@@ -387,6 +391,12 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
 
     private static boolean isFunctionNullCheckPath(List<String> suffixPath) {
         return suffixPath.size() == 1 && AccessPathInfo.ACCESS_NULL.equals(suffixPath.get(0));
+    }
+
+    private static boolean isPhysicalNullable(SlotReference slotReference) {
+        return slotReference.getOriginalColumn()
+                .map(column -> column.isAllowNull())
+                .orElse(slotReference.nullable());
     }
 
     @Override
