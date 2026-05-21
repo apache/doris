@@ -26,14 +26,26 @@ class TableSlotRef : public VSlotRef {
     ENABLE_FACTORY_CREATOR(TableSlotRef);
 
 public:
-    TableSlotRef(int slot_id, int column_id, int column_uniq_id, const DataTypePtr& type)
-            : VSlotRef(slot_id, column_id, column_uniq_id) {
+    TableSlotRef(int slot_id, int column_id, int column_uniq_id, const DataTypePtr& type,
+                 const std::string& column_name)
+            : VSlotRef(slot_id, column_id, column_uniq_id), _cname(column_name) {
         _data_type = type;
     }
 
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override {
+        if (_prepared) {
+            return Status::OK();
+        }
+        _prepared = true;
+        _prepare_finished = true;
         return Status::OK();
     }
+
+    const std::string& expr_name() const override { return _cname; }
+    const std::string& column_name() const override { return _cname; }
+
+private:
+    const std::string _cname;
 };
 
 } // namespace doris

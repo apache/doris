@@ -20,7 +20,8 @@
 #include <vector>
 
 #include "common/status.h"
-#include "expr/slot_ref.h"
+#include "format/reader/expr/cast.h"
+#include "format/reader/expr/slot_ref.h"
 #include "format/reader/file_reader.h"
 #include "format/reader/table_reader.h"
 
@@ -43,15 +44,15 @@ Status TableColumnMapper::create_mapping(const std::vector<TableColumn>& project
             mapping.file_type = file_field->type;
             mapping.is_trivial = _is_same_type(mapping.table_type, mapping.file_type);
             if (!mapping.is_trivial) {
-                // TODO:
-                return Status::NotSupported(
-                        "column mapping with type conversion is not supported yet: table column "
-                        "'{}' (id={}, type={}) vs file column (id={}, type={})",
-                        table_column.name, mapping.table_column_id, mapping.table_type->get_name(),
-                        mapping.file_column_id.value(), mapping.file_type->get_name());
+                auto expr = Cast::create_shared(mapping.table_type);
+                expr->add_child(TableSlotRef::create_shared(mapping.file_column_id.value(),
+                                                            mapping.file_column_id.value(), -1,
+                                                            mapping.file_type, file_field->name));
+                mapping.projection = VExprContext::create_shared(expr);
             } else {
                 mapping.projection = VExprContext::create_shared(TableSlotRef::create_shared(
-                        *mapping.file_column_id, block_schema.size(), -1, mapping.table_type));
+                        mapping.file_column_id.value(), mapping.file_column_id.value(), -1,
+                        mapping.file_type, file_field->name));
             }
             block_schema.push_back(SchemaField {
                     mapping.file_column_id.value(), table_column.name, mapping.table_type, {}});
