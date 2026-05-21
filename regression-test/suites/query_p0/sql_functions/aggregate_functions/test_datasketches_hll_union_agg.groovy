@@ -17,6 +17,7 @@
 
 suite("test_datasketches_hll_union_agg") {
     def tableName = "test_datasketches_hll_union_agg_tbl"
+    def varcharTableName = "test_datasketches_hll_union_agg_varchar_tbl"
     def emptyTableName = "test_datasketches_hll_union_agg_empty_tbl"
     def badTableName = "test_datasketches_hll_union_agg_bad_tbl"
 
@@ -46,18 +47,18 @@ suite("test_datasketches_hll_union_agg") {
     """
 
     // 1) Basic union: {0..6} U {20..29} => 17 distinct values
-    qt_basic_union """SELECT datasketches_hll_union_agg(sk) FROM ${tableName}"""
+    qt_basic_union """SELECT CAST(ROUND(datasketches_hll_union_agg(sk)) AS BIGINT) FROM ${tableName}"""
 
     // 2) Aliases should behave identically (print all 3 results in one row)
     qt_aliases """SELECT
-            datasketches_hll_union_agg(sk),
-            ds_hll_union_count(sk),
-            ds_cardinality(sk)
+            CAST(ROUND(datasketches_hll_union_agg(sk)) AS BIGINT),
+            CAST(ROUND(ds_hll_union_count(sk)) AS BIGINT),
+            CAST(ROUND(ds_cardinality(sk)) AS BIGINT)
         FROM ${tableName}
     """
 
     // 3) Group-by
-    qt_group_by """SELECT id, datasketches_hll_union_agg(sk)
+    qt_group_by """SELECT id, CAST(ROUND(datasketches_hll_union_agg(sk)) AS BIGINT)
         FROM ${tableName}
         WHERE id IN (1, 2)
         GROUP BY id
@@ -67,9 +68,57 @@ suite("test_datasketches_hll_union_agg") {
     // 4) DISTINCT should not change result in this data set
     sql "INSERT INTO ${tableName} VALUES (5, from_base64('${sk1Base64}'))"
     qt_distinct """SELECT
-            datasketches_hll_union_agg(sk),
-            datasketches_hll_union_agg(DISTINCT sk)
+            CAST(ROUND(datasketches_hll_union_agg(sk)) AS BIGINT),
+            CAST(ROUND(datasketches_hll_union_agg(DISTINCT sk)) AS BIGINT)
         FROM ${tableName}
+    """
+
+    // 4.1) Input type coverage: VARCHAR
+    sql "DROP TABLE IF EXISTS ${varcharTableName}"
+    sql """
+        CREATE TABLE ${varcharTableName} (
+            id INT,
+            sk VARCHAR(256)
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        )
+    """
+
+    sql """
+        INSERT INTO ${varcharTableName} VALUES
+            (1, from_base64('${sk1Base64}')),
+            (2, from_base64('${sk2Base64}')),
+            (3, NULL)
+    """
+
+    qt_basic_union_varchar """SELECT CAST(ROUND(datasketches_hll_union_agg(sk)) AS BIGINT) FROM ${varcharTableName}"""
+
+    qt_aliases_varchar """SELECT
+            CAST(ROUND(datasketches_hll_union_agg(sk)) AS BIGINT),
+            CAST(ROUND(ds_hll_union_count(sk)) AS BIGINT),
+            CAST(ROUND(ds_cardinality(sk)) AS BIGINT)
+        FROM ${varcharTableName}
+    """
+
+    // 4.2) Input type coverage: VARBINARY (no table column; VARBINARY is not supported for table storage)
+    qt_basic_union_varbinary """SELECT CAST(ROUND(datasketches_hll_union_agg(sk)) AS BIGINT) FROM (
+            SELECT from_base64_binary('${sk1Base64}') AS sk
+            UNION ALL SELECT from_base64_binary('${sk2Base64}')
+            UNION ALL SELECT NULL
+        ) t
+    """
+
+    qt_aliases_varbinary """SELECT
+            CAST(ROUND(datasketches_hll_union_agg(sk)) AS BIGINT),
+            CAST(ROUND(ds_hll_union_count(sk)) AS BIGINT),
+            CAST(ROUND(ds_cardinality(sk)) AS BIGINT)
+        FROM (
+            SELECT from_base64_binary('${sk1Base64}') AS sk
+            UNION ALL SELECT from_base64_binary('${sk2Base64}')
+            UNION ALL SELECT NULL
+        ) t
     """
 
     // 5) Empty input should return 0
@@ -84,7 +133,7 @@ suite("test_datasketches_hll_union_agg") {
             "replication_num" = "1"
         )
     """
-    qt_empty_input """SELECT datasketches_hll_union_agg(sk) FROM ${emptyTableName}"""
+    qt_empty_input """SELECT CAST(ROUND(datasketches_hll_union_agg(sk)) AS BIGINT) FROM ${emptyTableName}"""
 
     // 6) Illegal input should throw (base64 is valid but bytes are not a datasketches HLL sketch)
     test {
@@ -120,6 +169,7 @@ suite("test_datasketches_hll_union_agg") {
     }
 
     sql "DROP TABLE IF EXISTS ${tableName}"
+    sql "DROP TABLE IF EXISTS ${varcharTableName}"
     sql "DROP TABLE IF EXISTS ${emptyTableName}"
     sql "DROP TABLE IF EXISTS ${badTableName}"
 }

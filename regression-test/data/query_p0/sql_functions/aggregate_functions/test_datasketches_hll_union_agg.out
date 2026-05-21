@@ -3,14 +3,26 @@
 17
 
 -- !aliases --
-17	17	17
+17      17      17
 
 -- !group_by --
-1	7
-2	10
+1       7
+2       10
 
 -- !distinct --
-17	17
+17      17
+
+-- !basic_union_varchar --
+17
+
+-- !aliases_varchar --
+17      17      17
+
+-- !basic_union_varbinary --
+17
+
+-- !aliases_varbinary --
+17      17      17
 
 -- !empty_input --
 0

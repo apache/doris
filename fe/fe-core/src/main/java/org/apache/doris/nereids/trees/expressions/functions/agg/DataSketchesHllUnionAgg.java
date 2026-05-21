@@ -30,6 +30,8 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarBinaryType;
+import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -40,7 +42,9 @@ import java.util.List;
 public class DataSketchesHllUnionAgg extends NotNullableAggregateFunction
         implements UnaryExpression, ExplicitlyCastableSignature, FunctionTrait, RollUpTrait {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DoubleType.INSTANCE).args(StringType.INSTANCE)
+            FunctionSignature.ret(DoubleType.INSTANCE).args(StringType.INSTANCE),
+            FunctionSignature.ret(DoubleType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(DoubleType.INSTANCE).args(VarBinaryType.INSTANCE)
     );
 
     /**
